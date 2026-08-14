@@ -269,7 +269,7 @@ From [Judging LLM-as-a-Judge](https://arxiv.org/abs/2306.05685):
 - **Self-enhancement bias is +10 points for GPT-4 and +25 for Claude.** So the
   judge must not be the model under test. Alfred's boss runs on Sonnet or Opus,
   so a boss-conduct judge needs a deliberately different model. The existing
-  [`llm-judge.ts`](../../packages/api/evals/lib/llm-judge.ts) already applies
+  [`llm-judge.ts`](../../packages/assistant/evals/lib/llm-judge.ts) already applies
   this reasoning for the cheap classifier.
 - **Position bias does not apply.** GPT-4 flips on answer order about 35% of the
   time, but that is a *pairwise comparison* artifact. Behavior grading is

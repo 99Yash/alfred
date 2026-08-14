@@ -41,11 +41,11 @@
           },
           {
             "group": ["@alfred/integrations/google/internal"],
-            "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+            "message": "The raw Gmail watch primitive is restricted to its one allowlisted friend file (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
           },
           {
             "group": ["@alfred/assistant/connections/ingestion/internal"],
-            "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+            "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/assistant/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
           },
           {
             "group": ["@alfred/assistant/tool-runtime/internal/registry"],
@@ -115,7 +115,7 @@
             "patterns": [
               {
                 "group": ["@alfred/integrations/google/internal"],
-                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+                "message": "The raw Gmail watch primitive is restricted to its one allowlisted friend file (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
               },
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
@@ -134,15 +134,16 @@
       }
     },
     {
-      "files": [
-        "packages/assistant/src/connections/ingestion/gmail-ingest.ts",
-        "packages/api/test/integrations/gmail-watch-gate.test.ts"
-      ],
+      "files": ["packages/assistant/src/connections/ingestion/gmail-ingest.ts"],
       "rules": {
-        // Deliberate omission: the @alfred/integrations/google/internal group is absent on purpose — these
-        // two files ARE that door's allowlist. Every other root group must be restated here, because an
-        // override REPLACES the rule's options wholesale.
-        // oxlint-omission: @alfred/integrations/google/internal — these two files ARE this door's allowlist.
+        // Deliberate omission: the @alfred/integrations/google/internal group is absent on purpose — this
+        // file IS that door's allowlist. Every other root group must be restated here, because an override
+        // REPLACES the rule's options wholesale. The characterization test that used to share this entry
+        // moved into packages/integrations/test/ and now imports ../src/google/internal by relative path;
+        // no-restricted-imports keys on the SPECIFIER, so a file inside the package it fences needs no
+        // exemption. Every group below is byte-identical to the one it restates, so nothing was dropped
+        // for the remaining file when the array shrank.
+        // oxlint-omission: @alfred/integrations/google/internal — this file IS this door's allowlist.
         "no-restricted-imports": [
           "error",
           {
@@ -153,7 +154,7 @@
               },
               {
                 "group": ["@alfred/assistant/connections/ingestion/internal"],
-                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/assistant/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
               },
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
@@ -178,11 +179,11 @@
       // deliberate omission is the google door and this test has no use for a raw installGmailWatch
       // exemption. No file matches two entries: an override REPLACES the rule's options wholesale and the
       // last match wins, so an overlap would silently drop one entry's list.
-      "files": ["packages/api/test/gmail-ingest.test.ts"],
+      "files": ["packages/assistant/test/gmail-ingest.test.ts"],
       "rules": {
         // Deliberate omission: the @alfred/assistant/connections/ingestion/internal group is absent on
         // purpose — this file IS that door's allowlist. Every other root group must be restated here.
-        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — packages/api/test/gmail-ingest.test.ts IS this door's second allowlist.
+        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — packages/assistant/test/gmail-ingest.test.ts IS this door's second allowlist.
         "no-restricted-imports": [
           "error",
           {
@@ -193,7 +194,7 @@
               },
               {
                 "group": ["@alfred/integrations/google/internal"],
-                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+                "message": "The raw Gmail watch primitive is restricted to its one allowlisted friend file (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
               },
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
@@ -224,11 +225,11 @@
               },
               {
                 "group": ["@alfred/integrations/google/internal"],
-                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+                "message": "The raw Gmail watch primitive is restricted to its one allowlisted friend file (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
               },
               {
                 "group": ["@alfred/assistant/connections/ingestion/internal"],
-                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/assistant/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
               },
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
