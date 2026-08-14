@@ -29,9 +29,10 @@ import { applyServerEnvFixtures } from "./support/server-env";
  * migrated database, and this arm is about Redis.
  */
 
-// Read the guard BEFORE the fixtures. `applyServerEnvFixtures` supplies default
-// DATABASE_URL and REDIS_URL values, so the opposite order would satisfy the
-// guard on a machine that runs neither service and fail instead of skipping.
+// The plain form of `applyServerEnvFixtures` plants no service URL, so the guard
+// below reads the true ambient environment and still skips on a machine that
+// runs neither service. Read the guard first anyway: the order is what a reader
+// checks, and the fixtures must stay in front of the import either way.
 const skip = dbBackedSkip("database+redis");
 
 applyServerEnvFixtures();

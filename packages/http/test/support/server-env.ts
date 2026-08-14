@@ -3,23 +3,31 @@
  *
  * `serverEnv()` is all-or-nothing and MEMOIZES on its first call, so a suite
  * that reaches a route must supply every variable it parses — not just the two
- * service URLs it actually dials. The values below restate the `env:` block of
- * the `http-tests` CI job so `pnpm --filter @alfred/http test` in a shell with
- * no env file gets the same run the job gets. Nothing here reaches an external
- * provider; the dummies exist only to make the parse succeed.
+ * service URLs it actually dials.
  *
- * Every key is assigned with `??=`, so a CI job's real `DATABASE_URL` and
- * `REDIS_URL` win over the local defaults.
+ * THE KEY SET, stated exactly, because a near-miss here is what the last review
+ * caught: it is every key of the `http-tests` CI job's `env:` block MINUS the
+ * two service URLs, PLUS `CORS_ORIGIN` and `NODE_ENV`, which that block leaves
+ * to their defaults. THE VALUES ARE LOCAL DUMMIES, not the job's values; they
+ * exist only to make the parse succeed and none of them reaches an external
+ * provider.
+ *
+ * NO SERVICE URL LIVES IN THE CONSTANT, and that is the whole shape of this
+ * module. `DATABASE_URL` and `REDIS_URL` are the two variables `dbBackedSkip`
+ * reads for PRESENCE, so a fixture that planted them would give every guarded
+ * suite a guard that can never skip, and would void the property
+ * `.github/workflows/ci.yml` claims for its `env:` block — shrink the block and
+ * the run reddens. A caller that wants them asks for them
+ * ({@link applyServerEnvFixtures}), the same way
+ * `packages/db/test/support/server-env.ts` makes its `redisUrl` a required
+ * argument. A guarded suite calls the plain form and cannot receive a URL it did
+ * not ask for.
  *
  * CALL THIS BEFORE `await import("@alfred/http")`, and before any other
  * environment-sensitive module — see
- * `.lessons/import-environment-sensitive-modules-after-test-fixtures.md`. A file
- * that also guards on a service variable must read the guard FIRST: these
- * defaults would otherwise satisfy `dbBackedSkip` on a machine with no Redis.
+ * `.lessons/import-environment-sensitive-modules-after-test-fixtures.md`.
  */
 const SERVER_ENV_FIXTURES: Readonly<Record<string, string>> = {
-  DATABASE_URL: "postgresql://localhost:5432/alfred_test",
-  REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
@@ -42,9 +50,25 @@ const SERVER_ENV_FIXTURES: Readonly<Record<string, string>> = {
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
 };
 
-/** Fill in every variable `serverEnv()` parses, without overriding an ambient one. */
-export function applyServerEnvFixtures(): void {
+/**
+ * Fill in every variable `serverEnv()` parses EXCEPT the two service URLs,
+ * without overriding an ambient one.
+ *
+ * Pass `serviceUrls` only from a suite that has NO service guard — it dials
+ * whatever those URLs name, or a mock standing in for it. A guarded suite omits
+ * the argument, so its `dbBackedSkip` reading still sees the true ambient
+ * environment and can still skip.
+ */
+export function applyServerEnvFixtures(serviceUrls?: {
+  databaseUrl: string;
+  redisUrl: string;
+}): void {
   for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
     process.env[key] ??= value; // drift-ok: seeds the fixture environment, does not gate a suite
   }
+  if (!serviceUrls) return;
+  // `??=` here too, so a CI job's real services keep winning over the caller's
+  // local defaults.
+  process.env["DATABASE_URL"] ??= serviceUrls.databaseUrl; // drift-ok: opt-in fixture value, does not gate a suite
+  process.env["REDIS_URL"] ??= serviceUrls.redisUrl; // drift-ok: opt-in fixture value, does not gate a suite
 }

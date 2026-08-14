@@ -5,10 +5,14 @@ import { db } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import IORedis from "ioredis";
 import { ambientRouteSurfaceCase, routeSurfaceFor } from "./support/route-surface";
-
 import { applyServerEnvFixtures } from "./support/server-env";
 
-applyServerEnvFixtures();
+// This suite has NO service guard — it mocks `db` and `auth` and never dials
+// either service — so it opts into local service URLs to make the parse succeed.
+applyServerEnvFixtures({
+  databaseUrl: "postgresql://localhost:5432/alfred_test",
+  redisUrl: "redis://localhost:6379",
+});
 
 const { app } = await import("@alfred/http");
 
