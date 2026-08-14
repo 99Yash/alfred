@@ -129,7 +129,7 @@ Allowed in `apps/web`: <!-- browser-safe-packages:start -->
 
 Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 
-- Any non-type import of `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
+- Any non-type import of `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
 - Any non-type import of `@alfred/ai` (contains server-only AI SDK providers).
 
 <!-- forbidden-runtime-packages:end -->
@@ -233,8 +233,8 @@ The local verification levels are:
 
 - `pnpm verify:fast`: architecture, boundaries, static checks, format, and types.
 - `pnpm verify`: `verify:fast` plus deterministic package tests.
-- `pnpm verify:db`: migrations plus the `@alfred/api`, `@alfred/corpus`, `@alfred/db`
-  and `@alfred/integrations` tests with Postgres and Redis available.
+- `pnpm verify:db`: migrations plus the `@alfred/corpus`, `@alfred/db` and
+  `@alfred/integrations` tests with Postgres and Redis available.
 
 All three commands do not change repository files. `pnpm format` is the
 explicit formatting command that writes files.

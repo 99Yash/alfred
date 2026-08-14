@@ -5,10 +5,12 @@
 // `packages/api/test/**` entered its package's `tsconfig.test.json` program
 // carrying 215 diagnostics across 57 files. Repairing them is several PRs of
 // behaviour-adjacent editing, so the tree was widened and those 57 files were
-// named in an `exclude`. That buys the other 179 a real type check today — and
-// it buys a new hazard, because an allowlist with no staleness rule is silently
+// named in an `exclude`. That bought the other 179 a real type check — and it
+// bought a new hazard, because an allowlist with no staleness rule is silently
 // pre-disarmable: an entry survives after its file is repaired, renamed or
-// deleted, and nothing says so.
+// deleted, and nothing says so. (`packages/api` is deleted; its suites and the
+// remains of that baseline moved into the packages they cover, where the same
+// shape and the same hazard apply.)
 //
 // So the list is derived rather than maintained. This module drops the `exclude`,
 // asks `tsc` which files are actually dirty, and asserts set-equality with what

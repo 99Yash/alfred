@@ -49,7 +49,7 @@ export default defineConfig({
   // the second path to @alfred/http: this app is now the only package in the
   // bundle that declares it. @alfred/db is still reached through eight paths and
   // @alfred/auth through two — each set points at one directory under packages/.
-  // (@alfred/assistant reaches neither @alfred/api nor @alfred/http;
+  // (@alfred/assistant does not reach @alfred/http;
   // scripts/check-module-architecture.mjs fails the build on that import.)
   // With `symlinks: true` the resolver collapses every path onto the
   // real one, so each source file becomes one module in the output. With

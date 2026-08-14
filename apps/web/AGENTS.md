@@ -7,7 +7,7 @@
   - `@alfred/sync` — Replicache keys, mutators, and synced read-model schemas.
   <!-- browser-safe-packages:end -->
 - Browser runtime code must not import runtime values from: <!-- forbidden-runtime-packages:start -->
-  - `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`, or `@alfred/ai`.
+  - `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`, or `@alfred/ai`.
   <!-- forbidden-runtime-packages:end -->
 - A type-only import from a server package is acceptable only when it is declared with `import type` and erased from the bundle. Do not rely on a type annotation to make a value import safe.
 - Run `pnpm check:web-boundaries` after changing imports near `apps/web`.

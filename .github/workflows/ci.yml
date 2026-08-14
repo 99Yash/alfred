@@ -46,110 +46,6 @@ jobs:
       - name: Verify architecture, boundaries, style, and types
         run: corepack pnpm verify:fast
 
-  # ONE api job, not two. `api-unit-tests` and `api-db-tests` used to run the
-  # identical command (`--filter @alfred/api test`) and differed only in whether
-  # a Postgres service and `DATABASE_URL` were present. That ran all 201 test
-  # files twice and gave every timing-sensitive test two chances to flake per CI.
-  # The DB-backed files self-skip on `DATABASE_URL`, so the DB-less half proved
-  # only that those skip guards work — and a glob split instead of a merge would
-  # rot silently, because a new DB-backed file omitted from the list would skip
-  # in one job and never run in the other.
-  #
-  # DO NOT guard this job by reading the skip count. `node:test` prints
-  # `# skipped 0` for a SUITE-level skip — `describe("…", { skip: SKIP }, …)` —
-  # because the subtests inside a skipped `describe` are never registered, so
-  # they land in neither `# tests` nor `# skipped`. Roughly 50 DB-backed suites
-  # in this tree use that shape, so a run that reached no database is
-  # indistinguishable by any count from a run that reached Postgres.
-  #
-  # What guards it instead: those suites call `dbBackedSkip()` from
-  # `packages/api/test/support/db-backed.ts`. It skips on a developer machine
-  # that has no Postgres, and THROWS when `CI` is set and a required variable is
-  # absent. The throw fires at module scope, `node:test` reports the file as a
-  # failing test, and this job exits non-zero. So if you delete or shrink the
-  # `services:` or `env:` blocks below, the `API tests` step reddens and names
-  # the absent variable. A NEW DB-backed suite here must call `dbBackedSkip()`
-  # too — the helper is a convention, not a structural check.
-  api-tests:
-    name: api-tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: alfred_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ci -d alfred_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
-      # Format-valid dummies required by serverEnv(). The suite uses the local
-      # Postgres/Redis services and does not call external providers.
-      REDIS_URL: redis://localhost:6379
-      BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
-      # #453: serverEnv() requires a credential KEK decoding to 32 bytes. This
-      # one seals nothing real — CI writes no provider tokens.
-      OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
-      BETTER_AUTH_URL: http://localhost:3001
-      ALFRED_ALLOWED_EMAIL: ci@example.com
-      RESEND_API_KEY: re_ci_dummy
-      RESEND_FROM_EMAIL: Alfred <noreply@example.com>
-      ANTHROPIC_API_KEY: ci-dummy
-      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
-      GOOGLE_OAUTH_CLIENT_ID: ci-dummy
-      GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
-      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
-      GITHUB_APP_ID: "1"
-      GITHUB_APP_SLUG: ci-dummy
-      GITHUB_APP_CLIENT_ID: ci-dummy
-      GITHUB_APP_CLIENT_SECRET: ci-dummy
-      GITHUB_APP_PRIVATE_KEY: ci-dummy
-      GITHUB_WEBHOOK_SECRET: ci-dummy
-      GITHUB_APP_REDIRECT_URI: http://localhost:3001/api/integrations/github/callback
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Resolve pnpm store path
-        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.PNPM_STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: corepack pnpm install --frozen-lockfile
-
-      - name: Apply database migrations
-        run: corepack pnpm --filter @alfred/db db:migrate
-
-      - name: API tests
-        run: corepack pnpm --filter @alfred/api test
-
   # TWO http jobs, and they prove different claims. `http-tests` runs the whole
   # `packages/http/test` glob against real Postgres and Redis, because a file in
   # that tree may guard itself with a `{ skip: … }` option and a skipped test
@@ -300,7 +196,7 @@ jobs:
   # with two suites that moved out of `packages/api/test/`:
   # `test/contracts/user-model-rails.test.ts` and
   # `test/chat/thread-turn-concurrency.test.ts` write real rows, so this job
-  # runs a Postgres service and `db:migrate` exactly like `api-tests`. Do not
+  # runs a Postgres service and `db:migrate` exactly like `http-tests`. Do not
   # read the `DATABASE_URL` in the `env:` block as a dummy any more: it points at
   # the service above and the schema is migrated before the suite starts. Both
   # suites guard themselves with `dbBackedSkip()` from
@@ -605,9 +501,11 @@ jobs:
 
   # Postgres AND Redis, both as services, plus the full format-valid `serverEnv`
   # block and `db:migrate` — the `http-tests` template. Every DB-backed suite here
-  # asks `dbBackedSkip` for `"database"` only, but these files ran under
-  # `api-tests` until this change, and `api-tests` gives them a live Redis. The
+  # asks `dbBackedSkip` for `"database"` only, but these files ran under the
+  # `api-tests` job until this change, and that job gave them a live Redis. The
   # service stays so that no suite's environment gets WEAKER by moving.
+  # (`api-tests` and `packages/api` are both deleted now; campaign item 12
+  # removed the job when the last suite left the package.)
   #
   # `dbBackedSkip` throws at module scope when `CI` is set and a required variable
   # is absent, so a broken `env:` block here reddens the job instead of skipping
@@ -713,9 +611,9 @@ jobs:
   # @alfred/assistant holds product modules moved out of @alfred/api during
   # Phase 6B. Some are DB-backed (e.g. `delivery` owns notification idempotency
   # over `email_sends`), so this job runs Postgres + Redis + a format-valid
-  # serverEnv, exactly like `api-tests`. The check name stays `assistant-unit-tests`
+  # serverEnv, exactly like `http-tests`. The check name stays `assistant-unit-tests`
   # (branch-protection stability); the `test` glob runs both pure and DB-backed
-  # suites, picking up the DB from the job-level env just as `api-tests` does.
+  # suites, picking up the DB from the job-level env just as `http-tests` does.
   # `timeout-minutes` is 20 rather than 10 because campaign item 187 moved 114
   # runnable suites here from `api-tests` (100 -> 214), so the job takes about
   # twice as long as before. A timeout is the one way this job reports red for a
