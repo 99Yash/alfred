@@ -17,6 +17,15 @@
  *
  * The import is dynamic and this file loads nothing else, so the barrel evaluates under
  * exactly the environment the driver handed this process.
+ *
+ * THIS IS A DELIBERATE COPY of `packages/assistant/test/support/import-probe.ts`, which is
+ * the same child program for a different measurement — that one reports timers and handles,
+ * this one reports the route surface. Each test project sets `rootDir: "."`, so a relative
+ * reach into another package's test tree is a TS6059 error by design, and `.jscpd.json`
+ * ignores `**\/test/**`, so no duplication gate reports the copy either. `./db-backed.ts`
+ * sets this package's convention for exactly this case: name the copy, name the constraint,
+ * and say the copy is deliberate rather than an oversight. Change one copy and read the
+ * other.
  */
 
 // This program has no static import and no export of its own, so a parser cannot tell a
