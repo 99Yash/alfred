@@ -85,7 +85,7 @@ CodeRabbit / Copilot review / Dependabot / Renovate / GitHub Actions are deliber
 | Google Calendar | `From: calendar-notification@google.com`| Parse iCal `ORGANIZER` field or "organizer:" line in body                                   |
 | Linear          | `From: notifications@linear.app`         | Parse "Comment from {actor}" / "{actor} commented" line                                     |
 
-Each parser is ~30 LOC, tested with fixture emails in `packages/api/test/triage/sender-context.test.ts`. Long-tail sources (Notion, Slack, Vercel deploy notifications, Jira) fall through to `effectiveAuthor: 'unknown'` — the escalation gate's `confidence < 0.7` clause is the safety net.
+Each parser is ~30 LOC, tested with fixture emails in `packages/assistant/test/triage/sender-context.test.ts`. Long-tail sources (Notion, Slack, Vercel deploy notifications, Jira) fall through to `effectiveAuthor: 'unknown'` — the escalation gate's `confidence < 0.7` clause is the safety net.
 
 **Classifier system-prompt evolution.** Rule #9 today (*"Automated alerts that demand a remediation step → 'urgent' if same-day else 'action_needed'. NOT 'fyi'."*) splits into:
 

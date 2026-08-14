@@ -15,8 +15,9 @@ import * as agentBarrel from "@alfred/assistant/execution";
  * The module barrel `@alfred/assistant/execution` is now the ONLY public seam
  * that carries these names. Item 149 deleted the second seam this file used to
  * check, the `@alfred/api/backend` facade, together with the whole package
- * subpath; `packages/api/test/no-transitional-doors.test.ts` proves that seam is
- * unreachable rather than merely narrow.
+ * subpath. A separate suite in `packages/api` proves that seam is unreachable
+ * rather than merely narrow; campaign item 12 deletes that package, so this file
+ * names no locator for it.
  *
  * This is the machine form of the item's deletion-test grep: it fails if any
  * later change re-exports the removed pair through the barrel. The primitives

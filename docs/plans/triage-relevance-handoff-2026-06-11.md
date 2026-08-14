@@ -23,7 +23,7 @@ Key files:
 - `packages/api/src/modules/triage/classify.ts` — `SYSTEM_PROMPT` (rules incl. 12e),
   `sanitizeTodoName`, `resolveTodoSuggestion`, `detectConflict`, `applyOverrideFloor`,
   `todoSuppressionReason`.
-- `packages/api/test/triage/classify.test.ts` — pure-fn tests (`tsx --test`).
+- `packages/assistant/test/triage/classify.test.ts` — pure-fn tests (`tsx --test`).
 - `apps/server/src/scripts/backfills/backfill-triage-committed.ts` — committed backfill.
 - `apps/server/src/scripts/smokes/smoke-triage-clickup.ts` — live flash-lite validation for 12e.
 - Reference: `docs/reference/triage.md`; memory `reference_prod_db_access`.

@@ -22,8 +22,9 @@ import type { Workflow, WorkflowInput } from "@alfred/assistant/execution/types"
  * `apps/server/src/builtins/workflows/` into the module that owns each domain.
  * Each recipe is published by that module's own `@alfred/assistant` subpath,
  * which is the seam the composition root registers from. (The
- * `@alfred/api/backend` door that once forwarded them is deleted; see
- * `packages/api/test/no-transitional-doors.test.ts`.) The move is
+ * `@alfred/api/backend` door that once forwarded them is deleted; a separate
+ * suite in `packages/api` proves it, and campaign item 12 deletes that package,
+ * so this file names no locator for it.) The move is
  * behavior-neutral: the recipe identity — its
  * slug, its ordered step ids, its entry step, its `trigger` declaration, and its
  * `dedupKey` derivation — must stay byte-identical, or a persisted nonterminal
