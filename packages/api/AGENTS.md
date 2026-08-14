@@ -10,14 +10,14 @@ Nothing new belongs here. The package is a residue that campaign item 12 deletes
 holds three things:
 
 - `src/scripts/backfill-chat-usage.ts` — one operational backfill script, run in place.
-- `test/` — 43 tracked files: 41 suites that cover non-assistant behavior, plus
-  `test/workflows/revisions.test.ts`, the last assistant-owned suite here, plus the shared
-  helper `test/support/db-backed.ts`, which is not a suite. `revisions.test.ts` stays because
-  it imports `ENTITY_FETCHERS` from `@alfred/http`, and `@alfred/http` depends on
-  `@alfred/assistant`, so the file cannot go to `packages/assistant` without a cycle. Campaign
-  item 206 moves it to `packages/http/test/`. Campaign item 187 moved the other 116
-  assistant-owned FILES to `packages/assistant/test/`: 114 runnable suites plus 2 compile-only
-  `*.type-test.ts` fixtures that no test runner globs.
+- `test/` — 3 tracked files: 2 suites that cover non-assistant behavior
+  (`no-transitional-doors.test.ts` and `db-backed-guard.test.ts`), plus the shared helper
+  `test/support/db-backed.ts`, which is not a suite. No assistant-owned suite is left here.
+  Campaign item 187 moved 116 assistant-owned FILES to `packages/assistant/test/`: 114
+  runnable suites plus 2 compile-only `*.type-test.ts` fixtures that no test runner globs.
+  Campaign item 206 then moved the last one, `test/workflows/revisions.test.ts`, to
+  `packages/http/test/workflows/`, because it reads `ENTITY_FETCHERS` and `@alfred/http`
+  depends on `@alfred/assistant` rather than the reverse.
 - `evals/` — the Evalite suites and their shared helpers and config.
 
 ## Where the code went

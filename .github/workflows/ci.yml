@@ -158,7 +158,7 @@ jobs:
   # DO NOT guard this job by reading the skip count. `node:test` prints
   # `# skipped 0` for a SUITE-level skip — `describe("…", { skip: SKIP }, …)` —
   # because the subtests inside a skipped `describe` are never registered, so
-  # they land in neither `# tests` nor `# skipped`. All three DB-backed suites
+  # they land in neither `# tests` nor `# skipped`. All four DB-backed suites
   # in this tree use that shape, so a run that reached no database is
   # indistinguishable by any count from a run that reached Postgres.
   #

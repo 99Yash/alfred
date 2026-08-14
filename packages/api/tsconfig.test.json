@@ -13,15 +13,6 @@
   // `rootDir: "."` is also the fence: a test that reaches into another package
   // by a relative path (`../../../assistant/src/...`) is TS6059/TS6307 here and
   // is caught by nothing else in the repo.
-  //
-  // `exclude` is a BASELINE, not a policy. Every path below is a file that
-  // carried at least one diagnostic when this tree first entered the program,
-  // and each is a debt to be repaid rather than a file that is allowed to be
-  // unchecked. `pnpm check:test-typecheck-baseline` derives this list from `tsc`
-  // and fails when it drifts in either direction: an entry whose file is now
-  // clean or absent must be deleted, and a file that is dirty and unlisted must
-  // be repaired. Paths are literal on purpose — a directory glob such as
-  // `"test/dispatch"` would silently un-check every file added tomorrow.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
@@ -31,6 +22,5 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "test"],
-  "exclude": ["test/workflows/revisions.test.ts"]
+  "include": ["src", "test"]
 }
