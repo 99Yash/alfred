@@ -12,7 +12,7 @@
  * friend door.
  *
  * This file is that surface: an EXPLICIT, curated, named re-export of exactly the
- * raw primitive its two legitimate friends need. It is `export { … }`, never
+ * raw primitive its legitimate friends need. It is `export { … }`, never
  * `export *`, so nothing else in `watch.ts` leaks through here — a future friend
  * symbol needs its own line added below. Honors ADR-0089 ("one supported
  * interface per module"): the general public door is the seeding wrapper; this is
@@ -20,8 +20,10 @@
  *
  * The "friend only" restriction is gate-enforced: an oxlint
  * `no-restricted-imports` rule in `.oxlintrc.json` forbids importing this subpath
- * from anywhere outside the two allowlisted friend files (the seeding wrapper and
- * its characterization test), so a route or worker reaching for the raw primitive
- * here is a red `pnpm lint`, not a silent bypass.
+ * from anywhere outside the one allowlisted friend file (the seeding wrapper), so
+ * a route or worker reaching for the raw primitive here is a red `pnpm lint`, not
+ * a silent bypass. The characterization test needs no exemption: it lives in this
+ * package's own `test/` tree and imports `./internal` by relative path, and the
+ * rule keys on the specifier.
  */
 export { installGmailWatch } from "./watch";
