@@ -10,7 +10,7 @@
 //
 // This file is that guarantee's machine detector. It is compile-only: the
 // node:test glob is `test/**/*.test.ts`, so a `.type-test.ts` never runs; it is
-// type-checked solely by `packages/api/tsconfig.test.json` (wired into
+// type-checked solely by `packages/assistant/tsconfig.test.json` (wired into
 // `check-types`). If a future widening makes a wrong payload compile, the
 // `@ts-expect-error` directives below become unused and `tsc` fails with TS2578
 // — the regression turns the build red.

@@ -51,21 +51,12 @@
       "entry": ["src/scripts/**/*.ts"]
     },
     "packages/api": {
-      "entry": [
-        "src/scripts/**/*.ts",
-        "evals/**/*.ts",
-        "evalite.config.ts",
-        "test/**/*.test.ts"
-      ],
+      "entry": ["src/scripts/**/*.ts", "test/**/*.test.ts"],
       // Dormant by decision, not dead: ADR-0051 removed the boss `deepen` escalation
       // from triage v3, but the file stays for the historical decision trail and
       // `shouldDeepen` is still covered by test/triage/deepen.test.ts. See the NOTE in
       // src/modules/triage/index.ts and docs/reference/triage.md.
-      "ignore": ["src/modules/triage/deepen.ts"],
-      // evalite imports "vitest", "vitest/config" and "vitest/node" at runtime but
-      // declares vitest as neither a dependency nor a peer. This devDependency is the
-      // only thing satisfying it — dropping it breaks `pnpm --filter @alfred/api eval`.
-      "ignoreDependencies": ["vitest"]
+      "ignore": ["src/modules/triage/deepen.ts"]
     },
     "packages/assistant": {
       "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts", "test/**/*.test.ts"],

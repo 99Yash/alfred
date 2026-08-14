@@ -16,7 +16,7 @@ import { llmJudgeScorer } from "./lib/llm-judge";
 // verifies that concise prose is still useful and natural.
 //
 // Run locally with apps/server/.env populated:
-// `pnpm --filter @alfred/api eval`.
+// `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 

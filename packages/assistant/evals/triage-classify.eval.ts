@@ -45,7 +45,7 @@ import { llmJudgeScorer } from "./lib/llm-judge";
  * ./README.md.
  *
  * Run locally with GOOGLE_GENERATIVE_AI_API_KEY (classifier) + ANTHROPIC_API_KEY
- * (judge) in env: `pnpm --filter @alfred/api eval`.
+ * (judge) in env: `pnpm --filter @alfred/assistant eval`.
  */
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });

@@ -6,9 +6,7 @@
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
     "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json",
     "test": "tsx --test --test-force-exit \"test/**/*.test.ts\"",
-    "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\"",
-    "eval": "evalite run",
-    "eval:watch": "evalite watch"
+    "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@alfred/ai": "workspace:*",
@@ -43,10 +41,7 @@
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "ai": "catalog:",
-    "dotenv": "catalog:",
-    "evalite": "1.0.0-beta.16",
-    "tsx": "^4.21.0",
-    "vitest": "^4.0.16"
+    "tsx": "^4.21.0"
   },
   "peerDependencies": {
     "typescript": "catalog:"
