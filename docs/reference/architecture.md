@@ -233,7 +233,8 @@ The local verification levels are:
 
 - `pnpm verify:fast`: architecture, boundaries, static checks, format, and types.
 - `pnpm verify`: `verify:fast` plus deterministic package tests.
-- `pnpm verify:db`: migrations plus API tests with Postgres and Redis available.
+- `pnpm verify:db`: migrations plus the `@alfred/api`, `@alfred/corpus`, `@alfred/db`
+  and `@alfred/integrations` tests with Postgres and Redis available.
 
 All three commands do not change repository files. `pnpm format` is the
 explicit formatting command that writes files.

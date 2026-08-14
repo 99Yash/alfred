@@ -32,5 +32,5 @@
     "sourceMap": false
   },
   "include": ["src", "test"],
-  "exclude": ["test/credentials/credential-vault.test.ts", "test/workflows/revisions.test.ts"]
+  "exclude": ["test/workflows/revisions.test.ts"]
 }
