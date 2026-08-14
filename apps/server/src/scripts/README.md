@@ -2,7 +2,7 @@
 
 This folder is the operator command module for `apps/server`. Files are
 entrypoints, not app modules; shared implementation should usually live under
-`packages/api/src/modules/*` or the owning package.
+`packages/assistant/src/*` or the owning package.
 
 ## Categories
 

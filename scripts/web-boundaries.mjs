@@ -34,7 +34,6 @@ import { listWorkspaces } from "./workspaces.mjs";
  * still evaluated. Only a leading `type` keyword erases; see `isRuntimeLoad`.
  */
 export const FORBIDDEN_RUNTIME_PACKAGES = new Set([
-  "@alfred/api",
   "@alfred/http",
   "@alfred/auth",
   "@alfred/db",
@@ -475,7 +474,7 @@ function containmentFailures(site, lines, regions) {
  * is checked — and prose that declares a forbidden package browser-safe fails.
  *
  * A token is a backticked package name ON ITS OWN. A longer code span such as
- * `` `import type { App } from '@alfred/api'` `` is not a token, which is what
+ * `` `import type { App } from '@alfred/http'` `` is not a token, which is what
  * lets the allowed list keep its type-only example inside the browser-safe region.
  *
  * Three structural rules make those comparisons mean what they read as:

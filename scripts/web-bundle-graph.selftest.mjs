@@ -179,17 +179,17 @@ function initWorkspaceRepo(fixture, { nodeDependencies }) {
   execFileSync("git", ["init", "--quiet"], { cwd: fixture });
   write(fixture, "pnpm-workspace.yaml", "packages:\n  - apps/*\n  - packages/*\n");
 
-  // The browser side. `apps/web` declares `@alfred/api` for a type-only import, which
+  // The browser side. `apps/web` declares `@alfred/http` for a type-only import, which
   // is the exact shape that makes a subtraction-only forbid set wrong.
   write(
     fixture,
     "apps/web/package.json",
-    JSON.stringify({ name: "web", dependencies: { "@alfred/api": "workspace:*" } }),
+    JSON.stringify({ name: "web", dependencies: { "@alfred/http": "workspace:*" } }),
   );
   write(
     fixture,
     "apps/web/src/main.tsx",
-    'import type { App } from "@alfred/api";\nimport { a } from "@alfred/contracts";\n',
+    'import type { App } from "@alfred/http";\nimport { a } from "@alfred/contracts";\n',
   );
   write(fixture, "packages/contracts/package.json", JSON.stringify({ name: "@alfred/contracts" }));
   write(fixture, "packages/contracts/src/index.ts", "export const a = 1;\n");
@@ -212,7 +212,7 @@ function everyException() {
 
 /**
  * The forbid set, derived. Three assertions, and the second one is the whole design:
- * `apps/web` declares `@alfred/api` and no Node-only workspace does, so a rule that
+ * `apps/web` declares `@alfred/http` and no Node-only workspace does, so a rule that
  * subtracted the browser side's dependencies would drop the most forbidden package in
  * the repo out of its own forbid set.
  */
@@ -239,15 +239,15 @@ function forbidSetFailures() {
       );
     }
     expect(
-      packages.has("@alfred/api"),
+      packages.has("@alfred/http"),
       true,
-      "nodeOnlyPackages — @alfred/api stays forbidden although only the browser app declares it",
+      "nodeOnlyPackages — @alfred/http stays forbidden although only the browser app declares it",
       failures,
     );
     expect(
-      packages.get("@alfred/api")?.includes("FORBIDDEN_RUNTIME_PACKAGES"),
+      packages.get("@alfred/http")?.includes("FORBIDDEN_RUNTIME_PACKAGES"),
       true,
-      "nodeOnlyPackages — @alfred/api is forbidden BY the union term, not by accident",
+      "nodeOnlyPackages — @alfred/http is forbidden BY the union term, not by accident",
       failures,
     );
     for (const pkg of FORBIDDEN_RUNTIME_PACKAGES) {
