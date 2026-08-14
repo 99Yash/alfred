@@ -401,7 +401,8 @@ PR #610 merged at 08:52Z. It is the substrate and the service:
 
 The PR body says `Refs #555` on purpose, because the four acceptance cases were
 probed against a real database but not committed as tests. The follow-up commit
-`be0e7aac` then committed `packages/api/test/workflows/revisions.test.ts` with
+`be0e7aac` then committed `packages/api/test/workflows/revisions.test.ts` (the
+suite now lives at `packages/http/test/workflows/revisions.test.ts`) with
 **two** of the four:
 
 - covered: the active-edit / published-pin case, and the typed `row_version`
