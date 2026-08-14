@@ -17,7 +17,7 @@ import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn
 // on the call it makes. Deterministic scorers, no LLM judge — the tool call
 // either targets the right window or it doesn't.
 //
-// Run locally with ANTHROPIC_API_KEY in env: `pnpm --filter @alfred/api eval`.
+// Run locally with ANTHROPIC_API_KEY in env: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 

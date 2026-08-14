@@ -31,8 +31,6 @@ rather than here.
 ```bash
 pnpm --filter @alfred/api test        # no env file; the CI arm
 pnpm --filter @alfred/api test:db     # loads apps/server/.env when it exists
-pnpm --filter @alfred/api eval
-pnpm --filter @alfred/api eval:watch
 ```
 
 A fresh worktree has no `apps/server/.env`, so `test:db` there skips the DB-backed suites and
