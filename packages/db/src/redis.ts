@@ -43,15 +43,25 @@ const connections: IORedis[] = [];
  *   benefit. `enableOfflineQueue: false` rejects every command issued while the
  *   connection is not yet `ready`, so the FIRST command after each lazy
  *   construction is rejected even by a perfectly healthy Redis. THE DECISION
- *   TEST: can this caller answer the same question from another store? Only
- *   then does the rejection cost nothing, because the caller reads the other
- *   store and moves on. A read-through cache over a Postgres table passes the
- *   test. A throttle claim, a rate counter, a one-shot flag and a health probe
- *   all FAIL it — the Redis key IS their source of truth, so `"fail-fast"`
- *   silently drops the first request of every process. Those callers take
- *   `"command"`, which waits for `ready` and still bounds the wait. Do not read
- *   "caches, throttles, and probes" as a list of eligible shapes; two of those
- *   three were wrong here (#127).
+ *   TEST, and a caller qualifies by EITHER answer:
+ *   1. Can this caller answer the same question from another store? Then the
+ *      rejection costs nothing, because the caller reads the other store and
+ *      moves on. A read-through cache over a Postgres table passes this way.
+ *   2. Does this caller read the same key AGAIN on a schedule, and does it fail
+ *      OPEN meanwhile, on a path where waiting costs more than missing? Then the
+ *      rejection costs one read and the next read corrects it. The chat-stop
+ *      poll passes this way: it runs inside the model stream loop, which awaits
+ *      it, so a bounded wait would stall streaming for the whole outage where a
+ *      rejection stalls nothing.
+ *   A throttle claim, a rate counter, a ONE-SHOT flag read and a health probe
+ *   all fail BOTH tests — the Redis key IS their source of truth and they get no
+ *   second read, so `"fail-fast"` silently drops the first request of every
+ *   process. Those callers take `"command"`, which waits for `ready` and still
+ *   bounds the wait. Read the CALLER, never the verb or the key: one key can
+ *   carry a one-shot reader and a polling reader, and they take different kinds
+ *   (`packages/assistant/src/conversations/stop-signal.ts` is the worked
+ *   example). Do not read "caches, throttles, and probes" as a list of eligible
+ *   shapes; two of those three were wrong here (#127).
  */
 export type RedisConnectionKind = "queue" | "command" | "subscriber" | "fail-fast";
 

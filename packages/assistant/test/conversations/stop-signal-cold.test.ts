@@ -3,27 +3,40 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeRedis, createRedisConnection } from "@alfred/db/redis";
 
-import { isChatStopRequested, requestChatStop } from "../../src/conversations/stop-signal";
+import { pollChatStopFlag, requestChatStop } from "../../src/conversations/stop-signal";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * The two halves of `stop-signal` want OPPOSITE cold-window outcomes, and this
+ * The two handles of `stop-signal` want OPPOSITE cold-window outcomes, and this
  * file is the only place that says so against a real Redis.
  *
  * `enableOfflineQueue: false` rejects any command issued before a connection is
  * `ready`, so a `"fail-fast"` handle rejects the first command after its lazy
- * construction even against a healthy Redis. When BOTH verbs shared one such
- * handle, the first stop press of every process returned `false` and the HTTP
- * route turned that into a 503 (#127). The write half now takes `"command"`,
- * which waits for `ready` and still bounds the wait; the poll half keeps
- * `"fail-fast"` on purpose, because the stream loop awaits it and a bounded wait
- * there would stall streaming during an outage.
+ * construction even against a healthy Redis. When every caller shared ONE such
+ * handle, a stop press returned `false` — and the HTTP route turned that into a
+ * 503 (#127) — whenever the press was the first command on that handle. That
+ * was NARROWER than "every process", because `apps/server` runs the HTTP server
+ * and the assistant workers on one module instance, so a turn that streamed for
+ * more than 400 ms had already warmed the shared handle with its own poll. The
+ * press had to arrive on a still-queued run, or inside the first poll interval.
+ *
+ * The split makes the write's case STRONGER, not weaker: `requestChatStop` now
+ * owns a handle no poll can warm, so the first press of a process is ALWAYS the
+ * cold command on it. That is why `"command"` is mandatory here rather than
+ * merely better. `pollChatStopFlag` keeps `"fail-fast"` on purpose, because the
+ * stream loop awaits it and a bounded wait there would stall streaming during an
+ * outage.
+ *
+ * The bounded handle's OTHER caller, the one-shot read at `chat-turn.ts`, is
+ * pinned in `stop-signal-cold-oneshot.test.ts`. It needs its own file: the cold
+ * window is one command wide, so only one subtest per process can be the first
+ * command on a given handle.
  *
  * ORDERING CONSTRAINT, and it is the point rather than an inconvenience: each
- * subtest must be the FIRST thing that touches its own connection, because the
- * cold window is one command wide. The two subtests use different connections,
- * so they do not interfere — but neither may be preceded by another call to the
- * same verb. That fragility IS the bug class this file exists to pin.
+ * subtest must be the FIRST thing that touches its own connection. The two
+ * subtests use different connections, so they do not interfere — but neither may
+ * be preceded by another call that shares its handle. That fragility IS the bug
+ * class this file exists to pin.
  *
  * A separate `"command"` connection reads and seeds the keys, so no assertion
  * below depends on the connection it is judging.
@@ -78,7 +91,7 @@ describe("chat-stop signal on a cold process", { skip }, () => {
       // First touch of the POLL connection. `"fail-fast"` rejects it and the
       // caller reads that as "keep streaming".
       assert.equal(
-        await isChatStopRequested(runId),
+        await pollChatStopFlag(runId),
         false,
         'the poll half must reject its cold command — a "command" kind here would stall the stream loop during an outage',
       );
@@ -89,7 +102,7 @@ describe("chat-stop signal on a cold process", { skip }, () => {
       let observed = false;
       while (!observed && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 25));
-        observed = await isChatStopRequested(runId);
+        observed = await pollChatStopFlag(runId);
       }
       assert.equal(observed, true, "the poll half never recovered after its cold window");
     } finally {

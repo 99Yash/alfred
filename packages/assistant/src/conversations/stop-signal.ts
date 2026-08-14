@@ -19,35 +19,42 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
  * finished rather than cancelled. Going through `cancelRun` instead would discard
  * the in-flight step's work and mark the run terminal from the outside.
  *
- * TWO CONNECTIONS, one per verb, because the two commands on this key want
- * OPPOSITE failures. That is the whole reason the pair below is not one handle.
+ * TWO CONNECTIONS, one per FAILURE SHAPE — not one per verb. Three callers
+ * share this key and only one of them may be rejected by a connection that is
+ * still handshaking, so the split follows the CALLER, and a read sits on each
+ * side of it.
  *
+ * THE BOUNDED HANDLE carries `requestChatStop` and `isChatStopRequested`.
  * The write is one-shot and user-initiated, and its caller fails CLOSED:
- * `packages/http/src/conversations.ts` turns a `false` return into a 503. So the
- * write must WAIT for a connection that is still handshaking rather than be
- * rejected by it, or the first stop press of every process 503s against a
- * healthy Redis (#127). That is `"command"`.
+ * `packages/http/src/conversations.ts` turns a `false` return into a 503. The
+ * read is the dispatch-tools step's single up-front check (`chat-turn.ts`),
+ * which has no retry by design — a rejection there dispatches the whole pending
+ * tool batch, with its external effects, after the user asked to stop. Neither
+ * caller can answer the question from another store, because this key IS the
+ * flag, so both WAIT for a handshaking connection rather than be rejected by it
+ * (#127). That is `"command"`, which waits for `ready` and still bounds the wait.
  *
- * The poll fails OPEN by design — an unreadable flag means the turn keeps
+ * THE FAIL-FAST HANDLE carries `pollChatStopFlag`, and no other caller may join
+ * it. That poll fails OPEN by design — an unreadable flag means the turn keeps
  * streaming (annoying), where fail-closed would stop every turn (broken) — and
  * it runs inside the model stream loop, at most once per 400 ms
  * (`turn-stop-controller.ts`). During a real outage a `"command"` read would
  * hold the chunk loop for up to its 2 s bound on each poll, because
  * `stream-model-turn.ts` awaits `checkStop()`. A `"fail-fast"` read rejects at
  * once and the loop keeps streaming. Its cold-window miss costs one poll, which
- * the next poll 400 ms later corrects. That is `"fail-fast"`, and the extra
- * socket per process is the cheaper of the two costs.
+ * the next poll 400 ms later corrects. The extra socket per process is the
+ * cheaper of the two costs.
  */
 
-let writeConn: BoundedRedis | null = null;
-/** The write half: waits for `ready`, because its caller fails closed. */
-function writeRedis(): BoundedRedis {
-  if (!writeConn) writeConn = createRedisConnection("command");
-  return writeConn;
+let boundedConn: BoundedRedis | null = null;
+/** Waits for `ready`: every caller on this handle gets one read and no retry. */
+function boundedRedis(): BoundedRedis {
+  if (!boundedConn) boundedConn = createRedisConnection("command");
+  return boundedConn;
 }
 
 let pollConn: BoundedRedis | null = null;
-/** The poll half: never waits, because the stream loop awaits this read. */
+/** Never waits, because the stream loop awaits this read on every chunk. */
 function pollRedis(): BoundedRedis {
   if (!pollConn) pollConn = createRedisConnection("fail-fast");
   return pollConn;
@@ -61,15 +68,40 @@ const STOP_TTL_SECONDS = 15 * 60;
 /** Record a stop request. Returns false when Redis is unreachable. */
 export async function requestChatStop(runId: string): Promise<boolean> {
   try {
-    await writeRedis().set(stopKey(runId), "1", "EX", STOP_TTL_SECONDS);
+    await boundedRedis().set(stopKey(runId), "1", "EX", STOP_TTL_SECONDS);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Poll the stop flag. Returns false (keep streaming) when Redis is unreachable. */
+/**
+ * Read the stop flag ONCE, for a caller that gets no second chance. The
+ * dispatch-tools step is the one such caller: it reads this before it dispatches
+ * a pending tool batch, and a `false` it reads by mistake sends every external
+ * effect in that batch after the user asked to stop. So this read waits for a
+ * handshaking connection. Returns false (dispatch) only when Redis stays
+ * unreachable for the whole `"command"` bound.
+ *
+ * A caller that reads the flag REPEATEDLY must use {@link pollChatStopFlag}.
+ */
 export async function isChatStopRequested(runId: string): Promise<boolean> {
+  try {
+    return (await boundedRedis().get(stopKey(runId))) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read the stop flag from the model stream loop, where a slow read is worse than
+ * a missed one. Rejects instead of waiting, so a cold or unreachable connection
+ * returns false (keep streaming) at once. The caller polls again 400 ms later
+ * (`turn-stop-controller.ts`), which is what makes the miss free.
+ *
+ * A caller that reads the flag ONCE must use {@link isChatStopRequested}.
+ */
+export async function pollChatStopFlag(runId: string): Promise<boolean> {
   try {
     return (await pollRedis().get(stopKey(runId))) !== null;
   } catch {
