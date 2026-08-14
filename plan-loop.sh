@@ -18,7 +18,7 @@ set -euo pipefail
 #
 # Usage:   ./plan-loop.sh            # run the loop
 #          MAX_ITERS=8 ./plan-loop.sh
-#          TESTS="pnpm --filter @alfred/api test" ./plan-loop.sh
+#          TESTS="pnpm --filter @alfred/http test" ./plan-loop.sh
 #          DRY_RUN=1 ./plan-loop.sh  # print what it would do, run nothing
 #
 # Prereqs: fill in .loop/plan.md with your steps first (see .loop/README.md).

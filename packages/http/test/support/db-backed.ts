@@ -2,10 +2,9 @@
  * The guard a DB-backed suite in this tree uses instead of a hand-rolled
  * `{ skip: !process.env.DATABASE_URL }`.
  *
- * THERE ARE SIX COPIES, one per test tree that needs one. Each names the CI
+ * THERE ARE FIVE COPIES, one per test tree that needs one. Each names the CI
  * job whose absent service variable it must report:
  *
- *   `packages/api/test/support/db-backed.ts`          -> `api-tests`
  *   `packages/assistant/test/support/db-backed.ts`    -> `assistant-unit-tests`
  *   `packages/db/test/support/db-backed.ts`           -> `db-tests`
  *   `packages/http/test/support/db-backed.ts`         -> `http-tests`
