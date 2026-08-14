@@ -24,17 +24,19 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  // `exclude` is a BASELINE, not a policy — the same list, and the same rule,
-  // as `packages/api/tsconfig.test.json`. Every path below arrived here already
-  // broken: the three files came from `packages/api/test/`, where they sat in
-  // that package's baseline and so were checked by nothing, and they carry
-  // their debt across with them rather than acquiring it here.
-  // `pnpm check:test-typecheck-baseline` derives this list from `tsc` and fails
-  // when it drifts in either direction, so an entry cannot outlive its errors.
+  // `exclude` is a BASELINE, not a policy. Every path below arrived here
+  // already broken: all four files came from `packages/api/test/`, where they
+  // sat in that package's baseline and so were checked by nothing, and they
+  // carry their debt across with them rather than acquiring it here.
+  // `packages/api` now carries no baseline of its own, so this list is the only
+  // record of the debt those files owe. `pnpm check:test-typecheck-baseline`
+  // derives this list from `tsc` and fails when it drifts in either direction,
+  // so an entry cannot outlive its errors.
   "include": ["src", "test"],
   "exclude": [
     "test/replicache/resume-only.test.ts",
     "test/replicache/todos.test.ts",
-    "test/replicache/triage-tags.test.ts"
+    "test/replicache/triage-tags.test.ts",
+    "test/workflows/revisions.test.ts"
   ]
 }
