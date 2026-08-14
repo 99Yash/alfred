@@ -362,7 +362,7 @@ function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
  * `agent.run` phase enum and the run-status enum are two independent enums that
  * share five names by convention; no code, type, or test pins the
  * correspondence. Item 56's server pairing test
- * (`packages/api/test/agent/terminal-agent-run-pairing.test.ts`) pins one
+ * (`packages/assistant/test/agent/terminal-agent-run-pairing.test.ts`) pins one
  * direction of it — a terminal run status ⟹ a terminal `agent.run` frame — which
  * is why the barrier release below can trust a terminal phase to mean the run
  * ended.

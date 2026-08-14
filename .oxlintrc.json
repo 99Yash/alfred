@@ -45,7 +45,7 @@
           },
           {
             "group": ["@alfred/assistant/connections/ingestion/internal"],
-            "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+            "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/assistant/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
           },
           {
             "group": ["@alfred/assistant/tool-runtime/internal/registry"],
@@ -153,7 +153,7 @@
               },
               {
                 "group": ["@alfred/assistant/connections/ingestion/internal"],
-                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/assistant/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
               },
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
@@ -178,11 +178,11 @@
       // deliberate omission is the google door and this test has no use for a raw installGmailWatch
       // exemption. No file matches two entries: an override REPLACES the rule's options wholesale and the
       // last match wins, so an overlap would silently drop one entry's list.
-      "files": ["packages/api/test/gmail-ingest.test.ts"],
+      "files": ["packages/assistant/test/gmail-ingest.test.ts"],
       "rules": {
         // Deliberate omission: the @alfred/assistant/connections/ingestion/internal group is absent on
         // purpose — this file IS that door's allowlist. Every other root group must be restated here.
-        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — packages/api/test/gmail-ingest.test.ts IS this door's second allowlist.
+        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — packages/assistant/test/gmail-ingest.test.ts IS this door's second allowlist.
         "no-restricted-imports": [
           "error",
           {
@@ -228,7 +228,7 @@
               },
               {
                 "group": ["@alfred/assistant/connections/ingestion/internal"],
-                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/assistant/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
               },
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
