@@ -4,11 +4,15 @@
  * reads the environment — and must supply the other ~20 variables too, or the
  * parse throws and the `REDIS_URL` never matters.
  *
- * The dummies below are the `env:` block of the `db-tests` CI job, restated so a
- * developer running `pnpm --filter @alfred/db test` in a shell with no env file
- * gets the same run a CI job gets. Nothing here reaches a real service:
- * `@alfred/db/redis` reads exactly one field, `REDIS_URL`, and the rest exist
- * only to make the parse succeed.
+ * The dummies below mirror the `env:` block of the `db-tests` CI job, so a
+ * developer running this tree in a shell with no env file gets a parse that
+ * succeeds. They do NOT reproduce the CI run: in `db-tests` the identical
+ * `DATABASE_URL` points at a live migrated Postgres service, and the two
+ * DB-backed suites in this tree reach it. Only the four Redis suites call this
+ * helper, and `@alfred/db/redis` reads exactly one field, `REDIS_URL`, so no
+ * value below reaches a service from here — the rest exist only to make the
+ * parse succeed. Each one is assigned with `??=`, so a real value from
+ * `pnpm --filter @alfred/db test:db`, which loads `apps/server/.env`, wins.
  */
 const DUMMIES: Readonly<Record<string, string>> = {
   DATABASE_URL: "postgresql://ci:ci@localhost:5432/alfred_ci",

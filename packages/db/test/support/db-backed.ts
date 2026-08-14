@@ -19,7 +19,7 @@
  * `test/db-backed-guard.test.ts`, which drives `decideDbBackedSkip` over its
  * three arms inside the tree that depends on it.
  *
- * WHY THIS EXISTS. A skip count cannot detect an `api-tests` job that reached
+ * WHY THIS EXISTS. A skip count cannot detect a `db-tests` job that reached
  * no database. `node:test` prints `# skipped 0` for a SUITE-level skip —
  * `describe("…", { skip: SKIP }, …)` — because the subtests inside a skipped
  * `describe` are never registered, so they land in neither `# tests` nor
@@ -84,8 +84,8 @@ export function decideDbBackedSkip(input: {
   return {
     kind: "fail",
     message:
-      `${names} not set, but CI is set. The api-tests job must provide every service ` +
-      `variable its suites need. Check the services: and env: blocks of the api-tests ` +
+      `${names} not set, but CI is set. The db-tests job must provide every service ` +
+      `variable its suites need. Check the services: and env: blocks of the db-tests ` +
       `job in .github/workflows/ci.yml. A skip here would exit 0 and hide the failure.`,
   };
 }

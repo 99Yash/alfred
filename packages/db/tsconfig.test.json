@@ -13,8 +13,17 @@
   // `noEmit` errors unless `composite`/`declaration` are overridden off here.
   // Nothing under `test/` is emitted or built — this project only type-checks.
   //
-  // No `exclude`: an `exclude` in a file like this is a baseline of debt a tree
-  // arrived with, and this tree arrived clean.
+  // `exclude` is a BASELINE, not a policy. This tree arrived clean and acquired
+  // its one entry by a MOVE: `test/credentials/credential-vault.test.ts` came
+  // from `packages/api/test/`, where it already sat in that package's baseline,
+  // and it carries its 18 diagnostics across rather than acquiring them here.
+  // Every one is the same concept — the suite treats a `SealedCredentialSecret`
+  // (an opaque branded symbol) as a plain `string`. Campaign item 100 owns that
+  // repair; a move must not carry a possible behavior change with it.
+  // `pnpm check:test-typecheck-baseline` derives this list from `tsc` and fails
+  // when it drifts in either direction, so the entry cannot outlive its errors.
+  // Paths are literal on purpose — the check rejects a glob, and a directory
+  // glob would silently un-check every file added tomorrow.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
@@ -24,5 +33,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": ["test/credentials/credential-vault.test.ts"]
 }
