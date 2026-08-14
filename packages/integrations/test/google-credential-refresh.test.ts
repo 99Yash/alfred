@@ -5,9 +5,9 @@ import { after, describe, test } from "node:test";
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, user } from "@alfred/db/schemas";
-import { getFreshAccessToken, upsertCredential } from "@alfred/integrations/google";
+import { getFreshAccessToken, upsertCredential } from "../src/google/index";
 import { eq, sql } from "drizzle-orm";
-import { dbBackedSkip } from "../support/db-backed";
+import { dbBackedSkip } from "./support/db-backed";
 
 const SKIP = dbBackedSkip("database");
 

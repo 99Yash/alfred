@@ -1,0 +1,29 @@
+{
+  // Scoped typecheck project for the package's whole `test/` tree. `check-types`
+  // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
+  // composite build emits declarations only for `src` and never sees `test/**`.
+  //
+  // `@alfred/artifacts-design` got its first `test/` tree with this project. Its
+  // one suite pins the motion vocabulary the validator accepts, and the
+  // `leaf-unit-tests` CI job runs it. The suite touches no service, so this pass
+  // and that job are its only two readers.
+  //
+  // `include` covers `test` rather than any narrower glob so that a file added
+  // anywhere under `test/` is type-checked without an edit here. That matches
+  // the `tsx --test "test/**/*.test.ts"` runner glob, so a new file joins both
+  // sets at once.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/` is emitted or built — this project only type-checks.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test"]
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { HttpError } from "@alfred/contracts";
-import type { LabelSelfMailDeps } from "@alfred/integrations/google";
+import type { LabelSelfMailDeps } from "../src/google/index";
 
 // serverEnv() validates the whole schema on first read; seed the required slots
 // before importing `@alfred/integrations/google` (its module graph reads env
@@ -34,7 +34,7 @@ for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }
 
-const { labelSelfAuthoredMail } = await import("@alfred/integrations/google");
+const { labelSelfAuthoredMail } = await import("../src/google/index");
 
 const LABEL_ID = "Label_alfred_1";
 

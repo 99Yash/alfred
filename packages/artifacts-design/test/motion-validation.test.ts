@@ -6,8 +6,8 @@ import {
   slideArtifactHtmlViolations,
   validatePdfArtifactHtml,
   validateSlideArtifactHtml,
-} from "@alfred/artifacts-design/validation";
-import { buildArtifactDocument, MOTION_CLASS_NAMES } from "@alfred/artifacts-design/shell";
+} from "../src/validation";
+import { buildArtifactDocument, MOTION_CLASS_NAMES } from "../src/shell";
 
 /* ── motion rejection (ADR-0086 safety floor) — pure, always run ────────────
  *

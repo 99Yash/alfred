@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { computeCost, type PriceLookup } from "@alfred/ai";
+import { computeCost, type PriceLookup } from "../src/index";
 
 const PRICE: PriceLookup = {
   inputPerMtok: 3, // $3 / Mtok uncached input
