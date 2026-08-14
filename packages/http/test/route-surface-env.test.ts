@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, test } from "node:test";
-import { toMessage } from "@alfred/contracts";
+import { summarizeBody, toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import {
   ROUTE_SURFACE_CASES,
@@ -31,6 +31,17 @@ import {
  * depend on which job runs the suite, and no service variable can reach the barrel. Adding
  * a variable here is a real decision: a variable that lets `serverEnv()` parse would hide
  * the defect this suite exists to catch.
+ *
+ * ## This is a deliberate copy
+ *
+ * The spawn arms, the stdout parser and the minimal-environment loop below are copied from
+ * `packages/assistant/test/support/import-probe-report.ts` and that package's
+ * `test/barrel-load.test.ts`, which run the same child-process harness for a different
+ * measurement. Each test project sets `rootDir: "."`, so a relative reach into another
+ * package's test tree is a TS6059 error by design, and `.jscpd.json` ignores `**\/test/**`,
+ * so no duplication gate reports the copy either. `./support/db-backed.ts` sets this
+ * package's convention for exactly this case: name the copy, name the constraint, and say
+ * the copy is deliberate rather than an oversight. Change one copy and read the other.
  */
 const execFileAsync = promisify(execFile);
 
@@ -49,12 +60,13 @@ const CHILD_OUTPUT_LIMIT_BYTES = 1_000_000;
  */
 const routeSurfaceReportSchema = z.array(z.string());
 
-/** Keeps a failure message readable when the child printed a stack trace instead of JSON. */
+/**
+ * Keeps a failure message readable when the child printed a stack trace instead of JSON.
+ * `summarizeBody` is the repo's bound-and-redact funnel, so it also strips a secret a
+ * child diagnostic quoted, and its marker says how many characters it dropped. The bound
+ * is passed on every call so it cannot widen to the funnel's own default.
+ */
 const RAW_EXCERPT_LIMIT = 400;
-
-function excerpt(raw: string): string {
-  return raw.length > RAW_EXCERPT_LIMIT ? `${raw.slice(0, RAW_EXCERPT_LIMIT)}…` : raw;
-}
 
 function parseRouteSurfaceReport(raw: unknown): readonly string[] {
   if (typeof raw !== "string" || raw.trim() === "") {
@@ -66,7 +78,7 @@ function parseRouteSurfaceReport(raw: unknown): readonly string[] {
     json = JSON.parse(raw);
   } catch (error) {
     throw new Error(
-      `route surface child wrote unparseable stdout (${toMessage(error)}): ${excerpt(raw)}`,
+      `route surface child wrote unparseable stdout (${toMessage(error)}): ${summarizeBody(raw, RAW_EXCERPT_LIMIT)}`,
     );
   }
 
@@ -75,7 +87,7 @@ function parseRouteSurfaceReport(raw: unknown): readonly string[] {
     throw new Error(
       `route surface child wrote a report of the wrong shape (${result.error.issues
         .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
-        .join("; ")}): ${excerpt(raw)}`,
+        .join("; ")}): ${summarizeBody(raw, RAW_EXCERPT_LIMIT)}`,
     );
   }
   return result.data;

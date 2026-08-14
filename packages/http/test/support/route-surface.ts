@@ -33,7 +33,7 @@
  * The complete ordered `"METHOD /path"` list, as `app.routes` reports it, including every
  * development-only entry. Order is part of the assertion: Elysia matches in mount order.
  */
-export const ROUTE_SURFACE = [
+const ROUTE_SURFACE = [
   "POST /api/replicache/pull",
   "POST /api/replicache/push",
   "GET /api/replicache/events",
@@ -103,9 +103,7 @@ export const ROUTE_SURFACE = [
 ] as const satisfies readonly string[];
 
 /** The entries that mount only when `nodeEnv()` answers `"development"`. */
-export const DEVELOPMENT_ONLY_ROUTES = [
-  "POST /api/events/_demo",
-] as const satisfies readonly string[];
+const DEVELOPMENT_ONLY_ROUTES = ["POST /api/events/_demo"] as const satisfies readonly string[];
 
 /** One `NODE_ENV` value and the route surface it must produce. */
 export type RouteSurfaceCase = {
@@ -130,11 +128,24 @@ export const ROUTE_SURFACE_CASES = [
   { label: "unrecognized", nodeEnv: "prod", includesDevelopmentOnlyRoutes: true },
 ] as const satisfies readonly RouteSurfaceCase[];
 
+/** The label of the row that describes every value outside the enum. */
+const UNRECOGNIZED_NODE_ENV_LABEL = "unrecognized";
+
 /**
- * The `unrecognized` row, named so a reader in another process can fall back to it.
- * Any value outside the enum takes the schema default, so this row describes them all.
+ * Finds a row by its label, and throws when the label has no row.
+ *
+ * The lookup is by label rather than by array position on purpose. This table exists to be
+ * extended, so a later row inserted above the one a positional lookup names would rebind
+ * that lookup to the wrong row in silence, and an in-bounds index of a longer tuple is
+ * something `noUncheckedIndexedAccess` cannot report.
  */
-export const UNRECOGNIZED_NODE_ENV_CASE: RouteSurfaceCase = ROUTE_SURFACE_CASES[4];
+function routeSurfaceCaseByLabel(label: string): RouteSurfaceCase {
+  const found = ROUTE_SURFACE_CASES.find((testCase) => testCase.label === label);
+  if (found === undefined) {
+    throw new Error(`the route surface table holds no row labelled "${label}"`);
+  }
+  return found;
+}
 
 /** The exact ordered surface the row expects. Reads no environment. */
 export function routeSurfaceFor(testCase: RouteSurfaceCase): readonly string[] {
@@ -152,6 +163,6 @@ export function ambientRouteSurfaceCase(): RouteSurfaceCase {
   const ambient = process.env.NODE_ENV;
   return (
     ROUTE_SURFACE_CASES.find((testCase) => testCase.nodeEnv === ambient) ??
-    UNRECOGNIZED_NODE_ENV_CASE
+    routeSurfaceCaseByLabel(UNRECOGNIZED_NODE_ENV_LABEL)
   );
 }
