@@ -16,7 +16,6 @@ import { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 import { onboardingRoutes } from "./onboarding";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
-import { ENTITY_FETCHERS } from "./sync/entities";
 import { replicache } from "./sync/replicache";
 import { toolTiersRoutes } from "./tool-tiers";
 import { workflowRoutes } from "./workflows";
@@ -106,12 +105,7 @@ export { events };
 // workflow revision may become — all come from `@alfred/assistant`, and what
 // is left here is protocol adaptation and row-version bookkeeping. That is
 // also what ADR-0089 assigns to this package by name.
-//
-// `ENTITY_FETCHERS` is advertised for one reason: a workflow test in the legacy
-// `@alfred/api` package asserts the sync projection of a revision it just wrote, and
-// this package has no subpaths, so the barrel is its only door. It is the read
-// half of the protocol, not a general-purpose map.
-export { ENTITY_FETCHERS, replicache };
+export { replicache };
 
 // Not optional and not a widening of intent: `/pull` and `/push` answer with
 // these two types, so the inferred type of the root `app` names them. This

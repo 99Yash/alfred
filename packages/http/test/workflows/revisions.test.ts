@@ -17,7 +17,6 @@ import { and, eq } from "drizzle-orm";
 
 import { runOnce } from "@alfred/assistant/execution/executor";
 import { createRun, findResumableRunIds, replayRun } from "@alfred/assistant/execution/service";
-import { ENTITY_FETCHERS } from "@alfred/http";
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import {
   registerWorkflowReadiness,
@@ -33,6 +32,7 @@ import {
   setWorkflowBlocked,
   setWorkflowStatus,
 } from "@alfred/assistant/automation/revisions";
+import { ENTITY_FETCHERS } from "../../src/sync/entities";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
