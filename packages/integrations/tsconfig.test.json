@@ -3,10 +3,11 @@
   // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
   // composite build emits declarations only for `src` and never sees `test/**`.
   //
-  // `@alfred/integrations` is the one package whose tests NO CI job runs (queued
-  // as campaign item 158), so this pass is the ONLY automated reader of the
-  // tree. Until this project existed nothing read these files at all: a type
-  // error, or an `import type` from a module that no longer exists, survived
+  // `@alfred/integrations` used to be the one package whose tests NO CI job ran.
+  // The `leaf-db-tests` job now runs them, so this pass is no longer the only
+  // automated reader of the tree — but it stays the only reader of the TYPES.
+  // Until this project existed nothing read these files at all: a type error, or
+  // an `import type` from a module that no longer exists, survived
   // `pnpm check-types` at exit 0 and no test run contradicted it.
   //
   // `include` covers `test` rather than any narrower glob so that a file added
@@ -17,6 +18,18 @@
   // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
   // `noEmit` errors unless `composite`/`declaration` are overridden off here.
   // Nothing under `test/` is emitted or built — this project only type-checks.
+  //
+  // `exclude` is a BASELINE, not a policy. Both entries arrived with the files
+  // themselves, which moved here from `packages/api/test/` and carried their two
+  // entries out of that project's list — the repo total does not move. They read
+  // a `SealedCredentialSecret` as a `string`, which the branded symbol type
+  // refuses; the diagnostics are real debt in the assertions, not an artifact of
+  // the move, and the relative-import rewrite was measured NOT to resolve them.
+  // `pnpm check:test-typecheck-baseline` derives this list from `tsc` and fails
+  // when it drifts in either direction: an entry whose file is now clean or
+  // absent must be deleted, and a file that is dirty and unlisted must be
+  // repaired. Paths are literal on purpose — a directory glob would silently
+  // un-check every file added tomorrow.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
@@ -26,5 +39,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": ["test/credential-persistence.test.ts", "test/google-credential-refresh.test.ts"]
 }

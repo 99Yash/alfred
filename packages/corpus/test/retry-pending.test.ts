@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { retryPending } from "@alfred/corpus";
+import { retryPending } from "../src/index";
 import { closeConnections, db } from "@alfred/db";
 import { documents, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
-import { dbBackedSkip } from "../support/db-backed";
+import { dbBackedSkip } from "./support/db-backed";
 
 /**
  * DB-backed test for the sweep orchestration `@alfred/corpus` now owns

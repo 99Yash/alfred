@@ -56,8 +56,8 @@ function ensureAuthTestEnv(): void {
 /** The first release that checks the *local* account's `emailVerified`. */
 const FIXED_VERSION = [1, 6, 11] as const;
 
-/** `packages/api/test/auth` -> repo root. */
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+/** `packages/auth/test` -> repo root. */
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 function parseVersion(raw: string): [number, number, number] {
   const parts = raw.split("-")[0]?.split(".") ?? [];
@@ -113,7 +113,7 @@ describe("account linking (CVE-2026-53516)", () => {
 
   test("auth() does not weaken the local-email-verified check", async () => {
     ensureAuthTestEnv();
-    const { auth } = await import("@alfred/auth");
+    const { auth } = await import("../src/index");
     // The fix defaults this to `true`. Setting it to `false` would restore the
     // vulnerable comparison even on a patched release, so the only acceptable
     // states are "absent" and "true".

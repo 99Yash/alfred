@@ -32,10 +32,5 @@
     "sourceMap": false
   },
   "include": ["src", "test"],
-  "exclude": [
-    "test/credentials/credential-persistence.test.ts",
-    "test/credentials/credential-vault.test.ts",
-    "test/integrations/google-credential-refresh.test.ts",
-    "test/workflows/revisions.test.ts"
-  ]
+  "exclude": ["test/credentials/credential-vault.test.ts", "test/workflows/revisions.test.ts"]
 }

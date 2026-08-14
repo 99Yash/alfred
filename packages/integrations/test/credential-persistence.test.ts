@@ -14,15 +14,11 @@ import {
   encryptPersistedOAuthCredentials,
 } from "@alfred/db/credential-vault-maintenance";
 import { account, integrationCredentials, user } from "@alfred/db/schemas";
-import { getGithubAccessToken, upsertGithubCredential } from "@alfred/integrations/github";
-import {
-  getFreshAccessToken,
-  listCredentials,
-  upsertCredential,
-} from "@alfred/integrations/google";
-import { getActiveBearerCredential, upsertBearerCredential } from "@alfred/integrations/shared";
+import { getGithubAccessToken, upsertGithubCredential } from "../src/github/index";
+import { getFreshAccessToken, listCredentials, upsertCredential } from "../src/google/index";
+import { getActiveBearerCredential, upsertBearerCredential } from "../src/shared/index";
 import { eq, sql } from "drizzle-orm";
-import { dbBackedSkip } from "../support/db-backed";
+import { dbBackedSkip } from "./support/db-backed";
 
 /**
  * The invariant of #453, asserted against a real database: after any allowed
