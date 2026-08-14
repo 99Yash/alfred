@@ -62,7 +62,7 @@ The metric is **NOT** "% of inbox tagged urgent/action_needed" — those categor
 - **Base-demand weights + the two band cutoffs** — seed by judgment, tune from the prod distribution (shared tuning surface with ADR-0057/0059 weights).
 - **Recurrence window/lookback** — window-local first; measure whether the 10× alarm spans windows and needs a short lookback query.
 - **Ambient-tail floor** — does `urgent` ever land in the ambient tail (e.g. a recurring alarm), or does the security/`urgent` floor pin it to at least `normal`? Lean: recurrence may demote `urgent`→`normal` but never below; an exposed-secret `urgent` (override floor) is pinned demanding.
-- **Eval coverage** — add an attention-scoring case to the `@alfred/api` evalite lane (deterministic scorer, schema-only) once the formula stabilizes.
+- **Eval coverage** — add an attention-scoring case to the `@alfred/assistant` evalite lane (deterministic scorer, schema-only) once the formula stabilizes.
 
 ## ADR / issue cross-refs
 

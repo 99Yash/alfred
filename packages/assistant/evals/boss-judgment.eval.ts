@@ -27,7 +27,7 @@ import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows
 // the source class the model reaches for, not a brittle exact path.
 //
 // Run locally with apps/server/.env populated (ANTHROPIC_API_KEY +
-// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/api eval`.
+// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 

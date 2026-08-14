@@ -634,10 +634,14 @@ jobs:
   # serverEnv, exactly like `api-tests`. The check name stays `assistant-unit-tests`
   # (branch-protection stability); the `test` glob runs both pure and DB-backed
   # suites, picking up the DB from the job-level env just as `api-tests` does.
+  # `timeout-minutes` is 20 rather than 10 because campaign item 187 moved 114
+  # runnable suites here from `api-tests` (100 -> 214), so the job takes about
+  # twice as long as before. A timeout is the one way this job reports red for a
+  # reason no assertion caused.
   assistant-unit-tests:
     name: assistant-unit-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:pg16

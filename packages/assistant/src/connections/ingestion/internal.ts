@@ -18,7 +18,7 @@
  * file is a privileged friend door beside it, not a second public one.
  *
  * The privileged callers are operational scripts under `apps/server/src/scripts/**`
- * and the ingestion-cursor test `packages/api/test/gmail-ingest.test.ts`. That
+ * and the ingestion-cursor test `packages/assistant/test/gmail-ingest.test.ts`. That
  * restriction is enforced, not merely stated: `.oxlintrc.json` fences this subpath
  * in the `no-restricted-imports` group that also fences
  * `@alfred/assistant/knowledge/internal`, and those two paths are its allowlist,

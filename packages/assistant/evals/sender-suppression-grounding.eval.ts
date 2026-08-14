@@ -29,7 +29,7 @@ import type { GroundingTaskOutput } from "./lib/grounding";
 // with no `execute`, so the run halts on the first tool call and we assert on it.
 //
 // Run locally with apps/server/.env populated (ANTHROPIC_API_KEY +
-// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/api eval`.
+// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
