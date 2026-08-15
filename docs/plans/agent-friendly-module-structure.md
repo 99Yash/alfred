@@ -1,8 +1,8 @@
 # Agent-friendly module structure
 
-> **Status:** active migration plan. Phases 0–5 are complete (Phase 3 has two residual
-> execution edges tracked). Phases 6–7 remain. See [`## Migration status`](#migration-status)
-> for the current detail.
+> **Status:** active migration plan. Phases 0–5 are complete. Phase 6 has landed its
+> package split, and two shape slices remain. Phase 7 has not started. See
+> [`## Migration status`](#migration-status) for the current detail.
 >
 > **Basis:** the repository state on 2026-08-01. Git history has been rewritten
 > and is not evidence for how the repository evolved.
@@ -60,9 +60,13 @@ implementation details and several domain decisions have no single owner.
 
 ## Migration status
 
-Updated 2026-08-07. This section records progress against the migration sequence
+Updated 2026-08-15. This section records progress against the migration sequence
 below. The `## Current evidence` figures above are the start-state snapshot and are
 not updated as phases land.
+
+Phases 6 and 7 are worked as one campaign, `.campaign/http-extraction-phase6cd/`. That
+campaign holds 270 items on 2026-08-15: 92 landed, 11 skipped, and 167 open. Read its
+`NOTES.md` before you start an item.
 
 - **Phase 0 — record and enforce the map.** Done. `scripts/check-module-architecture.mjs`
   and `scripts/module-architecture-baseline.json` are in place and run in `pnpm check`.
@@ -70,10 +74,9 @@ not updated as phases land.
 - **Phase 2 — deepen the tool runtime.** Done. The `agent↔tools`, `agent↔dispatch`,
   `dispatch↔tools`, and `tools↔workflows` cycles are removed (PRs #633, #635, #636,
   #639, #640, #641; boot-seam unification #643).
-- **Phase 3 — isolate durable execution.** All nine slices merged (PRs #662–#671). The
-  generic execution contract test and the forbidden-product-import gate are in place; the
-  gate currently locks `triage`. Two pre-existing execution→product edges remain before the
-  gate can lock the rest — both tracked, neither a regression.
+- **Phase 3 — isolate durable execution.** Done. All nine slices merged (PRs #662–#671). The
+  generic execution contract test and the forbidden-product-import gate are in place, and the
+  gate locks both `triage` and `automation`.
   - 01 · reduce `agent` to the generic execution state machine (`startRun`,
     `registerRecipe`; queue handle closed) — PR #662, merged.
   - 02 · move the chat recipe into a new `conversations` module — PR #663, merged.
@@ -88,12 +91,11 @@ not updated as phases land.
   - 09 · remove the public `createRun`/`enqueueRun` exports — PR #671, merged.
   - Gate hardening: a liveness-safe forbidden-import check (PR #672) and a negative-type
     fixture guarding the augmentable trace registry (PR #673) — both merged.
-  - Residual `agent → chat`: moves with the chat→conversations work; the gate locks `chat`
-    when it lands.
-  - Residual `agent → workflows`: one `checkWorkflowRunReadiness` import from the run
-    sentinel. Homing the sentinel into a product module was rejected — it is core execution
-    machinery (ADR-0040/0073), not a recipe — so the remaining task is a narrow edge-break
-    (relocate the readiness leaf, or invert the call), after which the gate locks `workflows`.
+  - Both residual edges are closed. Run `node scripts/check-module-architecture.mjs --print-graph`
+    to confirm. On 2026-08-15 the live graph gives `execution` six edges — `connections`,
+    `delivery`, `settings`, `time`, `tool-runtime`, and `triggers` — and no edge to
+    `conversations` or `automation`. Phase 6 renamed `chat` to `conversations` and `workflows`
+    to `automation`, so the old edge names no longer name a module.
 - **Phase 4 — consolidate knowledge and settings.** Done (campaign PRs #684–#692).
   `memory` split into `knowledge` + `settings`; the `memory ↔ triage`, `memory ↔ todos`,
   and `timezone → memory` edges are gone and the renamed-module edges hold under `pnpm check`.
@@ -109,11 +111,42 @@ not updated as phases land.
   to a package-internal `/internal` door (#702), and a `pnpm check` gate forcing
   `TriggerConsumerBootError` membership (#703). Forced deviation: `gmail-push-config.ts` stays
   in `integrations` — moving it forms an `integrations ↔ connections` cycle.
-- **Phases 6–7 — package extraction, public surfaces.** Not started.
+- **Phase 6 — extract assistant behavior and HTTP transport.** The package split has landed.
+  Five of the seven steps are complete, and two shape slices remain.
+  - Step 1 · `@alfred/assistant` exists and publishes 70 explicit subpaths. Done.
+  - Step 2 · The acyclic modules moved out of `@alfred/api`. The live module graph holds 18
+    modules and 64 edges, all under target-shaped names. Done.
+  - Step 3 · `@alfred/http` exists and holds the Elysia routes. Done.
+  - Step 4 · **Open.** `packages/http/src/sync/` still holds one 979-line `entities.ts` and one
+    806-line `server-mutators/index.ts`. Neither is fanned out into `sync/read/<domain>.ts` and
+    `sync/write/<domain>.ts`. Campaign item 66 owns this.
+  - Step 5 · `@alfred/api/backend` is gone with its package. Done.
+  - Step 6 · `apps/web/src/lib/eden.ts` imports only `type { App } from "@alfred/http"`. Done.
+  - Step 7 · The legacy `@alfred/api` package is deleted (commit `c357b06f`). Done.
+  - The done-when clause "`@alfred/http` contains HTTP adapters only" does **not** hold yet.
+    `packages/http/src/conversations.ts` still holds about 780 lines of product logic, which
+    includes `startTurn`, `stopTurn`, and the attachment rate-limit block. Campaign item 53
+    owns this.
+  - The other three done-when clauses hold: `@alfred/assistant` imports `@alfred/http` zero
+    times, the legacy package is gone, and the web app imports only the `App` type.
+- **Phase 7 — close public surfaces and documentation.** Not started. All five steps are open.
+  - Step 1 · `packages/assistant/package.json` still publishes four wildcard subpaths:
+    `./tool-runtime/*`, `./execution/*`, `./triage/*`, and `./conversations/*`. Six package-root
+    `./*` wildcards also survive. Campaign items 175–178 and 221 own these.
+  - Step 2 · `scripts/check-module-architecture.mjs` holds no table-ownership write map.
+  - Step 3 · The `webFeatureImports` exception still sits in
+    `scripts/module-architecture-baseline.json` with `removalPhase: "Phase 7"`.
+  - Step 4 · About 38 dead `packages/api/src/modules` paths survive in `docs/reference/` and
+    `docs/decisions/`. Campaign items 236 and 239 own the sweep.
+  - Step 5 · The baseline still carries migration exceptions. Its `privateModuleImports` list is
+    empty but present, and its recorded graph is stale: it names seven nodes the live graph does
+    not hold (`dispatch`, `events`, `integrations`, `me`, `replicache`, `tools`, `workflows`) and
+    misses two it does (`realtime`, `runtime`). A stale entry fails no check, which is the gap
+    campaign item 96 owns. Do not regenerate the baseline outside an item that owns it.
 
-The target package trees `@alfred/assistant` and `@alfred/http` do not exist yet; per
-the sequence below, they are created in Phase 6, after the in-place cycle-breaking
-phases make the dependency direction possible.
+Both target package trees now exist. `packages/assistant/` and `packages/http/` replaced
+`packages/api/`, and `@alfred/ingestion` is renamed to `@alfred/corpus`. The `packages/ingestion/`
+directory holds untracked build output only; git tracks no file under it.
 
 ## Design rules
 
@@ -646,6 +679,9 @@ event consumers.
 
 ### Phase 6 — Extract assistant behavior and HTTP transport
 
+**Status:** steps 1, 2, 3, 5, 6, and 7 are complete. Step 4 is open, and the
+"HTTP adapters only" clause is open. See [`## Migration status`](#migration-status).
+
 1. Create `@alfred/assistant` with explicit subpath exports.
 2. Move the now-acyclic modules from `@alfred/api` without changing their
    interfaces.
@@ -663,6 +699,9 @@ imports transport, the legacy `@alfred/api` package is gone, and `apps/web`
 imports only the `App` type from `@alfred/http`.
 
 ### Phase 7 — Close public surfaces and documentation
+
+**Status:** not started. See [`## Migration status`](#migration-status) for the
+open evidence behind each step.
 
 1. Replace wildcard package exports with explicit entry points.
 2. Enforce the table-ownership write map.
