@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import { IDB_KEY, triageTagOverrideClient, type SyncedTriageTag } from "@alfred/sync";
 
-import { serverMutators } from "../../src/sync/server-mutators";
+import { serverMutators } from "../../src/sync/write";
 
 type ClientTriageTagTx = Parameters<typeof triageTagOverrideClient>[0];
 
