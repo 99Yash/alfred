@@ -1,6 +1,6 @@
 /**
  * Safe JSON parsing — the server analog of the type-safe localStorage reader
- * in `apps/web/src/lib/storage.ts`.
+ * in `apps/web/src/lib/storage/storage.ts`.
  *
  * The lesson from that module: `JSON.parse` returns `any`, so
  * `JSON.parse(raw) as T` is a blind cast that both throws on malformed input

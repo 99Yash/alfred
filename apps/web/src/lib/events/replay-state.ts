@@ -163,7 +163,7 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  * event kind cannot be added without stating its barrier policy. That is the
  * hazard `CLOSURE_POLICY`
  * guards on this event's producer side
- * (`packages/api/src/modules/agent/workflows/chat-turn-closure.ts`), where a fourth turn
+ * (`packages/assistant/src/conversations/chat-turn-closure.ts`), where a fourth turn
  * ending compiled clean and silently inherited the `completed` policy.
  *
  * The key type is the whole frame union's `kind` rather than a run-scoped

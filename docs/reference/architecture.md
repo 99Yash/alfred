@@ -91,7 +91,8 @@ each storage key, so cleanup cannot delete an object after its attachment row
 commits.
 
 Google credential connect and disconnect mutations enter through the
-integrations-owned credential lifecycle interface. Runtime composition owns the
+connections-owned credential lifecycle interface
+(`packages/assistant/src/connections/google-credential-lifecycle.ts`). Runtime composition owns the
 cross-domain transaction: a credential upsert commits with its organization-
 affiliation observations, and a credential delete commits with its disconnect
 observation. The complete transaction retries up to three times for recognized
@@ -101,12 +102,13 @@ best-effort and starts only after the credential transaction commits.
 
 MCP owns its authenticated connection routes, public OAuth metadata and
 callback routes, persistence behavior, and runtime connection manager. The HTTP
-composition root mounts this presentation directly. The integrations route
-aggregate does not import or mount MCP implementation details. MCP uses the
+composition root mounts this presentation directly. The connections route
+aggregate (`packages/http/src/connections/index.ts`) does not import or mount
+MCP implementation details. MCP uses the
 connections interface (`@alfred/assistant/connections`) for the shared signed
 OAuth state and nonce store.
 
-**Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
+**Web → Auth:** `apps/web/src/lib/auth/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
 **HTTP → Auth:** `packages/http/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes. The root app delegates its final Better Auth mount through a request-time wrapper so importing `@alfred/http` stays environment-free.
 
