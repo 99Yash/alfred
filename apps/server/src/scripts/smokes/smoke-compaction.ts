@@ -8,7 +8,7 @@
  * scoped handoff expectations against the `<run_summary>` output.
  *
  * Fixtures live at:
- *   `packages/api/src/modules/agent/run-compaction/__fixtures__/*.json`
+ *   `packages/assistant/src/execution/run-compaction/__fixtures__/*.json`
  *
  * Phase 7f acceptance is gated on every fixture passing the flakiness
  * gate. Treat a single miss as a failure: the compactor system prompt
@@ -52,7 +52,7 @@ type FixtureAssertion =
 
 const FIXTURES_DIR = fileURLToPath(
   new URL(
-    "../../../../packages/api/src/modules/agent/run-compaction/__fixtures__/",
+    "../../../../../packages/assistant/src/execution/run-compaction/__fixtures__/",
     import.meta.url,
   ),
 );

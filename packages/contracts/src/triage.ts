@@ -1,7 +1,7 @@
 /**
  * Canonical triage category list. Lives in `@alfred/contracts` so the
  * web bundle can import it without pulling in the Node-only
- * `@alfred/integrations` package. `@alfred/integrations/google/labels`
+ * `@alfred/integrations` package. `packages/integrations/src/google/labels.ts`
  * re-exports `TRIAGE_CATEGORIES` and `TriageCategory` from here and adds
  * the integration-specific Gmail label-name mapping on top — there is
  * only one source of truth.

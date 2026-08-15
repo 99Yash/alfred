@@ -40,7 +40,7 @@ export interface StreamingToolCall {
  *
  * Keyed on `parentToolCallId` alone, which is only sound because the server
  * spawns **exactly one child per `(parentRunId, parentToolCallId)`**: see
- * `packages/api/src/modules/agent/sub-agents.ts` — `findExistingSubAgentRun`,
+ * `packages/assistant/src/execution/sub-agents.ts` — `findExistingSubAgentRun`,
  * the sub-agent `dedupKey` unique index, and the 23505 fold-into-already-spawned
  * path. ADR-0073 is the addressing half of this (a child publishes into the
  * parent's address); the uniqueness half lives in that index, not in the ADR.
