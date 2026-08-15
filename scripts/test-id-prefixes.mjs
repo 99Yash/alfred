@@ -27,9 +27,21 @@
 //     `test-gmail-kind-fold-` beside `test-gmail-kind-refold-`. The trailing `-`
 //     is what saves each one, and a string-prefix test reads it.
 //   - Same-file pairs are LEGAL and must stay legal. One file's hooks run in one
-//     process, in order, so two prefixes declared in ONE file cannot race. No
-//     live file carries such a pair today, so the rule rests on how the runner
-//     schedules processes, not on an example you can open.
+//     process, in order, so two prefixes declared in ONE file cannot race. Two
+//     separate facts, because reading either one alone has already misled two
+//     review rounds:
+//       (a) A live file DOES carry a same-file nested pair.
+//           `packages/http/test/replicache/resume-only.test.ts:162-163` mints
+//           `test-resume-only-${randomUUID()}` and
+//           `test-resume-only-cg-${randomUUID()}` in one file, and the first is a
+//           string-prefix of the second. So the exemption is not dead code; it is
+//           what keeps that file green.
+//       (b) No live file carries such a pair where the SHORTER side owns a `like`
+//           cleanup — measured at 0 across all 40 patterns, and that same
+//           `resume-only.test.ts` holds no `like(` and no `…PREFIX…` constant at
+//           all. So no live file demonstrates the RACE the exemption forgives,
+//           and that half of the rule rests on how the runner schedules
+//           processes, not on an example you can open.
 //
 // What the comparison reads, exactly. It is deliberately blind to which table or
 // column a pattern targets, so it can over-report there, and the

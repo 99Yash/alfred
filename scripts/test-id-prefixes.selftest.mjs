@@ -19,6 +19,12 @@
 // file's DATA — that would turn any unrelated test file into a self-test failure
 // and take the gate down.
 //
+// The scan surface has TWO axes and each one needs its own witness. Arm 13 audits
+// the ROOTS. It cannot audit the PREDICATE, because a narrowed predicate narrows
+// both of its enumerations at once and they keep agreeing — so arm 12 pins
+// `isScanFile` against a hand-written table of paths, and arm 13's second
+// enumeration uses `inScanSurface`, a separate spelling that never calls it.
+//
 // `scripts/` has no CI test job and no tsconfig names it, so nothing here would
 // run a `.test.ts`. The suite is driven by `check-test-id-prefixes.mjs` as a
 // preamble, the wiring `check-script-paths.mjs` uses.
@@ -38,6 +44,25 @@ import {
 } from "./test-id-prefixes.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * A SECOND spelling of the scan surface, written for arm 13 alone.
+ *
+ * It must never call `isScanFile`, and it must not share its regexes. An audit
+ * that filters both of its enumerations through the predicate it audits has no
+ * witness: drop `.tsx` from `isScanFile` and both sides lose every `apps/web`
+ * `.tsx` test together, so they still agree file for file, `pnpm check` stays
+ * green, and the live walk quietly stops reading those files. Path segments are
+ * compared here as segments, and the two test-file suffixes are written out one
+ * by one, so a narrowing on either axis makes the two disagree.
+ */
+function inScanSurface(file) {
+  const segments = file.split("/");
+  const name = segments[segments.length - 1] ?? "";
+  if (!name.endsWith(".ts") && !name.endsWith(".tsx")) return false;
+  if (segments.slice(0, -1).includes("test")) return true;
+  return name.endsWith(".test.ts") || name.endsWith(".test.tsx");
+}
 
 /** The suite body every fixture file shares, parameterised by its prefix constant. */
 function suite(prefix) {
@@ -332,7 +357,35 @@ export function testIdPrefixSelfTestFailures() {
   });
   expectCollisions("apostrophe before a prefix", apostrophe, 1, failures);
 
-  // Arm 12 — the real root, counted twice by two different routes.
+  // Arm 12 — `isScanFile` pinned against a hand-written table, so a narrowing of
+  // the predicate names itself. Arm 13 audits the scan ROOTS; this arm audits the
+  // SUFFIX and DIRECTORY test, which arm 13 cannot see on its own — both of its
+  // enumerations would otherwise narrow together and stay in agreement.
+  /** @type {[string, boolean][]} */
+  const scanSurfaceCases = [
+    ["packages/assistant/test/preferences.behavior.test.ts", true],
+    ["packages/assistant/test/support/db-backed.ts", true],
+    ["packages/assistant/test/agent/start-run.test.ts", true],
+    ["apps/web/test/chat/artifact-stream.test.ts", true],
+    ["apps/web/test/chat/composer.test.tsx", true],
+    ["apps/web/src/components/composer.test.tsx", true],
+    ["packages/db/src/schema/agent.ts", false],
+    ["apps/web/src/components/composer.tsx", false],
+    ["packages/http/test/fixtures/pull-response.json", false],
+    ["packages/http/test/support/README.md", false],
+    ["scripts/test-id-prefixes.selftest.mjs", false],
+    ["packages/assistant/testing/harness.ts", false],
+  ];
+  for (const [file, expected] of scanSurfaceCases) {
+    if (isScanFile(file) !== expected) {
+      failures.push(
+        `scan surface: isScanFile(${JSON.stringify(file)}) is ${isScanFile(file)}, expected ${expected}. ` +
+          "The scan surface was narrowed or widened; a narrowing drops files from the live walk in silence.",
+      );
+    }
+  }
+
+  // Arm 13 — the real root, counted twice by two different routes.
   const live = likePrefixPatterns(ROOT);
   if (live.prefixes.length === 0) {
     failures.push("real root: no LIKE pattern resolved, so the live gate would compare nothing");
@@ -350,7 +403,7 @@ export function testIdPrefixSelfTestFailures() {
   )
     .split("\n")
     .filter(Boolean)
-    .filter(isScanFile)
+    .filter(inScanSurface)
     .filter((file) => existsSync(resolve(ROOT, file)))
     .sort();
   if (independent.length === 0) {
