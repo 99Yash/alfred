@@ -244,9 +244,9 @@ jobs:
           --health-retries 5
     env:
       REDIS_URL: redis://localhost:6379
-      # DATABASE_URL points at the postgres service above and the two DB-backed
-      # suites reach it. Every other value here is a format-valid dummy that
-      # serverEnv() requires and nothing reads.
+      # DATABASE_URL points at the postgres service above and the three
+      # DB-backed suites reach it. Every other value here is a format-valid
+      # dummy that serverEnv() requires and nothing reads.
       DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
       BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
       OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
