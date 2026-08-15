@@ -1,7 +1,6 @@
 import {
   canonicalizeIdentityValue,
   entityKindClassificationSchema,
-  isRecord,
   type EntityKindClassification,
   type EntityNodeKind,
 } from "@alfred/contracts";
@@ -95,8 +94,8 @@ function isTriageDemotingEntityKind(kind: EntityNodeKind): kind is TriageDemotin
 }
 
 function classificationFromProfile(profile: ActiveEntityProfile): EntityKindClassification | null {
-  const provenance = profile.provenance;
-  if (!isRecord(provenance)) return null;
-  const parsed = entityKindClassificationSchema.safeParse(provenance.classification);
+  const classification = profile.provenance.classification;
+  if (!classification) return null;
+  const parsed = entityKindClassificationSchema.safeParse(classification);
   return parsed.success ? parsed.data : null;
 }
