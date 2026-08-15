@@ -134,11 +134,26 @@ test("the module's internals are unreachable through the package exports", async
   // resolver failure this test exists to commit.
   const privateSpecifier = "@alfred/assistant/action-policies/resolve";
 
+  const doorMessage =
+    `${privateSpecifier} must die at the Node resolver. The two exports keys for this ` +
+    `module are exact; adding a "./action-policies/*" wildcard would reopen every ` +
+    `internal file to every importer in the repo.`;
+
+  // The code, not a pattern over `String(err)`: the `[ERR_…]` decoration on a resolver
+  // error's string form is present only on some Node versions in the repo's supported
+  // range, so a RegExp here is red on Node 22.17.1 and green on Node 25.
   await assert.rejects(
     () => import(privateSpecifier),
-    /ERR_PACKAGE_PATH_NOT_EXPORTED/,
-    `${privateSpecifier} must die at the Node resolver. The two exports keys for this ` +
-      `module are exact; adding a "./action-policies/*" wildcard would reopen every ` +
-      `internal file to every importer in the repo.`,
+    (error: unknown) => {
+      assert.ok(error instanceof Error, `${doorMessage} It rejected with ${String(error)}.`);
+      const code: unknown = Reflect.get(error, "code");
+      assert.equal(
+        code,
+        "ERR_PACKAGE_PATH_NOT_EXPORTED",
+        `${doorMessage} Got ${String(code)}: ${error.message}`,
+      );
+      return true;
+    },
+    doorMessage,
   );
 });
