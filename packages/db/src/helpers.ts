@@ -413,13 +413,16 @@ export type DbRunner = DbRoot | DbTransaction;
  * call with any other work on the same `runner` — not with a second `runAtomic`,
  * and not with a direct write of your own: await one before you start the next,
  * and never put two of them in one `Promise.all`. Nothing enforces this — no
- * type, no check and no runtime guard. Overlap it and the contract above is false in BOTH
- * directions, silently and with no error — drizzle names every savepoint after
- * depth alone (`sp${nestedIndex + 1}`), Postgres resolves a duplicate name to the
- * most recent savepoint, so one body's `ROLLBACK TO SAVEPOINT` discards a
- * concurrent sibling's writes, and the caller's own writes on `runner` can vanish
- * the same way. Both promises still fulfill. Fan out over separate root-client
- * transactions instead of over one open one.
+ * type, no check and no runtime guard. Overlap it and the contract above is
+ * false in BOTH directions, silently and with no error — drizzle names every
+ * savepoint after depth alone (`sp${nestedIndex + 1}`), and Postgres resolves a
+ * duplicate name to the most recent one still alive, so one body's `ROLLBACK TO
+ * SAVEPOINT` discards a concurrent sibling's writes — and after that sibling
+ * releases its savepoint, a later `ROLLBACK TO SAVEPOINT` of the same name
+ * discards even the released work, because the name resolves to the first
+ * savepoint again. The caller's own writes on `runner` can vanish the same way,
+ * silently: the only error is the one the failing `body` itself rejects with.
+ * Fan out over separate root-client transactions instead of over one open one.
  *
  * There is deliberately no `in` / `instanceof` discriminator. Both union members
  * carry `transaction` (drizzle's `PgTransaction` extends `PgDatabase` and
