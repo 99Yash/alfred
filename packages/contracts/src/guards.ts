@@ -18,6 +18,12 @@
  * instances. This is the narrowing most `typeof x === "object"` checks meant:
  * after it, indexing a key yields `unknown` (which you then narrow), and exotic
  * objects are excluded instead of being silently treated as JSON.
+ *
+ * This is a BOUNDARY guard. It exists for values that are genuinely `unknown` —
+ * unparsed JSON, a webhook body, a jsonb column with no type claim, a provider
+ * trace. Do not apply it to a value whose type a schema or row type already
+ * established: it widens the parsed shape back to `Record<string, unknown>` and
+ * erases the parse. If the field you want is typed, index it directly.
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
