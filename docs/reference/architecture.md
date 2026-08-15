@@ -233,9 +233,37 @@ phase.
 The local verification levels are:
 
 - `pnpm verify:fast`: architecture, boundaries, static checks, format, and types.
-- `pnpm verify`: `verify:fast` plus deterministic package tests.
-- `pnpm verify:db`: migrations plus the `@alfred/corpus`, `@alfred/db` and
-  `@alfred/integrations` tests with Postgres and Redis available.
+- `pnpm verify`: `verify:fast` plus the `test` script of every workspace that
+  declares one, except `@alfred/db`. This lane runs thousands of tests, so it is
+  much slower than the lane it replaced.
+- `pnpm verify:db`: migrations plus the `test:db` script of every workspace that
+  declares one. This lane needs Postgres and Redis. A `test:db` script runs the
+  same test files as the `test` script of the same package. It adds the service
+  environment.
+
+Both test lanes select their workspaces with `pnpm -r`, so a new package and a
+test file that moves between packages stay in the gate. No root script holds a
+list of packages to include. `--no-bail` makes each package report its own
+result. Without it, one failed package deletes the output of the packages after
+it.
+
+`verify:db` adds `--workspace-concurrency=1`, so it runs one package at a time.
+Every package in that lane uses the same local Postgres. If two of them run
+together, the fixtures of one package delete the rows of the other. The serial
+lane costs no measurable time. The database limits the speed of the parallel
+lane too.
+
+`test:deterministic` excludes one package by name: `@alfred/db`. Two of its
+suites fail when no Redis answers, and they do not skip:
+`packages/db/test/redis-cold-command.test.ts` and
+`packages/db/test/redis-subscriber-reconnect.test.ts`. This lane must pass on a
+checkout that runs no services, so it cannot include those two suites.
+`@alfred/db` keeps its `test:db` lane, which runs the same files. Delete the
+exclusion when those two suites skip on an absent Redis.
+
+`pnpm verify` and `pnpm verify:db` are local gates. A CI job must not call
+them. The `dbBackedSkip` helper throws when `CI` is set and a service variable
+is absent, so CI keeps `pnpm verify:fast` and the per-package test jobs.
 
 All three commands do not change repository files. `pnpm format` is the
 explicit formatting command that writes files.
