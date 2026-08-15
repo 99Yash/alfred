@@ -12,6 +12,7 @@
 
 - Record guards prove JSON-shaped plain objects, not arbitrary JavaScript objects. They must reject arrays, dates, maps, class/SDK instances, timer handles, and driver errors.
 - Narrow an `unknown` with `isRecord` before indexing it, or `toRecord` to get a `Record` or `{}` back. `isIndexable` is the separate, wider question of whether a field can be read at all — a `Date` answers the two oppositely, so pick the one matching the claim.
+- `isRecord` is a boundary guard: use it only on a value that is genuinely `unknown` at a boundary (unparsed JSON, webhook, untyped jsonb column, provider trace). Do not apply it to a value whose type a schema or row type already established — it widens the parsed shape back to `Record<string, unknown>` and re-opens what the boundary parse proved. If the field you want is typed, index it directly.
 - Read nested fields off `unknown` or parsed JSON with `getPath` / `getStringPath` rather than chained `?.` plus a cast. Coerce sequences with `toStringArray`, which checks the element type, and test presence with `isNonEmptyString`.
 - Parse untrusted JSON with `parseJsonWith(raw, schema, fallback?)`, or `safeJsonParse(raw)` when there is no schema. Never `JSON.parse` into a cast.
 - Add generally reusable JSON parsing, traversal, error-text, or serialization behavior here instead of copying local cast-based helpers across packages.
