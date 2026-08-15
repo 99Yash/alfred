@@ -167,7 +167,8 @@ fence. The two checks are additive and neither replaces the other: the fence sca
 holds 425, and the difference is preview and debug routes plus not-yet-imported components, which an
 entry-seeded graph cannot see by construction. The graph check is CI-only, as a step in the
 `web-unit-tests` job, because it costs a second `vite build`.
-The check also rules on the marked prose above and in
+
+`pnpm check:web-boundaries` also rules on the marked prose above and in
 [`apps/web/AGENTS.md`](../../apps/web/AGENTS.md). Each site marks two regions. The
 `forbidden-runtime-packages` region must name exactly the set in
 [`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs); the `browser-safe-packages` region must
