@@ -66,12 +66,12 @@ The activation gates are encoded as re-runnable tests. Run them against a local
 Postgres (`DATABASE_URL` from `apps/server/.env`):
 
 ```bash
-cd packages/api
+cd packages/assistant
 export $(grep -E '^(DATABASE_URL|ENTITY_ID_NAMESPACE)=' ../../apps/server/.env | xargs)
 npx tsx --test \
-  test/user-model/entity-kind-classifier.test.ts \
-  test/user-model/gmail-kind-fold.test.ts \
-  test/user-model/gmail-kind-projection-gates.test.ts \
+  test/knowledge/entity-kind-classifier.test.ts \
+  test/knowledge/gmail-kind-fold.test.ts \
+  test/knowledge/gmail-kind-projection-gates.test.ts \
   test/contracts/user-model-writers.test.ts \
   test/triage/sender-kind.test.ts
 # expect: pass, fail 0
@@ -206,12 +206,15 @@ from Step 2; never re-run a completed version.
 - Projection/activation script: `apps/server/src/scripts/backfills/project-user-model-gmail-shadow-committed.ts`
   (prod bundle from repo root: `apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js`).
 - Observation backfill (prereq): `apps/server/src/scripts/backfills/backfill-gmail-observations-committed.ts`.
-- Classifier: `packages/api/src/modules/user-model/entity-kind-classifier.ts`.
-- Fold: `packages/api/src/modules/user-model/gmail-kind-fold.ts`.
-- Lifecycle writers (start/complete/activate + guards): `packages/api/src/modules/user-model/projection.ts`.
-- Consumer: `packages/api/src/modules/triage/sender-kind.ts`.
-- Scheduled re-fold + frozen-logic gate (PR J): `packages/api/src/modules/user-model/refold.ts`
-  (sweep registered in `packages/api/src/modules/integrations/repeatable.ts`).
-- Local gate tests: `packages/api/test/user-model/gmail-kind-projection-gates.test.ts`
-  (activation gates) and `packages/api/test/user-model/gmail-kind-refold.test.ts`
+- Classifier: `packages/assistant/src/knowledge/entity-kind-classifier.ts`.
+- Fold: `packages/assistant/src/knowledge/gmail-kind-fold.ts`.
+- Lifecycle writers (start/complete/activate + guards): `packages/assistant/src/knowledge/projection.ts`.
+- Consumer: `packages/assistant/src/triage/sender-kind.ts` — the reader call site.
+  Do not confuse it with `packages/assistant/src/triage/floors/sender-kind.ts`, a
+  downstream floor that only demotes an already-resolved sender kind.
+- Scheduled re-fold + frozen-logic gate (PR J): `packages/assistant/src/knowledge/refold.ts`
+  (sweep registered in `packages/assistant/src/connections/ingestion/repeatable.ts`,
+  not in `packages/assistant/src/knowledge/repeatable.ts`).
+- Local gate tests: `packages/assistant/test/knowledge/gmail-kind-projection-gates.test.ts`
+  (activation gates) and `packages/assistant/test/knowledge/gmail-kind-refold.test.ts`
   (re-fold frozen-logic gate).

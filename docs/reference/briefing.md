@@ -51,7 +51,7 @@ Email is the **push**; the in-app briefing is the **durable home** — a history
 
 ## Context signals and the memory write policy
 
-> **Added ADR-0083 (#415).** Contract lives in `@alfred/contracts/briefing-signals.ts`.
+> **Added ADR-0083 (#415).** Contract lives in `@alfred/contracts/briefing-signals`.
 
 Everything a briefing writer says flows through **three layers**, and the contract owns the boundary between them:
 

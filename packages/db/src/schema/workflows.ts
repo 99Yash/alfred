@@ -70,8 +70,10 @@ function workflowRevisionWorkflowIdentity(): [AnyPgColumn, AnyPgColumn] {
  * A workflow is a `trigger + brief + optional steps DAG`. Two flavors live
  * in the same table:
  *
- *   - **Built-in**: code-as-workflow, source of truth in
- *     `apps/server/src/builtins/workflows/<slug>.ts`. Seeded into this
+ *   - **Built-in**: code-as-workflow, source of truth in the TS recipe
+ *     that owns the domain — for example
+ *     `packages/assistant/src/triage/email-triage.ts` — registered at boot
+ *     from `apps/server/src/builtins/index.ts`. Seeded into this
  *     table at deploy time so the settings UI can render them alongside
  *     user-authored ones with the same toggle UX. `is_builtin = true`,
  *     `brief = null`, `steps = null` (the TS module owns step definitions
@@ -93,9 +95,19 @@ function workflowRevisionWorkflowIdentity(): [AnyPgColumn, AnyPgColumn] {
  * still null. They stay on this row because `trigger` backs the partial index
  * the per-minute tick scans, and because the settings list and the Replicache
  * read model want one row, not a join. The price of the copy is that it can
- * drift, so exactly one writer is allowed: the revision service in
- * `packages/api/src/modules/workflows/revisions.ts`. Nothing else may
- * `UPDATE workflows SET trigger = …`.
+ * drift, so exactly two writers are allowed, and they split by `is_builtin`.
+ * The revision service in `packages/assistant/src/automation/revisions.ts`
+ * owns user-authored rows: every path of it that reaches a definition column
+ * returns `builtin_immutable` first. The seeder in
+ * `packages/assistant/src/automation/seeder.ts` owns builtin rows, which it
+ * re-seeds on every boot. Nothing else may `UPDATE workflows SET trigger = …`.
+ *
+ * **That split is a convention, not a constraint.** TypeScript guards and slug
+ * allocation hold the two writers apart. Nothing in this schema does:
+ * `workflows_slug_idx` is a plain unique index on `(user_id, slug)`, and no
+ * partial index, CHECK, or predicate stops either writer from reaching the
+ * other's rows. Do not read `is_builtin` here as a boundary the database
+ * upholds.
  */
 export const workflows = pgTable(
   "workflows",
@@ -255,9 +267,9 @@ export const workflows = pgTable(
  * appends no row. Proposal-only edits, including assumptions, append a row so
  * the reviewed explanation stays attributable.
  *
- * Built-ins never appear here. Their definition lives in
- * `apps/server/src/builtins/workflows/<slug>.ts`, so seeding one mints no
- * revision and both pointers stay null.
+ * Built-ins never appear here. Their definition lives in the domain-owned TS
+ * recipe registered from `apps/server/src/builtins/index.ts`, so seeding one
+ * mints no revision and both pointers stay null.
  */
 export const workflowRevisions = pgTable(
   "workflow_revisions",
