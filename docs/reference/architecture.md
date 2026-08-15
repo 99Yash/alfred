@@ -233,9 +233,32 @@ phase.
 The local verification levels are:
 
 - `pnpm verify:fast`: architecture, boundaries, static checks, format, and types.
-- `pnpm verify`: `verify:fast` plus deterministic package tests.
-- `pnpm verify:db`: migrations plus the `@alfred/corpus`, `@alfred/db` and
-  `@alfred/integrations` tests with Postgres and Redis available.
+- `pnpm verify`: `verify:fast` plus the `test` script of every workspace that
+  declares one. This lane runs thousands of tests, so it is much slower than
+  the lane it replaced.
+- `pnpm verify:db`: migrations plus the `test:db` script of every workspace that
+  declares one, with Postgres and Redis available.
+
+Both test lanes select their workspaces with `pnpm -r`, so a new package and a
+test file that moves between packages stay in the gate. No root script holds a
+list of packages to include. `--no-bail` keeps a failed package from hiding the
+results of the packages after it.
+
+`verify:db` adds `--workspace-concurrency=1`, so it runs one package at a time.
+Every package in that lane talks to the same local Postgres. Run them together
+and one package's fixtures delete another package's rows. The serial lane costs
+no measurable time, because the database is the bottleneck either way.
+
+`test:deterministic` excludes one package by name: `@alfred/db`. Two of its
+suites (`packages/db/test/redis-cold-command.test.ts` and
+`redis-subscriber-reconnect.test.ts`) fail rather than skip when no Redis
+answers, so they cannot run in a lane that must stay green on a checkout with no
+services. `@alfred/db` keeps its `test:db` lane, which runs the same files. Delete
+the exclusion when those two suites skip on an absent Redis.
+
+`pnpm verify` and `pnpm verify:db` are local gates. A CI job must not call
+them. The `dbBackedSkip` helper throws when `CI` is set and a service variable
+is absent, so CI keeps `pnpm verify:fast` and the per-package test jobs.
 
 All three commands do not change repository files. `pnpm format` is the
 explicit formatting command that writes files.
