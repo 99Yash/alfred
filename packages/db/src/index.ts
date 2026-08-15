@@ -73,6 +73,17 @@ export type DbRoot = ReturnType<typeof db>;
  * A Drizzle transaction handle — the value `db().transaction(cb)` hands its
  * callback. Write helpers accept one so several writes commit atomically in a
  * caller's transaction; omit it and each helper opens its own.
+ *
+ * A helper that takes `tx?` and spells `tx ? run(tx) : db().transaction(run)`
+ * is practicing TRANSACTION REUSE: a caller's open transaction is run on
+ * directly, with no savepoint, so a failing body poisons the caller's
+ * transaction (its writes stay live, or the transaction aborts on a SQL
+ * error). That is the deliberate opposite of `runAtomic`
+ * (`@alfred/db/helpers`), which nests under a savepoint and leaves the outer
+ * transaction usable. Reaching for `runAtomic` at a reuse site silently flips
+ * that failure semantics — convert such a site only as a conscious decision,
+ * and note that `packages/assistant/src/knowledge/affiliation.ts` reuses on
+ * purpose.
  */
 export type DbTransaction = Parameters<Parameters<DbRoot["transaction"]>[0]>[0];
 
