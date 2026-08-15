@@ -1,5 +1,5 @@
 import { toMessage } from "@alfred/contracts";
-import { isChatStopRequested } from "./stop-signal";
+import { pollChatStopFlag } from "./stop-signal";
 
 /** Poll the user-stop flag at most this often (ms). */
 const STOP_CHECK_MS = 400;
@@ -11,7 +11,9 @@ const STOP_CHECK_MS = 400;
  * flag. Extracted from `chat-turn`'s step body so the stop machinery is testable
  * in isolation (`vi.useFakeTimers` + an injected `isStopRequested`) and the step
  * body reads as orchestration. The dispatch-tools step keeps its own one-shot
- * `isChatStopRequested` check — a single up-front read, not worth wrapping.
+ * check — a single up-front read, not worth wrapping — and that read goes
+ * through `isChatStopRequested`, not through the `pollChatStopFlag` below,
+ * because a one-shot reader cannot afford a rejected cold read (#127).
  */
 export interface TurnStopController {
   /** The abort signal to pass to the context guard and `streamTurn`. */
@@ -36,7 +38,7 @@ export function createTurnStopController(
   runId: string,
   opts?: { isStopRequested?: (runId: string) => Promise<boolean> },
 ): TurnStopController {
-  const isStopRequested = opts?.isStopRequested ?? isChatStopRequested;
+  const isStopRequested = opts?.isStopRequested ?? pollChatStopFlag;
   const controller = new AbortController();
   let stopRequested = false;
   let lastStopCheck = Date.now();

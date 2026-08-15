@@ -90,10 +90,19 @@ export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | 
 
 let redis: BoundedRedis | undefined;
 function getRedis(): BoundedRedis {
-  // Fail-fast cache connection: a Redis outage must degrade to the Postgres
-  // read, never delay the per-email triage path. The `"command"` kind would
-  // also settle, but only after its offline queue is bounded out; a cache read
-  // with Postgres behind it should not wait that long.
+  // One of only two `"fail-fast"` callers left after #127, and it carries its
+  // own justification because the kind's precondition is easy to assume rather
+  // than check: THE STORE BEHIND THIS CACHE IS THE `sender_priors` TABLE. Every
+  // read here has a Postgres read behind it, so a rejection costs one extra
+  // query and nothing else.
+  //
+  // That includes the deliberate cold-window miss. `"fail-fast"` rejects the
+  // first command after construction even against a healthy Redis, so the first
+  // triaged email of each process reads Postgres. That is the trade this kind
+  // buys: a Redis outage must degrade to the Postgres read, never delay the
+  // per-email triage path. `"command"` would also settle, but only after its
+  // offline queue is bounded out, and a cache read with a table behind it should
+  // not wait that long.
   if (!redis) redis = createRedisConnection("fail-fast");
   return redis;
 }
