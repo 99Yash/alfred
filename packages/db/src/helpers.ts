@@ -391,25 +391,48 @@ export type DbRunner = DbRoot | DbTransaction;
 
 /**
  * Run `body` atomically: a fresh transaction when `runner` is the root client, a
- * `SAVEPOINT` inside the caller's when it is already a transaction handle.
+ * `SAVEPOINT` inside the caller's when it is already a transaction handle. Both
+ * cases are one call, because drizzle spells them the same way — `DbRoot` and
+ * `DbTransaction` both carry `transaction`, and `NodePgTransaction` implements
+ * the nested call by issuing `SAVEPOINT`.
  *
- * The two are NOT distinguished by the `in` test. Both union members carry
- * `transaction` — drizzle's `PgTransaction` extends `PgDatabase` and re-declares
- * it (`pg-core/session.d.ts`), and `NodePgTransaction` implements the nested call
- * by issuing `SAVEPOINT` (`node-postgres/session.js`) — so the condition is always
- * true, the second arm is unreachable, and TypeScript narrows nothing.
+ * THE CONTRACT WHEN NESTED, decided rather than inherited, and true only under
+ * the precondition below. The outermost transaction stays the single commit unit
+ * (`txid_current()` is constant through any depth of nesting), and a failing
+ * `body` rolls back to its savepoint and leaves the caller's transaction USABLE.
+ * This is NOT transaction reuse. Reuse would leave the writes of a body that
+ * throws in JavaScript LIVE in the caller's transaction — with no savepoint there
+ * is nothing to roll back to, so its rows survive and commit with the outer
+ * transaction — and a body that fails with a SQL error would abort the caller's
+ * transaction (`25P02`), making every later statement on that handle, a
+ * compensating write included, fail too. The rejection still propagates out of
+ * `runAtomic` unchanged, so a caller that wants the abort gets it by not
+ * catching; savepoint semantics only add the OPTION to recover.
  *
- * That leaves atomicity intact (`txid_current()` is unchanged, so the outermost
- * transaction is still the unit that commits or rolls back) but it is not
- * transaction reuse: a failing `body` rolls back to its savepoint and leaves the
- * caller's transaction USABLE, where reuse would abort it. Callers that rely on an
- * inner failure poisoning the outer transaction do not get that here. Campaign
- * item 131 owns the choice between making the branch discriminate
- * (`is(runner, PgTransaction)`) and deleting the dead arm; this docstring only
- * stops the next reader from assuming the semantics the name suggests.
+ * PRECONDITION: one runner is a SEQUENTIAL handle. Do not overlap a `runAtomic`
+ * call with any other work on the same `runner` — not with a second `runAtomic`,
+ * and not with a direct write of your own: await one before you start the next,
+ * and never put two of them in one `Promise.all`. Nothing enforces this — no
+ * type, no check and no runtime guard. Overlap it and the contract above is
+ * false in BOTH directions, silently and with no error — drizzle names every
+ * savepoint after depth alone (`sp${nestedIndex + 1}`), and Postgres resolves a
+ * duplicate name to the most recent one still alive, so one body's `ROLLBACK TO
+ * SAVEPOINT` discards a concurrent sibling's writes — and after that sibling
+ * releases its savepoint, a later `ROLLBACK TO SAVEPOINT` of the same name
+ * discards even the released work, because the name resolves to the first
+ * savepoint again. The caller's own writes on `runner` can vanish the same way,
+ * silently: the only error is the one the failing `body` itself rejects with.
+ * Fan out over separate root-client transactions instead of over one open one.
+ *
+ * There is deliberately no `in` / `instanceof` discriminator. Both union members
+ * carry `transaction` (drizzle's `PgTransaction` extends `PgDatabase` and
+ * re-declares it, `pg-core/session.d.ts`), so an `in` test is always true and
+ * narrows nothing; separating them would buy the more dangerous semantics.
+ * `packages/db/test/run-atomic-nesting.test.ts` pins this against a live
+ * Postgres.
  */
 export function runAtomic<T>(runner: DbRunner, body: (tx: DbRunner) => Promise<T>): Promise<T> {
-  return "transaction" in runner ? runner.transaction(body) : body(runner);
+  return runner.transaction(body);
 }
 
 /**
