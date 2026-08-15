@@ -328,6 +328,8 @@ export function encryptedAuthAdapter(
       // account inside a transaction, so without this the one write that
       // actually stores a fresh OAuth token would bypass the boundary.
       transaction: (callback) =>
+        // drift-ok: Better-Auth adapter interface — its transaction wraps
+        // db().transaction internally; not a Drizzle handle to run runAtomic on.
         adapter.transaction((trx) => callback(decorateOperations(trx, resolved) as typeof trx)),
     };
   };
