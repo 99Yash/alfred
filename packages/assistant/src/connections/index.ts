@@ -30,9 +30,9 @@
  * every gate green, and a module-load probe reports the same retained-handle count
  * and exit code, because the queue builds its BullMQ objects lazily.
  *
- * What still lives in `packages/api/src/modules/connections/` is transport: the Elysia
- * routes and the webhooks (campaign item 24). MCP is no longer among them — the product
- * half is here, and its transport leaf lives at `packages/http/src/mcp.ts`.
+ * What lives in `packages/http/src/connections/` is transport: the Elysia routes and
+ * the webhooks (campaign item 24). MCP is no longer among them — the product half is
+ * here, and its transport leaf lives at `packages/http/src/mcp.ts`.
  */
 
 export * from "./availability";

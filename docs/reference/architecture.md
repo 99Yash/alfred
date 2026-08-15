@@ -4,7 +4,7 @@
 
 Two apps — `server` (Elysia HTTP, port 3001) and `web` (Vite + TanStack Router
 SPA, port 3000). For the package list, run `ls packages/`. The load-bearing
-packages (`ai`, `api`, `contracts`, `db`, `http`, `integrations`, `sync`) each carry an
+packages (`ai`, `contracts`, `db`, `http`, `integrations`, `sync`) each carry an
 agent guide stating what they own — that ownership rule is the thing a directory
 listing cannot tell you.
 
@@ -26,8 +26,9 @@ drives `start` and `stop`, while the runtime adapters, the queues, and the worke
 stay private to that package.
 
 `@alfred/api` published two transitional doors during the migration,
-`@alfred/api/backend` and `@alfred/api/runtime`. Both are deleted. The package
-publishes an empty `exports` map, so no subpath of it resolves at all.
+`@alfred/api/backend` and `@alfred/api/runtime`. The package itself is now
+deleted. No workspace manifest carries that name, so `@alfred/api` and every
+subpath of it resolve nowhere.
 
 ADR-0089 moves product behavior and runtime composition to
 `@alfred/assistant`, moves HTTP adaptation to `@alfred/http`, and then deletes
@@ -129,7 +130,7 @@ Allowed in `apps/web`: <!-- browser-safe-packages:start -->
 
 Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 
-- Any non-type import of `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
+- Any non-type import of `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
 - Any non-type import of `@alfred/ai` (contains server-only AI SDK providers).
 
 <!-- forbidden-runtime-packages:end -->
@@ -233,8 +234,8 @@ The local verification levels are:
 
 - `pnpm verify:fast`: architecture, boundaries, static checks, format, and types.
 - `pnpm verify`: `verify:fast` plus deterministic package tests.
-- `pnpm verify:db`: migrations plus the `@alfred/api`, `@alfred/corpus`, `@alfred/db`
-  and `@alfred/integrations` tests with Postgres and Redis available.
+- `pnpm verify:db`: migrations plus the `@alfred/corpus`, `@alfred/db` and
+  `@alfred/integrations` tests with Postgres and Redis available.
 
 All three commands do not change repository files. `pnpm format` is the
 explicit formatting command that writes files.

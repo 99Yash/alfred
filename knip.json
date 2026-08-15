@@ -47,16 +47,8 @@
     "packages/ai": {
       // Hand-run diagnostic/verification scripts (each documents its own tsx
       // invocation; see docs/decisions/ADR-0078 and the model-router plans).
-      // Same category as apps/server and packages/api src/scripts — not dead.
+      // Same category as apps/server and packages/assistant src/scripts — not dead.
       "entry": ["src/scripts/**/*.ts"]
-    },
-    "packages/api": {
-      "entry": ["src/scripts/**/*.ts", "test/**/*.test.ts"],
-      // Dormant by decision, not dead: ADR-0051 removed the boss `deepen` escalation
-      // from triage v3, but the file stays for the historical decision trail and
-      // `shouldDeepen` is still covered by test/triage/deepen.test.ts. See the NOTE in
-      // src/modules/triage/index.ts and docs/reference/triage.md.
-      "ignore": ["src/modules/triage/deepen.ts"]
     },
     "packages/assistant": {
       "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts", "test/**/*.test.ts"],
