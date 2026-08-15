@@ -24,43 +24,48 @@
  * History: we used `ipapi.co` originally — they now serve 429s without
  * CORS headers on the free tier, which the browser reports as a CORS
  * error. Don't reintroduce it without proxying through our API.
+ *
+ * Provider payloads are untrusted: each response is parsed through the wire
+ * schemas in `./schemas` at the owning fetch, never cast.
  */
 
-import { z } from "zod";
+import {
+  bigDataCloudReverseSchema,
+  geoJsLocationSchema,
+  openMeteoResponseSchema,
+  type TemperatureUnit,
+  type WeatherSnapshot,
+} from "./schemas";
 
-const weatherConditionSchema = z.enum([
-  "clear",
-  "partly_cloudy",
-  "cloudy",
-  "fog",
-  "rain",
-  "snow",
-  "storm",
-  "unknown",
-]);
-export type WeatherCondition = z.infer<typeof weatherConditionSchema>;
+export type { WeatherCondition, WeatherSnapshot } from "./schemas";
+export { weatherSnapshotSchema } from "./schemas";
 
-const temperatureUnitSchema = z.enum(["C", "F"]);
-type TemperatureUnit = z.infer<typeof temperatureUnitSchema>;
+const WEATHER_FETCH_TIMEOUT_MS = 8_000;
+const GEOLOCATION_FIX_TIMEOUT_MS = 8_000;
+
+const FAHRENHEIT_REGIONS = new Set(["US", "BS", "BZ", "KY", "PW", "FM", "MH", "LR"]);
+
+interface ResolvedLocation {
+  lat: number;
+  lon: number;
+  /** City name, region name, or a coordinate label — whatever the rail can display. */
+  label: string;
+}
 
 /**
- * Schema is the source of truth for the snapshot's shape — it also validates
- * the persisted weather cache (see `lib/storage`'s registry). Field notes:
- *   - `temperature`: whole-degree temperature in `unit`.
- *   - `city`: city name (or region, when geojs can't resolve a city).
- *   - `isDay`: `true` when open-meteo reports daylight at the resolved
- *     coordinates. Drives the night-video swap in the rail. Missing data
- *     defaults to `true` (daytime) in `fetchWeather` so a flaky `is_day`
- *     field never paints the surface black for a daytime user.
+ * GET a JSON body from a provider with the shared timeout. Throws a labeled
+ * error on non-2xx or malformed JSON; the caller decides whether that is a
+ * hard failure or a reason to fall back.
  */
-export const weatherSnapshotSchema = z.object({
-  temperature: z.number(),
-  unit: temperatureUnitSchema,
-  city: z.string(),
-  condition: weatherConditionSchema,
-  isDay: z.boolean(),
-});
-export type WeatherSnapshot = z.infer<typeof weatherSnapshotSchema>;
+async function fetchJson(url: URL, source: string): Promise<unknown> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`${source}: ${res.status}`);
+  try {
+    return await res.json();
+  } catch {
+    throw new Error(`${source}: invalid JSON response`);
+  }
+}
 
 /**
  * Pick Celsius or Fahrenheit from the browser's locale. Falls back to C
@@ -76,45 +81,6 @@ function preferredTemperatureUnit(): TemperatureUnit {
   } catch {
     return "C";
   }
-}
-
-const FAHRENHEIT_REGIONS = new Set(["US", "BS", "BZ", "KY", "PW", "FM", "MH", "LR"]);
-const WEATHER_FETCH_TIMEOUT_MS = 8_000;
-
-interface GeoJsLocation {
-  city?: unknown;
-  region?: unknown;
-  latitude?: unknown;
-  longitude?: unknown;
-}
-
-interface BigDataCloudReverse {
-  city?: unknown;
-  locality?: unknown;
-  principalSubdivision?: unknown;
-}
-
-interface ResolvedLocation {
-  lat: number;
-  lon: number;
-  city: string;
-}
-
-interface OpenMeteoResponse {
-  current?: {
-    temperature_2m?: unknown;
-    weather_code?: unknown;
-    is_day?: unknown;
-  };
-}
-
-function parseCoord(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const n = Number.parseFloat(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
 }
 
 /**
@@ -147,7 +113,11 @@ function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
         resolve({ lat, lon });
       },
       () => resolve(null),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60 * 1000 },
+      {
+        enableHighAccuracy: false,
+        timeout: GEOLOCATION_FIX_TIMEOUT_MS,
+        maximumAge: 10 * 60 * 1000,
+      },
     );
   });
 }
@@ -163,13 +133,11 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
     url.searchParams.set("latitude", String(lat));
     url.searchParams.set("longitude", String(lon));
     url.searchParams.set("localityLanguage", "en");
-    const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
-    if (!res.ok) return null;
-    const data = (await res.json()) as BigDataCloudReverse;
-    for (const candidate of [data.city, data.locality, data.principalSubdivision]) {
-      if (typeof candidate === "string" && candidate.length > 0) return candidate;
-    }
-    return null;
+    const data = await fetchJson(url, "bigdatacloud");
+    const parsed = bigDataCloudReverseSchema.safeParse(data);
+    if (!parsed.success) return null;
+    const { city, locality, principalSubdivision } = parsed.data;
+    return city ?? locality ?? principalSubdivision ?? null;
   } catch {
     return null;
   }
@@ -177,25 +145,15 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 
 /** IP-based location via geojs. Coarse fallback — see file header. */
 async function ipLocation(): Promise<ResolvedLocation> {
-  const locRes = await fetch("https://get.geojs.io/v1/ip/geo.json", {
-    signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS),
-  });
-  if (!locRes.ok) {
-    throw new Error(`geojs: ${locRes.status}`);
-  }
-  const loc = (await locRes.json()) as GeoJsLocation;
-  const lat = parseCoord(loc.latitude);
-  const lon = parseCoord(loc.longitude);
-  const city =
-    typeof loc.city === "string" && loc.city.length > 0
-      ? loc.city
-      : typeof loc.region === "string" && loc.region.length > 0
-        ? loc.region
-        : null;
-  if (lat === null || lon === null || city === null) {
+  const data = await fetchJson(new URL("https://get.geojs.io/v1/ip/geo.json"), "geojs");
+  const parsed = geoJsLocationSchema.safeParse(data);
+  if (!parsed.success) throw new Error("geojs: invalid response");
+  const { latitude, longitude, city, region } = parsed.data;
+  const label = city ?? region;
+  if (latitude === undefined || longitude === undefined || label === undefined) {
     throw new Error("geojs: incomplete location");
   }
-  return { lat, lon, city };
+  return { lat: latitude, lon: longitude, label };
 }
 
 /**
@@ -213,14 +171,14 @@ async function resolveLocation(): Promise<ResolvedLocation> {
     return {
       lat: coords.lat,
       lon: coords.lon,
-      city: city ?? `${coords.lat.toFixed(2)}, ${coords.lon.toFixed(2)}`,
+      label: city ?? `${coords.lat.toFixed(2)}, ${coords.lon.toFixed(2)}`,
     };
   }
   return ipLocation();
 }
 
 export async function fetchWeather(): Promise<WeatherSnapshot> {
-  const { lat, lon, city } = await resolveLocation();
+  const { lat, lon, label } = await resolveLocation();
 
   const unit = preferredTemperatureUnit();
   const url = new URL("https://api.open-meteo.com/v1/forecast");
@@ -228,51 +186,11 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
   url.searchParams.set("longitude", String(lon));
   url.searchParams.set("current", "temperature_2m,weather_code,is_day");
   if (unit === "F") url.searchParams.set("temperature_unit", "fahrenheit");
-  const wRes = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
-  if (!wRes.ok) {
-    throw new Error(`open-meteo: ${wRes.status}`);
-  }
-  const w = (await wRes.json()) as OpenMeteoResponse;
-  const tempRaw = w.current?.temperature_2m;
-  if (typeof tempRaw !== "number") {
-    throw new Error("open-meteo: missing temperature");
-  }
-  const code = typeof w.current?.weather_code === "number" ? w.current.weather_code : undefined;
-  const isDayRaw = w.current?.is_day;
-  const isDay = isDayRaw === 1 || isDayRaw === true || isDayRaw === undefined;
 
-  return {
-    temperature: Math.round(tempRaw),
-    unit,
-    city,
-    condition: mapWeatherCode(code),
-    isDay,
-  };
-}
-
-/**
- * WMO weather codes (open-meteo's `weather_code`):
- *   0       = clear
- *   1-2     = mainly clear / partly cloudy → `partly_cloudy`
- *   3       = overcast → `cloudy`
- *   45-48   = fog
- *   51-67   = drizzle / rain
- *   71-77   = snow
- *   80-86   = rain showers / snow showers
- *   95-99   = thunderstorm
- *
- * 1-2 are split from 3 so the rail can pick the partly-cloudy loop
- * (lively, sunlit) for "mainly clear" weather and reserve the heavier
- * overcast loop for true overcast — matches dimension's split.
- */
-function mapWeatherCode(code: number | undefined): WeatherCondition {
-  if (code === undefined) return "unknown";
-  if (code === 0) return "clear";
-  if (code >= 1 && code <= 2) return "partly_cloudy";
-  if (code === 3) return "cloudy";
-  if (code >= 45 && code <= 48) return "fog";
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "rain";
-  if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return "snow";
-  if (code >= 95 && code <= 99) return "storm";
-  return "unknown";
+  const data = await fetchJson(url, "open-meteo");
+  const parsed = openMeteoResponseSchema.safeParse(data);
+  if (!parsed.success || !parsed.data.current) {
+    throw new Error("open-meteo: invalid response");
+  }
+  return { ...parsed.data.current, unit, city: label };
 }
