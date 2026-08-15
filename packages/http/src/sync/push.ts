@@ -1,4 +1,5 @@
 import { db, type DbTransaction } from "@alfred/db";
+import { runAtomic } from "@alfred/db/helpers";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
@@ -168,7 +169,7 @@ export async function handlePush(
       try {
         // Savepoint isolates mutator failures so one bad mutation doesn't
         // poison the whole batch.
-        await tx.transaction(async (subTx: DbTx) => {
+        await runAtomic(tx, async (subTx: DbTx) => {
           const runner = serverMutators[mutatorName] as (
             tx: DbTx,
             args: unknown,

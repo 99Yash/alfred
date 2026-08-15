@@ -97,6 +97,8 @@ export function createGoogleCredentialLifecycleHandler(
   return {
     async upsert(request) {
       return deps.retryOnConflict(() =>
+        // drift-ok: DI adapter seam — deps.transaction is the adapter interface,
+        // not a Drizzle handle; it owns its own db().transaction inside.
         deps.transaction(async (tx) => {
           const previousCredential = await deps.loadPreviousCredential(
             { userId: request.userId, accountId: request.accountId },
@@ -135,6 +137,8 @@ export function createGoogleCredentialLifecycleHandler(
 
     async disconnect(request) {
       return deps.retryOnConflict(() =>
+        // drift-ok: DI adapter seam — deps.transaction is the adapter interface,
+        // not a Drizzle handle; it owns its own db().transaction inside.
         deps.transaction(async (tx) => {
           const deleted = await deps.deleteCredential(request, tx);
           if (!deleted) return { status: "already_absent" as const };
