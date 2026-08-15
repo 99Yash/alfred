@@ -6,26 +6,34 @@
 // (.lessons/mechanical-review-gate-flags-deleted-doors-and-reads-no-arithmetic.md).
 //
 // A fixture supplies its own source text, so it can only ever drive the GRAMMAR.
-// The last arm runs against the REAL repository root and asserts that discovery
-// there is non-vacuous — five passing matcher fixtures beside a walk that
-// collected zero files is the exact failure this shape exists to avoid
+// The last arm runs against the REAL repository root, because passing matcher
+// fixtures beside a walk that collected the wrong files is the exact failure this
+// shape exists to avoid
 // (.lessons/a-hardcoded-scan-root-that-stops-resolving-is-a-violation-not-an-empty-walk.md).
-// It asserts NON-EMPTINESS only. A drive that read the live tree's data would
-// turn any unrelated test file into a self-test failure and take the gate down.
+// Non-emptiness is NOT enough there: deleting `"apps"` from `SCAN_ROOTS` leaves
+// every fixture green while the live walk quietly loses ten files, and a count
+// the walk produced about itself cannot catch that
+// (.lessons/test-force-exit-drops-a-suite-while-the-job-exits-0.md). So the arm
+// enumerates the surface a SECOND time, from the repository root with no
+// pathspec, and demands the two agree file for file. It still reads no live
+// file's DATA — that would turn any unrelated test file into a self-test failure
+// and take the gate down.
 //
 // `scripts/` has no CI test job and no tsconfig names it, so nothing here would
 // run a `.test.ts`. The suite is driven by `check-test-id-prefixes.mjs` as a
 // preamble, the wiring `check-script-paths.mjs` uses.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   crossFilePrefixCollisions,
+  isScanFile,
   likePrefixPatterns,
+  testFiles,
   testStringLiterals,
 } from "./test-id-prefixes.mjs";
 
@@ -160,7 +168,7 @@ export function testIdPrefixSelfTestFailures() {
   // Arm 3 — nesting inside ONE file is legal. Its hooks run in one process, in
   // order, so they cannot race.
   const sameFile = scan({
-    "packages/one/test/resume-only.test.ts": [
+    "packages/one/test/one-process.test.ts": [
       'const ID_PREFIX = "test-resume-only-";',
       'const CG_PREFIX = "test-resume-only-cg-";',
       "before(async () => {",
@@ -244,19 +252,127 @@ export function testIdPrefixSelfTestFailures() {
   });
   expectCollisions("inline mint template", inlineMint, 1, failures);
 
-  // Arm 8 — the real root. Non-emptiness only.
-  const live = likePrefixPatterns(ROOT);
-  if (live.scanned === 0) {
+  // Arm 8 — a `like()` cleanup that has moved OUT of a `.test.ts` file still
+  // counts. Item 231 proposes exactly that extraction for 40 near-identical
+  // hooks, and a surface of `.test.ts` alone would lose each one silently.
+  const support = scan({
+    "packages/one/test/support/row-scope.ts": suite("test-settings-"),
+    "packages/one/test/tx-core.test.ts": victim("test-settings-tx-"),
+  });
+  expectNoFailures("cleanup in a support file", support, failures);
+  expectCollisions("cleanup in a support file", support, 1, failures);
+  if (support.scanned !== 2) {
     failures.push(
-      "real root: the test-file walk found 0 files, so the live gate would enforce nothing",
+      `cleanup in a support file: expected 2 scanned files, received ${support.scanned}`,
     );
   }
+
+  // Arm 9 — the original bug plus one indirection. The prefix is assembled from
+  // another constant, so it is written nowhere as a literal. Reading only direct
+  // literals reports 0 collisions AND 0 failures, which is the fail-open the
+  // header claims cannot happen.
+  const assembled = scan({
+    "packages/one/test/gateway.test.ts": suite("test-settings-"),
+    "packages/one/test/tx-core.test.ts": [
+      'const BASE = "test-settings";',
+      "const ID_PREFIX = `${BASE}-tx-`;",
+      "const id = `${ID_PREFIX}${randomUUID()}`;",
+      "",
+    ].join("\n"),
+  });
+  expectNoFailures("assembled prefix", assembled, failures);
+  expectCollisions("assembled prefix", assembled, 1, failures);
+  const concatenated = scan({
+    "packages/one/test/gateway.test.ts": suite("test-settings-"),
+    "packages/one/test/tx-core.test.ts": [
+      'const BASE = "test-settings";',
+      'const ID_PREFIX = BASE + "-tx-";',
+      "",
+    ].join("\n"),
+  });
+  expectCollisions("concatenated prefix", concatenated, 1, failures);
+
+  // Arm 10 — a prefix this file cannot resolve is a `failures` entry, on the
+  // DECLARATION side as well as the pattern side. An imported prefix is the
+  // shape that reaches furthest: the census would hold nothing for the whole
+  // file and say nothing about it.
+  const imported = scan({
+    "packages/one/test/gateway.test.ts": suite("test-settings-"),
+    "packages/one/test/tx-core.test.ts": [
+      'import { ID_PREFIX } from "./support/ids";',
+      "",
+      "const id = `${ID_PREFIX}${randomUUID()}`;",
+      "",
+    ].join("\n"),
+  });
+  if (!imported.failures.some((entry) => entry.includes("is imported"))) {
+    failures.push(
+      `imported prefix: expected an unreadable-declaration failure, received ${JSON.stringify(imported.failures)}`,
+    );
+  }
+  const dynamic = scan({
+    "packages/one/test/dynamic-prefix.test.ts": [
+      "const ID_PREFIX = `test-dyn-${process.pid}-`;",
+      "",
+    ].join("\n"),
+  });
+  if (!dynamic.failures.some((entry) => entry.includes("does not resolve to one static string"))) {
+    failures.push(
+      `dynamic prefix: expected an unreadable-declaration failure, received ${JSON.stringify(dynamic.failures)}`,
+    );
+  }
+
+  // Arm 11 — an apostrophe must not swallow the declaration beside it. A regex
+  // that excludes the other quote from a literal's body pairs the `'` of "don't"
+  // with the next `"` and reads `test-settings-tx-` as no literal at all.
+  const apostrophe = scan({
+    "packages/one/test/gateway.test.ts": suite("test-settings-"),
+    "packages/one/test/tx-core.test.ts":
+      'const note = "don\'t"; const ID_PREFIX = "test-settings-tx-";\n',
+  });
+  expectCollisions("apostrophe before a prefix", apostrophe, 1, failures);
+
+  // Arm 12 — the real root, counted twice by two different routes.
+  const live = likePrefixPatterns(ROOT);
   if (live.prefixes.length === 0) {
     failures.push("real root: no LIKE pattern resolved, so the live gate would compare nothing");
   }
   if (testStringLiterals(ROOT).length === 0) {
     failures.push(
       "real root: no test string literal was read, so the live gate would compare nothing",
+    );
+  }
+  const walked = testFiles(ROOT);
+  const independent = execFileSync(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard"],
+    { cwd: ROOT, encoding: "utf8" },
+  )
+    .split("\n")
+    .filter(Boolean)
+    .filter(isScanFile)
+    .filter((file) => existsSync(resolve(ROOT, file)))
+    .sort();
+  if (independent.length === 0) {
+    failures.push("real root: the independent enumeration found 0 files, so it proves nothing");
+  }
+  if (live.scanned !== walked.length) {
+    failures.push(
+      `real root: the walk reported ${live.scanned} scanned file(s) but listed ${walked.length}`,
+    );
+  }
+  const seen = new Set(walked);
+  const dropped = independent.filter((file) => !seen.has(file));
+  const extra = walked.filter((file) => !independent.includes(file));
+  if (dropped.length > 0) {
+    failures.push(
+      `real root: the walk missed ${dropped.length} file(s) of the scan surface, starting with ${dropped[0]}. ` +
+        "A scan root was narrowed or removed; widen SCAN_ROOTS until the two enumerations agree.",
+    );
+  }
+  if (extra.length > 0) {
+    failures.push(
+      `real root: the walk listed ${extra.length} file(s) the repository does not, starting with ${extra[0]}`,
     );
   }
 
