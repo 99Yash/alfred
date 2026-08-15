@@ -429,8 +429,10 @@ export type DbRunner = DbRoot | DbTransaction;
  * one.
  *
  * A runtime guard refuses the concurrent-`runAtomic` case: a second `runAtomic`
- * on a handle whose body is still in flight throws before any SQL runs, so that
- * one failure is loud instead of silent. The guard keys a module-level
+ * on a handle whose body is still in flight rejects before any SQL runs (the
+ * function is `async`, so the guard's throw is a rejection, not a synchronous
+ * throw — consistent with the `Promise<T>` it returns), so that one failure is
+ * loud instead of silent. The guard keys a module-level
  * `WeakSet` on the transaction handle and only when `is(runner, PgTransaction)`
  * — the root client is deliberately not guarded, because each root-client call
  * opens a fresh pool session and concurrent ones are safe. An overlapping direct
@@ -448,7 +450,7 @@ export type DbRunner = DbRoot | DbTransaction;
  */
 const bodiesInFlight = new WeakSet<object>();
 
-export function runAtomic<T>(
+export async function runAtomic<T>(
   runner: DbRunner,
   body: (tx: DbTransaction) => Promise<T>,
 ): Promise<T> {
