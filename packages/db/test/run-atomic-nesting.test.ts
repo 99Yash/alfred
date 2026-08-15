@@ -351,7 +351,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
         });
 
         try {
-          runAtomic(outer, async () => {});
+          await runAtomic(outer, async () => {});
           seen.secondRefused = null;
         } catch (err) {
           seen.secondRefused = err instanceof Error ? err.message : String(err);
