@@ -44,6 +44,9 @@ works from every worktree regardless of what its branch point held.
 written as numbers, `null` as JSON null; the literal `updatedAt` is never passed by hand. A
 phase name outside the known set is refused rather than written.
 
+`prereqs` is the one exception to that `null`. It is an array field, and an array field has no
+meaningful null, so `prereqs=null` writes the empty array rather than JSON null.
+
 `prereqs` takes a comma-separated list and is written as an array. An empty value clears it.
 Every id must name an item in the same campaign, and an item may not be its own prereq;
 `set` refuses the whole command otherwise and writes nothing. So a `design` phase that

@@ -45,10 +45,15 @@ const BOOLEAN_FIELDS = ["needsCoverage"];
  * Fields whose JSON type is an array. `set` writes one by splitting the value on `,`, the
  * same expression `add --prereqs` uses, so the two commands agree on the shape.
  *
- * Without this list `coerce` returns the raw string, and `prereqs=39,187` writes the string
- * `"39,187"` where the driver expects an array. That corruption fails OPEN: `pick_item` in
- * `campaign.sh` reads a string `prereqs` as no prerequisites at all and starts an item the
- * operator sequenced away.
+ * Before this list, `coerce` returned the raw string, so `prereqs=39,187` wrote the string
+ * `"39,187"` where the driver expects an array. That corruption failed OPEN: `pick_item` in
+ * `campaign.sh` read a string `prereqs` as no prerequisites at all, and it started an item
+ * the operator had sequenced away.
+ *
+ * The same commit closed the read side too. `pick_item` and `blocked_report` now open with a
+ * guard clause that stops the driver on a non-array `prereqs`. Keep both halves: this list
+ * stops `set` from minting a bad value, and the guard catches one that reached the file by
+ * some other route — a hand edit, or an older state format.
  */
 const ARRAY_FIELDS = ["prereqs"];
 
