@@ -400,17 +400,20 @@ export type DbRunner = DbRoot | DbTransaction;
  * the precondition below. The outermost transaction stays the single commit unit
  * (`txid_current()` is constant through any depth of nesting), and a failing
  * `body` rolls back to its savepoint and leaves the caller's transaction USABLE.
- * This is NOT transaction reuse: reuse
- * would abort the caller's transaction on an inner failure (`25P02`), so every
- * later statement on that handle — a compensating write included — would fail
- * too. The rejection still propagates out of `runAtomic` unchanged, so a caller
- * that wants the abort gets it by not catching; savepoint semantics only add the
- * OPTION to recover.
+ * This is NOT transaction reuse. Reuse would leave the writes of a body that
+ * throws in JavaScript LIVE in the caller's transaction — with no savepoint there
+ * is nothing to roll back to, so its rows survive and commit with the outer
+ * transaction — and a body that fails with a SQL error would abort the caller's
+ * transaction (`25P02`), making every later statement on that handle, a
+ * compensating write included, fail too. The rejection still propagates out of
+ * `runAtomic` unchanged, so a caller that wants the abort gets it by not
+ * catching; savepoint semantics only add the OPTION to recover.
  *
- * PRECONDITION: one runner is a SEQUENTIAL handle. Two `runAtomic` calls on the
- * same `runner` must not overlap — await one before you start the next, and never
- * put two of them in one `Promise.all`. Nothing enforces this: no type, no check
- * and no runtime guard. Overlap it and the contract above is false in BOTH
+ * PRECONDITION: one runner is a SEQUENTIAL handle. Do not overlap a `runAtomic`
+ * call with any other work on the same `runner` — not with a second `runAtomic`,
+ * and not with a direct write of your own: await one before you start the next,
+ * and never put two of them in one `Promise.all`. Nothing enforces this — no
+ * type, no check and no runtime guard. Overlap it and the contract above is false in BOTH
  * directions, silently and with no error — drizzle names every savepoint after
  * depth alone (`sp${nestedIndex + 1}`), Postgres resolves a duplicate name to the
  * most recent savepoint, so one body's `ROLLBACK TO SAVEPOINT` discards a
