@@ -44,4 +44,7 @@ edit next.
 - New build plan -> put `Status:` near top: `active`, `built`, `superseded`, or `parked`.
 - Completed plan with durable value -> either fold into `reference/` or mark `Status: built`.
 - Do not use `plans/` as current truth unless its status says active.
-- Code moved -> repoint the path a reader must follow **today**: `reference/` docs and standing ADRs describe the current system, so a dead path there is a defect. Leave the path in `plans/`, `research/`, and `blogs/`: those record what was true on their own date, and repointing one path in a table whose other rows are equally dead makes the doc claim a currency it does not have. If a dead path in a dated doc blocks a reader, add a dated pointer beside it — do not edit the path.
+- Code moved -> repoint the path a reader must follow **today**. `reference/` docs, `runbooks/`, this file, and an accepted ADR describe the current system, so a dead path in one of them is a defect. Leave the path in `plans/`, `research/`, `blogs/`, `roadmap.md`, `rfc-triage-tags.md`, and a superseded ADR: each of those records what was true on its own date, and if you repoint one row of a table whose other rows are equally dead, the doc looks current when it is not. Three clauses close the rule, so no sweep decides a file by hand:
+  - **Any doc the two lists above do not name:** if the doc does not describe the system as it is today, leave the path.
+  - **A target is not a dead reference.** A path that names the **intended** layout, such as a target tree in an active plan or in `roadmap.md`, stays as written. It becomes correct when the work lands.
+  - **A blocked reader gets a pointer, not an edit.** Add a dated pointer beside the dead path. Do not change the path itself.
