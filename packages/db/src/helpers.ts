@@ -11,8 +11,8 @@ import {
   type IdentityRef,
   type StableEntityIdInput,
 } from "@alfred/contracts";
-import { sql, type SQL } from "drizzle-orm";
-import { customType, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { is, sql, type SQL } from "drizzle-orm";
+import { customType, PgTransaction, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 import type { DbRoot, DbTransaction } from "./index";
 
@@ -400,6 +400,10 @@ export type DbRunner = DbRoot | DbTransaction;
  * the precondition below. The outermost transaction stays the single commit unit
  * (`txid_current()` is constant through any depth of nesting), and a failing
  * `body` rolls back to its savepoint and leaves the caller's transaction USABLE.
+ * drizzle implements that rollback as `ROLLBACK TO SAVEPOINT` and never issues a
+ * matching `RELEASE`, so a sequence of failing nested bodies accumulates
+ * savepoints until the outer commit — a resource cost, not a correctness change,
+ * and only on the failure path.
  * This is NOT transaction reuse. Reuse would leave the writes of a body that
  * throws in JavaScript LIVE in the caller's transaction — with no savepoint there
  * is nothing to roll back to, so its rows survive and commit with the outer
@@ -412,30 +416,57 @@ export type DbRunner = DbRoot | DbTransaction;
  * PRECONDITION: one runner is a SEQUENTIAL handle. Do not overlap a `runAtomic`
  * call with any other work on the same `runner` — not with a second `runAtomic`,
  * and not with a direct write of your own: await one before you start the next,
- * and never put two of them in one `Promise.all`. Nothing enforces this — no
- * type, no check and no runtime guard. Overlap it and the contract above is
- * false in BOTH directions, silently and with no error — drizzle names every
- * savepoint after depth alone (`sp${nestedIndex + 1}`), and Postgres resolves a
- * duplicate name to the most recent one still alive, so one body's `ROLLBACK TO
- * SAVEPOINT` discards a concurrent sibling's writes — and after that sibling
- * releases its savepoint, a later `ROLLBACK TO SAVEPOINT` of the same name
- * discards even the released work, because the name resolves to the first
- * savepoint again. The caller's own writes on `runner` can vanish the same way,
- * silently: the only error is the one the failing `body` itself rejects with.
- * Fan out over separate root-client transactions instead of over one open one.
+ * and never put two of them in one `Promise.all`. Overlap it and the contract
+ * above is false in BOTH directions, silently and with no error — drizzle names
+ * every savepoint after depth alone (`sp${nestedIndex + 1}`), and Postgres
+ * resolves a duplicate name to the most recent one still alive, so one body's
+ * `ROLLBACK TO SAVEPOINT` discards a concurrent sibling's writes — and after
+ * that sibling releases its savepoint, a later `ROLLBACK TO SAVEPOINT` of the
+ * same name discards even the released work, because the name resolves to the
+ * first savepoint again. The caller's own writes on `runner` can vanish the same
+ * way, silently: the only error is the one the failing `body` itself rejects
+ * with. Fan out over separate root-client transactions instead of over one open
+ * one.
  *
- * There is deliberately no `in` / `instanceof` discriminator. Both union members
+ * A runtime guard refuses the concurrent-`runAtomic` case: a second `runAtomic`
+ * on a handle whose body is still in flight throws before any SQL runs, so that
+ * one failure is loud instead of silent. The guard keys a module-level
+ * `WeakSet` on the transaction handle and only when `is(runner, PgTransaction)`
+ * — the root client is deliberately not guarded, because each root-client call
+ * opens a fresh pool session and concurrent ones are safe. An overlapping direct
+ * write of the caller's own is still refused by nothing and can still vanish;
+ * refusing it would require intercepting the caller's statements, which the
+ * helper cannot do.
+ *
+ * The union stays deliberately undiscriminated at the TYPE level: both members
  * carry `transaction` (drizzle's `PgTransaction` extends `PgDatabase` and
  * re-declares it, `pg-core/session.d.ts`), so an `in` test is always true and
- * narrows nothing; separating them would buy the more dangerous semantics.
- * `packages/db/test/run-atomic-nesting.test.ts` pins this against a live
- * Postgres.
+ * narrows nothing; separating them would buy the more dangerous semantics. The
+ * runtime guard above reads the actual class with `is` instead, which the type
+ * system does not surface. `packages/db/test/run-atomic-nesting.test.ts` pins
+ * all of this against a live Postgres.
  */
+const bodiesInFlight = new WeakSet<object>();
+
 export function runAtomic<T>(
   runner: DbRunner,
   body: (tx: DbTransaction) => Promise<T>,
 ): Promise<T> {
-  return runner.transaction(body);
+  const nested = is(runner, PgTransaction);
+  if (nested) {
+    if (bodiesInFlight.has(runner)) {
+      throw new Error(
+        "runAtomic: this transaction handle already has a nested body in flight. " +
+          "Await one before starting the next, or fan out over separate root-client " +
+          "transactions — overlapping bodies share a savepoint name and Postgres " +
+          "discards one's writes silently.",
+      );
+    }
+    bodiesInFlight.add(runner);
+  }
+  return runner.transaction(body).finally(() => {
+    if (nested) bodiesInFlight.delete(runner);
+  });
 }
 
 /**
