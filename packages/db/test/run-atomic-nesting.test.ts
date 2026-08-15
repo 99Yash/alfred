@@ -143,6 +143,82 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
     );
   });
 
+  test("a nested SQL-error failure un-aborts via ROLLBACK TO SAVEPOINT and leaves the outer transaction usable", async () => {
+    // The JavaScript-throw arm above can never reach SQLSTATE 25P02: a body
+    // that throws in JS leaves no aborted transaction to un-abort. Only a SQL
+    // error (here a duplicate-key insert, 23505) puts the outer transaction in
+    // the aborted state, and only `ROLLBACK TO SAVEPOINT` un-aborts it — the
+    // exact property `persistChatTurnRunInTx` depends on when it recovers from
+    // a unique violation inside the chat-turn transaction.
+    const seen: {
+      outerTxid?: string;
+      innerTxid?: string;
+      innerRejection?: string;
+      rowsAfterFailure?: number | string;
+      callerWriteAccepted?: boolean;
+    } = {};
+
+    await assert.rejects(
+      db().transaction(async (outer) => {
+        await outer.execute(
+          sql`create temp table run_atomic_probe (id int primary key) on commit drop`,
+        );
+        seen.outerTxid = await currentTxid(outer);
+
+        try {
+          await runAtomic(outer, async (inner) => {
+            await inner.execute(sql`insert into run_atomic_probe (id) values (1)`);
+            seen.innerTxid = await currentTxid(inner);
+            // Same primary key a second time — a SQL error, not a JS throw.
+            await inner.execute(sql`insert into run_atomic_probe (id) values (1)`);
+          });
+        } catch (err) {
+          seen.innerRejection = err instanceof Error ? err.name : String(err);
+        }
+
+        // Un-aborted: the read answers instead of raising 25P02, and it sees
+        // none of the failed body's writes.
+        try {
+          const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
+          const [row] = rowsFromExecute<{ n: number }>(result);
+          seen.rowsAfterFailure = row?.n ?? -1;
+        } catch (err) {
+          seen.rowsAfterFailure = sqlState(err) ?? `non-sqlstate: ${String(err)}`;
+        }
+
+        // The caller's own write must still be accepted — a transaction left
+        // aborted by the SQL error would refuse it with 25P02.
+        try {
+          await outer.execute(sql`insert into run_atomic_probe (id) values (2)`);
+          seen.callerWriteAccepted = true;
+        } catch (err) {
+          seen.callerWriteAccepted = false;
+        }
+
+        throw new RollbackSentinel();
+      }),
+      RollbackSentinel,
+    );
+
+    assert.ok(seen.innerRejection, "the inner SQL error must reject");
+    assert.ok(seen.outerTxid, "the outer transaction reported no txid");
+    assert.equal(
+      seen.innerTxid,
+      seen.outerTxid,
+      "nesting opened a SECOND transaction — the outermost transaction is no longer the single commit unit",
+    );
+    assert.equal(
+      seen.rowsAfterFailure,
+      0,
+      `the outer read must answer 0 after the nested SQL error; got ${String(seen.rowsAfterFailure)}. A SQLSTATE here means the rollback-to-savepoint never un-aborted the transaction.`,
+    );
+    assert.equal(
+      seen.callerWriteAccepted,
+      true,
+      "the outer transaction must still accept the caller's own write after the nested SQL error",
+    );
+  });
+
   test("the root client gets one fresh transaction per call, spanning the whole body", async () => {
     // Two statements per call, because ONE statement cannot tell a transaction
     // from autocommit: every bare statement on the root client already runs in
