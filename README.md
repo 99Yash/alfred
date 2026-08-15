@@ -90,8 +90,8 @@ Feature-gated or optional locally: `OPENAI_API_KEY`, `VOYAGE_API_KEY` (embedding
 corepack pnpm dev             # start both apps in watch mode
 corepack pnpm build           # production build of all packages
 corepack pnpm verify:fast     # architecture, static checks, format, and types
-corepack pnpm verify          # verify:fast plus every workspace test suite (much slower)
-corepack pnpm verify:db       # migrate and run the Postgres/Redis-backed suites of every workspace
+corepack pnpm verify          # verify:fast plus each workspace test script except @alfred/db (much slower)
+corepack pnpm verify:db       # migrate, then each workspace test:db script (needs Postgres and Redis)
 corepack pnpm format          # write repository formatting changes
 corepack pnpm db:generate     # generate Drizzle migration from schema diff
 corepack pnpm db:migrate      # apply pending migrations
