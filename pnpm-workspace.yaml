@@ -26,8 +26,9 @@ catalog:
   "@ai-sdk/openai": ^4.0.11
   # Elysia + its sibling packages are pinned to exact versions, and
   # exact-mirror is pinned via the workspace `overrides` block above.
-  # The workspace ships a `normalize: 'typebox'` workaround in
-  # packages/api/src/index.ts for an option-name mismatch between
+  # The workspace ships a `normalize: 'typebox'` workaround on every Elysia
+  # instance (apps/server/src/index.ts and packages/http/src) for an
+  # option-name mismatch between
   # elysia@1.4.28 and exact-mirror@1.0.0 (elysia passes `TypeCompiler`,
   # exact-mirror reads `Compile`). Floating these on `^` risks a patch
   # bump that changes the schema-validator wiring and silently breaks

@@ -61,7 +61,7 @@ const NUL = "\u0000";
  * This is a classification, not a suppression list: nothing here excuses a module or
  * a file, and each entry is a claim that the package itself is genuinely shared. The
  * list is DECLARED rather than computed as `⋃nodeSide − ⋃browserSide`, because that
- * subtraction is wrong in both directions. It would drop `@alfred/api` — `apps/web`
+ * subtraction is wrong in both directions. It would drop `@alfred/http` — `apps/web`
  * declares it for a type-only `import type { App }` — which is the single most
  * forbidden package in the repo. And it would excuse `react` on the strength of
  * `packages/mailer`, which declares it for `@react-email/components`, a server-side
@@ -167,11 +167,11 @@ function emptyGraph(root) {
  *      `browserSurface` says which ones the bundle reaches, so neither half is
  *      restated here;
  *   2. minus `BROWSER_SAFE_NPM_PACKAGES`, the declared exceptions;
- *   3. union `FORBIDDEN_RUNTIME_PACKAGES`, the six names the source fence already
+ *   3. union `FORBIDDEN_RUNTIME_PACKAGES`, the five names the source fence already
  *      forbids.
  *
  * Step 3 is not decoration. Without it the subtraction in step 2 excuses
- * `@alfred/api`, because `apps/web` legitimately declares it for a type-only import
+ * `@alfred/http`, because `apps/web` legitimately declares it for a type-only import
  * — a subtraction-only rule ships a check that cannot see the most forbidden package
  * in the repo.
  *

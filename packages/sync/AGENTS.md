@@ -4,9 +4,9 @@
 
 ## Boundaries
 
-- Keep this package browser-safe. Do not import DB, env, auth, API, AI, integrations, or other Node-only runtime code.
+- Keep this package browser-safe. Do not import DB, env, auth, HTTP, AI, integrations, or other Node-only runtime code.
 - Replicache models belong here; general browser-safe cross-boundary schemas belong in `@alfred/contracts`.
-- Server push/pull endpoints, CVR persistence, row serialization, and server mutator implementations belong in `@alfred/api`. Database row types remain in `@alfred/db`.
+- Server push/pull endpoints, CVR persistence, row serialization, and server mutator implementations belong in `@alfred/http`, under `packages/http/src/sync/`. Database row types remain in `@alfred/db`.
 
 ## Protocol Invariants
 

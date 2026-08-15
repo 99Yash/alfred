@@ -211,7 +211,7 @@ function lexicalPositionFailures() {
       'import { auth } from "@alfred/auth";',
       "*/",
       "const snippet = `",
-      'import { treaty } from "@alfred/api";',
+      'import { treaty } from "@alfred/http";',
       "`;",
       'import { pool } from "@alfred/db";',
       "export const used = [snippet, pool];",
@@ -904,7 +904,7 @@ function docListFailuresFailures() {
       architecture: list(all),
       agents: list(all),
       architectureSafe:
-        "`import type { App } from '@alfred/api'` — type-only, stripped at build time",
+        "`import type { App } from '@alfred/http'` — type-only, stripped at build time",
     },
     (result) =>
       result.length === 0 ? null : `expected no failures, received ${JSON.stringify(result)}`,
