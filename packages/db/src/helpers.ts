@@ -391,25 +391,30 @@ export type DbRunner = DbRoot | DbTransaction;
 
 /**
  * Run `body` atomically: a fresh transaction when `runner` is the root client, a
- * `SAVEPOINT` inside the caller's when it is already a transaction handle.
+ * `SAVEPOINT` inside the caller's when it is already a transaction handle. Both
+ * cases are one call, because drizzle spells them the same way — `DbRoot` and
+ * `DbTransaction` both carry `transaction`, and `NodePgTransaction` implements
+ * the nested call by issuing `SAVEPOINT`.
  *
- * The two are NOT distinguished by the `in` test. Both union members carry
- * `transaction` — drizzle's `PgTransaction` extends `PgDatabase` and re-declares
- * it (`pg-core/session.d.ts`), and `NodePgTransaction` implements the nested call
- * by issuing `SAVEPOINT` (`node-postgres/session.js`) — so the condition is always
- * true, the second arm is unreachable, and TypeScript narrows nothing.
+ * THE CONTRACT WHEN NESTED, decided rather than inherited. The outermost
+ * transaction stays the single commit unit (`txid_current()` is constant through
+ * any depth of nesting), and a failing `body` rolls back to its savepoint and
+ * leaves the caller's transaction USABLE. This is NOT transaction reuse: reuse
+ * would abort the caller's transaction on an inner failure (`25P02`), so every
+ * later statement on that handle — a compensating write included — would fail
+ * too. The rejection still propagates out of `runAtomic` unchanged, so a caller
+ * that wants the abort gets it by not catching; savepoint semantics only add the
+ * OPTION to recover.
  *
- * That leaves atomicity intact (`txid_current()` is unchanged, so the outermost
- * transaction is still the unit that commits or rolls back) but it is not
- * transaction reuse: a failing `body` rolls back to its savepoint and leaves the
- * caller's transaction USABLE, where reuse would abort it. Callers that rely on an
- * inner failure poisoning the outer transaction do not get that here. Campaign
- * item 131 owns the choice between making the branch discriminate
- * (`is(runner, PgTransaction)`) and deleting the dead arm; this docstring only
- * stops the next reader from assuming the semantics the name suggests.
+ * There is deliberately no `in` / `instanceof` discriminator. Both union members
+ * carry `transaction` (drizzle's `PgTransaction` extends `PgDatabase` and
+ * re-declares it, `pg-core/session.d.ts`), so an `in` test is always true and
+ * narrows nothing; separating them would need a drizzle runtime import and would
+ * buy the more dangerous semantics. `packages/db/test/run-atomic-nesting.test.ts`
+ * pins this against a live Postgres.
  */
 export function runAtomic<T>(runner: DbRunner, body: (tx: DbRunner) => Promise<T>): Promise<T> {
-  return "transaction" in runner ? runner.transaction(body) : body(runner);
+  return runner.transaction(body);
 }
 
 /**
