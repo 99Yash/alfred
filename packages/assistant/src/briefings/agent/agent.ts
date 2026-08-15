@@ -13,7 +13,7 @@ import { buildBriefingTools, type DumpedBriefing } from "./tools";
 /**
  * Daily-briefing agent driver.
  *
- * Why not AlfredAgent (from @alfred/ai/agent) yet:
+ * Why not AlfredAgent (from `@alfred/ai`) yet:
  *   AlfredAgent is the per-turn driver designed for the m13 durable
  *   runtime — `turn()` does one model call, the executor dispatches tool
  *   results and checkpoints between turns. The durable executor for that

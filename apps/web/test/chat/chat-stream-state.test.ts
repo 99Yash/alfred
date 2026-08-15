@@ -649,7 +649,7 @@ describe("SubAgentTrail — identity is write-once", () => {
   test("a second child under one parent call keeps the first child's identity", () => {
     // The dependency `streamSnapshotsEqual` rests on, made executable. The
     // server spawns exactly one child per `(parentRunId, parentToolCallId)`
-    // (`packages/api/src/modules/agent/sub-agents.ts` — `findExistingSubAgentRun`
+    // (`packages/assistant/src/execution/sub-agents.ts` — `findExistingSubAgentRun`
     // plus the sub-agent `dedupKey` unique index), so this case cannot happen in
     // production. If it ever could, this is what the client would do: keep the
     // first `subId`/`childRunId`, absorb the second child's calls into that

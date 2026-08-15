@@ -23,7 +23,7 @@ type AlfredProviderOptions = Record<string, Record<string, unknown>>;
 
 /**
  * AlfredAgent — a per-turn LLM driver designed to compose with the durable
- * runtime in `@alfred/api/agent`. See ADR-0026.
+ * runtime in `packages/assistant/src/execution/`. See ADR-0026.
  *
  * Why not `ToolLoopAgent`:
  *   - ToolLoopAgent owns its own multi-step loop. We need a checkpoint

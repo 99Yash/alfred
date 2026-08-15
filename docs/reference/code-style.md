@@ -33,7 +33,7 @@ type DocArg = Pick<Document, "id" | "title" | "content" | "source" | "authoredAt
 - **Prefer the named export.** The schema exports named row types such as `Document`, `Entity`, and `UserFact`. `Pick<Document, ...>` is preferred over re-spelling `Pick<typeof documents.$inferSelect, ...>`: identical type, but it uses the canonical name and stays a pure `import type` instead of pulling the table _value_ into scope just to read its inferred shape. Fall back to `typeof table.$inferSelect` only when no named export exists.
 - A subset of columns → `Pick<Document, ...>`.
 - Everything-but-a-few → `Omit<Document, ...>`.
-- A row mapped to a wire/Replicache shape → keep `r: Document` (the named row type) as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/api/src/modules/memory/facts.ts`, `entities.ts`, `briefing/store.ts`).
+- A row mapped to a wire/Replicache shape → keep `r: Document` (the named row type) as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/assistant/src/knowledge/facts.ts`, `packages/assistant/src/knowledge/entity-graph.ts`, `packages/assistant/src/briefings/store.ts`).
 - Insert payloads → the table's `New*` export where one exists (`NewArtifact`, `NewBriefing`, `NewIntegrationObject`), else `typeof table.$inferInsert` — never a hand-written `{ ... }`. Add a `New<Table>` export when you first need one; don't hand-roll the insert shape.
 - A type-only use (only inside `typeof`) takes `import type` so nothing lands in the runtime bundle — required by `verbatimModuleSyntax` (see [typescript.md](./typescript.md)).
 

@@ -10,7 +10,7 @@ Per ADR-0011 + ADR-0022 (v2 amendment) alfred runs one lifetime-once self-resear
 
 ## The pipeline
 
-The OAuth callback (`google-routes.ts /callback`) calls `createRun({ workflowSlug: COLD_START_WORKFLOW_SLUG, … })` + `enqueueRun(runId)`. The workflow (`apps/server/src/builtins/workflows/cold-start-research.ts`) runs six steps; the helpers live in `packages/api/src/modules/cold-start/`:
+The OAuth callback (`packages/http/src/connections/google-routes.ts`) publishes a `google.oauth.callback` / `completed` fact through `publishGoogleCallbackCompleted`; it names no consumer. The workflow (`packages/assistant/src/knowledge/cold-start/cold-start-research.ts`) subscribes to that fact as an event trigger, and `acceptEvent` (`packages/assistant/src/automation/events.ts`) dispatches the run (ADR-0047). The workflow runs six steps; the helpers live beside it in `packages/assistant/src/knowledge/cold-start/`:
 
 1. **gather-signals** — `collectColdStartSignals(userId)` reads the `user` row + connected `integration_credentials` per provider (ordered by `created_at` ASC for a deterministic anchor). Contributes `{ name, email, emailDomain, emailDomainIsConsumer, integrations.google? }`.
 2. **seed** — `resolveIdentity({ signals })`. A boss-tier model with a local `web_search` tool, capped at a few searches (`stopWhen: isStepCount(n)`), answers "which person is this, exactly?" — pinning the canonical public profile (LinkedIn / company bio / personal site / GitHub) that matches the name + work email. Returns a short prose **identity anchor** (`CONFIDENT:` / `NO CONFIDENT MATCH:` prefix). Mismatch here is the expensive failure mode; the boss is told to prefer "no confident match" over a false anchor.

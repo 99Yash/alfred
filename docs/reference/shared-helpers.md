@@ -185,8 +185,8 @@ deliberate wrapper patterns, or throwaway scripts.
 `packages/api/src/modules/briefing/preferences.ts`). All three now route through
 the pre-existing, better `isIanaTimezone` in `@alfred/contracts` (memoized +
 alias-aware; a bare `Intl.DateTimeFormat` trial once broke briefings on `"UTC"`).
-The api keeps `isValidTimezone` as a one-line alias of `isIanaTimezone` so its
-call sites read in domain terms. Guarded by a `check-consolidation-drift.mjs`
+`packages/assistant/src/time/user-timezone.ts` keeps `isValidTimezone` as a
+one-line alias of `isIanaTimezone` so its call sites read in domain terms. Guarded by a `check-consolidation-drift.mjs`
 rule that bans a hand-rolled `function isValidTimezone`.
 
 **Not a target (deliberate pattern):** the four `getJson` in the Google
