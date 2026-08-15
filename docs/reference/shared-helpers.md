@@ -30,7 +30,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 
 | You're about to write… | Reach for | From | Don't hand-roll |
 |---|---|---|---|
-| a check that an `unknown` is a non-null object before indexing it | `isRecord(x)` / `toRecord(x)` | `@alfred/contracts` | `typeof x === "object" && x !== null` |
+| a check that a *genuinely `unknown`* value at a boundary is a plain object before indexing it | `isRecord(x)` / `toRecord(x)` | `@alfred/contracts` | `typeof x === "object" && x !== null` |
 | coerce `unknown` into a `string[]` | `toStringArray(x)` | `@alfred/contracts` | `x as string[]` — **the drift check bans this** |
 | read a nested field off `unknown`/parsed JSON | `getPath` / `getStringPath` | `@alfred/contracts` | chained `?.` with casts |
 | check a value is a present, non-empty string | `isNonEmptyString(x)` | `@alfred/contracts` | `typeof x === "string" && x.length` |
@@ -64,6 +64,14 @@ Validate external / persisted / protocol data instead of asserting it.
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
 - `getPath`, `getStringPath` (safe nested read)
 - `parseEmailAddress`
+
+`isRecord` answers "is this a plain JSON object?" — a **boundary** question for a value that
+arrived as `unknown`: unparsed JSON, a webhook body, a jsonb column with no type claim, a
+provider trace. It is **not** a tool to re-open a value a schema already parsed. Applied to a
+`z.infer` type, a Drizzle row type, or a locally-authored object it erases the established
+shape back to `Record<string, unknown>`, and every field read has to rediscover a type the
+parse already proved. If the field you want is typed, index it directly — absence already
+shows up as `undefined`.
 
 ### Errors — `@alfred/contracts` (`src/errors.ts`)
 - `toMessage` (~70 uses — the single most-imported helper)
