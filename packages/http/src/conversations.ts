@@ -73,7 +73,12 @@ interface ExistingChatTurnRun {
 }
 
 function getAttachmentUploadRateRedis(): BoundedRedis {
-  attachmentUploadRateRedis ??= createRedisConnection("fail-fast");
+  // `"command"`, not `"fail-fast"`: these counters ARE the upload quota, so
+  // nothing else can answer for them. `assertAttachmentUploadRateAllowed` fails
+  // CLOSED on a rejection, and a `"fail-fast"` handle rejects its first command
+  // after construction even against a healthy Redis — which 503'd the first
+  // attachment upload of every process (#127).
+  attachmentUploadRateRedis ??= createRedisConnection("command");
   return attachmentUploadRateRedis;
 }
 

@@ -114,6 +114,34 @@ export { replicache };
 export type { PullResponse } from "./sync/pull";
 export type { PushResponse } from "./sync/push";
 
+/**
+ * The Redis handle `/ready` probes, built on first request and kept.
+ *
+ * It used to build a fresh `"fail-fast"` connection per request and ping it in
+ * the same tick. That is the one shape `"fail-fast"` always rejects — the
+ * connection is never `ready` yet — so `checks.redis` read `"error"` on every
+ * request against a perfectly healthy Redis (#127).
+ *
+ * Two things changed and both are load-bearing. The kind is `"command"`, so the
+ * cold ping rides the offline queue to the ready connection and still settles
+ * within the profile's 2 s bound when Redis is gone. And the handle is reused,
+ * so the probe stops paying a TCP handshake per request and `closeRedis()` can
+ * close it at shutdown.
+ *
+ * The accepted cost: this reports the health of a socket ioredis is already
+ * auto-reconnecting, so it can answer `"ok"` where a brand-new connection would
+ * fail — a Redis at its client limit, for instance. A probe on the app's own
+ * connection lifetime is the more useful signal for this endpoint.
+ *
+ * Creation stays request-time. `let` alone holds no socket, so importing this
+ * barrel still reads no environment and opens nothing.
+ */
+let readyRedisConn: BoundedRedis | undefined;
+function readyRedis(): BoundedRedis {
+  readyRedisConn ??= createRedisConnection("command");
+  return readyRedisConn;
+}
+
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
 // schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia
 // 1.4.28 passes the wrong option key to `exact-mirror@1.0.0`
@@ -155,18 +183,11 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
       checks.db = "error";
     }
 
-    let conn: BoundedRedis | undefined;
     try {
-      conn = createRedisConnection("fail-fast", { tracked: false });
-      await conn.ping();
+      await readyRedis().ping();
       checks.redis = "ok";
     } catch {
       checks.redis = "error";
-    } finally {
-      // `tracked: false`, so `closeRedis()` never sees this one — close it here
-      // so a failing probe cannot leak a perpetually-reconnecting socket.
-      // quit() can reject if already broken; fall back to a hard disconnect.
-      await conn?.quit().catch(() => conn?.disconnect());
     }
 
     const allOk = Object.values(checks).every((value) => value === "ok");
