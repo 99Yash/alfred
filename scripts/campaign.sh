@@ -129,12 +129,28 @@ on_interrupt() {
 }
 trap on_interrupt INT TERM
 
+# Both selection filters below open with the same guard clause, byte for byte.
+#
+# `.prereqs[]?` reads a NON-ARRAY `prereqs` as no prerequisites at all: iterating a string is
+# a jq error and the `?` swallows it. So an item sequenced behind work that has not landed is
+# offered as unblocked, and the blocked report never mentions it. That is a fail-open, and the
+# thing it lets through is a lane started on work the operator sequenced away.
+#
+# The guard runs BEFORE the `$only` filter on purpose: a malformed item must be reported even
+# when `ITEM=` restricts the run to a different one. `set -euo pipefail` plus the command
+# substitution at both call sites turns jq's exit 5 into a stopped loop, which is the point —
+# one corrupt item halts the campaign until a human repairs it. A missing or null `prereqs`
+# is NOT malformed; it already reads as the empty list, which is what it means.
 # Next item: first non-terminal whose prereqs have all landed. Honors $ITEM.
 pick_item() {
   local skip_list
   skip_list="$(jq -R -s 'split("\n") | map(select(length > 0))' "$SKIPPED")"
   jq -c --argjson terminal "$TERMINAL" --arg only "$ITEM" --argjson skip "$skip_list" '
-    .items as $all
+    [ .items[] | select(.prereqs != null and (.prereqs | type) != "array") | .id ] as $malformed
+    | if ($malformed | length) > 0
+      then error("item(s) \($malformed | join(", ")) carry a non-array prereqs — repair with: scripts/campaign-state.mjs set --state <state.json> --id <id> prereqs=<a,b>")
+      else . end
+    | .items as $all
     | [ .items[]
         | select($only == "" or .id == $only)
         | select(.id as $i | $skip | index($i) | not)
@@ -150,7 +166,11 @@ pick_item() {
 
 blocked_report() {
   jq -r --argjson terminal "$TERMINAL" '
-    .items as $all
+    [ .items[] | select(.prereqs != null and (.prereqs | type) != "array") | .id ] as $malformed
+    | if ($malformed | length) > 0
+      then error("item(s) \($malformed | join(", ")) carry a non-array prereqs — repair with: scripts/campaign-state.mjs set --state <state.json> --id <id> prereqs=<a,b>")
+      else . end
+    | .items as $all
     | [ .items[]
         | select(.phase as $p | $terminal | index($p) | not)
         | select(

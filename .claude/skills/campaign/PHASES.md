@@ -23,6 +23,7 @@ CS="$(cd "$C/../.." && pwd)/scripts/campaign-state.mjs"
 
 node "$CS" set --state "$S" --id 09 phase=review round=1 pr=764
 node "$CS" set --state "$S" --id 09 phase=needs-human note="one line why"
+node "$CS" set --state "$S" --id 09 prereqs=39,187      # a prereq the design discovered
 node "$CS" add --state "$S" --item-slug fence-the-door --title "Fence the door" --prereqs 09
 node "$CS" note --state "$S" "- [09 design] the fact another item needs"
 node "$CS" get  --state "$S" --id 09
@@ -42,6 +43,14 @@ works from every worktree regardless of what its branch point held.
 `note` appends to `NOTES.md` under the same lock, for the same reason. `round` and `pr` are
 written as numbers, `null` as JSON null; the literal `updatedAt` is never passed by hand. A
 phase name outside the known set is refused rather than written.
+
+`prereqs` is the one exception to that `null`. It is an array field, and an array field has no
+meaningful null, so `prereqs=null` writes the empty array rather than JSON null.
+
+`prereqs` takes a comma-separated list and is written as an array. An empty value clears it.
+Every id must name an item in the same campaign, and an item may not be its own prereq;
+`set` refuses the whole command otherwise and writes nothing. So a `design` phase that
+discovers a prerequisite records it here, under the lock, instead of editing `state.json`.
 
 Every phase sets at minimum `phase`; most also set one more field. The shape it maintains:
 
