@@ -241,8 +241,8 @@ export async function publishCatalogRevision(
     return revision;
   };
   // Atomic either way: a root client opens a transaction, and a caller's open
-  // transaction gets a SAVEPOINT nested inside it (see `runAtomic`; item 131 owns
-  // whether nesting should reuse instead).
+  // transaction gets a SAVEPOINT nested inside it, so a failure here rolls back
+  // both writes and leaves the caller's transaction usable (see `runAtomic`).
   return runAtomic(runner, run);
 }
 
