@@ -27,9 +27,15 @@ import { dbBackedSkip } from "../support/db-backed";
  * BullMQ job carrying its `runId` sits on the agent queue.
  *
  * Opt-in: runs only when `DATABASE_URL` and `REDIS_URL` point at reachable test
- * services. Seeds a throwaway `test-start-run-*` user and cascades it away on
- * teardown. The agent worker never runs here, so the enqueued job is inspected
- * and removed directly.
+ * services. Seeds a throwaway `test-start-run-direct-*` user and cascades it away
+ * on teardown. The agent worker never runs here, so the enqueued job is
+ * inspected and removed directly.
+ *
+ * The `-direct-` segment is load-bearing: the sibling `start-run-in-tx` suite
+ * owns `test-start-run-in-tx-`, and `tsx --test` runs the two files as
+ * concurrent processes against one database. A bare `test-start-run-` prefix here
+ * would make the `before` cleanup below delete the in-tx suite's rows mid-run.
+ * `pnpm check:test-id-prefixes` fails on any such pair.
  */
 const SKIP = dbBackedSkip("database+redis");
 
@@ -56,7 +62,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
 };
 
 const SLUG = "__test-start-run";
-const ID_PREFIX = "test-start-run-";
+const ID_PREFIX = "test-start-run-direct-";
 const createdUserIds: string[] = [];
 const createdRunIds: string[] = [];
 
