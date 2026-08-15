@@ -431,7 +431,10 @@ export type DbRunner = DbRoot | DbTransaction;
  * `packages/db/test/run-atomic-nesting.test.ts` pins this against a live
  * Postgres.
  */
-export function runAtomic<T>(runner: DbRunner, body: (tx: DbRunner) => Promise<T>): Promise<T> {
+export function runAtomic<T>(
+  runner: DbRunner,
+  body: (tx: DbTransaction) => Promise<T>,
+): Promise<T> {
   return runner.transaction(body);
 }
 
