@@ -166,4 +166,78 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
       "two separate calls shared one transaction — each root-client call must open its own",
     );
   });
+
+  test("depth-2 nesting still keeps the outermost transaction the single commit unit", async () => {
+    // The headline claim is "any depth": `txid_current()` is constant through
+    // ANY depth of nesting, and the invariant says "any sequence of nested
+    // `runAtomic` calls". The other two arms drive depth 1 only; a future
+    // drizzle upgrade that changed savepoint naming or nesting behavior at
+    // depth >= 2 (a name that collides across siblings, or a nested commit)
+    // would go green today without this arm.
+    const seen: {
+      outerTxid?: string;
+      depth1Txid?: string;
+      depth2Txid?: string;
+      innerRejection?: string;
+      rowsAfterFailure?: number | string;
+    } = {};
+
+    await assert.rejects(
+      db().transaction(async (outer) => {
+        await outer.execute(
+          sql`create temp table run_atomic_probe (id int primary key) on commit drop`,
+        );
+        seen.outerTxid = await currentTxid(outer);
+
+        await runAtomic(outer, async (depth1) => {
+          seen.depth1Txid = await currentTxid(depth1);
+
+          try {
+            await runAtomic(depth1, async (depth2) => {
+              seen.depth2Txid = await currentTxid(depth2);
+              await depth2.execute(sql`insert into run_atomic_probe (id) values (1)`);
+              throw new InnerFailure();
+            });
+          } catch (err) {
+            seen.innerRejection = err instanceof Error ? err.name : String(err);
+          }
+        });
+
+        // The depth-2 failure rolled back to its savepoint; the outer read
+        // still answers 0 and the outer transaction is still usable.
+        try {
+          const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
+          const [row] = rowsFromExecute<{ n: number }>(result);
+          seen.rowsAfterFailure = row?.n ?? -1;
+        } catch (err) {
+          seen.rowsAfterFailure = sqlState(err) ?? `non-sqlstate: ${String(err)}`;
+        }
+
+        throw new RollbackSentinel();
+      }),
+      RollbackSentinel,
+    );
+
+    assert.ok(seen.outerTxid, "the outer transaction reported no txid");
+    assert.equal(
+      seen.depth1Txid,
+      seen.outerTxid,
+      "depth-1 nesting opened a SECOND transaction — the outermost transaction is no longer the single commit unit",
+    );
+    assert.equal(
+      seen.depth2Txid,
+      seen.outerTxid,
+      "depth-2 nesting opened a SECOND transaction — the outermost transaction is no longer the single commit unit",
+    );
+    assert.equal(
+      seen.innerRejection,
+      "InnerFailure",
+      "the depth-2 rejection must propagate unchanged",
+    );
+    assert.equal(
+      seen.rowsAfterFailure,
+      0,
+      `the outer read must answer 0 after the depth-2 failure; got ${String(seen.rowsAfterFailure)}`,
+    );
+  });
 });
