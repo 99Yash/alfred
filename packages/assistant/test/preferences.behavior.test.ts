@@ -19,12 +19,18 @@ import { dbBackedSkip } from "./support/db-backed";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
  * migrated schema (the local dev DB). Skipped otherwise so the pure-function
- * suite still runs without a database. It seeds throwaway `test-settings-*`
+ * suite still runs without a database. It seeds throwaway `test-settings-gw-*`
  * users and deletes them (cascade clears their preferences) on teardown.
+ *
+ * The `-gw-` segment is load-bearing: the sibling `preferences-tx-core.behavior`
+ * suite owns `test-settings-tx-`, and `tsx --test` runs the two files as
+ * concurrent processes against one database. A bare `test-settings-` prefix here
+ * would make the `before` cleanup below delete the tx suite's rows mid-run.
+ * `pnpm check:test-id-prefixes` fails on any such pair.
  */
 const SKIP = dbBackedSkip("database");
 
-const ID_PREFIX = "test-settings-";
+const ID_PREFIX = "test-settings-gw-";
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
