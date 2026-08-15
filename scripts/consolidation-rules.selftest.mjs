@@ -208,6 +208,39 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
     file: "packages/assistant/src/flags.ts",
     code: `const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";`,
   },
+  {
+    name: "hand-rolled-nested-transaction — the two restated savepoint sites (push.ts, service.ts)",
+    caught: true,
+    code: `
+async function applyMutation(tx: DbTransaction) {
+  await tx.transaction(async (subTx: DbTx) => {
+    await subTx.execute(sql\`insert into probe (id) values (1)\`);
+  });
+}`,
+  },
+  {
+    name: "hand-rolled-nested-transaction — the sanctioned db().transaction root client never matches",
+    caught: false,
+    code: `
+const row = await db().transaction(async (tx) => {
+  return tx.execute(sql\`select 1\`);
+});`,
+  },
+  {
+    name: "hand-rolled-nested-transaction — an adapter-interface call without its marker fires (the marker is what saves it)",
+    caught: true,
+    code: `
+  transaction: (callback) =>
+    adapter.transaction((trx) => callback(decorateOperations(trx, resolved) as typeof trx)),`,
+  },
+  {
+    name: "hand-rolled-nested-transaction — the adapter-interface call with its drift-ok comment block above",
+    caught: false,
+    code: `
+  transaction: (callback) =>
+    // drift-ok: Better-Auth adapter interface — its transaction wraps db().transaction internally
+    adapter.transaction((trx) => callback(decorateOperations(trx, resolved) as typeof trx)),`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is

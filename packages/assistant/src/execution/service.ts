@@ -1,5 +1,6 @@
 import { toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
+import { runAtomic } from "@alfred/db/helpers";
 import { actionStagings, agentRuns, agentSteps, workflows } from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
@@ -347,7 +348,7 @@ export async function persistChatTurnRunInTx(
   tx: DbTransaction,
   args: CreateRunArgs,
 ): Promise<CreateRunResult> {
-  return tx.transaction((sp) => createRun(args, sp));
+  return runAtomic(tx, (sp) => createRun(args, sp));
 }
 
 /** Create a new user-authored occurrence linked to a prior run. */
