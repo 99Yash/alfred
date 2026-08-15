@@ -213,6 +213,30 @@ export const RULES = [
     fix: "Use withDefaults(DEFAULTS, overrides) from @alfred/contracts — it ignores override keys whose value is undefined, so a default can't be zeroed by a present-undefined.",
   },
   {
+    id: "hand-rolled-nested-transaction",
+    // `.transaction(` on a handle you already hold is the savepoint-on-nest
+    // contract restated in prose instead of through `runAtomic` — push.ts and
+    // execution/service.ts each carried one. The ~40 root-client sites cannot
+    // match: `\w+\.` needs a word char immediately before the `.`, and the
+    // sanctioned `db().transaction(` puts a `)` there (the receiver is `db()`),
+    // so the rule discriminates on the receiver, not the call.
+    //
+    // A DIFFERENT interface with the same method name is the escape hatch's job:
+    // the Better-Auth/DI adapter `transaction` (credential-adapter.ts:331,
+    // google-credential-lifecycle.ts:100,138) is not a Drizzle handle and wraps
+    // `db().transaction` itself, so those sites carry a `// drift-ok:` comment
+    // block directly above the call. That is why this is `scope: "chain"`: the
+    // marker needs multi-line prose, and a line rule only reads one physical
+    // line — the adapter call is too long to fit the marker as a trailing
+    // comment. `helpers.ts` is the one whole-file owner: `runAtomic` is the
+    // helper this rule points at, and `runner.transaction(body)` IS it.
+    re: /\b\w+\.transaction\s*\(/,
+    scope: "chain",
+    severity: "gate",
+    owners: ["packages/db/src/helpers.ts"],
+    fix: "Use runAtomic(runner, body) from @alfred/db/helpers — `.transaction()` on a handle you already hold is a hand-rolled savepoint. `db().transaction(` is the sanctioned root-client spelling and does not match; a Better-Auth/DI adapter's own `transaction` method is a different interface and carries a `// drift-ok:` comment block above the call.",
+  },
+  {
     id: "unguarded-agent-run-status-write",
     // A status write to `agent_runs` outside the executor's guarded door: a bare
     // `.where(eq(agentRuns.id, ...))` compiles, reads fine, and silently
