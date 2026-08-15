@@ -234,27 +234,32 @@ The local verification levels are:
 
 - `pnpm verify:fast`: architecture, boundaries, static checks, format, and types.
 - `pnpm verify`: `verify:fast` plus the `test` script of every workspace that
-  declares one. This lane runs thousands of tests, so it is much slower than
-  the lane it replaced.
+  declares one, except `@alfred/db`. This lane runs thousands of tests, so it is
+  much slower than the lane it replaced.
 - `pnpm verify:db`: migrations plus the `test:db` script of every workspace that
-  declares one, with Postgres and Redis available.
+  declares one. This lane needs Postgres and Redis. A `test:db` script runs the
+  same test files as the `test` script of the same package. It adds the service
+  environment.
 
 Both test lanes select their workspaces with `pnpm -r`, so a new package and a
 test file that moves between packages stay in the gate. No root script holds a
-list of packages to include. `--no-bail` keeps a failed package from hiding the
-results of the packages after it.
+list of packages to include. `--no-bail` makes each package report its own
+result. Without it, one failed package deletes the output of the packages after
+it.
 
 `verify:db` adds `--workspace-concurrency=1`, so it runs one package at a time.
-Every package in that lane talks to the same local Postgres. Run them together
-and one package's fixtures delete another package's rows. The serial lane costs
-no measurable time, because the database is the bottleneck either way.
+Every package in that lane uses the same local Postgres. If two of them run
+together, the fixtures of one package delete the rows of the other. The serial
+lane costs no measurable time. The database limits the speed of the parallel
+lane too.
 
 `test:deterministic` excludes one package by name: `@alfred/db`. Two of its
-suites (`packages/db/test/redis-cold-command.test.ts` and
-`redis-subscriber-reconnect.test.ts`) fail rather than skip when no Redis
-answers, so they cannot run in a lane that must stay green on a checkout with no
-services. `@alfred/db` keeps its `test:db` lane, which runs the same files. Delete
-the exclusion when those two suites skip on an absent Redis.
+suites fail when no Redis answers, and they do not skip:
+`packages/db/test/redis-cold-command.test.ts` and
+`packages/db/test/redis-subscriber-reconnect.test.ts`. This lane must pass on a
+checkout that runs no services, so it cannot include those two suites.
+`@alfred/db` keeps its `test:db` lane, which runs the same files. Delete the
+exclusion when those two suites skip on an absent Redis.
 
 `pnpm verify` and `pnpm verify:db` are local gates. A CI job must not call
 them. The `dbBackedSkip` helper throws when `CI` is set and a service variable
