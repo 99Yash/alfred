@@ -17,6 +17,7 @@
  *
  * Usage:
  *   campaign-state.mjs set  --state <path> --id <id> phase=review round=1 pr=764 note="..."
+ *   campaign-state.mjs set  --state <path> --id <id> prereqs=39,187   (an empty value clears it)
  *   campaign-state.mjs add  --state <path> --item-slug fence-the-door --title "..." [--prereqs 39,73]
  *   campaign-state.mjs note --state <path> "- [70 design] the fact another item needs"
  *   campaign-state.mjs get  --state <path> [--id <id>]
@@ -39,6 +40,22 @@ const PHASES = ["cover", "design", "implement", "review", "revise", "land", ...T
 /** Fields whose JSON type is not string. Anything else is written as given. */
 const NUMERIC_FIELDS = ["round", "pr"];
 const BOOLEAN_FIELDS = ["needsCoverage"];
+
+/**
+ * Fields whose JSON type is an array. `set` writes one by splitting the value on `,`, the
+ * same expression `add --prereqs` uses, so the two commands agree on the shape.
+ *
+ * Before this list, `coerce` returned the raw string, so `prereqs=39,187` wrote the string
+ * `"39,187"` where the driver expects an array. That corruption failed OPEN: `pick_item` in
+ * `campaign.sh` read a string `prereqs` as no prerequisites at all, and it started an item
+ * the operator had sequenced away.
+ *
+ * The same commit closed the read side too. `pick_item` and `blocked_report` now open with a
+ * guard clause that stops the driver on a non-array `prereqs`. Keep both halves: this list
+ * stops `set` from minting a bad value, and the guard catches one that reached the file by
+ * some other route — a hand edit, or an older state format.
+ */
+const ARRAY_FIELDS = ["prereqs"];
 
 function die(message) {
   process.stderr.write(`campaign-state: ${message}\n`);
@@ -154,6 +171,12 @@ function readState(statePath) {
 }
 
 function coerce(field, raw) {
+  // The array branch runs BEFORE the `null` branch. An array field has no meaningful null:
+  // "no prerequisites" is the empty array, so `prereqs=` and `prereqs=null` both write `[]`.
+  if (ARRAY_FIELDS.includes(field)) {
+    if (raw === "null") return [];
+    return raw.split(",").filter((one) => one.length > 0);
+  }
   if (raw === "null") return null;
   if (NUMERIC_FIELDS.includes(field)) {
     const value = Number(raw);
@@ -183,16 +206,30 @@ function commandSet(statePath, flags, assignments) {
     die(`unknown phase ${updates.phase} — expected one of ${PHASES.join(", ")}`);
   }
 
-  withLock(statePath, () => {
+  // The locked body RETURNS its refusal instead of calling `die` itself. `die` ends the
+  // process, and `process.exit` skips the `finally` that releases the lock — so a refusal
+  // taken under the lock would leave the lock directory behind and make every other lane
+  // wait out the 60s timeout for a command that wrote nothing.
+  const refusal = withLock(statePath, () => {
     const state = readState(statePath);
     const item = state.items.find((candidate) => candidate.id === id);
-    if (!item) die(`no item ${id} in ${statePath}`);
+    if (!item) return `no item ${id} in ${statePath}`;
+    // Prereq ids are checked HERE because the check reads the item list, which only the
+    // lock holder may trust. This mirrors what `add --prereqs` already does.
+    for (const prereq of updates.prereqs ?? []) {
+      if (prereq === id) return `item ${id} cannot be its own prereq`;
+      if (!state.items.some((candidate) => candidate.id === prereq)) {
+        return `prereq ${prereq} is not an item in ${statePath}`;
+      }
+    }
     const before = `${item.phase}:${item.round ?? 0}`;
     selftestDelay();
     Object.assign(item, updates, { updatedAt: new Date().toISOString().replace(/\.\d+Z$/, "Z") });
     writeAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
     process.stdout.write(`item ${id}: ${before} → ${item.phase}:${item.round ?? 0}\n`);
+    return null;
   });
+  if (refusal) die(refusal);
 }
 
 function commandNote(statePath, lines) {

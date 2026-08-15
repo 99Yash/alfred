@@ -107,6 +107,59 @@ function run(args, options = {}) {
   rmSync(dir, { recursive: true, force: true });
 }
 
+// --- prereqs: the one array field `set` may write --------------------------
+
+{
+  const { dir, statePath } = freshState(9);
+  const itemAt = (index) => JSON.parse(readFileSync(statePath, "utf8")).items[index];
+
+  const written = run(["set", "--state", statePath, "--id", "01", "prereqs=03,05"]);
+  check("prereqs set succeeds", written.ok, `exited non-zero: ${written.stderr ?? ""}`);
+  const prereqs = itemAt(0).prereqs;
+  check(
+    "prereqs is an array, not the raw string",
+    Array.isArray(prereqs),
+    `prereqs is ${JSON.stringify(prereqs)}`,
+  );
+  check(
+    "prereqs holds every id, in order",
+    JSON.stringify(prereqs) === JSON.stringify(["03", "05"]),
+    `prereqs is ${JSON.stringify(prereqs)}`,
+  );
+
+  run(["set", "--state", statePath, "--id", "01", "prereqs="]);
+  check(
+    "an empty prereqs clears the array",
+    JSON.stringify(itemAt(0).prereqs) === "[]",
+    `prereqs is ${JSON.stringify(itemAt(0).prereqs)}`,
+  );
+  run(["set", "--state", statePath, "--id", "01", "prereqs=03"]);
+  run(["set", "--state", statePath, "--id", "01", "prereqs=null"]);
+  check(
+    "prereqs=null clears the array rather than writing JSON null",
+    JSON.stringify(itemAt(0).prereqs) === "[]",
+    `prereqs is ${JSON.stringify(itemAt(0).prereqs)}`,
+  );
+
+  run(["set", "--state", statePath, "--id", "01", "prereqs=03,05"]);
+  check(
+    "a prereq that names no item is refused",
+    !run(["set", "--state", statePath, "--id", "01", "prereqs=03,99"]).ok,
+    "a set with a nonexistent prereq succeeded",
+  );
+  check(
+    "an item may not be its own prereq",
+    !run(["set", "--state", statePath, "--id", "01", "prereqs=01"]).ok,
+    "a self-prereq was written",
+  );
+  check(
+    "a refused prereqs write leaves the array alone",
+    JSON.stringify(itemAt(0).prereqs) === JSON.stringify(["03", "05"]),
+    `prereqs is ${JSON.stringify(itemAt(0).prereqs)}`,
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
+
 // --- the separating drive: concurrent writers to different items ----------
 
 {
@@ -274,4 +327,4 @@ if (failures.length > 0) {
   for (const failure of failures) process.stderr.write(`- ${failure}\n`);
   process.exit(1);
 }
-process.stdout.write("campaign-state self-test: clean (7 drives)\n");
+process.stdout.write("campaign-state self-test: clean (8 drives)\n");
