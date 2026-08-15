@@ -1,10 +1,20 @@
 // Public seam for the conversations module. Owns the chat recipe (chatTurnWorkflow),
-// chat context assembly + summaries + compaction, and the end-of-thread idle-capture trigger.
-// HTTP routes stay in @alfred/api and import from here.
+// turn admission and attachment ingest, chat context assembly + summaries +
+// compaction, and the end-of-thread idle-capture trigger.
+//
+// The chat HTTP routes live in `packages/http/src/conversations.ts` and hold
+// transport only, so every decision a chat send takes reaches them through this
+// seam. Four entry points carry those decisions — `startChatTurn`,
+// `stopChatTurn`, `uploadChatAttachment`, `resolveChatAttachmentContentUrl`.
+// The storage, quota and dedup helpers under them are module-private on
+// purpose: a caller that reaches past these four takes a decision this module
+// owns.
 
-export { chatTurnWorkflow, CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
+export { chatTurnWorkflow } from "./chat-turn";
 
-export { requestChatStop } from "./stop-signal";
+export { startChatTurn, stopChatTurn } from "./turn-admission";
+
+export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachment-ingest";
 
 export {
   backgroundCompactionThresholdTokens,
@@ -32,8 +42,6 @@ export {
 
 export { chatMemoryCaptureWorkflow } from "./chat-memory-capture";
 
-export { toAttachmentRow, writeObject, type AttachmentInput } from "./attachments";
-
 export {
   claimChatAttachmentEnrichment,
   enrichClaimedChatAttachment,
@@ -43,14 +51,5 @@ export {
 export { deleteObjects, deletePrefix, isStorageConfigured } from "./attachments/storage";
 
 export { lockChatStorageKeys } from "./attachments/storage-coordination";
-
-export {
-  assertAttachmentBatchAllowed,
-  assertPassThroughImageBytes,
-  assertStoredAttachmentReady,
-  assertUploadAllowed,
-} from "./attachments";
-
-export { attachmentUrl, buildAttachmentKey, copyObject, objectExists } from "./attachments/storage";
 
 export { registerConversationsSystemToolAdapter } from "./system-tool-adapter";
