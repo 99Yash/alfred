@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { auth } from "@alfred/auth";
 import { db } from "@alfred/db";
 import IORedis from "ioredis";
+import { ambientRouteSurfaceCase, routeSurfaceFor } from "./support/route-surface";
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {
   DATABASE_URL: "postgresql://localhost:5432/alfred_test",
@@ -35,85 +36,14 @@ for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
 
 const { app } = await import("@alfred/http");
 
-const EXPECTED_ROUTES = [
-  "POST /api/replicache/pull",
-  "POST /api/replicache/push",
-  "GET /api/replicache/events",
-  "GET /api/events/",
-  "POST /api/events/_demo",
-  "GET /api/agent/workflows",
-  "POST /api/agent/runs",
-  "POST /api/agent/runs/:runId/replay",
-  "GET /api/agent/runs/:runId",
-  "POST /api/agent/runs/:runId/signal",
-  "POST /api/approvals/:stagingId/decision",
-  "POST /api/chat/transcribe",
-  "POST /api/chat/attachments/upload",
-  "GET /api/chat/attachments/:id/content",
-  "POST /api/chat/runs/:runId/stop",
-  "POST /api/chat/threads/:threadId/turn",
-  "GET /api/integrations/google/connect",
-  "GET /api/integrations/google/credentials",
-  "DELETE /api/integrations/google/:id",
-  "PATCH /api/integrations/google/:id/persona",
-  "POST /api/integrations/google/:id/watch",
-  "DELETE /api/integrations/google/:id/watch",
-  "GET /api/integrations/google/:id/watch",
-  "POST /api/integrations/google/:id/ingest",
-  "GET /api/integrations/google/callback",
-  "GET /api/integrations/github/connect",
-  "GET /api/integrations/github/credentials",
-  "DELETE /api/integrations/github/:id",
-  "GET /api/integrations/github/callback",
-  "GET /api/integrations/notion/connect",
-  "GET /api/integrations/notion/credentials",
-  "DELETE /api/integrations/notion/:id",
-  "GET /api/integrations/notion/callback",
-  "POST /api/integrations/railway/connect",
-  "GET /api/integrations/railway/credentials",
-  "DELETE /api/integrations/railway/:id",
-  "GET /api/integrations/vercel/connect",
-  "GET /api/integrations/vercel/credentials",
-  "DELETE /api/integrations/vercel/:id",
-  "GET /api/integrations/vercel/callback",
-  "POST /webhooks/gmail",
-  "POST /webhooks/github",
-  "GET /api/integrations/mcp/connections",
-  "GET /api/integrations/mcp/github/connect",
-  "GET /api/integrations/mcp/connections/:id/reconsent",
-  "GET /api/integrations/mcp/client-metadata",
-  "GET /api/integrations/mcp/callback",
-  "GET /api/integrations/tool-tiers",
-  "GET /api/me/inbox",
-  "GET /api/me/inbox/:documentId",
-  "POST /api/me/inbox/mark-read",
-  "GET /api/me/meetings",
-  "GET /api/me/briefings/latest",
-  "POST /api/me/briefings/run",
-  "GET /api/me/usage/summary",
-  "GET /api/me/usage/breakdown",
-  "GET /api/me/usage/activity",
-  "GET /api/me/onboarding/",
-  "POST /api/me/onboarding/complete",
-  "POST /api/skills/",
-  "POST /api/skills/:id/relearn",
-  "POST /api/workflows/:id/recovery",
-  "GET /health",
-  "GET /ready",
-  "GET /api/auth/get-session",
-  "ALL /*",
-] as const;
-
-const expectedRoutes =
-  process.env.NODE_ENV === undefined || process.env.NODE_ENV === "development"
-    ? EXPECTED_ROUTES
-    : EXPECTED_ROUTES.filter((route) => route !== "POST /api/events/_demo");
-
 describe("@alfred/http root app", () => {
+  // `ambientRouteSurfaceCase()` is read here, after the fixture loop above has seeded
+  // `NODE_ENV`, so it describes the same value the barrel read at import time.
+  // `../route-surface-env.test.ts` covers every other value in a child process each.
   test("keeps the complete ordered route surface", () => {
     assert.deepEqual(
       app.routes.map(({ method, path }) => `${method} ${path}`),
-      expectedRoutes,
+      routeSurfaceFor(ambientRouteSurfaceCase()),
     );
   });
 
