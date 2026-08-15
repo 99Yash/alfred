@@ -316,4 +316,81 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
       `the outer read must answer 0 after the depth-2 failure; got ${String(seen.rowsAfterFailure)}`,
     );
   });
+
+  test("a second concurrent runAtomic on one handle is refused before any SQL runs", async () => {
+    // The runtime guard (campaign item 274): the round-2 measurement showed two
+    // concurrent `runAtomic` calls on ONE handle silently lose writes — drizzle
+    // names every savepoint after depth alone (`sp${nestedIndex + 1}`), so the
+    // two bodies share a name and one's `ROLLBACK TO SAVEPOINT` discards the
+    // other's live writes while both are in flight. The guard refuses the second
+    // call before it can send any statement, so the outer transaction stays
+    // usable and keeps both surviving writes.
+    const seen: {
+      outerTxid?: string;
+      /** The guard's message when the second call is refused, or null if it ran. */
+      secondRefused?: string | null;
+      firstResolved?: boolean;
+      rowsAfterSecond?: number | string;
+    } = {};
+
+    await assert.rejects(
+      db().transaction(async (outer) => {
+        await outer.execute(
+          sql`create temp table run_atomic_probe (id int primary key) on commit drop`,
+        );
+        seen.outerTxid = await currentTxid(outer);
+
+        let releaseFirst: (() => void) | undefined;
+        const firstStarted = new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+
+        const first = runAtomic(outer, async (inner) => {
+          await inner.execute(sql`insert into run_atomic_probe (id) values (1)`);
+          await firstStarted;
+        });
+
+        try {
+          runAtomic(outer, async () => {});
+          seen.secondRefused = null;
+        } catch (err) {
+          seen.secondRefused = err instanceof Error ? err.message : String(err);
+        }
+
+        releaseFirst?.();
+        await first;
+        seen.firstResolved = true;
+
+        try {
+          await outer.execute(sql`insert into run_atomic_probe (id) values (2)`);
+          const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
+          const [row] = rowsFromExecute<{ n: number }>(result);
+          seen.rowsAfterSecond = row?.n ?? -1;
+        } catch (err) {
+          seen.rowsAfterSecond = sqlState(err) ?? `non-sqlstate: ${String(err)}`;
+        }
+
+        throw new RollbackSentinel();
+      }),
+      RollbackSentinel,
+    );
+
+    assert.ok(seen.secondRefused, "the second concurrent runAtomic was not refused");
+    assert.match(
+      seen.secondRefused ?? "",
+      /already has a nested body in flight/,
+      "the refusal must name the precondition so the caller knows the fix",
+    );
+    assert.ok(seen.outerTxid, "the outer transaction reported no txid");
+    assert.equal(
+      seen.firstResolved,
+      true,
+      "the refused second call must not disturb the in-flight first body",
+    );
+    assert.equal(
+      seen.rowsAfterSecond,
+      2,
+      `the outer transaction must stay usable and keep both surviving writes; got ${String(seen.rowsAfterSecond)}`,
+    );
+  });
 });
