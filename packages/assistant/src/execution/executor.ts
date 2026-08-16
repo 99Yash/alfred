@@ -197,9 +197,14 @@ async function guardRunOwnership(
   tx: DbTransaction,
   runId: string,
   attempt: number,
+  expectedGeneration: number,
 ): Promise<SupersedeCause | null> {
   const rows = await tx
-    .select({ status: agentRuns.status, attempt: agentRuns.attempt })
+    .select({
+      status: agentRuns.status,
+      attempt: agentRuns.attempt,
+      cancellationGeneration: agentRuns.cancellationGeneration,
+    })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .for("update");
@@ -207,6 +212,13 @@ async function guardRunOwnership(
   // A vanished row is a reclaim-shaped miss (nothing to resurrect).
   if (!row) return "reclaim";
   if (row.attempt !== attempt) return "reclaim";
+  // #559b: the monotonic cancellation fence. `cancelRunInTx` bumps the
+  // generation the moment it lands; a step that started under an older value
+  // must not commit, even if a future path ever advances the fence without
+  // terminalizing the status. Today the only generator is cancel, so a
+  // mismatch and a terminal status coincide — either way this worker rolls back
+  // and reports `run_already_terminal`.
+  if (row.cancellationGeneration !== expectedGeneration) return "terminal";
   const status = runStatusSchema.safeParse(row.status);
   // Persisted protocol drift must fail closed. Treat an unknown status as
   // terminal so this worker rolls back and skips instead of retrying forever
@@ -240,7 +252,7 @@ async function commitGuardedRunUpdate(
   attempt: number,
   set: PgUpdateSetSource<typeof agentRuns>,
 ): Promise<void> {
-  const cause = await guardRunOwnership(tx, run.id, attempt);
+  const cause = await guardRunOwnership(tx, run.id, attempt, run.cancellationGeneration);
   if (cause) throw new RunSupersededError(run.id, stepId, attempt, cause);
   await tx.update(agentRuns).set(set).where(eq(agentRuns.id, run.id));
 }
@@ -331,6 +343,7 @@ type RunRow = Omit<
     | "transcript"
     | "currentStep"
     | "attempt"
+    | "cancellationGeneration"
     | "metadata"
     | "deferredUntil"
   >,
@@ -447,6 +460,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     userId: run.userId,
     idempotencyKey,
     attempt,
+    fence: { generation: run.cancellationGeneration },
     state: run.state,
     transcript: run.transcript,
     stageAction(action) {
@@ -499,6 +513,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     const result = await tx.execute(sql`
       SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug", status,
              state, transcript, current_step AS "currentStep", attempt, metadata,
+             cancellation_generation AS "cancellationGeneration",
              deferred_until AS "deferredUntil",
              EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
       FROM agent_runs

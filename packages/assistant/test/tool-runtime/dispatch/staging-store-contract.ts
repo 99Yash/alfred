@@ -29,7 +29,7 @@ import type {
 export interface StagingStoreHarness {
   readonly store: StagingStore;
   /** Mint an owning run this adapter's rows can reference. */
-  seedRun(status: RunStatus): Promise<{ userId: string; runId: string }>;
+  seedRun(status: RunStatus, fenceGeneration?: number): Promise<{ userId: string; runId: string }>;
   /** Out-of-band decision write — models the approval API, which is not the store's job. */
   decide(
     stagingId: string,
@@ -108,6 +108,17 @@ export function runStagingStoreContract(
     test("readRunStatus returns null for a run that does not exist", async () => {
       const h = harness();
       assert.equal(await h.store.readRunStatus(h.unknownRunId()), null);
+    });
+
+    test("#559b: readCancellationFence is total and reads the run's current generation", async () => {
+      const h = harness();
+      const { runId } = await h.seedRun("running", 3);
+      assert.deepEqual(await h.store.readCancellationFence(runId), { generation: 3 });
+      assert.deepEqual(
+        await h.store.readCancellationFence(h.unknownRunId()),
+        { generation: 0 },
+        "an absent run reads as generation 0 — not-cancelled",
+      );
     });
 
     test("upsertStaging inserts once and reports the conflict thereafter", async () => {

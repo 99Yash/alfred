@@ -9,8 +9,10 @@
  */
 
 import {
+  cancellationFenceSchema,
   toJsonValue,
   type ActionStagingStatus,
+  type CancellationFence,
   type RunStatus,
   type ToolName,
 } from "@alfred/contracts";
@@ -36,7 +38,7 @@ interface StoredRow extends StagingRow {
 
 export interface MemoryStagingStore extends StagingStore {
   /** Register an owning run so `readRunStatus` can answer for it. */
-  seedRun(runId: string, status: RunStatus): void;
+  seedRun(runId: string, status: RunStatus, fence?: CancellationFence): void;
   /** Out-of-band decision write — models the approval API, not the store. */
   decide(
     stagingId: string,
@@ -59,6 +61,8 @@ function conflictKey(runId: string, toolCallId: string): string {
 
 export function memoryStagingStore(): MemoryStagingStore {
   const runs = new Map<string, RunStatus>();
+  /** Per-run cancellation generation; the Postgres default (0) when unseeded. */
+  const fences = new Map<string, number>();
   /** Insertion-ordered; `Map` iteration order is the fake's "most recent last". */
   const byId = new Map<string, StoredRow>();
   const byConflictKey = new Map<string, string>();
@@ -97,8 +101,9 @@ export function memoryStagingStore(): MemoryStagingStore {
   }
 
   return {
-    seedRun(runId, status) {
+    seedRun(runId, status, fence) {
       runs.set(runId, status);
+      fences.set(runId, fence?.generation ?? 0);
     },
 
     decide(stagingId, decision) {
@@ -152,6 +157,10 @@ export function memoryStagingStore(): MemoryStagingStore {
 
     async readRunStatus(runId) {
       return runs.get(runId) ?? null;
+    },
+
+    async readCancellationFence(runId) {
+      return cancellationFenceSchema.parse({ generation: fences.get(runId) ?? 0 });
     },
 
     async upsertStaging(values: StagingInsertValues) {

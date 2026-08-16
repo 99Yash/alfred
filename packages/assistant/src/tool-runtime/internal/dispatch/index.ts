@@ -59,7 +59,9 @@ import {
   summarizeBody,
   toJsonValue,
   toMessage,
+  cancellationEnvelopeSchema,
   unknownEffectEnvelopeSchema,
+  type CancellationEnvelope,
   type ToolUnavailabilityCode,
   type UnknownEffectEnvelope,
 } from "@alfred/contracts";
@@ -518,6 +520,22 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
 
   const proposedInputHash = hashToolInput(toolName, input);
+
+  // #559b: recheck the cancellation fence immediately before any effect. The
+  // step started under `args.fence`; `cancelRunInTx` bumps the run's generation
+  // the moment it lands, so a current value past the captured one means the run
+  // was cancelled while this step was in flight. Refuse BEFORE the barrier and
+  // the status machine: no new approval may be raised and no external effect may
+  // fire on a cancelled run (the #530 re-fire and the effect-after-cancel hole).
+  // Reads keep the fast path and are not fenced — they have no external effect.
+  const fence = await stagingStore().readCancellationFence(args.runId);
+  if (fence.generation > args.fence.generation) {
+    return {
+      kind: "fenced",
+      stagingId: null,
+      result: synthesizeCancelledByFence(),
+    };
+  }
 
   // #559a: the canonical request hash scopes the effect to the account/resource
   // it lands on, so the same args against a different target are a different
@@ -1443,6 +1461,16 @@ function synthesizeBlockedByUnknownEffect(): UnknownEffectEnvelope {
       "An identical request was already dispatched and may have been delivered without confirmation. " +
       "It will not be repeated until its outcome is confirmed or explicitly superseded. " +
       "Check the target's state instead of retrying.",
+  });
+}
+
+function synthesizeCancelledByFence(): CancellationEnvelope {
+  return cancellationEnvelopeSchema.parse({
+    status: "cancelled",
+    retry: "never",
+    message:
+      "The run was cancelled while this call was pending. It did not run and " +
+      "will not be repeated; do not re-issue it.",
   });
 }
 

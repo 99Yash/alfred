@@ -100,6 +100,7 @@ function baseArgs(overrides: Record<string, unknown> = {}) {
     caller: "boss" as const,
     runContext: { caller: "boss", interaction: "background" } as const,
     timezone: TIMEZONE,
+    fence: { generation: 0 },
     ...overrides,
   };
 }
@@ -382,6 +383,36 @@ describe("dispatch staging machine (DB-free)", () => {
     );
     assert.equal(store.rows().length, 0, "a cancelled run must not stage");
     assert.equal(executeCount, 0);
+  });
+
+  test("#559b: a step whose fence moved past its capture refuses before staging", async () => {
+    // The step started under `baseArgs().fence.generation = 0`; the store's
+    // current value is 1 — the run was cancelled (or its fence otherwise
+    // advanced) while the step was in flight. The gate must refuse BEFORE the
+    // barrier and the status machine: no approval may be raised, no staging row
+    // written, and no effect fired. Seeding status `running` proves the fence
+    // itself is what refuses — not the terminal-status check downstream.
+    store.seedRun(RUN_ID, "running", { generation: 1 });
+
+    const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_fenced" }));
+
+    assert.equal(result.kind, "fenced");
+    assert.equal(result.stagingId, null);
+    assert.match(
+      result.kind === "fenced" ? JSON.stringify(result.result) : "",
+      /run was cancelled while this call was pending/,
+    );
+    assert.equal(store.rows().length, 0, "a fenced run must not stage");
+    assert.equal(executeCount, 0);
+  });
+
+  test("#559b: an equal fence passes the gate", async () => {
+    // `installMachineFixture` seeds `running` at generation 0 and `baseArgs`
+    // captures generation 0 — the step is current, so the call executes.
+    const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_fence_ok" }));
+
+    assert.equal(result.kind, "executed");
+    assert.equal(executeCount, 1);
   });
 
   test("an unknown run reads as unavailable rather than executing", async () => {
@@ -780,10 +811,10 @@ runStagingStoreContract("memory", (): StagingStoreHarness => {
   const active = contractStore;
   return {
     store: active,
-    async seedRun(status) {
+    async seedRun(status, fenceGeneration) {
       contractRunSeq += 1;
       const runId = `run_contract_${contractRunSeq}`;
-      active.seedRun(runId, status);
+      active.seedRun(runId, status, { generation: fenceGeneration ?? 0 });
       return { userId: `usr_contract_${contractRunSeq}`, runId };
     },
     async decide(stagingId, decision) {

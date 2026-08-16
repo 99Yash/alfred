@@ -1,4 +1,5 @@
 import type {
+  CancellationEnvelope,
   IntegrationSlug,
   ToolName,
   UnknownEffectEnvelope,
@@ -65,6 +66,11 @@ export type ToolCallDispatchResult =
       kind: "blocked";
       stagingId: string | null;
       result: UnknownEffectEnvelope;
+    }
+  | {
+      kind: "fenced";
+      stagingId: string | null;
+      result: CancellationEnvelope;
     }
   | {
       kind: "staged";

@@ -131,6 +131,7 @@ function dispatchGithubRequest(userId: string, runId: string, page: number) {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
 }
 
