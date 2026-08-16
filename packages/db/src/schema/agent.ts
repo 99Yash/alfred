@@ -318,6 +318,14 @@ export const agentRuns = pgTable(
       .default(sql`'[]'::jsonb`),
     currentStep: text("current_step").notNull(),
     attempt: integer("attempt").notNull().default(0),
+    /**
+     * Monotonic cancellation fence (workflows-v1 #559b). `cancelRunInTx`
+     * increments it; the executor refuses a stale step commit whose captured
+     * generation no longer matches, and the tool-runtime dispatch gate re-reads
+     * it before each effect so a cancel landing mid-step stops new dispatches.
+     * Zero is the never-cancelled value.
+     */
+    cancellationGeneration: integer("cancellation_generation").notNull().default(0),
     wakeCondition: jsonb("wake_condition"),
     error: jsonb("error").$type<AgentError>(),
     output: jsonb("output"),

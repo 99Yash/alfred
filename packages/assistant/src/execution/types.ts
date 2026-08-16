@@ -1,4 +1,4 @@
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { AgentTranscriptMessage, CancellationFence } from "@alfred/contracts";
 import type { DbRoot, DbTransaction } from "@alfred/db";
 import type { DecisionTraceFor, DecisionTraceKind, DecisionTraceOptions } from "./decision-traces";
 import {
@@ -70,6 +70,15 @@ export interface StepContext<S> {
   /** Stable per-attempt key; safe to forward to LLM/tool calls as their idempotency-key. */
   idempotencyKey: string;
   attempt: number;
+  /**
+   * The cancellation fence this step started under (#559b). The tool-runtime
+   * dispatch gate re-reads the run's fence before each effect and refuses any
+   * dispatch whose current generation has moved past this value. Bounded
+   * contract from `@alfred/contracts`; the execution module builds it from the
+   * leased `agent_runs.cancellation_generation` and workflows forward it into
+   * their `ToolCallRun` untouched.
+   */
+  fence: CancellationFence;
   state: S;
   transcript: AgentTranscriptMessage[];
   /**

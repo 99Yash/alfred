@@ -44,6 +44,7 @@ const baseDispatch = {
   userId: "user_1",
   timezone: parseIanaTimezone("UTC"),
   runContext: { caller: "boss", interaction: "background" } as const,
+  fence: { generation: 0 } as const,
 };
 
 /** A boss-only tool — the shape of the sub-agent join tools (ADR-0073). */

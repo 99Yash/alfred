@@ -22,6 +22,7 @@ const backgroundRun: ToolCallRun = {
   workflow: "test-workflow",
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
+  fence: { generation: 0 },
 };
 
 const liveRun: ToolCallRun = {

@@ -44,6 +44,7 @@ const bossRun: ToolCallRun = {
   workflow: "__chat-turn__",
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
+  fence: { generation: 0 },
 };
 
 const subRun: ToolCallRun = {

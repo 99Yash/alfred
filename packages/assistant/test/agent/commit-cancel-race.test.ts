@@ -209,6 +209,7 @@ function runRow(userId: string, runId: string, workflowSlug: string, attempt: nu
     transcript: [],
     currentStep: STEP,
     attempt,
+    cancellationGeneration: 0,
     metadata: {},
   };
 }
@@ -222,6 +223,7 @@ async function readRun(runId: string) {
       wakeCondition: agentRuns.wakeCondition,
       error: agentRuns.error,
       endedAt: agentRuns.endedAt,
+      cancellationGeneration: agentRuns.cancellationGeneration,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
@@ -360,6 +362,78 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       [{ runId, outcome: "cancelled", reason: "user_stopped" }],
       "the cancel closed the turn even though the late `done` commit was refused",
     );
+  });
+
+  test("#559b: cancel advances the fence and preserves committed effects", async () => {
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 1,
+    });
+
+    // A pending approval the cancel must reject…
+    await seedPendingStaging(userId, runId);
+    // …and two committed effects the cancel must NOT touch: one `succeeded`
+    // and one stuck at the sticky `unknown` outcome. The ambiguity barrier
+    // keys on the unknown row, so a cancel rewriting it would erase the
+    // possibly-delivered protection for a later identical proposal.
+    for (const [suffix, outcome] of [
+      ["done", "succeeded"],
+      ["unknown", "unknown"],
+    ] as const) {
+      await db()
+        .insert(actionStagings)
+        .values({
+          userId,
+          runId,
+          stepId: STEP,
+          toolCallId: `call_${suffix}`,
+          toolName: "gmail.send_email",
+          integration: "gmail",
+          riskTier: "high",
+          proposedInput: {},
+          proposedInputHash: `hash_${suffix}`,
+          requestHash: `req:${suffix}`,
+          requiresApproval: true,
+          status: "executed",
+          outcome,
+          effectKey: `eff:${runId}:call_${suffix}`,
+          attemptKey: `eff:${runId}:call_${suffix}:1`,
+          executedAt: new Date(),
+        });
+    }
+
+    assert.equal(await cancelRun({ runId, reason: "user_stopped" }), "cancelled");
+
+    const run = await readRun(runId);
+    assert.equal(run?.status, "cancelled");
+    assert.equal(run?.cancellationGeneration, 1, "#559b: the fence advanced exactly once");
+
+    const rows = await db()
+      .select({
+        toolCallId: actionStagings.toolCallId,
+        status: actionStagings.status,
+        outcome: actionStagings.outcome,
+        rejectReason: actionStagings.rejectReason,
+      })
+      .from(actionStagings)
+      .where(eq(actionStagings.runId, runId));
+
+    const pendingRow = rows.find(
+      (r) => r.toolCallId !== "call_done" && r.toolCallId !== "call_unknown",
+    );
+    const doneRow = rows.find((r) => r.toolCallId === "call_done");
+    const unknownRow = rows.find((r) => r.toolCallId === "call_unknown");
+
+    assert.equal(pendingRow?.status, "rejected", "the pending approval is rejected by cancel");
+    assert.equal(pendingRow?.rejectReason, "user_stopped", "the rejection records the cancel");
+    assert.equal(doneRow?.status, "executed", "a completed effect is preserved");
+    assert.equal(
+      unknownRow?.status,
+      "executed",
+      "an unknown-outcome effect is preserved — the ambiguity barrier must keep blocking",
+    );
+    assert.equal(rows.length, 3);
   });
 
   test("a cancelled run does not re-fire approval.requested from a late interrupt commit", async () => {

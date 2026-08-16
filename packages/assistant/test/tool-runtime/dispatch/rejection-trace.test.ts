@@ -33,6 +33,7 @@ const baseDispatch: DispatchArgs = {
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
   activeTools: ["system.fetch_url"],
+  fence: { generation: 0 },
 };
 
 const redactingTool: RegisteredTool = liveTool({

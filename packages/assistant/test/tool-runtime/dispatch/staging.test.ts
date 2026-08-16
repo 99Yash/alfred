@@ -185,6 +185,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
+      fence: { generation: 0 } as const,
     };
 
     const first = await dispatchToolCall(args);
@@ -228,6 +229,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
+      fence: { generation: 0 } as const,
     };
 
     const first = await dispatchToolCall(args);
@@ -266,6 +268,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
 
     if (result.kind !== "failed") {
@@ -323,6 +326,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
 
     assert.deepEqual(result, {
@@ -359,6 +363,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
 
     // execute() ran against the RAW url (idempotency + the in-tool credential
@@ -392,6 +397,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
     assert.equal(executeCount, before + 1, "a new tool_call_id is a distinct call and re-executes");
   });
@@ -409,6 +415,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
     // Same (runId, toolCallId), different toolName → the model emitted two
     // tools under one call id. The dispatcher must throw rather than silently
@@ -424,6 +431,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         userId,
         caller: "boss",
         runContext: { caller: "boss", interaction: "background" },
+        fence: { generation: 0 },
       }),
       /toolName mismatch on re-dispatch/,
     );
@@ -506,20 +514,23 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
   runStagingStoreContract("postgres", (): StagingStoreHarness => {
     return {
       store: postgresStagingStore,
-      async seedRun(status) {
+      async seedRun(status, fenceGeneration) {
         const userId = `${ID_PREFIX}${randomUUID()}`;
         createdUserIds.push(userId);
         await db()
           .insert(user)
           .values({ id: userId, name: "Contract User", email: `${userId}@example.test` });
         const runId = `run_${randomUUID().slice(0, 12)}`;
-        await db().insert(agentRuns).values({
-          id: runId,
-          userId,
-          workflowSlug: "chat",
-          currentStep: "dispatch-tools",
-          status,
-        });
+        await db()
+          .insert(agentRuns)
+          .values({
+            id: runId,
+            userId,
+            workflowSlug: "chat",
+            currentStep: "dispatch-tools",
+            status,
+            ...(fenceGeneration === undefined ? {} : { cancellationGeneration: fenceGeneration }),
+          });
         return { userId, runId };
       },
       async decide(stagingId, decision) {
