@@ -112,6 +112,7 @@ async function seedStaging(userId: string): Promise<string> {
     .limit(1);
   assert.ok(run, "seed run missing");
   const stagingId = `stg_${randomUUID().slice(0, 12)}`;
+  const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
   await db()
     .insert(actionStagings)
     .values({
@@ -119,12 +120,16 @@ async function seedStaging(userId: string): Promise<string> {
       userId,
       runId: run.id,
       stepId: "dispatch-tools",
-      toolCallId: `tc_${randomUUID().slice(0, 8)}`,
+      toolCallId,
       toolName: "mcp.call",
       integration: "mcp",
       riskTier: "high",
       proposedInput: {},
       proposedInputHash: randomUUID(),
+      // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+      effectKey: `eff:${run.id}:${toolCallId}`,
+      attemptKey: `eff:${run.id}:${toolCallId}:1`,
+      requestHash: `req_seed_${randomUUID()}`,
       requiresApproval: true,
     });
   return stagingId;

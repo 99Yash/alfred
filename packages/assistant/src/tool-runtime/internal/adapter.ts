@@ -1,4 +1,9 @@
-import type { IntegrationSlug, ToolName, WakeCondition } from "@alfred/contracts";
+import type {
+  IntegrationSlug,
+  ToolName,
+  UnknownEffectEnvelope,
+  WakeCondition,
+} from "@alfred/contracts";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 import type { ToolCallDispatchArgs } from "../index";
@@ -56,6 +61,11 @@ export type ToolCallDispatchResult =
     }
   | { kind: "failed"; stagingId: string | null; error: PublicAppError }
   | { kind: "rejected"; stagingId: string | null; result: RejectedToolResult }
+  | {
+      kind: "blocked";
+      stagingId: string | null;
+      result: UnknownEffectEnvelope;
+    }
   | {
       kind: "staged";
       stagingId: string;
