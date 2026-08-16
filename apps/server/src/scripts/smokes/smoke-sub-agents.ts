@@ -113,6 +113,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
     allowedIntegrations: ["gmail"],
   });
   if (spawned.kind !== "executed") {
@@ -158,6 +159,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
     allowedIntegrations: ["gmail"],
   });
   if (redispatched.kind !== "executed") {
@@ -190,6 +192,7 @@ async function main(): Promise<void> {
     userId,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
+    fence: { generation: 0 },
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });
@@ -208,6 +211,7 @@ async function main(): Promise<void> {
     userId,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
+    fence: { generation: 0 },
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });

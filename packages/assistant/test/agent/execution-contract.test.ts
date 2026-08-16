@@ -361,11 +361,27 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
     const run = await getRun(runId, userId);
     assert.equal(run?.status, "cancelled", "the run is terminal");
     assert.equal(run?.wakeCondition, null, "the cancel nulls the wake condition");
+    assert.equal(
+      run?.cancellationGeneration,
+      1,
+      "#559b: cancel advances the monotonic cancellation fence exactly once",
+    );
 
     // Forbidden effect: a later lease attempt must not run the step body.
     const late = await runOnce(runId);
     assert.equal(late.kind, "skipped", "a terminal run is never leased for another attempt");
     assert.deepEqual(attemptsFor(runId), [], "the step body never executed on a cancelled run");
+
+    // Idempotency: a second cancel is a no-op and must not bump the fence
+    // again — the dispatch gate compares `>` against the captured value, so an
+    // extra bump is harmless, but the count stays honest for observability.
+    const again = await cancelRun({ runId, reason: "exec-contract cancel again" });
+    assert.equal(again, "already_terminal", "the second cancel is a no-op");
+    assert.equal(
+      (await getRun(runId, userId))?.cancellationGeneration,
+      1,
+      "#559b: the fence is monotonic — a second cancel does not bump it",
+    );
 
     assert.deepEqual(
       terminalCalls,

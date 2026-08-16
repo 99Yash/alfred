@@ -768,6 +768,10 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
     .update(agentRuns)
     .set({
       status: "cancelled",
+      // #559b: advance the monotonic cancellation fence so a step that started
+      // before this cancel refuses to commit AND the tool-runtime dispatch gate
+      // stops issuing new effects the moment it re-reads the fence.
+      cancellationGeneration: sql`${agentRuns.cancellationGeneration} + 1`,
       // Null the wake so a stale signal (e.g. a delayed approval
       // landing after cancellation) can't match — signalRun guards on
       // status='waiting' but defence-in-depth is cheap here.
@@ -861,6 +865,8 @@ export interface RunSummary {
   endedAt: Date | null;
   lastCheckpointAt: Date | null;
   wakeCondition: WakeCondition | null;
+  /** The monotonic cancellation fence (#559b). `cancelRun` increments it once. */
+  cancellationGeneration: number;
   output: unknown;
   error: unknown;
 }
@@ -884,6 +890,7 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
     endedAt: row.endedAt,
     lastCheckpointAt: row.lastCheckpointAt,
     wakeCondition: wakeConditionSchema.nullable().parse(row.wakeCondition),
+    cancellationGeneration: row.cancellationGeneration,
     output: row.output,
     error: row.error,
   };

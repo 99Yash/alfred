@@ -57,6 +57,7 @@ function dispatchResultToToolOutput(
       };
     case "rejected":
     case "blocked":
+    case "fenced":
     case "invalid_input":
     case "unknown_tool":
     case "inactive_tool":
@@ -194,7 +195,10 @@ export function completedToolCall<Call extends ProposedToolCall>(
     execution:
       result.kind === "executed"
         ? "completed"
-        : result.kind === "failed" || result.kind === "rejected" || result.kind === "blocked"
+        : result.kind === "failed" ||
+            result.kind === "rejected" ||
+            result.kind === "blocked" ||
+            result.kind === "fenced"
           ? "failed"
           : "not_reached",
     sanitized: result.kind === "executed" && result.sanitized === true,

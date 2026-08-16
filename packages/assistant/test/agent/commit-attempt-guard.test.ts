@@ -110,6 +110,7 @@ function runRow(userId: string, runId: string, attempt: number) {
     transcript: [],
     currentStep: STEP,
     attempt,
+    cancellationGeneration: 0,
     metadata: {},
     deferredUntil: null,
   };

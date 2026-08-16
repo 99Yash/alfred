@@ -711,6 +711,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             stepId: "dispatch-tools",
             userId: ctx.userId,
             workflow: CHAT_TURN_WORKFLOW_SLUG,
+            fence: ctx.fence,
             caller: "boss",
             runContext: CHAT_TOOL_RUN_CONTEXT,
             threadId: state.threadId,

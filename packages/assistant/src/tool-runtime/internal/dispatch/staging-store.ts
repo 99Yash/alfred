@@ -20,9 +20,16 @@
  * `src/` is a runtime someone can select in production.
  */
 
-import type { EffectOutcome, JsonValue, RunStatus, ToolName } from "@alfred/contracts";
+import type {
+  CancellationFence,
+  EffectOutcome,
+  JsonValue,
+  RunStatus,
+  ToolName,
+} from "@alfred/contracts";
 import {
   actionStagingStatusSchema,
+  cancellationFenceSchema,
   effectOutcomeSchema,
   jsonValueSchema,
   runStatusSchema,
@@ -140,6 +147,15 @@ export interface StagingStore {
    * distinction never escapes this module.
    */
   readRunStatus(runId: string): Promise<RunStatus | null>;
+
+  /**
+   * The run's current cancellation fence (workflows-v1 #559b). Total: an absent
+   * row reads as `{ generation: 0 }` — a run that does not exist is trivially
+   * not-cancelled, and production dispatch always has a real run. The dispatch
+   * gate re-reads this immediately before each effect and refuses when it has
+   * moved past the generation the step started under.
+   */
+  readCancellationFence(runId: string): Promise<CancellationFence>;
 
   /**
    * Idempotent on `(runId, toolCallId)`. `wasInserted` distinguishes a genuine
@@ -289,6 +305,17 @@ export const postgresStagingStore: StagingStore = {
       .limit(1);
     const parsed = runStatusSchema.safeParse(rows[0]?.status);
     return parsed.success ? parsed.data : null;
+  },
+
+  async readCancellationFence(runId) {
+    const rows = await db()
+      .select({ generation: agentRuns.cancellationGeneration })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId))
+      .limit(1);
+    return cancellationFenceSchema.parse({
+      generation: rows[0]?.generation ?? 0,
+    });
   },
 
   async upsertStaging(values) {

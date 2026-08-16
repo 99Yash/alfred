@@ -126,6 +126,7 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(staged.kind === "staged", `expected 'staged', got '${staged.kind}'`);
   return (staged as { stagingId: string }).stagingId;
@@ -219,6 +220,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(
     reDispatched.kind === "rejected",
