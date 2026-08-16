@@ -2,6 +2,7 @@ import type { ChatMessageUsage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, apiCallLog } from "@alfred/db/schemas";
 import { inArray, sql } from "drizzle-orm";
+import { subAgentParentRunIdMatches } from "./sub-agent-metadata";
 
 /**
  * One `api_call_log` group summed for a single (agent, model) pair within a
@@ -88,7 +89,7 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
       subId: sql<string | null>`${agentRuns.metadata}->'subAgent'->>'subId'`,
     })
     .from(agentRuns)
-    .where(sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${runId}`);
+    .where(subAgentParentRunIdMatches(runId));
   const runs = new Map<string, string | null>([[runId, null]]);
   for (const child of children) {
     // A child without a readable `subId` still spent money; label it so its

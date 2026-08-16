@@ -18,7 +18,9 @@ export type ActionStagingStatus = z.infer<typeof actionStagingStatusSchema>;
  * staged. `unknown` is the sticky case — a possibly-delivered write whose
  * outcome was never provable; it holds the ambiguity barrier and never
  * auto-retries. `compensated` marks an effect the system reversed after it
- * `succeeded`.
+ * `succeeded`. `refused` marks an effect the system refused to attempt — the
+ * gate never called the provider, so it must not count as an attempt the way
+ * `failed` does.
  */
 export const effectOutcomeSchema = z.enum([
   "planned",
@@ -28,6 +30,7 @@ export const effectOutcomeSchema = z.enum([
   "failed",
   "unknown",
   "compensated",
+  "refused",
 ]);
 export const EFFECT_OUTCOMES = Object.freeze([...effectOutcomeSchema.options]);
 export type EffectOutcome = z.infer<typeof effectOutcomeSchema>;

@@ -99,3 +99,8 @@ export function toPublicAppError(
   const code = err instanceof AppError ? err.code : fallback;
   return { code, message: APP_ERROR_REGISTRY[code].message };
 }
+
+/** A public error minted directly from a code — the "there was no thrown error" form. */
+export function publicAppError(code: AppErrorCode): PublicAppError {
+  return { code, message: APP_ERROR_REGISTRY[code].message };
+}

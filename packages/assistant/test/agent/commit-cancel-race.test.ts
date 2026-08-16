@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AGENT_RUN_ERROR_MAX, getStringPath } from "@alfred/contracts";
+import { AppError } from "@alfred/contracts/app-errors";
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
@@ -177,7 +178,9 @@ async function seedRun(args: {
 /**
  * A sub-agent child of `parentRunId`, owned by the same user. Only the
  * `subAgent` metadata makes it a child — that pointer is what the cascade
- * (and `listSpawnedChildRuns`) reads.
+ * (and `listSpawnedChildRuns`) reads. Runs a `closure: { kind: "none" }`
+ * workflow (`CANCEL_ADVANCE_SLUG`), mirroring the production sub-agent workflow
+ * `__user-authored-brief__`, which declares no client closure.
  */
 async function seedChildRun(args: {
   userId: string;
@@ -191,7 +194,7 @@ async function seedChildRun(args: {
     .values({
       id: runId,
       userId: args.userId,
-      workflowSlug: CANCEL_CLOSURE_SLUG,
+      workflowSlug: CANCEL_ADVANCE_SLUG,
       currentStep: STEP,
       status: args.status,
       attempt: 1,
@@ -674,10 +677,11 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.equal(untouched?.status, "running", "another parent's child keeps running");
   });
 
-  test("#559b: a cascaded child discharges its own cancel obligations", async () => {
-    // The child's obligations ride back inside the parent's `afterCommit`
-    // closure. If they were dropped, the child's client turn would stream
-    // forever — the same D2 hole this file closes for a directly cancelled run.
+  test("#559b: a cascaded child sweeps its own stagings", async () => {
+    // The child's staging sweep rides back inside the parent's `afterCommit`
+    // closure. A sub-agent owes no client closure (its workflow declares
+    // `closure: { kind: "none" }`), so the only obligation the cascade carries
+    // is rejecting the child's pending approvals and tearing down their jobs.
     const { userId, runId } = await seedRun({
       workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",
@@ -704,16 +708,13 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     assert.deepEqual(
       terminalCalls,
-      [
-        { runId, outcome: "cancelled", reason: "user_stopped" },
-        { runId: childRunId, outcome: "cancelled", reason: "parent_run_cancelled" },
-      ],
-      "the parent closes its own turn first, then the child closes its trail",
+      [{ runId, outcome: "cancelled", reason: "user_stopped" }],
+      "only the parent drives client closure; a child with no closure owes none",
     );
     assert.deepEqual(
       await readStagingStatuses(childRunId),
       ["rejected"],
-      "the child's pending approval is rejected too",
+      "the child's pending approval is rejected by the cascade's staging sweep",
     );
     const [rejected] = await db()
       .select({ reason: actionStagings.rejectReason })
@@ -749,7 +750,8 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
         }),
       (error: unknown) => {
         assert.ok(error instanceof Error, `spawn rejected with ${String(error)}`);
-        assert.match(error.message, /is cancelled; it may not spawn/);
+        assert.ok(error instanceof AppError, "the refusal is a typed app error, not a bare Error");
+        assert.equal((error as AppError).code, "run_cancelled");
         return true;
       },
       "a terminal parent must not gain a child",
