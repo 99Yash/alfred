@@ -125,6 +125,36 @@ export interface ToolRunContext {
 }
 
 /**
+ * The bounded execution fence the tool runtime consumes to refuse new effect
+ * dispatches after a cancellation (workflows-v1 #559b). `generation` is a
+ * monotonic counter on `agent_runs`: `cancelRunInTx` increments it once per
+ * cancel. A worker captures the value it started its step under and the
+ * dispatch gate re-reads it immediately before each effect; when the current
+ * value has moved past the captured one, the run was cancelled mid-step and no
+ * new external effect may fire.
+ *
+ * It is a closed value, not an implementation handle — the tool runtime never
+ * imports execution code. The gate reads it through its store seam and compares
+ * `current.generation > expected.generation`.
+ */
+export const cancellationFenceSchema = z.object({
+  generation: z.number().int().min(0),
+});
+export type CancellationFence = z.infer<typeof cancellationFenceSchema>;
+
+/**
+ * The non-actionable envelope a tool call receives when the run was cancelled
+ * while the step was in flight. The call did not run and must never be
+ * repeated; the model can only acknowledge and stop.
+ */
+export const cancellationEnvelopeSchema = z.object({
+  status: z.literal("cancelled"),
+  retry: z.literal("never"),
+  message: z.string(),
+});
+export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
+
+/**
  * The two orchestration tools whose *names* five surfaces have to agree on —
  * the chat workflow (tally + fold guards), the dispatcher, the tool-card
  * presenter, the animated-icon map, and the activity trail that turns a spawn

@@ -708,6 +708,13 @@
       "when": 1786851854273,
       "tag": "0100_elite_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1786854663133,
+      "tag": "0101_thin_patch",
+      "breakpoints": true
     }
   ]
 }

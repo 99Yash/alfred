@@ -4,6 +4,7 @@ import {
   authorWorkflowInput,
   readChatHistoryInput,
   type AgentTranscriptMessage,
+  type CancellationFence,
   type IanaTimezone,
   type IntegrationAvailabilitySnapshot,
   type TOOL_INPUT_SCHEMAS,
@@ -122,6 +123,14 @@ interface ToolCallRunBase {
   stepId: string;
   userId: string;
   workflow: string;
+  /**
+   * The cancellation fence this step started under (#559b). The dispatch gate
+   * re-reads the run's current fence before each effect and refuses the call
+   * when the current value has moved past it. Bounded contract from
+   * `@alfred/contracts` — the tool runtime consumes it without importing any
+   * execution implementation.
+   */
+  fence: CancellationFence;
   threadId?: string | undefined;
   messageId?: string | undefined;
   scratchpadRunId?: string | undefined;

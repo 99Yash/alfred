@@ -273,6 +273,7 @@ const baseDispatch = {
   caller: "boss" as const,
   runContext: { caller: "boss", interaction: "background" } as const,
   timezone: parseIanaTimezone("UTC"),
+  fence: { generation: 0 } as const,
 };
 
 function scratchReadTool(onExecute: () => void) {

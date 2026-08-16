@@ -113,6 +113,7 @@ function runRow(userId: string, runId: string, workflowSlug: string, attempt: nu
     transcript: [],
     currentStep: STEP,
     attempt,
+    cancellationGeneration: 0,
     metadata: {},
   };
 }

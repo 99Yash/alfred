@@ -416,6 +416,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
         stepId: "dispatch-tools",
         userId: ctx.userId,
         workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+        fence: ctx.fence,
         ...runIdentity,
         scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
         timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,

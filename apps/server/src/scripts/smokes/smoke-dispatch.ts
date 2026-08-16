@@ -164,6 +164,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(auto.kind === "executed", `autonomy expected 'executed', got '${auto.kind}'`);
   assert(
@@ -197,6 +198,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
   assert(
@@ -215,6 +217,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(
     unknownTool.kind === "unknown_tool",
@@ -240,6 +243,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(staged.kind === "staged", `gated expected 'staged', got '${staged.kind}'`);
   const stagedId = (staged as { stagingId: string }).stagingId;
@@ -276,6 +280,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(
     stillStaged.kind === "staged",
@@ -344,6 +349,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
   assert(
@@ -372,6 +378,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
   const firstAttemptId = (firstAttempt as { stagingId: string }).stagingId;
@@ -399,6 +406,7 @@ async function main(): Promise<void> {
     userId,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    fence: { generation: 0 },
   });
   assert(
     reproposed.kind === "rejected",
@@ -439,6 +447,9 @@ async function main(): Promise<void> {
         riskTier: "high",
         proposedInput: { to: ["one@example.com"], subject: "cancel", bodyText: "one" },
         proposedInputHash: "smoke-cancel-1",
+        effectKey: `eff:${runId4}:cancel_1`,
+        attemptKey: `eff:${runId4}:cancel_1:1`,
+        requestHash: "req_cancel_1",
         requiresApproval: true,
         status: "pending",
       },
@@ -452,6 +463,9 @@ async function main(): Promise<void> {
         riskTier: "high",
         proposedInput: { to: ["two@example.com"], subject: "cancel", bodyText: "two" },
         proposedInputHash: "smoke-cancel-2",
+        effectKey: `eff:${runId4}:cancel_2`,
+        attemptKey: `eff:${runId4}:cancel_2:1`,
+        requestHash: "req_cancel_2",
         requiresApproval: true,
         status: "pending",
       },

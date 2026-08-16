@@ -214,6 +214,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
 
     assert.equal(result.kind, "staged");
@@ -265,6 +266,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
 
     // Autonomous: the downgrade waived approval, so the call executed inline
@@ -308,6 +310,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
+      fence: { generation: 0 } as const,
     };
 
     const staged = await dispatchToolCall(args);
@@ -359,6 +362,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
     });
 
     assert.equal(result.kind, "executed");
