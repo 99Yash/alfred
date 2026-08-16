@@ -24,7 +24,7 @@
  * The cheap-model EXTRACTOR (`./extractor`) that distills a finished thread into
  * crisp, tagged propositions. No durable writes happen here — the observation
  * write path lands in #399; the idle end-of-thread TRIGGER lives next to the
- * compaction it drives in `conversations/idle-capture-queue.ts`.
+ * compaction it drives in `chat/idle-capture-queue.ts`.
  */
 export { requireEntityIdNamespace } from "./namespace";
 export {

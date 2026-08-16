@@ -5,15 +5,15 @@ import {
 import { readChatHistory } from "./chat-history-retrieval";
 
 /**
- * The conversations-owned implementation of the `SystemToolChatHistoryAdapter`
+ * The chat-owned implementation of the `SystemToolChatHistoryAdapter`
  * seam. The `system.read_chat_history` tool calls the seam; this adapter
- * forwards to the conversations retrieval that reads chat-message and attachment
- * state. It lives in the conversations module so the generic execution layer
+ * forwards to the chat retrieval that reads chat-message and attachment
+ * state. It lives in the chat module so the generic execution layer
  * (`agent`, `tools`) never imports a product recipe (ADR-0089). It installs over
- * the already-existing `conversations -> tool-runtime` edge, so folding chat into
- * conversations adds no new module edge. Composition installs it at boot.
+ * the already-existing `chat -> tool-runtime` edge, so folding chat into
+ * chat adds no new module edge. Composition installs it at boot.
  */
-const conversationsSystemToolAdapter: SystemToolChatHistoryAdapter = {
+const chatSystemToolAdapter: SystemToolChatHistoryAdapter = {
   readChatHistory,
 };
 
@@ -23,6 +23,6 @@ const conversationsSystemToolAdapter: SystemToolChatHistoryAdapter = {
  * `registerAgentSystemToolAdapter`, so a `system.read_chat_history` call finds a
  * registered adapter rather than the boot-order throw.
  */
-export function registerConversationsSystemToolAdapter(): () => void {
-  return registerSystemToolChatHistoryAdapter(conversationsSystemToolAdapter);
+export function registerChatSystemToolAdapter(): () => void {
+  return registerSystemToolChatHistoryAdapter(chatSystemToolAdapter);
 }

@@ -55,7 +55,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "briefings",
   "tool-runtime",
   "connections",
-  "conversations",
+  "chat",
   "corpus",
   "delivery",
   "triggers",
@@ -156,7 +156,7 @@ const EXECUTION_MODULE = "execution";
 // while `agent` still shares a baseline cycle with other product modules. The
 // set only ever grows — each edge-removal PR that lands its module here:
 //   `triage`     — item 06 (this rule's first entry)
-//   `chat`       — item 03 (chat → conversations migration)
+//   `chat`       — item 03 (the chat module)
 //   `automation` — item 10 (homes the last brief recipe out of agent/)
 //
 // `automation` was spelled `workflows` until campaign item 149. That name was the

@@ -30,7 +30,7 @@ import {
   startConversationCompactionWorker,
   stopChatMemoryWorker,
   stopConversationCompactionWorker,
-} from "@alfred/assistant/conversations";
+} from "@alfred/assistant/chat";
 import {
   closeAgentQueue,
   closeSubAgentJoinWakeQueue,
@@ -152,7 +152,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // their workflow or tool names. The host owns this step because the built-in
       // recipes and the dispatch tool-call-round adapter sit above this package.
       config.registerRecipes();
-      // Runtime composition installs the agent, conversations, workflow, knowledge,
+      // Runtime composition installs the agent, chat, workflow, knowledge,
       // and task system-tool ports after the built-ins exist and before a worker can
       // dispatch its first call. Their disposers run with the other adapters.
       registerRuntimeAdapters();

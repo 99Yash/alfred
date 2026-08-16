@@ -29,7 +29,7 @@ edit next.
 
 | Domain | Code | Reference | Plans |
 | --- | --- | --- | --- |
-| Agent runtime / chat | `packages/assistant/src/execution`, `packages/assistant/src/conversations`, `packages/http/src/agent.ts`, `apps/web/src/routes/-chat` | [`reference/elysia.md`](./reference/elysia.md), [`reference/ai-sdk.md`](./reference/ai-sdk.md) | [`plans/artifact-sidebar-v1.md`](./plans/artifact-sidebar-v1.md), [`plans/chat-file-uploads-v1.md`](./plans/chat-file-uploads-v1.md), [`plans/model-router-v1.md`](./plans/model-router-v1.md) |
+| Agent runtime / chat | `packages/assistant/src/execution`, `packages/assistant/src/chat`, `packages/http/src/agent.ts`, `apps/web/src/routes/-chat` | [`reference/elysia.md`](./reference/elysia.md), [`reference/ai-sdk.md`](./reference/ai-sdk.md) | [`plans/artifact-sidebar-v1.md`](./plans/artifact-sidebar-v1.md), [`plans/chat-file-uploads-v1.md`](./plans/chat-file-uploads-v1.md), [`plans/model-router-v1.md`](./plans/model-router-v1.md) |
 | Artifacts | `packages/artifacts-design`, `packages/assistant/src/artifacts`, `apps/web/src/routes/-chat` | [`reference/architecture.md`](./reference/architecture.md) | [`plans/artifact-sidebar-v1.md`](./plans/artifact-sidebar-v1.md) |
 | Email triage | `packages/assistant/src/triage`, `packages/assistant/src/connections/ingestion`, `packages/integrations/src/google` | [`reference/triage.md`](./reference/triage.md) | [`plans/triage-v3-plan.md`](./plans/triage-v3-plan.md), [`plans/triage-user-model-v1.md`](./plans/triage-user-model-v1.md) |
 | Briefing | `packages/assistant/src/briefings`, `apps/web/src/routes/-briefings` | [`reference/briefing.md`](./reference/briefing.md) | [`plans/daily-briefing-cutover-plan.md`](./plans/daily-briefing-cutover-plan.md) |

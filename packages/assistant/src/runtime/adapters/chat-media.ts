@@ -11,9 +11,9 @@ import {
   claimChatAttachmentEnrichment,
   enrichClaimedChatAttachment,
   recordChatAttachmentEnrichmentFailure,
-} from "@alfred/assistant/conversations";
-import { deleteObjects, deletePrefix, isStorageConfigured } from "@alfred/assistant/conversations";
-import { lockChatStorageKeys } from "@alfred/assistant/conversations";
+} from "@alfred/assistant/chat";
+import { deleteObjects, deletePrefix, isStorageConfigured } from "@alfred/assistant/chat";
+import { lockChatStorageKeys } from "@alfred/assistant/chat";
 
 interface ChatMediaAdapterDeps {
   claimEnrichment(attachmentId: string): Promise<"claimed" | "existing">;

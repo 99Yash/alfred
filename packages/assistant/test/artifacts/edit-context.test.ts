@@ -11,12 +11,9 @@ import {
 import { updateArtifactInput } from "@alfred/contracts";
 import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
-import { withEphemeralReference } from "@alfred/assistant/conversations/compaction/index";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
-import {
-  assertStableChatSystem,
-  type ChatRunState,
-} from "@alfred/assistant/conversations/chat-turn-state";
+import { withEphemeralReference } from "@alfred/assistant/chat/compaction/index";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
+import { assertStableChatSystem, type ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
 import {
   artifactContentHash,
   artifactReplacementMatchesBase,

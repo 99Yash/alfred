@@ -1,8 +1,8 @@
-// Public seam for the conversations module. Owns the chat recipe (chatTurnWorkflow),
+// Public seam for the chat module. Owns the chat recipe (chatTurnWorkflow),
 // turn admission and attachment ingest, chat context assembly + summaries +
 // compaction, and the end-of-thread idle-capture trigger.
 //
-// The chat HTTP routes live in `packages/http/src/conversations.ts` and hold
+// The chat HTTP routes live in `packages/http/src/chat.ts` and hold
 // transport only, so every decision a chat send takes reaches them through this
 // seam. Four entry points carry those decisions — `startChatTurn`,
 // `stopChatTurn`, `uploadChatAttachment`, `resolveChatAttachmentContentUrl`.
@@ -52,4 +52,4 @@ export { deleteObjects, deletePrefix, isStorageConfigured } from "./attachments/
 
 export { lockChatStorageKeys } from "./attachments/storage-coordination";
 
-export { registerConversationsSystemToolAdapter } from "./system-tool-adapter";
+export { registerChatSystemToolAdapter } from "./system-tool-adapter";

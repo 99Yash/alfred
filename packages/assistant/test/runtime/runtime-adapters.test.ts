@@ -43,7 +43,7 @@ describe("runtime adapter lifecycle", () => {
       RUNTIME_ADAPTERS.map(({ name }) => name),
       [
         "system-tool-agent",
-        "system-tool-conversations",
+        "system-tool-chat",
         "system-tool-workflows",
         "system-tool-product",
         "chat-attachment-enrichment",
@@ -73,7 +73,7 @@ describe("runtime adapter lifecycle", () => {
         "chat-attachment-enrichment",
         "system-tool-product",
         "system-tool-workflows",
-        "system-tool-conversations",
+        "system-tool-chat",
         "system-tool-agent",
       ],
     );
@@ -81,12 +81,7 @@ describe("runtime adapter lifecycle", () => {
       RUNTIME_ADAPTERS.filter(({ retainIfAgentWorkerActive }) =>
         Boolean(retainIfAgentWorkerActive),
       ).map(({ name }) => name),
-      [
-        "system-tool-agent",
-        "system-tool-conversations",
-        "system-tool-workflows",
-        "system-tool-product",
-      ],
+      ["system-tool-agent", "system-tool-chat", "system-tool-workflows", "system-tool-product"],
     );
     assert.deepEqual(
       RUNTIME_ADAPTERS.filter(({ retainIfIngestionWorkerActive }) =>
@@ -194,7 +189,7 @@ describe("runtime adapter lifecycle", () => {
         writeScratch: () => Promise.resolve(undefined),
         promoteScratch: () => Promise.resolve(null),
       };
-      const conversations: SystemToolChatHistoryAdapter = {
+      const chat: SystemToolChatHistoryAdapter = {
         readChatHistory: () => Promise.resolve(null),
       };
       const workflows: SystemToolWorkflowAdapter = {
@@ -217,7 +212,7 @@ describe("runtime adapter lifecycle", () => {
 
       for (const install of [
         () => registerSystemToolAgentAdapter(agent),
-        () => registerSystemToolChatHistoryAdapter(conversations),
+        () => registerSystemToolChatHistoryAdapter(chat),
         () => registerSystemToolWorkflowAdapter(workflows),
         () => registerSystemToolKnowledgeAdapter(knowledge),
         () => registerSystemToolTaskAdapter(tasks),

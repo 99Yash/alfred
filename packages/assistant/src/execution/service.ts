@@ -332,7 +332,7 @@ export async function startRunInTx(spec: {
  * Deliver an already-persisted run to the worker — the execution-domain verb for
  * re-delivery. It serves the callers that legitimately hold a `runId` from a
  * larger write and must kick it separately: a best-effort chat-turn kick after
- * the outer transaction commits (`conversations`), re-delivery of a run woken by
+ * the outer transaction commits (`chat`), re-delivery of a run woken by
  * an approval decision or its expiry sweep (`approvals`), and the parked-run
  * re-kicks in ops smokes. It wraps the module-private `enqueueRun` queue
  * primitive, so the BullMQ handle never leaves execution; with no public
@@ -346,7 +346,7 @@ export async function redeliverRun(runId: string): Promise<void> {
  * Persist a chat-turn run inside the caller's chat-turn transaction, scoping the
  * insert to a SAVEPOINT (nested tx) so a dedup / per-thread unique-violation
  * rolls back only the failed insert and leaves the outer transaction alive to
- * recover via the caller's own SELECT. This owns the savepoint the conversations
+ * recover via the caller's own SELECT. This owns the savepoint the chat
  * chat-turn route previously hand-rolled around `createRun`; delivery is
  * deferred to `redeliverRun(runId)` after the outer transaction commits (a run
  * persisted here is `pending`, so the resume sweep recovers it if the kick is

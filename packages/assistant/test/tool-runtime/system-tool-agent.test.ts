@@ -33,7 +33,7 @@ void typecheckSafeParkCapability;
 // returns its result unchanged. These tests pin exactly that — a missing
 // registration fails loud, a registered adapter receives the exact args and its
 // result is handed straight back. Chat-history retrieval left this port in the
-// chat -> conversations fold; it now has its own seam (see
+// chat module; it now has its own seam (see
 // system-tool-chat-history.test.ts).
 
 const spawnArgs: SpawnSubAgentRequest = {

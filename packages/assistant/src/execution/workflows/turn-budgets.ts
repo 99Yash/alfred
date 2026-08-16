@@ -120,7 +120,7 @@ function planTurnRetry<S>(
 /**
  * The two consecutive-failure counters a chat turn budgets. Named as a type so
  * this module — which stays in `agent` — does not import the concrete
- * `ChatRunState` that moved to `conversations`. The chat planners are generic
+ * `ChatRunState` that moved to `chat`. The chat planners are generic
  * over it, exactly like {@link openBriefTurnRetries} is over its own counter.
  */
 type ChatRetryState = {

@@ -34,7 +34,7 @@ async function resolveAwaitSubAgent(
  * agent-owned state. It lives in execution so tool-runtime never imports
  * execution (ADR-0089: the runtime composes tools, not the reverse). The
  * chat-history half of the old combined port now lives in
- * `conversations/system-tool-adapter.ts`. Composition installs it at boot.
+ * `chat/system-tool-adapter.ts`. Composition installs it at boot.
  */
 const agentSystemToolAdapter: SystemToolAgentAdapter = {
   spawnSubAgent,
