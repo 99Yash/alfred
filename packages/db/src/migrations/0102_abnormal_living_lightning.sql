@@ -1,0 +1,1 @@
+CREATE INDEX "agent_runs_sub_agent_parent_idx" ON "agent_runs" USING btree ("user_id",("metadata" -> 'subAgent' ->> 'parentRunId')) WHERE ("agent_runs"."metadata" -> 'subAgent' ->> 'parentRunId') IS NOT NULL;

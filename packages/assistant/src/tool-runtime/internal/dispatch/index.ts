@@ -84,6 +84,7 @@ import {
 import {
   APP_ERROR_REGISTRY,
   isAppErrorCode,
+  publicAppError,
   toPublicAppError,
   type PublicAppError,
 } from "@alfred/contracts/app-errors";
@@ -752,7 +753,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
         if (exhausted) return exhausted;
       }
-      return executeAndCommit(row, tool, input, ctx, args.fence, /* editedByUser */ false);
+      return executeAndCommit(row, tool, input, ctx, {
+        expectedFence: args.fence,
+        editedByUser: false,
+      });
 
     case "approved": {
       // Resume after user approval — execute with the decided input if
@@ -799,7 +803,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
         if (exhausted) return exhausted;
       }
-      return executeAndCommit(row, tool, reparsed.data as unknown, ctx, args.fence, editedByUser);
+      return executeAndCommit(row, tool, reparsed.data as unknown, ctx, {
+        expectedFence: args.fence,
+        editedByUser,
+      });
     }
 
     case "rejected": {
@@ -1337,23 +1344,22 @@ async function executeAndCommit(
   tool: ReturnType<typeof getTool> & object,
   input: unknown,
   ctx: ToolExecuteContext,
-  expectedFence: CancellationFence,
-  editedByUser: boolean,
+  opts: { expectedFence: CancellationFence; editedByUser: boolean },
 ): Promise<DispatchResult> {
   // #559b: the second fence read, immediately before the effect. The gate's
   // first read refuses a step whose cancel landed before dispatch; this one
   // refuses a cancel that landed DURING dispatch — the barrier, retry, status,
   // and upsert awaits sit between the two. The staging row already exists
-  // here, so close it `failed` rather than leave a pending/approved row
-  // claiming an effect that will never resolve. The residual window between
+  // here, so close it `failed`/`refused` rather than leave a pending/approved
+  // row claiming an effect that will never resolve. The residual window between
   // this read and the provider call inside `tool.execute` is irreducible
   // without transactional effects; this narrows it to one DB round-trip.
   const fence = await stagingStore().readCancellationFence(ctx.runId);
-  if (fence.generation > expectedFence.generation) {
+  if (fence.generation > opts.expectedFence.generation) {
     await commitAndPoke(row, ctx, {
       status: "failed",
-      outcome: "failed",
-      error: toPublicAppError(undefined, "run_cancelled"),
+      outcome: "refused",
+      error: publicAppError("run_cancelled"),
       executedAt: new Date(),
     });
     return {
@@ -1421,7 +1427,7 @@ async function executeAndCommit(
     kind: "executed",
     stagingId: row.id,
     toolResult: persistedResult,
-    editedByUser,
+    editedByUser: opts.editedByUser,
     sanitized: didSanitize,
   };
 }

@@ -389,6 +389,14 @@ export const agentRuns = pgTable(
     uniqueIndex("agent_runs_sub_agent_dedup_idx")
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.workflowSlug} = '__user-authored-brief__' AND ${t.dedupKey} LIKE 'sub:%'`),
+    // The child lookup a cancel cascade (#559b) and `listSpawnedChildRuns` both
+    // run: "which runs point at this parent". Indexes the `subAgent.parentRunId`
+    // jsonb pointer with the leading `user_id`, so the cascade's
+    // `user_id = $1 AND parentRunId = $2` predicate is an Index Scan rather than
+    // a Filter over every row of the user (the table grows forever).
+    index("agent_runs_sub_agent_parent_idx")
+      .on(t.userId, sql`(${t.metadata} -> 'subAgent' ->> 'parentRunId')`)
+      .where(sql`(${t.metadata} -> 'subAgent' ->> 'parentRunId') IS NOT NULL`),
     // Manual/test retries remain one occurrence after every terminal outcome.
     // The general dedup index intentionally permits failed/cancelled retries;
     // caller-supplied manual request ids do not, because they identify the same

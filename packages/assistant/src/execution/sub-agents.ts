@@ -1,4 +1,5 @@
 import { isTerminalStatus, runStatusSchema } from "@alfred/contracts";
+import { AppError } from "@alfred/contracts/app-errors";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -11,6 +12,7 @@ import { type SpawnSubAgentInput } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
   SUB_AGENT_WORKFLOW_SLUG,
+  subAgentParentRunIdMatches,
   type SubAgentChatOrigin,
 } from "./sub-agent-metadata";
 
@@ -71,7 +73,7 @@ export async function listSpawnedChildRuns(parentRunId: string): Promise<Spawned
   return await db()
     .select({ id: agentRuns.id, status: agentRuns.status })
     .from(agentRuns)
-    .where(sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${parentRunId}`);
+    .where(subAgentParentRunIdMatches(parentRunId));
 }
 
 /**
@@ -168,9 +170,7 @@ export async function spawnSubAgent(
         throw new Error("[sub-agents] sub-agents cannot spawn nested sub-agents");
       }
       if (isTerminalStatus(runStatusSchema.parse(parent.status))) {
-        throw new Error(
-          `[sub-agents] parent run ${args.parentRunId} is ${parent.status}; it may not spawn`,
-        );
+        throw new AppError("run_cancelled");
       }
 
       const existing = await findExistingSubAgentRun(args, tx);
@@ -251,7 +251,7 @@ async function findExistingSubAgentRun(
     .where(
       and(
         eq(agentRuns.userId, args.userId),
-        sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${args.parentRunId}`,
+        subAgentParentRunIdMatches(args.parentRunId),
         sql`${agentRuns.metadata}->'subAgent'->>'parentToolCallId' = ${args.parentToolCallId}`,
       ),
     )

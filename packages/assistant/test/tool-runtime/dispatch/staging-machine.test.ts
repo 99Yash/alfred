@@ -437,6 +437,11 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.ok(row, "the upsert already wrote the row before the cancel landed");
     assert.equal(result.kind === "fenced" ? result.stagingId : null, row.id);
     assert.equal(row.status, "failed");
+    assert.equal(
+      row.outcome,
+      "refused",
+      "a refusal is not an attempted effect, so it is not `failed`",
+    );
     assert.deepEqual(row.executeError, {
       code: "run_cancelled",
       message: "The run was cancelled; this action did not run.",
