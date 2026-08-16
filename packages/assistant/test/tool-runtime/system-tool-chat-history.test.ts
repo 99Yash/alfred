@@ -11,7 +11,7 @@ import {
 
 // The chat-history seam owns no behavior: it forwards `readChatHistory` to the
 // registered adapter and returns its result unchanged. This port split out of
-// `SystemToolAgentAdapter` in the chat -> conversations fold, so conversations
+// `SystemToolAgentAdapter` in the chat module, so chat
 // installs it (agent installs only spawn/join). These tests pin the same shape
 // the agent seam test pins: a missing registration fails loud, a registered
 // adapter receives the exact args and its result is handed straight back.

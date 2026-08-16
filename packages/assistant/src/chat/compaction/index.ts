@@ -1,5 +1,5 @@
 /**
- * Chat compaction and context assembly, owned by `conversations`. This is the
+ * Chat compaction and context assembly, owned by `chat`. This is the
  * persisted, rolling `<conversation_summary>` mechanism — guarded by a compound
  * watermark and CAS — plus the pre-call context assembly and the background
  * compaction queue/scheduler/wait it drives. It is distinct from the generic

@@ -2,7 +2,7 @@ import {
   buildMemoryExtractionWorkflow,
   coldStartResearchWorkflow,
 } from "@alfred/assistant/knowledge";
-import { chatMemoryCaptureWorkflow, chatTurnWorkflow } from "@alfred/assistant/conversations";
+import { chatMemoryCaptureWorkflow, chatTurnWorkflow } from "@alfred/assistant/chat";
 import { dailyBriefingWorkflow, morningBriefingWorkflow } from "@alfred/assistant/briefings";
 import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triage";
 import { learnSkillWorkflow, skillDocumentationWorkflow } from "@alfred/assistant/skills";

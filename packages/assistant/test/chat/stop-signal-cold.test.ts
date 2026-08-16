@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeRedis, createRedisConnection } from "@alfred/db/redis";
 
-import { pollChatStopFlag, requestChatStop } from "../../src/conversations/stop-signal";
+import { pollChatStopFlag, requestChatStop } from "../../src/chat/stop-signal";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**

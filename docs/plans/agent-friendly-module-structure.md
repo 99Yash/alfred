@@ -68,6 +68,11 @@ Phases 6 and 7 are worked as one campaign, `.campaign/http-extraction-phase6cd/`
 campaign holds 270 items on 2026-08-15: 92 landed, 11 skipped, and 167 open. Read its
 `NOTES.md` before you start an item.
 
+- **Naming reversal (2026-08-16).** The target module named `conversations` below is
+  `chat`. The module is chat-only, and the schema, contracts, sync adapters, and web
+  routes already use `chat`. Recorded in CONTEXT.md and in ADR-0089 (amendment). The
+  `workflows` → `automation` rename stands.
+
 - **Phase 0 — record and enforce the map.** Done. `scripts/check-module-architecture.mjs`
   and `scripts/module-architecture-baseline.json` are in place and run in `pnpm check`.
 - **Phase 1 — give events one owner.** Done (PRs #622–#632).
@@ -249,7 +254,7 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
 | `corpus` | Normalized documents, chunks, embedding state, indexing retries, semantic search | `indexDocument`, `retryPending`, `search` | `@alfred/ingestion`, document embedding work in integration jobs |
 | `knowledge` | Observation log, projections, facts, entities, significance, standing instructions, recall, correction | `observe`, `recall`, `contextFor`, `applyCorrection`, projection lifecycle | `memory`, `user-model`, `chat-memory` extraction behavior |
 | `settings` | User preferences, feature flags, account persona, briefing schedule, canonical timezone preference | `get`, `set`, `resolveTimezone`, `resolveFlags` | memory preferences, `features`, parts of briefing preferences and onboarding |
-| `conversations` | Threads, messages, turn admission, attachments, stop behavior, context assembly, summaries and compaction | `startTurn`, `stopTurn`, `getThreadContext`; chat recipe is registered with execution | `chat`, agent chat workflow, agent compaction, chat-memory scheduling |
+| `chat` | Threads, messages, turn admission, attachments, stop behavior, context assembly, summaries and compaction | `startTurn`, `stopTurn`, `getThreadContext`; chat recipe is registered with execution | `chat`, agent chat workflow, agent compaction, chat-memory scheduling |
 | `triage` | Email attention classification, sender context, observations, label reconciliation, triage decision persistence | `triageMessage`, `classify`, `reconcileThread`, attention queries | `triage`; triage parts of ingestion jobs |
 | `briefings` | Gather, suppression, compose, persistence, delivery decision, reference resolution | `prepareBriefing`, `getBriefing`, `listBriefings`; recipe stays internal | `briefing`, server daily/legacy briefing workflows |
 | `tasks` | Todo suggestion, source provenance, lifecycle and resolution | `suggest`, `create`, `complete`, `dismiss`, `resolveSources` | `todos`, related Replicache mutators |
@@ -267,7 +272,7 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
 - `drift-audit` moves into the owning knowledge/operations implementation; its
   notification is sent through `delivery`.
 - `chat-memory` splits: conversation-idle scheduling belongs to
-  `conversations`; observation extraction belongs to `knowledge`.
+  `chat`; observation extraction belongs to `knowledge`.
 - `approvals` splits: generic step-level human-in-the-loop wake conditions
   belong to `execution`; tool-call action staging and decisions belong to
   `tool-runtime`; workflow activation validation belongs to `automation`.
@@ -301,7 +306,7 @@ flowchart TD
 
   automation --> execution
   automation --> tool_runtime
-  conversations --> execution
+  chat --> execution
   execution --> tool_runtime
 
   briefings --> knowledge
@@ -313,7 +318,7 @@ flowchart TD
   product --> triggers
   connections --> triggers
   connections --> integrations["@alfred/integrations"]
-  conversations --> corpus["@alfred/corpus"]
+  chat --> corpus["@alfred/corpus"]
   knowledge --> corpus
 
   assistant --> db["@alfred/db"]
@@ -324,7 +329,7 @@ flowchart TD
 The diagram omits some ordinary leaf dependencies. These rules are
 load-bearing:
 
-- `execution` does not import conversations, automation, triage, briefing,
+- `execution` does not import chat, automation, triage, briefing,
   skills, or other product recipes. Those modules register recipes with it.
 - `execution` owns generic step-level human-in-the-loop state and wake
   conditions. It does not own tool-call action staging or workflow activation
@@ -333,7 +338,7 @@ load-bearing:
   handler receives a bounded execution context. Domain tool definitions
   are registered by top-level composition.
 - `connections` publishes domain events but does not import automation, triage,
-  knowledge, or conversations to fan work out.
+  knowledge, or chat to fan work out.
 - `knowledge` does not import triage or tasks. Email-specific parsing happens in
   an adapter before `knowledge.observe`.
 - `time` is pure. `settings.resolveTimezone` reads the user preference and
@@ -636,7 +641,7 @@ represented in types or runtime validation.
 
 1. Reduce `agent` to the generic execution state machine.
 2. Move chat recipe, chat context assembly, summaries, and compaction to
-   `conversations`.
+   `chat`.
 3. Move product recipes from `apps/server/src/builtins/workflows` into their
    owning modules. Keep the app registry as a generated or explicit list of
    recipe exports.
@@ -670,7 +675,7 @@ gone and knowledge contract tests survive internal projection refactors.
    provider pagination, OAuth exchange primitives, webhook verification, and
    normalized clients.
 3. Move Gmail post-insert fan-out to event consumers owned by triage, knowledge,
-   corpus, and conversations.
+   corpus, and chat.
 4. Preserve the user-bound integration root and credential-vault guarantees.
 
 Done when the provider package does not import `@alfred/ingestion`, application

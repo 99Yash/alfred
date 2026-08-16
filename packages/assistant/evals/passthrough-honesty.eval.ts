@@ -6,7 +6,7 @@ import { type Tool, type ToolSet, generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import type { GroundingTaskOutput } from "./lib/grounding";
 import { llmJudgeScorer } from "./lib/llm-judge";

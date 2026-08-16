@@ -12,7 +12,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 
 // LESSON 03 / context-purity experiment: does a bloated tool menu degrade the
 // boss's tool SELECTION? We run the same realistic tasks through Sonnet 4.6

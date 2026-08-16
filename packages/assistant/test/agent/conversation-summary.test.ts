@@ -6,7 +6,7 @@ import {
   parsePersistedConversationSummary,
   validateConversationSummary,
   type EligibleConversationSummarySources,
-} from "@alfred/assistant/conversations/compaction/conversation-summary";
+} from "@alfred/assistant/chat/compaction/conversation-summary";
 
 const eligible: EligibleConversationSummarySources = {
   messageIds: new Set(["msg_1", "msg_2"]),

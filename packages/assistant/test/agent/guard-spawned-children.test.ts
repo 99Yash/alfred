@@ -10,8 +10,8 @@ import {
   FINALIZE_GUARD_SEQUENCE,
   guardSpawnedChildren,
   type GuardSpawnedChildrenDeps,
-} from "@alfred/assistant/conversations/finalize-guards";
-import type { ChatRunState } from "@alfred/assistant/conversations/chat-turn-state";
+} from "@alfred/assistant/chat/finalize-guards";
+import type { ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
 import { openChatTurnRetries } from "@alfred/assistant/execution/workflows/turn-budgets";
 import type { StepContext } from "@alfred/assistant/execution/types";
 

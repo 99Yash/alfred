@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import {
   chatMemoryIdleJobId,
   chatMemoryIdleTailJobId,
-} from "@alfred/assistant/conversations/idle-capture-queue";
+} from "@alfred/assistant/chat/idle-capture-queue";
 
 describe("chatMemoryIdleJobId", () => {
   test("uses exact per-thread primary and tail job ids", () => {

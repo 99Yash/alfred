@@ -20,10 +20,7 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import { cancelRun } from "@alfred/assistant/execution/service";
-import {
-  CHAT_TURN_WORKFLOW_SLUG,
-  chatTurnWorkflow,
-} from "@alfred/assistant/conversations/chat-turn";
+import { CHAT_TURN_WORKFLOW_SLUG, chatTurnWorkflow } from "@alfred/assistant/chat/chat-turn";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 

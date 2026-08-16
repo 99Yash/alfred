@@ -6,7 +6,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { detectAiTells, summarizeTells } from "@alfred/ai/voice";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { llmJudgeScorer } from "./lib/llm-judge";
 
 // Behavioral guard on the shipped chat voice contract. Chat relies on the

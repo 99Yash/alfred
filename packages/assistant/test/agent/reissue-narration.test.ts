@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   closeLeadInNarration,
   closeNarrationSegment,
-} from "@alfred/assistant/conversations/chat-turn-state";
+} from "@alfred/assistant/chat/chat-turn-state";
 
 describe("closeLeadInNarration", () => {
   test("a normal lead-in moves onto the trail and advances the segment", () => {
