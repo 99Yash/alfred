@@ -56,6 +56,7 @@ function dispatchResultToToolOutput(
         value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
       };
     case "rejected":
+    case "blocked":
     case "invalid_input":
     case "unknown_tool":
     case "inactive_tool":
@@ -141,6 +142,9 @@ const INCOMPLETE_ACTION_STATUSES = new Set([
   "page_limit",
   "rejected",
   "rejected_by_user",
+  // #559a: the unknown-outcome envelope. A possibly-delivered write must log as
+  // failed, never as a quiet success the model can move on from.
+  "unknown",
   "unknown_tool",
   "wrong_kind",
 ]);
@@ -190,7 +194,7 @@ export function completedToolCall<Call extends ProposedToolCall>(
     execution:
       result.kind === "executed"
         ? "completed"
-        : result.kind === "failed" || result.kind === "rejected"
+        : result.kind === "failed" || result.kind === "rejected" || result.kind === "blocked"
           ? "failed"
           : "not_reached",
     sanitized: result.kind === "executed" && result.sanitized === true,
