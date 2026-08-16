@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AGENT_RUN_ERROR_MAX, getStringPath } from "@alfred/contracts";
+import { AppError } from "@alfred/contracts/app-errors";
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
-import { and, eq, inArray, like } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
 import { commitStepSuccess, markRunFailed, runOnce } from "@alfred/assistant/execution/executor";
@@ -15,6 +16,7 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import { cancelRun } from "@alfred/assistant/execution/service";
+import { spawnSubAgent } from "@alfred/assistant/execution/sub-agents";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import { dbBackedSkip } from "../support/db-backed";
 
@@ -171,6 +173,42 @@ async function seedRun(args: {
       .values({ runId, stepId: STEP, attempt: args.attempt, status: "running" });
   }
   return { userId, runId };
+}
+
+/**
+ * A sub-agent child of `parentRunId`, owned by the same user. Only the
+ * `subAgent` metadata makes it a child — that pointer is what the cascade
+ * (and `listSpawnedChildRuns`) reads. Runs a `closure: { kind: "none" }`
+ * workflow (`CANCEL_ADVANCE_SLUG`), mirroring the production sub-agent workflow
+ * `__user-authored-brief__`, which declares no client closure.
+ */
+async function seedChildRun(args: {
+  userId: string;
+  parentRunId: string;
+  status: "runnable" | "running" | "waiting" | "completed";
+  subId: string;
+}): Promise<string> {
+  const runId = `run_child_${randomUUID().slice(0, 12)}`;
+  await db()
+    .insert(agentRuns)
+    .values({
+      id: runId,
+      userId: args.userId,
+      workflowSlug: CANCEL_ADVANCE_SLUG,
+      currentStep: STEP,
+      status: args.status,
+      attempt: 1,
+      lastCheckpointAt: new Date(),
+      metadata: {
+        subAgent: {
+          kind: "sub_agent",
+          parentRunId: args.parentRunId,
+          subId: args.subId,
+          parentToolCallId: `call_${args.subId}`,
+        },
+      },
+    });
+  return runId;
 }
 
 /** A pending approval staging, so a resurrected interrupt would be visibly wrong. */
@@ -568,6 +606,162 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       frameError.length <= AGENT_RUN_ERROR_MAX,
       `frame error bounded to the cap (was ${frameError.length})`,
     );
+  });
+
+  // ---- #559b: the cancel reaches the children the boss delegated to --------
+
+  test("#559b: cancelling a parent cascades to its non-terminal sub-agent children", async () => {
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 1,
+    });
+    const running = await seedChildRun({
+      userId,
+      parentRunId: runId,
+      status: "running",
+      subId: "a",
+    });
+    const parked = await seedChildRun({
+      userId,
+      parentRunId: runId,
+      status: "waiting",
+      subId: "b",
+    });
+    const finished = await seedChildRun({
+      userId,
+      parentRunId: runId,
+      status: "completed",
+      subId: "c",
+    });
+    // A child of a DIFFERENT parent. The cascade selects on the metadata
+    // pointer, so a predicate that fell back to "every sub-agent run of this
+    // user" would kill this one too.
+    const other = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 1,
+    });
+    const stranger = await seedChildRun({
+      userId,
+      parentRunId: other.runId,
+      status: "running",
+      subId: "d",
+    });
+
+    assert.equal(await cancelRun({ runId, reason: "user_stopped" }), "cancelled");
+
+    for (const [childRunId, label] of [
+      [running, "a running child"],
+      [parked, "a parked child"],
+    ] as const) {
+      const child = await readRun(childRunId);
+      assert.equal(child?.status, "cancelled", `${label} is cancelled with its parent`);
+      assert.equal(
+        getStringPath(child?.error, "reason"),
+        "parent_run_cancelled",
+        `${label} records WHY it stopped, not the parent's own reason`,
+      );
+      assert.equal(
+        child?.cancellationGeneration,
+        1,
+        `${label} advanced its OWN fence — its dispatch gate reads no other`,
+      );
+    }
+
+    const done = await readRun(finished);
+    assert.equal(done?.status, "completed", "a child that already finished is left alone");
+    assert.equal(done?.cancellationGeneration, 0, "…and its fence never moved");
+
+    const untouched = await readRun(stranger);
+    assert.equal(untouched?.status, "running", "another parent's child keeps running");
+  });
+
+  test("#559b: a cascaded child sweeps its own stagings", async () => {
+    // The child's staging sweep rides back inside the parent's `afterCommit`
+    // closure. A sub-agent owes no client closure (its workflow declares
+    // `closure: { kind: "none" }`), so the only obligation the cascade carries
+    // is rejecting the child's pending approvals and tearing down their jobs.
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 1,
+    });
+    const childRunId = await seedChildRun({
+      userId,
+      parentRunId: runId,
+      status: "running",
+      subId: "closes",
+    });
+    // A pending approval on the CHILD. The parent's bulk reject is scoped to
+    // its own run id, so only the cascade can decide this row.
+    await seedPendingStaging(userId, childRunId);
+
+    assert.equal(
+      await cancelRun({
+        runId,
+        reason: "user_stopped",
+        pendingApprovalRejectReason: "You stopped this run.",
+      }),
+      "cancelled",
+    );
+
+    assert.deepEqual(
+      terminalCalls,
+      [{ runId, outcome: "cancelled", reason: "user_stopped" }],
+      "only the parent drives client closure; a child with no closure owes none",
+    );
+    assert.deepEqual(
+      await readStagingStatuses(childRunId),
+      ["rejected"],
+      "the child's pending approval is rejected by the cascade's staging sweep",
+    );
+    const [rejected] = await db()
+      .select({ reason: actionStagings.rejectReason })
+      .from(actionStagings)
+      .where(eq(actionStagings.runId, childRunId));
+    assert.equal(
+      rejected?.reason,
+      "You stopped this run.",
+      "the user-facing text stays the parent's — the user decided once, about one run",
+    );
+  });
+
+  test("#559b: a cancelled parent may not spawn a fresh child", async () => {
+    // The other half of the cascade. Cancelling reaches the children that
+    // exist; this is what stops a new one being born a moment later, when the
+    // parent's step body runs on past the cancel and calls `spawn_sub_agent`.
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 1,
+    });
+    await cancelRun({ runId, reason: "user_stopped" });
+
+    await assert.rejects(
+      () =>
+        spawnSubAgent({
+          parentRunId: runId,
+          userId,
+          parentToolCallId: "call_late",
+          subId: "late",
+          brief: "do the thing anyway",
+          allowedIntegrations: [],
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error, `spawn rejected with ${String(error)}`);
+        assert.ok(error instanceof AppError, "the refusal is a typed app error, not a bare Error");
+        assert.equal((error as AppError).code, "run_cancelled");
+        return true;
+      },
+      "a terminal parent must not gain a child",
+    );
+
+    const children = await db()
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${runId}`);
+    assert.deepEqual(children, [], "no child row was written");
   });
 
   test("cancelling an already-terminal run does not re-close the turn", async () => {

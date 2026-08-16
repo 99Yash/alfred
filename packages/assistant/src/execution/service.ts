@@ -1,7 +1,13 @@
 import { toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
-import { actionStagings, agentRuns, agentSteps, workflows } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  agentSteps,
+  runIsNotTerminal,
+  workflows,
+} from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
   boundAgentRunError,
@@ -23,7 +29,11 @@ import { snapshotScratchToPostgres } from "./scratchpad/index";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
 import { resolveWorkflowForRun } from "./resolve-workflow";
-import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
+import {
+  readSubAgentMetadata,
+  subAgentDoneSignalName,
+  subAgentParentRunIdMatches,
+} from "./sub-agent-metadata";
 import { startSubAgentWaitSpan, type SubAgentWaitOutcome } from "./runtime-spans";
 import { finalizeCancelledRun } from "./terminal-closure";
 import {
@@ -565,6 +575,14 @@ export interface CancelRunArgs {
 
 export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
 
+/**
+ * The `agent_runs.error.reason` a sub-agent child records when its parent's
+ * cancel cascaded onto it (#559b). Distinct from the parent's own reason so an
+ * operator reading the child row can tell a delegated stop from a stop aimed at
+ * that child.
+ */
+const CASCADED_CANCEL_REASON = "parent_run_cancelled";
+
 export interface CancelTxResult {
   outcome: CancelOutcome;
   /**
@@ -618,22 +636,7 @@ async function dischargeCancelObligations(args: {
   // body, so the workflow owes the user's in-flight artifact an ending, and
   // that is the only obligation here they can see. Internally best-effort.
   await finalizeCancelledRun(args.runId, args.reason);
-  // Sweep again after commit. A step body can stage an approval after the
-  // cancel transaction took its snapshot; the executor's terminal guard will
-  // roll back its step commit, but the staging row itself is an earlier
-  // autocommit. The sweep closes that visibility gap.
-  await rejectLateCancelledRunStagings(args.runId, args.reason);
-  for (const stagingId of args.rejectedStagingIds) {
-    // Guarded per queue, not per staging: the two jobs are independent, so a
-    // failure removing one must not leave the other behind as well.
-    for (const remove of [removeApprovalNotificationJob, removeApprovalExpiryJob]) {
-      try {
-        await remove(stagingId);
-      } catch (err) {
-        console.warn("[agent] staging job teardown failed for", stagingId, toMessage(err));
-      }
-    }
-  }
+  await dischargeStagingSweep(args);
   try {
     await snapshotScratchToPostgres(args.runId);
   } catch (err) {
@@ -652,6 +655,37 @@ async function dischargeCancelObligations(args: {
         args.wokenParentRunId,
         toMessage(err),
       );
+    }
+  }
+}
+
+/**
+ * The staging sweep: reject approval rows that committed after the cancel
+ * transaction took its snapshot, then tear down the queued expiry/notification
+ * jobs of the rows the cancel bulk-rejected. This is the whole post-commit
+ * obligation a cascaded sub-agent child owes (#559b) — a sub-agent declares
+ * `closure: { kind: "none" }` and writes scratch into its parent's zone, so
+ * there is no client closure and no scratch snapshot to drive for it.
+ */
+async function dischargeStagingSweep(args: {
+  runId: string;
+  reason: string;
+  rejectedStagingIds: string[];
+}): Promise<void> {
+  // Sweep again after commit. A step body can stage an approval after the
+  // cancel transaction took its snapshot; the executor's terminal guard will
+  // roll back its step commit, but the staging row itself is an earlier
+  // autocommit. The sweep closes that visibility gap.
+  await rejectLateCancelledRunStagings(args.runId, args.reason);
+  for (const stagingId of args.rejectedStagingIds) {
+    // Guarded per queue, not per staging: the two jobs are independent, so a
+    // failure removing one must not leave the other behind as well.
+    for (const remove of [removeApprovalNotificationJob, removeApprovalExpiryJob]) {
+      try {
+        await remove(stagingId);
+      } catch (err) {
+        console.warn("[agent] staging job teardown failed for", stagingId, toMessage(err));
+      }
     }
   }
 }
@@ -738,8 +772,19 @@ export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
  * {@link CancelTxResult.afterCommit} rather than as a list for the caller to
  * re-derive — see that field. Run it once the enclosing tx commits and the
  * composed cancel is as complete as {@link cancelRun}'s.
+ *
+ * `opts.obligations` selects which post-commit obligations the returned closure
+ * carries. `"full"` (the default, used by {@link cancelRun} and the approvals
+ * decision) drives client closure, the staging sweep, the scratch snapshot, and
+ * a woken parent enqueue. `"staging_sweep"` is the cascaded-child form — a
+ * sub-agent owes no client closure and no scratch snapshot, so it carries only
+ * {@link dischargeStagingSweep}.
  */
-export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<CancelTxResult> {
+export async function cancelRunInTx(
+  tx: AgentTx,
+  args: CancelRunArgs,
+  opts: { obligations: "full" | "staging_sweep" } = { obligations: "full" },
+): Promise<CancelTxResult> {
   const rows = await tx
     .select({
       id: agentRuns.id,
@@ -840,17 +885,113 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       error: boundAgentRunError(args.reason),
     },
   });
+  // #559b: cascade the cancel to every sub-agent child this run spawned. A
+  // child is a separate `agent_runs` row with its own fence, so the parent's
+  // fence says nothing about it: without this, cancelling a boss leaves its
+  // children running and still able to land external effects — the same
+  // effect-after-cancel hole the fence closes for the parent's own steps.
+  // Runs after the parent's own status write above, so a child's cancel reads
+  // its (now terminal) parent in this same snapshot and skips the join wake.
+  const childObligations = await cancelSpawnedChildrenInTx(tx, {
+    parentRunId: args.runId,
+    userId: row.userId,
+    reason: args.reason,
+    pendingApprovalRejectReason: args.pendingApprovalRejectReason,
+  });
+
   const rejectedStagingIds = rejectedStagings.map((r: { id: string }) => r.id);
   return {
     outcome: "cancelled",
-    afterCommit: () =>
-      dischargeCancelObligations({
-        runId: args.runId,
-        reason: args.reason,
-        rejectedStagingIds,
-        wokenParentRunId,
-      }),
+    afterCommit: async () => {
+      if (opts.obligations === "full") {
+        await dischargeCancelObligations({
+          runId: args.runId,
+          reason: args.reason,
+          rejectedStagingIds,
+          wokenParentRunId,
+        });
+      } else {
+        await dischargeStagingSweep({ runId: args.runId, reason: args.reason, rejectedStagingIds });
+      }
+      // Each child's obligations are its own closure, discharged after this
+      // run's. Guarded per child so one child's fault cannot strand another
+      // child's sweep.
+      for (const discharge of childObligations) {
+        try {
+          await discharge();
+        } catch (err) {
+          console.warn("[agent] cascaded child cancel obligations failed", toMessage(err));
+        }
+      }
+    },
   };
+}
+
+/**
+ * Cancel every non-terminal sub-agent child of a run being cancelled, on the
+ * parent's transaction (#559b, amending ADR-0073).
+ *
+ * Why a cascade at all: the cancellation fence lives on one `agent_runs` row.
+ * A child run carries its own fence at generation 0 and its dispatch gate reads
+ * only that one, so a parent's cancel is invisible to it. "No new effect after
+ * cancel" is only true of the whole delegation tree if the cancel reaches the
+ * children the boss spawned to act on its behalf.
+ *
+ * A cascaded child owes only its staging sweep — see the `staging_sweep`
+ * obligations passed to `cancelRunInTx` below. Its `agent.run` frame is
+ * published in-tx by that call, and its fence is bumped there too.
+ *
+ * Recursion terminates on the status guard rather than on a depth limit: each
+ * child cancel re-locks its own row and returns `already_terminal` for a run
+ * this transaction has already cancelled, so a metadata cycle cannot loop.
+ * Sub-agents may not spawn sub-agents today (`spawnSubAgent` refuses), which
+ * makes the real depth one — the recursion is what keeps this correct if that
+ * ever changes.
+ *
+ * Returns one `afterCommit` closure per cancelled child, for the parent to
+ * discharge after its own. Never re-derive that list: see
+ * {@link CancelTxResult.afterCommit}.
+ */
+async function cancelSpawnedChildrenInTx(
+  tx: AgentTx,
+  args: {
+    parentRunId: string;
+    userId: string;
+    reason: string;
+    pendingApprovalRejectReason: string | undefined;
+  },
+): Promise<Array<() => Promise<void>>> {
+  const children = await tx
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.userId, args.userId),
+        subAgentParentRunIdMatches(args.parentRunId),
+        runIsNotTerminal(agentRuns.status),
+      ),
+    )
+    // Spawn order, for a deterministic discharge sequence. The order does not
+    // carry meaning — each child's obligations are independent — but a stable
+    // order makes the cascade reproducible.
+    .orderBy(agentRuns.createdAt);
+
+  const obligations: Array<() => Promise<void>> = [];
+  for (const child of children) {
+    const { outcome, afterCommit } = await cancelRunInTx(
+      tx,
+      {
+        runId: child.id,
+        reason: CASCADED_CANCEL_REASON,
+        // The user-facing approval reject text stays the parent's: the user
+        // decided once, about one run.
+        pendingApprovalRejectReason: args.pendingApprovalRejectReason ?? args.reason,
+      },
+      { obligations: "staging_sweep" },
+    );
+    if (outcome === "cancelled") obligations.push(afterCommit);
+  }
+  return obligations;
 }
 
 export interface RunSummary {

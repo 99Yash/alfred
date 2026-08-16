@@ -63,6 +63,9 @@ export const APP_ERROR_REGISTRY = {
   railway_unavailable: {
     message: "Railway projects could not be read. Reconnect Railway in settings and try again.",
   },
+  run_cancelled: {
+    message: "The run was cancelled; this action did not run.",
+  },
   tool_input_invalid: {
     message: "The tool input is invalid. Correct it and try again.",
   },
@@ -94,5 +97,10 @@ export function toPublicAppError(
   fallback: AppErrorCode = "tool_execution_failed",
 ): PublicAppError {
   const code = err instanceof AppError ? err.code : fallback;
+  return { code, message: APP_ERROR_REGISTRY[code].message };
+}
+
+/** A public error minted directly from a code — the "there was no thrown error" form. */
+export function publicAppError(code: AppErrorCode): PublicAppError {
   return { code, message: APP_ERROR_REGISTRY[code].message };
 }

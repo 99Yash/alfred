@@ -108,10 +108,12 @@ export type PendingApprovalPromotion = Pick<
  * adapter, instead of at each of the four sites that used to hand-write the
  * `UPDATE`. The `outcome` member is per-arm and mandatory: an `executed` row
  * must declare whether the effect provably happened (`succeeded`) or may have
- * happened without confirmation (`unknown` — the ambiguity-barrier case).
+ * happened without confirmation (`unknown` — the ambiguity-barrier case). A
+ * `failed` row is either `failed` (the provider was called and the call did not
+ * succeed) or `refused` (#559b) — the gate refused to call the provider at all.
  */
 export type StagingCommit =
-  | { status: "failed"; outcome: "failed"; error: PublicAppError; executedAt: Date }
+  | { status: "failed"; outcome: "failed" | "refused"; error: PublicAppError; executedAt: Date }
   | {
       status: "executed";
       outcome: "succeeded" | "unknown";

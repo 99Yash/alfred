@@ -109,8 +109,8 @@ describe("subAgentEventAddressesStream", () => {
   });
 
   test("a child event never mounts a turn of its own", () => {
-    // Cancelling a run does not cascade to its children and a spawn need never
-    // be awaited, so a child outlives its parent turn. If a late child event
+    // A spawn need never be awaited, and a cancel reaches a child only
+    // cooperatively, so a child outlives its parent turn. If a late child event
     // could mount a stream ref, the sequence "stop turn 1, send turn 2, child
     // publishes" would replace turn 2's ref: its deltaSeq resets to 0, its
     // segments empty, and the bubble blanks mid-answer.

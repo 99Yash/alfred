@@ -62,6 +62,7 @@ import {
   cancellationEnvelopeSchema,
   unknownEffectEnvelopeSchema,
   type CancellationEnvelope,
+  type CancellationFence,
   type ToolUnavailabilityCode,
   type UnknownEffectEnvelope,
 } from "@alfred/contracts";
@@ -83,6 +84,7 @@ import {
 import {
   APP_ERROR_REGISTRY,
   isAppErrorCode,
+  publicAppError,
   toPublicAppError,
   type PublicAppError,
 } from "@alfred/contracts/app-errors";
@@ -521,13 +523,16 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 
   const proposedInputHash = hashToolInput(toolName, input);
 
-  // #559b: recheck the cancellation fence immediately before any effect. The
-  // step started under `args.fence`; `cancelRunInTx` bumps the run's generation
+  // #559b: recheck the cancellation fence before any staging write. The step
+  // started under `args.fence`; `cancelRunInTx` bumps the run's generation
   // the moment it lands, so a current value past the captured one means the run
   // was cancelled while this step was in flight. Refuse BEFORE the barrier and
-  // the status machine: no new approval may be raised and no external effect may
-  // fire on a cancelled run (the #530 re-fire and the effect-after-cancel hole).
-  // Reads keep the fast path and are not fenced — they have no external effect.
+  // the status machine: no new approval may be raised and no staging row may be
+  // written on a cancelled run (the #530 re-fire and the effect-after-cancel
+  // hole). The barrier, retry, status, and upsert awaits below re-open the
+  // window this read closes, so `executeAndCommit` reads the fence a second
+  // time immediately before `tool.execute`. Reads keep the fast path and are
+  // not fenced — they have no external effect.
   const fence = await stagingStore().readCancellationFence(args.runId);
   if (fence.generation > args.fence.generation) {
     return {
@@ -748,7 +753,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
         if (exhausted) return exhausted;
       }
-      return executeAndCommit(row, tool, input, ctx, /* editedByUser */ false);
+      return executeAndCommit(row, tool, input, ctx, {
+        expectedFence: args.fence,
+        editedByUser: false,
+      });
 
     case "approved": {
       // Resume after user approval — execute with the decided input if
@@ -795,7 +803,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
         if (exhausted) return exhausted;
       }
-      return executeAndCommit(row, tool, reparsed.data as unknown, ctx, editedByUser);
+      return executeAndCommit(row, tool, reparsed.data as unknown, ctx, {
+        expectedFence: args.fence,
+        editedByUser,
+      });
     }
 
     case "rejected": {
@@ -1333,8 +1344,30 @@ async function executeAndCommit(
   tool: ReturnType<typeof getTool> & object,
   input: unknown,
   ctx: ToolExecuteContext,
-  editedByUser: boolean,
+  opts: { expectedFence: CancellationFence; editedByUser: boolean },
 ): Promise<DispatchResult> {
+  // #559b: the second fence read, immediately before the effect. The gate's
+  // first read refuses a step whose cancel landed before dispatch; this one
+  // refuses a cancel that landed DURING dispatch — the barrier, retry, status,
+  // and upsert awaits sit between the two. The staging row already exists
+  // here, so close it `failed`/`refused` rather than leave a pending/approved
+  // row claiming an effect that will never resolve. The residual window between
+  // this read and the provider call inside `tool.execute` is irreducible
+  // without transactional effects; this narrows it to one DB round-trip.
+  const fence = await stagingStore().readCancellationFence(ctx.runId);
+  if (fence.generation > opts.expectedFence.generation) {
+    await commitAndPoke(row, ctx, {
+      status: "failed",
+      outcome: "refused",
+      error: publicAppError("run_cancelled"),
+      executedAt: new Date(),
+    });
+    return {
+      kind: "fenced",
+      stagingId: row.id,
+      result: synthesizeCancelledByFence(),
+    };
+  }
   let result: unknown;
   let error: PublicAppError | undefined;
   try {
@@ -1394,7 +1427,7 @@ async function executeAndCommit(
     kind: "executed",
     stagingId: row.id,
     toolResult: persistedResult,
-    editedByUser,
+    editedByUser: opts.editedByUser,
     sanitized: didSanitize,
   };
 }

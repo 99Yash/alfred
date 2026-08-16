@@ -191,9 +191,10 @@ export function createChatStreamCell(threadId: string): ChatStreamCell {
 /**
  * Whether a sub-agent's `chat.tool` event belongs to the turn currently on
  * screen. It must be able to *address* the in-flight turn but never *create*
- * one: a child outlives its parent turn (cancelling a run does not cascade to
- * its children, and a spawn need never be awaited), so a late child event can
- * arrive while a completely different turn is streaming. Mounting a fresh
+ * one: a child outlives its parent turn (a spawn need never be awaited, and a
+ * cancel reaches a child cooperatively — it cascades, but the child keeps
+ * running until its own fence check), so a late child event can arrive while a
+ * completely different turn is streaming. Mounting a fresh
  * stream ref for it would blank that turn's bubble and reset its delta seq.
  */
 export function subAgentEventAddressesStream<
