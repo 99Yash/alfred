@@ -32,7 +32,7 @@ import {
   setWorkflowBlocked,
   setWorkflowStatus,
 } from "@alfred/assistant/automation/revisions";
-import { ENTITY_FETCHERS } from "../../src/sync/entities";
+import { ENTITY_FETCHERS } from "../../src/sync/read";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");

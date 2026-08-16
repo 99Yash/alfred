@@ -4,7 +4,7 @@ import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { IDB_KEY, type IDBKeys, type SyncedEntity } from "@alfred/sync";
 import { asc, eq, sql } from "drizzle-orm";
 import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "./cvr";
-import { SYNC_ENTITIES } from "./entities";
+import { SYNC_ENTITIES } from "./read";
 import type { ReplicacheModel } from "./model";
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;

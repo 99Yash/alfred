@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
-import { serverMutators } from "../../src/sync/server-mutators";
+import { serverMutators } from "../../src/sync/write";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
