@@ -9,7 +9,7 @@ import {
   type ExistingAttachmentSummary,
   type FreshAttachmentDescriptor,
   type RetryAttachmentSource,
-} from "@alfred/assistant/conversations/turn-attachment-reconciliation";
+} from "@alfred/assistant/chat/turn-attachment-reconciliation";
 
 /**
  * The three predicates that decide whether a resent chat turn is the SAME turn.

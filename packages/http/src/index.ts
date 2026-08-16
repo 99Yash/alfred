@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { agent } from "./agent";
 import { approvalsRoutes } from "./approvals";
-import { chatRoutes } from "./conversations";
+import { chatRoutes } from "./chat";
 import { connections } from "./connections";
 import { mcpIntegrationRoutes } from "./mcp";
 import { meRoutes } from "./me";

@@ -9,7 +9,7 @@ import {
   type ConversationSummary,
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
-} from "@alfred/assistant/conversations/compaction/index";
+} from "@alfred/assistant/chat/compaction/index";
 import { estimateTranscriptTokens } from "@alfred/assistant/execution/run-compaction/index";
 
 const at = new Date("2026-07-12T00:00:00.000Z");

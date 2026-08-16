@@ -5,11 +5,8 @@ import type { ToolName } from "@alfred/contracts";
 
 import type { publishEvent } from "@alfred/assistant/triggers";
 import { sanitizeVoice } from "@alfred/ai/voice";
-import {
-  streamModelTurn,
-  type StreamTurnState,
-} from "@alfred/assistant/conversations/stream-model-turn";
-import type { TurnStopController } from "@alfred/assistant/conversations/turn-stop-controller";
+import { streamModelTurn, type StreamTurnState } from "@alfred/assistant/chat/stream-model-turn";
+import type { TurnStopController } from "@alfred/assistant/chat/turn-stop-controller";
 
 /**
  * Unit tests for the extracted live-stream drain. Exercises the four stream

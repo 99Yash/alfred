@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import type { WorkflowTrigger } from "@alfred/contracts";
 
 import { dailyBriefingWorkflow, morningBriefingWorkflow } from "@alfred/assistant/briefings";
-import { chatMemoryCaptureWorkflow } from "@alfred/assistant/conversations";
+import { chatMemoryCaptureWorkflow } from "@alfred/assistant/chat";
 import {
   buildMemoryExtractionWorkflow,
   coldStartResearchWorkflow,

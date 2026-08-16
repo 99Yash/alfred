@@ -2,14 +2,14 @@
  * TRANSPORT ONLY. This file reads the request and writes the response; it takes
  * no decision that outlives either. Which run exists, which `chat_attachments`
  * rows exist, which bytes are stored, and which quota counters are consumed are
- * all decided in `@alfred/assistant/conversations` (ADR-0089), behind four entry
+ * all decided in `@alfred/assistant/chat` (ADR-0089), behind four entry
  * points: `startChatTurn`, `stopChatTurn`, `uploadChatAttachment`,
  * `resolveChatAttachmentContentUrl`. `/transcribe` carries no such decision.
  *
  * So this file imports no database address, no Redis address, no storage
  * function, and no `drizzle-orm` operator. That is not a style preference — it
  * is the rule that keeps product behavior out of the transport package, and
- * `packages/http/test/conversations-transport-only.test.ts` reads this file's
+ * `packages/http/test/chat-transport-only.test.ts` reads this file's
  * import set and fails on a forbidden one.
  *
  * `Errors.*` thrown below the seam still map to a status:
@@ -30,7 +30,7 @@ import {
   startChatTurn,
   stopChatTurn,
   uploadChatAttachment,
-} from "@alfred/assistant/conversations";
+} from "@alfred/assistant/chat";
 import { authMacro } from "./middleware/auth";
 
 /** OpenAI's transcription endpoint caps uploads at 25 MB; mirror it here. */

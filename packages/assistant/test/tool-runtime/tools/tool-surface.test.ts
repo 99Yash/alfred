@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isToolName, type ToolAvailabilityResult, type ToolName } from "@alfred/contracts";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { toolNamesForIntegrations } from "@alfred/assistant/tool-runtime";
 import {
   applyExactToolLoad,

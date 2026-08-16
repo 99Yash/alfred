@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { HttpError } from "@alfred/contracts";
 
-import { classifyChatFailure } from "@alfred/assistant/conversations/chat-failure-kind";
+import { classifyChatFailure } from "@alfred/assistant/chat/chat-failure-kind";
 
 const NO_IMAGE = { currentTurnHasImage: false, historicalHasImage: false };
 const CURRENT_IMAGE = { currentTurnHasImage: true, historicalHasImage: false };

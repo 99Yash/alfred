@@ -41,7 +41,7 @@ it is not itself a seam.
 | `ToolRuntimeAdapter`           | chat      | `surface-adapter.ts` installs → the runtime forwarders read |
 | `ToolCallRoundAdapter`         | chat      | dispatch installs → `executeToolCallRound` reads      |
 | `SystemToolAgentAdapter`       | chat      | agent installs → the system tools read                |
-| `SystemToolChatHistoryAdapter` | chat      | conversations installs → the system tools read        |
+| `SystemToolChatHistoryAdapter` | chat      | chat installs → the system tools read        |
 | `SystemToolWorkflowAdapter`    | chat      | workflows installs → the system tools read            |
 | `SystemToolKnowledgeAdapter`   | chat      | runtime composition installs → the system tools read   |
 | `SystemToolTaskAdapter`        | chat      | runtime composition installs → the system tools read   |
@@ -62,7 +62,7 @@ small boot-time interface:
   `connections` -> `@alfred/db` reach, out of the eager `tool-runtime` barrel.
 - `ToolCallRoundAdapter` keeps the dispatch value graph out of the eager barrel.
 - `SystemToolAgentAdapter` inverts `tool-runtime -> execution`.
-- `SystemToolChatHistoryAdapter` inverts `tool-runtime -> conversations`.
+- `SystemToolChatHistoryAdapter` inverts `tool-runtime -> chat`.
 - `SystemToolWorkflowAdapter` inverts `tool-runtime -> workflows`.
 - `SystemToolKnowledgeAdapter` and `SystemToolTaskAdapter` invert the product
   operations. Runtime composition owns the suppression-write then todo-dismiss

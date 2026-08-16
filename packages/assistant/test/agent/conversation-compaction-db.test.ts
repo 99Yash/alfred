@@ -13,11 +13,11 @@ import {
 } from "@alfred/db/schemas";
 import { eq, inArray, sql } from "drizzle-orm";
 
-import { persistChatAttachmentRepresentation } from "@alfred/assistant/conversations/attachments/attachment-enrichment";
+import { persistChatAttachmentRepresentation } from "@alfred/assistant/chat/attachments/attachment-enrichment";
 import {
   loadConversationSummaryEvidence,
   persistConversationSummary,
-} from "@alfred/assistant/conversations/compaction/index";
+} from "@alfred/assistant/chat/compaction/index";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
