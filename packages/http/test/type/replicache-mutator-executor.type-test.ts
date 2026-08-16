@@ -18,7 +18,7 @@
 // TS2578 — the regression turns the build red.
 
 import type { DbRoot, DbTransaction } from "@alfred/db";
-import type { serverMutators } from "../../src/sync/server-mutators";
+import type { serverMutators } from "../../src/sync/write";
 
 // The executor every server mutator receives — the type the narrowed `DbTx`
 // alias resolves to at the `prefSet` call surface.

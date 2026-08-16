@@ -11,7 +11,7 @@ import {
 } from "@alfred/assistant/connections/ingestion";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
-import { serverMutators } from "./server-mutators";
+import { serverMutators } from "./write";
 import { getStringPath, isRecord, toMessage } from "@alfred/contracts";
 
 export type PushRequestBody = ReplicacheModel.Push;
