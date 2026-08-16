@@ -20,8 +20,13 @@
  * `src/` is a runtime someone can select in production.
  */
 
-import type { JsonValue, RunStatus, ToolName } from "@alfred/contracts";
-import { actionStagingStatusSchema, jsonValueSchema, runStatusSchema } from "@alfred/contracts";
+import type { EffectOutcome, JsonValue, RunStatus, ToolName } from "@alfred/contracts";
+import {
+  actionStagingStatusSchema,
+  effectOutcomeSchema,
+  jsonValueSchema,
+  runStatusSchema,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -56,7 +61,34 @@ export type StagingRow = Pick<
   | "notifyAfterAt"
   | "notifiedAt"
   | "expiresAt"
+  // #559a: the effect dimension. The gate reads these off the stored row to
+  // thread the effect identity downstream and to run the ambiguity barrier.
+  | "outcome"
+  | "effectKey"
+  | "attemptKey"
+  | "requestHash"
 >;
+
+/**
+ * What the gate supplies to create a staging row. Deliberately NOT the raw
+ * `NewActionStaging`: `effect_key` / `attempt_key` / `outcome` are minted by the
+ * store (mint-once, keep-on-replay is the conflict idiom), and `request_hash`
+ * is required here because only the gate knows the target account/resource
+ * binding the canonical hash must scope to.
+ */
+export type StagingInsertValues = Omit<NewActionStaging, "effectKey" | "attemptKey" | "outcome"> & {
+  requestHash: string;
+};
+
+/** The logical effect this staging row is one attempt of (#559a). */
+export function effectKeyFor(runId: string, toolCallId: string): string {
+  return `eff:${runId}:${toolCallId}`;
+}
+
+/** The first (and, until the retry/reclaim slice, only) attempt of an effect. */
+export function attemptKeyFor(runId: string, toolCallId: string): string {
+  return `${effectKeyFor(runId, toolCallId)}:1`;
+}
 
 export type PendingApprovalPromotion = Pick<
   ActionStaging,
@@ -67,11 +99,19 @@ export type PendingApprovalPromotion = Pick<
  * The two terminal outcomes a dispatched row can reach. A closed union so the
  * "which columns does this outcome write" decision is made once, in the
  * adapter, instead of at each of the four sites that used to hand-write the
- * `UPDATE`.
+ * `UPDATE`. The `outcome` member is per-arm and mandatory: an `executed` row
+ * must declare whether the effect provably happened (`succeeded`) or may have
+ * happened without confirmation (`unknown` — the ambiguity-barrier case).
  */
 export type StagingCommit =
-  | { status: "failed"; error: PublicAppError; executedAt: Date }
-  | { status: "executed"; result: JsonValue | undefined; sanitized: boolean; executedAt: Date };
+  | { status: "failed"; outcome: "failed"; error: PublicAppError; executedAt: Date }
+  | {
+      status: "executed";
+      outcome: "succeeded" | "unknown";
+      result: JsonValue | undefined;
+      sanitized: boolean;
+      executedAt: Date;
+    };
 
 export interface StagingStore {
   /**
@@ -85,6 +125,16 @@ export interface StagingStore {
   }): Promise<{ reason: string | null } | null>;
 
   /**
+   * An unresolved `unknown` staging row for this user + canonical request hash,
+   * or `null` (#559a). The gate runs this BEFORE inserting a fresh row: an
+   * identical logical effect whose outcome is still `unknown` blocks a new
+   * tool-call id (the model must not repeat a possibly-delivered write). The
+   * `(user_id, request_hash) WHERE outcome = 'unknown'` partial unique index is
+   * the DB backstop against two rows racing to `unknown`.
+   */
+  findUnresolvedUnknown(query: { userId: string; requestHash: string }): Promise<StagingRow | null>;
+
+  /**
    * The owning run's status. `null` means the row is absent OR its value does
    * not parse — the gate treats both as "the run is unavailable", so the
    * distinction never escapes this module.
@@ -95,9 +145,11 @@ export interface StagingStore {
    * Idempotent on `(runId, toolCallId)`. `wasInserted` distinguishes a genuine
    * insert from a conflict; on conflict the STORED row comes back verbatim with
    * no decision/result column touched, because the resume path reads `status` /
-   * `decidedInput` off it.
+   * `decidedInput` off it. The store mints `effectKey` / `attemptKey` /
+   * `outcome` on a genuine insert; a re-dispatch of the same key keeps the
+   * minted values (the conflict SET is a no-op).
    */
-  upsertStaging(values: NewActionStaging): Promise<{ row: StagingRow; wasInserted: boolean }>;
+  upsertStaging(values: StagingInsertValues): Promise<{ row: StagingRow; wasInserted: boolean }>;
 
   /**
    * Monotonically raise an old pending autonomous row into the approval queue.
@@ -129,16 +181,32 @@ const STAGING_COLUMNS = {
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
   expiresAt: actionStagings.expiresAt,
+  outcome: actionStagings.outcome,
+  effectKey: actionStagings.effectKey,
+  attemptKey: actionStagings.attemptKey,
+  requestHash: actionStagings.requestHash,
 } as const;
 
 /**
- * `status` is a plain `text` column carrying a `$type` assertion, so a value
- * written by an older deploy (or by hand) reaches us unvalidated. Parse it at
- * the read — the owning boundary — rather than letting the gate branch on a
- * string TypeScript merely believes.
+ * `status` and `outcome` are plain `text` columns carrying a `$type`
+ * assertion, so a value written by an older deploy (or by hand) reaches us
+ * unvalidated. Parse them at the read — the owning boundary — rather than
+ * letting the gate branch on a string TypeScript merely believes.
  */
 function parseStagingRow(row: StagingRow): StagingRow {
-  return { ...row, status: actionStagingStatusSchema.parse(row.status) };
+  return {
+    ...row,
+    status: actionStagingStatusSchema.parse(row.status),
+    outcome: effectOutcomeSchema.parse(row.outcome),
+  };
+}
+
+/** The `outcome` a fresh row is born with (#559a). */
+export function outcomeForInsert(values: StagingInsertValues): EffectOutcome {
+  // A row that gates is in the approval queue the moment it is inserted; a row
+  // the gate will dispatch immediately is `dispatching` from birth. `planned`
+  // remains the DB default for writers that do not set it.
+  return values.requiresApproval ? "awaiting_approval" : "dispatching";
 }
 
 /**
@@ -150,12 +218,14 @@ function commitColumns(commit: StagingCommit) {
     case "failed":
       return {
         status: "failed",
+        outcome: commit.outcome,
         executeError: jsonValueSchema.parse(commit.error),
         executedAt: commit.executedAt,
       } as const;
     case "executed":
       return {
         status: "executed",
+        outcome: commit.outcome,
         // A tool legitimately returning `undefined` is stored as SQL NULL.
         // `status = 'executed'` is the discriminator for "execution happened" —
         // readers must never infer "no result yet" from a null payload.
@@ -195,6 +265,22 @@ export const postgresStagingStore: StagingStore = {
     return row ? { reason: row.reason } : null;
   },
 
+  async findUnresolvedUnknown(query) {
+    const rows = await db()
+      .select(STAGING_COLUMNS)
+      .from(actionStagings)
+      .where(
+        and(
+          eq(actionStagings.userId, query.userId),
+          eq(actionStagings.requestHash, query.requestHash),
+          eq(actionStagings.outcome, "unknown"),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? parseStagingRow(row) : null;
+  },
+
   async readRunStatus(runId) {
     const rows = await db()
       .select({ status: agentRuns.status })
@@ -217,7 +303,15 @@ export const postgresStagingStore: StagingStore = {
     // genuinely-new rows.
     const upserted = await db()
       .insert(actionStagings)
-      .values(values)
+      .values({
+        ...values,
+        // #559a: mint-once identity. On a conflict the no-op SET below keeps
+        // whatever was stored, so a re-dispatch of the same (run, tool call)
+        // never rotates the effect key.
+        effectKey: effectKeyFor(values.runId, values.toolCallId),
+        attemptKey: attemptKeyFor(values.runId, values.toolCallId),
+        outcome: outcomeForInsert(values),
+      })
       .onConflictDoUpdate({
         target: [actionStagings.runId, actionStagings.toolCallId],
         set: { rowVersion: sql`${actionStagings.rowVersion}` },
@@ -242,6 +336,7 @@ export const postgresStagingStore: StagingStore = {
         proposedInput: promotion.proposedInput,
         proposedInputHash: promotion.proposedInputHash,
         requiresApproval: true,
+        outcome: "awaiting_approval",
         notifyAfterAt: promotion.notifyAfterAt,
         expiresAt: promotion.expiresAt,
         rowVersion: sql`${actionStagings.rowVersion} + 1`,

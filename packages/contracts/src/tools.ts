@@ -235,6 +235,27 @@ export function hashToolInput(toolName: ToolName, input: unknown): string {
 }
 
 /**
+ * Canonical request hash for the effect ledger (#559a). The ambiguity barrier
+ * keys on this: it must be stable for one logical effect AND scope the effect
+ * to the target it acts on, so the same args against a different account/
+ * resource resolve as a DIFFERENT effect. `toolName` and `input` are exactly
+ * the values {@link hashToolInput} hashes; `target` is the binding the effect
+ * lands on (the resolved account ref / resource), appended when known.
+ *
+ * Deliberately a separate helper: changing `hashToolInput` would silently
+ * re-key every persisted `proposed_input_hash` and rejection signature, while
+ * the ledger's request hash may grow a target binding independently.
+ */
+export function hashToolRequest(
+  toolName: ToolName,
+  input: unknown,
+  target: string | undefined,
+): string {
+  const binding = target === undefined ? "" : `:${target}`;
+  return `req:fnv1a64:${fnv1a64(`${toolName}${binding}:${canonicalJson(input)}`)}`;
+}
+
+/**
  * Title-case a snake/underscore slug for display: `send_draft` → `Send Draft`.
  * Shared so the email worker and the approvals card never drift.
  */

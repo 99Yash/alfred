@@ -1,4 +1,5 @@
 import type {
+  EffectOutcome,
   IntegrationRules,
   IntegrationSlug,
   JsonValue,
@@ -65,6 +66,28 @@ export const actionStagings = pgTable(
     proposedInputHash: text("proposed_input_hash").notNull(),
     requiresApproval: boolean("requires_approval").notNull(),
     status: text("status").$type<ActionStagingStatus>().notNull().default("pending"),
+    // #559a: the effect dimension, orthogonal to `status`. `status` is the
+    // approval gate machine; `outcome` records what the effect itself did.
+    // Minted with `planned` and advanced as the call moves through the gate and
+    // the provider. `unknown` is the sticky possibly-delivered case — it holds
+    // the ambiguity barrier (see the partial unique index below) and never
+    // auto-retries.
+    outcome: text("outcome").$type<EffectOutcome>().notNull().default("planned"),
+    // #559a: one logical tool call keeps one `effect_key` across every retry and
+    // reclaim; `attempt_key` rotates on each retry. `${runId}:${stepId}:${attempt}`
+    // is NOT a safe downstream effect key — it changes on every reclaim.
+    effectKey: text("effect_key").notNull(),
+    attemptKey: text("attempt_key").notNull(),
+    // #559a: canonical tool + args + target account/resource. The ambiguity
+    // barrier keys on `(user_id, request_hash)`, so a fresh tool-call id cannot
+    // bypass an unresolved possibly-delivered write.
+    requestHash: text("request_hash").notNull(),
+    // #559a: provider idempotency key. Equal to `effect_key` when the provider
+    // supports idempotent writes, so a retry re-sends the same key and the
+    // provider dedupes.
+    providerKey: text("provider_key"),
+    // #559a: the remote request/object/message id when the provider reports one.
+    providerRef: text("provider_ref"),
     decidedInput: jsonb("decided_input").$type<JsonValue>(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     rejectReason: text("reject_reason"),
@@ -99,6 +122,12 @@ export const actionStagings = pgTable(
     index("action_stagings_recent_rejections_idx")
       .on(t.userId, t.toolName, t.decidedAt.desc())
       .where(sql`${t.status} = 'rejected'`),
+    // #559a: the ambiguity barrier. One unresolved `unknown` effect per
+    // (user, request). A fresh model tool-call id for the same logical effect
+    // collides here and is blocked until the effect is resolved or superseded.
+    uniqueIndex("action_stagings_unknown_effect_idx")
+      .on(t.userId, t.requestHash)
+      .where(sql`${t.outcome} = 'unknown'`),
   ],
 );
 

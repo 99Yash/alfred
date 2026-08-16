@@ -304,6 +304,10 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         riskTier: "no_risk",
         proposedInput: { slug: "github" },
         proposedInputHash: "invalid-edit-test",
+        // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+        effectKey: `eff:${runId}:${toolCallId}`,
+        attemptKey: `eff:${runId}:${toolCallId}:1`,
+        requestHash: "req_invalid_edit_test",
         requiresApproval: true,
         status: "approved",
         decidedInput: { slug: 42, secret: "edited-private-value" },
@@ -445,6 +449,10 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
           riskTier: "no_risk",
           proposedInput: { slug: "github" },
           proposedInputHash: "hash-fixed",
+          // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+          effectKey: `eff:${runId}:${toolCallId}`,
+          attemptKey: `eff:${runId}:${toolCallId}:1`,
+          requestHash: "req_hash_fixed",
           requiresApproval: false,
           status,
         })
@@ -534,6 +542,10 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         const [row] = await db()
           .select({
             status: actionStagings.status,
+            outcome: actionStagings.outcome,
+            effectKey: actionStagings.effectKey,
+            attemptKey: actionStagings.attemptKey,
+            requestHash: actionStagings.requestHash,
             rowVersion: actionStagings.rowVersion,
             decidedInput: actionStagings.decidedInput,
             executeResult: actionStagings.executeResult,

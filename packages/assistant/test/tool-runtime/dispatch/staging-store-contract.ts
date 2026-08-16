@@ -19,10 +19,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { ActionStagingStatus, RunStatus } from "@alfred/contracts";
-import type { NewActionStaging } from "@alfred/db/schemas";
+import type { ActionStagingStatus, EffectOutcome, RunStatus } from "@alfred/contracts";
 
-import type { StagingStore } from "../../../src/tool-runtime/internal/dispatch/staging-store";
+import type {
+  StagingInsertValues,
+  StagingStore,
+} from "../../../src/tool-runtime/internal/dispatch/staging-store";
 
 export interface StagingStoreHarness {
   readonly store: StagingStore;
@@ -41,6 +43,10 @@ export interface StagingStoreHarness {
   /** Read the stored row back, including columns `StagingRow` does not carry. */
   readBack(stagingId: string): Promise<{
     status: ActionStagingStatus;
+    outcome: EffectOutcome;
+    effectKey: string;
+    attemptKey: string;
+    requestHash: string;
     rowVersion: number;
     decidedInput: unknown;
     executeResult: unknown;
@@ -60,8 +66,8 @@ function uniqueSuffix(): string {
 
 function stagingValues(
   base: { userId: string; runId: string },
-  overrides: Partial<NewActionStaging> = {},
-): NewActionStaging {
+  overrides: Partial<StagingInsertValues> = {},
+): StagingInsertValues {
   return {
     userId: base.userId,
     runId: base.runId,
@@ -72,6 +78,7 @@ function stagingValues(
     riskTier: "no_risk",
     proposedInput: { slug: "github" },
     proposedInputHash: `hash_${uniqueSuffix()}`,
+    requestHash: `req_${uniqueSuffix()}`,
     requiresApproval: false,
     status: "pending",
     ...overrides,
@@ -295,10 +302,16 @@ export function runStagingStoreContract(
         message: "The tool failed unexpectedly. Please try again.",
       } as const;
 
-      await h.store.commitStaging(row.id, { status: "failed", error, executedAt });
+      await h.store.commitStaging(row.id, {
+        status: "failed",
+        outcome: "failed",
+        error,
+        executedAt,
+      });
 
       const stored = await h.readBack(row.id);
       assert.equal(stored?.status, "failed");
+      assert.equal(stored?.outcome, "failed", "the failed arm records the failed outcome");
       assert.deepEqual(stored?.executeError, error);
       assert.equal(stored?.executedAt?.getTime(), executedAt.getTime());
       assert.equal(stored?.executeResult, null, "the failed arm writes no result");
@@ -319,6 +332,7 @@ export function runStagingStoreContract(
 
       await h.store.commitStaging(row.id, {
         status: "executed",
+        outcome: "succeeded",
         result: { ok: true },
         sanitized: true,
         executedAt,
@@ -326,6 +340,7 @@ export function runStagingStoreContract(
 
       const stored = await h.readBack(row.id);
       assert.equal(stored?.status, "executed");
+      assert.equal(stored?.outcome, "succeeded", "an executed row declares its outcome");
       assert.deepEqual(stored?.executeResult, { ok: true });
       assert.equal(
         stored?.executeSanitized,
@@ -346,6 +361,7 @@ export function runStagingStoreContract(
 
       await h.store.commitStaging(row.id, {
         status: "executed",
+        outcome: "succeeded",
         result: undefined,
         sanitized: false,
         executedAt: new Date(),
@@ -366,6 +382,137 @@ export function runStagingStoreContract(
       assert.equal(row.requiresApproval, true);
       assert.equal(row.executeSanitized, false, "a fresh row is not sanitized");
       assert.equal(row.decidedInput, null);
+    });
+
+    test("#559a: the store mints a stable effect identity that survives re-dispatch", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      const values = stagingValues(run);
+      const first = await h.store.upsertStaging(values);
+
+      assert.equal(first.row.effectKey, `eff:${run.runId}:${values.toolCallId}`);
+      assert.equal(first.row.attemptKey, `eff:${run.runId}:${values.toolCallId}:1`);
+      assert.equal(first.row.requestHash, values.requestHash, "request_hash comes from the gate");
+
+      const conflicted = await h.store.upsertStaging(values);
+      assert.equal(conflicted.wasInserted, false);
+      assert.equal(
+        conflicted.row.effectKey,
+        first.row.effectKey,
+        "a re-dispatch never rotates the minted effect key",
+      );
+      assert.equal(
+        conflicted.row.attemptKey,
+        first.row.attemptKey,
+        "a re-dispatch never rotates the minted attempt key",
+      );
+    });
+
+    test("#559a: a fresh row's outcome follows the approval gate", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      const autonomous = await h.store.upsertStaging(stagingValues(run));
+      assert.equal(
+        autonomous.row.outcome,
+        "dispatching",
+        "an autonomous insert is about to dispatch",
+      );
+
+      const gated = await h.store.upsertStaging(
+        stagingValues(run, { requiresApproval: true, riskTier: "high" }),
+      );
+      assert.equal(gated.row.outcome, "awaiting_approval", "a gated insert parks in the queue");
+
+      const stored = await h.readBack(autonomous.row.id);
+      assert.equal(stored?.outcome, "dispatching", "the outcome is persisted, not ephemeral");
+    });
+
+    test("#559a: promotion moves an autonomous row to awaiting_approval", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      const { row } = await h.store.upsertStaging(stagingValues(run));
+      assert.equal(row.outcome, "dispatching");
+
+      const promoted = await h.store.promotePendingApproval(row.id, {
+        riskTier: "high",
+        proposedInput: { slug: "calendar" },
+        proposedInputHash: "hash_promoted",
+        notifyAfterAt: new Date(),
+        expiresAt: new Date(),
+      });
+      assert.equal(promoted?.outcome, "awaiting_approval");
+      const stored = await h.readBack(row.id);
+      assert.equal(stored?.outcome, "awaiting_approval");
+    });
+
+    test("#559a: findUnresolvedUnknown returns null when nothing is unresolved", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      await h.store.upsertStaging(stagingValues(run));
+
+      assert.equal(
+        await h.store.findUnresolvedUnknown({ userId: run.userId, requestHash: "req_any" }),
+        null,
+        "a dispatching row is not an unresolved unknown",
+      );
+    });
+
+    test("#559a: findUnresolvedUnknown finds a row committed as unknown", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      const values = stagingValues(run);
+      const { row } = await h.store.upsertStaging(values);
+
+      await h.store.commitStaging(row.id, {
+        status: "executed",
+        outcome: "unknown",
+        result: { status: "unknown", retry: "blocked", message: "may have landed" },
+        sanitized: false,
+        executedAt: new Date(),
+      });
+
+      const found = await h.store.findUnresolvedUnknown({
+        userId: run.userId,
+        requestHash: values.requestHash,
+      });
+      assert.ok(found, "the committed unknown row is the barrier");
+      assert.equal(found.id, row.id);
+      assert.equal(found.effectKey, row.effectKey);
+
+      const stored = await h.readBack(row.id);
+      assert.equal(stored?.outcome, "unknown", "the unknown outcome is persisted");
+    });
+
+    test("#559a: findUnresolvedUnknown is scoped to user and request hash", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      const other = await h.seedRun("running");
+      const values = stagingValues(run);
+      const { row } = await h.store.upsertStaging(values);
+      await h.store.commitStaging(row.id, {
+        status: "executed",
+        outcome: "unknown",
+        result: null,
+        sanitized: false,
+        executedAt: new Date(),
+      });
+
+      assert.equal(
+        await h.store.findUnresolvedUnknown({
+          userId: other.userId,
+          requestHash: values.requestHash,
+        }),
+        null,
+        "another user's identical request is a different effect",
+      );
+      assert.equal(
+        await h.store.findUnresolvedUnknown({
+          userId: run.userId,
+          requestHash: `${values.requestHash}-different`,
+        }),
+        null,
+        "the same user's different request is a different effect",
+      );
     });
   });
 }

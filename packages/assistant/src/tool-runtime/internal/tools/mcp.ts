@@ -16,7 +16,7 @@
  *    `dispatchToolCall`.
  */
 
-import { mcpCallInput, mcpListToolsInput } from "@alfred/contracts";
+import { mcpCallInput, mcpListToolsInput, unknownEffectEnvelopeSchema } from "@alfred/contracts";
 import {
   listMcpToolsLocal,
   type ExternalToolRef,
@@ -53,8 +53,13 @@ function brokerResult(outcome: McpBrokerOutcome): unknown {
       };
     case "ambiguous":
       // The doc's normative unknown-outcome envelope: explicit, and NOT an ordinary
-      // retryable error the model should self-correct on.
-      return { status: "unknown", retry: "blocked", message: outcome.message };
+      // retryable error the model should self-correct on. Produced through the shared
+      // schema so the dispatch gate's recognizer and this producer stay one shape.
+      return unknownEffectEnvelopeSchema.parse({
+        status: "unknown",
+        retry: "blocked",
+        message: outcome.message,
+      });
   }
 }
 
