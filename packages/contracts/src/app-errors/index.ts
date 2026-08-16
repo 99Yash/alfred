@@ -63,6 +63,9 @@ export const APP_ERROR_REGISTRY = {
   railway_unavailable: {
     message: "Railway projects could not be read. Reconnect Railway in settings and try again.",
   },
+  run_cancelled: {
+    message: "The run was cancelled; this action did not run.",
+  },
   tool_input_invalid: {
     message: "The tool input is invalid. Correct it and try again.",
   },
