@@ -1,6 +1,6 @@
 /**
  * Cross-boundary briefing constants. Keep values here only when the server
- * (`@alfred/api`) and client (`apps/web`) must agree — `@alfred/api` is
+ * (`@alfred/assistant`) and client (`apps/web`) must agree — `@alfred/assistant` is
  * server-only so the web bundle can't import it, and `@alfred/contracts` is
  * the dependency-free package both sides can share.
  *

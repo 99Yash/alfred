@@ -9,7 +9,7 @@
  * and the workers get no manifest key, so no ordinary caller can name a
  * registration or a stop function and no caller can reorder the lifecycle.
  * `./runtime/test-support` is the one narrow exception, and it exists only for the
- * two `@alfred/api` suites that cannot move into this package yet.
+ * suites that also import `@alfred/http`, which this package does not declare.
  */
 export {
   createAssistantRuntime,

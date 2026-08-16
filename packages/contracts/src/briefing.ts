@@ -1,6 +1,6 @@
 /**
  * Daily-briefing contract (ADR-0041). Zero Node deps — safe to import from
- * `apps/web`, `packages/db` (`.$type<T>()` columns), `packages/api`, and
+ * `apps/web`, `packages/db` (`.$type<T>()` columns), `packages/assistant`, and
  * `packages/sync`. The composer's structured-output schema, the per-source
  * gather shape, the reference-kind enum, and the closed timezone-fallback
  * surface all live here so the briefings table column types and the
@@ -51,7 +51,7 @@ const SUPPORTED_TIMEZONES: Set<string> = new Set(Intl.supportedValuesOf("timeZon
  * `Intl.supportedValuesOf('timeZone')` lists only canonical *region* zones —
  * it omits valid aliases like "UTC" and "Etc/UTC" that `Intl.DateTimeFormat`
  * accepts. (This is exactly the gap that broke briefings: the default
- * `"UTC"` pref passed `DateTimeFormat`-based validation in `@alfred/api` but
+ * `"UTC"` pref passed `DateTimeFormat`-based validation in `@alfred/assistant` but
  * failed the set-membership check here, throwing in every briefing `gather`.)
  *
  * So the set is the fast path and a `DateTimeFormat` trial is the fallback;

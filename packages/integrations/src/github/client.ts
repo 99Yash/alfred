@@ -207,7 +207,7 @@ export function createGithubClient(options: GithubClientOptions) {
      * there is one place a GitHub credential becomes a header, not two.
      *
      * The gate that proves a request is a *read* is deliberately NOT here: it is
-     * policy owned by `@alfred/api` (`assertReadableRestRequest`), and this
+     * policy owned by `@alfred/assistant` (`assertReadableRestRequest`), and this
      * profile carries authority only.
      */
     passthrough,

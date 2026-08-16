@@ -26,7 +26,7 @@ import { fetchWithRetry, type RetryPolicy } from "./retry";
  * Binary bytes never enter the transcript: a non-text response is represented by
  * its content type + byte count.
  *
- * The read gate (which proves the method/path is a read) runs in `@alfred/api`
+ * The read gate (which proves the method/path is a read) runs in `@alfred/assistant`
  * *before* this is ever reached; the namespace re-check here is defense-in-depth
  * on the constructed URL, not the primary boundary.
  */
@@ -34,7 +34,7 @@ import { fetchWithRetry, type RetryPolicy } from "./retry";
 /**
  * Per-provider transport policy — the data-only inputs pinning authority and
  * auth. Carries no gate policy (that is {@link RestProviderGateConfig} in
- * `@alfred/api`); this is purely "where and as whom the request is sent."
+ * `@alfred/assistant`); this is purely "where and as whom the request is sent."
  */
 export interface RestPassthroughProfile {
   /**

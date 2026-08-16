@@ -3,7 +3,7 @@
  * prompt for pristine in-app artifacts (pristine-artifacts Phase 1).
  *
  * Web-safe (pure strings/data, no DOM/Node): `apps/web` imports the shell to
- * wrap pages at render time; `packages/api` imports the prompt to guide the
+ * wrap pages at render time; `packages/assistant` imports the prompt to guide the
  * authoring turn. Both share one token module so the rendered surface and the
  * authoring guidance never drift.
  */

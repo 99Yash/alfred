@@ -9,7 +9,7 @@ export const CHAT_DELTA_MAX = 16_000;
  * a model can invent a name of any length, and `publishEvent` throws on a
  * payload the schema rejects — inside an awaited commit hook that would fail the
  * whole run instead of letting the bad call bounce and self-correct (ADR-0070 /
- * #267). See `toolCardStarted` / `toolCardTerminal` in `@alfred/api`.
+ * #267). See `toolCardStarted` / `toolCardTerminal` in `@alfred/assistant`.
  */
 export const CHAT_TOOL_NAME_MAX = 120;
 export const CHAT_TOOL_CALL_ID_MAX = 200;
