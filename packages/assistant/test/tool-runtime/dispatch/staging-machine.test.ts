@@ -415,6 +415,39 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 1);
   });
 
+  test("#559b: a cancel landing mid-dispatch is refused immediately before the effect", async () => {
+    // The gate's first fence read passes (0 = 0). Model a cancel landing in
+    // the dispatch window — after the status read at the gate, before the
+    // effect — by advancing the fence as the staging row upserts. Status stays
+    // `running`, so ONLY the pre-execute re-read can refuse: the effect must
+    // not fire, and the already-written row must close `failed` rather than
+    // linger `pending` on a cancelled run.
+    const upsert = store.upsertStaging;
+    store.upsertStaging = async (values) => {
+      const result = await upsert(values);
+      store.seedRun(RUN_ID, "running", { generation: 1 });
+      return result;
+    };
+
+    const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_late_fence" }));
+
+    assert.equal(result.kind, "fenced");
+    assert.equal(executeCount, 0, "the effect must not fire after a mid-dispatch cancel");
+    const [row] = store.rows();
+    assert.ok(row, "the upsert already wrote the row before the cancel landed");
+    assert.equal(result.kind === "fenced" ? result.stagingId : null, row.id);
+    assert.equal(row.status, "failed");
+    assert.equal(
+      row.outcome,
+      "refused",
+      "a refusal is not an attempted effect, so it is not `failed`",
+    );
+    assert.deepEqual(row.executeError, {
+      code: "run_cancelled",
+      message: "The run was cancelled; this action did not run.",
+    });
+  });
+
   test("an unknown run reads as unavailable rather than executing", async () => {
     const result = await dispatchToolCall(
       baseArgs({ toolCallId: "tc_no_run", runId: "run_never_seeded" }),

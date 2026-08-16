@@ -1,4 +1,6 @@
 import { getPath } from "@alfred/contracts";
+import { agentRuns } from "@alfred/db/schemas";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { subAgentIdSchema } from "@alfred/assistant/tool-runtime";
 
@@ -51,6 +53,20 @@ export type SubAgentMetadata = z.infer<typeof subAgentMetadataSchema>;
 export function readSubAgentMetadata(metadata: unknown): SubAgentMetadata | null {
   const parsed = subAgentMetadataSchema.safeParse(getPath(metadata, "subAgent"));
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The `agent_runs` WHERE fragment for "the runs whose parent is `parentRunId`" —
+ * the trusted `subAgent.parentRunId` pointer `spawnSubAgent` stamps. The single
+ * home of that predicate: the cancel cascade, `listSpawnedChildRuns`, and the
+ * usage fold all read children through it, so they cannot drift on the pointer's
+ * shape. Callers that need to scope a run to its user add `eq(agentRuns.userId,
+ * ...)` alongside it; `parentRunId` is a globally unique run id, so the pointer
+ * alone is unambiguous, but the partial index keyed on `(user_id, expr)` serves
+ * only queries that also filter `user_id`.
+ */
+export function subAgentParentRunIdMatches(parentRunId: string) {
+  return sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${parentRunId}`;
 }
 
 /**

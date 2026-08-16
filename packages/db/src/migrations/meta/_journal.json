@@ -715,6 +715,13 @@
       "when": 1786854663133,
       "tag": "0101_thin_patch",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1786878200374,
+      "tag": "0102_abnormal_living_lightning",
+      "breakpoints": true
     }
   ]
 }
