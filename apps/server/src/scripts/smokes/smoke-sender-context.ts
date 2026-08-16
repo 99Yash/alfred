@@ -4,7 +4,7 @@
  *   $ pnpm tsx src/scripts/smokes/smoke-sender-context.ts
  *
  * Pure-function fixtures; no DB / LLM / network. Asserts the six canonical
- * cases from `docs/triage-briefing-v2-plan.md` plus a few edge cases that
+ * cases from `docs/plans/triage-briefing-v2-plan.md` plus a few edge cases that
  * exercise the parser dispatch table.
  *
  * Exits with code 1 on the first failure so CI gets a clear signal.

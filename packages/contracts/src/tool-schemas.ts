@@ -75,7 +75,7 @@ function modelToolEmail() {
  * A model's tool call is made lenient in a fixed two-layer order before the
  * strict schema sees it, so every wrapper below knows where it slots in:
  *
- *   Layer 1 — dispatch (`packages/api`, `normalizeToolInputKeys`): generic,
+ *   Layer 1 — dispatch (`packages/assistant`, `normalizeToolInputKeys`): generic,
  *     all-tools casing/underscore canonicalization. Renames a model key to a
  *     schema key that differs only in case or `_`/`-` (`max_results` →
  *     `maxResults`). Mechanical and lossless, so it is safe to generalize over
@@ -1079,7 +1079,7 @@ export const notionAppendBlocksInput = z
 /**
  * Railway's general read-only passthrough (ADR-0074). The request shape is the
  * shared {@link graphqlPassthroughRequestSchema} contract; the read gate + honest
- * envelope live in `@alfred/api`. Not `.strict()` on purpose — the schema is the
+ * envelope live in `@alfred/assistant`. Not `.strict()` on purpose — the schema is the
  * pure GraphQL request the boss composes, and a mistaken write reaches the *gate*
  * (a visible rejection it can self-correct), not a hidden Zod failure.
  */
@@ -1090,7 +1090,7 @@ export const railwayGraphqlInput = graphqlPassthroughRequestSchema;
  * REST-transport integration (`github.request`, `notion.request`,
  * `vercel.request`, …). One schema, not one per provider: the request surface
  * is identical (method + namespace-relative path + query + optional read-via-POST
- * body); the per-provider read gate and honest envelope live in `@alfred/api`.
+ * body); the per-provider read gate and honest envelope live in `@alfred/assistant`.
  * Not `.strict()` on purpose — a mistaken write method reaches the *gate* (a
  * visible rejection the boss can self-correct), not a hidden Zod failure.
  */

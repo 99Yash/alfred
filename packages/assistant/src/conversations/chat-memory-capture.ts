@@ -28,7 +28,7 @@ import { CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG } from "./idle-capture-queue";
  * `insertObservation`. See the TODO(#399) in `finalize`.
  *
  * Mirrors `memory-extraction.ts`: the LLM lives in a pure extractor
- * (`@alfred/api` `extractPropositionsFromThread`) so manual mode can inject
+ * (`@alfred/assistant` `extractPropositionsFromThread`) so manual mode can inject
  * proposals without the AI SDK, and a single `process`-style shape keeps the
  * executor's `(runId, stepId, attempt)` key happy.
  */

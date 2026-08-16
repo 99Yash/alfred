@@ -106,7 +106,7 @@ async function railwayFetch(
  * (`data` *and* `errors[]`) and API error bodies verbatim. A transport failure
  * (timeout/DNS/reset/TLS) still propagates as a thrown error for the caller's
  * adapter to classify. The read gate that proves the document is query-only runs
- * in `@alfred/api` *before* this is ever reached.
+ * in `@alfred/assistant` *before* this is ever reached.
  */
 export interface RailwayRawGraphqlResult {
   status: number;

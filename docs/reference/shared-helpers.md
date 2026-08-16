@@ -190,7 +190,7 @@ deliberate wrapper patterns, or throwaway scripts.
 
 **Resolved:** `isValidTimezone` was defined identically in three boundaries
 (`apps/web/.../plan-tab.tsx`, `packages/sync/src/mutators/workflows.ts`, and
-`packages/api/src/modules/briefing/preferences.ts`). All three now route through
+`packages/assistant/src/briefings/preferences.ts`). All three now route through
 the pre-existing, better `isIanaTimezone` in `@alfred/contracts` (memoized +
 alias-aware; a bare `Intl.DateTimeFormat` trial once broke briefings on `"UTC"`).
 `packages/assistant/src/time/user-timezone.ts` keeps `isValidTimezone` as a

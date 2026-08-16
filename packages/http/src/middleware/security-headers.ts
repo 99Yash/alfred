@@ -13,7 +13,7 @@ import { Elysia } from "elysia";
  * so the CSP locks everything down (`default-src 'none'`) — that neutralizes
  * any response a browser might mis-render as HTML without touching the JSON
  * responses the SPA consumes cross-origin. The page-level CSP that governs the
- * web app itself lives with the web host (see `apps/web/Caddyfile`).
+ * web app itself lives with the web host (see `Caddyfile`).
  */
 
 /**

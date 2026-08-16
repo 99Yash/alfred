@@ -1,6 +1,6 @@
 /**
  * Todos contract (ADR-0050). Zero Node deps — safe to import from `apps/web`,
- * `packages/db` (`.$type<T>()` columns), `packages/api`, and `packages/sync`.
+ * `packages/db` (`.$type<T>()` columns), `packages/assistant`, and `packages/sync`.
  *
  * A todo is the first *persisted* materialization of the open-loop model
  * (ADR-0048 keeps loops ephemeral at briefing compose-time). One status-driven

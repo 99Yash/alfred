@@ -1,7 +1,7 @@
 /**
  * Background-agent feature toggles — the single source of truth for the
  * `feature.*` `user_preferences` keys, shared between the server gates
- * (`resolveFeatureFlags` in `@alfred/api`) and the Settings → Features UI so
+ * (`resolveFeatureFlags` in `@alfred/assistant`) and the Settings → Features UI so
  * the key strings can never drift between the two sides.
  *
  * Storage + semantics (UNSET = ON) are documented in

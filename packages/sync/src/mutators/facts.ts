@@ -11,7 +11,7 @@ import { readSyncedValue } from "./read";
  * Every mutator below has two jobs:
  *   1. Validate args (zod schema, also used server-side via `mutatorArgsSchemas`).
  *   2. Apply an optimistic patch so the UI reflects the change before the
- *      next server pull lands. Server-side mutators in `@alfred/api`
+ *      next server pull lands. Server-side mutators in `@alfred/http`
  *      mirror these — when the server pull arrives, Replicache rebases
  *      our optimistic patch over the canonical state.
  *
