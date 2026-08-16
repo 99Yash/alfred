@@ -17,7 +17,7 @@ import { closeRedis } from "@alfred/db/redis";
 import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
 
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
-import { registerConversationsSystemToolAdapter } from "@alfred/assistant/conversations";
+import { registerChatSystemToolAdapter } from "@alfred/assistant/chat";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -76,9 +76,9 @@ async function main(): Promise<void> {
   // must install the agent-side handler just like the server bootstrap does.
   registerAgentSystemToolAdapter();
   // A spawned sub-agent may reach `system.read_chat_history`, now behind its own
-  // seam installed by conversations; install it too so the smoke matches the
+  // seam installed by chat; install it too so the smoke matches the
   // server bootstrap and the call does not hit the boot-order throw.
-  registerConversationsSystemToolAdapter();
+  registerChatSystemToolAdapter();
   // Register the replicache poke adapter so pokes can be emitted during the smoke.
   registerReplicachePokeAdapter();
 

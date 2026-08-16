@@ -17,7 +17,7 @@ import { evalite } from "evalite";
 import { z } from "zod";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { awaitSubAgentInputSchema, spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows/user-authored-brief";
 
 // ADR-0077 amendment: behavioral guard for the boss charter. The old rulebook

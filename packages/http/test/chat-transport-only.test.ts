@@ -7,10 +7,10 @@ import { describe, test } from "node:test";
 /**
  * The chat routes hold transport only.
  *
- * `packages/http/src/conversations.ts` used to carry ~780 lines of product
+ * `packages/http/src/chat.ts` used to carry ~780 lines of product
  * logic: turn admission, attachment reconciliation, the upload byte budget, and
  * the Redis counters behind it. That work now lives in
- * `@alfred/assistant/conversations` (ADR-0089), and the route file reads the
+ * `@alfred/assistant/chat` (ADR-0089), and the route file reads the
  * request and writes the response.
  *
  * An invariant about "decisions" cannot be read off a file. Its import set can.
@@ -24,7 +24,7 @@ import { describe, test } from "node:test";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROUTE_FILE = path.join(HERE, "..", "src", "conversations.ts");
+const ROUTE_FILE = path.join(HERE, "..", "src", "chat.ts");
 
 /** Every module specifier the file imports, static or dynamic. */
 export function importSpecifiers(source: string): string[] {
@@ -40,7 +40,7 @@ export function importSpecifiers(source: string): string[] {
 /**
  * A specifier a transport file must not import, and why. `@alfred/assistant`
  * itself is allowed — reaching the product module IS the point — but only
- * through the `conversations` seam, never into a sibling module the routes have
+ * through the `chat` seam, never into a sibling module the routes have
  * no business knowing.
  */
 const FORBIDDEN: readonly {
@@ -70,12 +70,12 @@ const FORBIDDEN: readonly {
     why: "queueing ingestion work belongs to the module that owns the bytes",
   },
   {
-    matches: (s) => s.startsWith("@alfred/assistant/conversations/"),
+    matches: (s) => s.startsWith("@alfred/assistant/chat/"),
     why: "the four seam functions on the module barrel are the whole door; a deep reach takes a decision the module owns",
   },
 ];
 
-describe("packages/http/src/conversations.ts is transport only", () => {
+describe("packages/http/src/chat.ts is transport only", () => {
   const specifiers = importSpecifiers(readFileSync(ROUTE_FILE, "utf8"));
 
   test("the file imports something, so an empty read cannot pass this suite", () => {
@@ -93,14 +93,14 @@ describe("packages/http/src/conversations.ts is transport only", () => {
     assert.deepEqual(
       violations,
       [],
-      `packages/http/src/conversations.ts holds transport only. Move the decision into ` +
-        `@alfred/assistant/conversations and call it from here.\n  ${violations.join("\n  ")}`,
+      `packages/http/src/chat.ts holds transport only. Move the decision into ` +
+        `@alfred/assistant/chat and call it from here.\n  ${violations.join("\n  ")}`,
     );
   });
 
-  test("it reaches the product module through the conversations barrel", () => {
+  test("it reaches the product module through the chat barrel", () => {
     assert.ok(
-      specifiers.includes("@alfred/assistant/conversations"),
+      specifiers.includes("@alfred/assistant/chat"),
       "the routes must call the product seam, not reimplement it",
     );
   });

@@ -21,10 +21,7 @@ import {
   unregisterSystemToolProductAdapters,
 } from "./system-tool-product";
 import { registerSystemToolAgent, unregisterSystemToolAgent } from "./system-tool-agent";
-import {
-  registerSystemToolConversations,
-  unregisterSystemToolConversations,
-} from "./system-tool-conversations";
+import { registerSystemToolChat, unregisterSystemToolChat } from "./system-tool-chat";
 import {
   registerSystemToolWorkflows,
   unregisterSystemToolWorkflows,
@@ -76,9 +73,9 @@ export const RUNTIME_ADAPTERS = [
     shutdownOrder: 12,
   },
   {
-    name: "system-tool-conversations",
-    register: registerSystemToolConversations,
-    unregister: unregisterSystemToolConversations,
+    name: "system-tool-chat",
+    register: registerSystemToolChat,
+    unregister: unregisterSystemToolChat,
     retainIfAgentWorkerActive: true,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 11,

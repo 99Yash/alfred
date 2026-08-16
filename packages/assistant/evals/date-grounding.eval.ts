@@ -6,7 +6,7 @@ import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 
 // ADR-0055: behavioral eval for agent date grounding. Guards the regression
 // where the chat agent, given "how many meetings do i have in october 2026",

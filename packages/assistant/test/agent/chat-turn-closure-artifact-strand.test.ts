@@ -18,12 +18,9 @@ import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,
-} from "@alfred/assistant/conversations/chat-turn-closure";
-import {
-  chatRunStateSchema,
-  type ChatRunState,
-} from "@alfred/assistant/conversations/chat-turn-state";
-import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/conversations/chat-turn";
+} from "@alfred/assistant/chat/chat-turn-closure";
+import { chatRunStateSchema, type ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
+import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/chat/chat-turn";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 

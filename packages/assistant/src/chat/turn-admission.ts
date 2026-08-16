@@ -51,7 +51,7 @@ import {
  * Which run exists, which `chat_attachments` rows exist, which bytes are copied,
  * and which quota counters are consumed are all settled here (ADR-0089).
  *
- * `packages/http/src/conversations.ts` is the only transport in front of this.
+ * `packages/http/src/chat.ts` is the only transport in front of this.
  * It reads the request and writes the response; it takes no decision of its own.
  */
 
@@ -220,7 +220,7 @@ export interface StartChatTurnInput {
  * accepted user turn, and kick the chat-turn run (createRun inside a SAVEPOINT
  * + best-effort enqueue). Owns the busy / reuse / started outcomes and the
  * per-thread concurrency guard. The route is the only transport in front of
- * this; `conversations` owns turn admission per ADR-0089.
+ * this; `chat` owns turn admission per ADR-0089.
  */
 export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKickResponse> {
   const { userId, threadId, tier, artifactTargetId } = input;

@@ -2,6 +2,8 @@
 
 **Status.** Accepted. Migration in progress.
 
+**Amendment 2026-08-16.** The module named `conversations` in the module-structure plan keeps the name `chat`. The module is chat-only (threads, messages, turn admission, compaction), and the schema (`chat_threads`, `chat_messages`), the contracts, the sync adapters, and the web routes already use `chat`. The plan's "Phase 6 renamed `chat` to `conversations`" is reversed for this module only; the `workflows` → `automation` rename stands.
+
 **Decision.** Alfred will separate HTTP adaptation from assistant behavior and
 name both packages for what they own:
 

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { parseIanaTimezone } from "@alfred/contracts";
 
 import { activateTool, migrateActiveTools } from "@alfred/assistant/execution/tool-surface";
-import { chatTurnWorkflow } from "@alfred/assistant/conversations/chat-turn";
+import { chatTurnWorkflow } from "@alfred/assistant/chat/chat-turn";
 import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
 import {
   _setDispatchTraceSinksForTests,

@@ -12,7 +12,7 @@ import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
-import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
 
 // GROUND / #213 / ADR-0071: behavioral guard that the boss answers GitHub

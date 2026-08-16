@@ -348,13 +348,13 @@ export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter):
  * Surface:  chat.
  * Owns/hides: owns the chat-history door the `system.read_chat_history` tool
  *   reaches — read bounded raw evidence from the current chat thread. Hides the
- *   `conversations` retrieval implementation and its chat-message/attachment
- *   state. The method returns `unknown`, so no conversations result type crosses
+ *   `chat` retrieval implementation and its chat-message/attachment
+ *   state. The method returns `unknown`, so no chat result type crosses
  *   the seam.
- * Why the seam: it inverts tool-runtime -> conversations, so tool-runtime never
- *   imports a product recipe. `conversations` installs its own half over the
- *   existing `conversations -> tool-runtime` edge, so no new module edge is added.
- * Wiring: conversations/system-tool-adapter.ts installs; internal/tools/system.ts reads.
+ * Why the seam: it inverts tool-runtime -> chat, so tool-runtime never
+ *   imports a product recipe. `chat` installs its own half over the
+ *   existing `chat -> tool-runtime` edge, so no new module edge is added.
+ * Wiring: chat/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolChatHistoryAdapter {

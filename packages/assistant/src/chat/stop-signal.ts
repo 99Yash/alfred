@@ -26,7 +26,7 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
  *
  * THE BOUNDED HANDLE carries `requestChatStop` and `isChatStopRequested`.
  * The write is one-shot and user-initiated, and its caller fails CLOSED:
- * `packages/http/src/conversations.ts` turns a `false` return into a 503. The
+ * `packages/http/src/chat.ts` turns a `false` return into a 503. The
  * read is the dispatch-tools step's single up-front check (`chat-turn.ts`),
  * which has no retry by design — a rejection there dispatches the whole pending
  * tool batch, with its external effects, after the user asked to stop. Neither

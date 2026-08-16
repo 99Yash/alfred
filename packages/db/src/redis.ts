@@ -59,7 +59,7 @@ const connections: IORedis[] = [];
  *   process. Those callers take `"command"`, which waits for `ready` and still
  *   bounds the wait. Read the CALLER, never the verb or the key: one key can
  *   carry a one-shot reader and a polling reader, and they take different kinds
- *   (`packages/assistant/src/conversations/stop-signal.ts` is the worked
+ *   (`packages/assistant/src/chat/stop-signal.ts` is the worked
  *   example). Do not read "caches, throttles, and probes" as a list of eligible
  *   shapes; two of those three were wrong here (#127).
  */
