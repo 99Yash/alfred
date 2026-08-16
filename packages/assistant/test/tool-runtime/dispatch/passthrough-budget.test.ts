@@ -109,8 +109,13 @@ async function seedExecutedPassthroughCalls(
         riskTier: "no_risk" as const,
         proposedInput: { method: "GET", path: `/repos/x/y/commits?page=${i}` },
         proposedInputHash: `seed-hash-${i}`,
+        // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+        effectKey: `eff:${runId}:seed_${i}`,
+        attemptKey: `eff:${runId}:seed_${i}:1`,
+        requestHash: `req_seed_${i}`,
         requiresApproval: false,
         status: "executed" as const,
+        outcome: "succeeded" as const,
       })),
     );
 }

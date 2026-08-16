@@ -43,6 +43,7 @@ import {
   APPROVAL_EXPIRY_MS,
   getPath,
   hashToolInput,
+  hashToolRequest,
   INTEGRATION_ACTIONS,
   integrationFromToolName,
   inputMatchesWorkflowResourceScope,
@@ -51,13 +52,16 @@ import {
   isTerminalStatus,
   isToolName,
   isToolRiskTier,
+  isUnknownEffectEnvelope,
   jsonValueSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
   summarizeBody,
   toJsonValue,
   toMessage,
+  unknownEffectEnvelopeSchema,
   type ToolUnavailabilityCode,
+  type UnknownEffectEnvelope,
 } from "@alfred/contracts";
 import {
   recordDispatchRejection,
@@ -515,6 +519,30 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 
   const proposedInputHash = hashToolInput(toolName, input);
 
+  // #559a: the canonical request hash scopes the effect to the account/resource
+  // it lands on, so the same args against a different target are a different
+  // effect. Non-workflow calls have no resolved account ref yet — the target
+  // binding is appended when the gate knows it.
+  const requestHash = hashToolRequest(toolName, input, ctx.accountRef);
+
+  // #559a: the ambiguity barrier. BEFORE inserting a fresh row, ask whether an
+  // identical logical effect (same user + canonical request) is still marked
+  // `unknown`. If it is, a new tool-call id must not slip past it: the write
+  // may have been delivered but never confirmed, so repeating it risks a
+  // duplicate. The model receives the same non-actionable unknown envelope the
+  // MCP broker produces, and no staging row is written.
+  const unresolvedBarrier = await stagingStore().findUnresolvedUnknown({
+    userId: args.userId,
+    requestHash,
+  });
+  if (unresolvedBarrier) {
+    return {
+      kind: "blocked",
+      stagingId: null,
+      result: synthesizeBlockedByUnknownEffect(),
+    };
+  }
+
   // Retry suppression — Phase 3c. A prior `rejected` row for this run +
   // tool + input hash means the user has already said no to this exact
   // proposal; synthesize the same rejection without writing a new row
@@ -604,6 +632,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     riskTier,
     proposedInput: persistedProposedInput,
     proposedInputHash,
+    requestHash,
     requiresApproval,
     status: "pending",
     notifyAfterAt,
@@ -721,7 +750,12 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       const reparsed = tool.inputSchema.safeParse(useInput);
       if (!reparsed.success) {
         const error = toPublicAppError(undefined, "tool_input_invalid");
-        await commitAndPoke(row, ctx, { status: "failed", error, executedAt: new Date() });
+        await commitAndPoke(row, ctx, {
+          status: "failed",
+          outcome: "failed",
+          error,
+          executedAt: new Date(),
+        });
         // A post-approval reparse failure never reaches `executeToolWithSpan`
         // (no execution happened), so without this it would be a `failed` row
         // with no trace node (#345) — e.g. a user-edited approval payload that
@@ -1247,6 +1281,7 @@ async function guardPassthroughBudget(
   // persistence poison — `sanitized: false` is the verdict, not a default.
   await commitAndPoke(row, ctx, {
     status: "executed",
+    outcome: "succeeded",
     result: persistedEnvelope,
     sanitized: false,
     executedAt: new Date(),
@@ -1303,7 +1338,12 @@ async function executeAndCommit(
   }
   const now = new Date();
   if (error) {
-    await commitAndPoke(row, ctx, { status: "failed", error, executedAt: now });
+    await commitAndPoke(row, ctx, {
+      status: "failed",
+      outcome: "failed",
+      error,
+      executedAt: now,
+    });
     return { kind: "failed", stagingId: row.id, error };
   }
   // ADR-0070 §1.1: sanitize at the dispatch boundary, the instant the tool
@@ -1320,8 +1360,14 @@ async function executeAndCommit(
         ` from ${tool.name} result`,
     );
   }
+  // #559a: an executed write that returns the unknown-outcome envelope (today
+  // only the MCP broker's ambiguous attempt) is recorded as `unknown`, not
+  // `succeeded` — it may have been delivered without confirmation, which is
+  // exactly the case the ambiguity barrier must hold against.
+  const outcome = isUnknownEffectEnvelope(persistedResult) ? "unknown" : "succeeded";
   await commitAndPoke(row, ctx, {
     status: "executed",
+    outcome,
     result: persistedResult,
     sanitized: didSanitize,
     executedAt: now,
@@ -1381,6 +1427,23 @@ interface SynthesizeRejectionArgs {
   toolName: ToolName;
   proposedInput: unknown;
   reason: string;
+}
+
+/**
+ * #559a: the ambiguity-barrier envelope. An identical logical effect is still
+ * `unknown` — possibly delivered, never confirmed — so this call must not be
+ * attempted. Minted through the shared schema so the barrier's shape is exactly
+ * the one `isUnknownEffectEnvelope` recognizes and the MCP broker produces.
+ */
+function synthesizeBlockedByUnknownEffect(): UnknownEffectEnvelope {
+  return unknownEffectEnvelopeSchema.parse({
+    status: "unknown",
+    retry: "blocked",
+    message:
+      "An identical request was already dispatched and may have been delivered without confirmation. " +
+      "It will not be repeated until its outcome is confirmed or explicitly superseded. " +
+      "Check the target's state instead of retrying.",
+  });
 }
 
 function synthesizeRejection(

@@ -189,6 +189,9 @@ async function seedPendingStaging(userId: string, runId: string): Promise<string
       proposedInputHash: "hash",
       requiresApproval: true,
       status: "pending",
+      effectKey: `eff:${runId}:call_${randomUUID().slice(0, 8)}`,
+      attemptKey: `eff:${runId}:call_${randomUUID().slice(0, 8)}:1`,
+      requestHash: "req:test-cancel-race",
     })
     .returning({ id: actionStagings.id });
   const id = rows[0]?.id;

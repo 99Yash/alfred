@@ -29,8 +29,11 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { z } from "zod";
 import {
   hashToolInput,
+  hashToolRequest,
+  isUnknownEffectEnvelope,
   jsonValueSchema,
   parseIanaTimezone,
+  unknownEffectEnvelopeSchema,
   type IntegrationAvailabilitySnapshot,
 } from "@alfred/contracts";
 
@@ -497,6 +500,7 @@ describe("dispatch staging machine (DB-free)", () => {
       riskTier: "medium",
       proposedInput: jsonValueSchema.parse(input),
       proposedInputHash: hashToolInput("calendar.create_event", input),
+      requestHash: hashToolRequest("calendar.create_event", input, undefined),
       requiresApproval: false,
       status: "pending",
     });
@@ -534,6 +538,7 @@ describe("dispatch staging machine (DB-free)", () => {
       riskTier: "medium",
       proposedInput: jsonValueSchema.parse(input),
       proposedInputHash: hashToolInput("calendar.create_event", input),
+      requestHash: hashToolRequest("calendar.create_event", input, undefined),
       requiresApproval: false,
       status: "pending",
     });
@@ -674,6 +679,88 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(store.rows().length, 2);
   });
 
+  test("an unresolved unknown effect blocks an identical request with no new row", async () => {
+    // #559a barrier: an identical request whose effect was already dispatched
+    // without confirmation must be blocked BEFORE a new staging row exists, so
+    // a sequential attacker replaying with fresh toolCallIds cannot slip past
+    // the (runId, toolCallId) conflict key. The seeded row stands in for a
+    // committed `unknown` from the MCP broker's ambiguous attempt.
+    const args = baseArgs({ toolCallId: "tc_seed_unknown" });
+    const { row } = await store.upsertStaging({
+      userId: USER_ID,
+      runId: RUN_ID,
+      stepId: args.stepId,
+      toolCallId: args.toolCallId,
+      toolName: args.toolName,
+      integration: "system",
+      riskTier: "no_risk",
+      proposedInput: jsonValueSchema.parse(args.input),
+      proposedInputHash: hashToolInput(args.toolName, args.input),
+      requestHash: hashToolRequest(args.toolName, args.input, undefined),
+      requiresApproval: false,
+      status: "pending",
+    });
+    await store.commitStaging(row.id, {
+      status: "executed",
+      outcome: "unknown",
+      result: unknownEffectEnvelopeSchema.parse({
+        status: "unknown",
+        retry: "blocked",
+        message: "ambiguous delivery",
+      }),
+      sanitized: false,
+      executedAt: new Date(),
+    });
+
+    const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_identical_replay" }));
+
+    assert.equal(result.kind, "blocked", "an unresolved identical effect is blocked");
+    if (result.kind !== "blocked") return;
+    assert.equal(result.stagingId, null, "the barrier fires before any row exists");
+    assert.equal(
+      isUnknownEffectEnvelope(result.result),
+      true,
+      "the model sees the unknown envelope",
+    );
+    assert.equal(executeCount, 0, "a blocked request must never reach the tool");
+    assert.equal(store.rows().length, 1, "the blocked request writes no new staging row");
+  });
+
+  test("a tool returning an unknown envelope commits unknown and blocks the replay", async () => {
+    // The other half of #559a's loop, end-to-end through the gate: a tool
+    // whose execution returns the shared unknown envelope (as the MCP broker
+    // does on `ambiguous`) must be persisted as `outcome: "unknown"`, and the
+    // very next identical request must trip the barrier it just created.
+    clearToolRegistryForTests();
+    registerTool(
+      liveTool({
+        integration: "system",
+        action: "load_tool",
+        riskTier: "no_risk",
+        description: "test double — ambiguous delivery",
+        inputSchema: z.object({ slug: z.string() }),
+        execute: async () => {
+          executeCount += 1;
+          return unknownEffectEnvelopeSchema.parse({
+            status: "unknown",
+            retry: "blocked",
+            message: "ambiguous delivery",
+          });
+        },
+      }),
+    );
+
+    const first = await dispatchToolCall(baseArgs({ toolCallId: "tc_ambiguous" }));
+    assert.equal(first.kind, "executed", "the envelope still completes the tool call");
+    const [stored] = store.rows();
+    assert.equal(stored?.outcome, "unknown", "an ambiguous execution commits the unknown outcome");
+
+    const replay = await dispatchToolCall(baseArgs({ toolCallId: "tc_ambiguous_replay" }));
+    assert.equal(replay.kind, "blocked", "a replay of an unresolved unknown effect is blocked");
+    assert.equal(executeCount, 1, "the replay must not execute");
+    assert.equal(store.rows().length, 1, "the blocked replay writes no row");
+  });
+
   // NOT tested here: the gate's `default:` status arm. It is unreachable
   // through the real adapter — `parseStagingRow` rejects an unknown status at
   // the read, so Postgres throws before the switch sees it. Driving it through
@@ -707,6 +794,10 @@ runStagingStoreContract("memory", (): StagingStoreHarness => {
       return row
         ? {
             status: row.status,
+            outcome: row.outcome,
+            effectKey: row.effectKey,
+            attemptKey: row.attemptKey,
+            requestHash: row.requestHash,
             rowVersion: row.rowVersion,
             decidedInput: row.decidedInput,
             executeResult: row.executeResult,
