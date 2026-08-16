@@ -147,7 +147,7 @@ export function createVercelClient(options: VercelClientOptions) {
      * Transport profile for the general read-only passthrough tier (ADR-0074):
      * pinned authority as data, so the passthrough tool never holds a credential.
      * The gate that proves a request is a *read* is deliberately not here — that
-     * is policy owned by `@alfred/api` (`assertReadableRestRequest`).
+     * is policy owned by `@alfred/assistant` (`assertReadableRestRequest`).
      */
     passthrough,
 

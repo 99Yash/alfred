@@ -49,7 +49,7 @@ export { normalizeDecisionTraceKey } from "./decision-traces";
 // args)` persists a chat-turn run on the caller's transaction inside a savepoint.
 // `replayRun(args)` re-persists a run from a revision choice and returns the new
 // run for the caller to `redeliverRun`; it is the entry the `/runs/:runId/replay`
-// HTTP transport calls (that transport moved to `@alfred/api` when execution left
+// HTTP transport calls (that transport moved to `@alfred/http` when execution left
 // `agent/`, so the run-start surface it reaches must be public). The raw
 // `createRun` / `enqueueRun` pair (and its former `deliverRun` alias) is still not
 // re-exported here, so no caller outside execution can split persistence from

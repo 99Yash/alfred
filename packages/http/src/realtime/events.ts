@@ -132,7 +132,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
       // `serverEnv()` at module scope in `startRuntime()` (`:54`), for
       // `CORS_ORIGIN` (`:59`), for the HSTS flag (`:67`) and for
       // `.listen({ port })` (`:75`), all of which outlive item 12, while
-      // `@alfred/api`'s own import-time read through `auth()` dies with it. A
+      // its own import-time read through `auth()` dies with it. A
       // valid `NODE_ENV=production` is unaffected either way.
       .guard({}, (inner) =>
         nodeEnv() === "development"

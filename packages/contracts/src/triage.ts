@@ -58,9 +58,9 @@ export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
 export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
 
 // ─── Classifier todo proposal (ADR-0050 amendment 2026-06-06) ─────────────
-// Lives here (not in `@alfred/api`) so the `email_triage` row can `.$type<>()`
+// Lives here (not in `@alfred/assistant`) so the `email_triage` row can `.$type<>()`
 // against it without a db→api dependency. The cheap classifier
-// (`@alfred/api` triage/classify) re-uses these schemas as the source of
+// (`@alfred/assistant` triage/classify) re-uses these schemas as the source of
 // truth for its `todoSuggestion` / `todoDecision` fields, and the row persists
 // them so a same-run `classify` retry on the reuse path can re-mint the todo.
 

@@ -78,7 +78,7 @@ export const setPreferenceArgsSchema = preferenceInsertSchema
 
 ### Cross-package shapes → import the canonical one
 
-The same shape declared in `@alfred/contracts`, `@alfred/sync`, `@alfred/api`, and `apps/web` is four chances to disagree. Declare it **once** (contracts/sync are the usual home) and import it. Mind the boundary: `apps/web` cannot import `@alfred/db` (or any server package) — `pnpm check:web-boundaries` enforces this. If web needs a row shape, the canonical type belongs in `@alfred/contracts`, which both sides import.
+The same shape declared in `@alfred/contracts`, `@alfred/sync`, `@alfred/assistant`, and `apps/web` is four chances to disagree. Declare it **once** (contracts/sync are the usual home) and import it. Mind the boundary: `apps/web` cannot import `@alfred/db` (or any server package) — `pnpm check:web-boundaries` enforces this. If web needs a row shape, the canonical type belongs in `@alfred/contracts`, which both sides import.
 
 ### When a literal IS correct
 

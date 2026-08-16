@@ -13,7 +13,7 @@ import { getStringPath, isRecord } from "@alfred/contracts";
  *
  * This module is the pure half: turn a Langfuse trace into a normalized
  * trajectory, and diff two trajectories. No I/O, no LLM calls — so it's unit
- * testable and deterministic. The runnable half (`scripts/replay-diff.ts`)
+ * testable and deterministic. The runnable half (`packages/ai/src/scripts/replay-diff.ts`)
  * fetches the traces and prints the diff.
  *
  * The trajectory is built from the executed tool spans (#214) — the ground
