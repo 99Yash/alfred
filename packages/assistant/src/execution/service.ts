@@ -1,7 +1,13 @@
 import { toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
-import { actionStagings, agentRuns, agentSteps, workflows } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  agentSteps,
+  runIsNotTerminal,
+  workflows,
+} from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
   boundAgentRunError,
@@ -565,6 +571,14 @@ export interface CancelRunArgs {
 
 export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
 
+/**
+ * The `agent_runs.error.reason` a sub-agent child records when its parent's
+ * cancel cascaded onto it (#559b). Distinct from the parent's own reason so an
+ * operator reading the child row can tell a delegated stop from a stop aimed at
+ * that child.
+ */
+const CASCADED_CANCEL_REASON = "parent_run_cancelled";
+
 export interface CancelTxResult {
   outcome: CancelOutcome;
   /**
@@ -840,17 +854,92 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       error: boundAgentRunError(args.reason),
     },
   });
+  // #559b: cascade the cancel to every sub-agent child this run spawned. A
+  // child is a separate `agent_runs` row with its own fence, so the parent's
+  // fence says nothing about it: without this, cancelling a boss leaves its
+  // children running and still able to land external effects — the same
+  // effect-after-cancel hole the fence closes for the parent's own steps.
+  // Runs after the parent's own status write above, so a child's cancel reads
+  // its (now terminal) parent in this same snapshot and skips the join wake.
+  const childObligations = await cancelSpawnedChildrenInTx(tx, {
+    parentRunId: args.runId,
+    userId: row.userId,
+    reason: args.reason,
+    pendingApprovalRejectReason: args.pendingApprovalRejectReason,
+  });
+
   const rejectedStagingIds = rejectedStagings.map((r: { id: string }) => r.id);
   return {
     outcome: "cancelled",
-    afterCommit: () =>
-      dischargeCancelObligations({
+    afterCommit: async () => {
+      await dischargeCancelObligations({
         runId: args.runId,
         reason: args.reason,
         rejectedStagingIds,
         wokenParentRunId,
-      }),
+      });
+      // Each child's obligations are its own closure, discharged in spawn
+      // order after the parent's. Every one is independently best-effort, so
+      // one child's dead Redis cannot strand another child's client closure.
+      for (const discharge of childObligations) await discharge();
+    },
   };
+}
+
+/**
+ * Cancel every non-terminal sub-agent child of a run being cancelled, on the
+ * parent's transaction (#559b, amending ADR-0073).
+ *
+ * Why a cascade at all: the cancellation fence lives on one `agent_runs` row.
+ * A child run carries its own fence at generation 0 and its dispatch gate reads
+ * only that one, so a parent's cancel is invisible to it. "No new effect after
+ * cancel" is only true of the whole delegation tree if the cancel reaches the
+ * children the boss spawned to act on its behalf.
+ *
+ * Recursion terminates on the status guard rather than on a depth limit: each
+ * child cancel re-locks its own row and returns `already_terminal` for a run
+ * this transaction has already cancelled, so a metadata cycle cannot loop.
+ * Sub-agents may not spawn sub-agents today (`spawnSubAgent` refuses), which
+ * makes the real depth one — the recursion is what keeps this correct if that
+ * ever changes.
+ *
+ * Returns one `afterCommit` closure per cancelled child, for the parent to
+ * discharge after its own. Never re-derive that list: see
+ * {@link CancelTxResult.afterCommit}.
+ */
+async function cancelSpawnedChildrenInTx(
+  tx: AgentTx,
+  args: {
+    parentRunId: string;
+    userId: string;
+    reason: string;
+    pendingApprovalRejectReason: string | undefined;
+  },
+): Promise<Array<() => Promise<void>>> {
+  const children = await tx
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.userId, args.userId),
+        sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${args.parentRunId}`,
+        runIsNotTerminal(agentRuns.status),
+      ),
+    )
+    .orderBy(agentRuns.id);
+
+  const obligations: Array<() => Promise<void>> = [];
+  for (const child of children) {
+    const { outcome, afterCommit } = await cancelRunInTx(tx, {
+      runId: child.id,
+      reason: CASCADED_CANCEL_REASON,
+      // The user-facing approval reject text stays the parent's: the user
+      // decided once, about one run.
+      pendingApprovalRejectReason: args.pendingApprovalRejectReason ?? args.reason,
+    });
+    if (outcome === "cancelled") obligations.push(afterCommit);
+  }
+  return obligations;
 }
 
 export interface RunSummary {
