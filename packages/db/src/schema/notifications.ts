@@ -5,7 +5,7 @@ import { user } from "./auth";
 
 /**
  * Every logical kind of email Alfred sends. This is the source of truth for
- * `email_sends.kind`; `@alfred/api` imports the type for its `notify` surface.
+ * `email_sends.kind`; `@alfred/assistant` imports the type for its `notify` surface.
  */
 export const NOTIFICATION_KINDS = [
   "briefing",

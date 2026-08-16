@@ -17,7 +17,7 @@
 // executor — `scripts/` has no CI test job and no tsconfig names the tree.
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
 import { listWorkspaces } from "./workspaces.mjs";
@@ -231,4 +231,127 @@ export function packageExportsFailures(root) {
   }
 
   return { checked, blocked, failures };
+}
+
+/**
+ * Split a bare specifier into the package it names and the subpath under it.
+ *
+ * A leading `.` is the whole test for a relative literal — oxlint's own patterns are
+ * matched against the specifier as written, so a relative one never names a package.
+ * A scoped name is two segments, an unscoped name is one, and the remainder becomes
+ * an `exports`-map subpath (`"."` when there is none) so it can be compared with the
+ * keys a manifest publishes without a second spelling.
+ *
+ * The literal `kind` of each member is load-bearing, not decoration. Without the
+ * annotation TypeScript widens the `kind` of a fresh object literal to `string`, the
+ * two members join into one optional-property shape, and the caller that reads
+ * `subpath` after testing for `"relative"` is reading a field the type says may be
+ * absent. With it, the test narrows and the read is checked.
+ *
+ * @param {string} specifier
+ * @returns {{kind: "relative"} | {kind: "bare", packageName: string, subpath: string}}
+ */
+export function specifierKind(specifier) {
+  if (specifier.startsWith(".")) return { kind: "relative" };
+
+  const segments = specifier.split("/");
+  const scoped = specifier.startsWith("@");
+  const packageName = scoped ? segments.slice(0, 2).join("/") : segments[0];
+  const rest = segments.slice(scoped ? 2 : 1).join("/");
+
+  return { kind: "bare", packageName, subpath: rest === "" ? "." : `./${rest}` };
+}
+
+/**
+ * Which `exports` key publishes one subpath, or `null` when none does.
+ *
+ * An exact key wins, then the matching `*` key with the longest text before its star
+ * — Node's own specificity order, which matters because a sealed `"./sealed": null`
+ * sits beside a `"./*"` that would otherwise match it.
+ */
+export function publishedKey(keys, subpath) {
+  if (keys.has(subpath)) return subpath;
+  /** @type {string | null} */
+  let best = null;
+  for (const key of keys.keys()) {
+    if (!key.includes("*")) continue;
+    if (!matchesSubpathKey(key, subpath)) continue;
+    if (best === null || key.indexOf("*") > best.indexOf("*")) best = key;
+  }
+  return best;
+}
+
+/**
+ * The concrete file a wildcard `exports` key resolves one subpath to, or `null` when
+ * the target escapes its package.
+ *
+ * The text the key's `*` stood for is substituted into the target's `*`, which is
+ * Node's own rule. A key with a `*` whose target has none maps its whole family onto
+ * one file, so the target is used as written.
+ */
+export function wildcardTargetPath(packageDir, key, target, subpath) {
+  if (!target.startsWith("./")) return null;
+
+  const star = key.indexOf("*");
+  const matched = subpath.slice(star, subpath.length - (key.length - star - 1));
+  const path = `${packageDir}/${target.replace("*", matched).slice(2)}`;
+  return path.split("/").includes("..") ? null : path;
+}
+
+/**
+ * Every named workspace package, with the `exports` keys it publishes, plus one
+ * listing of every file inside the workspaces.
+ *
+ * The listing is taken ONCE rather than per target: a `git ls-files` whose pathspec
+ * parent is gone writes `warning: could not open directory …` onto this check's own
+ * stderr, and a gate whose failure output opens with a raw git warning reads like a
+ * crash.
+ *
+ * A key carries `blocked` when every entry under it is `null`, so a caller can tell a
+ * sealed door from a published one, and the targets behind it so a wildcard key can
+ * be resolved to a file. `problem` is non-null when the subpath half cannot be
+ * asserted at all: a package with no `exports` map resolves `.` through `main`, and a
+ * map that does not parse is `pnpm check:exports`'s failure, not a licence for this
+ * check to report every subpath under it as dead.
+ */
+export function workspaceExportIndex(root) {
+  const { workspaces, globs, failures } = listWorkspaces(root);
+  const packages = new Map();
+  const listed = new Set(globs.length === 0 ? [] : listGitSourceFiles(globs, root));
+
+  for (const { name, dir, manifest } of workspaces) {
+    if (name === null) continue;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(resolve(root, manifest), "utf8"));
+    } catch {
+      packages.set(name, { dir, keys: new Map(), problem: `${manifest} does not parse` });
+      continue;
+    }
+    if (parsed === null || typeof parsed !== "object" || !("exports" in parsed)) {
+      packages.set(name, { dir, keys: new Map(), problem: `${name} declares no exports map` });
+      continue;
+    }
+
+    const { targets, failures: shapeFailures } = exportTargets(parsed.exports);
+    if (shapeFailures.length > 0) {
+      packages.set(name, {
+        dir,
+        keys: new Map(),
+        problem: `${name}'s exports map does not parse (pnpm check:exports reports it)`,
+      });
+      continue;
+    }
+
+    const keys = new Map();
+    for (const { subpath, target, kind } of targets) {
+      const seen = keys.get(subpath) ?? { blocked: true, targets: [] };
+      if (kind === "blocked") keys.set(subpath, seen);
+      else keys.set(subpath, { blocked: false, targets: [...seen.targets, target] });
+    }
+    packages.set(name, { dir, keys, problem: null });
+  }
+
+  return { packages, listed, failures };
 }

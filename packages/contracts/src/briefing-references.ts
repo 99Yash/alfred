@@ -2,8 +2,8 @@
  * Briefing reference resolution (ADR-0049). Zero Node deps — the pure resolver
  * lives here so the web surface can expand the composer's opaque
  * `[[<kind>:<id>]]` tokens against a row's synced `gather` without importing
- * `@alfred/api` (web-boundary safe). Email's HTML renderer stays server-side in
- * `@alfred/api` but calls these same functions: one resolution truth, two
+ * `@alfred/assistant` (web-boundary safe). Email's HTML renderer stays server-side in
+ * `@alfred/assistant` but calls these same functions: one resolution truth, two
  * renderers.
  */
 

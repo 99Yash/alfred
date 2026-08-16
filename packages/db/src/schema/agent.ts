@@ -508,7 +508,7 @@ export const pendingActions = pgTable(
  *
  * Kind-agnostic by design — the runtime persists `(kind, decision_key, trace)`
  * without inspecting the payload; the typed surface is `ctx.trace`, generic
- * over the `DecisionTraceRegistry` in `@alfred/api`. Domain stores may also
+ * over the `DecisionTraceRegistry` in `@alfred/assistant`. Domain stores may also
  * insert the same keyed trace inside a domain-row transaction when row+trace
  * atomicity matters; the unique key makes the later executor insert a no-op.
  * `trace` is plain `jsonb` (matching the variable-shape

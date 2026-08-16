@@ -112,7 +112,7 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
  * `ctx.trace` seam, with triage also inserting the same keyed row inside the
  * canonical row transaction so a tag cannot commit without its trace.
  *
- * Lives in `@alfred/api` (not `@alfred/contracts`) because every field type it
+ * Lives in `@alfred/assistant` (not `@alfred/contracts`) because every field type it
  * composes — `Observations`, `ClassifyAudit`, `SenderContextResult` — is a
  * triage-internal type defined alongside it here; moving it up would drag that
  * whole leaf tree with it. triage declares its own `"triage.classification"`

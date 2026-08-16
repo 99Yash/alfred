@@ -3,7 +3,7 @@
  * states in plain language ("stop emailing me about Ben Book"). ADR-0056/0057
  * governance; ADR-0058 store (a `user_facts` row, `key="standing_instruction"`,
  * structured JSONB `value` — no new table). Zero Node deps — safe to import from
- * `apps/web`, `packages/db` (`.$type<T>()`), `packages/api`, `packages/sync`.
+ * `apps/web`, `packages/db` (`.$type<T>()`), `packages/assistant`, `packages/sync`.
  *
  * The enums + the `value` schema live here so the `user_facts` column type, the
  * `system.remember` write tool, and the triage/briefing readers all agree by

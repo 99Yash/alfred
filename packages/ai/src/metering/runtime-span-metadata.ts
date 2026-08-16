@@ -3,8 +3,8 @@
  *
  * These two utilities describe a runtime span's payload rather than open one:
  * a coarse latency health band and a bounded tool-name list. Both the agent
- * orchestration spans (`packages/api` agent/runtime-spans) and the tool-runtime
- * spans (`packages/api` tool-runtime/internal/runtime-spans) build their span
+ * orchestration spans (`packages/assistant` agent/runtime-spans) and the tool-runtime
+ * spans (`packages/assistant` tool-runtime/internal/runtime-spans) build their span
  * metadata from them, so they live beside the `startRuntimeSpan` owner in
  * `@alfred/ai`. One owner keeps the two span families from drifting on the
  * threshold edges or the name-list cap. Mirrors PR #633, which gave schema

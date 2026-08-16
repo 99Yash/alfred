@@ -131,7 +131,7 @@ export const userFactInsertSchema = createInsertSchema(userFacts, {
  * `briefing.delivery_hour`.
  *
  * Background-agent toggles (Settings → Features) live under `feature.*`
- * boolean keys, read via `resolveFeatureFlags` in `@alfred/api`. UNSET means
+ * boolean keys, read via `resolveFeatureFlags` in `@alfred/assistant`. UNSET means
  * ON, so absence = current default behavior (no migration needed):
  * `feature.morning_briefing`, `feature.evening_recap`,
  * `feature.email_tagging`, `feature.action_items`.

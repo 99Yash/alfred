@@ -1,6 +1,6 @@
 /**
  * Post-signup hook registration. The auth instance lives in
- * `@alfred/auth`, which cannot depend on `@alfred/api` (cycle). Instead,
+ * `@alfred/auth`, which cannot depend on the server package (cycle). Instead,
  * downstream code (the server bootstrap) registers callbacks here at
  * boot, and `auth()`'s `databaseHooks.user.create.after` invokes them.
  *

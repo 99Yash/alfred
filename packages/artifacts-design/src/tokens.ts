@@ -12,7 +12,7 @@ import type { ArtifactFormat } from "@alfred/contracts";
  * NOT copied from any external deck system: brand ink `#181925`, the neutral
  * surface ramp, the brand purple gradient, and a small set of hue accents. This
  * module is pure data — no DOM, no Node — so it stays importable from both
- * `apps/web` and `packages/api` without tripping `check:web-boundaries`.
+ * `apps/web` and `packages/assistant` without tripping `check:web-boundaries`.
  */
 
 /** A CSS custom-property name (without the leading `--`) paired with its value. */
