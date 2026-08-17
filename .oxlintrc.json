@@ -15,9 +15,18 @@
   // both directions, including a marker that has gone stale or vacuous. Do not spell a marker in prose up
   // here: this header is the ROOT site's own region, and the root may not exempt itself from its own group.
   "plugins": null,
-  "jsPlugins": ["oxlint-tailwindcss"],
+  "jsPlugins": ["oxlint-tailwindcss", "./scripts/oxlint/anti-slop/index.ts"],
   "categories": {},
   "rules": {
+    // The three vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
+    // upstream commit and for the twelve rules measured and deliberately NOT vendored). Each one
+    // had ZERO violations in apps + packages + scripts on adoption, so all three are pure
+    // ratchets: they can only fire on code written after this point, and none of them is holding
+    // back a paydown backlog. That is the bar for registering a fourth — a rule the tree already
+    // violates belongs in its own change, violations first, rule second.
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-widen-then-assert": "error",
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "warn",
     "tailwindcss/no-deprecated-classes": ["warn", { "entryPoint": "apps/web/src/index.css" }],
