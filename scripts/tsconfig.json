@@ -12,6 +12,13 @@
   // `check-type-fixture-programs.mjs` holds every tracked script to membership in
   // it. See `docs/reference/typescript.md` for the two strictness flags that are
   // deliberately off and what each one costs.
+  //
+  // The include covers `**/*.ts` as well, for one reason: `scripts/oxlint/anti-slop/`
+  // is vendored TypeScript rule source that `oxlint` loads directly. Nothing else
+  // would type-check it — it is not a workspace either — so without this it would be
+  // the only TypeScript in the repo checked by nothing. `allowImportingTsExtensions`
+  // is what lets those files keep the explicit `./rules/foo.ts` specifiers Node's own
+  // type stripping requires; it needs `noEmit`, which is already set above.
   "compilerOptions": {
     "target": "ESNext",
     "lib": ["ESNext"],
@@ -28,11 +35,12 @@
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "exactOptionalPropertyTypes": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["**/*.mjs"],
+  "include": ["**/*.mjs", "**/*.ts"],
   "exclude": ["spikes/**"]
 }
