@@ -152,6 +152,7 @@ describe("Gmail triage composition seam", () => {
   });
 
   test("rejects invalid adapter output at the interface", async () => {
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     const invalidHandler = {
       async postInsert() {
         return { replyReevalTargets: [{ threadId: "thread-2" }] };

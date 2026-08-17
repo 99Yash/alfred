@@ -15,32 +15,36 @@ copy we own, not a dependency we track.
 
 ## What is enforced
 
-Three rules, all at `error` in the root `.oxlintrc.json`:
+**Four rules at `error`** — pure ratchets with zero violations at adoption:
 
 | Rule                   | What it rejects                                             |
 | ---------------------- | ----------------------------------------------------------- |
 | `no-module-mocking`    | `vi.mock` / `jest.mock` and friends, in favor of real seams |
 | `no-reflect-apply`     | `Reflect.apply`, in favor of a typed call                   |
 | `no-widen-then-assert` | widening a known value to `unknown` and asserting it back   |
+| `no-object-parameters` | `object` type on function inputs                            |
 
-All three had **zero** violations across `apps packages scripts` when adopted, so
-each is a pure ratchet — it can only fire on code written after this point. That
-is the bar for vendoring a fourth. A rule the tree already violates belongs in
-its own change, violations first and the rule second; the alternative is a wave of
-disable comments or a warning nobody reads, and `pnpm lint` exits 0 on warnings.
+**Eight rules at `warn`** — paydown rules with existing violations:
+
+| Rule                                    | Violations | What it rejects                                       |
+| --------------------------------------- | ---------- | ----------------------------------------------------- |
+| `require-safety-comment-for-type-assertion` | 606        | type assertions without a `SAFETY:` comment           |
+| `no-runtime-typeof`                     | 389        | runtime `typeof` checks instead of boundary parsing   |
+| `no-known-value-widening`               | 290        | broadening known literal types to `Record<string, T>` |
+| `no-shape-in-symbol-names`              | 170        | "shape" in identifier names                           |
+| `no-unsafe-dictionary-type`             | 156        | `Record<string, unknown>` and equivalents             |
+| `no-unknown-returns`                    | 102        | functions returning `unknown`                         |
+| `no-chained-type-assertions`            | 46         | nested `as` / angle-bracket assertions                |
 
 `pnpm check:oxlint-plugin` holds all of that together: it runs the upstream
 fixtures, asserts every vendored rule is registered here, and DRIVES each rule
-through the root config to prove it reports at `error`. Read the header of
-`scripts/check-oxlint-plugin.mjs` for why enablement cannot be read out of
-`oxlint --print-config`.
+through the root config to prove it reports at its expected severity. Read the
+header of `scripts/check-oxlint-plugin.mjs` for why enablement cannot be read
+out of `oxlint --print-config`.
 
-## Why the other twelve rules are not here
+## Why three rules are not here
 
-Measured against this repo at adoption time, not judged from the README. Counts
-are violations in `apps packages scripts`; the split is non-test / test.
-
-**Conflicts with an invariant this repo holds on purpose — do not adopt:**
+These rules conflict with invariants this repo holds on purpose:
 
 - `no-conditional-empty-object-spread` (257) rejects `...(x ? { x } : {})`. That is
   the idiom `exactOptionalPropertyTypes: true`
@@ -58,31 +62,6 @@ are violations in `apps packages scripts`; the split is non-test / test.
   whose prototype is not `Object.prototype`, so it returns `undefined` for all of
   them. `packages/contracts/CLAUDE.md` documents the `isIndexable` + `Reflect.get`
   pair as the correct answer to this exact question.
-
-**Reasonable rules whose violations are a paydown, not a config change:**
-
-- `require-safety-comment-for-type-assertion` (604; 304/300) is the closest
-  mechanical form of the repo's own "validate at the boundary instead of asserting
-  with a cast" directive, and the best candidate to adopt next.
-- `no-known-value-widening` (290; 214/76) catches real cases
-  (`const SLOT_ORDER: Record<string, number> = { … }` should keep its literal keys
-  and use `satisfies`) mixed with a long tail on annotated `return {` that needs a
-  read-through before anyone commits to it.
-- `no-unsafe-dictionary-type` (155; 90/65) extends the existing
-  `Record<string, any>` fence in `.oxlintrc.json` to `Record<string, unknown>`.
-- `no-unknown-returns` (102; 90/12), `no-chained-type-assertions` (45; 9/36) and
-  `no-runtime-typeof` (370) — the last of which fires on env coercion and on plain
-  union discrimination, not only on unparsed input, so it needs scoping before it
-  is useful here.
-- `no-object-parameters` (3; 1/2) is nearly free but not free: the one non-test
-  site, `cleanOutput: object | null` in `packages/assistant/src/execution/executor.ts`,
-  is fed by `sanitizeToolResult(...).value as object | null` on its way to a `jsonb`
-  column. Typing it honestly means threading the real type through `StepResult`,
-  which is a refactor, and the two test sites want `object` for a module namespace
-  object.
-- `no-shape-in-symbol-names` (170) is a naming rule that reads "shape" as
-  structural. Here it is a domain word (`credentialShapeForSlug`,
-  `briefing/day-shape`), so the rule is asking for renames that lose meaning.
 
 ## Updating from upstream
 

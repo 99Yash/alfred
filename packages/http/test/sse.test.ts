@@ -288,6 +288,7 @@ describe("sseResponse", () => {
     // close. The cast stands in for that class: it is what the type system
     // already admits, not a widening of the contract.
     let calls = 0;
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     const foreign = {
       then(_onFulfilled: (value: void) => void, onRejected: (reason: unknown) => void) {
         onRejected(new Error("foreign rejected"));

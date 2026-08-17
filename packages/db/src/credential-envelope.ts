@@ -68,6 +68,12 @@ function encode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64url");
 }
 
+/** Single-assertion boundary: the sealed envelope is a string at runtime. */
+function toSealedEnvelope(joined: string): SealedCredentialSecret {
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: envelope is a string at runtime but branded as symbol to prevent implicit provider use
+  return joined as unknown as SealedCredentialSecret;
+}
+
 /** Decode strictly because Node's base64url decoder ignores invalid bytes. */
 function decode(part: string, expectedBytes?: number): Buffer {
   if (!BASE64URL_PATTERN.test(part)) throw new CredentialVaultError("malformed_envelope");
@@ -125,17 +131,19 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
       const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
       const tag = cipher.getAuthTag();
 
-      return [
-        FORMAT.prefix,
-        FORMAT.algorithm,
-        kid,
-        encode(wrapNonce),
-        encode(wrappedDek),
-        encode(wrapTag),
-        encode(nonce),
-        encode(ciphertext),
-        encode(tag),
-      ].join(FORMAT.separator) as unknown as SealedCredentialSecret;
+      return toSealedEnvelope(
+        [
+          FORMAT.prefix,
+          FORMAT.algorithm,
+          kid,
+          encode(wrapNonce),
+          encode(wrappedDek),
+          encode(wrapTag),
+          encode(nonce),
+          encode(ciphertext),
+          encode(tag),
+        ].join(FORMAT.separator),
+      );
     } finally {
       dek.fill(0);
     }

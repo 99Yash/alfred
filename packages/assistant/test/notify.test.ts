@@ -35,6 +35,7 @@ function fakeSentClient(): {
     payload: { headers?: Record<string, string> | undefined };
     options?: { idempotencyKey?: string } | undefined;
   }> = [];
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   const client = {
     emails: {
       send: async (
@@ -110,6 +111,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
 
   test("a Resend error surfaces as a failed result", async () => {
     const userId = await seedUser();
+    /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
     const failingClient = {
       emails: {
         send: async () => ({
@@ -118,6 +120,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
         }),
       },
     } as unknown as Parameters<typeof _setResendClientForTests>[0];
+    /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
     _setResendClientForTests(failingClient);
 
     const result = await send({

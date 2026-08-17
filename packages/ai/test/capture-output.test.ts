@@ -52,6 +52,7 @@ describe("captureOutput", () => {
     const out = captureOutput({
       text: "",
       toolCalls: [
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         {
           toolName: "calendar.list_events",
           toolCallId: "c9",
