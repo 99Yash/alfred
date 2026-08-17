@@ -45,6 +45,9 @@ lerna-debug.log*
 coverage
 .nyc_output
 
+# Bench run results (harness is tracked, output is local)
+scripts/bench/tasks/
+
 # Misc
 *.tgz
 .cache
