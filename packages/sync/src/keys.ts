@@ -87,11 +87,14 @@ export type IDBKeys = keyof typeof IDB_KEY;
 export const IDB_KEY_NAMES = Object.keys(IDB_KEY) as IDBKeys[];
 
 /**
- * Cast through `ReadonlyJSONValue` — Replicache's `tx.set` is strict and
- * Drizzle/server-shaped types don't always satisfy it on the nose. The
- * runtime value is always JSON-serializable; the cast is just to make
- * TS happy at the boundary.
+ * Round-trip through `JSON.stringify`/`JSON.parse` to coerce any
+ * Drizzle/server-shaped value into Replicache's strict `ReadonlyJSONValue`.
+ * The serialisation step strips methods, `undefined`, prototypes, and other
+ * non-JSON artefacts; the parse step returns a plain JSON tree that
+ * satisfies the Replicache boundary.
  */
 export function normalizeToReadonlyJSON<T>(value: T): ReadonlyJSONValue {
-  return value as unknown as ReadonlyJSONValue;
+  // SAFETY: JSON.parse returns `unknown`; the round-trip guarantees a valid
+  // JSON tree, which is exactly ReadonlyJSONValue.
+  return JSON.parse(JSON.stringify(value)) as ReadonlyJSONValue;
 }

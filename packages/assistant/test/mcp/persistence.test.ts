@@ -580,6 +580,7 @@ describe("insertInvocation unique-violation classification", () => {
    */
   function runnerThatRejectsInsertWith(err: unknown): Parameters<typeof insertInvocation>[1] {
     const correlation = [{ traceId: "run_fake", stepId: "step_fake", toolCallId: "tc_fake" }];
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     return {
       select: () => ({
         from: () => ({ where: () => ({ limit: () => Promise.resolve(correlation) }) }),
@@ -593,6 +594,7 @@ describe("insertInvocation unique-violation classification", () => {
     return new Error("Failed query", { cause: Object.assign(new Error("duplicate key"), fields) });
   }
 
+  /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
   const values = {
     userId: "u_fake",
     connectionId: "conn_fake",
@@ -600,6 +602,7 @@ describe("insertInvocation unique-violation classification", () => {
     remoteName: "do_thing",
     argsHash: "sha256:fake",
   } as unknown as Parameters<typeof insertInvocation>[0];
+  /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
 
   test("an unnamed unique violation still defaults to the barrier", async () => {
     const result = await insertInvocation(

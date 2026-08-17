@@ -75,6 +75,7 @@ function sealPending<Field extends string>(
 function asUnbranded<Field extends string>(
   pending: Partial<Record<Field, SealedCredentialSecret>>,
 ): Partial<Record<Field, string>> {
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: SealedCredentialSecret is a branded symbol at the type level but a plain string at runtime; the brand prevents implicit provider use
   return pending as unknown as Partial<Record<Field, string>>;
 }
 
