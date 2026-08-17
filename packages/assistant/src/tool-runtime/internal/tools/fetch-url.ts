@@ -500,6 +500,17 @@ export type HttpRequester = (
   },
 ) => Promise<UndiciResponseLike>;
 
+/** Wrap undici's `request` to match the {@link HttpRequester} shape. */
+function asHttpRequester(fn: typeof undiciRequest): HttpRequester {
+  return (url, opts) =>
+    fn(url, {
+      method: opts.method,
+      headers: opts.headers,
+      dispatcher: opts.dispatcher,
+      signal: opts.signal,
+    }) as Promise<UndiciResponseLike>;
+}
+
 /** Carries a {@link FetchUrlError} reason out of the transport layer. */
 export class FetchError extends Error {
   /** Redirect hops taken before the failure, when any. Set by {@link safeRequest}. */
@@ -585,12 +596,24 @@ export function pinningLookup(
   );
 }
 
+/** Adapt `pinningLookup` to the `LookupFunction` shape the undici connector expects. */
+function asLookupFunction(
+  fn: typeof pinningLookup,
+): LookupFunction {
+  return (hostname, options, callback) =>
+    fn(hostname, options, (err, address, family) => {
+      if (err) {
+        callback(err);
+        return;
+      }
+      callback(null, address ?? "", family);
+    });
+}
+
 let sharedAgent: Agent | undefined;
 function safeAgent(): Agent {
   sharedAgent ??= new Agent({
-    // Cast: pinningLookup follows dns.lookup's call shape; the connector's
-    // LookupFunction type is stricter on the callback's address arg than we need.
-    connect: { lookup: pinningLookup as unknown as LookupFunction, timeout: FETCH_TIMEOUT_MS },
+    connect: { lookup: asLookupFunction(pinningLookup), timeout: FETCH_TIMEOUT_MS },
     headersTimeout: FETCH_TIMEOUT_MS,
     bodyTimeout: FETCH_TIMEOUT_MS,
   });
@@ -893,7 +916,7 @@ export function decodeResponseBody(
 export async function safeRequest(
   initialUrl: string,
   signal: AbortSignal,
-  doRequest: HttpRequester = undiciRequest as unknown as HttpRequester,
+  doRequest: HttpRequester = asHttpRequester(undiciRequest),
 ): Promise<RawResponse> {
   let url = initialUrl;
   const redirectChain: string[] = [];

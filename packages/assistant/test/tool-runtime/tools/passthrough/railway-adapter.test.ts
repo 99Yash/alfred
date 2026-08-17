@@ -118,6 +118,7 @@ describe("runRailwayPassthrough — transport failure classification", () => {
     const result = await withMockedFetch(
       () => {
         const err = new Error("fetch failed");
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         (err as unknown as { cause: { code: string } }).cause = { code: "ENOTFOUND" };
         throw err;
       },

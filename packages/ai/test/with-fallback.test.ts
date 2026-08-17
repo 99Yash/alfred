@@ -81,6 +81,7 @@ function okModel(modelId: string, text: string): MockLanguageModelV4 {
 
 // MockLanguageModelV4 implements the ai-sdk LanguageModelV4; `withFallback`'s
 // params are `ai-retry`'s `LanguageModel` alias for the same spec.
+// eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
 const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
 async function run(primary: MockLanguageModelV4, fallback: MockLanguageModelV4) {

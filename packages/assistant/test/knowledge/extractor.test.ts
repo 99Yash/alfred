@@ -143,6 +143,7 @@ describe("extractPropositionsFromThread", () => {
 
   test("re-validates the model output — a malformed proposition throws", async () => {
     const generate: GenerateObject = async () =>
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
       ({
         propositions: [{ ...dvdResult.propositions[0], verificationClass: "vibes" }],
       }) as unknown as ChatMemoryExtractionResult;

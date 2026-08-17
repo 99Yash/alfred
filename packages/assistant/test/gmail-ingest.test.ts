@@ -48,7 +48,9 @@ async function seedGoogleCredential(userId: string): Promise<string> {
       accountLabel: `${userId}@example.test`,
       // Deliberate unsealed write: this test never opens the token; the seed
       // path only reads `user_id` off the credential row.
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
       accessToken: "access-token" as unknown as SealedCredentialSecret,
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
       refreshToken: "refresh-token" as unknown as SealedCredentialSecret,
       expiresAt: new Date(Date.now() + 3_600_000),
       scopes: [],

@@ -94,6 +94,7 @@ describe("chat media composition seam", () => {
   });
 
   test("rejects invalid operation requests and invalid adapter results", async () => {
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     const invalidHandler = handlerFixture({
       async enrich() {
         return { removed: 1 };

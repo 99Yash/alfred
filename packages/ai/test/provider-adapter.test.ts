@@ -37,6 +37,7 @@ function mockModel(provider: ModelProviderId, modelId: ModelId): MockLanguageMod
   });
 }
 
+// eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
 const asModel = (model: MockLanguageModelV4) => model as unknown as LanguageModel;
 
 // Reads a nested field off an SDK object, so it takes `unknown` and uses the

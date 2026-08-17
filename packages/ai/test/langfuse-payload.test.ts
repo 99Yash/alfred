@@ -55,6 +55,7 @@ describe("traceTags", () => {
   test("returns undefined when neither role nor kind is present", () => {
     // kind is required on MeteredMeta, so exercise the empty path via a cast to
     // the attribution-only shape the builder actually guards against.
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     assert.equal(traceTags({ provider: "x", model: "y" } as unknown as MeteredMeta), undefined);
   });
 });
