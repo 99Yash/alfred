@@ -272,7 +272,9 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         accountId: randomUUID(),
         // The cast IS the point: this is the pre-#453 plaintext shape the brand
         // now refuses, reproduced on purpose so the backfill has work to do.
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         accessToken: "plain-integration-access" as unknown as SealedCredentialSecret,
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         refreshToken: "plain-integration-refresh" as unknown as SealedCredentialSecret,
         expiresAt: new Date(Date.now() + 3_600_000),
         scopes: [],
@@ -288,6 +290,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         userId,
         provider: "notion",
         accountId: randomUUID(),
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         accessToken: "plain-notion-access" as unknown as SealedCredentialSecret,
         refreshToken: null,
         scopes: [],
@@ -431,6 +434,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         userId,
         provider: "notion",
         accountId: randomUUID(),
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         accessToken: unsupported as unknown as SealedCredentialSecret,
         refreshToken: null,
         scopes: [],

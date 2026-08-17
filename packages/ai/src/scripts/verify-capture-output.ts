@@ -38,6 +38,7 @@ const weather = tool({
 // longer assignable to the SDK's own `ToolSet`: bare `Tool` fixes `INPUT` to
 // `never`, and the flag removes the optional-property slack that used to let the
 // two unify. The cast is that SDK variance gap, not a claim about this tool.
+// eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
 const tools = { weather } as unknown as ToolSet;
 
 interface Obs {

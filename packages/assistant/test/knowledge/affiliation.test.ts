@@ -78,7 +78,9 @@ async function seedGoogleCredential(args: {
       accountLabel: accountEmail,
       // Deliberate unsealed write (#453). This file asserts affiliation folding
       // off `metadata`/`accountLabel`; no code path here opens either token.
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
       accessToken: "access-token" as unknown as SealedCredentialSecret,
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
       refreshToken: "refresh-token" as unknown as SealedCredentialSecret,
       expiresAt: new Date("2026-06-30T00:00:00.000Z"),
       scopes: [],

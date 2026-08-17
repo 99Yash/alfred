@@ -90,6 +90,7 @@ function toolCallParts(): StreamPart[] {
 }
 
 // SAFETY: this SDK-provided V4 mock implements the runtime branch streamText consumes.
+// eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
 const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
 // An `execute`-less tool: same as production (dispatch happens in a later step),

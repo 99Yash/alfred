@@ -120,6 +120,7 @@ describe("Gmail user-model composition seam", () => {
       NoGmailUserModelHandlerRegisteredError,
     );
 
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     const invalidHandler = {
       async capture() {
         return { status: "unexpected" };

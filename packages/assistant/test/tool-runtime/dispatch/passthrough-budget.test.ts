@@ -71,6 +71,7 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
       // Deliberate unsealed write (#453). Nothing in this file opens the token —
       // the row exists so `evaluateSnapshotGates` sees a healthy connection — so
       // sealing it would only pull the whole `serverEnv()` fixture block in here.
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
       accessToken: "test-token" as unknown as SealedCredentialSecret,
       status: "active",
     });

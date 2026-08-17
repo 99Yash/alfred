@@ -53,17 +53,36 @@ const OXLINT_BIN = resolve(ROOT, "node_modules", ".bin", "oxlint");
 // Each snippet must violate exactly its own rule. Keep the shape notes — the
 // `vi` one is a trap that already produced a probe that passed for the wrong
 // reason.
+// Each entry maps to { snippet, severity }. The severity must match .oxlintrc.json:
+// "error" for ratchet rules, "warn" for paydown rules.
 const PROBES = {
   // `vi` is deliberately left UNDECLARED. no-module-mocking resolves the binding
   // and ignores a local one (upstream treats `function f(jest: {mock(): void})`
   // as valid), so a `declare const vi` probe passes without the rule doing
   // anything.
-  "no-module-mocking": `vi.mock("./user-store");\n`,
-  "no-reflect-apply": `export const value = Reflect.apply(operation, owner, args);\n`,
-  "no-widen-then-assert":
-    `const source = { id: "second" };\n` +
-    `const widened: unknown = source;\n` +
-    `export const parsed = widened as { readonly id: string };\n`,
+  "no-module-mocking": { snippet: `vi.mock("./user-store");\n`, severity: "error" },
+  "no-reflect-apply": { snippet: `export const value = Reflect.apply(operation, owner, args);\n`, severity: "error" },
+  "no-widen-then-assert": {
+    snippet:
+      `const source = { id: "second" };\n` +
+      `const widened: unknown = source;\n` +
+      `export const parsed = widened as { readonly id: string };\n`,
+    severity: "error",
+  },
+  "no-chained-type-assertions": { snippet: `export const user = input as object as User;\n`, severity: "error" },
+  "no-known-value-widening": {
+    snippet:
+      `type Handler = () => void;\n` +
+      `const handlers: Record<string, Handler> = { start: startHandler };\n`,
+    severity: "warn",
+  },
+  "no-object-parameters": { snippet: `export function save(value: object) {}\n`, severity: "error" },
+  "no-runtime-typeof": { snippet: `export const isString = typeof input === "string";\n`, severity: "warn" },
+  "no-shape-in-symbol-names": { snippet: `export interface UserShape { id: string }\n`, severity: "warn" },
+  "no-unknown-returns": { snippet: `export function loadUser(): unknown { return input; }\n`, severity: "warn" },
+  "no-unknown-type-aliases": { snippet: `export type ExternalValue = unknown;\n`, severity: "warn" },
+  "no-unsafe-dictionary-type": { snippet: `export type Metadata = Record<string, unknown>;\n`, severity: "warn" },
+  "require-safety-comment-for-type-assertion": { snippet: `export const userId = value as UserId;\n`, severity: "warn" },
 };
 
 // The control. Linted alongside the probes so "every probe reported its rule"
@@ -199,13 +218,14 @@ for (const rule of vendored) {
 }
 
 // ---------------------------------------------------------------------------
-// The drive: does the ROOT config actually enforce each rule, at `error`?
+// The drive: does the ROOT config actually enforce each rule, at its expected
+// severity? Ratchet rules must report at "error"; paydown rules at "warn".
 // ---------------------------------------------------------------------------
 
 const probeDir = mkdtempSync(join(tmpdir(), "alfred-oxlint-anti-slop-"));
 const driven = [];
 try {
-  for (const [rule, snippet] of Object.entries(PROBES)) {
+  for (const [rule, { snippet }] of Object.entries(PROBES)) {
     writeFileSync(join(probeDir, `${rule}.ts`), snippet);
   }
   writeFileSync(join(probeDir, `${CONTROL_NAME}.ts`), CONTROL);
@@ -262,11 +282,13 @@ try {
       );
       continue;
     }
-    const wrongSeverity = own.filter((entry) => entry.severity !== "error");
+    const expectedSeverity = PROBES[rule].severity;
+    const jsonSeverity = expectedSeverity === "error" ? "error" : "warning";
+    const wrongSeverity = own.filter((entry) => entry.severity !== jsonSeverity);
     if (wrongSeverity.length > 0) {
       failures.push(
-        `anti-slop(${rule}) reported at "${wrongSeverity[0].severity}", not "error". \`pnpm lint\` exits 0 on ` +
-          `warnings, so a warning here is a rule nobody has to keep green.`,
+        `anti-slop(${rule}) reported at "${wrongSeverity[0].severity}", not "${jsonSeverity}". ` +
+          `Check its "anti-slop/${rule}" entry in .oxlintrc.json.`,
       );
       continue;
     }
@@ -291,8 +313,10 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
+const errorCount = driven.filter((r) => PROBES[r].severity === "error").length;
+const warnCount = driven.filter((r) => PROBES[r].severity === "warn").length;
 console.log(
   `check-oxlint-plugin: ${vendored.length} vendored rule(s) — ${testsRun} upstream fixture suite(s) pass, ` +
-    `all registered in ${INDEX_FILE}, and all ${driven.length} report at "error" through .oxlintrc.json ` +
+    `all registered in ${INDEX_FILE}, ${errorCount} at "error" + ${warnCount} at "warn" through .oxlintrc.json ` +
     `(control snippet clean).`,
 );

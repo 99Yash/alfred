@@ -69,6 +69,7 @@ describe("Google credential lifecycle composition seam", () => {
   });
 
   test("validates the registered handler result", async () => {
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     const unregister = registerGoogleCredentialLifecycleHandler({
       async upsert() {
         return { credentialId: "credential-1", unexpected: true };
