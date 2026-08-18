@@ -6,6 +6,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { encryptedAuthAdapter } from "./credential-adapter";
 import { getOnUserCreatedHooks } from "./hooks";
+import { authIpAddress, authRateLimit } from "./rate-limit";
 
 export { registerOnUserCreated, type OnUserCreatedHook } from "./hooks";
 
@@ -27,6 +28,10 @@ export function auth() {
       }),
     ),
     trustedOrigins: [env.CORS_ORIGIN],
+    // Redis-backed, so the counter survives a restart and holds across every
+    // API process. Read `rate-limit.ts` before adding a `customRules` entry:
+    // one declared there REPLACES Better Auth's stricter sign-in rule.
+    rateLimit: authRateLimit(env.NODE_ENV),
     socialProviders: {
       google: {
         clientId: env.GOOGLE_OAUTH_CLIENT_ID,
@@ -98,6 +103,8 @@ export function auth() {
       },
     },
     advanced: {
+      // Which forwarded hop counts as the client, for the rate-limit key.
+      ipAddress: authIpAddress(),
       defaultCookieAttributes: {
         // Web and server live on different *.up.railway.app subdomains, which
         // sit under a Public Suffix List entry — browsers treat them as
