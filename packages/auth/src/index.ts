@@ -7,6 +7,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { encryptedAuthAdapter } from "./credential-adapter";
 import { getOnUserCreatedHooks } from "./hooks";
 import { authIpAddress, authRateLimit } from "./rate-limit";
+import { authSecureCookies, authSession } from "./session-policy";
 
 export { registerOnUserCreated, type OnUserCreatedHook } from "./hooks";
 
@@ -32,6 +33,11 @@ export function auth() {
     // API process. Read `rate-limit.ts` before adding a `customRules` entry:
     // one declared there REPLACES Better Auth's stricter sign-in rule.
     rateLimit: authRateLimit(env.NODE_ENV),
+    // Idle window, slide step, and freshness window, plus the absolute cap that
+    // Better Auth has no option for. Read `session-policy.ts` before changing a
+    // number: the cap is enforced on read in `getSessionCached`, not by Better
+    // Auth, so a value moved here alone moves nothing.
+    session: authSession(),
     socialProviders: {
       google: {
         clientId: env.GOOGLE_OAUTH_CLIENT_ID,
@@ -105,6 +111,9 @@ export function auth() {
     advanced: {
       // Which forwarded hop counts as the client, for the rate-limit key.
       ipAddress: authIpAddress(),
+      // Decides the `__Secure-` cookie NAME prefix as well as the `secure`
+      // attribute, and both instances must agree on it — see `session-policy.ts`.
+      useSecureCookies: authSecureCookies(env.NODE_ENV),
       defaultCookieAttributes: {
         // Web and server live on different *.up.railway.app subdomains, which
         // sit under a Public Suffix List entry — browsers treat them as

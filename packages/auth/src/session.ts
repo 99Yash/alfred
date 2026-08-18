@@ -5,6 +5,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { encryptedAuthAdapter } from "./credential-adapter";
 import { authIpAddress, authRateLimit } from "./rate-limit";
+import { authSecureCookies, authSession } from "./session-policy";
 
 let _sessionAuth: ReturnType<typeof _createSessionAuth> | undefined;
 
@@ -25,8 +26,16 @@ function _createSessionAuth(env: {
     trustedOrigins: [env.CORS_ORIGIN],
     // Same limit, same Redis buckets, as `auth()` — see `rate-limit.ts`.
     rateLimit: authRateLimit(env.NODE_ENV),
+    // Same lifetime as `auth()` — see `session-policy.ts`. This instance reads
+    // the same `session` rows, so a longer window here would be a longer window
+    // everywhere.
+    session: authSession(),
     advanced: {
       ipAddress: authIpAddress(),
+      // Must match `auth()`. This instance passes a `baseURL` and `auth()` does
+      // not, so without this option the two derive the `__Secure-` cookie name
+      // prefix from different inputs and can look for different cookie names.
+      useSecureCookies: authSecureCookies(env.NODE_ENV),
       defaultCookieAttributes: {
         sameSite: "lax",
         secure: env.NODE_ENV === "production",
