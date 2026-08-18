@@ -26,6 +26,7 @@ import {
   restageWorkflowApproval,
   type WorkflowApprovalEditPreparation,
 } from "@alfred/assistant/automation";
+import { requireOnboarded } from "./middleware/onboarding";
 
 type Decision = "approve" | "reject" | "cancel_run";
 
@@ -78,7 +79,8 @@ interface ApprovalWaitEmit {
  */
 export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize: "typebox" })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app.post(
       "/:stagingId/decision",
       async ({ params, body, user }) => {

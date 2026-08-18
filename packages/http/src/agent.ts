@@ -12,10 +12,12 @@ import {
 import type { SignalArgs } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { Errors, toMessage } from "@alfred/contracts";
+import { requireOnboarded } from "./middleware/onboarding";
 
 export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .get("/workflows", () => {
         return {

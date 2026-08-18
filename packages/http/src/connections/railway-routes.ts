@@ -7,6 +7,7 @@ import {
 } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../middleware/auth";
+import { requireOnboarded } from "../middleware/onboarding";
 
 /**
  * Railway integration routes. Railway has no public OAuth, so the user pastes
@@ -24,7 +25,8 @@ export const railwayIntegrationRoutes = new Elysia({
   normalize: "typebox",
 })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .post(
         "/connect",
