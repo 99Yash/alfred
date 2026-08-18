@@ -4,6 +4,7 @@ import { serverEnv } from "@alfred/env/server";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { encryptedAuthAdapter } from "./credential-adapter";
+import { authIpAddress, authRateLimit } from "./rate-limit";
 
 let _sessionAuth: ReturnType<typeof _createSessionAuth> | undefined;
 
@@ -22,7 +23,10 @@ function _createSessionAuth(env: {
     // `index.ts` before doing it, because the reason Alfred sets no policy is
     // that it has exactly one sign-in path.
     trustedOrigins: [env.CORS_ORIGIN],
+    // Same limit, same Redis buckets, as `auth()` — see `rate-limit.ts`.
+    rateLimit: authRateLimit(env.NODE_ENV),
     advanced: {
+      ipAddress: authIpAddress(),
       defaultCookieAttributes: {
         sameSite: "lax",
         secure: env.NODE_ENV === "production",
