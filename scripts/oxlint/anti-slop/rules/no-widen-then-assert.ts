@@ -1,34 +1,20 @@
 import { defineRule } from "@oxlint/plugins";
 import type { ESTree, Variable } from "@oxlint/plugins";
 
+import { typeReferenceName, unwrapTypeParentheses } from "../shared/ast.ts";
+import { functionBoundary } from "../shared/function-nodes.ts";
+import { variableDeclarator } from "../shared/scope.ts";
+
 type BroadTypeKind = "top" | "object" | "record";
 
 type KnownValueEvidence = {
   readonly type: ESTree.TSType | null;
 };
 
-const functionBoundaryTypes = new Set([
-  "ArrowFunctionExpression",
-  "FunctionDeclaration",
-  "FunctionExpression",
-  "TSDeclareFunction",
-  "TSEmptyBodyFunctionExpression",
-]);
-
 function unwrapExpressionParentheses(expression: ESTree.Expression): ESTree.Expression {
   let current = expression;
   while (current.type === "ParenthesizedExpression") current = current.expression;
   return current;
-}
-
-function unwrapTypeParentheses(type: ESTree.TSType): ESTree.TSType {
-  let current = type;
-  while (current.type === "TSParenthesizedType") current = current.typeAnnotation;
-  return current;
-}
-
-function typeReferenceName(type: ESTree.TSTypeReference): string | null {
-  return type.typeName.type === "Identifier" ? type.typeName.name : null;
 }
 
 function isUnknownOrAnyType(type: ESTree.TSType): boolean {
@@ -159,15 +145,6 @@ function isDefinitelyNarrowerRecordType(type: ESTree.TSType): boolean {
   );
 }
 
-function functionBoundary(node: ESTree.Node): ESTree.Node | null {
-  let current = node.parent;
-  while (current !== null && current.type !== "Program") {
-    if (functionBoundaryTypes.has(current.type)) return current;
-    current = current.parent;
-  }
-  return null;
-}
-
 function resolvedVariableForIdentifier(
   scopes: readonly {
     readonly references: readonly {
@@ -184,15 +161,6 @@ function resolvedVariableForIdentifier(
         candidate.identifier.end === identifier.end,
     );
     if (reference !== undefined) return reference.resolved;
-  }
-  return null;
-}
-
-function variableDeclarator(variable: Variable): ESTree.VariableDeclarator | null {
-  for (const definition of variable.defs) {
-    if (definition.type === "Variable" && definition.node.type === "VariableDeclarator") {
-      return definition.node;
-    }
   }
   return null;
 }
