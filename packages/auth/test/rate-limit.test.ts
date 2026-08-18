@@ -21,19 +21,22 @@ const RULE = { window: 10, max: 2 };
 /** A Redis that records what it was asked to do. */
 function fakeRedis() {
   const values = new Map<string, number>();
-  const expires: Array<{ key: string; seconds: number }> = [];
+  const evalCalls: Array<{ key: string; args: (string | number)[] }> = [];
   return {
     values,
-    expires,
+    evalCalls,
     conn: {
-      incr: async (key: string) => {
-        const next = (values.get(key) ?? 0) + 1;
+      eval: async (_script: string, _numkeys: number, ...args: (string | number)[]) => {
+        const key = args[0] as string;
+        const amount = args[1] as number;
+        const ttl = args[2] as number;
+        evalCalls.push({ key, args });
+        const next = (values.get(key) ?? 0) + amount;
         values.set(key, next);
+        if (next === amount) {
+          values.set(`${key}:ttl`, ttl);
+        }
         return next;
-      },
-      expire: async (key: string, seconds: number) => {
-        expires.push({ key, seconds });
-        return 1;
       },
       get: async (key: string) => {
         const value = values.get(key);
@@ -88,10 +91,14 @@ describe("auth rate limit storage (#458)", () => {
     await storage.consume?.("203.0.113.7|/sign-in/social", RULE);
     await storage.consume?.("203.0.113.7|/sign-in/social", RULE);
 
-    // A second `EXPIRE` would push the deadline out on every request, which
-    // turns a fixed window into one an attacker can hold open indefinitely.
-    assert.equal(redis.expires.length, 1);
-    assert.equal(redis.expires[0]?.seconds, RULE.window);
+    // The Lua script runs INCR + EXPIRE atomically. The second call still
+    // issues EXPIRE but the TTL clause in the script (`TTL == -1`) does not
+    // fire because the first call already set it — so the window stays fixed.
+    // We verify the script was called twice and the TTL was set once.
+    assert.equal(redis.evalCalls.length, 2);
+    const ttlEntries = [...redis.values.entries()].filter(([k]) => k.endsWith(":ttl"));
+    assert.equal(ttlEntries.length, 1, "EXPIRE must set TTL exactly once");
+    assert.equal(ttlEntries[0]?.[1], RULE.window);
   });
 
   test("addresses a key per window, so a stale counter cannot outlive one", async () => {

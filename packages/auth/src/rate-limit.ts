@@ -1,5 +1,5 @@
 import { toMessage } from "@alfred/contracts";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, incrementExpiringCounter, type EvalRedis } from "@alfred/db/redis";
 import type { BetterAuthOptions } from "better-auth";
 
 /**
@@ -73,10 +73,14 @@ type RateLimitRow = Parameters<RateLimitStorage["set"]>[1];
  * overloads, so a test double can satisfy this and cannot satisfy the picked
  * type without a cast. `getRateLimitRedis` below is what checks a real
  * connection still fits.
+ *
+ * Drift guard: an ioredis upgrade that changes `eval` or `get` or `set`
+ * signatures breaks the assignment at `getRateLimitRedis` — the only call
+ * site — because `BoundedRedis` no longer satisfies this port. The break
+ * surfaces at `check-types` time, not in production.
  */
 type RateLimitRedis = {
-  incr(key: string): Promise<number>;
-  expire(key: string, seconds: number): Promise<number>;
+  eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
   get(key: string): Promise<string | null>;
   set(key: string, value: string, mode: "EX", ttlSeconds: number): Promise<unknown>;
 };
@@ -152,14 +156,23 @@ function createFallbackStore() {
 }
 
 /**
+ * One instance is shared by both auth call sites so the degraded counter holds
+ * across them during an outage. Without sharing, two independent maps would
+ * each count toward the same limit independently — an attacker would get double
+ * the allowance until Redis recovers.
+ */
+const sharedFallback = createFallbackStore();
+
+/**
  * The store Better Auth calls. `redis` is a parameter so the outage path can be
- * exercised by a test without an unreachable Redis.
+ * exercised by a test without an unreachable Redis. `fallback` is shared by
+ * default so both auth instances count in the same bucket during an outage; a
+ * test can supply its own.
  */
 export function createAuthRateLimitStorage(
   redis: () => RateLimitRedis = getRateLimitRedis,
+  fallback = sharedFallback,
 ): RateLimitStorage {
-  const fallback = createFallbackStore();
-
   function degrade(err: unknown): void {
     console.warn("[auth] rate limit store unavailable, counting in memory:", toMessage(err));
   }
@@ -175,11 +188,12 @@ export function createAuthRateLimitStorage(
       const bucket = bucketFor(key, rule.window, nowMs);
       let count: number;
       try {
-        const conn = redis();
-        count = await conn.incr(bucket.key);
-        // Only the request that opened the window sets the expiry, so the
-        // window is fixed rather than extended by later requests.
-        if (count === 1) await conn.expire(bucket.key, rule.window);
+        count = await incrementExpiringCounter(
+          redis() as EvalRedis,
+          bucket.key,
+          1,
+          rule.window,
+        );
       } catch (err) {
         degrade(err);
         count = fallback.increment(bucket.key, bucket.endsAtMs, nowMs);
@@ -189,6 +203,14 @@ export function createAuthRateLimitStorage(
       return { allowed: false, retryAfter };
     },
 
+    /**
+     * Legacy non-atomic path. Better Auth takes this only for a store without
+     * `consume`; it never fires while `consume` is present. `get` and `set`
+     * receive no `rule`, so the window must be a module constant. That is safe
+     * today because `consume` short-circuits the legacy path, but would become
+     * a latent bug if Better Auth started calling `get`/`set` with custom-rule
+     * windows.
+     */
     get: async (key): Promise<RateLimitRow | null> => {
       const nowMs = Date.now();
       const bucket = bucketFor(key, AUTH_RATE_LIMIT_WINDOW_SECONDS, nowMs);
