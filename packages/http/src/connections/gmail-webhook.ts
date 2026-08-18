@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Errors, getStringPath, parseJsonWith, toMessage } from "@alfred/contracts";
 import {
   assertGmailPushOidcConfigured,
@@ -53,10 +54,24 @@ type GmailWebhookCredentialLookup = (
 type GmailWebhookQueue = {
   add: (
     name: "gmail.poll_recent",
-    data: { kind: "gmail.poll_recent"; credentialId: string },
+    data: { kind: "gmail.poll_recent"; credentialId: string; pushHistoryId?: string },
     options: { deduplication: { id: string; ttl: number } },
   ) => Promise<unknown>;
 };
+
+/**
+ * #560a: persist a durable event receipt keyed by Pub/Sub messageId.
+ * The unique index on `(provider, provider_delivery_id)` catches redeliveries;
+ * an `onConflictDoNothing` insert returns `{ inserted: false }` for duplicates.
+ */
+export type GmailWebhookReceiptPersister = (args: {
+  providerDeliveryId: string;
+  credentialId: string;
+  userId: string;
+  historyId: string;
+  verificationResult: string;
+  payloadHash: string;
+}) => Promise<{ inserted: boolean }>;
 
 async function verifyGoogleOidcJwt(token: string, audience: string): Promise<OidcClaims> {
   const { payload } = await jwtVerify<OidcClaims>(token, GOOGLE_OIDC_JWKS, {
@@ -146,22 +161,63 @@ export function parseGmailPushEnvelope(body: unknown): {
   return { messageId, notification: parseJsonWith(json, gmailPushNotificationSchema) };
 }
 
+/**
+ * #560a: default receipt persister — inserts into `event_receipts` with
+ * `onConflictDoNothing` on the unique `(provider, provider_delivery_id)` index.
+ * Returns whether the row was newly inserted (duplicate redeliveries are no-ops).
+ */
+async function defaultPersistReceipt(args: {
+  providerDeliveryId: string;
+  credentialId: string;
+  userId: string;
+  historyId: string;
+  verificationResult: string;
+  payloadHash: string;
+}): Promise<{ inserted: boolean }> {
+  const { eventReceipts } = await import("@alfred/db/schemas");
+  const { db } = await import("@alfred/db");
+
+  const row = await db()
+    .insert(eventReceipts)
+    .values({
+      provider: "google",
+      providerDeliveryId: args.providerDeliveryId,
+      credentialId: args.credentialId,
+      userId: args.userId,
+      eventType: "gmail.message_received",
+      historyId: args.historyId,
+      verificationResult: args.verificationResult,
+      payloadHash: args.payloadHash,
+      processingStatus: "pending",
+    })
+    .onConflictDoNothing({
+      target: [eventReceipts.provider, eventReceipts.providerDeliveryId],
+    })
+    .returning({ id: eventReceipts.id });
+
+  return { inserted: row.length > 0 };
+}
+
 export function makeGmailWebhookRoutes(
   deps: {
     verifyOidc?: (authHeader: string | null) => Promise<OidcClaims>;
     findCredential?: GmailWebhookCredentialLookup;
     getQueue?: () => GmailWebhookQueue;
+    persistReceipt?: GmailWebhookReceiptPersister;
   } = {},
 ) {
   const verifyOidc = deps.verifyOidc ?? verifyPubSubOidcForGmailWebhook;
   const findCredential = deps.findCredential ?? findCredentialByEmail;
   const getQueue = deps.getQueue ?? getIngestionQueue;
+  const persistReceipt = deps.persistReceipt ?? defaultPersistReceipt;
 
   return new Elysia({ prefix: "/webhooks", normalize: "typebox" }).post(
     "/gmail",
     async ({ body, headers }) => {
+      let verificationResult = "oidc_skipped";
       try {
         await verifyOidc(headers["authorization"] ?? null);
+        verificationResult = "oidc_valid";
       } catch (err) {
         console.warn("[gmail-webhook] OIDC verification failed:", toMessage(err));
         // 401 → Pub/Sub will retry, but a misconfigured audience would
@@ -186,6 +242,22 @@ export function makeGmailWebhookRoutes(
         return { ok: true, ignored: "no-credential" };
       }
 
+      // #560a: persist a durable receipt before enqueuing. The DB unique index
+      // on (provider, provider_delivery_id) catches Pub/Sub redeliveries; a
+      // duplicate insert is a no-op. A crash after receipt commit but before
+      // queue enqueue is recovered from the pending receipt status.
+      const payloadHash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+      const receipt = messageId
+        ? await persistReceipt({
+            providerDeliveryId: messageId,
+            credentialId: cred.id,
+            userId: cred.userId,
+            historyId: String(notification.historyId),
+            verificationResult,
+            payloadHash,
+          })
+        : { inserted: false };
+
       // Deduplicate rapid-fire pushes for the same credential — Pub/Sub can
       // redeliver and Gmail can publish multiple history changes per second.
       // The TTL window collapses bursts but releases quickly so a *new* push
@@ -199,11 +271,11 @@ export function makeGmailWebhookRoutes(
       const queue = getQueue();
       await queue.add(
         "gmail.poll_recent",
-        { kind: "gmail.poll_recent", credentialId: cred.id },
+        { kind: "gmail.poll_recent", credentialId: cred.id, pushHistoryId: String(notification.historyId) },
         { deduplication: { id: `gmail.poll_recent.${cred.id}`, ttl: 30_000 } },
       );
 
-      return { ok: true, credentialId: cred.id };
+      return { ok: true, credentialId: cred.id, receiptPersisted: receipt.inserted };
     },
     {
       // Not a rejecting schema — see `parseGmailPushEnvelope`. `t.Unknown()`

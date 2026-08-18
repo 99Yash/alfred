@@ -128,6 +128,8 @@ export type IngestionJobData =
   | {
       kind: "gmail.poll_recent";
       credentialId: string;
+      /** #560b: the Pub/Sub push historyId, for cursor-jump gap detection. */
+      pushHistoryId?: string;
     }
   | {
       /**
@@ -376,7 +378,10 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       // path's index lags pub/sub and was the source of 1–3 min tag-latency
       // tails. Catch-up for anything missed lives on `gmail.poll_history`
       // via the 5-min sweep below.
-      const result = await pollGmailRecent({ credentialId: data.credentialId });
+      const result = await pollGmailRecent({
+        credentialId: data.credentialId,
+        pushHistoryId: data.pushHistoryId,
+      });
       console.log(
         `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
           `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
