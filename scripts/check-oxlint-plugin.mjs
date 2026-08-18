@@ -61,7 +61,10 @@ const PROBES = {
   // as valid), so a `declare const vi` probe passes without the rule doing
   // anything.
   "no-module-mocking": { snippet: `vi.mock("./user-store");\n`, severity: "error" },
-  "no-reflect-apply": { snippet: `export const value = Reflect.apply(operation, owner, args);\n`, severity: "error" },
+  "no-reflect-apply": {
+    snippet: `export const value = Reflect.apply(operation, owner, args);\n`,
+    severity: "error",
+  },
   "no-widen-then-assert": {
     snippet:
       `const source = { id: "second" };\n` +
@@ -69,20 +72,44 @@ const PROBES = {
       `export const parsed = widened as { readonly id: string };\n`,
     severity: "error",
   },
-  "no-chained-type-assertions": { snippet: `export const user = input as object as User;\n`, severity: "error" },
+  "no-chained-type-assertions": {
+    snippet: `export const user = input as object as User;\n`,
+    severity: "error",
+  },
   "no-known-value-widening": {
     snippet:
       `type Handler = () => void;\n` +
       `const handlers: Record<string, Handler> = { start: startHandler };\n`,
     severity: "warn",
   },
-  "no-object-parameters": { snippet: `export function save(value: object) {}\n`, severity: "error" },
-  "no-runtime-typeof": { snippet: `export const isString = typeof input === "string";\n`, severity: "warn" },
-  "no-shape-in-symbol-names": { snippet: `export interface UserShape { id: string }\n`, severity: "warn" },
-  "no-unknown-returns": { snippet: `export function loadUser(): unknown { return input; }\n`, severity: "warn" },
-  "no-unknown-type-aliases": { snippet: `export type ExternalValue = unknown;\n`, severity: "warn" },
-  "no-unsafe-dictionary-type": { snippet: `export type Metadata = Record<string, unknown>;\n`, severity: "warn" },
-  "require-safety-comment-for-type-assertion": { snippet: `export const userId = value as UserId;\n`, severity: "warn" },
+  "no-object-parameters": {
+    snippet: `export function save(value: object) {}\n`,
+    severity: "error",
+  },
+  "no-runtime-typeof": {
+    snippet: `export const isString = typeof input === "string";\n`,
+    severity: "warn",
+  },
+  "no-shape-in-symbol-names": {
+    snippet: `export interface UserShape { id: string }\n`,
+    severity: "warn",
+  },
+  "no-unknown-returns": {
+    snippet: `export function loadUser(): unknown { return input; }\n`,
+    severity: "warn",
+  },
+  "no-unknown-type-aliases": {
+    snippet: `export type ExternalValue = unknown;\n`,
+    severity: "warn",
+  },
+  "no-unsafe-dictionary-type": {
+    snippet: `export type Metadata = Record<string, unknown>;\n`,
+    severity: "warn",
+  },
+  "require-safety-comment-for-type-assertion": {
+    snippet: `export const userId = value as UserId;\n`,
+    severity: "warn",
+  },
 };
 
 // The control. Linted alongside the probes so "every probe reported its rule"

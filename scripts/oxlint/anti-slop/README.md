@@ -26,15 +26,15 @@ copy we own, not a dependency we track.
 
 **Eight rules at `warn`** — paydown rules with existing violations:
 
-| Rule                                    | Violations | What it rejects                                       |
-| --------------------------------------- | ---------- | ----------------------------------------------------- |
+| Rule                                        | Violations | What it rejects                                       |
+| ------------------------------------------- | ---------- | ----------------------------------------------------- |
 | `require-safety-comment-for-type-assertion` | 606        | type assertions without a `SAFETY:` comment           |
-| `no-runtime-typeof`                     | 389        | runtime `typeof` checks instead of boundary parsing   |
-| `no-known-value-widening`               | 290        | broadening known literal types to `Record<string, T>` |
-| `no-shape-in-symbol-names`              | 170        | "shape" in identifier names                           |
-| `no-unsafe-dictionary-type`             | 156        | `Record<string, unknown>` and equivalents             |
-| `no-unknown-returns`                    | 102        | functions returning `unknown`                         |
-| `no-chained-type-assertions`            | 46         | nested `as` / angle-bracket assertions                |
+| `no-runtime-typeof`                         | 389        | runtime `typeof` checks instead of boundary parsing   |
+| `no-known-value-widening`                   | 290        | broadening known literal types to `Record<string, T>` |
+| `no-shape-in-symbol-names`                  | 170        | "shape" in identifier names                           |
+| `no-unsafe-dictionary-type`                 | 156        | `Record<string, unknown>` and equivalents             |
+| `no-unknown-returns`                        | 102        | functions returning `unknown`                         |
+| `no-chained-type-assertions`                | 46         | nested `as` / angle-bracket assertions                |
 
 `pnpm check:oxlint-plugin` holds all of that together: it runs the upstream
 fixtures, asserts every vendored rule is registered here, and DRIVES each rule
