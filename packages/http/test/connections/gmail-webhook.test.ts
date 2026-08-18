@@ -408,7 +408,11 @@ describe("/webhooks/gmail", () => {
     );
 
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, credentialId: "cred_123", receiptPersisted: true });
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      credentialId: "cred_123",
+      receiptPersisted: true,
+    });
     assert.deepEqual(enqueued, [
       [
         "gmail.poll_recent",
@@ -489,7 +493,11 @@ describe("/webhooks/gmail", () => {
     });
 
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, credentialId: "cred_123", receiptPersisted: true });
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      credentialId: "cred_123",
+      receiptPersisted: true,
+    });
     assert.deepEqual(seen.credentialLookups, ["yash@example.com"]);
     assert.equal(seen.enqueued.length, 1);
   });
@@ -526,7 +534,7 @@ describe("/webhooks/gmail", () => {
       new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
     );
     assert.equal(res1.status, 200);
-    const json1 = await res1.json();
+    const json1 = (await res1.json()) as { receiptPersisted: boolean };
     assert.equal(json1.receiptPersisted, true);
 
     // Second delivery (Pub/Sub redelivery) — receipt deduped, still enqueues
@@ -534,8 +542,12 @@ describe("/webhooks/gmail", () => {
       new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
     );
     assert.equal(res2.status, 200);
-    const json2 = await res2.json();
-    assert.equal(json2.receiptPersisted, false, "duplicate delivery must not create a second receipt");
+    const json2 = (await res2.json()) as { receiptPersisted: boolean };
+    assert.equal(
+      json2.receiptPersisted,
+      false,
+      "duplicate delivery must not create a second receipt",
+    );
 
     // Both deliveries enqueued a poll job (BullMQ TTL dedup is separate)
     assert.equal(callCount, 2);

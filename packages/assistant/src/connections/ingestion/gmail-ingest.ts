@@ -398,8 +398,8 @@ interface UpsertIngestionStateArgs {
 async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<void> {
   const now = new Date();
   const newId = args.historyId; // string | null — drizzle binds null as SQL NULL
-  // #560b: merge coverageGap into the JSONB state alongside historyId.
-  // Once set to true, it stays true until a full re-sync clears it.
+  // #560b: merge coverageGap and lastPushHistoryId into the JSONB state.
+  // coverageGap clears automatically when the cursor advances (Blocker 4 fix).
   const coverageGapValue = args.coverageGap ?? false;
   await db()
     .insert(ingestionState)
@@ -434,7 +434,20 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
           jsonb_set(
             CASE
               WHEN ${coverageGapValue}::boolean = true
-                THEN jsonb_set(${ingestionState.state}, '{coverageGap}', 'true')
+                THEN jsonb_set(
+                  CASE
+                    WHEN ${newId}::text IS NOT NULL
+                      AND (${ingestionState.state}->>'historyId') IS NOT NULL
+                      AND ${newId}::bigint > (${ingestionState.state}->>'historyId')::bigint
+                      THEN jsonb_set(${ingestionState.state}, '{coverageGap}', 'false')
+                    ELSE ${ingestionState.state}
+                  END,
+                  '{coverageGap}', 'true'
+                )
+              WHEN ${newId}::text IS NOT NULL
+                AND (${ingestionState.state}->>'historyId') IS NOT NULL
+                AND ${newId}::bigint > (${ingestionState.state}->>'historyId')::bigint
+                THEN jsonb_set(${ingestionState.state}, '{coverageGap}', 'false')
               ELSE ${ingestionState.state}
             END,
             '{historyId}',
@@ -676,6 +689,17 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         maxMessages: 500,
         coverageGap: true,
       });
+      // #560b: clear coverageGap after the full re-sync repair. The
+      // ingestRecentGmail call above set it to true (which is correct for
+      // the audit trail), but the gap is now closed and triggerReady must
+      // recover. The cursor has advanced, so the SQL CASE clears the flag.
+      await upsertIngestionState({
+        credentialId: cred.credentialId,
+        userId: cred.userId,
+        historyId: recent.highWaterHistoryId,
+        fullSync: true,
+        coverageGap: false,
+      });
       return {
         pagesFetched,
         inserted: recent.inserted,
@@ -855,11 +879,18 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   // Running them serially added ~40-60ms to every webhook for no reason;
   // any contention is harmless — both cred reads are SELECTs on the same
   // pk and the cursor lives in a different table.
-  const [cred, accessToken, cursorBefore] = await Promise.all([
+  const [cred, accessToken, state] = await Promise.all([
     loadCredentialOrThrow(args.credentialId),
     getFreshAccessToken(args.credentialId),
-    loadHistoryCursor(args.credentialId),
+    loadIngestionState(args.credentialId),
   ]);
+  const cursorBefore = state.historyId;
+
+  // #560b: read the latest push-delivered historyId from event_receipts.
+  // Receipts are written by every webhook handler, even when the queue
+  // deduplicates the job, so this value reflects the highest historyId
+  // we have seen regardless of BullMQ dedup.
+  const latestReceiptHistoryId = await loadLatestReceiptHistoryId(args.credentialId);
 
   const windowExpr = args.window ?? "5m";
   const cap = args.maxMessages ?? 50;
@@ -938,16 +969,20 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   // of our stored cursor. A large jump means the watch was down or the process
   // was offline for a period — events in between were never polled. The 5m
   // search window cannot reach them, so the trigger readiness gate must know.
+  // #560b: detect coverage gaps by comparing the cursor against the latest
+  // push-delivered historyId from event_receipts. Receipts are written by
+  // every webhook, even when the queue deduplicates the job, so gap
+  // detection works regardless of whether BullMQ dropped a duplicate push.
   const COVERAGE_GAP_THRESHOLD = 1000;
   let coverageGap = false;
-  if (cursorBefore && args.pushHistoryId) {
+  if (cursorBefore && latestReceiptHistoryId) {
     try {
-      const jump = BigInt(args.pushHistoryId) - BigInt(cursorBefore);
+      const jump = BigInt(latestReceiptHistoryId) - BigInt(cursorBefore);
       if (jump > BigInt(COVERAGE_GAP_THRESHOLD)) {
         coverageGap = true;
         console.warn(
           `[gmail.ingestor] coverage gap detected for ${args.credentialId}: ` +
-            `cursor=${cursorBefore} push=${args.pushHistoryId} jump=${jump}`,
+            `cursor=${cursorBefore} push=${latestReceiptHistoryId} jump=${jump}`,
         );
       }
     } catch {
@@ -955,14 +990,12 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     }
   }
 
-  // Skip the DB roundtrip when our in-memory snapshot already shows no
-  // advance — highWaterHistoryId starts as cursorBefore and only moves
-  // forward, so a strict-inequality check here is sound. The DB-level
-  // compare-and-advance in `upsertIngestionState` is the actual guard
-  // against a concurrent `pollGmailHistory` rolling the cursor backward;
-  // this branch is just an optimization to avoid a wasted UPDATE on the
-  // common no-op case (webhook fires for a label change with no new mail).
-  if (highWaterHistoryId && highWaterHistoryId !== cursorBefore) {
+  // #560b: write the state when the cursor advanced OR a coverage gap was
+  // detected. The original guard skipped the DB roundtrip when the in-memory
+  // snapshot showed no advance, but that also discarded the coverageGap flag
+  // when the5-minute search window found nothing (the flag's primary case).
+  const cursorAdvanced = Boolean(highWaterHistoryId && highWaterHistoryId !== cursorBefore);
+  if (cursorAdvanced || coverageGap) {
     await upsertIngestionState({
       credentialId: cred.credentialId,
       userId: cred.userId,
@@ -1055,6 +1088,43 @@ async function loadHistoryCursor(credentialId: string): Promise<string | null> {
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
   const id = state?.historyId;
   return id ?? null;
+}
+
+/**
+ * Return the ingestion state for a credential — history cursor and coverage
+ * gap flag.
+ */
+async function loadIngestionState(
+  credentialId: string,
+): Promise<{ historyId: string | null; coverageGap: boolean }> {
+  const rows = await db()
+    .select({ state: ingestionState.state })
+    .from(ingestionState)
+    .where(
+      and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
+    );
+  const state = rows[0]?.state as { historyId?: string | null; coverageGap?: boolean } | undefined;
+  return {
+    historyId: state?.historyId ?? null,
+    coverageGap: state?.coverageGap === true,
+  };
+}
+
+/**
+ * #560b: read the latest push-delivered historyId from event_receipts for a
+ * credential. This is the source of truth for gap detection — receipts are
+ * written by every webhook, even when the queue deduplicates the job, so this
+ * value reflects the highest historyId we have seen regardless of job dedup.
+ */
+async function loadLatestReceiptHistoryId(credentialId: string): Promise<string | null> {
+  const { eventReceipts } = await import("@alfred/db/schemas");
+  const rows = await db()
+    .select({ historyId: eventReceipts.historyId })
+    .from(eventReceipts)
+    .where(eq(eventReceipts.credentialId, credentialId))
+    .orderBy(sql`${eventReceipts.deliveredAt} DESC`)
+    .limit(1);
+  return rows[0]?.historyId ?? null;
 }
 
 /**

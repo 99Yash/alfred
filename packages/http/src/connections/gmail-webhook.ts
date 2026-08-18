@@ -9,7 +9,7 @@ import {
 import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
-import { getIngestionQueue } from "@alfred/assistant/connections/ingestion";
+import { getIngestionQueue, type IngestionJobData } from "@alfred/assistant/connections/ingestion";
 
 /**
  * Gmail push receiver.
@@ -54,7 +54,7 @@ type GmailWebhookCredentialLookup = (
 type GmailWebhookQueue = {
   add: (
     name: "gmail.poll_recent",
-    data: { kind: "gmail.poll_recent"; credentialId: string; pushHistoryId?: string },
+    data: Extract<IngestionJobData, { kind: "gmail.poll_recent" }>,
     options: { deduplication: { id: string; ttl: number } },
   ) => Promise<unknown>;
 };
@@ -165,6 +165,8 @@ export function parseGmailPushEnvelope(body: unknown): {
  * #560a: default receipt persister — inserts into `event_receipts` with
  * `onConflictDoNothing` on the unique `(provider, provider_delivery_id)` index.
  * Returns whether the row was newly inserted (duplicate redeliveries are no-ops).
+ * The receipt is the audit trail for delivery verification and the source of
+ * truth for gap detection (ADR-0090).
  */
 async function defaultPersistReceipt(args: {
   providerDeliveryId: string;
@@ -214,7 +216,7 @@ export function makeGmailWebhookRoutes(
   return new Elysia({ prefix: "/webhooks", normalize: "typebox" }).post(
     "/gmail",
     async ({ body, headers }) => {
-      let verificationResult = "oidc_skipped";
+      let verificationResult: "oidc_skipped" | "oidc_valid" = "oidc_skipped";
       try {
         await verifyOidc(headers["authorization"] ?? null);
         verificationResult = "oidc_valid";
@@ -244,15 +246,19 @@ export function makeGmailWebhookRoutes(
 
       // #560a: persist a durable receipt before enqueuing. The DB unique index
       // on (provider, provider_delivery_id) catches Pub/Sub redeliveries; a
-      // duplicate insert is a no-op. A crash after receipt commit but before
-      // queue enqueue is recovered from the pending receipt status.
+      // duplicate insert is a no-op. The receipt is the audit trail for delivery
+      // verification and the source of truth for gap detection (ADR-0090).
+      // #560a: SHA-256 of JSON.stringify(body) for audit. Key order matters —
+      // the same logical payload with different key order produces a different
+      // hash. This is acceptable for audit purposes; not used for dedup.
       const payloadHash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+      const historyId = String(notification.historyId);
       const receipt = messageId
         ? await persistReceipt({
             providerDeliveryId: messageId,
             credentialId: cred.id,
             userId: cred.userId,
-            historyId: String(notification.historyId),
+            historyId,
             verificationResult,
             payloadHash,
           })
@@ -271,7 +277,7 @@ export function makeGmailWebhookRoutes(
       const queue = getQueue();
       await queue.add(
         "gmail.poll_recent",
-        { kind: "gmail.poll_recent", credentialId: cred.id, pushHistoryId: String(notification.historyId) },
+        { kind: "gmail.poll_recent", credentialId: cred.id, pushHistoryId: historyId },
         { deduplication: { id: `gmail.poll_recent.${cred.id}`, ttl: 30_000 } },
       );
 
