@@ -1,31 +1,13 @@
 import { defineRule } from "@oxlint/plugins";
-import type { ESTree } from "@oxlint/plugins";
 
-type TypeAssertionExpression = ESTree.TSAsExpression | ESTree.TSTypeAssertion;
-
-function isTypeAssertionExpression(node: ESTree.Node): node is TypeAssertionExpression {
-  return node.type === "TSAsExpression" || node.type === "TSTypeAssertion";
-}
-
-function unwrapParenthesizedExpression(expression: ESTree.Expression): ESTree.Expression {
-  let current = expression;
-  while (current.type === "ParenthesizedExpression") {
-    current = current.expression;
-  }
-  return current;
-}
-
-function isConstAssertion(node: TypeAssertionExpression): boolean {
-  const { typeAnnotation } = node;
-  return (
-    typeAnnotation.type === "TSTypeReference" &&
-    typeAnnotation.typeName.type === "Identifier" &&
-    typeAnnotation.typeName.name === "const"
-  );
-}
+import {
+  isConstAssertion,
+  unwrapParenthesizedExpression,
+  type TypeAssertionExpression,
+} from "../shared/ast.ts";
 
 function isOutermostAssertionInChain(node: TypeAssertionExpression): boolean {
-  let current: ESTree.Expression = node;
+  let current: import("@oxlint/plugins").ESTree.Expression = node;
   let parent = node.parent;
 
   while (parent.type === "ParenthesizedExpression" && parent.expression === current) {
@@ -33,15 +15,19 @@ function isOutermostAssertionInChain(node: TypeAssertionExpression): boolean {
     parent = parent.parent;
   }
 
-  return !isTypeAssertionExpression(parent) || parent.expression !== current;
+  return (
+    !(
+      parent.type === "TSAsExpression" || parent.type === "TSTypeAssertion"
+    ) || parent.expression !== current
+  );
 }
 
 function isForbiddenAssertionChain(node: TypeAssertionExpression): boolean {
   let assertionCount = 0;
   let hasNonConstAssertion = false;
-  let current: ESTree.Expression = node;
+  let current: import("@oxlint/plugins").ESTree.Expression = node;
 
-  while (isTypeAssertionExpression(current)) {
+  while (current.type === "TSAsExpression" || current.type === "TSTypeAssertion") {
     assertionCount += 1;
     hasNonConstAssertion ||= !isConstAssertion(current);
     current = unwrapParenthesizedExpression(current.expression);
