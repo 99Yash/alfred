@@ -7,6 +7,8 @@ import {
   type TypeEnvironment,
 } from "../shared/dictionary-types.ts";
 
+import { typeReferenceName } from "../shared/ast.ts";
+
 import type { ESTree } from "@oxlint/plugins";
 
 const typeNodeKinds: ReadonlySet<string> = new Set([
@@ -51,10 +53,6 @@ const typeNodeKinds: ReadonlySet<string> = new Set([
 
 function isTypeNode(node: ESTree.Node): node is ESTree.TSType {
   return typeNodeKinds.has(node.type);
-}
-
-function typeReferenceName(type: ESTree.TSTypeReference): string | null {
-  return type.typeName.type === "Identifier" ? type.typeName.name : null;
 }
 
 function isInsideTypeAliasDeclaration(node: ESTree.Node): boolean {
