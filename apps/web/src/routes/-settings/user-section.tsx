@@ -1,5 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
-import { FileText, LogOut, Mail, Radio, ShieldCheck, Smartphone, Trash2, User } from "lucide-react";
+import {
+  FileText,
+  LogOut,
+  Mail,
+  MonitorSmartphone,
+  Radio,
+  ShieldCheck,
+  Smartphone,
+  Trash2,
+  User,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   AppButton,
@@ -61,6 +71,7 @@ export function UserSection() {
   const [channel, setChannel] = useState<CommunicationChannel>("email");
   const [autoApprove, setAutoApprove] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [revokingOthers, setRevokingOthers] = useState(false);
   const navigate = useNavigate();
 
   // Background: `draft === null` means "mirror the synced value"; once the user
@@ -97,6 +108,24 @@ export function UserSection() {
       await navigate({ to: "/login" });
     } finally {
       setSigningOut(false);
+    }
+  };
+
+  // Better Auth's `/revoke-other-sessions` needs a valid session but NOT a
+  // fresh one, so this control works from a session of any age. There is no
+  // count of the other devices next to it on purpose: the `/list-sessions`
+  // route that would supply one refuses any session older than the freshness
+  // window, so the count would read "unavailable" most of the time.
+  const onRevokeOtherSessions = async () => {
+    setRevokingOthers(true);
+    try {
+      const { error } = await authClient.revokeOtherSessions();
+      if (error) throw new Error(error.message ?? "revoke failed");
+      toast.success("Signed out on every other device");
+    } catch {
+      toast.error("Couldn't sign out the other devices");
+    } finally {
+      setRevokingOthers(false);
     }
   };
 
@@ -194,6 +223,25 @@ export function UserSection() {
             loading={signingOut}
           >
             Logout
+          </AppButton>
+        }
+      />
+
+      <SettingCard
+        title="Sign out everywhere else"
+        description="Revoke Alfred on every other browser and device. This one stays signed in."
+        icon={MonitorSmartphone}
+        tone="amber"
+        footer="Use this if you think a session was taken. It takes effect at once."
+        action={
+          <AppButton
+            variant="destructive"
+            size="md"
+            onClick={onRevokeOtherSessions}
+            disabled={revokingOthers}
+            loading={revokingOthers}
+          >
+            Sign out others
           </AppButton>
         }
       />

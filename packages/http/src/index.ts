@@ -13,7 +13,11 @@ import { authMacro } from "./middleware/auth";
 import { errorHandler } from "./middleware/error-handler";
 import { requireOnboarded } from "./middleware/onboarding";
 import { securityHeaders } from "./middleware/security-headers";
-import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
+import {
+  clearSessionTokenCache,
+  getSessionCached,
+  invalidateSessionToken,
+} from "./middleware/session-cache";
 import { onboardingRoutes } from "./onboarding";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
@@ -41,6 +45,7 @@ import { workflowRoutes } from "./workflows";
 // delegates through a request-time wrapper instead of calling `auth()` here.
 export {
   authMacro,
+  clearSessionTokenCache,
   errorHandler,
   getSessionCached,
   invalidateSessionToken,
@@ -150,6 +155,21 @@ function readyRedis(): BoundedRedis {
   return readyRedisConn;
 }
 
+/**
+ * Better Auth routes that revoke a session other than the caller's own (#454).
+ *
+ * `/revoke-session` takes a token in its body, and the two plural routes reach
+ * every session on the account. None of the three carries the revoked token in
+ * its cookie, so the per-token session cache has to be dropped wholesale after
+ * one of them succeeds. `/sign-out` is NOT here: it revokes the caller's own
+ * token, which `invalidateSessionToken` reaches precisely.
+ */
+const SESSION_REVOKE_PATHS = new Set([
+  "/api/auth/revoke-session",
+  "/api/auth/revoke-sessions",
+  "/api/auth/revoke-other-sessions",
+]);
+
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
 // schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia
 // 1.4.28 passes the wrong option key to `exact-mirror@1.0.0`
@@ -218,6 +238,21 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
       invalidateSessionToken(request.headers);
     }
   })
-  .mount((request: Request) => auth().handler(request));
+  .mount(async (request: Request) => {
+    const response = await auth().handler(request);
+    // "Sign out everywhere" revokes sessions whose tokens this request does not
+    // carry, so `invalidateSessionToken` cannot reach them and each would keep
+    // answering from the session cache for its remaining TTL. Clearing runs
+    // AFTER the handler, and only on success, so it cannot drop the cache for a
+    // revocation that was refused.
+    if (
+      request.method === "POST" &&
+      response.ok &&
+      SESSION_REVOKE_PATHS.has(new URL(request.url).pathname)
+    ) {
+      clearSessionTokenCache();
+    }
+    return response;
+  });
 
 export type App = typeof app;

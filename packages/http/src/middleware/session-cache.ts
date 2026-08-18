@@ -1,4 +1,6 @@
 import { auth } from "@alfred/auth";
+import { isPastAbsoluteLifetime, revokeSessionByToken } from "@alfred/auth/session-policy";
+import { toMessage } from "@alfred/contracts";
 
 type Session = Awaited<ReturnType<ReturnType<typeof auth>["api"]["getSession"]>>;
 
@@ -34,8 +36,36 @@ function extractSessionToken(headers: Headers): string | null {
   return null;
 }
 
+/**
+ * The one place Alfred's absolute session cap is applied (#454).
+ *
+ * Better Auth slides `expires_at` forward on every use and offers no option
+ * that bounds the total, so the cap lives here — on the read path every route
+ * handler goes through. Passing the cap REVOKES the row rather than returning
+ * "no session" for this one request: Better Auth's own mounted routes read the
+ * same table, so deleting the row is what makes the cap hold on paths this
+ * function never sees.
+ *
+ * Residual gap, deliberately accepted: a stolen cookie that only ever replays
+ * Better Auth's own management routes (`/list-sessions`, `/revoke-session`,
+ * `/update-user`) and never touches an Alfred route is not capped, because
+ * nothing calls this. Those routes reach no mail, no Drive, and no Alfred data.
+ * The web app calls `/api/auth/get-session` on load and on focus, and that route
+ * DOES go through here.
+ */
 async function fetchSession(request: Request): Promise<Session> {
-  return auth().api.getSession({ headers: request.headers });
+  const session = await auth().api.getSession({ headers: request.headers });
+  if (!session) return null;
+  if (!isPastAbsoluteLifetime(session.session.createdAt)) return session;
+  try {
+    await revokeSessionByToken(session.session.token);
+  } catch (err) {
+    // Deny either way. A failed delete leaves the row for the next read to try
+    // again; honouring the cookie because the cleanup failed would invert the
+    // whole point of the cap.
+    console.warn("[auth] could not revoke a session past its absolute cap:", toMessage(err));
+  }
+  return null;
 }
 
 export async function getSessionCached(request: Request): Promise<Session> {
@@ -93,4 +123,19 @@ export function invalidateSessionToken(headers: Headers): void {
     tokenCache.delete(token);
     tokenInflight.delete(token);
   }
+}
+
+/**
+ * Drop every cached token.
+ *
+ * `invalidateSessionToken` can only reach the token the request carries, which
+ * is the wrong one for "sign out everywhere": that control revokes sessions
+ * whose tokens this request does not hold, and each of those would otherwise
+ * keep answering from this cache for up to {@link TOKEN_TTL_MS}. Alfred has one
+ * user, so dropping the whole map costs one extra database read per live token
+ * and buys a revocation that takes effect at once in this process.
+ */
+export function clearSessionTokenCache(): void {
+  tokenCache.clear();
+  tokenInflight.clear();
 }
