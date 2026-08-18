@@ -56,6 +56,8 @@ export interface IngestRecentArgs {
    * claim the whole mailbox has been scanned.
    */
   updateCursor?: boolean | undefined;
+  /** #560b: set true when this ingest covers a detected coverage gap. */
+  coverageGap?: boolean | undefined;
 }
 
 export interface IngestRecentResult {
@@ -184,6 +186,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       userId: cred.userId,
       historyId: highWaterHistoryId,
       fullSync: true,
+      ...(args.coverageGap ? { coverageGap: true } : {}),
     });
   }
 
@@ -388,11 +391,16 @@ interface UpsertIngestionStateArgs {
   userId: string;
   historyId: string | null;
   fullSync: boolean;
+  /** #560b: set true when a coverage gap is detected (history gone or cursor jump). */
+  coverageGap?: boolean;
 }
 
 async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<void> {
   const now = new Date();
   const newId = args.historyId; // string | null — drizzle binds null as SQL NULL
+  // #560b: merge coverageGap into the JSONB state alongside historyId.
+  // Once set to true, it stays true until a full re-sync clears it.
+  const coverageGapValue = args.coverageGap ?? false;
   await db()
     .insert(ingestionState)
     .values({
@@ -400,7 +408,10 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
       userId: args.userId,
       provider: "google",
       stream: "messages",
-      state: { historyId: args.historyId },
+      state: {
+        historyId: args.historyId,
+        ...(args.coverageGap ? { coverageGap: true } : {}),
+      },
       lastSyncAt: now,
       lastFullSyncAt: args.fullSync ? now : null,
     })
@@ -421,7 +432,11 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
         // (ADR-0037)
         state: sql`
           jsonb_set(
-            ${ingestionState.state},
+            CASE
+              WHEN ${coverageGapValue}::boolean = true
+                THEN jsonb_set(${ingestionState.state}, '{coverageGap}', 'true')
+              ELSE ${ingestionState.state}
+            END,
             '{historyId}',
             CASE
               WHEN ${newId}::text IS NULL
@@ -659,6 +674,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       const recent = await ingestRecentGmail({
         credentialId: args.credentialId,
         maxMessages: 500,
+        coverageGap: true,
       });
       return {
         pagesFetched,
@@ -773,6 +789,8 @@ export interface PollRecentArgs {
    * 1-message webhook short-circuits to serial anyway.
    */
   concurrency?: number | undefined;
+  /** #560b: Pub/Sub push historyId for cursor-jump gap detection. */
+  pushHistoryId?: string | undefined;
 }
 
 export interface PollRecentResult {
@@ -916,6 +934,27 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     }
   });
 
+  // #560b: detect a coverage gap when the Pub/Sub push historyId is far ahead
+  // of our stored cursor. A large jump means the watch was down or the process
+  // was offline for a period — events in between were never polled. The 5m
+  // search window cannot reach them, so the trigger readiness gate must know.
+  const COVERAGE_GAP_THRESHOLD = 1000;
+  let coverageGap = false;
+  if (cursorBefore && args.pushHistoryId) {
+    try {
+      const jump = BigInt(args.pushHistoryId) - BigInt(cursorBefore);
+      if (jump > BigInt(COVERAGE_GAP_THRESHOLD)) {
+        coverageGap = true;
+        console.warn(
+          `[gmail.ingestor] coverage gap detected for ${args.credentialId}: ` +
+            `cursor=${cursorBefore} push=${args.pushHistoryId} jump=${jump}`,
+        );
+      }
+    } catch {
+      // Non-numeric historyId — ignore; the cursor will advance normally.
+    }
+  }
+
   // Skip the DB roundtrip when our in-memory snapshot already shows no
   // advance — highWaterHistoryId starts as cursorBefore and only moves
   // forward, so a strict-inequality check here is sound. The DB-level
@@ -929,6 +968,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       userId: cred.userId,
       historyId: highWaterHistoryId,
       fullSync: false,
+      coverageGap,
     });
   }
 
