@@ -6,6 +6,7 @@ import { Elysia, t } from "elysia";
 import { randomUUID } from "node:crypto";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "./middleware/auth";
+import { requireOnboarded } from "./middleware/onboarding";
 import { startRun } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import {
@@ -28,7 +29,8 @@ import {
  */
 export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "typebox" })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .post(
         "/",

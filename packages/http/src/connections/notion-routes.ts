@@ -19,6 +19,7 @@ import {
   verifyOAuthState,
 } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
+import { requireOnboarded } from "../middleware/onboarding";
 
 /**
  * Notion OAuth routes (full authorization-code flow). Same state-nonce CSRF
@@ -35,7 +36,8 @@ export const notionIntegrationRoutes = new Elysia({
   normalize: "typebox",
 })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .get("/connect", async ({ user, set }) => {
         if (!isNotionConfigured()) {
