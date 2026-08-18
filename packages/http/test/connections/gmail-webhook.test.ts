@@ -294,9 +294,14 @@ describe("verifyPubSubOidcForGmailWebhook", () => {
  * body. It records the two side effects a malformed body must never reach.
  */
 function gmailWebhookHarness() {
-  const seen: { credentialLookups: string[]; enqueued: unknown[][] } = {
+  const seen: {
+    credentialLookups: string[];
+    enqueued: unknown[][];
+    receipts: unknown[];
+  } = {
     credentialLookups: [],
     enqueued: [],
+    receipts: [],
   };
   const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
     makeGmailWebhookRoutes({
@@ -310,6 +315,10 @@ function gmailWebhookHarness() {
           seen.enqueued.push(args);
         },
       }),
+      persistReceipt: async (args) => {
+        seen.receipts.push(args);
+        return { inserted: true };
+      },
     }),
   );
   const post = (init: { body?: string; headers?: Record<string, string> }) =>
@@ -344,6 +353,7 @@ describe("/webhooks/gmail", () => {
             enqueued = true;
           },
         }),
+        persistReceipt: async () => ({ inserted: true }),
       }),
     );
 
@@ -366,6 +376,7 @@ describe("/webhooks/gmail", () => {
 
   test("enqueues a poll job after OIDC verification and credential lookup pass", async () => {
     const enqueued: unknown[] = [];
+    const receipts: unknown[] = [];
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
       makeGmailWebhookRoutes({
         verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
@@ -378,6 +389,10 @@ describe("/webhooks/gmail", () => {
             enqueued.push(args);
           },
         }),
+        persistReceipt: async (args) => {
+          receipts.push(args);
+          return { inserted: true };
+        },
       }),
     );
 
@@ -393,14 +408,20 @@ describe("/webhooks/gmail", () => {
     );
 
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, credentialId: "cred_123" });
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      credentialId: "cred_123",
+      receiptPersisted: true,
+    });
     assert.deepEqual(enqueued, [
       [
         "gmail.poll_recent",
-        { kind: "gmail.poll_recent", credentialId: "cred_123" },
+        { kind: "gmail.poll_recent", credentialId: "cred_123", pushHistoryId: "hist_123" },
         { deduplication: { id: "gmail.poll_recent.cred_123", ttl: 30_000 } },
       ],
     ]);
+    assert.equal(receipts.length, 1);
+    assert.equal((receipts[0] as { providerDeliveryId: string }).providerDeliveryId, "msg_123");
   });
 
   test("answers 200 bad-payload for an undecodable message and reaches neither side effect", async () => {
@@ -472,8 +493,106 @@ describe("/webhooks/gmail", () => {
     });
 
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, credentialId: "cred_123" });
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      credentialId: "cred_123",
+      receiptPersisted: true,
+    });
     assert.deepEqual(seen.credentialLookups, ["yash@example.com"]);
     assert.equal(seen.enqueued.length, 1);
+  });
+
+  test("#560a: duplicate Pub/Sub deliveries create at most one receipt", async () => {
+    const receipts: Array<{ inserted: boolean }> = [];
+    let callCount = 0;
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
+      makeGmailWebhookRoutes({
+        verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
+        findCredential: async () => ({ id: "cred_123", userId: "user_123" }),
+        getQueue: () => ({
+          add: async () => {
+            callCount++;
+          },
+        }),
+        persistReceipt: async () => {
+          // Simulate the DB unique index: first insert succeeds, second is a no-op
+          const inserted = receipts.length === 0;
+          receipts.push({ inserted });
+          return { inserted };
+        },
+      }),
+    );
+
+    const body = JSON.stringify(gmailEnvelope("yash@example.com"));
+    const headers = {
+      "content-type": "application/json",
+      authorization: "Bearer jwt_123",
+    };
+
+    // First delivery — receipt persisted
+    const res1 = await app.handle(
+      new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
+    );
+    assert.equal(res1.status, 200);
+    const json1 = (await res1.json()) as { receiptPersisted: boolean };
+    assert.equal(json1.receiptPersisted, true);
+
+    // Second delivery (Pub/Sub redelivery) — receipt deduped, still enqueues
+    const res2 = await app.handle(
+      new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
+    );
+    assert.equal(res2.status, 200);
+    const json2 = (await res2.json()) as { receiptPersisted: boolean };
+    assert.equal(
+      json2.receiptPersisted,
+      false,
+      "duplicate delivery must not create a second receipt",
+    );
+
+    // Both deliveries enqueued a poll job (BullMQ TTL dedup is separate)
+    assert.equal(callCount, 2);
+  });
+
+  test("#560a: receipt records verification result and payload hash", async () => {
+    const seenReceipts: unknown[] = [];
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
+      makeGmailWebhookRoutes({
+        verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
+        findCredential: async () => ({ id: "cred_123", userId: "user_123" }),
+        getQueue: () => ({ add: async () => {} }),
+        persistReceipt: async (args) => {
+          seenReceipts.push(args);
+          return { inserted: true };
+        },
+      }),
+    );
+
+    const res = await app.handle(
+      new Request("http://localhost/webhooks/gmail", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer jwt_123",
+        },
+        body: JSON.stringify(gmailEnvelope("yash@example.com")),
+      }),
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(seenReceipts.length, 1);
+    const receipt = seenReceipts[0] as {
+      providerDeliveryId: string;
+      credentialId: string;
+      userId: string;
+      historyId: string;
+      verificationResult: string;
+      payloadHash: string;
+    };
+    assert.equal(receipt.providerDeliveryId, "msg_123");
+    assert.equal(receipt.credentialId, "cred_123");
+    assert.equal(receipt.userId, "user_123");
+    assert.equal(receipt.historyId, "hist_123");
+    assert.equal(receipt.verificationResult, "oidc_valid");
+    assert.match(receipt.payloadHash, /^[a-f0-9]{64}$/, "payload hash is SHA-256 hex");
   });
 });

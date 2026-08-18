@@ -158,6 +158,7 @@ this file exists so you never have to load all of them.
 | [0087](./docs/decisions/ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) | Code-Mode rung-(b) v1 is context virtualization, not composition/BYO-MCP: object handles + a network-less self-hosted isolate whose only capabilities are host functions (DESIGNED — grilled 2026-07-21, see docs/plans/code-mode-object-handles-v1.md) |
 | [0088](./docs/decisions/ADR-0088-the-mcp-call-approval-floor-is-a-floor-not-a.md) | Dynamic tool risk resolves fail-closed at the dispatch gate: reviewed MCP downgrades require an audited declaration, invalid/undeclared downgrades clamp to the static tier, Calendar invites raise `medium` to `high`, and resumed pending rows can only gain approval requirements (BUILT — #541 Part 3, amended by #232; amends ADR-0069) |
 | [0089](./docs/decisions/ADR-0089-name-http-and-assistant-packages-by-ownership.md) | Name HTTP adapters and assistant behavior by ownership; break cycles before extraction |
+| [0090](./docs/decisions/ADR-0090-event-receipts-audit-trail-and-gap-detection-source.md) | `event_receipts` is the audit trail + gap detection source of truth, deduplicated by `(provider, provider_delivery_id)` |
 
 ## Appendices
 

@@ -200,6 +200,70 @@ export const webhookEvents = pgTable(
   ],
 );
 
+/**
+ * Durable event receipts for the trigger readiness control plane (#560).
+ * Each row is one provider delivery — one Pub/Sub push, one GitHub webhook,
+ * etc. — deduplicated by `(provider, provider_delivery_id)`. The table is
+ * the audit trail for "did we receive this?" and the source of truth for
+ * gap detection (the `coverageGap` / `lastVerifiedDelivery` signals that
+ * workflow readiness reads).
+ *
+ * Gmail v1: `provider_delivery_id` is the Pub/Sub `message.messageId`, which
+ * is stable across redeliveries. `event_type` is `gmail.message_received`.
+ * `verification_result` records the OIDC outcome ('oidc_valid', 'oidc_skipped',
+ * or 'oidc_failed'). `processing_status` tracks whether the ingestion job ran
+ * and completed.
+ *
+ * The full unique index on `(provider, provider_delivery_id)` deduplicates
+ * redeliveries at the DB level. The webhook handler uses `onConflictDoNothing`
+ * so a duplicate insert is a no-op. Failed deliveries are not retried with a
+ * new row — the index prevents duplicate receipts for the same delivery.
+ */
+export const eventReceipts = pgTable(
+  "event_receipts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("evr")),
+    /** 'google' for Gmail; 'github', 'slack', etc. later. */
+    provider: text("provider").notNull(),
+    /** Pub/Sub messageId (Gmail) or X-GitHub-Delivery (GitHub). Stable across redeliveries. */
+    providerDeliveryId: text("provider_delivery_id").notNull(),
+    /** FK to integration_credentials — the account that owns this delivery. */
+    credentialId: text("credential_id")
+      .notNull()
+      .references(() => integrationCredentials.id, { onDelete: "cascade" }),
+    /** Owning user, resolved from the credential at receive time. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Event kind: 'gmail.message_received' for Gmail v1. */
+    eventType: text("event_type").notNull(),
+    /** Gmail historyId from the push notification (presence gate + cursor). */
+    historyId: text("history_id"),
+    /** OIDC verification outcome: 'oidc_valid', 'oidc_skipped' (dev), 'oidc_failed'. */
+    verificationResult: text("verification_result").notNull().default("oidc_valid"),
+    /** SHA-256 hex of the raw Pub/Sub body for audit / re-derivation. */
+    payloadHash: text("payload_hash"),
+    /**
+     * Processing state: 'pending' (received, not yet ingested), 'completed'
+     * (ingestion job ran), 'failed' (ingestion job errored).
+     */
+    processingStatus: text("processing_status").notNull().default("pending"),
+    /** When the provider delivered (Pub/Sub push timestamp). Defaults to DB receive time. */
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When the ingestion job completed or failed. */
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
+    index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
+    index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),
+  ],
+);
+
 export type IntegrationCredential = typeof integrationCredentials.$inferSelect;
 export type IngestionState = typeof ingestionState.$inferSelect;
 export type WebhookEvent = typeof webhookEvents.$inferSelect;
+export type EventReceipt = typeof eventReceipts.$inferSelect;
