@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { ensureAuthTestEnv } from "./support/env";
 
 /**
  * Coverage for CVE-2026-53516 (#455).
@@ -25,33 +26,6 @@ import { fileURLToPath } from "node:url";
  * deliberately configures no `accountLinking` block at all — see
  * `packages/auth/src/index.ts` for why `disableImplicitLinking` was dropped.
  */
-
-/** Every required server env var, so `serverEnv()` parses without a real deploy. */
-function ensureAuthTestEnv(): void {
-  process.env.DATABASE_URL ??= "postgres://test:test@127.0.0.1:5432/test"; // drift-ok: seeds a fixture value, does not gate a suite
-  process.env.REDIS_URL ??= "redis://localhost:6379"; // drift-ok: seeds a fixture value, does not gate a suite
-  process.env.BETTER_AUTH_SECRET ??= "test-secret-that-is-at-least-32-characters";
-  process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
-  process.env.ALFRED_ALLOWED_EMAIL ??= "test@example.test";
-  process.env.RESEND_API_KEY ??= "test";
-  process.env.RESEND_FROM_EMAIL ??= "test@example.test";
-  process.env.ANTHROPIC_API_KEY ??= "test";
-  process.env.GOOGLE_GENERATIVE_AI_API_KEY ??= "test";
-  process.env.GOOGLE_OAUTH_CLIENT_ID ??= "test";
-  process.env.GOOGLE_OAUTH_CLIENT_SECRET ??= "test";
-  process.env.GOOGLE_OAUTH_REDIRECT_URI ??= "http://localhost:3001/google/callback";
-  process.env.GITHUB_APP_ID ??= "test";
-  process.env.GITHUB_APP_SLUG ??= "test";
-  process.env.GITHUB_APP_CLIENT_ID ??= "test";
-  process.env.GITHUB_APP_CLIENT_SECRET ??= "test";
-  process.env.GITHUB_APP_PRIVATE_KEY ??= "test";
-  process.env.GITHUB_WEBHOOK_SECRET ??= "test";
-  process.env.GITHUB_APP_REDIRECT_URI ??= "http://localhost:3001/github/callback";
-  process.env.OAUTH_CREDENTIAL_KEK ??= Buffer.from(
-    "0123456789abcdef0123456789abcdef",
-    "utf8",
-  ).toString("base64url");
-}
 
 /** The first release that checks the *local* account's `emailVerified`. */
 const FIXED_VERSION = [1, 6, 11] as const;

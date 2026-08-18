@@ -8,6 +8,16 @@ The allowlist rejects any signup whose email is not in `ALFRED_ALLOWED_EMAIL` �
 
 In route handlers, call `getSessionCached(request)` from `packages/http/src/middleware/session-cache.ts` — never `auth().api.getSession()` directly.
 
+## Rate limiting
+
+Both instances take the same `rateLimit` block from `packages/auth/src/rate-limit.ts` (#458). It is on in production only, and it counts in Redis rather than in the API process, so a restart or a second replica cannot reset the counter.
+
+Three things about it are load-bearing.
+
+- **Per-endpoint limits are Better Auth's own.** `/sign-in`, `/sign-up`, `/change-password` and `/change-email` are 3 requests per 10s; the password-reset and verification-email paths are 3 per 60s. A `customRules` entry for a path REPLACES that stricter rule, so the block declares none.
+- **A Redis outage degrades, it does not disable.** Each counter falls back to a per-process `Map` and logs one warning per request. That is the limiter Better Auth would run on its own — the limit never lifts, and an outage never locks the only user out of the sign-in path.
+- **`advanced.ipAddress.trustedProxies` decides the bucket.** Without it, Better Auth trusts a single-value `x-forwarded-for` only, and every request carrying its own header shares one bucket. The list holds the private ranges that Railway's edge uses, which is the same list the web service's `Caddyfile` trusts. It is correct only while the API is reachable through that edge alone.
+
 ## GCP setup
 
 `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are the same OAuth client used by the Gmail/Calendar integration flow at `/api/integrations/google/callback`. Better Auth derives its own callback URL: `${BETTER_AUTH_URL}/api/auth/callback/google`. Both URIs must be listed in the OAuth client's authorized redirect URIs in GCP Console. Calendar additionally requires the Google Calendar API to be enabled in the GCP project.

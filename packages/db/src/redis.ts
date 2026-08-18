@@ -159,6 +159,54 @@ const CONNECTION_PROFILES: Record<RedisConnectionKind, RedisOptions> = {
 export type BoundedRedis = Omit<IORedis, "subscribe" | "psubscribe" | "ssubscribe">;
 
 /**
+ * An ioredis client reduced to the one verb {@link incrementExpiringCounter}
+ * needs, named as a port rather than as `Pick<BoundedRedis, "eval">`: ioredis
+ * declares `eval` across many overloads, so a test double can satisfy this and
+ * cannot satisfy the picked type without a cast. Any handle from
+ * {@link createRedisConnection} fits — the assignment at a call site is the
+ * compile-time check, so an ioredis release that changes `eval` fails
+ * `check-types` instead of reaching production.
+ */
+export type EvalRedis = {
+  eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
+};
+
+/**
+ * Increment a counter and set its TTL, as ONE atomic step.
+ *
+ * The naive spelling — `INCR`, then `EXPIRE` when the count says the key is
+ * new — has a crash window between the two commands: a process that dies
+ * there leaves a counter with no TTL. For a window-indexed key the next
+ * window heals it, but for a bare key the leak is permanent. The Lua body
+ * runs both halves inside Redis, so no client-side gap exists.
+ *
+ * The `EXPIRE` lands when the increment created the key (`count == amount`)
+ * OR when the key already stands without a TTL (`TTL == -1`). The second
+ * clause heals a key leaked by an older code path and cannot extend a live
+ * one: a key whose TTL is already set keeps it, so a fixed window stays fixed
+ * rather than sliding on every request.
+ *
+ * Both known callers want this shape rather than their own copy of it: the
+ * auth rate limit (`packages/auth/src/rate-limit.ts`) and the attachment
+ * upload quota (`packages/assistant/src/chat/attachment-upload-quota.ts`).
+ */
+const INCR_WITH_TTL_SCRIPT = `local count = redis.call("INCRBY", KEYS[1], ARGV[1])
+if count == tonumber(ARGV[1]) or redis.call("TTL", KEYS[1]) == -1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[2])
+end
+return count`;
+
+export async function incrementExpiringCounter(
+  redis: EvalRedis,
+  key: string,
+  amount: number,
+  ttlSeconds: number,
+): Promise<number> {
+  const result = await redis.eval(INCR_WITH_TTL_SCRIPT, 1, key, amount, ttlSeconds);
+  return Number(result);
+}
+
+/**
  * The one door to an ioredis client. `new IORedis(...)` appears nowhere else in
  * the repo and `pnpm check` fails on a second one, so every connection in the
  * process carries one of the profiles above.
