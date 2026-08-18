@@ -32,6 +32,7 @@ import {
   verifyOAuthState,
 } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
+import { requireOnboarded } from "../middleware/onboarding";
 
 /**
  * Google integration routes.
@@ -80,7 +81,8 @@ export const googleIntegrationRoutes = new Elysia({
   normalize: "typebox",
 })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .get(
         "/connect",

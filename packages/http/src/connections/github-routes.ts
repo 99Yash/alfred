@@ -19,6 +19,7 @@ import {
   verifyOAuthState,
 } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
+import { requireOnboarded } from "../middleware/onboarding";
 
 /**
  * GitHub App integration routes (ADR-0052). Same state-nonce CSRF defense as
@@ -40,7 +41,8 @@ export const githubIntegrationRoutes = new Elysia({
   normalize: "typebox",
 })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .get("/connect", async ({ user, set }) => {
         const nonce = randomBytes(16).toString("hex");

@@ -2,12 +2,14 @@ import { toJsonValue } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
 
 import { authMacro } from "./middleware/auth";
+import { requireOnboarded } from "./middleware/onboarding";
 import { recoverWorkflowDraft, workflowRecoveryNavigation } from "@alfred/assistant/automation";
 
 /** Revalidation boundary used after connect/reauthorize returns to a blocked draft. */
 export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: "typebox" })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app.post(
       "/:id/recovery",
       async ({ user, params, query }) => {

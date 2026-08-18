@@ -32,6 +32,7 @@ import {
   uploadChatAttachment,
 } from "@alfred/assistant/chat";
 import { authMacro } from "./middleware/auth";
+import { requireOnboarded } from "./middleware/onboarding";
 
 /** OpenAI's transcription endpoint caps uploads at 25 MB; mirror it here. */
 const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
@@ -49,7 +50,8 @@ const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
  */
 export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox" })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .post(
         /**
