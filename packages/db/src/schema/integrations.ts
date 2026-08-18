@@ -204,19 +204,20 @@ export const webhookEvents = pgTable(
  * Durable event receipts for the trigger readiness control plane (#560).
  * Each row is one provider delivery — one Pub/Sub push, one GitHub webhook,
  * etc. — deduplicated by `(provider, provider_delivery_id)`. The table is
- * the audit trail for "did we receive this?" and the write side of the
- * `coverageGap` / `lastVerifiedDelivery` signals that workflow readiness reads.
+ * the audit trail for "did we receive this?" and the source of truth for
+ * gap detection (the `coverageGap` / `lastVerifiedDelivery` signals that
+ * workflow readiness reads).
  *
  * Gmail v1: `provider_delivery_id` is the Pub/Sub `message.messageId`, which
  * is stable across redeliveries. `event_type` is `gmail.message_received`.
- * `verification_result` records the OIDC outcome. `processing_status` tracks
- * whether the ingestion job ran and completed.
+ * `verification_result` records the OIDC outcome ('oidc_valid', 'oidc_skipped',
+ * or 'oidc_failed'). `processing_status` tracks whether the ingestion job ran
+ * and completed.
  *
- * The partial unique index on `(provider, credential_id, provider_delivery_id)
- * WHERE processing_status != 'failed'` ensures at most one active receipt per
- * delivery per credential. A failed receipt can be retried with a new row, but
- * the index prevents two pending/processing/completed rows for the same
- * delivery.
+ * The full unique index on `(provider, provider_delivery_id)` deduplicates
+ * redeliveries at the DB level. The webhook handler uses `onConflictDoNothing`
+ * so a duplicate insert is a no-op. Failed deliveries are not retried with a
+ * new row — the index prevents duplicate receipts for the same delivery.
  */
 export const eventReceipts = pgTable(
   "event_receipts",
