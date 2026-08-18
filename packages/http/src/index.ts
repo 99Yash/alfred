@@ -11,6 +11,7 @@ import { mcpIntegrationRoutes } from "./mcp";
 import { meRoutes } from "./me";
 import { authMacro } from "./middleware/auth";
 import { errorHandler } from "./middleware/error-handler";
+import { requireOnboarded } from "./middleware/onboarding";
 import { securityHeaders } from "./middleware/security-headers";
 import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
 import { onboardingRoutes } from "./onboarding";
@@ -38,7 +39,14 @@ import { workflowRoutes } from "./workflows";
 // This barrel also owns the composed root `app` and its derived `App` type.
 // Importing it must stay environment-free, so the final Better Auth mount
 // delegates through a request-time wrapper instead of calling `auth()` here.
-export { authMacro, errorHandler, getSessionCached, invalidateSessionToken, securityHeaders };
+export {
+  authMacro,
+  errorHandler,
+  getSessionCached,
+  invalidateSessionToken,
+  requireOnboarded,
+  securityHeaders,
+};
 export type { SecurityHeadersOptions } from "./middleware/security-headers";
 
 // Routes. This is one barrel with no subpaths, so it is also one

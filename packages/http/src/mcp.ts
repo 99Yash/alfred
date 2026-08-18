@@ -18,6 +18,7 @@ import {
   upsertConnection,
 } from "@alfred/assistant/connections/mcp";
 import { authMacro } from "./middleware/auth";
+import { requireOnboarded } from "./middleware/onboarding";
 
 const GITHUB_MCP_ENDPOINT = new URL("https://api.githubcopilot.com/mcp");
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
@@ -81,7 +82,8 @@ export const mcpIntegrationRoutes = new Elysia({
   normalize: "typebox",
 })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .get("/connections", async ({ user }) => {
         const connections = await listOwnedConnections(user.id);

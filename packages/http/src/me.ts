@@ -41,6 +41,7 @@ import {
 } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
+import { requireOnboarded } from "./middleware/onboarding";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
 import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";
@@ -399,7 +400,8 @@ function parseUsageCategories(raw: string | undefined): UsageRunCategory[] {
 
 export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
   .use(authMacro)
-  .guard({ auth: true }, (app) =>
+  .use(requireOnboarded)
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .get(
         "/inbox",
