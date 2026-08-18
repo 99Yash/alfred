@@ -506,7 +506,7 @@ function asHttpRequester(fn: typeof undiciRequest): HttpRequester {
     fn(url, {
       method: opts.method,
       headers: opts.headers,
-      dispatcher: opts.dispatcher,
+      ...(opts.dispatcher != null && { dispatcher: opts.dispatcher }),
       signal: opts.signal,
     }) as Promise<UndiciResponseLike>;
 }
@@ -597,13 +597,11 @@ export function pinningLookup(
 }
 
 /** Adapt `pinningLookup` to the `LookupFunction` shape the undici connector expects. */
-function asLookupFunction(
-  fn: typeof pinningLookup,
-): LookupFunction {
+function asLookupFunction(fn: typeof pinningLookup): LookupFunction {
   return (hostname, options, callback) =>
     fn(hostname, options, (err, address, family) => {
       if (err) {
-        callback(err);
+        callback(err, "");
         return;
       }
       callback(null, address ?? "", family);
