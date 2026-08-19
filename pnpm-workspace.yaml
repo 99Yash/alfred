@@ -44,7 +44,11 @@ catalog:
   "@tanstack/router-plugin": ^1.121.7
   "@types/node": ^24.0.0
   "@vitejs/plugin-react": ^4.5.2
-  ai: 7.0.19
+  # Pinned exact and bumped deliberately. `@ai-sdk/code-mode` declares an exact
+  # `ai` peer and the two move in lockstep (`1.0.23` <-> `7.0.66`), so this line
+  # chooses the code-mode release too. See the ADR-0087 amendment. Bump to the
+  # newest pair that clears pnpm's 24-hour release-age floor, never past it.
+  ai: 7.0.66
   # Provider-fallback cascade for the LanguageModel dispatchers (see
   # `withFallback` in packages/ai/src/provider.ts). Same version warden
   # runs on the identical ai@7 / @ai-sdk/provider@4 resolution.
@@ -76,12 +80,16 @@ catalog:
   vite: ^6.3.5
   zod: 4.4.3
 
+# The AI SDK publishes several releases a day, so a deliberate bump of the `ai`
+# catalog pin is almost always younger than pnpm's release-age floor. Each entry
+# below is a version this workspace chose on purpose. Add the new version and
+# drop the version it replaced; never widen an entry to a range.
 minimumReleaseAgeExclude:
+  - "@ai-sdk/anthropic@4.0.11"
   - "@ai-sdk/gateway@4.0.15"
+  - "@ai-sdk/google@4.0.11"
   - "@ai-sdk/openai@4.0.11"
+  - "@ai-sdk/perplexity@4.0.8"
   - "@ai-sdk/provider-utils@5.0.7"
   - "@ai-sdk/provider@4.0.3"
-  - ai@7.0.19
-  - "@ai-sdk/anthropic@4.0.11"
-  - "@ai-sdk/google@4.0.11"
-  - "@ai-sdk/perplexity@4.0.8"
+  - ai@7.0.66
