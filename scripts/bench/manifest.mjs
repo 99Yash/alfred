@@ -34,7 +34,7 @@ import { join, resolve } from "node:path";
 
 /** Repo-relative roots. Each one exists on disk, so `check:script-paths` passes. */
 const BENCH = "scripts/bench";
-const TASKS = "scripts/bench/tasks";
+const TASKS = "scripts/bench/tasks"; // path-ok: local-only bench task directory, not tracked in git
 const RUNS = "references/bench";
 
 /** Every valid patch carries a `diff --git` line. */

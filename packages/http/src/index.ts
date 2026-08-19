@@ -13,7 +13,11 @@ import { authMacro } from "./middleware/auth";
 import { errorHandler } from "./middleware/error-handler";
 import { requireOnboarded } from "./middleware/onboarding";
 import { securityHeaders } from "./middleware/security-headers";
-import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
+import {
+  clearSessionTokenCache,
+  getSessionCached,
+  invalidateSessionToken,
+} from "./middleware/session-cache";
 import { onboardingRoutes } from "./onboarding";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
@@ -218,6 +222,20 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
       invalidateSessionToken(request.headers);
     }
   })
-  .mount((request: Request) => auth().handler(request));
+  .mount(async (request: Request) => {
+    const response = await auth().handler(request);
+    // A Better Auth POST can create, update, or revoke a session. Clear after
+    // success so every present and future mutation gets the safe behavior
+    // without coordinating a route list. The boundary slash excludes near
+    // matches such as `/api/authz/...`.
+    if (
+      request.method === "POST" &&
+      response.ok &&
+      new URL(request.url).pathname.startsWith("/api/auth/")
+    ) {
+      clearSessionTokenCache();
+    }
+    return response;
+  });
 
 export type App = typeof app;

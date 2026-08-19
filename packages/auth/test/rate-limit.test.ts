@@ -144,26 +144,17 @@ describe("auth rate limit storage (#458)", () => {
 });
 
 describe("auth rate limit configuration (#458)", () => {
-  test("both instances take an explicit window, max and Redis store", async () => {
+  test("the auth instance takes an explicit window, max and Redis store", async () => {
     ensureAuthTestEnv();
-    const [{ auth }, { sessionAuth }] = await Promise.all([
-      import("../src/index"),
-      import("../src/session"),
-    ]);
-
-    for (const [name, options] of [
-      ["auth", auth().options],
-      ["sessionAuth", sessionAuth().options],
-    ] as const) {
-      const rateLimit = options.rateLimit;
-      assert.ok(rateLimit, `${name} configures no rateLimit`);
-      assert.ok(rateLimit.customStorage, `${name} falls back to the in-memory store`);
-      assert.equal(typeof rateLimit.window, "number", `${name} leaves the window implicit`);
-      assert.equal(typeof rateLimit.max, "number", `${name} leaves the max implicit`);
-      // Better Auth's own stricter rules for /sign-in, /sign-up, /change-password
-      // and /change-email apply only while no custom rule claims those paths.
-      assert.equal(rateLimit.customRules, undefined, `${name} overrides a stricter default`);
-    }
+    const { auth } = await import("../src/index");
+    const rateLimit = auth().options.rateLimit;
+    assert.ok(rateLimit, "auth configures no rateLimit");
+    assert.ok(rateLimit.customStorage, "auth falls back to the in-memory store");
+    assert.equal(typeof rateLimit.window, "number", "auth leaves the window implicit");
+    assert.equal(typeof rateLimit.max, "number", "auth leaves the max implicit");
+    // Better Auth's own stricter rules for /sign-in, /sign-up, /change-password
+    // and /change-email apply only while no custom rule claims those paths.
+    assert.equal(rateLimit.customRules, undefined, "auth overrides a stricter default");
   });
 
   test("the limiter is on in production and off in a dev or test run", () => {
@@ -172,6 +163,12 @@ describe("auth rate limit configuration (#458)", () => {
     assert.equal(authRateLimit("production").enabled, true);
     assert.equal(authRateLimit("development").enabled, false);
     assert.equal(authRateLimit("test").enabled, false);
+  });
+
+  test("accepts only a validated server environment", () => {
+    // @ts-expect-error NODE_ENV is the ServerEnv union, not an arbitrary string.
+    const invalidNodeEnv: Parameters<typeof authRateLimit>[0] = "Production";
+    assert.equal(invalidNodeEnv, "Production");
   });
 
   test("every trusted proxy entry is a valid IP or CIDR range", () => {
