@@ -323,8 +323,8 @@ export async function extractPdf(
   }
 
   const inspector = await loadInspector();
-  // A view over the same memory, not a copy: both library calls copy the buffer
-  // themselves before they return.
+  // A view over the same memory, not a copy: all three library calls copy the
+  // buffer themselves before they return.
   const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
   try {
