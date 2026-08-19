@@ -2,7 +2,8 @@
   "name": "@alfred/extraction",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./extract-pdf-child": "./src/extract-pdf-child.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
