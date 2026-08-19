@@ -85,7 +85,7 @@ describe("@alfred/http root app", () => {
         createdAt: SIGNED_IN_AT,
         updatedAt: new Date("2026-08-12T00:00:00Z"),
         userId: "user-1",
-        expiresAt: new Date("2026-08-13T00:00:00Z"),
+        expiresAt: new Date(Date.now() + 60_000),
         token: "token-1",
         ipAddress: null,
         userAgent: null,

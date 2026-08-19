@@ -1,6 +1,4 @@
 import { auth } from "@alfred/auth";
-import { isPastAbsoluteLifetime, revokeSessionByToken } from "@alfred/auth/session-policy";
-import { toMessage } from "@alfred/contracts";
 
 type Session = Awaited<ReturnType<ReturnType<typeof auth>["api"]["getSession"]>>;
 
@@ -10,6 +8,13 @@ const TOKEN_TTL_MS = 10_000;
 const MAX_TOKEN_CACHE_SIZE = 1_000;
 const tokenCache = new Map<string, { session: Session; expiresAt: number }>();
 const tokenInflight = new Map<string, Promise<Session>>();
+let tokenCacheGeneration = 0;
+
+async function resolveUnexpiredSession(promise: Promise<Session>): Promise<Session> {
+  const session = await promise;
+  if (session && session.session.expiresAt.getTime() <= Date.now()) return null;
+  return session;
+}
 
 const sweepTimer = setInterval(() => {
   const now = Date.now();
@@ -36,38 +41,6 @@ function extractSessionToken(headers: Headers): string | null {
   return null;
 }
 
-/**
- * The one place Alfred's absolute session cap is applied (#454).
- *
- * Better Auth slides `expires_at` forward on every use and offers no option
- * that bounds the total, so the cap lives here — on the read path every route
- * handler goes through. Passing the cap REVOKES the row rather than returning
- * "no session" for this one request: Better Auth's own mounted routes read the
- * same table, so deleting the row is what makes the cap hold on paths this
- * function never sees.
- *
- * Residual gap, deliberately accepted: a stolen cookie that only ever replays
- * Better Auth's own management routes (`/list-sessions`, `/revoke-session`,
- * `/update-user`) and never touches an Alfred route is not capped, because
- * nothing calls this. Those routes reach no mail, no Drive, and no Alfred data.
- * The web app calls `/api/auth/get-session` on load and on focus, and that route
- * DOES go through here.
- */
-async function fetchSession(request: Request): Promise<Session> {
-  const session = await auth().api.getSession({ headers: request.headers });
-  if (!session) return null;
-  if (!isPastAbsoluteLifetime(session.session.createdAt)) return session;
-  try {
-    await revokeSessionByToken(session.session.token);
-  } catch (err) {
-    // Deny either way. A failed delete leaves the row for the next read to try
-    // again; honouring the cookie because the cleanup failed would invert the
-    // whole point of the cap.
-    console.warn("[auth] could not revoke a session past its absolute cap:", toMessage(err));
-  }
-  return null;
-}
-
 export async function getSessionCached(request: Request): Promise<Session> {
   const existing = perRequest.get(request);
   if (existing) return existing;
@@ -84,17 +57,28 @@ export async function getSessionCached(request: Request): Promise<Session> {
 
     const inflight = tokenInflight.get(token);
     if (inflight) {
-      perRequest.set(request, inflight);
-      return inflight;
+      const promise = resolveUnexpiredSession(inflight);
+      perRequest.set(request, promise);
+      return promise;
     }
 
-    const base = fetchSession(request);
+    const generation = tokenCacheGeneration;
+    const base = auth().api.getSession({ headers: request.headers });
     const promise = base.then((session) => {
+      // A successful auth mutation can clear the cache while this lookup is
+      // still pending. Its existing waiter may receive the result, but the old
+      // generation must not repopulate shared state after invalidation.
+      if (generation !== tokenCacheGeneration) return session;
+
       if (tokenCache.size >= MAX_TOKEN_CACHE_SIZE) {
         const oldest = tokenCache.keys().next().value;
         if (oldest) tokenCache.delete(oldest);
       }
-      tokenCache.set(token, { session, expiresAt: Date.now() + TOKEN_TTL_MS });
+      const ttlDeadline = Date.now() + TOKEN_TTL_MS;
+      const expiresAt = session
+        ? Math.min(ttlDeadline, session.session.expiresAt.getTime())
+        : ttlDeadline;
+      tokenCache.set(token, { session, expiresAt });
       return session;
     });
 
@@ -105,14 +89,21 @@ export async function getSessionCached(request: Request): Promise<Session> {
     // side handle on `base` keeps the eviction independent of `promise`'s
     // own rejection (which callers await + handle) and avoids an
     // unhandled-rejection warning.
-    base.catch(() => {}).finally(() => tokenInflight.delete(token));
+    base
+      .catch(() => {})
+      .finally(() => {
+        // A clear can let a new request install another promise for this token
+        // before the old lookup settles. Only remove the promise we installed.
+        if (tokenInflight.get(token) === promise) tokenInflight.delete(token);
+      });
 
     tokenInflight.set(token, promise);
-    perRequest.set(request, promise);
-    return promise;
+    const checked = resolveUnexpiredSession(promise);
+    perRequest.set(request, checked);
+    return checked;
   }
 
-  const promise = fetchSession(request);
+  const promise = auth().api.getSession({ headers: request.headers });
   perRequest.set(request, promise);
   return promise;
 }
@@ -128,14 +119,15 @@ export function invalidateSessionToken(headers: Headers): void {
 /**
  * Drop every cached token.
  *
- * `invalidateSessionToken` can only reach the token the request carries, which
- * is the wrong one for "sign out everywhere": that control revokes sessions
- * whose tokens this request does not hold, and each of those would otherwise
- * keep answering from this cache for up to {@link TOKEN_TTL_MS}. Alfred has one
- * user, so dropping the whole map costs one extra database read per live token
- * and buys a revocation that takes effect at once in this process.
+ * Successful Better Auth POSTs can create, update, or revoke any session on the
+ * account. The HTTP composition calls this after the handler returns success,
+ * so a new or renamed mutation cannot bypass invalidation through a stale route
+ * list. Alfred has one user, so dropping the whole map costs one extra database
+ * read per live token and buys an auth mutation that takes effect at once in
+ * this process.
  */
 export function clearSessionTokenCache(): void {
+  tokenCacheGeneration += 1;
   tokenCache.clear();
   tokenInflight.clear();
 }

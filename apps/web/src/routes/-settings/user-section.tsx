@@ -111,11 +111,9 @@ export function UserSection() {
     }
   };
 
-  // Better Auth's `/revoke-other-sessions` needs a valid session but NOT a
-  // fresh one, so this control works from a session of any age. There is no
-  // count of the other devices next to it on purpose: the `/list-sessions`
-  // route that would supply one refuses any session older than the freshness
-  // window, so the count would read "unavailable" most of the time.
+  // Keep this recovery action available without a device count. The auth
+  // reference owns the Better Auth freshness behavior that makes a count
+  // unavailable for some valid sessions. See `docs/reference/auth.md`.
   const onRevokeOtherSessions = async () => {
     setRevokingOthers(true);
     try {
@@ -232,7 +230,7 @@ export function UserSection() {
         description="Revoke Alfred on every other browser and device. This one stays signed in."
         icon={MonitorSmartphone}
         tone="amber"
-        footer="Use this if you think a session was taken. It takes effect at once."
+        footer="Use this if you think a session was taken."
         action={
           <AppButton
             variant="destructive"
