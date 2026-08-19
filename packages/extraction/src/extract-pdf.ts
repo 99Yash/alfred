@@ -45,13 +45,18 @@
 // by tracked fixtures. So this module always runs the per-page extraction and
 // reads the answer off the pages; `pdfType` is carried as metadata only.
 //
-// One vendor surface is still not enough to conclude a document holds no text.
-// `extractPagesMarkdown` returns empty markdown for a scan carrying an invisible
-// OCR text layer — the ordinary output of an office copier — while `extractText`
-// on the same bytes returns that layer in full. So a document no page could read
-// is asked a second question before it is called `needs_ocr`, and text that
-// arrives with no page boundary is reported as `text_without_pages` rather than
-// attributed to a page it did not come from.
+// One vendor surface is not enough to conclude that a PAGE holds no text, and
+// that question is asked per page, never per document. `extractPagesMarkdown`
+// returns empty markdown for a scan carrying an invisible OCR text layer — the
+// ordinary output of an office copier — while `extractText` on the same bytes
+// returns that layer in full. Put a born-digital cover sheet in front of such a
+// scan and a document-level test answers wrongly: one readable page makes the
+// document `extracted`, and the scan's body is never read at all. So the module
+// asks `extractText` whenever ANY page came back empty.
+//
+// What comes back has no page boundary in it, so it is never attributed to a
+// page. It rides beside the pages as `extracted.text` when some page did read,
+// and it becomes `text_without_pages` when no page did.
 
 import type { PageMarkdownResult, PdfType } from "@firecrawl/pdf-inspector";
 
@@ -83,6 +88,23 @@ export type ExtractedPdf =
       readonly pages: readonly ExtractedPdfPage[];
       /** 1-indexed. Derived from `pages`, so it can never disagree with them. */
       readonly pagesNeedingOcr: readonly number[];
+      /**
+       * The whole document's text, present only when at least one page in
+       * `pages` yielded nothing. A scan with an invisible OCR layer behind a
+       * born-digital cover sheet is the everyday case, and this field is the
+       * only place the scanned body's text exists.
+       *
+       * It covers the WHOLE document, so it OVERLAPS `pages` rather than
+       * extending them, and it carries no page number for any of it. It is not
+       * the longer of the two either: on `image-based-text-cover.pdf` the pages
+       * hold 26 characters and this holds 23, so "whichever is longer wins" is
+       * not a rule a door may use.
+       *
+       * Which of the two a door should read is deliberately NOT answered here.
+       * The first door that proves what it needs decides, and the answer belongs
+       * in this package rather than in each door.
+       */
+      readonly text?: string;
     }
   /**
    * The document holds text, but no surface of the library could say which page
@@ -232,6 +254,35 @@ function pageHasText(page: ExtractedPdfPage): boolean {
   return hasText(page.markdown);
 }
 
+/**
+ * The whole document's text, or `undefined` when there is none to be had.
+ *
+ * This surface can only IMPROVE an answer the two parses already gave, so a
+ * failure of it must never overturn one. A vendor parse failure here therefore
+ * becomes `undefined`, and the document keeps the verdict its pages earned: a
+ * tracked fixture — a three-byte edit of a born-digital document — parses to one
+ * empty page and then fails here, and the true answer for it is `needs_ocr` with
+ * one page, not `invalid` with none.
+ *
+ * A non-vendor error still escapes. That is the installation fault the module
+ * header names, and it is not a fact about the document.
+ *
+ * `extractText` is the vendor's one synchronous entry point, so it holds the
+ * event loop. Measured: 15.9 ms on a 500-page, 1,476,100-character document,
+ * with 0.7 ms maximum event-loop lag, against about 51 ms for the per-page
+ * extraction that already runs on every document.
+ */
+function readDocumentText(inspector: PdfInspector, buffer: Buffer): string | undefined {
+  let text: string;
+  try {
+    text = inspector.extractText(buffer);
+  } catch (error) {
+    if (isVendorFailure(error)) return undefined;
+    throw error;
+  }
+  return hasText(text) ? text : undefined;
+}
+
 /** The vendor's page, in this module's 1-indexed shape. */
 function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
   return {
@@ -252,15 +303,16 @@ function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
  * named in the module header: a native binary that cannot load, and an error
  * that did not come from the vendor's parser at all.
  *
- * Two library calls on every document, and a third only when the first two
- * found no text. `classifyPdfAsync` (about 4.7 ms on a 100-page document)
+ * Two library calls on every document, and a third whenever any page came back
+ * without text. `classifyPdfAsync` (about 4.7 ms on a 100-page document)
  * supplies `pdfType`; `extractPagesMarkdownAsync` (about 51 ms) supplies the
  * pages that decide the variant. The extraction always runs, including for a
  * document the classifier calls `Scanned`: the classifier is a prediction, and
- * paying 51 ms is cheaper than discarding a readable page. `extractText` runs
- * only on the no-page-text path — it is the vendor's one synchronous entry
- * point, so it holds the event loop, and it is asked only about a document that
- * would otherwise be reported as holding nothing at all.
+ * paying 51 ms is cheaper than discarding a readable page. `extractText` then
+ * answers for the whole document, at 15.9 ms on a 500-page document — a third
+ * of what the per-page extraction already costs, which is why it is asked about
+ * every document holding an unread page rather than only about a document that
+ * read nothing at all.
  */
 export async function extractPdf(
   bytes: Uint8Array,
@@ -287,6 +339,14 @@ export async function extractPdf(
     // run past the array is the defect class this package exists to prevent.
     const pageCount = pages.length;
 
+    // One unread page is enough to ask the third surface, and the test is per
+    // page for a reason: a searchable scan behind a born-digital cover sheet has
+    // one page that reads and a body that does not, so a document-level test
+    // would return the cover sheet and silently drop the rest. A document the
+    // vendor gave no pages at all counts as unread too.
+    const everyPageRead = pages.length > 0 && pages.every(pageHasText);
+    const text = everyPageRead ? undefined : readDocumentText(inspector, buffer);
+
     // The verdict is the pages' own evidence, never `pdfType`. One readable
     // cover page in a scan is still a readable page, and a `TextBased` document
     // that yielded nothing on every page is still not `extracted`.
@@ -300,16 +360,17 @@ export async function extractPdf(
         // `pagesNeedingOcr`, so the document-level list and the per-page flags are
         // one fact in one index base instead of two facts that can disagree.
         pagesNeedingOcr: pages.filter((page) => page.needsOcr).map((page) => page.pageNumber),
+        // `exactOptionalPropertyTypes` — a document whose every page read carries
+        // no `text` at all rather than a present `undefined`.
+        ...(text === undefined ? {} : { text }),
       };
     }
 
-    // No page could be read. Before this document is called unreadable, ask the
-    // one vendor surface that answers about the whole document: a scan with an
+    // No page could be read. The third surface is the last word: a scan with an
     // invisible OCR text layer returns empty markdown per page and its whole
-    // text here. That text arrives with NO page boundary in it, so it gets a
-    // variant that asserts no page rather than being attributed to page 1.
-    const text = inspector.extractText(buffer);
-    if (hasText(text)) return { kind: "text_without_pages", pdfType, pageCount, text };
+    // text there. It arrives with NO page boundary in it, so it gets a variant
+    // that asserts no page rather than being attributed to page 1.
+    if (text !== undefined) return { kind: "text_without_pages", pdfType, pageCount, text };
 
     return { kind: "needs_ocr", pdfType, pageCount };
   } catch (error) {

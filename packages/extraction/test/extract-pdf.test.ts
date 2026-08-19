@@ -66,6 +66,21 @@
 //   t5 = c5.beginText(72, 700); t5.setFont("Helvetica", 12); t5.setTextRenderMode(3)
 //   for _ in range(10): t5.textLine(LINE)
 //   c5.drawText(t5); c5.showPage(); c5.save()
+//
+//   # The everyday mixed document: a born-digital cover in front of a searchable
+//   # scan. Per-page markdown is [24, 24, 0] and `extractText` holds 736
+//   # characters, so the third page's text exists ONLY at document level.
+//   w2 = PdfWriter()
+//   for src in ("born-digital-two-page.pdf", "scanned-with-text-layer.pdf"):
+//       for p in PdfReader(src).pages: w2.add_page(p)
+//   with open("mixed-searchable-scan.pdf", "wb") as f: w2.write(f)
+//
+//   # Three edited bytes, found by a seeded search over 4000 mutations: the two
+//   # parses still succeed and `extractText` alone throws. The offsets are the
+//   # fixture, not a rule about PDFs — regenerate only from this exact recipe.
+//   d = bytearray(open("born-digital-two-page.pdf", "rb").read())
+//   for off, val in ((178, 107), (559, 221), (1121, 141)): d[off] = val
+//   open("damaged-text-surface.pdf", "wb").write(bytes(d))
 //   PY
 //
 // Deliberately NOT asserted: confidence scores, processing times, or the exact
@@ -187,6 +202,53 @@ test("an `ImageBased` scan with a readable cover page is `extracted`, cover text
   // document-level verdict and the page-level flag are different facts.
   assert.deepEqual(result.pagesNeedingOcr, [2, 3, 4]);
   assert.equal(result.pageCount, result.pages.length);
+
+  // Three of its four pages read nothing, so the document text is consulted and
+  // reported — and here it holds 23 characters against the pages' 26. That is
+  // the measurement behind the docstring: `text` is not a longer answer, and a
+  // door that picked whichever string is longer would pick wrongly on this very
+  // document. It is present because a page went unread, not because it wins.
+  assert.equal(result.text?.trim(), "COVER PAGE MARKER delta");
+});
+
+test("a cover page in front of a searchable scan keeps the scan's text", async () => {
+  // The defect this fixture exists for: the cover page reads, so a document-level
+  // test calls the whole document `extracted` and stops. The scanned page behind
+  // it carries an invisible OCR layer that only `extractText` reads, and its text
+  // would be dropped — 50 characters of 739 reaching the door.
+  const result = await extractPdf(await fixture("mixed-searchable-scan.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  assert.equal(result.kind, "extracted");
+  if (result.kind !== "extracted") return;
+  assert.equal(result.pageCount, 3);
+
+  // The two born-digital pages keep their own page numbers, as always.
+  assert.match(result.pages[0]?.markdown ?? "", /PAGE ONE MARKER alpha/);
+  assert.match(result.pages[1]?.markdown ?? "", /PAGE TWO MARKER bravo/);
+  assert.equal(result.pages[2]?.markdown.trim(), "");
+  assert.deepEqual(result.pagesNeedingOcr, [3]);
+
+  // …and the third page's text survives at document level, where it is true: the
+  // vendor said which page the first two came from and never said it for this.
+  assert.match(result.text ?? "", /Alfred reads a PDF deterministically/);
+  // `text` covers the WHOLE document, pages included. It overlaps `pages`; it is
+  // not the remainder.
+  assert.match(result.text ?? "", /PAGE ONE MARKER alpha/);
+});
+
+test("a document whose every page reads carries no document text", async () => {
+  // The negative control for the field above. Both pages read, so the third
+  // vendor surface is never asked and `extracted` carries pages alone.
+  const result = await extractPdf(await fixture("born-digital-two-page.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  assert.equal(result.kind, "extracted");
+  if (result.kind !== "extracted") return;
+  assert.equal(result.text, undefined);
+  assert.ok(!("text" in result));
 });
 
 // The two documents below are the reason the pages are not the last word either.
@@ -226,6 +288,21 @@ test("a scanned page with an invisible OCR layer keeps its text", async () => {
   if (result.kind !== "text_without_pages") return;
   assert.equal(result.pageCount, 1);
   assert.match(result.text, /Alfred reads a PDF deterministically/);
+});
+
+test("a failure of the third surface does not overturn a parse that succeeded", async () => {
+  // Three edited bytes: both parses still succeed and return one empty page, and
+  // `extractText` alone throws `extract_text: PDF parsing error: dictionary has
+  // wrong type: `. That throw is asked to IMPROVE `needs_ocr`, so it must not be
+  // able to delete the page structure the parses already produced. Sharing one
+  // `try` with them would report `invalid` and no page count at all.
+  const result = await extractPdf(await fixture("damaged-text-surface.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  assert.equal(result.kind, "needs_ocr");
+  if (result.kind !== "needs_ocr") return;
+  assert.equal(result.pageCount, 1);
 });
 
 test("a PDF whose newlines were rewritten LF to CRLF is `invalid`, not a throw", async () => {
