@@ -19,8 +19,26 @@
 // The rule that decides what is a returned value and what is a thrown error:
 // a value describes an outcome that depends on the INPUT, a throw describes an
 // outcome that depends on the INSTALLATION. So an encrypted, scanned, invalid or
-// oversized document is a variant of `ExtractedPdf`, and a missing native binary
-// is a throw the caller's existing dependency-outage path reports.
+// oversized document is a variant of `ExtractedPdf`.
+//
+// `extractPdf` throws in exactly two cases, and a door must treat both as a
+// dependency problem rather than a fact about the document:
+//
+//   * the native binary cannot load (no platform build, or a failed
+//     optional-dependency install);
+//   * the library fails with a message this module does not recognize. Mapping
+//     every unrecognized `GenericFailure` to `invalid` would report a broken
+//     install or an out-of-memory as "your PDF is corrupt", so it rethrows.
+//
+// The document-level verdict comes from the PAGES, never from the library's
+// `pdfType`. `pdfType` is a whole-document prediction with a text-density
+// threshold behind it: an `ImageBased` scan with a born-digital cover page
+// still holds readable text on that cover, and a `TextBased` document at
+// confidence 1.00 can yield empty markdown on every page. Both are reproduced
+// by tracked fixtures. So this module always runs the per-page extraction and
+// reads the answer off the pages; `pdfType` is carried as metadata only.
+
+import type { PdfType } from "@firecrawl/pdf-inspector";
 
 /** The library's `PdfType`, in this repo's casing. */
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
@@ -43,16 +61,20 @@ export interface ExtractedPdfPage {
 export type ExtractedPdf =
   | {
       readonly kind: "extracted";
+      /** Reported metadata, not a verdict. The verdict is `kind`. */
       readonly pdfType: PdfDocumentType;
+      /** `pages.length`, so a door can never read past the end of `pages`. */
       readonly pageCount: number;
       readonly pages: readonly ExtractedPdfPage[];
       /** 1-indexed. Derived from `pages`, so it can never disagree with them. */
       readonly pagesNeedingOcr: readonly number[];
     }
   /**
-   * Scanned or image-based bytes: there is no text to read. This is the only
-   * variant a model ever sees, and it deliberately carries NO `pages` array —
-   * nothing downstream can assert a page number for a document nobody read.
+   * Not one page of this document carried readable text, so there is nothing to
+   * read without OCR. This is the only variant a model ever sees, and it
+   * deliberately carries NO `pages` array — nothing downstream can assert a page
+   * number for a document nobody read. `pageCount` therefore comes from the
+   * classifier, which is the only count left.
    */
   | { readonly kind: "needs_ocr"; readonly pdfType: PdfDocumentType; readonly pageCount: number }
   | { readonly kind: "encrypted" }
@@ -68,26 +90,22 @@ export interface ExtractPdfOptions {
 }
 
 /**
- * The library's four `PdfType` labels. Keyed by `string` rather than by the
- * vendor's `const enum`, because a `const enum` member has no runtime value
- * under `isolatedModules` and cannot be written as an object key here.
+ * The library's four `PdfType` labels, in this repo's casing. The key type is the
+ * vendor's own enum, so a label the vendor renames or adds fails to compile here
+ * instead of reading as a silent default.
+ *
+ * The key is written `` `${PdfType}` `` rather than `PdfType`, because `PdfType`
+ * is a `const enum`: its members have no runtime value under `isolatedModules`,
+ * so they cannot be written as object keys. The template form is the same union
+ * of string literals, which the literal keys below do satisfy, and it erases
+ * completely.
  */
-const PDF_DOCUMENT_TYPES: Readonly<Record<string, PdfDocumentType>> = {
+const PDF_DOCUMENT_TYPES: Readonly<Record<`${PdfType}`, PdfDocumentType>> = {
   TextBased: "text_based",
   Scanned: "scanned",
   ImageBased: "image_based",
   Mixed: "mixed",
 };
-
-/**
- * The document-level verdicts that mean "no text to read". `Mixed` is NOT one of
- * them: a mixed document has pages worth extracting, and its unreadable pages
- * come back flagged per page instead.
- */
-const OCR_ONLY_DOCUMENT_TYPES: ReadonlySet<PdfDocumentType> = new Set<PdfDocumentType>([
-  "scanned",
-  "image_based",
-]);
 
 /**
  * Vendor message substrings, each mapped to the variant it means. Order matters
@@ -123,14 +141,9 @@ function loadInspector(): Promise<PdfInspector> {
   return inspectorPromise;
 }
 
-/**
- * The vendor's label, in this repo's casing. An unrecognized label cannot happen
- * at the pinned version; if a future bump adds one, it reads as `"mixed"` — the
- * vendor's own least-committal verdict, which routes the document to per-page
- * extraction rather than declaring it unreadable.
- */
-function toPdfDocumentType(pdfType: string): PdfDocumentType {
-  return PDF_DOCUMENT_TYPES[pdfType] ?? "mixed";
+/** The vendor's label, in this repo's casing. Total over the vendor's enum. */
+function toPdfDocumentType(pdfType: PdfType): PdfDocumentType {
+  return PDF_DOCUMENT_TYPES[pdfType];
 }
 
 /**
@@ -149,6 +162,15 @@ function toExtractedPdfFailure(error: unknown): ExtractedPdf | undefined {
     return { kind: "invalid", reason: message.replace(RUST_FUNCTION_PREFIX, "") };
   }
   return undefined;
+}
+
+/**
+ * A page counts as read when it carries any non-whitespace text. The library
+ * returns `""` for a page it could not read, and `needsOcr` alone is not the
+ * test: a page can be flagged `needsOcr` and still hold text worth keeping.
+ */
+function pageHasText(page: ExtractedPdfPage): boolean {
+  return page.markdown.trim().length > 0;
 }
 
 function toExtractedPdfPage(page: {
@@ -170,13 +192,16 @@ function toExtractedPdfPage(page: {
 
 /**
  * Read a PDF's bytes. Returns exactly one `ExtractedPdf` variant for every
- * outcome that depends on those bytes, and throws only when the native binary
- * cannot load.
+ * outcome that depends on those bytes. It throws only for the two
+ * document-independent failures named in the module header: a native binary that
+ * cannot load, and a vendor failure this module does not recognize.
  *
- * Two library calls, in this order and for this reason: `classifyPdfAsync` costs
- * about 4.7 ms on a 100-page document against 51 ms for the extraction, so a
- * scanned document is answered by the cheap call alone instead of paying a full
- * parse to learn it has no text.
+ * Two library calls. `classifyPdfAsync` (about 4.7 ms on a 100-page document)
+ * supplies `pdfType` and the classifier page count;
+ * `extractPagesMarkdownAsync` (about 51 ms) supplies the pages that decide the
+ * variant. The extraction always runs, including for a document the classifier
+ * calls `Scanned`: the classifier is a prediction, and paying 51 ms is cheaper
+ * than discarding a readable page.
  */
 export async function extractPdf(
   bytes: Uint8Array,
@@ -194,16 +219,25 @@ export async function extractPdf(
   try {
     const classification = await inspector.classifyPdfAsync(buffer);
     const pdfType = toPdfDocumentType(classification.pdfType);
-    if (OCR_ONLY_DOCUMENT_TYPES.has(pdfType)) {
+    const extraction = await inspector.extractPagesMarkdownAsync(buffer);
+    const pages = extraction.pages.map(toExtractedPdfPage);
+
+    // The verdict is the pages' own evidence, never `pdfType`. A document is
+    // unreadable only when no page held text — one readable cover page in a
+    // scan is still a readable page, and a `TextBased` document that yielded
+    // nothing is still unreadable.
+    if (!pages.some(pageHasText)) {
       return { kind: "needs_ocr", pdfType, pageCount: classification.pageCount };
     }
 
-    const extraction = await inspector.extractPagesMarkdownAsync(buffer);
-    const pages = extraction.pages.map(toExtractedPdfPage);
     return {
       kind: "extracted",
       pdfType,
-      pageCount: classification.pageCount,
+      // From the pages, not from the classifier: two parses, and nothing holds
+      // a second count equal to `pages.length`. Items downstream cite page
+      // numbers, so an index that can run past the array is the defect class
+      // this package exists to prevent.
+      pageCount: pages.length,
       pages,
       // Derived from the normalized pages rather than read from the library's own
       // `pagesNeedingOcr`, so the document-level list and the per-page flags are

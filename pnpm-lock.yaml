@@ -24,6 +24,9 @@ catalogs:
     '@elysiajs/node':
       specifier: 1.4.5
       version: 1.4.5
+    '@firecrawl/pdf-inspector':
+      specifier: 1.15.0
+      version: 1.15.0
     '@sentry/node':
       specifier: ^10.60.0
       version: 10.69.0
@@ -190,7 +193,7 @@ importers:
         specifier: 'catalog:'
         version: 1.4.5(elysia@1.4.28(@sinclair/typebox@0.34.49)(exact-mirror@1.0.0)(file-type@22.0.1)(openapi-types@12.1.3)(typescript@7.0.2))
       '@firecrawl/pdf-inspector':
-        specifier: 1.15.0
+        specifier: 'catalog:'
         version: 1.15.0
       '@sentry/node':
         specifier: 'catalog:'
@@ -721,7 +724,7 @@ importers:
   packages/extraction:
     dependencies:
       '@firecrawl/pdf-inspector':
-        specifier: 1.15.0
+        specifier: 'catalog:'
         version: 1.15.0
       typescript:
         specifier: 'catalog:'

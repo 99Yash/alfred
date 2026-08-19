@@ -34,6 +34,26 @@
 //   open("not-a-pdf.bin", "wb").write(b"this is not a pdf at all\x00\x01\x02" * 20)
 //   data = open("born-digital-two-page.pdf", "rb").read()
 //   open("truncated.pdf", "wb").write(data[: len(data) // 3])
+//
+//   # The two documents where the vendor's `pdfType` disagrees with the pages.
+//   c3 = canvas.Canvas("image-based-text-cover.pdf", pagesize=LETTER)
+//   c3.setFont("Helvetica", 14); c3.drawString(72, 700, "COVER PAGE MARKER delta"); c3.showPage()
+//   for _ in range(3):
+//       img2 = Image.new("RGB", (1224, 1584), "white")
+//       ImageDraw.Draw(img2).text((100, 100), "SCANNED PAGE MARKER charlie", fill="black")
+//       b2 = io.BytesIO(); img2.save(b2, format="PNG"); b2.seek(0)
+//       c3.drawImage(ImageReader(b2), 0, 0, width=612, height=792); c3.showPage()
+//   c3.save()
+//
+//   # Text render mode 3 is invisible: the classifier still calls it TextBased at
+//   # confidence 1.00, and the per-page extraction returns nothing.
+//   LINE = "Alfred reads a PDF deterministically and reports a real page number."
+//   c4 = canvas.Canvas("text-based-unreadable.pdf", pagesize=LETTER)
+//   for _ in range(2):
+//       t = c4.beginText(72, 700); t.setFont("Helvetica", 12); t.setTextRenderMode(3)
+//       for _ in range(10): t.textLine(LINE)
+//       c4.drawText(t); c4.showPage()
+//   c4.save()
 //   PY
 //
 // Deliberately NOT asserted: confidence scores, processing times, or the exact
@@ -60,8 +80,9 @@ test("a born-digital PDF reports one page per page, numbered from 1", async () =
   assert.equal(result.kind, "extracted");
   if (result.kind !== "extracted") return;
   assert.equal(result.pdfType, "text_based");
-  assert.equal(result.pageCount, 2);
   assert.equal(result.pages.length, 2);
+  // `pageCount` is `pages.length`, so `pages[pageCount - 1]` always exists.
+  assert.equal(result.pageCount, result.pages.length);
 
   // The whole normalization, in two assertions: the library reports these pages
   // as 0 and 1.
@@ -120,7 +141,7 @@ test("a truncated PDF is `invalid` too — a second vendor message, one kind", a
   assert.equal(result.reason, "Invalid PDF structure");
 });
 
-test("bytes above the cap are `too_large` and the library is never called", async () => {
+test("bytes above the cap are `too_large`", async () => {
   const bytes = await fixture("born-digital-two-page.pdf");
 
   const result = await extractPdf(bytes, { maxBytes: 10 });
@@ -129,4 +150,40 @@ test("bytes above the cap are `too_large` and the library is never called", asyn
   if (result.kind !== "too_large") return;
   assert.equal(result.byteLength, bytes.byteLength);
   assert.equal(result.maxBytes, 10);
+});
+
+// The two documents below are the reason the variant is decided by the pages and
+// not by the library's `pdfType`. Every other fixture is wholly text or wholly
+// scanned, so none of them exercises the branch this module owns.
+
+test("an `ImageBased` scan with a readable cover page is `extracted`, cover text and all", async () => {
+  const result = await extractPdf(await fixture("image-based-text-cover.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  // The vendor calls the whole document image-based. One page disagrees, and a
+  // door must still get that page's text.
+  assert.equal(result.kind, "extracted");
+  if (result.kind !== "extracted") return;
+  assert.equal(result.pdfType, "image_based");
+  assert.match(result.pages[0]?.markdown ?? "", /COVER PAGE MARKER delta/);
+
+  // The scanned pages stay in `pages`, flagged, rather than vanishing: the
+  // document-level verdict and the page-level flag are different facts.
+  assert.deepEqual(result.pagesNeedingOcr, [2, 3, 4]);
+  assert.equal(result.pageCount, result.pages.length);
+});
+
+test("a `TextBased` PDF that yields no text on any page is `needs_ocr`", async () => {
+  const result = await extractPdf(await fixture("text-based-unreadable.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  // The classifier reports `TextBased` at confidence 1.00 for these bytes. The
+  // pages come back empty, so `extracted` would promise text this module does
+  // not have.
+  assert.equal(result.kind, "needs_ocr");
+  if (result.kind !== "needs_ocr") return;
+  assert.equal(result.pdfType, "text_based");
+  assert.equal(result.pageCount, 2);
 });
