@@ -87,6 +87,14 @@ result `extracted`. If no page reads but the document text reads, the result is
 Encrypted and parser-rejected bytes are values. A missing native binary remains
 a native-load rejection. A non-vendor parser fault remains `PdfExtractionError`.
 
+## Vendor pin
+
+`@firecrawl/pdf-inspector` is pinned to an exact version. The vendor reports
+encrypted and invalid inputs with the same `GenericFailure` code, so this package
+must use message text to distinguish those two result kinds. A vendor message
+change must therefore produce a failing fixture test before it can change the
+public result. Do not add a range operator to the catalog version.
+
 ## Deployment
 
 `apps/server` bundles `@alfred/*` sources, but the native vendor stays external.

@@ -43,11 +43,14 @@ export async function runPdfExtractionChild(): Promise<number> {
     await writeReply({ kind: "result", result });
     return 0;
   } catch (error) {
-    const described = describeError(error);
+    const pdfExtractionError = error instanceof PdfExtractionError;
+    // Send the original cause so the parent can rebuild the one canonical
+    // PdfExtractionError message instead of accepting arbitrary message text.
+    const described = describeError(pdfExtractionError ? error.cause : error);
     await writeReply({
       kind: "dependency_error",
       error: {
-        source: error instanceof PdfExtractionError ? "pdf_extraction" : "native_load",
+        source: pdfExtractionError ? "pdf_extraction" : "native_load",
         ...described,
       },
     });
