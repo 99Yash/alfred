@@ -94,6 +94,55 @@ test("a parse deadline kills the child after unrelated parent work completes", a
   );
 });
 
+test("the parse deadline includes synchronous process startup", async () => {
+  const startupDelayMilliseconds = 300;
+  const maxParseMilliseconds = 500;
+  const extractPdf = createPdfExtractorWithChild(
+    { ...BASE_LIMITS, maxParseMilliseconds },
+    {
+      childEntry: CHILD_ENTRY,
+      env: { PDF_EXTRACTION_TEST_BEHAVIOR: "hang" },
+      spawnChild: (spawnDefault) => {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, startupDelayMilliseconds);
+        return spawnDefault();
+      },
+    },
+  );
+
+  const result = await extractPdf(new Uint8Array([1]));
+
+  assert.equal(result.kind, "limit_exceeded");
+  if (result.kind !== "limit_exceeded") return;
+  assert.equal(result.limit, "parse_milliseconds");
+  assert.equal(result.maximum, maxParseMilliseconds);
+  assert.ok(result.actual >= maxParseMilliseconds);
+  assert.ok(result.actual < startupDelayMilliseconds + maxParseMilliseconds);
+});
+
+test("a process failure remains the terminal cause when close crosses the deadline", async () => {
+  const failure = new Error("synthetic near-deadline process failure");
+  const extractPdf = createPdfExtractorWithChild(
+    { ...BASE_LIMITS, maxParseMilliseconds: 500 },
+    {
+      childEntry: CHILD_ENTRY,
+      env: { PDF_EXTRACTION_TEST_BEHAVIOR: "hang" },
+      spawnChild: (spawnDefault) => {
+        const child = spawnDefault();
+        setTimeout(() => child.emit("error", failure), 450);
+        return child;
+      },
+      killChild: (child) => {
+        setTimeout(() => child.kill("SIGKILL"), 100);
+      },
+    },
+  );
+
+  await assert.rejects(
+    extractPdf(new Uint8Array([1])),
+    (error: unknown) => error instanceof PdfExtractionError && error.cause === failure,
+  );
+});
+
 for (const behavior of ["malformed", "multiple", "oversized", "nonzero"] as const) {
   test(`a ${behavior} child reply is a dependency failure`, async () => {
     const extractPdf = testExtractor(behavior);
