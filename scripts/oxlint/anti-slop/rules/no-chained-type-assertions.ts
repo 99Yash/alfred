@@ -16,9 +16,8 @@ function isOutermostAssertionInChain(node: TypeAssertionExpression): boolean {
   }
 
   return (
-    !(
-      parent.type === "TSAsExpression" || parent.type === "TSTypeAssertion"
-    ) || parent.expression !== current
+    !(parent.type === "TSAsExpression" || parent.type === "TSTypeAssertion") ||
+    parent.expression !== current
   );
 }
 
