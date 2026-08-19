@@ -1,0 +1,32 @@
+{
+  // Scoped typecheck project for the package's whole `test/` tree. `check-types`
+  // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
+  // composite build emits declarations only for `src` and never sees `test/**`.
+  //
+  // `@alfred/extraction`'s tests run in the `leaf-unit-tests` CI job, so a broken
+  // assertion shows up as a red test run. That job cannot see a type-level defect
+  // a runtime path never exercises, and an `import type` from a module that no
+  // longer exists is erased before the runner ever resolves it. This project is
+  // what reads those.
+  //
+  // `include` covers `test` rather than any narrower glob so that a file added
+  // anywhere under `test/` is type-checked without an edit here. That matches
+  // the `tsx --test "test/**/*.test.ts"` runner glob, so a new file joins both
+  // sets at once.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/` is emitted or built — this project only type-checks.
+  //
+  // There is no `exclude`: the tree entered this program clean and must stay so.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test"]
+}

@@ -45,6 +45,8 @@
         "jsdom", // transitive: isomorphic-dompurify
 
         "sharp",
+        "@firecrawl/pdf-inspector", // @alfred/extraction
+
         "@alfred/mailer",
         // Needed for `"jsx": "react"` (apps/server/tsconfig.json) — the server
         // type-checks @alfred/mailer's .tsx sources to render emails server-side.

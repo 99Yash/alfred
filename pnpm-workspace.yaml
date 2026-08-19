@@ -36,6 +36,12 @@ catalog:
   "@elysiajs/cors": 1.4.2
   "@elysiajs/eden": 1.4.9
   "@elysiajs/node": 1.4.5
+  # Exact pin, and catalogued so the pin has ONE home. `@alfred/extraction`
+  # tells an encrypted PDF from a corrupt one by a substring of the vendor's
+  # error message, and its fixtures assert that against this exact build; the
+  # same native binary must also be a direct dependency of `apps/server` to
+  # survive the tsdown bundle. Two manifests, one resolution.
+  "@firecrawl/pdf-inspector": 1.15.0
   "@sentry/node": ^10.60.0
   "@sentry/react": ^10.60.0
   "@tailwindcss/postcss": ^4.1.8
