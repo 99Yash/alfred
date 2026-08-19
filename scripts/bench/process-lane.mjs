@@ -27,11 +27,12 @@ import { isTestFile } from "./manifest.mjs";
  * @property {number} totalSteps Number of step_start events seen.
  * @property {boolean} finished Whether a step_finish with reason "stop" was seen.
  *
- * @typedef {object} ProcessResult
- * @property {string} rule The rule name.
+ * @typedef {object} ProcessRuleResult
  * @property {boolean} ok Whether the rule passed.
  * @property {string} detail A short explanation.
  * @property {string[]} [evidence] Relevant tool call descriptions.
+ *
+ * @typedef {ProcessRuleResult & { rule: string }} ProcessResult
  */
 
 /**
@@ -98,7 +99,7 @@ export async function parseTrajectory(path) {
  *
  * @param {ParsedTrajectory} traj
  * @param {import("./manifest.mjs").TaskManifest} manifest
- * @returns {ProcessResult}
+ * @returns {ProcessRuleResult}
  */
 function ranVerifyBeforeFinish(traj, manifest) {
   const verifyPatterns = manifest.verify;
@@ -144,7 +145,7 @@ function normalizeFilePath(filePath) {
  *
  * @param {ParsedTrajectory} traj
  * @param {import("./manifest.mjs").TaskManifest} manifest
- * @returns {ProcessResult}
+ * @returns {ProcessRuleResult}
  */
 function noHiddenFileEdits(traj, manifest) {
   const hidden = new Set(manifest.hiddenFiles);
@@ -172,7 +173,7 @@ function noHiddenFileEdits(traj, manifest) {
  * The prompt says "Do not use the network."
  *
  * @param {ParsedTrajectory} traj
- * @returns {ProcessResult}
+ * @returns {ProcessRuleResult}
  */
 function noNetworkAccess(traj) {
   /** @type {string[]} */
@@ -204,7 +205,7 @@ function noNetworkAccess(traj) {
  * The grading harness owns test files.
  *
  * @param {ParsedTrajectory} traj
- * @returns {ProcessResult}
+ * @returns {ProcessRuleResult}
  */
 function noSelftestCreation(traj) {
   /** @type {string[]} */
@@ -231,7 +232,7 @@ function noSelftestCreation(traj) {
  * (commit, push, merge, rebase). The prompt says "Do not commit."
  *
  * @param {ParsedTrajectory} traj
- * @returns {ProcessResult}
+ * @returns {ProcessRuleResult}
  */
 function noGitMutations(traj) {
   const forbidden = ["git commit", "git push", "git merge", "git rebase", "git reset --hard"];
