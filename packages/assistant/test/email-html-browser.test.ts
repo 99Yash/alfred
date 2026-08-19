@@ -36,7 +36,7 @@ interface CdpMessage {
 }
 
 interface CdpClient {
-  send: (method: string, params?: object) => Promise<CdpMessage>;
+  send: (method: string, params?: Record<string, unknown>) => Promise<CdpMessage>;
   waitForEvent: (method: string, timeoutMs?: number) => Promise<CdpMessage>;
   close: () => void;
 }

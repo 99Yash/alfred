@@ -28,7 +28,7 @@ import * as agentBarrel from "@alfred/assistant/execution";
 describe("execution public run-start surface (item 09)", () => {
   // Cast to a string-indexed record so absence checks read a runtime key rather
   // than a statically-known export (which would be a compile error to name).
-  const asRecord = (m: object): Record<string, unknown> => m as Record<string, unknown>;
+  const asRecord = (m: Record<string, unknown>): Record<string, unknown> => m;
 
   const FOLDED_AND_NARROW = ["startRun", "startRunInTx", "redeliverRun"] as const;
   const REMOVED_PAIR = ["createRun", "enqueueRun", "deliverRun"] as const;

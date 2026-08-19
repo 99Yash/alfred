@@ -831,7 +831,7 @@ async function commitStepSuccessTx(
   traces: DecisionTraceRecord[],
   cleanState: unknown,
   cleanTranscript: AgentTranscriptMessage[] | undefined,
-  cleanOutput: object | null,
+  cleanOutput: unknown,
   cleanWake: WakeCondition | undefined,
 ): Promise<RunOutcome> {
   return await db().transaction(async (tx) => {
