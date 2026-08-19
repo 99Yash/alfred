@@ -24,13 +24,13 @@ switch (result.kind) {
   case "encrypted":
     return "the document is password-protected";
   case "invalid":
-    // `cause` is closed, and it reports the vendor's heuristic reading of the
-    // container rather than a proof. `readable_text` (JSON, HTML) is the one arm
-    // that authorizes a plain-text path. `other_format` (PNG, JPEG, ZIP or
-    // Office) says the bytes are another container: report it, read nothing.
-    // `damaged` covers every other rejection, including the vendor's "plain
-    // text" guess, which also answers for a real PDF whose header moved by one
-    // byte.
+    // `cause` is closed and has two members. `not_a_pdf` means the bytes carry no
+    // PDF structure at all and the vendor rejected them, so a door reports what it
+    // received. `damaged` means real PDF structure that something broke, and it
+    // covers every rejection this module cannot place. NEITHER arm authorizes
+    // reading the bytes as text: the vendor sniffs the first byte, so it names
+    // JSON or HTML for a valid PDF whose first byte is `{` or that carries an
+    // `<html>` prefix.
     return `not a readable PDF (${result.cause}): ${result.reason}`;
   case "too_large":
     return `${result.byteLength} bytes is above the ${result.maxBytes} byte cap`;
@@ -148,10 +148,12 @@ build-allow entry to maintain.
 
 Every library failure arrives as `Error` with `code: "GenericFailure"` and a
 message shaped `"<rust_fn>: <reason>"`. There is no typed error class, so the
-message substring is the only way to tell an encrypted PDF from a corrupt one, and
-a corrupt one from bytes that were never a PDF. Those are the only two questions
-the message answers here. The version is therefore pinned with no caret, and
-`test/fixtures/` holds a document for each row: a reword becomes a red CI row
+message substring is the only way to tell an encrypted PDF from a rejected one.
+Those are the only two substrings this module reads — `"PDF is encrypted"` and the
+`"Not a PDF: "` prefix — and the sniffer DETAIL behind that prefix is read by
+nothing. The version is therefore pinned with no caret, and every row a door acts
+on carries an assertion: a tracked fixture where a document is needed, an inline
+buffer of magic bytes where four bytes will do. A reword becomes a red CI row
 instead of Alfred telling somebody their password-protected statement is a corrupt
 file.
 

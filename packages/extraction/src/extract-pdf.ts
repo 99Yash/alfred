@@ -86,26 +86,27 @@ import type { PageMarkdownResult, PdfType } from "@firecrawl/pdf-inspector";
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
 
 /**
- * Why the parser rejected the bytes, as a CLOSED vocabulary. The vendor's own
- * message is open and stays in `reason`; this is the part a door may branch on.
+ * Why the parser rejected the bytes, as a CLOSED vocabulary of two. The vendor's
+ * own message is open and stays in `reason`; this is the part a door may branch
+ * on.
  *
- * The three arms are three different ACTIONS, so the one arm that authorizes a
- * door to read the bytes anyway has to be true of every member of it:
+ * `not_a_pdf` — these bytes were never a PDF at all, so a door reports what it
+ * received and reads nothing. `damaged` — real PDF bytes the parser could not
+ * finish, and every reading this module cannot make safely. `damaged` is the
+ * wide, safe arm and authorizes no fallback of any kind.
  *
- * `readable_text` — the vendor named an exact text format (JSON, HTML), so a door
- * with a plain-text path may take it. `other_format` — the vendor named a
- * different binary container (a PNG, a JPEG, a ZIP or Office file), so a door
- * reports the format and reads nothing. `damaged` — every other rejection: real
- * PDF bytes the parser could not finish, and every reading this module cannot
- * make safely. `damaged` authorizes no fallback.
+ * The two arms are deliberately coarse. An earlier version read the vendor's
+ * sniffer detail and offered a third arm that told a door "these bytes are
+ * readable text, so your plain-text path is allowed". The vendor sniffs the
+ * FIRST BYTE, so it answered `"file appears to be JSON"` for a valid PDF whose
+ * first byte is `{` or `[`, and `"file appears to be HTML"` for a valid PDF with
+ * `<html>` prepended. A door acting on that arm would have rendered PDF source to
+ * a model or a user. No arm here authorizes reading the bytes as text.
  *
- * `cause` is the vendor's heuristic reading of the container, not a proof, and
- * that is why `damaged` is the wide arm. Measured on the pinned version: the
- * vendor answers `"file appears to be plain text"` both for genuine text and for
- * a real PDF whose header moved by one byte, so that detail can authorize
- * nothing and joins `damaged` with every detail this module has not seen.
+ * `not_a_pdf` therefore rests on a deterministic reading of the bytes and not on
+ * the vendor's guess alone: see `hasPdfMarkers`.
  */
-export type InvalidPdfCause = "readable_text" | "other_format" | "damaged";
+export type InvalidPdfCause = "not_a_pdf" | "damaged";
 
 export interface ExtractedPdfPage {
   /** 1-indexed, always. The library reports this page 0-indexed. */
@@ -236,32 +237,34 @@ const VENDOR_FAILURE_CODE = "GenericFailure";
 const ENCRYPTED_MESSAGE = "PDF is encrypted";
 
 /**
- * The vendor's sniffer prefix. The DETAIL behind it decides the cause, never the
- * prefix itself: the prefix says only "these bytes did not look like a PDF", and
- * the vendor reaches it for a real PDF with one damaged header byte exactly as
- * readily as for a PNG.
+ * The vendor's sniffer prefix — the whole of what this module reads from the
+ * sniffer. The DETAIL behind it (`"file appears to be JSON"`, `"a PNG image"`,
+ * `"plain text"`, and six more on the pinned version) is a guess drawn from the
+ * first bytes, and it is deliberately ignored: measured on the pinned version,
+ * the vendor answers `"file appears to be JSON"` for a valid PDF whose first byte
+ * is `{`, and `"file appears to be plain text"` for a real PDF whose header moved
+ * by one byte. A detail that answers for a real PDF can distinguish nothing, so
+ * the prefix is read as one bit — "the sniffer rejected these bytes" — and
+ * `hasPdfMarkers` decides whether to believe it.
+ *
+ * The detail still reaches a door whole, in `reason`, for a human to read.
  */
 const NOT_A_PDF_PREFIX = "Not a PDF: ";
 
 /**
- * The sniffer details this module acts on. Eight details are measured on the
- * pinned version; the three that name a binary container and the two that name
- * an exact text format are here.
+ * The structures a PDF carries in its own bytes: the header, the cross-reference
+ * pointer, and the end-of-file marker. Any one of them is enough.
  *
- * `"file appears to be plain text"` is deliberately absent, and it is the reason
- * this table reads details at all: the vendor answers it for a real PDF whose
- * header moved by one byte, so it cannot authorize a door's plain-text path.
- * `"file is not a PDF"` and `"file is empty"` name no format, so there is
- * nothing to authorize. Those three, and every detail a later vendor version
- * adds, fall to `damaged`.
+ * This is the deterministic half of the `not_a_pdf` verdict, and it OUTRANKS the
+ * vendor's sniff. The vendor reads the first byte; this reads the file. So a valid
+ * PDF with `<html>` prepended, or with byte 0 overwritten, keeps `damaged` — real
+ * PDF structure that something broke — while genuine JSON, HTML, a PNG or a ZIP
+ * carries none of these and earns `not_a_pdf`.
+ *
+ * A non-PDF that happens to contain one of these strings reads as `damaged`, which
+ * is the safe direction: `damaged` authorizes nothing.
  */
-const NOT_A_PDF_DETAILS: Readonly<Record<string, InvalidPdfCause>> = {
-  "file appears to be JSON": "readable_text",
-  "file appears to be HTML": "readable_text",
-  "file appears to be a PNG image": "other_format",
-  "file appears to be a JPEG image": "other_format",
-  "file appears to be a ZIP archive (possibly an Office document)": "other_format",
-};
+const PDF_STRUCTURE_MARKERS = ["%PDF-", "startxref", "%%EOF"] as const;
 
 /** `"<rust_fn_name>: "` — the prefix every library message carries. */
 const RUST_FUNCTION_PREFIX = /^[a-z][a-z0-9_]*: /;
@@ -351,34 +354,44 @@ function isVendorFailure(error: unknown): error is Error {
  * caller got a value would turn an ordinary damaged document — a PDF copied in
  * text mode, one edited byte in the cross-reference table — into a throw. Every
  * `GenericFailure` is a fact about the bytes, so every one becomes a variant.
- * An unrecognized message, and an unrecognized sniffer detail, both read as
- * `damaged`, which is the safe side: a door with a plain-text fallback declines
- * to use it rather than feeding a user PDF syntax.
+ * An unrecognized message reads as `damaged`, which is the safe side: `damaged`
+ * authorizes no fallback, so a door declines rather than feeding a user PDF
+ * syntax.
  *
  * `undefined` survives for the other half: an error that is NOT a vendor failure
  * is a broken install, an out-of-memory, or a programming error, and reporting
  * one of those as "your PDF is corrupt" is the thing the rethrow prevents.
  */
-function toExtractedPdfFailure(error: unknown): ExtractedPdf | undefined {
+function toExtractedPdfFailure(error: unknown, buffer: Buffer): ExtractedPdf | undefined {
   if (!isVendorFailure(error)) return undefined;
   const { message } = error;
   if (message.includes(ENCRYPTED_MESSAGE)) return { kind: "encrypted" };
   const reason = message.replace(RUST_FUNCTION_PREFIX, "");
-  return { kind: "invalid", cause: toInvalidPdfCause(reason), reason };
+  return { kind: "invalid", cause: toInvalidPdfCause(reason, buffer), reason };
+}
+
+/** Whether the bytes carry PDF structure of their own. */
+function hasPdfMarkers(buffer: Buffer): boolean {
+  return PDF_STRUCTURE_MARKERS.some((marker) => buffer.includes(marker));
 }
 
 /**
- * The closed cause a rejection means, read from the sniffer's DETAIL rather than
- * from its prefix.
+ * The closed cause a rejection means. Two arms, and the vendor decides neither of
+ * them on its own.
  *
- * Everything the table does not name is `damaged`, and that default is the whole
- * design: the arm that lets a door read the bytes anyway must hold for every
- * member of it, so a detail this module has never seen joins the arm that makes
- * a door decline.
+ * A structural fact gets a deterministic check: the bytes are read for PDF
+ * structure first, and finding any of it settles the answer as `damaged` however
+ * confidently the vendor's first-byte sniff named another format. Only bytes that
+ * carry no PDF structure AND that the sniffer rejected earn `not_a_pdf`.
+ *
+ * Every other rejection — a truncated file, a broken cross-reference table, a
+ * message this module has never seen — is `damaged`. That default is the design:
+ * `damaged` authorizes no door fallback, so an unfamiliar vendor message costs a
+ * door precision and never safety.
  */
-function toInvalidPdfCause(reason: string): InvalidPdfCause {
-  if (!reason.startsWith(NOT_A_PDF_PREFIX)) return "damaged";
-  return NOT_A_PDF_DETAILS[reason.slice(NOT_A_PDF_PREFIX.length)] ?? "damaged";
+function toInvalidPdfCause(reason: string, buffer: Buffer): InvalidPdfCause {
+  if (hasPdfMarkers(buffer)) return "damaged";
+  return reason.startsWith(NOT_A_PDF_PREFIX) ? "not_a_pdf" : "damaged";
 }
 
 /**
@@ -515,7 +528,7 @@ export async function extractPdf(
 
     return { kind: "needs_ocr", pdfType, pageCount };
   } catch (error) {
-    const failure = toExtractedPdfFailure(error);
+    const failure = toExtractedPdfFailure(error, buffer);
     if (failure === undefined) throw new PdfExtractionError(error);
     return failure;
   }
