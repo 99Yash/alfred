@@ -52,7 +52,7 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.78.0",
-    "@types/node": "^22.13.11",
+    "@types/node": "^24.0.0",
     "jscpd": "^5.0.12",
     "knip": "^6.27.0",
     "oxfmt": "^0.26.0",
@@ -63,7 +63,7 @@
     "typescript": "catalog:"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.0.0"
   },
   "packageManager": "pnpm@11.7.0"
 }
