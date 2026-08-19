@@ -26,6 +26,14 @@ switch (behavior) {
   case "oversized":
     process.stdout.write("x".repeat(2_000_000), () => process.exit(0));
     break;
+  case "oversized_late_close": {
+    const inheritedPipeHolder = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1_000)"], {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    inheritedPipeHolder.unref();
+    process.stdout.write("x".repeat(2_000_000), () => process.exit(0));
+    break;
+  }
   case "nonzero":
     process.exit(7);
     break;
