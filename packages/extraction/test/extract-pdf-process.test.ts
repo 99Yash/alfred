@@ -145,6 +145,7 @@ test("a process failure remains the terminal cause when close crosses the deadli
 });
 
 test("a non-zero exit remains the terminal cause when inherited pipes delay close", async () => {
+  const startedAt = performance.now();
   const extractPdf = testExtractor("nonzero_late_close");
 
   await assert.rejects(
@@ -154,6 +155,21 @@ test("a non-zero exit remains the terminal cause when inherited pipes delay clos
       error.cause instanceof Error &&
       error.cause.message.includes("exited with code 7"),
   );
+  assert.ok(performance.now() - startedAt < 800);
+});
+
+test("oversized output remains the terminal cause when inherited pipes delay close", async () => {
+  const startedAt = performance.now();
+  const extractPdf = testExtractor("oversized_late_close");
+
+  await assert.rejects(
+    extractPdf(new Uint8Array([1])),
+    (error: unknown) =>
+      error instanceof PdfExtractionError &&
+      error.cause instanceof Error &&
+      error.cause.message === "PDF extraction child exceeded the bounded stdout protocol",
+  );
+  assert.ok(performance.now() - startedAt < 800);
 });
 
 test("a deadline settles after a code-zero child leaves inherited pipes open", async () => {

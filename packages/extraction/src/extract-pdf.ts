@@ -196,11 +196,12 @@ async function runPdfExtractionChild(
     };
 
     const stopForDeadline = () => {
-      if (terminalCause !== undefined) return;
-      terminalCause = {
-        kind: "deadline",
-        actual: Math.max(limits.maxParseMilliseconds, Math.ceil(performance.now() - startedAt)),
-      };
+      if (terminalCause === undefined) {
+        terminalCause = {
+          kind: "deadline",
+          actual: Math.max(limits.maxParseMilliseconds, Math.ceil(performance.now() - startedAt)),
+        };
+      }
       killChild();
       child.stdin.destroy();
       child.stdout.destroy();
