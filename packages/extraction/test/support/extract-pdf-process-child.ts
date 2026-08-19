@@ -37,6 +37,19 @@ switch (behavior) {
     process.exit(7);
     break;
   }
+  case "valid_late_close":
+  case "malformed_late_close": {
+    const inheritedPipeHolder = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1_000)"], {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    inheritedPipeHolder.unref();
+    const reply =
+      behavior === "valid_late_close"
+        ? '{"kind":"result","result":{"kind":"encrypted"}}\n'
+        : "not-json\n";
+    process.stdout.write(reply, () => process.exit(0));
+    break;
+  }
   case "invalid_limit_equal":
     process.stdout.write(
       '{"kind":"result","result":{"kind":"limit_exceeded","limit":"output_characters","actual":10,"maximum":10,"message":"PDF output character limit exceeded: 10 > 10"}}\n',

@@ -158,6 +158,7 @@ async function runPdfExtractionChild(
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let deadline: ReturnType<typeof setTimeout> | undefined;
+    let childExitedSuccessfullyBeforeDeadline = false;
     let terminalCause:
       | { readonly kind: "deadline"; readonly actual: number }
       | { readonly kind: "process_failure"; readonly error: Error }
@@ -183,7 +184,11 @@ async function runPdfExtractionChild(
       );
 
     const recordExitedChildFailure = (code: number | null, signal: NodeJS.Signals | null) => {
-      if (terminalCause !== undefined || code === 0) return;
+      if (terminalCause === undefined && code === 0) {
+        childExitedSuccessfullyBeforeDeadline = true;
+        return;
+      }
+      if (terminalCause !== undefined) return;
       terminalCause = {
         kind: "process_failure",
         error: childExitError(code, signal),
@@ -197,6 +202,9 @@ async function runPdfExtractionChild(
         actual: Math.max(limits.maxParseMilliseconds, Math.ceil(performance.now() - startedAt)),
       };
       killChild();
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
     };
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -228,7 +236,7 @@ async function runPdfExtractionChild(
     child.once("close", (code, signal) => {
       if (deadline !== undefined) clearTimeout(deadline);
 
-      if (terminalCause?.kind === "deadline") {
+      if (terminalCause?.kind === "deadline" && !childExitedSuccessfullyBeforeDeadline) {
         resolve(
           createPdfExtractionLimitResult(
             "parse_milliseconds",
@@ -267,6 +275,17 @@ async function runPdfExtractionChild(
           (result.limit !== "output_characters" || result.maximum !== limits.maxCharacters)
         ) {
           throw new Error("PDF extraction child returned an invalid limit result");
+        }
+
+        if (terminalCause?.kind === "deadline") {
+          resolve(
+            createPdfExtractionLimitResult(
+              "parse_milliseconds",
+              terminalCause.actual,
+              limits.maxParseMilliseconds,
+            ),
+          );
+          return;
         }
 
         const characterCount = pdfExtractionContentCharacterCount(result);
