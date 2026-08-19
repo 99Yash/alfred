@@ -34,9 +34,10 @@ switch (result.kind) {
 ```
 
 All three limits are required positive safe integers. `maxBytes` is checked in
-the parent before a child starts. `maxParseMilliseconds` covers process startup,
-the vendor import, all vendor calls, and the complete reply. When it expires, the
-parent sends `SIGKILL`, waits for the child to exit, and ignores any late reply.
+the parent before a child starts. `maxParseMilliseconds` must not exceed Node's
+timer ceiling of `2_147_483_647`. It covers process startup, the vendor import,
+all vendor calls, and the complete reply. When it expires, the parent sends
+`SIGKILL`, waits for the child to exit, and ignores any late reply.
 
 `maxCharacters` counts UTF-16 code units in content that crosses the process
 boundary:

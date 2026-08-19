@@ -7,7 +7,11 @@ import {
   type InvalidPdfCause,
   type PdfDocumentType,
 } from "./extract-pdf";
-import { createPdfExtractionLimitResult } from "./extract-pdf-protocol";
+import {
+  createPdfExtractionLimitResult,
+  pdfExtractionContentCharacterCount,
+  pdfExtractionPageCharacterCount,
+} from "./extract-pdf-protocol";
 
 interface PdfInspector {
   readonly classifyPdfAsync: (buffer: Buffer) => Promise<{ readonly pdfType: `${PdfType}` }>;
@@ -90,10 +94,6 @@ function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
   };
 }
 
-function pageCharacterCount(pages: readonly ExtractedPdfPage[]): number {
-  return pages.reduce((total, page) => total + page.markdown.length, 0);
-}
-
 /**
  * Run all vendor work inside the extraction child. Page output is checked before
  * the synchronous document read, then the exact public content count is checked
@@ -115,7 +115,7 @@ export async function extractPdfCore(
     const extraction = await inspector.extractPagesMarkdownAsync(buffer);
     const pages = extraction.pages.map(toExtractedPdfPage);
     const pageCount = pages.length;
-    const pageCharacters = pageCharacterCount(pages);
+    const pageCharacters = pdfExtractionPageCharacterCount(pages);
 
     if (pageCharacters > maxCharacters) {
       return createPdfExtractionLimitResult("output_characters", pageCharacters, maxCharacters);
@@ -125,11 +125,7 @@ export async function extractPdfCore(
 
     if (pages.some(pageHasText)) {
       const documentText = text ?? "";
-      const totalCharacters = pageCharacters + documentText.length;
-      if (totalCharacters > maxCharacters) {
-        return createPdfExtractionLimitResult("output_characters", totalCharacters, maxCharacters);
-      }
-      return {
+      const result: ExtractedPdf = {
         kind: "extracted",
         pdfType,
         pageCount,
@@ -137,13 +133,20 @@ export async function extractPdfCore(
         pagesNeedingOcr: pages.filter((page) => page.needsOcr).map((page) => page.pageNumber),
         text: documentText,
       };
+      const totalCharacters = pdfExtractionContentCharacterCount(result);
+      if (totalCharacters > maxCharacters) {
+        return createPdfExtractionLimitResult("output_characters", totalCharacters, maxCharacters);
+      }
+      return result;
     }
 
     if (text !== undefined) {
-      if (text.length > maxCharacters) {
-        return createPdfExtractionLimitResult("output_characters", text.length, maxCharacters);
+      const result: ExtractedPdf = { kind: "text_without_pages", pdfType, pageCount, text };
+      const totalCharacters = pdfExtractionContentCharacterCount(result);
+      if (totalCharacters > maxCharacters) {
+        return createPdfExtractionLimitResult("output_characters", totalCharacters, maxCharacters);
       }
-      return { kind: "text_without_pages", pdfType, pageCount, text };
+      return result;
     }
 
     return { kind: "needs_ocr", pdfType, pageCount };

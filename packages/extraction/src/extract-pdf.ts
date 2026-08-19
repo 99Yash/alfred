@@ -5,6 +5,7 @@ import {
   createPdfExtractionLimitResult,
   parsePdfExtractionChildReply,
   parsePdfExtractionLimits,
+  pdfExtractionContentCharacterCount,
   serializePdfExtractionChildRequest,
 } from "./extract-pdf-protocol";
 
@@ -114,12 +115,6 @@ function sourceLoaderArguments(childEntry: URL): readonly string[] {
 
 function maximumReplyBytes(maxCharacters: number): number {
   return Math.min(Number.MAX_SAFE_INTEGER, maxCharacters * 6 + PROTOCOL_OVERHEAD_BYTES);
-}
-
-function returnedCharacterCount(result: ExtractedPdf): number {
-  if (result.kind === "text_without_pages") return result.text.length;
-  if (result.kind !== "extracted") return 0;
-  return result.pages.reduce((total, page) => total + page.markdown.length, result.text.length);
 }
 
 function remoteNativeError(name: string, message: string, code?: string): Error {
@@ -242,7 +237,7 @@ async function runPdfExtractionChild(
           throw new Error("PDF extraction child returned an invalid limit result");
         }
 
-        const characterCount = returnedCharacterCount(result);
+        const characterCount = pdfExtractionContentCharacterCount(result);
         resolve(
           characterCount > limits.maxCharacters
             ? createPdfExtractionLimitResult(
