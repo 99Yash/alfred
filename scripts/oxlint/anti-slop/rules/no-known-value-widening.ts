@@ -72,10 +72,7 @@ function sourceKeyName(sourceCode: SourceCode, key: ESTree.PropertyKey): string 
   return sourceCode.getText(key);
 }
 
-function functionName(
-  sourceCode: SourceCode,
-  owner: ReturnType<typeof enclosingFunction>,
-): string {
+function functionName(sourceCode: SourceCode, owner: ReturnType<typeof enclosingFunction>): string {
   if (owner === null) return "anonymous function";
   if (owner.id !== null) return owner.id.name;
   const parent = owner.parent;
