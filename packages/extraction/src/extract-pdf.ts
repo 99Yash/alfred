@@ -33,9 +33,10 @@
 // as a dependency problem rather than a fact about the document:
 //
 //   * the native binary cannot load (no platform build, or a failed
-//     optional-dependency install);
+//     optional-dependency install), which rejects with the library's own error;
 //   * something that is not a vendor `GenericFailure` escapes — an
-//     out-of-memory, a programming error, an unrelated host fault.
+//     out-of-memory, a programming error, an unrelated host fault — which this
+//     module wraps in `PdfExtractionError`.
 //
 // The document-level verdict comes from the PAGES, never from the library's
 // `pdfType`. `pdfType` is a whole-document prediction with a text-density
@@ -45,23 +46,54 @@
 // by tracked fixtures. So this module always runs the per-page extraction and
 // reads the answer off the pages; `pdfType` is carried as metadata only.
 //
-// One vendor surface is not enough to conclude that a PAGE holds no text, and
-// that question is asked per page, never per document. `extractPagesMarkdown`
-// returns empty markdown for a scan carrying an invisible OCR text layer — the
-// ordinary output of an office copier — while `extractText` on the same bytes
-// returns that layer in full. Put a born-digital cover sheet in front of such a
-// scan and a document-level test answers wrongly: one readable page makes the
-// document `extracted`, and the scan's body is never read at all. So the module
-// asks `extractText` whenever ANY page came back empty.
+// Two library surfaces read text, and they answer DIFFERENT questions, so this
+// module asks both about every document:
 //
-// What comes back has no page boundary in it, so it is never attributed to a
-// page. It rides beside the pages as `extracted.text` when some page did read,
-// and it becomes `text_without_pages` when no page did.
+//   * `extractPagesMarkdown` says which PAGE each piece of text sits on. It is
+//     the only surface a citation may rest on, and it is the only one this
+//     module lets a door quote a page number from.
+//   * `extractText` reads the whole document at once and returns no page
+//     boundary at all. It reads text the per-page surface returns as empty
+//     markdown — the invisible OCR layer of a searchable scan, which is the
+//     ordinary output of an office copier — so it is the only surface a
+//     COMPLETENESS question may rest on.
+//
+// The rule this module holds, and the one every door inherits:
+//
+//   * `pages` are authoritative for CITATION. A door that quotes renders pages
+//     and states their page numbers.
+//   * `text` is authoritative for COMPLETENESS. Its presence is NOT evidence
+//     that the pages failed, and its absence is NOT evidence that the pages are
+//     complete.
+//
+// This module deliberately emits no coverage verdict, because it cannot compute
+// one and the vendor emits no signal for it. It tried: it read `text` only when
+// some page's markdown was empty, and page emptiness turned out not to be page
+// coverage in either direction. A searchable scan whose pages carry a visible
+// footer answers 28 characters of 1,408 with `needsOcr` false and
+// `pagesNeedingOcr` empty, so no later layer can detect the loss; and one blank
+// separator sheet inside a complete document made `text` present and invited a
+// door to drop every page number it had. Both are tracked fixtures. A threshold
+// that decided coverage here would be a guess, so both readings go to the door.
+//
+// Text with no page boundary rides beside the pages as `extracted.text`. When no
+// page read at all it becomes `text_without_pages`, which asserts no page rather
+// than attributing the whole document to page 1.
 
 import type { PageMarkdownResult, PdfType } from "@firecrawl/pdf-inspector";
 
 /** The library's `PdfType`, in this repo's casing. */
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
+
+/**
+ * Why the parser rejected the bytes, as a CLOSED vocabulary. The vendor's own
+ * message is open and stays in `reason`; this is the part a door may branch on.
+ *
+ * `not_a_pdf` — the bytes are something else wearing a PDF's name, so a door
+ * that has a plain-text path may take it. `damaged` — real PDF bytes the parser
+ * could not finish, for which no fallback exists.
+ */
+export type InvalidPdfCause = "not_a_pdf" | "damaged";
 
 export interface ExtractedPdfPage {
   /** 1-indexed, always. The library reports this page 0-indexed. */
@@ -85,26 +117,31 @@ export type ExtractedPdf =
       readonly pdfType: PdfDocumentType;
       /** `pages.length`, so a door can never read past the end of `pages`. */
       readonly pageCount: number;
+      /**
+       * THE CITATION ANCHOR. Every door that quotes this document renders these
+       * pages and states these page numbers. `text` never replaces them.
+       */
       readonly pages: readonly ExtractedPdfPage[];
       /** 1-indexed. Derived from `pages`, so it can never disagree with them. */
       readonly pagesNeedingOcr: readonly number[];
       /**
-       * The whole document's text, present only when at least one page in
-       * `pages` yielded nothing. A scan with an invisible OCR layer behind a
-       * born-digital cover sheet is the everyday case, and this field is the
-       * only place the scanned body's text exists.
+       * The whole document read as one string, with NO page boundary in it.
+       * Always present, because the completeness question and the citation
+       * question have different answers and this module refuses to guess which
+       * one a door is asking. It is the only place the text of a searchable
+       * scan's invisible OCR layer exists.
        *
        * It covers the WHOLE document, so it OVERLAPS `pages` rather than
-       * extending them, and it carries no page number for any of it. It is not
-       * the longer of the two either: on `image-based-text-cover.pdf` the pages
-       * hold 26 characters and this holds 23, so "whichever is longer wins" is
-       * not a rule a door may use.
+       * extending them: a door reads one or the other and NEVER concatenates
+       * the two. It is not the longer of the two either — on
+       * `image-based-text-cover.pdf` the pages hold 26 characters and this holds
+       * 23 — so "whichever is longer wins" is not a rule a door may use.
        *
-       * Which of the two a door should read is deliberately NOT answered here.
-       * The first door that proves what it needs decides, and the answer belongs
-       * in this package rather than in each door.
+       * Its presence is NOT evidence that the pages failed. Its emptiness is NOT
+       * evidence that the pages are complete: `""` says only that this surface
+       * read nothing.
        */
-      readonly text?: string;
+      readonly text: string;
     }
   /**
    * The document holds text, but no surface of the library could say which page
@@ -130,7 +167,12 @@ export type ExtractedPdf =
    */
   | { readonly kind: "needs_ocr"; readonly pdfType: PdfDocumentType; readonly pageCount: number }
   | { readonly kind: "encrypted" }
-  | { readonly kind: "invalid"; readonly reason: string }
+  /**
+   * The parser rejected the bytes. `cause` is this module's closed reading, so a
+   * door branches on it instead of re-matching a substring this module already
+   * matched; `reason` keeps the vendor's own words for a message to a human.
+   */
+  | { readonly kind: "invalid"; readonly cause: InvalidPdfCause; readonly reason: string }
   | { readonly kind: "too_large"; readonly byteLength: number; readonly maxBytes: number };
 
 export interface ExtractPdfOptions {
@@ -167,23 +209,69 @@ const PDF_DOCUMENT_TYPES: Readonly<Record<`${PdfType}`, PdfDocumentType>> = {
 const VENDOR_FAILURE_CODE = "GenericFailure";
 
 /**
- * The one message substring this module reads, and it chooses BETWEEN variants
- * rather than deciding whether the caller gets one. Encryption is the single
- * failure a door treats differently — it can ask for a password — so it is the
- * single substring worth pinning a version for. Everything else the parser
- * rejects is `invalid`, carrying the vendor's own reason.
+ * The two message substrings this module reads. Both choose BETWEEN variants (or
+ * between causes) rather than deciding whether the caller gets a value at all.
+ *
+ * Encryption is the single failure a door treats differently — it can ask for a
+ * password — so it earns its own `kind`. `"Not a PDF"` separates bytes that were
+ * never a PDF from a real document the parser could not finish: item 03's
+ * `fetch_url` has a plain-text path for the first and none for the second.
  *
  * The vendor's message vocabulary is open, so a table that decided totality
- * would be wrong the first time the vendor added a message. A tracked fixture
- * asserts this row; a reword shows up as a red CI row instead of Alfred telling
+ * would be wrong the first time the vendor added a message. Tracked fixtures
+ * assert both rows; a reword shows up as a red CI row instead of Alfred telling
  * a user their password-protected statement is a corrupt file.
  */
 const ENCRYPTED_MESSAGE = "PDF is encrypted";
+const NOT_A_PDF_MESSAGE = "Not a PDF";
 
 /** `"<rust_fn_name>: "` — the prefix every library message carries. */
 const RUST_FUNCTION_PREFIX = /^[a-z][a-z0-9_]*: /;
 
 type PdfInspector = typeof import("@firecrawl/pdf-inspector");
+
+/**
+ * The error `extractPdf` throws when a vendor call fails for a reason that is
+ * NOT a fact about the document. Every failure of the vendor's parser is a
+ * variant of `ExtractedPdf`, so reaching this class means an out-of-memory, a
+ * programming error, or an unrelated host fault escaped the library.
+ *
+ * The message names this package, the vendor and the vendor's `code`, so an
+ * operator reading one line of a log can tell a broken installation from a
+ * failure this module has never seen. `cause` carries the original error whole.
+ *
+ * The message is built here rather than with `toMessage` from
+ * `@alfred/contracts`: this package's one dependency is the vendor, which is
+ * what keeps `fetch_url` and the tool registry free of a `@alfred/db` edge.
+ */
+export class PdfExtractionError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `@alfred/extraction: @firecrawl/pdf-inspector failed with an error this package does not map` +
+        ` (code: ${describeErrorCode(cause)}): ${describeErrorMessage(cause)}`,
+      { cause },
+    );
+    this.name = "PdfExtractionError";
+  }
+}
+
+/** The thrown value's `code`, read through an `in` narrowing rather than a cast. */
+function describeErrorCode(error: unknown): string {
+  if (error instanceof Error && "code" in error) return String(error.code);
+  return "none";
+}
+
+/**
+ * The thrown value's message, for something that may not be an `Error` at all.
+ *
+ * `toMessage` from `@alfred/contracts` is the canonical helper for this, and it
+ * is deliberately not used: this package's ONE dependency is the vendor, which
+ * is what keeps `fetch_url` and the tool registry free of a `@alfred/db` edge.
+ * Two lines are the cheaper side of that trade.
+ */
+function describeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error); // drift-ok: see above
+}
 
 /**
  * The library's `index.js` throws at REQUIRE time when no platform binary loads,
@@ -225,16 +313,22 @@ function isVendorFailure(error: unknown): error is Error {
  * caller got a value would turn an ordinary damaged document — a PDF copied in
  * text mode, one edited byte in the cross-reference table — into a throw. Every
  * `GenericFailure` is a fact about the bytes, so every one becomes a variant.
+ * An unrecognized message is `damaged`, which is the safe reading: a door with a
+ * plain-text fallback declines to use it rather than feeding a user PDF syntax.
  *
  * `undefined` survives for the other half: an error that is NOT a vendor failure
  * is a broken install, an out-of-memory, or a programming error, and reporting
- * one of those as "your PDF is corrupt" is the thing this rethrow prevents.
+ * one of those as "your PDF is corrupt" is the thing the rethrow prevents.
  */
 function toExtractedPdfFailure(error: unknown): ExtractedPdf | undefined {
   if (!isVendorFailure(error)) return undefined;
   const { message } = error;
   if (message.includes(ENCRYPTED_MESSAGE)) return { kind: "encrypted" };
-  return { kind: "invalid", reason: message.replace(RUST_FUNCTION_PREFIX, "") };
+  return {
+    kind: "invalid",
+    cause: message.includes(NOT_A_PDF_MESSAGE) ? "not_a_pdf" : "damaged",
+    reason: message.replace(RUST_FUNCTION_PREFIX, ""),
+  };
 }
 
 /**
@@ -303,16 +397,16 @@ function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
  * named in the module header: a native binary that cannot load, and an error
  * that did not come from the vendor's parser at all.
  *
- * Two library calls on every document, and a third whenever any page came back
- * without text. `classifyPdfAsync` (about 4.7 ms on a 100-page document)
- * supplies `pdfType`; `extractPagesMarkdownAsync` (about 51 ms) supplies the
- * pages that decide the variant. The extraction always runs, including for a
- * document the classifier calls `Scanned`: the classifier is a prediction, and
- * paying 51 ms is cheaper than discarding a readable page. `extractText` then
- * answers for the whole document, at 15.9 ms on a 500-page document — a third
- * of what the per-page extraction already costs, which is why it is asked about
- * every document holding an unread page rather than only about a document that
- * read nothing at all.
+ * Three library calls on every document, with no condition on any of them.
+ * `classifyPdfAsync` (about 4.7 ms on a 100-page document) supplies `pdfType`;
+ * `extractPagesMarkdownAsync` (about 51 ms) supplies the pages that decide the
+ * variant and carry every page number; `extractText` (15.9 ms on a 500-page
+ * document) supplies the whole document as one string. The per-page extraction
+ * runs even for a document the classifier calls `Scanned`, because the
+ * classifier is a prediction and paying 51 ms is cheaper than discarding a
+ * readable page. `extractText` runs even for a document whose every page read,
+ * because a page that reads a five-character footer is not a page that read the
+ * document.
  */
 export async function extractPdf(
   bytes: Uint8Array,
@@ -339,13 +433,10 @@ export async function extractPdf(
     // run past the array is the defect class this package exists to prevent.
     const pageCount = pages.length;
 
-    // One unread page is enough to ask the third surface, and the test is per
-    // page for a reason: a searchable scan behind a born-digital cover sheet has
-    // one page that reads and a body that does not, so a document-level test
-    // would return the cover sheet and silently drop the rest. A document the
-    // vendor gave no pages at all counts as unread too.
-    const everyPageRead = pages.length > 0 && pages.every(pageHasText);
-    const text = everyPageRead ? undefined : readDocumentText(inspector, buffer);
+    // Unconditional, and the module header says why: no test on the pages tells
+    // this module whether the pages COVER the document, so it stops testing and
+    // hands both readings to the door.
+    const text = readDocumentText(inspector, buffer);
 
     // The verdict is the pages' own evidence, never `pdfType`. One readable
     // cover page in a scan is still a readable page, and a `TextBased` document
@@ -360,9 +451,9 @@ export async function extractPdf(
         // `pagesNeedingOcr`, so the document-level list and the per-page flags are
         // one fact in one index base instead of two facts that can disagree.
         pagesNeedingOcr: pages.filter((page) => page.needsOcr).map((page) => page.pageNumber),
-        // `exactOptionalPropertyTypes` — a document whose every page read carries
-        // no `text` at all rather than a present `undefined`.
-        ...(text === undefined ? {} : { text }),
+        // Always a string. `""` says this surface read nothing, which is a fact
+        // about the surface and never a claim about the pages.
+        text: text ?? "",
       };
     }
 
@@ -375,7 +466,7 @@ export async function extractPdf(
     return { kind: "needs_ocr", pdfType, pageCount };
   } catch (error) {
     const failure = toExtractedPdfFailure(error);
-    if (failure === undefined) throw error;
+    if (failure === undefined) throw new PdfExtractionError(error);
     return failure;
   }
 }
