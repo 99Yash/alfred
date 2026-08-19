@@ -156,6 +156,29 @@ test("a non-zero exit remains the terminal cause when inherited pipes delay clos
   );
 });
 
+test("a deadline settles after a code-zero child leaves inherited pipes open", async () => {
+  const startedAt = performance.now();
+  const extractPdf = testExtractor("valid_late_close");
+
+  const result = await extractPdf(new Uint8Array([1]));
+
+  assert.equal(result.kind, "limit_exceeded");
+  if (result.kind !== "limit_exceeded") return;
+  assert.equal(result.limit, "parse_milliseconds");
+  assert.ok(performance.now() - startedAt < 800);
+});
+
+test("malformed output wins when a code-zero child's inherited pipes cross the deadline", async () => {
+  const startedAt = performance.now();
+  const extractPdf = testExtractor("malformed_late_close");
+
+  await assert.rejects(
+    extractPdf(new Uint8Array([1])),
+    (error: unknown) => error instanceof PdfExtractionError,
+  );
+  assert.ok(performance.now() - startedAt < 800);
+});
+
 test("a backward wall-clock adjustment does not extend the parse deadline", async () => {
   const originalDateNow = Date.now;
   const startedAt = performance.now();
