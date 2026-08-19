@@ -89,6 +89,13 @@ export default defineConfig({
   // on boot. Keep both packages external so they resolve from
   // node_modules at runtime instead of being inlined.
   //
+  // @firecrawl/pdf-inspector (used by @alfred/extraction, the one PDF reader) is
+  // the same case as sharp: its parser is a NAPI binary that the vendor's CJS
+  // index.js resolves by requiring a per-platform package and reading the .node
+  // file off disk. `noExternal` above inlines @alfred/extraction into this
+  // bundle, and inlining that index.js breaks the resolution, so the vendor stays
+  // external and is declared in this package's dependencies.
+  //
   // sharp (used by @alfred/assistant for chat attachment image processing) is a
   // native module: at runtime it loads a platform-specific binary
   // (@img/sharp-linux-x64 on Railway) via its own resolver. Bundling it
@@ -97,5 +104,5 @@ export default defineConfig({
   // resolves the real binary from node_modules. Each external here must
   // also be a direct dependency of this package so pnpm links it into
   // apps/server/node_modules where the bundle can resolve it at runtime.
-  external: ["isomorphic-dompurify", "jsdom", "sharp"],
+  external: ["@firecrawl/pdf-inspector", "isomorphic-dompurify", "jsdom", "sharp"],
 });

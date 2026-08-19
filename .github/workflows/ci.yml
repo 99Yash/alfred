@@ -499,6 +499,18 @@ jobs:
           fi
           corepack pnpm --filter @alfred/sync test
 
+      # Reads the real NAPI binary (linux-x64-gnu on this runner), no Postgres,
+      # so the suite belongs here rather than in `leaf-db-tests`.
+      - name: Extraction unit tests
+        run: |
+          count=$(git ls-files "packages/extraction/test" | grep -c '\.test\.ts$' || true)
+          echo "packages/extraction/test holds $count *.test.ts files"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::packages/extraction/test matches no *.test.ts file; the run below would exit 0 and test nothing"
+            exit 1
+          fi
+          corepack pnpm --filter @alfred/extraction test
+
   # Postgres AND Redis, both as services, plus the full format-valid `serverEnv`
   # block and `db:migrate` — the `http-tests` template. Every DB-backed suite here
   # asks `dbBackedSkip` for `"database"` only, but these files ran under the
