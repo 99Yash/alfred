@@ -4,8 +4,13 @@
 > Content keeps the posture below. OAuth **credentials** do not: `account` and
 > `integration_credentials` token columns now hold AES-256-GCM envelopes under a
 > separate KEK (`OAUTH_CREDENTIAL_KEK`). See "Amendment" at the end of this file.
+>
+> **Correction, 2026-08-19 (ADR-0091).** Two field references below named
+> ADR-0039's `attachment_pages` table, which was never built (ADR-0091
+> supersedes the design). They now name the chat attachment column that
+> actually exists: `chat_attachments.degraded_text`.
 
-**Decision.** No app-layer encryption on user content (`documents.content`, `chunks.content`, `attachment_pages.extracted_text`, `memory_facts.value`, briefing bodies, `email_sends.body`). Three concrete layers stand in:
+**Decision.** No app-layer encryption on user content (`documents.content`, `chunks.content`, `chat_attachments.degraded_text`, `memory_facts.value`, briefing bodies, `email_sends.body`). Three concrete layers stand in:
 
 1. **Vendor at-rest encryption** — Railway managed Postgres + Redis + object storage all encrypt disks/volumes at the provider layer. Already on, free.
 2. **Log redaction** — Pino redactor + Sentry `beforeSend` scrubber for known sensitive field paths so accidental `console.log`, error breadcrumbs, and event payloads never carry plaintext content.
@@ -51,7 +56,7 @@ Adding the encryption layer later is a straightforward forward migration — new
 
 **Implementation shape.**
 
-- `packages/api/src/lib/logging.ts` — Pino instance with `redact.paths` covering known sensitive field paths (`*.content`, `*.extracted_text`, `*.body`, `documents.raw`, `memory_facts.value`, `attachment_pages.*`). Redaction renders as `[REDACTED]` so the structural shape of logs is preserved for debugging.
+- `packages/api/src/lib/logging.ts` — Pino instance with `redact.paths` covering known sensitive field paths (`*.content`, `*.body`, `documents.raw`, `memory_facts.value`, `*.degraded_text`). Redaction renders as `[REDACTED]` so the structural shape of logs is preserved for debugging.
 - Sentry config (`apps/server/src/instrument.ts`) — `beforeSend` and `beforeBreadcrumb` hooks strip the same paths from event payloads. Errors keep their stack frames; only field values disappear.
 - Drizzle migration — `documents` drops the `raw` column. Existing rows lose `raw`; we never read it on the hot path.
 - Gmail ingest (`packages/integrations/src/google/gmail.ts`) — stops persisting the MIME tree. Extraction stays in-memory during the ingest job; `documents.metadata` keeps the small derived fields (sender, headers we actually use).

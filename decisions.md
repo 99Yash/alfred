@@ -44,7 +44,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | Composer `+` menu / Tab autocomplete | Decoration-only in m12; behavior lands post-m13 (ADR-0030)                                         |
 | People research       | Explicit, citation-grounded person dossiers; review before durable memory writes (ADR-0031)                       |
 | Content privacy       | Content uses vendor at-rest crypto + log redaction; OAuth credentials use app-layer envelopes (ADR-0038 amendment) |
-| Attachment ingestion  | `attachments` + `attachment_pages` tables; Claude PDF/image extraction; dedicated `doc-extraction-runs` queue; four-gate cost shield (ADR-0039) |
+| Attachment ingestion  | Grounded PDF ingestion: deterministic extraction first, page-level citations. One `@alfred/extraction` seam wraps `@firecrawl/pdf-inspector` (pinned) for all four doors (chat upload, `fetch_url`, Gmail attachment, Drive); the model sees only scanned/image-based bytes and asserts no page. Mail/Drive PDFs become `documents` rows under new `gmail_attachment` / `drive` sources with page anchors in `chunks.metadata`; chat PDFs fill `degradedText` synchronously at ingest. Supersedes ADR-0039's unbuilt dedicated-table design; amends ADR-0065/0010 (ADR-0091) |
 | Brief-only run shape  | Ping-pong `boss-turn` ↔ `dispatch-tools` steps; sentinel `userAuthoredBriefWorkflow` resolves all user-authored slugs; `agent_runs.transcript` jsonb; strict `@`-mention seed (ADR-0040)        |
 | Daily briefing        | Renders of an **open-loop** model, not input summaries; **morning discretionary** (silent on quiet days, errs toward sending) + **evening always-fires** (degrades to weather + sign-off); compose-time **read-only reconciliation** (triage labels immutable); recall anchored to calendar; advance-reminders/anomaly-detection parked (ADR-0048, amends ADR-0041). Retained from ADR-0041: cross-source gather, boss compose, `[[<kind>:<id>]]` references, split email/in-app surface, `briefings` entity |
 | Email triage pipeline | Layered: deterministic sender-context extraction + cheap classifier + boss `deepen` escalation gate + async dossier auto-trigger with confidence-tier TTL cache (ADR-0042)                       |
@@ -63,7 +63,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 
 ## Decision index
 
-88 ADRs, one file each under [`docs/decisions/`](./docs/decisions/). Each
+90 ADRs, one file each under [`docs/decisions/`](./docs/decisions/). Each
 records the choice, the alternatives weighed, and why they lost — the part of the
 design that the code cannot state. Read the two or three that touch your change;
 this file exists so you never have to load all of them.
@@ -159,6 +159,7 @@ this file exists so you never have to load all of them.
 | [0088](./docs/decisions/ADR-0088-the-mcp-call-approval-floor-is-a-floor-not-a.md) | Dynamic tool risk resolves fail-closed at the dispatch gate: reviewed MCP downgrades require an audited declaration, invalid/undeclared downgrades clamp to the static tier, Calendar invites raise `medium` to `high`, and resumed pending rows can only gain approval requirements (BUILT — #541 Part 3, amended by #232; amends ADR-0069) |
 | [0089](./docs/decisions/ADR-0089-name-http-and-assistant-packages-by-ownership.md) | Name HTTP adapters and assistant behavior by ownership; break cycles before extraction |
 | [0090](./docs/decisions/ADR-0090-event-receipts-audit-trail-and-gap-detection-source.md) | `event_receipts` is the audit trail + gap detection source of truth, deduplicated by `(provider, provider_delivery_id)` |
+| [0091](./docs/decisions/ADR-0091-grounded-pdf-ingestion-deterministic-extraction.md) | Grounded PDF ingestion: deterministic extraction at one seam (`@alfred/extraction` over `@firecrawl/pdf-inspector`), page-level citations via `chunks.metadata.page`; supersedes ADR-0039, amends ADR-0065/0010 (resolves #649) |
 
 ## Appendices
 

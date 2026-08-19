@@ -1,0 +1,60 @@
+# ADR-0091 — Grounded PDF ingestion: deterministic extraction at one seam, page-level citations
+
+
+**Decision.** Alfred reads a PDF one deterministic way, at one seam, for all four doors — chat upload, `system.fetch_url`, Gmail attachment, Drive file. A new package **`@alfred/extraction`** wraps `@firecrawl/pdf-inspector` (pinned) behind `extractPdf(bytes): ExtractedPdf`, a pure bytes-in/pages-out function whose only dependency is the pinned library — no `@alfred/db` edge. The wrapper returns a four-kind union, `extracted | needs_ocr | encrypted | invalid`, maps the library's PascalCase classification labels, normalizes every page number to 1-indexed (the library mixes 0- and 1-indexed across its own API), carries the garbled-text flags (`suspected_garbled_text`, `hasEncodingIssues`), and takes a byte cap. The multimodal model moves to the edge: only `needs_ocr` (scanned/image-based bytes) reaches a model, and a model-read PDF asserts no page. Alfred never states a page the extractor did not prove.
+
+**Supersedes ADR-0039. Amends ADR-0065** (PDF degrade becomes deterministic at ingest) **and ADR-0010** (`chunks.metadata` carries a page anchor). Resolves #649. Plan: [docs/plans/pdf-ingestion-v1.md](../plans/pdf-ingestion-v1.md); library research: [docs/research/pdf-inspector.md](../research/pdf-inspector.md).
+
+**Why this is its own ADR.** Issue #649 proposed the deterministic-first shape but was written against a pre-rename repo and against two ADRs that do not agree with it — ADR-0039 (dedicated attachment tables, model extraction) and ADR-0065 (degrade-to-text, mechanism unspecified). ADR-0039 was designed and never built: no tables, no queue, no module exist, yet ADR-0045:7 and ADR-0038:8,54 described it as shipped (corrected alongside this ADR). The adjudications below reverse a prior decision and sharpen two others, so they are recorded here rather than only in the plan.
+
+**Why deterministic-first.**
+
+- **Page citations must be proven, not guessed.** A model-read PDF yields text with no page boundary; any page number the boss stated would be a fabrication. The extractor emits text per page with the page number, so "page 7" is verifiable, and a scanned PDF honestly carries no page.
+- **Cost and latency.** A text-based PDF (~54% of PDFs, per the vendor's self-reported corpus figure) extracts locally in ~200 ms at zero dollar cost, versus a multi-second metered model call. The model is reserved for bytes a deterministic reader genuinely cannot read.
+- **One honest read per document.** Before this ADR the same PDF got a different, lossy result at each door: chat took a bounded model call, `fetch_url` refused the bytes, a mail attachment was never read, a Drive PDF sat unread. One extractor at one seam means the door no longer changes the answer.
+
+The adjudications (D1–D8, numbered as in the plan):
+
+**D1 — the extractor gets its own package, `@alfred/extraction`.** Not `@alfred/corpus`: `fetch_url` and the tool registry must not pull `@alfred/db` into their import graph (the lazy-import guards in `tool-runtime`), and `@alfred/corpus` imports `@alfred/db`. The extractor is pure bytes-in/pages-out; chat, `fetch_url`, and corpus ingestion all inject or import it without a db edge.
+
+**D2 — supersede ADR-0039: new source values on the one corpus, not new tables.** ADR-0039 decided dedicated `attachments` + `attachment_pages` tables and explicitly rejected the single-`documents` shape. At single-user scale that family is machinery we do not need:
+
+- The page boundary ADR-0039 wanted at schema level lives in `chunks.metadata.page` (written by `chunkPages` — D6).
+- The `contentHash` churn ADR-0039 feared from re-extraction is exactly the re-embed trigger #649 wants: changed bytes → changed hash → re-embed in place (D7).
+- One ADR-0039 rejection reason is real: an attachment row with `source: "gmail"` would leak into the inbox reader (which filters `source = "gmail"` with no discriminator) and into triage and briefing gathers. So attachment documents get their own source values — **`gmail_attachment`** and **`drive`** — added to `DOCUMENT_SOURCES`, with one migration rebuilding the `documents_source_valid` check constraint.
+
+**D3 — no representation version bump.** #649 proposed bumping `CHAT_ATTACHMENT_REPRESENTATION_VERSION` to 2 to drive re-enrichment. There is nothing to re-enrich: no PDF representation exists at version 1, because no PDF has ever entered chat (`assertUploadAllowed` rejects every non-image upload today). A bump would blank every existing image representation until the compaction scheduler re-enriches it — pure churn. Instead `evidenceSchema` gains an **optional nullable `page`** field; the `.strict()` schema still parses old rows because the field is optional. Bump later only if re-enrichment becomes genuinely necessary.
+
+**D4 — same-turn availability comes from ingest-time extraction, not enrichment.** ADR-0065 says a PDF degrades into `degradedText` and reaches the live turn, but enrichment runs only under background compaction pressure, so nothing ever filled `degradedText` — a latent gap #649 exposed. The extractor is local, deterministic, and fast, so the upload ingest path runs it synchronously: on `extracted`, write `degradedText` with `[page N]` markers and set the row `ready`; `buildStoredContentParts` already reads `degradedText`, so the live turn gets the pages with no other change. On `needs_ocr`, `degradedText` stays null, the row goes `ready`, and a `media.enrich` enqueue fires immediately — the answer arrives via the representation, not in the same turn, and the tool result states that edge to the user. On `encrypted` / `invalid` the upload fails with a clear message. ADR-0065's bounded-await stays unbuilt.
+
+**D5 — the extractor union covers the failure kinds the issue missed.** The core library API rejects encrypted PDFs (`password` exists only on the opt-in OCR path) and throws `GenericFailure` on invalid bytes. The wrapper catches and maps both into the `encrypted` and `invalid` kinds, so every door switches on a typed result instead of a try/catch.
+
+**D6 — page-bounded chunking is a new corpus entry point, not a `chunkText` flag.** `chunkText`'s overlap deliberately bleeds the previous chunk's tail across boundaries; a chunk that claims page 3 must not carry page 2 text. A new `chunkPages(pages)` in `@alfred/corpus` runs the existing splitter per page with overlap disabled across pages and returns chunks carrying `{ page }` metadata. Page structure travels from the door to `indexDocument` via `documents.metadata.pages` (offsets into `content`), not via marker parsing. `indexDocument` writes `chunks.metadata` and adds `metadata` to its `onConflictDoUpdate` set, or a re-extraction would leave a stale page on an updated chunk.
+
+**D7 — the attachment and Drive doors upsert; the Gmail email door stays as it is.** `gmail-ingest` inserts with `onConflictDoNothing` — right for immutable emails. Attachment and Drive documents use `onConflictDoUpdate` on `(userId, source, sourceId)` updating `content`, `contentHash`, and `metadata`, then call `indexDocument` directly — the unembedded sweep only finds documents with zero chunks, so it would never re-index a changed document.
+
+**D8 — the corpus search tool is in scope, last.** Without it the page would sit in `chunks.metadata` with no reader. `SearchHit` gains `page` from `chunks.metadata`, and a new read-only agent tool exposes `search` with the corpus dependency injected, so the tool graph stays free of the static `@alfred/db` edge.
+
+**Cost posture.** The deterministic path is free and local, so the four-gate dollar shield ADR-0039 sized for model extraction loses its object on the PDF path. What remains is input hygiene: the byte cap at each door (the chat `degrade-text` policy cap, the existing `fetch_url` size cap, a fetch cap at the Gmail/Drive doors) and ADR-0045's per-document embedding budget, which is unchanged. OCR, if it ever lands, is the path that will need a cost gate of its own.
+
+**Deployment.** The library's NAPI binaries arrive as per-platform `optionalDependencies` with no postinstall script, so no `allowBuilds` entry and no deploy-image change is expected. The linux-x64-gnu binary needs glibc ≥ 2.35; Railway's Debian 12 image has 2.36. Verify once that the `.node` file survives the `tsdown` bundle of `apps/server`. There is no darwin-x64 build, so an Intel Mac cannot run the package locally.
+
+**Alternatives.**
+
+- (a) **Model-first extraction for all PDFs** (ADR-0039's Claude design) — rejected: no provable page, per-page dollar cost on the realtime path, multi-second latency for the majority case a local read handles in ~200 ms.
+- (b) **Keep ADR-0039's dedicated `attachments` + `attachment_pages` tables** — rejected: unbuilt machinery at single-user scale; `chunks.metadata.page` holds the citation anchor, and the `contentHash` churn ADR-0039 feared is the re-embed trigger we want, not a defect.
+- (c) **Bump `CHAT_ATTACHMENT_REPRESENTATION_VERSION` to 2** — rejected (D3): blanks every existing image representation for zero gain.
+- (d) **Fill `degradedText` in background enrichment** — rejected (D4): never serves the same-turn story.
+- (e) **A page-bounds flag on `chunkText`** — rejected (D6): its overlap semantics would bleed text across the page boundary the citation claims.
+- (f) **OCR scanned PDFs via the library's `processPdfWithOcr`** — rejected for now: it requires external PDFium/ONNX runtimes the package does not embed; chat's existing multimodal `generate` covers the scanned case with no page claim.
+- (g) **`unpdf`/`pdfjs-dist`, `mupdf`, `@hyzyla/pdfium`, `opendataloader-pdf`** — rejected per the research doc: none matches the classify-then-extract-with-quality-flags shape; `mupdf` is AGPL.
+
+**Trade-offs accepted.**
+
+- **A scanned PDF in chat gets no same-turn content** (D4) — the answer arrives via the representation after enrichment, and the tool result says so.
+- **No OCR anywhere.** A scanned mail or Drive PDF is classified and skipped, not read.
+- **A six-month-old, single-vendor, fast-moving dependency** — pinned, with the wrapper as the single seam if a swap is ever needed. The benchmark numbers (0.875 on opendataloader-bench, ~54% text-based, ~200 ms) are the vendor's self-reported claims; the wrapper's fixture tests assert behavior, not those numbers.
+- **The library's indexing inconsistency is contained at the wrapper boundary** (D5): everything downstream is 1-indexed.
+- **Peak memory ≥ 2× file size** on the library's async variants (the buffer is copied) — bounded by the door byte caps.
+
+**Out of scope** (unchanged from #649): OCR of scanned PDFs; deterministic docx/xlsx; chat-upload RAG (chat PDFs stay out of the corpus — which is also what keeps the delete-the-chat retention rule intact); table-cell citations; exotic-layout guarantees. Per D4, ADR-0065's bounded-await stays unbuilt.
