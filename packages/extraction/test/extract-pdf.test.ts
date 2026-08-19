@@ -46,14 +46,26 @@
 //   c3.save()
 //
 //   # Text render mode 3 is invisible: the classifier still calls it TextBased at
-//   # confidence 1.00, and the per-page extraction returns nothing.
+//   # confidence 1.00, and the per-page extraction returns nothing — while
+//   # `extractText` returns every character.
 //   LINE = "Alfred reads a PDF deterministically and reports a real page number."
-//   c4 = canvas.Canvas("text-based-unreadable.pdf", pagesize=LETTER)
+//   c4 = canvas.Canvas("invisible-text-two-page.pdf", pagesize=LETTER)
 //   for _ in range(2):
 //       t = c4.beginText(72, 700); t.setFont("Helvetica", 12); t.setTextRenderMode(3)
 //       for _ in range(10): t.textLine(LINE)
 //       c4.drawText(t); c4.showPage()
 //   c4.save()
+//
+//   # The everyday searchable scan: a page image with an invisible OCR text layer
+//   # behind it, which is what an office copier produces.
+//   img3 = Image.new("RGB", (1224, 1584), "white")
+//   ImageDraw.Draw(img3).text((100, 100), "SCANNED PAGE MARKER charlie", fill="black")
+//   b3 = io.BytesIO(); img3.save(b3, format="PNG"); b3.seek(0)
+//   c5 = canvas.Canvas("scanned-with-text-layer.pdf", pagesize=(612, 792))
+//   c5.drawImage(ImageReader(b3), 0, 0, width=612, height=792)
+//   t5 = c5.beginText(72, 700); t5.setFont("Helvetica", 12); t5.setTextRenderMode(3)
+//   for _ in range(10): t5.textLine(LINE)
+//   c5.drawText(t5); c5.showPage(); c5.save()
 //   PY
 //
 // Deliberately NOT asserted: confidence scores, processing times, or the exact
@@ -99,7 +111,10 @@ test("a born-digital PDF reports one page per page, numbered from 1", async () =
   assert.deepEqual(result.pagesNeedingOcr, []);
 });
 
-test("a scanned PDF is `needs_ocr` and asserts no page at all", async () => {
+test("a scanned PDF with no text layer is `needs_ocr` and asserts no page at all", async () => {
+  // The negative control for `text_without_pages` below: same shape of document —
+  // one page image, empty markdown, `needsOcr` — but no text layer behind it, so
+  // no vendor surface reads a character and `needs_ocr` is the true answer.
   const result = await extractPdf(await fixture("scanned-single-page.pdf"), {
     maxBytes: NO_CAP,
   });
@@ -174,16 +189,61 @@ test("an `ImageBased` scan with a readable cover page is `extracted`, cover text
   assert.equal(result.pageCount, result.pages.length);
 });
 
-test("a `TextBased` PDF that yields no text on any page is `needs_ocr`", async () => {
-  const result = await extractPdf(await fixture("text-based-unreadable.pdf"), {
+// The two documents below are the reason the pages are not the last word either.
+// Both return empty markdown on every page while the library's own `extractText`
+// reads the whole document — so `needs_ocr` would throw away text Alfred has.
+
+test("a PDF whose pages are all empty but whose text reads is `text_without_pages`", async () => {
+  const result = await extractPdf(await fixture("invisible-text-two-page.pdf"), {
     maxBytes: NO_CAP,
   });
 
-  // The classifier reports `TextBased` at confidence 1.00 for these bytes. The
-  // pages come back empty, so `extracted` would promise text this module does
-  // not have.
-  assert.equal(result.kind, "needs_ocr");
-  if (result.kind !== "needs_ocr") return;
+  // The classifier reports `TextBased` at confidence 1.00 for these bytes and
+  // every page comes back empty, so `extracted` would promise pages this module
+  // cannot fill. `extractText` reads the text, without saying which page it is
+  // on — which is exactly what this variant claims.
+  assert.equal(result.kind, "text_without_pages");
+  if (result.kind !== "text_without_pages") return;
   assert.equal(result.pdfType, "text_based");
   assert.equal(result.pageCount, 2);
+  assert.match(result.text, /Alfred reads a PDF deterministically/);
+
+  // Tier 1, checked by `tsconfig.test.json` rather than at runtime: the text
+  // arrived with no page boundary, so no door can cite a page for it.
+  // @ts-expect-error `text_without_pages` carries no `pages`.
+  assert.equal(result.pages, undefined);
+});
+
+test("a scanned page with an invisible OCR layer keeps its text", async () => {
+  // The everyday searchable scan. The page is an image, its markdown is empty and
+  // `needsOcr` is set — the same evidence the `needs_ocr` fixture shows — but a
+  // text layer sits behind the image and it is the document's whole content.
+  const result = await extractPdf(await fixture("scanned-with-text-layer.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  assert.equal(result.kind, "text_without_pages");
+  if (result.kind !== "text_without_pages") return;
+  assert.equal(result.pageCount, 1);
+  assert.match(result.text, /Alfred reads a PDF deterministically/);
+});
+
+test("a PDF whose newlines were rewritten LF to CRLF is `invalid`, not a throw", async () => {
+  // The vendor's message vocabulary is open. These bytes fail with `"PDF parsing
+  // error: couldn't parse input: invalid file trailer"` — a message no substring
+  // table written before it could hold — and a text-mode copy of a real document
+  // is an ordinary accident, not a broken install. So the caller gets a value.
+  const original = await fixture("born-digital-two-page.pdf");
+  const damaged = Buffer.from(
+    Buffer.from(original).toString("latin1").replaceAll("\n", "\r\n"),
+    "latin1",
+  );
+
+  const result = await extractPdf(new Uint8Array(damaged), { maxBytes: NO_CAP });
+
+  assert.equal(result.kind, "invalid");
+  if (result.kind !== "invalid") return;
+  // The vendor's own reason survives, minus its `"<rust_fn>: "` prefix, so a door
+  // can report what went wrong without this module having predicted the wording.
+  assert.match(result.reason, /invalid file trailer/);
 });
