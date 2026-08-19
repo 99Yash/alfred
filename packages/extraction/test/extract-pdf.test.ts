@@ -186,11 +186,63 @@ test("bytes that are not a PDF are `invalid`", async () => {
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
-  // The closed reading a door branches on. These bytes were never a PDF, so a
-  // door that has a plain-text path may take it.
-  assert.equal(result.cause, "not_a_pdf");
-  // The reason is the vendor's, minus its `"<rust_fn>: "` prefix.
+  // These bytes really are not a PDF, and the cause is still `damaged` — because
+  // the vendor's answer for them is a GUESS this module cannot act on. The next
+  // test feeds it a real PDF and gets the same guess back.
+  assert.equal(result.cause, "damaged");
+  // The reason is the vendor's, minus its `"<rust_fn>: "` prefix, so a door can
+  // still tell a human what the vendor thought.
   assert.equal(result.reason, "Not a PDF: file appears to be plain text");
+});
+
+test("a real PDF with one damaged header byte is `damaged`, not readable text", async () => {
+  // The reason this module reads the sniffer's DETAIL instead of its `"Not a
+  // PDF"` prefix. One edited byte in `%PDF-` and the vendor answers `"file
+  // appears to be plain text"` — the same detail it gives genuine text. So that
+  // detail authorizes nothing: a door offered these bytes as text would render
+  // PDF source to a user.
+  const damaged = Buffer.from(await fixture("born-digital-two-page.pdf"));
+  damaged[0] = 0x00;
+
+  const result = await extractPdf(new Uint8Array(damaged), { maxBytes: NO_CAP });
+
+  assert.equal(result.kind, "invalid");
+  if (result.kind !== "invalid") return;
+  assert.equal(result.cause, "damaged");
+  assert.equal(result.reason, "Not a PDF: file appears to be plain text");
+});
+
+test("a PNG wearing a PDF's name is `other_format`, not readable text", async () => {
+  // Eight magic bytes, so no fixture file earns its keep. The vendor names the
+  // container, and naming a container is the only evidence this module accepts
+  // that the bytes are something else: a door reports the format and reads
+  // nothing rather than showing a user a PNG as text.
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(200, 7),
+  ]);
+
+  const result = await extractPdf(new Uint8Array(png), { maxBytes: NO_CAP });
+
+  assert.equal(result.kind, "invalid");
+  if (result.kind !== "invalid") return;
+  assert.equal(result.cause, "other_format");
+  assert.equal(result.reason, "Not a PDF: file appears to be a PNG image");
+});
+
+test("HTML wearing a PDF's name is `readable_text` — the one arm a door may read", async () => {
+  // The everyday `fetch_url` case: a URL answers with an error page or a login
+  // wall under a PDF content type. The vendor names an exact text format here,
+  // which no damaged PDF has been measured to produce, so this is the one cause
+  // that authorizes a door's plain-text path.
+  const html = Buffer.from("<html><body><p>hello</p></body></html>\n".repeat(5));
+
+  const result = await extractPdf(new Uint8Array(html), { maxBytes: NO_CAP });
+
+  assert.equal(result.kind, "invalid");
+  if (result.kind !== "invalid") return;
+  assert.equal(result.cause, "readable_text");
+  assert.equal(result.reason, "Not a PDF: file appears to be HTML");
 });
 
 test("a truncated PDF is `invalid` too — a second vendor message, one kind", async () => {
