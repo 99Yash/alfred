@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 
 import {
@@ -142,6 +143,53 @@ test("a process failure remains the terminal cause when close crosses the deadli
     (error: unknown) => error instanceof PdfExtractionError && error.cause === failure,
   );
 });
+
+test("a non-zero exit remains the terminal cause when inherited pipes delay close", async () => {
+  const extractPdf = testExtractor("nonzero_late_close");
+
+  await assert.rejects(
+    extractPdf(new Uint8Array([1])),
+    (error: unknown) =>
+      error instanceof PdfExtractionError &&
+      error.cause instanceof Error &&
+      error.cause.message.includes("exited with code 7"),
+  );
+});
+
+test("a backward wall-clock adjustment does not extend the parse deadline", async () => {
+  const originalDateNow = Date.now;
+  const startedAt = performance.now();
+  const extractPdf = createPdfExtractorWithChild(BASE_LIMITS, {
+    childEntry: CHILD_ENTRY,
+    env: { PDF_EXTRACTION_TEST_BEHAVIOR: "hang" },
+    spawnChild: (spawnDefault) => {
+      Date.now = () => originalDateNow() - 1_000;
+      return spawnDefault();
+    },
+  });
+
+  try {
+    const result = await extractPdf(new Uint8Array([1]));
+
+    assert.equal(result.kind, "limit_exceeded");
+    if (result.kind !== "limit_exceeded") return;
+    assert.equal(result.limit, "parse_milliseconds");
+    assert.ok(performance.now() - startedAt < 800);
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
+for (const behavior of ["invalid_limit_equal", "invalid_limit_message"] as const) {
+  test(`an ${behavior} child reply is a dependency failure`, async () => {
+    const extractPdf = testExtractor(behavior);
+
+    await assert.rejects(
+      extractPdf(new Uint8Array([1])),
+      (error: unknown) => error instanceof PdfExtractionError,
+    );
+  });
+}
 
 for (const behavior of ["malformed", "multiple", "oversized", "nonzero"] as const) {
   test(`a ${behavior} child reply is a dependency failure`, async () => {

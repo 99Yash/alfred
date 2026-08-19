@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+
 const behavior = process.env.PDF_EXTRACTION_TEST_BEHAVIOR;
 
 export {};
@@ -26,6 +28,26 @@ switch (behavior) {
     break;
   case "nonzero":
     process.exit(7);
+    break;
+  case "nonzero_late_close": {
+    const inheritedPipeHolder = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1_000)"], {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    inheritedPipeHolder.unref();
+    process.exit(7);
+    break;
+  }
+  case "invalid_limit_equal":
+    process.stdout.write(
+      '{"kind":"result","result":{"kind":"limit_exceeded","limit":"output_characters","actual":10,"maximum":10,"message":"PDF output character limit exceeded: 10 > 10"}}\n',
+      () => process.exit(0),
+    );
+    break;
+  case "invalid_limit_message":
+    process.stdout.write(
+      '{"kind":"result","result":{"kind":"limit_exceeded","limit":"output_characters","actual":11,"maximum":10,"message":"not canonical"}}\n',
+      () => process.exit(0),
+    );
     break;
   default:
     process.stderr.write(`unknown test behavior: ${behavior ?? "missing"}\n`, () =>
