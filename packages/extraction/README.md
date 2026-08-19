@@ -24,8 +24,13 @@ switch (result.kind) {
   case "encrypted":
     return "the document is password-protected";
   case "invalid":
-    // `cause` is closed: `not_a_pdf` means the bytes were never a PDF, so a door
-    // with a plain-text path may take it. `damaged` has no fallback.
+    // `cause` is closed, and it reports the vendor's heuristic reading of the
+    // container rather than a proof. `readable_text` (JSON, HTML) is the one arm
+    // that authorizes a plain-text path. `other_format` (PNG, JPEG, ZIP or
+    // Office) says the bytes are another container: report it, read nothing.
+    // `damaged` covers every other rejection, including the vendor's "plain
+    // text" guess, which also answers for a real PDF whose header moved by one
+    // byte.
     return `not a readable PDF (${result.cause}): ${result.reason}`;
   case "too_large":
     return `${result.byteLength} bytes is above the ${result.maxBytes} byte cap`;
@@ -108,10 +113,10 @@ failure the vendor's parser raises, not the ones this package thought of: a PDF
 copied in text mode fails with `"PDF parsing error: couldn't parse input: invalid
 file trailer"`, a message no substring table written before it could match, and it
 still returns `invalid` carrying that reason. The vendor's message vocabulary is
-open, so the message chooses `encrypted` over `invalid`, and `not_a_pdf` over
-`damaged`, and nothing more. An unrecognized message reads as `damaged`, which is
-the safe side: a door declines its plain-text fallback rather than showing a user
-PDF syntax.
+open, so the message chooses `encrypted` over `invalid`, the sniffer's detail
+chooses among the three `cause` arms, and nothing more. An unrecognized message —
+and an unrecognized sniffer detail — reads as `damaged`, which is the safe side: a
+door declines its plain-text fallback rather than showing a user PDF syntax.
 
 `extractPdf` still throws, in two cases, and both mean a dependency problem rather
 than a fact about the document:
