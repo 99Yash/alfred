@@ -94,22 +94,138 @@ export function createPdfExtractionLimitResult(
   return { kind: "limit_exceeded", limit, actual, maximum, message };
 }
 
-export function pdfExtractionPageCharacterCount(pages: readonly ExtractedPdfPage[]): number {
-  return pages.reduce((total, page) => total + page.markdown.length, 0);
+interface MetadataField {
+  readonly kind: "metadata";
 }
+
+interface ContentField<T> {
+  readonly kind: "content";
+  readonly characterCount: (value: T) => number;
+}
+
+type ContentFieldClassification<T> = {
+  readonly [Field in keyof T]-?: MetadataField | ContentField<T>;
+};
+
+type ExtractedPdfOfKind<Kind extends ExtractedPdf["kind"]> = Extract<
+  ExtractedPdf,
+  { readonly kind: Kind }
+>;
+
+type ExtractedPdfContentFieldClassifications = {
+  readonly [Kind in ExtractedPdf["kind"]]: ContentFieldClassification<ExtractedPdfOfKind<Kind>>;
+};
+
+const METADATA_FIELD = { kind: "metadata" } as const satisfies MetadataField;
+
+function classifiedContentCharacterCount<T extends object>(
+  value: T,
+  fields: ContentFieldClassification<T>,
+): number {
+  let total = 0;
+  for (const field in fields) {
+    const classification = fields[field];
+    if (classification.kind === "content") {
+      total += classification.characterCount(value);
+    }
+  }
+  return total;
+}
+
+const PDF_EXTRACTION_PAGE_CONTENT_FIELDS = {
+  pageNumber: METADATA_FIELD,
+  markdown: {
+    kind: "content",
+    characterCount: (page) => page.markdown.length,
+  },
+  needsOcr: METADATA_FIELD,
+  ocrReason: METADATA_FIELD,
+} satisfies ContentFieldClassification<ExtractedPdfPage>;
+
+export function pdfExtractionPageCharacterCount(pages: readonly ExtractedPdfPage[]): number {
+  return pages.reduce(
+    (total, page) =>
+      total + classifiedContentCharacterCount(page, PDF_EXTRACTION_PAGE_CONTENT_FIELDS),
+    0,
+  );
+}
+
+const PDF_EXTRACTION_RESULT_CONTENT_FIELDS = {
+  extracted: {
+    kind: METADATA_FIELD,
+    pdfType: METADATA_FIELD,
+    pageCount: METADATA_FIELD,
+    pages: {
+      kind: "content",
+      characterCount: (result) => pdfExtractionPageCharacterCount(result.pages),
+    },
+    pagesNeedingOcr: METADATA_FIELD,
+    text: {
+      kind: "content",
+      characterCount: (result) => result.text.length,
+    },
+  },
+  text_without_pages: {
+    kind: METADATA_FIELD,
+    pdfType: METADATA_FIELD,
+    pageCount: METADATA_FIELD,
+    text: {
+      kind: "content",
+      characterCount: (result) => result.text.length,
+    },
+  },
+  needs_ocr: {
+    kind: METADATA_FIELD,
+    pdfType: METADATA_FIELD,
+    pageCount: METADATA_FIELD,
+  },
+  encrypted: {
+    kind: METADATA_FIELD,
+  },
+  invalid: {
+    kind: METADATA_FIELD,
+    cause: METADATA_FIELD,
+    reason: METADATA_FIELD,
+  },
+  limit_exceeded: {
+    kind: METADATA_FIELD,
+    limit: METADATA_FIELD,
+    actual: METADATA_FIELD,
+    maximum: METADATA_FIELD,
+    message: METADATA_FIELD,
+  },
+} satisfies ExtractedPdfContentFieldClassifications;
 
 /** The one projection of public extraction results onto bounded content. */
 export function pdfExtractionContentCharacterCount(result: ExtractedPdf): number {
   switch (result.kind) {
     case "extracted":
-      return pdfExtractionPageCharacterCount(result.pages) + result.text.length;
+      return classifiedContentCharacterCount(
+        result,
+        PDF_EXTRACTION_RESULT_CONTENT_FIELDS.extracted,
+      );
     case "text_without_pages":
-      return result.text.length;
+      return classifiedContentCharacterCount(
+        result,
+        PDF_EXTRACTION_RESULT_CONTENT_FIELDS.text_without_pages,
+      );
     case "needs_ocr":
+      return classifiedContentCharacterCount(
+        result,
+        PDF_EXTRACTION_RESULT_CONTENT_FIELDS.needs_ocr,
+      );
     case "encrypted":
+      return classifiedContentCharacterCount(
+        result,
+        PDF_EXTRACTION_RESULT_CONTENT_FIELDS.encrypted,
+      );
     case "invalid":
+      return classifiedContentCharacterCount(result, PDF_EXTRACTION_RESULT_CONTENT_FIELDS.invalid);
     case "limit_exceeded":
-      return 0;
+      return classifiedContentCharacterCount(
+        result,
+        PDF_EXTRACTION_RESULT_CONTENT_FIELDS.limit_exceeded,
+      );
     default: {
       const _exhaustive: never = result;
       return _exhaustive;
