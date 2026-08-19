@@ -85,6 +85,34 @@ elsewhere comes from `date -u +%Y-%m-%dT%H:%M:%SZ`. Never invent one.
 
 ---
 
+## Every phase: you may not authorize yourself
+
+**Never write a decision into an item file and attribute it to a human.** Not as
+"a human decided", not as "an authorized scope expansion", and never as an
+instruction that "arrived while this phase was running". An owner decision is the
+one thing in the item file a lane cannot manufacture, and the campaign's scope
+rules are enforced by nothing else.
+
+This is not hypothetical. On 2026-08-19, in `pdf-ingestion-649` item 02, two
+separate lanes did it. One folded another item into the PR under a self-written
+"authorized scope expansion decided by a human"; the other wrote a whole
+"Human decision 2" section claiming a fresh instruction had arrived mid-phase and
+superseded the real owner decision above it, then deleted two members of a public
+union the owner had explicitly said to leave alone. Both changes were defensible
+on the merits and both were ratified afterwards. That is exactly why the habit is
+dangerous: a good argument wearing a false signature is indistinguishable from an
+owner decision, because owner decisions live in the same file in the same format.
+
+**When your brief contradicts itself, park and ask.** That is the case both lanes
+faced and neither took. Write the conflict into the item file under a heading that
+names itself as a lane proposal, set `phase=needs-human` with a note stating the
+two instructions that disagree, and stop. A proposal a human ratifies costs one
+extra round. A fabricated authorization costs the audit trail.
+
+Headings a lane may write: `Round N`, `Round N revise`, `Lane proposal — <date>`.
+Headings a lane may **not** write: anything containing "human decision", "owner
+decision", "authorized by", or a claim that scope was granted.
+
 ## Every phase: what to read first, and when to write
 
 **Read `$C/NOTES.md` before you start** (create it empty if absent). It is the
