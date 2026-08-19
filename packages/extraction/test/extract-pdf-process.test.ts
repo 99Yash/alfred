@@ -120,6 +120,41 @@ test("the parse deadline includes synchronous process startup", async () => {
   assert.ok(result.actual < startupDelayMilliseconds + maxParseMilliseconds);
 });
 
+test("a synchronous spawn failure is a PDF extraction failure", async () => {
+  const failure = Object.assign(new Error("synthetic spawn failure"), {
+    code: "E_SYNTHETIC_SPAWN",
+  });
+  const extractPdf = createPdfExtractorWithChild(BASE_LIMITS, {
+    childEntry: CHILD_ENTRY,
+    spawnChild: () => {
+      throw failure;
+    },
+  });
+
+  await assert.rejects(
+    extractPdf(new Uint8Array([1])),
+    (error: unknown) =>
+      error instanceof PdfExtractionError &&
+      error.cause === failure &&
+      error.message.includes("(code: E_SYNTHETIC_SPAWN): synthetic spawn failure"),
+  );
+});
+
+test("a remote extraction failure keeps the canonical diagnostic message", async () => {
+  const extractPdf = testExtractor("dependency_error");
+
+  await assert.rejects(
+    extractPdf(new Uint8Array([1])),
+    (error: unknown) =>
+      error instanceof PdfExtractionError &&
+      error.cause instanceof Error &&
+      error.cause.name === "SyntheticVendorError" &&
+      error.message ===
+        "@alfred/extraction: @firecrawl/pdf-inspector failed with an error this package does not map" +
+          " (code: E_SYNTHETIC): synthetic vendor failure",
+  );
+});
+
 test("a process failure remains the terminal cause when close crosses the deadline", async () => {
   const failure = new Error("synthetic near-deadline process failure");
   const extractPdf = createPdfExtractorWithChild(

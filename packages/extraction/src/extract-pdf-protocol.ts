@@ -6,6 +6,10 @@ import type {
   PdfExtractionLimits,
 } from "./extract-pdf";
 
+// Keep this child-process protocol dependency-free. In particular, do not
+// import @alfred/contracts guards: extraction intentionally has only the pinned
+// PDF vendor as a runtime dependency.
+
 export type PdfExtractionChildReply =
   | { readonly kind: "result"; readonly result: ExtractedPdf }
   | {
@@ -278,6 +282,7 @@ function parseRequestHeader(value: unknown): {
   if (!isRecord(value) || !hasOnlyKeys(value, ["limits", "byteLength"])) {
     throw new Error("Invalid PDF extraction child request header");
   }
+  // Protocol input is untrusted, so validate the limits again at this decode boundary.
   const limits = parsePdfExtractionLimits(value.limits);
   const byteLength = value.byteLength;
   if (typeof byteLength !== "number" || !Number.isSafeInteger(byteLength) || byteLength < 0) {

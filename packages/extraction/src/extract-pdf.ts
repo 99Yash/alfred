@@ -64,11 +64,10 @@ export type ExtractedPdf =
 export type ExtractPdf = (bytes: Uint8Array) => Promise<ExtractedPdf>;
 
 export class PdfExtractionError extends Error {
-  constructor(cause: unknown, message?: string) {
+  constructor(cause: unknown) {
     super(
-      message ??
-        `@alfred/extraction: @firecrawl/pdf-inspector failed with an error this package does not map` +
-          ` (code: ${describeErrorCode(cause)}): ${describeErrorMessage(cause)}`,
+      `@alfred/extraction: @firecrawl/pdf-inspector failed with an error this package does not map` +
+        ` (code: ${describeErrorCode(cause)}): ${describeErrorMessage(cause)}`,
       { cause },
     );
     this.name = "PdfExtractionError";
@@ -150,7 +149,12 @@ async function runPdfExtractionChild(
         stdio: ["pipe", "pipe", "pipe"],
       },
     );
-  const child = options.spawnChild?.(spawnDefault) ?? spawnDefault();
+  let child: ChildProcessWithoutNullStreams;
+  try {
+    child = options.spawnChild?.(spawnDefault) ?? spawnDefault();
+  } catch (error) {
+    throw new PdfExtractionError(error);
+  }
   options.onSpawn?.(child.pid);
 
   return new Promise<ExtractedPdf>((resolve, reject) => {
@@ -265,7 +269,7 @@ async function runPdfExtractionChild(
           if (reply.error.source === "native_load") {
             reject(cause);
           } else {
-            reject(new PdfExtractionError(cause, reply.error.message));
+            reject(new PdfExtractionError(cause));
           }
           return;
         }

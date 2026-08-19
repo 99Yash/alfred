@@ -70,6 +70,12 @@ switch (behavior) {
       () => process.exit(0),
     );
     break;
+  case "dependency_error":
+    process.stdout.write(
+      '{"kind":"dependency_error","error":{"source":"pdf_extraction","name":"SyntheticVendorError","message":"synthetic vendor failure","code":"E_SYNTHETIC"}}\n',
+      () => process.exit(0),
+    );
+    break;
   default:
     process.stderr.write(`unknown test behavior: ${behavior ?? "missing"}\n`, () =>
       process.exit(2),
