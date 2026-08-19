@@ -10,6 +10,12 @@ import { extractPdf } from "@alfred/extraction";
 const result = await extractPdf(bytes, { maxBytes: 20_000_000 });
 switch (result.kind) {
   case "extracted":
+    if (result.text !== undefined) {
+      // Some page in `pages` read nothing, so the document's own text came back
+      // too. It covers the WHOLE document — the pages included — so a door reads
+      // one or the other and never concatenates them.
+      return `${result.pageCount} page(s), ${result.pagesNeedingOcr.length} unread: ${result.text}`;
+    }
     return result.pages.map((page) => `p${page.pageNumber}: ${page.markdown}`);
   case "text_without_pages":
     // Real text, and no page number for it. Cite the document, never a page.
@@ -47,12 +53,28 @@ can carry a readable born-digital cover page, and a `TextBased` document at
 confidence 1.00 can yield empty markdown on every page. `extractPagesMarkdown` is
 not the last word either: a scan with an invisible OCR text layer — what an office
 copier produces — returns empty markdown on every page while `extractText` returns
-the whole document. So `extractPdf` reads three surfaces in a fixed order:
+the whole document.
 
-1. any page holds text → `extracted`, with every page in `pages`;
-2. otherwise `extractText` holds text → `text_without_pages`, carrying that text
-   and **no page number**, because nothing said which page it came from;
+That second question is asked **per page, never per document**. A born-digital
+cover sheet in front of a searchable scan reads on page 1 and nowhere else, so a
+document-level test would answer `extracted`, hand back the cover sheet, and drop
+the body — 50 characters of 739 on the tracked fixture. So `extractPdf` reads
+three surfaces:
+
+1. any page holds text → `extracted`, carrying every page in `pages`, **plus
+   `text`** — the whole document — whenever some other page read nothing;
+2. no page holds text and `extractText` does → `text_without_pages`, carrying that
+   text and **no page number**, because nothing said which page it came from;
 3. otherwise → `needs_ocr`, meaning no surface of the library read one character.
+
+`text` is the whole document, so it OVERLAPS `pages` rather than extending them,
+and it is not simply the longer of the two. Which one a door should read is
+deliberately open; the field's own docstring says so, and the first door that
+proves what it needs settles it inside this package.
+
+`extractText` can fail on bytes the two parses accepted. It is only ever asked to
+improve an answer, so its failure never overturns one: the document keeps the
+verdict its pages earned.
 
 Each of the three has a tracked fixture, and `needs_ocr` has a negative control:
 `scanned-single-page.pdf` and `scanned-with-text-layer.pdf` show the same

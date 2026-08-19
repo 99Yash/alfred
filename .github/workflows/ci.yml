@@ -414,16 +414,26 @@ jobs:
   # lives in the package it covers, so it needs a job.
   #
   # They are grouped by the SETUP a suite needs, not one job per package. One job
-  # per package is FIVE jobs for these five packages: it repeats the 20-line setup
-  # preamble five times instead of twice and the 48-line services-and-env block
+  # per package is SIX jobs for these six packages: it repeats the 20-line setup
+  # preamble six times instead of twice and the 48-line services-and-env block
   # twice instead of once, which is over 100 extra lines of duplicated YAML for
-  # the same 25 test files (auth 2, artifacts-design 1, sync 1, corpus 2,
-  # integrations 19). Attribution is kept by one NAMED step per package, so a red
-  # row names the package that broke. The cost admitted: steps run in sequence, so
-  # a red step hides every step after it in the same job. That cost is real, not
-  # small — `packages/integrations/test` holds 19 of the 25 files and runs as the
-  # SECOND step of `leaf-db-tests`, so a red `Corpus tests` step hides all 19. A
-  # package that grows a real suite gets promoted to its own job.
+  # the same 30 test files (auth 6, artifacts-design 1, sync 1, extraction 1,
+  # corpus 2, integrations 19). Attribution is kept by one NAMED step per package,
+  # so a red row names the package that broke. The cost admitted: steps run in
+  # sequence, so a red step hides every step after it in the same job. That cost
+  # is real, not small — `packages/integrations/test` holds 19 of the 30 files and
+  # runs as the SECOND step of `leaf-db-tests`, so a red `Corpus tests` step hides
+  # all 19. A package that grows a real suite gets promoted to its own job.
+  #
+  # Recount before you edit those numbers, and count the same way the steps do:
+  #
+  #   for p in auth artifacts-design sync extraction corpus integrations; do
+  #     git ls-files "packages/$p/test" | grep -c '\.test\.ts$'
+  #   done
+  #
+  # The `auth 2` this line used to claim had been wrong since the package grew to
+  # six files, which is the whole argument for keeping the recipe beside the
+  # number.
   #
   # Every package step counts its own test files before it runs them, because
   # `tsx --test` over a glob that matches NO file prints `# tests 0` and exits 0.
@@ -436,7 +446,7 @@ jobs:
   # top of the job. A shared loop is a second hand-kept copy of "which packages
   # this job runs": add a leaf package to the run steps, forget the loop, and that
   # package's step matches zero files, prints `# tests 0` and goes green — the
-  # guard pre-disarmed for the one package that needed it. The five copies of the
+  # guard pre-disarmed for the one package that needed it. The six copies of the
   # count below are deliberate duplication, because a copy that ships with the run
   # command it guards cannot fall out of step with it.
   #
