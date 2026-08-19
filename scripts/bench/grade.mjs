@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { readManifest, repoRoot, runsRoot } from "./manifest.mjs";
+import { patchPaths, readManifest, repoRoot, runsRoot } from "./manifest.mjs";
 import { gradeProcessLane } from "./process-lane.mjs";
 import { runCommand, timestamp } from "./run.mjs";
 
