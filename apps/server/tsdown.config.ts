@@ -6,6 +6,9 @@ export default defineConfig({
   // tsx/loose @alfred sources, so each script must be bundled.
   entry: [
     "./src/index.ts",
+    // The PDF extractor resolves this sibling from the bundled index entry and
+    // runs the native parser here, in a one-shot killable process.
+    "./src/extract-pdf-child.ts",
     // Separate entry (not inlined into index.js) so the prod `start` script can
     // preload it via `node --import ./dist/instrument.js` — Sentry.init() must
     // run before the instrumented libs load, and bundlers don't preserve import
