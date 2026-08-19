@@ -24,7 +24,7 @@
     "@alfred/mailer": "workspace:*",
     "@elysiajs/cors": "catalog:",
     "@elysiajs/node": "catalog:",
-    "@firecrawl/pdf-inspector": "1.15.0",
+    "@firecrawl/pdf-inspector": "catalog:",
     "@sentry/node": "catalog:",
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",

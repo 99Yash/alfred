@@ -10,7 +10,7 @@
     "test": "tsx --test --test-force-exit \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@firecrawl/pdf-inspector": "1.15.0"
+    "@firecrawl/pdf-inspector": "catalog:"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",
