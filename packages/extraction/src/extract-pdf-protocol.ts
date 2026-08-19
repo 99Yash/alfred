@@ -24,6 +24,26 @@ export interface PdfExtractionChildRequest {
 }
 
 const MAX_HEADER_BYTES = 4_096;
+const MAX_TIMER_MILLISECONDS = 2_147_483_647;
+
+type LimitMessage = (actual: number, maximum: number) => string;
+
+const PDF_EXTRACTION_LIMIT_MESSAGES = {
+  input_bytes: (actual, maximum) => `PDF input byte limit exceeded: ${actual} > ${maximum}`,
+  output_characters: (actual, maximum) =>
+    `PDF output character limit exceeded: ${actual} > ${maximum}`,
+  parse_milliseconds: (actual, maximum) =>
+    `PDF parse deadline exceeded: ${actual}ms >= ${maximum}ms`,
+} satisfies Readonly<Record<PdfExtractionLimitKind, LimitMessage>>;
+
+const PDF_EXTRACTION_RESULT_KINDS = {
+  encrypted: true,
+  extracted: true,
+  invalid: true,
+  limit_exceeded: true,
+  needs_ocr: true,
+  text_without_pages: true,
+} as const satisfies Readonly<Record<ExtractedPdf["kind"], true>>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -41,12 +61,27 @@ function positiveSafeInteger(name: string, value: unknown): number {
   return value;
 }
 
+function isPdfExtractionLimitKind(value: unknown): value is PdfExtractionLimitKind {
+  return typeof value === "string" && Object.hasOwn(PDF_EXTRACTION_LIMIT_MESSAGES, value);
+}
+
+function isPdfExtractionResultKind(value: unknown): value is ExtractedPdf["kind"] {
+  return typeof value === "string" && Object.hasOwn(PDF_EXTRACTION_RESULT_KINDS, value);
+}
+
 export function parsePdfExtractionLimits(value: unknown): PdfExtractionLimits {
   if (!isRecord(value)) throw new RangeError("PDF extraction limits must be an object");
+  const maxParseMilliseconds = positiveSafeInteger(
+    "maxParseMilliseconds",
+    value.maxParseMilliseconds,
+  );
+  if (maxParseMilliseconds > MAX_TIMER_MILLISECONDS) {
+    throw new RangeError(`maxParseMilliseconds must be at most ${MAX_TIMER_MILLISECONDS}`);
+  }
   return {
     maxBytes: positiveSafeInteger("maxBytes", value.maxBytes),
     maxCharacters: positiveSafeInteger("maxCharacters", value.maxCharacters),
-    maxParseMilliseconds: positiveSafeInteger("maxParseMilliseconds", value.maxParseMilliseconds),
+    maxParseMilliseconds,
   };
 }
 
@@ -55,13 +90,31 @@ export function createPdfExtractionLimitResult(
   actual: number,
   maximum: number,
 ): ExtractedPdf {
-  const message =
-    limit === "input_bytes"
-      ? `PDF input byte limit exceeded: ${actual} > ${maximum}`
-      : limit === "output_characters"
-        ? `PDF output character limit exceeded: ${actual} > ${maximum}`
-        : `PDF parse deadline exceeded: ${actual}ms >= ${maximum}ms`;
+  const message = PDF_EXTRACTION_LIMIT_MESSAGES[limit](actual, maximum);
   return { kind: "limit_exceeded", limit, actual, maximum, message };
+}
+
+export function pdfExtractionPageCharacterCount(pages: readonly ExtractedPdfPage[]): number {
+  return pages.reduce((total, page) => total + page.markdown.length, 0);
+}
+
+/** The one projection of public extraction results onto bounded content. */
+export function pdfExtractionContentCharacterCount(result: ExtractedPdf): number {
+  switch (result.kind) {
+    case "extracted":
+      return pdfExtractionPageCharacterCount(result.pages) + result.text.length;
+    case "text_without_pages":
+      return result.text.length;
+    case "needs_ocr":
+    case "encrypted":
+    case "invalid":
+    case "limit_exceeded":
+      return 0;
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
+  }
 }
 
 export function serializePdfExtractionChildRequest(
@@ -175,11 +228,12 @@ function parsePage(value: unknown): ExtractedPdfPage {
 }
 
 function parseResult(value: unknown): ExtractedPdf {
-  if (!isRecord(value) || typeof value.kind !== "string") {
+  if (!isRecord(value) || !isPdfExtractionResultKind(value.kind)) {
     throw new Error("Invalid PDF extraction result in child reply");
   }
 
-  switch (value.kind) {
+  const { kind } = value;
+  switch (kind) {
     case "encrypted":
       if (!hasOnlyKeys(value, ["kind"])) throw new Error("Invalid encrypted result fields");
       return { kind: "encrypted" };
@@ -256,11 +310,7 @@ function parseResult(value: unknown): ExtractedPdf {
       if (!hasOnlyKeys(value, ["kind", "limit", "actual", "maximum", "message"])) {
         throw new Error("Invalid PDF limit result fields");
       }
-      if (
-        value.limit !== "input_bytes" &&
-        value.limit !== "output_characters" &&
-        value.limit !== "parse_milliseconds"
-      ) {
+      if (!isPdfExtractionLimitKind(value.limit)) {
         throw new Error("Invalid PDF limit kind");
       }
       const actual = nonnegativeSafeInteger("actual", value.actual);
@@ -276,8 +326,10 @@ function parseResult(value: unknown): ExtractedPdf {
         message: value.message,
       };
     }
-    default:
-      throw new Error("Unknown PDF extraction result kind in child reply");
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
   }
 }
 

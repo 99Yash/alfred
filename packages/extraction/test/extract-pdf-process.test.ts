@@ -39,6 +39,18 @@ test("all configured limits must be positive safe integers", () => {
   }
 });
 
+test("the parse deadline stays within Node's timer range", () => {
+  assert.doesNotThrow(() =>
+    createPdfExtractor({ ...BASE_LIMITS, maxParseMilliseconds: 2_147_483_647 }),
+  );
+  assert.throws(
+    () => createPdfExtractor({ ...BASE_LIMITS, maxParseMilliseconds: 2_147_483_648 }),
+    (error: unknown) =>
+      error instanceof RangeError &&
+      error.message === "maxParseMilliseconds must be at most 2147483647",
+  );
+});
+
 test("an input-byte breach returns before a child starts", async () => {
   let spawnCount = 0;
   const extractPdf = testExtractor("hang", { ...BASE_LIMITS, maxBytes: 1 }, () => {
