@@ -1,9 +1,10 @@
 import { toMessage } from "@alfred/contracts";
 import { createRedisConnection, incrementExpiringCounter, type EvalRedis } from "@alfred/db/redis";
+import type { ServerEnv } from "@alfred/env/server";
 import type { BetterAuthOptions } from "better-auth";
 
 /**
- * The rate limit both Better Auth instances run on.
+ * The rate limit Alfred's Better Auth instance runs on.
  *
  * Better Auth ships a limiter that is ON in production by default, but its
  * default store is a `Map` in the API process: the counter is per-process, it
@@ -156,18 +157,16 @@ function createFallbackStore() {
 }
 
 /**
- * One instance is shared by both auth call sites so the degraded counter holds
- * across them during an outage. Without sharing, two independent maps would
- * each count toward the same limit independently — an attacker would get double
- * the allowance until Redis recovers.
+ * One fallback instance is shared across every storage object created in this
+ * process, so a reconstruction during an outage does not reset the counter.
  */
 const sharedFallback = createFallbackStore();
 
 /**
  * The store Better Auth calls. `redis` is a parameter so the outage path can be
  * exercised by a test without an unreachable Redis. `fallback` is shared by
- * default so both auth instances count in the same bucket during an outage; a
- * test can supply its own.
+ * default so reconstructed auth storage keeps counting in the same bucket
+ * during an outage; a test can supply its own.
  */
 export function createAuthRateLimitStorage(
   redis: () => RateLimitRedis = getRateLimitRedis,
@@ -188,12 +187,7 @@ export function createAuthRateLimitStorage(
       const bucket = bucketFor(key, rule.window, nowMs);
       let count: number;
       try {
-        count = await incrementExpiringCounter(
-          redis() as EvalRedis,
-          bucket.key,
-          1,
-          rule.window,
-        );
+        count = await incrementExpiringCounter(redis() as EvalRedis, bucket.key, 1, rule.window);
       } catch (err) {
         degrade(err);
         count = fallback.increment(bucket.key, bucket.endsAtMs, nowMs);
@@ -245,11 +239,9 @@ export function createAuthRateLimitStorage(
 }
 
 /**
- * The `rateLimit` block for a Better Auth instance. Both instances take the
- * same one: they answer on the same paths, so a limit that held on only one of
- * them would be a limit an attacker picks their way around.
+ * The `rateLimit` block for Alfred's Better Auth instance.
  */
-export function authRateLimit(nodeEnv: string): RateLimitOptions {
+export function authRateLimit(nodeEnv: ServerEnv["NODE_ENV"]): RateLimitOptions {
   return {
     // Better Auth's own default, restated so a change to that default cannot
     // move it. Development and test stay OFF deliberately: a dev loop and a

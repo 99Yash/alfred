@@ -1,10 +1,22 @@
-import { db } from "@alfred/db";
-import { session as sessionTable } from "@alfred/db/schema/auth";
 import type { BetterAuthOptions } from "better-auth";
-import { eq } from "drizzle-orm";
+import { APIError, createAuthMiddleware } from "better-auth/api";
+
+type AuthDatabaseHooks = NonNullable<BetterAuthOptions["databaseHooks"]>;
+type NonSessionDatabaseHooks = Omit<AuthDatabaseHooks, "session">;
+type AuthRequestHooks = NonNullable<BetterAuthOptions["hooks"]>;
+type NonBeforeAuthRequestHooks = Omit<AuthRequestHooks, "before">;
+type AuthSessionPolicyInput = {
+  databaseHooks?: NonSessionDatabaseHooks;
+  hooks?: NonBeforeAuthRequestHooks;
+};
+type AuthSessionPolicy = {
+  session: NonNullable<BetterAuthOptions["session"]>;
+  databaseHooks: AuthDatabaseHooks;
+  hooks: AuthRequestHooks;
+};
 
 /**
- * The session lifetime both Better Auth instances run on (#454).
+ * The session lifetime Alfred's Better Auth instance runs on (#454).
  *
  * Alfred has one account, and that account holds Gmail read+write, Drive,
  * Calendar, a GitHub App, and the Notion / Vercel / Railway bearer tokens. So
@@ -19,8 +31,9 @@ import { eq } from "drizzle-orm";
  * The missing one is the absolute cap. Better Auth slides `expiresAt` forward
  * on every use (see {@link SESSION_SLIDE_SECONDS}), and it has no option that
  * bounds the total. A cookie in continuous use therefore renews itself for
- * ever. {@link SESSION_ABSOLUTE_MAX_SECONDS} is that bound, and
- * {@link isPastAbsoluteLifetime} is where it is applied.
+ * ever. {@link SESSION_ABSOLUTE_MAX_SECONDS} is that bound, and the session
+ * update hook returned by {@link authSessionPolicy} applies it before every
+ * sliding expiry reaches storage.
  */
 
 /**
@@ -55,10 +68,9 @@ const SESSION_SLIDE_SECONDS = 60 * 60 * 24;
  * with no session at all, so the gate would miss it while adding friction to
  * chat. See `docs/reference/auth.md`.
  *
- * The value is not inert. Better Auth's own `/list-sessions` and `/update-user`
- * routes refuse a session older than this. `/revoke-sessions` and
- * `/revoke-other-sessions` do NOT, which is what lets the Settings control work
- * from a session of any age.
+ * Better Auth uses this value for its own freshness checks. The verified route
+ * behavior and the Settings consequence are in `docs/reference/auth.md`, which
+ * is Alfred's local owner for that dependency detail.
  */
 const SESSION_FRESH_AGE_SECONDS = 60 * 60 * 24;
 
@@ -72,65 +84,100 @@ const SESSION_FRESH_AGE_SECONDS = 60 * 60 * 24;
  */
 const SESSION_ABSOLUTE_MAX_SECONDS = 60 * 60 * 24 * 30;
 
+function absoluteSessionDeadlineMs(createdMs: number): number {
+  return createdMs + SESSION_ABSOLUTE_MAX_SECONDS * 1000;
+}
+
+const absoluteLifetimeGuard = createAuthMiddleware(async (context) => {
+  const token = await context.getSignedCookie(
+    context.context.authCookies.sessionToken.name,
+    context.context.secret,
+  );
+  if (!token) return;
+
+  // The update hook cannot repair a pre-policy row before its first read:
+  // Better Auth accepts the old expiry, persists the clamp, then returns the
+  // updated session without checking that the clamp is already in the past.
+  // Retire such a row before any endpoint runs. The endpoint then performs its
+  // normal session read and cannot authorize with the removed row.
+  const current = await context.context.internalAdapter.findSession(token);
+  if (!current) return;
+
+  const deadlineMs = absoluteSessionDeadlineMs(current.session.createdAt.getTime());
+  if (!Number.isFinite(deadlineMs) || Date.now() >= deadlineMs) {
+    // Cleanup is best-effort for this request. Better Auth can swallow its
+    // pre-delete snapshot failure and skip the delete, so request admission
+    // must terminate independently of whether the row was removed.
+    await context.context.internalAdapter.deleteSession(token);
+    throw new APIError("UNAUTHORIZED");
+  }
+
+  if (current.session.expiresAt.getTime() > deadlineMs) {
+    // A pre-policy row can still carry a sliding expiry beyond the new cap.
+    // Normalize it before the endpoint's own session read so every downstream
+    // caller, including a policy-neutral HTTP cache, receives the native
+    // exclusive deadline instead of the legacy value.
+    context.context.session = current;
+    const normalized = await context.context.internalAdapter.updateSession(token, {
+      expiresAt: new Date(deadlineMs),
+    });
+    if (!normalized || normalized.expiresAt.getTime() > deadlineMs) {
+      throw new APIError("UNAUTHORIZED");
+    }
+    context.context.session = { ...current, session: normalized };
+  }
+});
+
 /**
- * The `session` block for a Better Auth instance. Both instances take the same
- * one: they read the same rows and answer on the same paths, so a lifetime that
- * held on only one of them would be a lifetime an attacker picks around.
+ * The complete session policy for a Better Auth instance.
+ *
+ * The input deliberately excludes the session database hook and the request
+ * `before` hook. Callers may add hooks for other models and an unrelated
+ * request `after` hook, but they cannot replace either absolute-cap boundary
+ * while doing so.
  */
-export function authSession(): NonNullable<BetterAuthOptions["session"]> {
+export function authSessionPolicy({
+  databaseHooks = {},
+  hooks = {},
+}: AuthSessionPolicyInput = {}): AuthSessionPolicy {
   return {
-    expiresIn: SESSION_IDLE_SECONDS,
-    updateAge: SESSION_SLIDE_SECONDS,
-    freshAge: SESSION_FRESH_AGE_SECONDS,
+    session: {
+      expiresIn: SESSION_IDLE_SECONDS,
+      updateAge: SESSION_SLIDE_SECONDS,
+      freshAge: SESSION_FRESH_AGE_SECONDS,
+    },
+    hooks: {
+      ...hooks,
+      before: absoluteLifetimeGuard,
+    },
+    databaseHooks: {
+      ...databaseHooks,
+      session: {
+        update: {
+          before: async (update, context) => {
+            if (update.expiresAt === undefined) return;
+
+            // Better Auth sends only the changed fields to an update hook. The
+            // immutable origin is on the authoritative session that its request
+            // middleware placed in context immediately before the slide.
+            const createdAt = context?.context.session?.session.createdAt;
+            const createdMs = createdAt instanceof Date ? createdAt.getTime() : Number.NaN;
+            const proposedMs = update.expiresAt.getTime();
+            if (!Number.isFinite(createdMs) || !Number.isFinite(proposedMs)) return false;
+
+            const idleDeadlineMs = Date.now() + SESSION_IDLE_SECONDS * 1000;
+            const absoluteDeadlineMs = absoluteSessionDeadlineMs(createdMs);
+            return {
+              data: {
+                ...update,
+                expiresAt: new Date(Math.min(proposedMs, idleDeadlineMs, absoluteDeadlineMs)),
+              },
+            };
+          },
+        },
+      },
+    },
   };
-}
-
-/**
- * Whether `secure` cookies — and therefore the `__Secure-` cookie name prefix —
- * are on.
- *
- * Better Auth composes the session cookie name as
- * `${__Secure- if secure}${cookiePrefix}.session_token`, and it decides
- * `secure` from, in order: this option, the `baseURL` protocol, then
- * `NODE_ENV`. The two instances pass different `baseURL` values — `auth()`
- * passes none and `sessionAuth()` passes `BETTER_AUTH_URL` — so without this
- * option they can disagree about the cookie NAME, and then one of them cannot
- * find the other's cookie. Naming the source of truth once removes that.
- *
- * `__Host-` is stronger and is not reachable here. Better Auth never writes it:
- * its cookie reader looks for `__Secure-${name}` or the bare name and nothing
- * else, so a `__Host-` name forced through `advanced.cookies` would be a cookie
- * Better Auth itself could no longer read.
- */
-export function authSecureCookies(nodeEnv: string): boolean {
-  return nodeEnv === "production";
-}
-
-/**
- * Whether a session has outlived {@link SESSION_ABSOLUTE_MAX_SECONDS}.
- *
- * Fails CLOSED on a `created_at` that does not parse. The column is a NOT NULL
- * timestamp, so an unreadable value means a corrupt row rather than a new
- * session, and the cost of being wrong is one sign-in.
- */
-export function isPastAbsoluteLifetime(
-  createdAt: Date | string | number,
-  nowMs: number = Date.now(),
-): boolean {
-  const createdMs = new Date(createdAt).getTime();
-  if (!Number.isFinite(createdMs)) return true;
-  return nowMs - createdMs >= SESSION_ABSOLUTE_MAX_SECONDS * 1000;
-}
-
-/**
- * Delete one session row by token.
- *
- * Deleting the row, rather than returning "no session" from one read path, is
- * what makes the cap hold everywhere: Better Auth's own mounted routes read the
- * same table and stop honouring the cookie the moment the row is gone.
- */
-export async function revokeSessionByToken(token: string): Promise<void> {
-  await db().delete(sessionTable).where(eq(sessionTable.token, token));
 }
 
 /** Read-only view of the numbers, for tests and for `docs/reference/auth.md`. */
