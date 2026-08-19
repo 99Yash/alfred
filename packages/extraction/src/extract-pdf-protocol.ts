@@ -1,0 +1,337 @@
+import type {
+  ExtractedPdf,
+  ExtractedPdfPage,
+  PdfDocumentType,
+  PdfExtractionLimitKind,
+  PdfExtractionLimits,
+} from "./extract-pdf";
+
+export type PdfExtractionChildReply =
+  | { readonly kind: "result"; readonly result: ExtractedPdf }
+  | {
+      readonly kind: "dependency_error";
+      readonly error: {
+        readonly source: "native_load" | "pdf_extraction";
+        readonly name: string;
+        readonly message: string;
+        readonly code?: string;
+      };
+    };
+
+export interface PdfExtractionChildRequest {
+  readonly limits: PdfExtractionLimits;
+  readonly bytes: Uint8Array;
+}
+
+const MAX_HEADER_BYTES = 4_096;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(record);
+  return actual.length === keys.length && actual.every((key) => keys.includes(key));
+}
+
+function positiveSafeInteger(name: string, value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
+  return value;
+}
+
+export function parsePdfExtractionLimits(value: unknown): PdfExtractionLimits {
+  if (!isRecord(value)) throw new RangeError("PDF extraction limits must be an object");
+  return {
+    maxBytes: positiveSafeInteger("maxBytes", value.maxBytes),
+    maxCharacters: positiveSafeInteger("maxCharacters", value.maxCharacters),
+    maxParseMilliseconds: positiveSafeInteger("maxParseMilliseconds", value.maxParseMilliseconds),
+  };
+}
+
+export function createPdfExtractionLimitResult(
+  limit: PdfExtractionLimitKind,
+  actual: number,
+  maximum: number,
+): ExtractedPdf {
+  const message =
+    limit === "input_bytes"
+      ? `PDF input byte limit exceeded: ${actual} > ${maximum}`
+      : limit === "output_characters"
+        ? `PDF output character limit exceeded: ${actual} > ${maximum}`
+        : `PDF parse deadline exceeded: ${actual}ms >= ${maximum}ms`;
+  return { kind: "limit_exceeded", limit, actual, maximum, message };
+}
+
+export function serializePdfExtractionChildRequest(
+  limits: PdfExtractionLimits,
+  bytes: Uint8Array,
+): Buffer {
+  const header = Buffer.from(`${JSON.stringify({ limits, byteLength: bytes.byteLength })}\n`);
+  const body = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return Buffer.concat([header, body]);
+}
+
+function parseRequestHeader(value: unknown): {
+  readonly limits: PdfExtractionLimits;
+  readonly byteLength: number;
+} {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["limits", "byteLength"])) {
+    throw new Error("Invalid PDF extraction child request header");
+  }
+  const limits = parsePdfExtractionLimits(value.limits);
+  const byteLength = value.byteLength;
+  if (typeof byteLength !== "number" || !Number.isSafeInteger(byteLength) || byteLength < 0) {
+    throw new Error("Invalid PDF extraction child request byte length");
+  }
+  if (byteLength > limits.maxBytes) {
+    throw new Error("PDF extraction child request exceeds maxBytes");
+  }
+  return { limits, byteLength };
+}
+
+export async function readPdfExtractionChildRequest(
+  input: NodeJS.ReadableStream & AsyncIterable<string | Buffer>,
+): Promise<PdfExtractionChildRequest> {
+  const headerParts: Buffer[] = [];
+  const bodyParts: Buffer[] = [];
+  let headerBytes = 0;
+  let bodyBytes = 0;
+  let header: { readonly limits: PdfExtractionLimits; readonly byteLength: number } | undefined;
+
+  for await (const inputChunk of input) {
+    let chunk = typeof inputChunk === "string" ? Buffer.from(inputChunk) : inputChunk;
+    if (header === undefined) {
+      const newline = chunk.indexOf(0x0a);
+      const headerChunk = newline === -1 ? chunk : chunk.subarray(0, newline);
+      headerBytes += headerChunk.byteLength;
+      if (headerBytes > MAX_HEADER_BYTES)
+        throw new Error("PDF extraction child header is too large");
+      headerParts.push(headerChunk);
+      if (newline === -1) continue;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(Buffer.concat(headerParts).toString("utf8"));
+      } catch (error) {
+        throw new Error("PDF extraction child header is not valid JSON", { cause: error });
+      }
+      header = parseRequestHeader(parsed);
+      chunk = chunk.subarray(newline + 1);
+    }
+
+    bodyBytes += chunk.byteLength;
+    if (bodyBytes > header.byteLength) {
+      throw new Error("PDF extraction child request has trailing bytes");
+    }
+    bodyParts.push(chunk);
+  }
+
+  if (header === undefined) throw new Error("PDF extraction child request has no header");
+  if (bodyBytes !== header.byteLength) throw new Error("PDF extraction child request is truncated");
+  return { limits: header.limits, bytes: new Uint8Array(Buffer.concat(bodyParts)) };
+}
+
+function parsePdfDocumentType(value: unknown): PdfDocumentType {
+  if (
+    value !== "text_based" &&
+    value !== "scanned" &&
+    value !== "image_based" &&
+    value !== "mixed"
+  ) {
+    throw new Error("Invalid PDF document type in child reply");
+  }
+  return value;
+}
+
+function nonnegativeSafeInteger(name: string, value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a nonnegative safe integer`);
+  }
+  return value;
+}
+
+function parsePage(value: unknown): ExtractedPdfPage {
+  if (!isRecord(value)) throw new Error("Invalid page in PDF extraction child reply");
+  const allowedKeys =
+    value.ocrReason === undefined
+      ? ["pageNumber", "markdown", "needsOcr"]
+      : ["pageNumber", "markdown", "needsOcr", "ocrReason"];
+  if (!hasOnlyKeys(value, allowedKeys)) throw new Error("Invalid page fields in child reply");
+  const pageNumber = positiveSafeInteger("pageNumber", value.pageNumber);
+  if (typeof value.markdown !== "string" || typeof value.needsOcr !== "boolean") {
+    throw new Error("Invalid page values in PDF extraction child reply");
+  }
+  if (value.ocrReason !== undefined && typeof value.ocrReason !== "string") {
+    throw new Error("Invalid page OCR reason in PDF extraction child reply");
+  }
+  return {
+    pageNumber,
+    markdown: value.markdown,
+    needsOcr: value.needsOcr,
+    ...(value.ocrReason === undefined ? {} : { ocrReason: value.ocrReason }),
+  };
+}
+
+function parseResult(value: unknown): ExtractedPdf {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw new Error("Invalid PDF extraction result in child reply");
+  }
+
+  switch (value.kind) {
+    case "encrypted":
+      if (!hasOnlyKeys(value, ["kind"])) throw new Error("Invalid encrypted result fields");
+      return { kind: "encrypted" };
+    case "invalid": {
+      if (!hasOnlyKeys(value, ["kind", "cause", "reason"])) {
+        throw new Error("Invalid rejected PDF result fields");
+      }
+      if (value.cause !== "not_a_pdf" && value.cause !== "damaged") {
+        throw new Error("Invalid rejected PDF cause");
+      }
+      if (typeof value.reason !== "string") throw new Error("Invalid rejected PDF reason");
+      return { kind: "invalid", cause: value.cause, reason: value.reason };
+    }
+    case "needs_ocr": {
+      if (!hasOnlyKeys(value, ["kind", "pdfType", "pageCount"])) {
+        throw new Error("Invalid needs-OCR result fields");
+      }
+      return {
+        kind: "needs_ocr",
+        pdfType: parsePdfDocumentType(value.pdfType),
+        pageCount: nonnegativeSafeInteger("pageCount", value.pageCount),
+      };
+    }
+    case "text_without_pages": {
+      if (!hasOnlyKeys(value, ["kind", "pdfType", "pageCount", "text"])) {
+        throw new Error("Invalid page-free text result fields");
+      }
+      if (typeof value.text !== "string") throw new Error("Invalid page-free PDF text");
+      return {
+        kind: "text_without_pages",
+        pdfType: parsePdfDocumentType(value.pdfType),
+        pageCount: nonnegativeSafeInteger("pageCount", value.pageCount),
+        text: value.text,
+      };
+    }
+    case "extracted": {
+      if (
+        !hasOnlyKeys(value, ["kind", "pdfType", "pageCount", "pages", "pagesNeedingOcr", "text"])
+      ) {
+        throw new Error("Invalid extracted PDF result fields");
+      }
+      if (!Array.isArray(value.pages) || !Array.isArray(value.pagesNeedingOcr)) {
+        throw new Error("Invalid extracted PDF arrays");
+      }
+      if (typeof value.text !== "string") throw new Error("Invalid extracted PDF text");
+      const pages = value.pages.map(parsePage);
+      const pageCount = nonnegativeSafeInteger("pageCount", value.pageCount);
+      if (
+        pageCount !== pages.length ||
+        pages.some((page, index) => page.pageNumber !== index + 1)
+      ) {
+        throw new Error("Invalid extracted PDF page sequence");
+      }
+      const pagesNeedingOcr = value.pagesNeedingOcr.map((page) =>
+        positiveSafeInteger("pagesNeedingOcr", page),
+      );
+      const derivedOcrPages = pages.filter((page) => page.needsOcr).map((page) => page.pageNumber);
+      if (
+        pagesNeedingOcr.length !== derivedOcrPages.length ||
+        pagesNeedingOcr.some((page, index) => page !== derivedOcrPages[index])
+      ) {
+        throw new Error("Invalid extracted PDF OCR page list");
+      }
+      return {
+        kind: "extracted",
+        pdfType: parsePdfDocumentType(value.pdfType),
+        pageCount,
+        pages,
+        pagesNeedingOcr,
+        text: value.text,
+      };
+    }
+    case "limit_exceeded": {
+      if (!hasOnlyKeys(value, ["kind", "limit", "actual", "maximum", "message"])) {
+        throw new Error("Invalid PDF limit result fields");
+      }
+      if (
+        value.limit !== "input_bytes" &&
+        value.limit !== "output_characters" &&
+        value.limit !== "parse_milliseconds"
+      ) {
+        throw new Error("Invalid PDF limit kind");
+      }
+      const actual = nonnegativeSafeInteger("actual", value.actual);
+      const maximum = positiveSafeInteger("maximum", value.maximum);
+      if (typeof value.message !== "string" || actual < maximum) {
+        throw new Error("Invalid PDF limit result values");
+      }
+      return {
+        kind: "limit_exceeded",
+        limit: value.limit,
+        actual,
+        maximum,
+        message: value.message,
+      };
+    }
+    default:
+      throw new Error("Unknown PDF extraction result kind in child reply");
+  }
+}
+
+function parseDependencyError(value: unknown): PdfExtractionChildReply {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["kind", "error"]) || !isRecord(value.error)) {
+    throw new Error("Invalid PDF dependency error reply");
+  }
+  const allowedErrorKeys =
+    value.error.code === undefined
+      ? ["source", "name", "message"]
+      : ["source", "name", "message", "code"];
+  if (!hasOnlyKeys(value.error, allowedErrorKeys))
+    throw new Error("Invalid dependency error fields");
+  if (value.error.source !== "native_load" && value.error.source !== "pdf_extraction") {
+    throw new Error("Invalid dependency error source");
+  }
+  if (typeof value.error.name !== "string" || typeof value.error.message !== "string") {
+    throw new Error("Invalid dependency error values");
+  }
+  if (value.error.code !== undefined && typeof value.error.code !== "string") {
+    throw new Error("Invalid dependency error code");
+  }
+  return {
+    kind: "dependency_error",
+    error: {
+      source: value.error.source,
+      name: value.error.name,
+      message: value.error.message,
+      ...(value.error.code === undefined ? {} : { code: value.error.code }),
+    },
+  };
+}
+
+export function parsePdfExtractionChildReply(output: Buffer): PdfExtractionChildReply {
+  if (output.length === 0 || output.at(-1) !== 0x0a) {
+    throw new Error("PDF extraction child reply must end with one newline");
+  }
+  const line = output.subarray(0, -1);
+  if (line.includes(0x0a)) throw new Error("PDF extraction child returned more than one reply");
+
+  let value: unknown;
+  try {
+    value = JSON.parse(line.toString("utf8"));
+  } catch (error) {
+    throw new Error("PDF extraction child reply is not valid JSON", { cause: error });
+  }
+  if (!isRecord(value) || (value.kind !== "result" && value.kind !== "dependency_error")) {
+    throw new Error("Invalid PDF extraction child reply");
+  }
+  if (value.kind === "dependency_error") return parseDependencyError(value);
+  if (!hasOnlyKeys(value, ["kind", "result"])) throw new Error("Invalid PDF result reply fields");
+  return { kind: "result", result: parseResult(value.result) };
+}
+
+export function serializePdfExtractionChildReply(reply: PdfExtractionChildReply): string {
+  return `${JSON.stringify(reply)}\n`;
+}

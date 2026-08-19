@@ -177,6 +177,9 @@ importers:
       '@alfred/env':
         specifier: workspace:*
         version: link:../../packages/env
+      '@alfred/extraction':
+        specifier: workspace:*
+        version: link:../../packages/extraction
       '@alfred/http':
         specifier: workspace:*
         version: link:../../packages/http
