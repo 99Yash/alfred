@@ -1,0 +1,22 @@
+{
+  "name": "@alfred/extraction",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json",
+    "test": "tsx --test --test-force-exit \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@firecrawl/pdf-inspector": "catalog:"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "tsx": "^4.21.0"
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  }
+}
