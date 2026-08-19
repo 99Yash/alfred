@@ -94,6 +94,24 @@ export function createPdfExtractionLimitResult(
   return { kind: "limit_exceeded", limit, actual, maximum, message };
 }
 
+function isValidLimitActual(
+  limit: PdfExtractionLimitKind,
+  actual: number,
+  maximum: number,
+): boolean {
+  switch (limit) {
+    case "input_bytes":
+    case "output_characters":
+      return actual > maximum;
+    case "parse_milliseconds":
+      return actual >= maximum;
+    default: {
+      const _exhaustive: never = limit;
+      return _exhaustive;
+    }
+  }
+}
+
 interface MetadataField {
   readonly kind: "metadata";
 }
@@ -115,6 +133,17 @@ type ExtractedPdfOfKind<Kind extends ExtractedPdf["kind"]> = Extract<
 type ExtractedPdfContentFieldClassifications = {
   readonly [Kind in ExtractedPdf["kind"]]: ContentFieldClassification<ExtractedPdfOfKind<Kind>>;
 };
+
+type PdfExtractionClassifiedFields =
+  | ContentFieldClassification<ExtractedPdfPage>
+  | ExtractedPdfContentFieldClassifications[ExtractedPdf["kind"]];
+
+function hasOnlyClassifiedFields(
+  record: Record<string, unknown>,
+  fields: PdfExtractionClassifiedFields,
+): boolean {
+  return hasOnlyKeys(record, Object.keys(fields));
+}
 
 const METADATA_FIELD = { kind: "metadata" } as const satisfies MetadataField;
 
@@ -323,10 +352,9 @@ function nonnegativeSafeInteger(name: string, value: unknown): number {
 
 function parsePage(value: unknown): ExtractedPdfPage {
   if (!isRecord(value)) throw new Error("Invalid page in PDF extraction child reply");
-  const allowedKeys =
-    value.ocrReason === undefined
-      ? ["pageNumber", "markdown", "needsOcr"]
-      : ["pageNumber", "markdown", "needsOcr", "ocrReason"];
+  const allowedKeys = Object.keys(PDF_EXTRACTION_PAGE_CONTENT_FIELDS).filter(
+    (key) => key !== "ocrReason" || value.ocrReason !== undefined,
+  );
   if (!hasOnlyKeys(value, allowedKeys)) throw new Error("Invalid page fields in child reply");
   const pageNumber = positiveSafeInteger("pageNumber", value.pageNumber);
   if (typeof value.markdown !== "string" || typeof value.needsOcr !== "boolean") {
@@ -351,10 +379,12 @@ function parseResult(value: unknown): ExtractedPdf {
   const { kind } = value;
   switch (kind) {
     case "encrypted":
-      if (!hasOnlyKeys(value, ["kind"])) throw new Error("Invalid encrypted result fields");
+      if (!hasOnlyClassifiedFields(value, PDF_EXTRACTION_RESULT_CONTENT_FIELDS.encrypted)) {
+        throw new Error("Invalid encrypted result fields");
+      }
       return { kind: "encrypted" };
     case "invalid": {
-      if (!hasOnlyKeys(value, ["kind", "cause", "reason"])) {
+      if (!hasOnlyClassifiedFields(value, PDF_EXTRACTION_RESULT_CONTENT_FIELDS.invalid)) {
         throw new Error("Invalid rejected PDF result fields");
       }
       if (value.cause !== "not_a_pdf" && value.cause !== "damaged") {
@@ -364,7 +394,7 @@ function parseResult(value: unknown): ExtractedPdf {
       return { kind: "invalid", cause: value.cause, reason: value.reason };
     }
     case "needs_ocr": {
-      if (!hasOnlyKeys(value, ["kind", "pdfType", "pageCount"])) {
+      if (!hasOnlyClassifiedFields(value, PDF_EXTRACTION_RESULT_CONTENT_FIELDS.needs_ocr)) {
         throw new Error("Invalid needs-OCR result fields");
       }
       return {
@@ -374,7 +404,9 @@ function parseResult(value: unknown): ExtractedPdf {
       };
     }
     case "text_without_pages": {
-      if (!hasOnlyKeys(value, ["kind", "pdfType", "pageCount", "text"])) {
+      if (
+        !hasOnlyClassifiedFields(value, PDF_EXTRACTION_RESULT_CONTENT_FIELDS.text_without_pages)
+      ) {
         throw new Error("Invalid page-free text result fields");
       }
       if (typeof value.text !== "string") throw new Error("Invalid page-free PDF text");
@@ -386,9 +418,7 @@ function parseResult(value: unknown): ExtractedPdf {
       };
     }
     case "extracted": {
-      if (
-        !hasOnlyKeys(value, ["kind", "pdfType", "pageCount", "pages", "pagesNeedingOcr", "text"])
-      ) {
+      if (!hasOnlyClassifiedFields(value, PDF_EXTRACTION_RESULT_CONTENT_FIELDS.extracted)) {
         throw new Error("Invalid extracted PDF result fields");
       }
       if (!Array.isArray(value.pages) || !Array.isArray(value.pagesNeedingOcr)) {
@@ -423,7 +453,7 @@ function parseResult(value: unknown): ExtractedPdf {
       };
     }
     case "limit_exceeded": {
-      if (!hasOnlyKeys(value, ["kind", "limit", "actual", "maximum", "message"])) {
+      if (!hasOnlyClassifiedFields(value, PDF_EXTRACTION_RESULT_CONTENT_FIELDS.limit_exceeded)) {
         throw new Error("Invalid PDF limit result fields");
       }
       if (!isPdfExtractionLimitKind(value.limit)) {
@@ -431,7 +461,8 @@ function parseResult(value: unknown): ExtractedPdf {
       }
       const actual = nonnegativeSafeInteger("actual", value.actual);
       const maximum = positiveSafeInteger("maximum", value.maximum);
-      if (typeof value.message !== "string" || actual < maximum) {
+      const expectedMessage = PDF_EXTRACTION_LIMIT_MESSAGES[value.limit](actual, maximum);
+      if (value.message !== expectedMessage || !isValidLimitActual(value.limit, actual, maximum)) {
         throw new Error("Invalid PDF limit result values");
       }
       return {

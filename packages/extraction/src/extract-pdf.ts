@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -135,7 +136,7 @@ async function runPdfExtractionChild(
   limits: PdfExtractionLimits,
   options: PdfExtractorChildOptions,
 ): Promise<ExtractedPdf> {
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const spawnDefault = () =>
     spawn(
       process.execPath,
@@ -176,11 +177,24 @@ async function runPdfExtractionChild(
       killChild();
     };
 
+    const childExitError = (code: number | null, signal: NodeJS.Signals | null) =>
+      new Error(
+        `PDF extraction child exited with code ${String(code)} and signal ${signal ?? "none"}`,
+      );
+
+    const recordExitedChildFailure = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (terminalCause !== undefined || code === 0) return;
+      terminalCause = {
+        kind: "process_failure",
+        error: childExitError(code, signal),
+      };
+    };
+
     const stopForDeadline = () => {
       if (terminalCause !== undefined) return;
       terminalCause = {
         kind: "deadline",
-        actual: Math.max(limits.maxParseMilliseconds, Date.now() - startedAt),
+        actual: Math.max(limits.maxParseMilliseconds, Math.ceil(performance.now() - startedAt)),
       };
       killChild();
     };
@@ -204,6 +218,8 @@ async function runPdfExtractionChild(
     child.once("error", (error) => {
       stopForFailure(error);
     });
+
+    child.once("exit", recordExitedChildFailure);
 
     child.stdin.once("error", (error) => {
       stopForFailure(error);
@@ -229,13 +245,7 @@ async function runPdfExtractionChild(
       }
 
       if (code !== 0) {
-        reject(
-          new PdfExtractionError(
-            new Error(
-              `PDF extraction child exited with code ${String(code)} and signal ${signal ?? "none"}`,
-            ),
-          ),
-        );
+        reject(new PdfExtractionError(childExitError(code, signal)));
         return;
       }
 
@@ -274,7 +284,7 @@ async function runPdfExtractionChild(
       }
     });
 
-    const remainingMilliseconds = limits.maxParseMilliseconds - (Date.now() - startedAt);
+    const remainingMilliseconds = limits.maxParseMilliseconds - (performance.now() - startedAt);
     if (remainingMilliseconds <= 0) {
       stopForDeadline();
       return;
