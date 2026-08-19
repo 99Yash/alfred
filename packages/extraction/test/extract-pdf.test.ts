@@ -81,11 +81,38 @@
 //   d = bytearray(open("born-digital-two-page.pdf", "rb").read())
 //   for off, val in ((178, 107), (559, 221), (1121, 141)): d[off] = val
 //   open("damaged-text-surface.pdf", "wb").write(bytes(d))
+//
+//   # Round 4's two documents, one for each direction of the rule that page
+//   # EMPTINESS is not page COVERAGE. A searchable scan whose every page also
+//   # carries a VISIBLE footer: the footer alone makes per-page markdown
+//   # non-empty (28 characters) while the invisible layer behind the image holds
+//   # 1,408. The font size is load-bearing — an 8pt footer reads as noise and the
+//   # page comes back empty, which is a different fixture.
+//   c6 = canvas.Canvas("stamped-searchable-scan.pdf", pagesize=(612, 792))
+//   for n in (1, 2):
+//       img4 = Image.new("RGB", (1224, 1584), "white")
+//       ImageDraw.Draw(img4).text((100, 100), "SCANNED PAGE MARKER charlie", fill="black")
+//       b4 = io.BytesIO(); img4.save(b4, format="PNG"); b4.seek(0)
+//       c6.drawImage(ImageReader(b4), 0, 0, width=612, height=792)
+//       t6 = c6.beginText(72, 700); t6.setFont("Helvetica", 12); t6.setTextRenderMode(3)
+//       for _ in range(10): t6.textLine(LINE)
+//       c6.drawText(t6)
+//       c6.setFont("Helvetica", 12); c6.drawString(72, 36, "Page %d of 2" % n)
+//       c6.showPage()
+//   c6.save()
+//
+//   # A complete born-digital document with one BLANK separator sheet in it.
+//   c7 = canvas.Canvas("blank-separator-page.pdf", pagesize=LETTER)
+//   c7.setFont("Helvetica", 14); c7.drawString(72, 700, "PAGE ONE MARKER alpha"); c7.showPage()
+//   c7.showPage()
+//   c7.setFont("Helvetica", 14); c7.drawString(72, 700, "PAGE THREE MARKER charlie"); c7.showPage()
+//   c7.save()
 //   PY
 //
 // Deliberately NOT asserted: confidence scores, processing times, or the exact
 // wording of `ocrReason`. Those are the vendor's self-report, not behavior a door
-// depends on.
+// depends on. `PdfExtractionError` has no fixture either — it needs a non-vendor
+// error out of the library, and no document can produce one.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
@@ -159,6 +186,9 @@ test("bytes that are not a PDF are `invalid`", async () => {
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
+  // The closed reading a door branches on. These bytes were never a PDF, so a
+  // door that has a plain-text path may take it.
+  assert.equal(result.cause, "not_a_pdf");
   // The reason is the vendor's, minus its `"<rust_fn>: "` prefix.
   assert.equal(result.reason, "Not a PDF: file appears to be plain text");
 });
@@ -168,6 +198,11 @@ test("a truncated PDF is `invalid` too — a second vendor message, one kind", a
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
+  // Real PDF bytes the parser could not finish. Same `kind` as the fixture
+  // above, different `cause` — which is the whole point of the field: a door
+  // tells the two apart without matching a substring this module already
+  // matched.
+  assert.equal(result.cause, "damaged");
   assert.equal(result.reason, "Invalid PDF structure");
 });
 
@@ -203,12 +238,11 @@ test("an `ImageBased` scan with a readable cover page is `extracted`, cover text
   assert.deepEqual(result.pagesNeedingOcr, [2, 3, 4]);
   assert.equal(result.pageCount, result.pages.length);
 
-  // Three of its four pages read nothing, so the document text is consulted and
-  // reported — and here it holds 23 characters against the pages' 26. That is
-  // the measurement behind the docstring: `text` is not a longer answer, and a
-  // door that picked whichever string is longer would pick wrongly on this very
-  // document. It is present because a page went unread, not because it wins.
-  assert.equal(result.text?.trim(), "COVER PAGE MARKER delta");
+  // The document reading holds 23 characters against the pages' 26. That is the
+  // measurement behind the docstring: `text` is not a longer answer, and a door
+  // that picked whichever string is longer would pick wrongly on this very
+  // document.
+  assert.equal(result.text.trim(), "COVER PAGE MARKER delta");
 });
 
 test("a cover page in front of a searchable scan keeps the scan's text", async () => {
@@ -232,23 +266,72 @@ test("a cover page in front of a searchable scan keeps the scan's text", async (
 
   // …and the third page's text survives at document level, where it is true: the
   // vendor said which page the first two came from and never said it for this.
-  assert.match(result.text ?? "", /Alfred reads a PDF deterministically/);
+  assert.match(result.text, /Alfred reads a PDF deterministically/);
   // `text` covers the WHOLE document, pages included. It overlaps `pages`; it is
   // not the remainder.
-  assert.match(result.text ?? "", /PAGE ONE MARKER alpha/);
+  assert.match(result.text, /PAGE ONE MARKER alpha/);
 });
 
-test("a document whose every page reads carries no document text", async () => {
-  // The negative control for the field above. Both pages read, so the third
-  // vendor surface is never asked and `extracted` carries pages alone.
+test("a document whose every page reads still carries the document text", async () => {
+  // `text` is unconditional. Nothing about these two pages is wrong, and the
+  // document reading arrives anyway — so its presence says nothing about
+  // whether the pages failed.
   const result = await extractPdf(await fixture("born-digital-two-page.pdf"), {
     maxBytes: NO_CAP,
   });
 
   assert.equal(result.kind, "extracted");
   if (result.kind !== "extracted") return;
-  assert.equal(result.text, undefined);
-  assert.ok(!("text" in result));
+  assert.match(result.text, /PAGE ONE MARKER alpha/);
+  assert.match(result.text, /PAGE TWO MARKER bravo/);
+});
+
+// The two documents below are the reason `text` is unconditional. Page EMPTINESS
+// was the condition until round 4 of this item's review, and page emptiness is
+// not page coverage: it is wrong in both directions, and each direction has a
+// fixture here.
+
+test("a searchable scan whose pages carry a footer still delivers its whole text", async () => {
+  // Every page reads — a visible `Page 1 of 2` footer is enough — so an "every
+  // page read" condition skips the document surface and hands the door 28
+  // characters of 1,408. The vendor reports nothing: `needsOcr` is false on
+  // every page, so no later layer could detect the loss.
+  const result = await extractPdf(await fixture("stamped-searchable-scan.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  assert.equal(result.kind, "extracted");
+  if (result.kind !== "extracted") return;
+  assert.deepEqual(result.pagesNeedingOcr, []);
+  assert.deepEqual(
+    result.pages.map((page) => page.markdown.trim()),
+    ["## Page 1 of 2", "## Page 2 of 2"],
+  );
+
+  // The scan's invisible OCR layer, which no page reported and which is most of
+  // the document.
+  assert.match(result.text, /Alfred reads a PDF deterministically/);
+  assert.ok(result.text.length > 1000, `the whole document, not ${result.text.length} characters`);
+});
+
+test("a blank separator page does not cost a complete document its page numbers", async () => {
+  // The other direction. One blank sheet made the old condition true and
+  // attached `text` to a document whose pages were complete; a door that read
+  // `text` first — as the README exemplar once told it to — then dropped every
+  // page number. The pages are the citation anchor, so they come first now.
+  const result = await extractPdf(await fixture("blank-separator-page.pdf"), {
+    maxBytes: NO_CAP,
+  });
+
+  assert.equal(result.kind, "extracted");
+  if (result.kind !== "extracted") return;
+  assert.deepEqual(
+    result.pages.map((page) => page.pageNumber),
+    [1, 2, 3],
+  );
+  assert.match(result.pages[0]?.markdown ?? "", /PAGE ONE MARKER alpha/);
+  assert.equal(result.pages[1]?.markdown.trim(), "");
+  assert.match(result.pages[2]?.markdown ?? "", /PAGE THREE MARKER charlie/);
 });
 
 // The two documents below are the reason the pages are not the last word either.
@@ -320,6 +403,9 @@ test("a PDF whose newlines were rewritten LF to CRLF is `invalid`, not a throw",
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
+  // An unrecognized message reads as `damaged`, which is the safe side: these
+  // ARE PDF bytes, so a door must not offer them to its plain-text path.
+  assert.equal(result.cause, "damaged");
   // The vendor's own reason survives, minus its `"<rust_fn>: "` prefix, so a door
   // can report what went wrong without this module having predicted the wording.
   assert.match(result.reason, /invalid file trailer/);

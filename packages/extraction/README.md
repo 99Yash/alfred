@@ -10,12 +10,11 @@ import { extractPdf } from "@alfred/extraction";
 const result = await extractPdf(bytes, { maxBytes: 20_000_000 });
 switch (result.kind) {
   case "extracted":
-    if (result.text !== undefined) {
-      // Some page in `pages` read nothing, so the document's own text came back
-      // too. It covers the WHOLE document — the pages included — so a door reads
-      // one or the other and never concatenates them.
-      return `${result.pageCount} page(s), ${result.pagesNeedingOcr.length} unread: ${result.text}`;
-    }
+    // `pages` FIRST, always. They are the only reading that carries a page
+    // number, so every quote and every citation comes from here. `result.text`
+    // holds the same document as one string with no page boundary in it — read
+    // it to judge how much of the document the pages hold, never to replace
+    // them, and never concatenate the two.
     return result.pages.map((page) => `p${page.pageNumber}: ${page.markdown}`);
   case "text_without_pages":
     // Real text, and no page number for it. Cite the document, never a page.
@@ -25,7 +24,9 @@ switch (result.kind) {
   case "encrypted":
     return "the document is password-protected";
   case "invalid":
-    return `not a readable PDF: ${result.reason}`;
+    // `cause` is closed: `not_a_pdf` means the bytes were never a PDF, so a door
+    // with a plain-text path may take it. `damaged` has no fallback.
+    return `not a readable PDF (${result.cause}): ${result.reason}`;
   case "too_large":
     return `${result.byteLength} bytes is above the ${result.maxBytes} byte cap`;
   default: {
@@ -55,29 +56,48 @@ not the last word either: a scan with an invisible OCR text layer — what an of
 copier produces — returns empty markdown on every page while `extractText` returns
 the whole document.
 
-That second question is asked **per page, never per document**. A born-digital
-cover sheet in front of a searchable scan reads on page 1 and nowhere else, so a
-document-level test would answer `extracted`, hand back the cover sheet, and drop
-the body — 50 characters of 739 on the tracked fixture. So `extractPdf` reads
-three surfaces:
+So `extractPdf` reads three surfaces on **every** document, with no condition on
+any of them:
 
-1. any page holds text → `extracted`, carrying every page in `pages`, **plus
-   `text`** — the whole document — whenever some other page read nothing;
+1. any page holds text → `extracted`, carrying every page in `pages` **and** the
+   whole document in `text`;
 2. no page holds text and `extractText` does → `text_without_pages`, carrying that
    text and **no page number**, because nothing said which page it came from;
 3. otherwise → `needs_ocr`, meaning no surface of the library read one character.
 
-`text` is the whole document, so it OVERLAPS `pages` rather than extending them,
-and it is not simply the longer of the two. Which one a door should read is
-deliberately open; the field's own docstring says so, and the first door that
-proves what it needs settles it inside this package.
+**`pages` cite. `text` completes.** The two readings answer different questions,
+and the package hands both to the door rather than choosing:
+
+- `pages` is the **citation anchor**. Every door that quotes a document renders
+  `pages` and states their page numbers. `text` never replaces them, because it
+  carries no page boundary and attributing it to page 1 would be the fabrication
+  this package exists to prevent.
+- `text` is the **completeness reading**. It covers the whole document, so it
+  OVERLAPS `pages` rather than extending them, and it is not simply the longer of
+  the two: on `image-based-text-cover.pdf` the pages hold 26 characters and `text`
+  holds 23.
+
+**`text` proves nothing about coverage in either direction.** Its presence is not
+evidence the pages failed, and its emptiness is not evidence the pages are
+complete. The package deliberately emits **no coverage verdict**, because it
+cannot compute one and the vendor emits no signal for it. Two tracked fixtures say
+why an earlier rule — read `text` only when some page's markdown is empty — was
+wrong on both sides:
+
+- `stamped-searchable-scan.pdf` is a searchable scan whose pages each carry a
+  visible `Page 1 of 2` footer. Every page reads, and the pages hold **28
+  characters of 1,408**. The vendor flags nothing: `needsOcr` is `false` and
+  `pagesNeedingOcr` is empty, so no later layer could detect the loss.
+- `blank-separator-page.pdf` is a complete born-digital document with one blank
+  sheet in the middle. One empty page said nothing about the other two, and a door
+  that read `text` first would have thrown away all three page numbers.
 
 `extractText` can fail on bytes the two parses accepted. It is only ever asked to
 improve an answer, so its failure never overturns one: the document keeps the
 verdict its pages earned.
 
-Each of the three has a tracked fixture, and `needs_ocr` has a negative control:
-`scanned-single-page.pdf` and `scanned-with-text-layer.pdf` show the same
+Each of the three variants has a tracked fixture, and `needs_ocr` has a negative
+control: `scanned-single-page.pdf` and `scanned-with-text-layer.pdf` show the same
 per-page evidence and get different answers. `pdfType` is metadata a door may
 show, never a verdict.
 
@@ -88,16 +108,21 @@ failure the vendor's parser raises, not the ones this package thought of: a PDF
 copied in text mode fails with `"PDF parsing error: couldn't parse input: invalid
 file trailer"`, a message no substring table written before it could match, and it
 still returns `invalid` carrying that reason. The vendor's message vocabulary is
-open, so the message chooses `encrypted` over `invalid` and nothing more.
+open, so the message chooses `encrypted` over `invalid`, and `not_a_pdf` over
+`damaged`, and nothing more. An unrecognized message reads as `damaged`, which is
+the safe side: a door declines its plain-text fallback rather than showing a user
+PDF syntax.
 
 `extractPdf` still throws, in two cases, and both mean a dependency problem rather
 than a fact about the document:
 
 1. the native binary cannot load — no platform build, or a failed
-   optional-dependency install;
+   optional-dependency install. That rejects with the library's own error;
 2. an error that is not a vendor parser failure escapes — an out-of-memory, a
-   programming error, an unrelated host fault. Reporting one of those as "your PDF
-   is corrupt" is what this rethrow prevents.
+   programming error, an unrelated host fault. That arrives as
+   `PdfExtractionError`, whose message names this package, the vendor and the
+   vendor's `code`, and whose `cause` is the original error. Reporting one of
+   those as "your PDF is corrupt" is what the wrapper prevents.
 
 A door that wants to survive both reports the throw on its dependency-outage path.
 
@@ -118,11 +143,12 @@ build-allow entry to maintain.
 
 Every library failure arrives as `Error` with `code: "GenericFailure"` and a
 message shaped `"<rust_fn>: <reason>"`. There is no typed error class, so the
-message substring is the only way to tell an encrypted PDF from a corrupt one — and
-that is the only question the message answers here. The version is therefore pinned
-with no caret, and `test/fixtures/` holds a document for it: a reword becomes a red
-CI row instead of Alfred telling somebody their password-protected statement is a
-corrupt file.
+message substring is the only way to tell an encrypted PDF from a corrupt one, and
+a corrupt one from bytes that were never a PDF. Those are the only two questions
+the message answers here. The version is therefore pinned with no caret, and
+`test/fixtures/` holds a document for each row: a reword becomes a red CI row
+instead of Alfred telling somebody their password-protected statement is a corrupt
+file.
 
 The pin lives in the `pnpm-workspace.yaml` `catalog:` block, and both manifests
 that need it — this package and `apps/server` — say `"catalog:"`. Two manifests
