@@ -46,6 +46,13 @@ jobs:
       - name: Verify architecture, boundaries, style, and types
         run: corepack pnpm verify:fast
 
+      - name: Build and smoke-test the PDF extraction child
+        run: |
+          corepack pnpm --filter server build
+          test -f apps/server/dist/extract-pdf-child.js
+          reply=$(printf '%s\nx' '{"limits":{"maxBytes":100,"maxCharacters":1000,"maxParseMilliseconds":5000},"byteLength":1}' | node apps/server/dist/extract-pdf-child.js)
+          REPLY="$reply" node -e 'const reply = JSON.parse(process.env.REPLY); if (reply.kind !== "result" || reply.result.kind !== "invalid") process.exit(1)'
+
   # TWO http jobs, and they prove different claims. `http-tests` runs the whole
   # `packages/http/test` glob against real Postgres and Redis, because a file in
   # that tree may guard itself with a `{ skip: … }` option and a skipped test
@@ -417,7 +424,7 @@ jobs:
   # per package is SIX jobs for these six packages: it repeats the 20-line setup
   # preamble six times instead of twice and the 48-line services-and-env block
   # twice instead of once, which is over 100 extra lines of duplicated YAML for
-  # the same 30 test files (auth 6, artifacts-design 1, sync 1, extraction 1,
+  # the same 31 test files (auth 6, artifacts-design 1, sync 1, extraction 2,
   # corpus 2, integrations 19). Attribution is kept by one NAMED step per package,
   # so a red row names the package that broke. The cost admitted: steps run in
   # sequence, so a red step hides every step after it in the same job. That cost

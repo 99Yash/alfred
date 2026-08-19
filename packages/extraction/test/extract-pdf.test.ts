@@ -117,19 +117,23 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { extractPdf } from "../src/extract-pdf";
+import { createPdfExtractor } from "../src/extract-pdf";
+import { extractPdfCore } from "../src/extract-pdf-core";
 
 /** Larger than every fixture, so a test that is not about the cap never hits it. */
 const NO_CAP = 10_000_000;
+const extractPdf = createPdfExtractor({
+  maxBytes: NO_CAP,
+  maxCharacters: NO_CAP,
+  maxParseMilliseconds: 30_000,
+});
 
 async function fixture(name: string): Promise<Uint8Array> {
   return new Uint8Array(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
 }
 
 test("a born-digital PDF reports one page per page, numbered from 1", async () => {
-  const result = await extractPdf(await fixture("born-digital-two-page.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("born-digital-two-page.pdf"));
 
   assert.equal(result.kind, "extracted");
   if (result.kind !== "extracted") return;
@@ -157,9 +161,7 @@ test("a scanned PDF with no text layer is `needs_ocr` and asserts no page at all
   // The negative control for `text_without_pages` below: same shape of document —
   // one page image, empty markdown, `needsOcr` — but no text layer behind it, so
   // no vendor surface reads a character and `needs_ocr` is the true answer.
-  const result = await extractPdf(await fixture("scanned-single-page.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("scanned-single-page.pdf"));
 
   assert.equal(result.kind, "needs_ocr");
   if (result.kind !== "needs_ocr") return;
@@ -176,13 +178,13 @@ test("a scanned PDF with no text layer is `needs_ocr` and asserts no page at all
 test("an encrypted PDF is `encrypted`, not `invalid`", async () => {
   // This is the test that catches a vendor message reword: every library failure
   // shares `code: "GenericFailure"`, so the message is the only discriminator.
-  const result = await extractPdf(await fixture("encrypted-aes128.pdf"), { maxBytes: NO_CAP });
+  const result = await extractPdf(await fixture("encrypted-aes128.pdf"));
 
   assert.equal(result.kind, "encrypted");
 });
 
 test("bytes that were never a PDF are `not_a_pdf`", async () => {
-  const result = await extractPdf(await fixture("not-a-pdf.bin"), { maxBytes: NO_CAP });
+  const result = await extractPdf(await fixture("not-a-pdf.bin"));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -203,7 +205,7 @@ test("a real PDF whose first byte the sniffer reads as JSON is `damaged`", async
   const damaged = Buffer.from(await fixture("born-digital-two-page.pdf"));
   damaged[0] = 0x7b; // `{`
 
-  const result = await extractPdf(new Uint8Array(damaged), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(damaged));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -222,7 +224,7 @@ test("a real PDF behind an `<html>` prefix is `damaged`, not another format", as
     Buffer.from(await fixture("born-digital-two-page.pdf")),
   ]);
 
-  const result = await extractPdf(new Uint8Array(prefixed), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(prefixed));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -237,7 +239,7 @@ test("a real PDF with one damaged header byte is `damaged` too", async () => {
   const damaged = Buffer.from(await fixture("born-digital-two-page.pdf"));
   damaged[0] = 0x00;
 
-  const result = await extractPdf(new Uint8Array(damaged), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(damaged));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -254,7 +256,7 @@ test("a PNG wearing a PDF's name is `not_a_pdf`", async () => {
     Buffer.alloc(200, 7),
   ]);
 
-  const result = await extractPdf(new Uint8Array(png), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(png));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -265,7 +267,7 @@ test("a PNG wearing a PDF's name is `not_a_pdf`", async () => {
 test("a JPEG wearing a PDF's name is `not_a_pdf`", async () => {
   const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]);
 
-  const result = await extractPdf(new Uint8Array(jpeg), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(jpeg));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -278,7 +280,7 @@ test("an Office document wearing a PDF's name is `not_a_pdf`", async () => {
   // case: the sender meant to send a PDF and did not.
   const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(200, 7)]);
 
-  const result = await extractPdf(new Uint8Array(zip), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(zip));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -296,7 +298,7 @@ test("HTML wearing a PDF's name is `not_a_pdf` — no arm authorizes reading it"
   // detail arrives for a real PDF, two tests above.
   const html = Buffer.from("<html><body><p>hello</p></body></html>\n".repeat(5));
 
-  const result = await extractPdf(new Uint8Array(html), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(html));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -307,7 +309,7 @@ test("HTML wearing a PDF's name is `not_a_pdf` — no arm authorizes reading it"
 test("JSON wearing a PDF's name is `not_a_pdf`", async () => {
   const json = Buffer.from(`${JSON.stringify({ error: "not found" })}\n`);
 
-  const result = await extractPdf(new Uint8Array(json), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(json));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -316,7 +318,7 @@ test("JSON wearing a PDF's name is `not_a_pdf`", async () => {
 });
 
 test("a truncated PDF is `invalid` too — a second vendor message, one kind", async () => {
-  const result = await extractPdf(await fixture("truncated.pdf"), { maxBytes: NO_CAP });
+  const result = await extractPdf(await fixture("truncated.pdf"));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;
@@ -329,15 +331,80 @@ test("a truncated PDF is `invalid` too — a second vendor message, one kind", a
   assert.equal(result.reason, "Invalid PDF structure");
 });
 
-test("bytes above the cap are `too_large`", async () => {
+test("bytes above the cap use the shared limit result", async () => {
   const bytes = await fixture("born-digital-two-page.pdf");
 
-  const result = await extractPdf(bytes, { maxBytes: 10 });
+  const result = await createPdfExtractor({
+    maxBytes: 10,
+    maxCharacters: NO_CAP,
+    maxParseMilliseconds: 30_000,
+  })(bytes);
 
-  assert.equal(result.kind, "too_large");
-  if (result.kind !== "too_large") return;
-  assert.equal(result.byteLength, bytes.byteLength);
-  assert.equal(result.maxBytes, 10);
+  assert.equal(result.kind, "limit_exceeded");
+  if (result.kind !== "limit_exceeded") return;
+  assert.equal(result.limit, "input_bytes");
+  assert.equal(result.actual, bytes.byteLength);
+  assert.equal(result.maximum, 10);
+});
+
+test("page markdown above the character cap returns no partial content", async () => {
+  const result = await createPdfExtractor({
+    maxBytes: NO_CAP,
+    maxCharacters: 10,
+    maxParseMilliseconds: 30_000,
+  })(await fixture("born-digital-two-page.pdf"));
+
+  assert.equal(result.kind, "limit_exceeded");
+  if (result.kind !== "limit_exceeded") return;
+  assert.equal(result.limit, "output_characters");
+  assert.ok(result.actual > 10);
+  assert.equal(result.maximum, 10);
+  assert.equal("pages" in result, false);
+  assert.equal("text" in result, false);
+});
+
+test("a page-only character breach skips the synchronous document read", async () => {
+  let documentReadCalled = false;
+  const inspector = {
+    classifyPdfAsync: async (_buffer: Buffer) => ({ pdfType: "TextBased" as const }),
+    extractPagesMarkdownAsync: async (_buffer: Buffer) => ({
+      pages: [{ page: 0, markdown: "eleven chars", needsOcr: false }],
+    }),
+    extractText: (_buffer: Buffer) => {
+      documentReadCalled = true;
+      return "must not be read";
+    },
+  };
+
+  const result = await extractPdfCore(new Uint8Array([1]), 10, async () => inspector);
+
+  assert.equal(result.kind, "limit_exceeded");
+  if (result.kind !== "limit_exceeded") return;
+  assert.equal(result.limit, "output_characters");
+  assert.equal(result.actual, 12);
+  assert.equal(documentReadCalled, false);
+});
+
+test("the character cap counts overlapping page and document readings", async () => {
+  const bytes = await fixture("born-digital-two-page.pdf");
+  const unbounded = await extractPdf(bytes);
+  assert.equal(unbounded.kind, "extracted");
+  if (unbounded.kind !== "extracted") return;
+  const pageCharacters = unbounded.pages.reduce((total, page) => total + page.markdown.length, 0);
+
+  const result = await createPdfExtractor({
+    maxBytes: NO_CAP,
+    maxCharacters: pageCharacters,
+    maxParseMilliseconds: 30_000,
+  })(bytes);
+
+  assert.equal(result.kind, "limit_exceeded");
+  if (result.kind !== "limit_exceeded") return;
+  assert.equal(result.limit, "output_characters");
+  assert.equal(result.actual, pageCharacters + unbounded.text.length);
+  assert.equal(result.maximum, pageCharacters);
+  assert.equal("pages" in result, false);
+  assert.equal("text" in result, false);
 });
 
 // The two documents below are the reason the variant is decided by the pages and
@@ -345,9 +412,7 @@ test("bytes above the cap are `too_large`", async () => {
 // scanned, so none of them exercises the branch this module owns.
 
 test("an `ImageBased` scan with a readable cover page is `extracted`, cover text and all", async () => {
-  const result = await extractPdf(await fixture("image-based-text-cover.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("image-based-text-cover.pdf"));
 
   // The vendor calls the whole document image-based. One page disagrees, and a
   // door must still get that page's text.
@@ -373,9 +438,7 @@ test("a cover page in front of a searchable scan keeps the scan's text", async (
   // test calls the whole document `extracted` and stops. The scanned page behind
   // it carries an invisible OCR layer that only `extractText` reads, and its text
   // would be dropped — 50 characters of 739 reaching the door.
-  const result = await extractPdf(await fixture("mixed-searchable-scan.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("mixed-searchable-scan.pdf"));
 
   assert.equal(result.kind, "extracted");
   if (result.kind !== "extracted") return;
@@ -399,9 +462,7 @@ test("a document whose every page reads still carries the document text", async 
   // `text` is unconditional. Nothing about these two pages is wrong, and the
   // document reading arrives anyway — so its presence says nothing about
   // whether the pages failed.
-  const result = await extractPdf(await fixture("born-digital-two-page.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("born-digital-two-page.pdf"));
 
   assert.equal(result.kind, "extracted");
   if (result.kind !== "extracted") return;
@@ -419,9 +480,7 @@ test("a searchable scan whose pages carry a footer still delivers its whole text
   // page read" condition skips the document surface and hands the door 28
   // characters of 1,408. The vendor reports nothing: `needsOcr` is false on
   // every page, so no later layer could detect the loss.
-  const result = await extractPdf(await fixture("stamped-searchable-scan.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("stamped-searchable-scan.pdf"));
 
   assert.equal(result.kind, "extracted");
   if (result.kind !== "extracted") return;
@@ -442,9 +501,7 @@ test("a blank separator page does not cost a complete document its page numbers"
   // attached `text` to a document whose pages were complete; a door that read
   // `text` first — as the README exemplar once told it to — then dropped every
   // page number. The pages are the citation anchor, so they come first now.
-  const result = await extractPdf(await fixture("blank-separator-page.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("blank-separator-page.pdf"));
 
   assert.equal(result.kind, "extracted");
   if (result.kind !== "extracted") return;
@@ -462,9 +519,7 @@ test("a blank separator page does not cost a complete document its page numbers"
 // reads the whole document — so `needs_ocr` would throw away text Alfred has.
 
 test("a PDF whose pages are all empty but whose text reads is `text_without_pages`", async () => {
-  const result = await extractPdf(await fixture("invisible-text-two-page.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("invisible-text-two-page.pdf"));
 
   // The classifier reports `TextBased` at confidence 1.00 for these bytes and
   // every page comes back empty, so `extracted` would promise pages this module
@@ -486,9 +541,7 @@ test("a scanned page with an invisible OCR layer keeps its text", async () => {
   // The everyday searchable scan. The page is an image, its markdown is empty and
   // `needsOcr` is set — the same evidence the `needs_ocr` fixture shows — but a
   // text layer sits behind the image and it is the document's whole content.
-  const result = await extractPdf(await fixture("scanned-with-text-layer.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("scanned-with-text-layer.pdf"));
 
   assert.equal(result.kind, "text_without_pages");
   if (result.kind !== "text_without_pages") return;
@@ -502,9 +555,7 @@ test("a failure of the third surface does not overturn a parse that succeeded", 
   // wrong type: `. That throw is asked to IMPROVE `needs_ocr`, so it must not be
   // able to delete the page structure the parses already produced. Sharing one
   // `try` with them would report `invalid` and no page count at all.
-  const result = await extractPdf(await fixture("damaged-text-surface.pdf"), {
-    maxBytes: NO_CAP,
-  });
+  const result = await extractPdf(await fixture("damaged-text-surface.pdf"));
 
   assert.equal(result.kind, "needs_ocr");
   if (result.kind !== "needs_ocr") return;
@@ -522,7 +573,7 @@ test("a PDF whose newlines were rewritten LF to CRLF is `invalid`, not a throw",
     "latin1",
   );
 
-  const result = await extractPdf(new Uint8Array(damaged), { maxBytes: NO_CAP });
+  const result = await extractPdf(new Uint8Array(damaged));
 
   assert.equal(result.kind, "invalid");
   if (result.kind !== "invalid") return;

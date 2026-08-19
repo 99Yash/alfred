@@ -1,171 +1,108 @@
 # `@alfred/extraction`
 
-The one deterministic reader of a PDF's bytes. `extractPdf(bytes, { maxBytes })`
-takes bytes and returns pages. Nothing else in the repo calls
-`@firecrawl/pdf-inspector`.
+The one deterministic reader of PDF bytes. Every door configures its policy once,
+then the hot call accepts only bytes:
 
 ```ts
-import { extractPdf } from "@alfred/extraction";
+import { createPdfExtractor } from "@alfred/extraction";
 
-const result = await extractPdf(bytes, { maxBytes: 20_000_000 });
+const extractPdf = createPdfExtractor({
+  maxBytes: 20_000_000,
+  maxCharacters: 5_000_000,
+  maxParseMilliseconds: 15_000,
+});
+
+const result = await extractPdf(bytes);
 switch (result.kind) {
   case "extracted":
-    // `pages` FIRST, always. They are the only reading that carries a page
-    // number, so every quote and every citation comes from here. `result.text`
-    // holds the same document as one string with no page boundary in it — read
-    // it to judge how much of the document the pages hold, never to replace
-    // them, and never concatenate the two.
     return result.pages.map((page) => `p${page.pageNumber}: ${page.markdown}`);
   case "text_without_pages":
-    // Real text, and no page number for it. Cite the document, never a page.
     return `${result.pageCount} page(s), text without page boundaries: ${result.text}`;
   case "needs_ocr":
-    return `${result.pageCount} page(s) no reader could read; OCR is the only way in`;
+    return `${result.pageCount} page(s) require OCR`;
   case "encrypted":
     return "the document is password-protected";
   case "invalid":
-    // `cause` is closed and has two members. `not_a_pdf` means the bytes carry no
-    // PDF structure at all and the vendor rejected them, so a door reports what it
-    // received. `damaged` means real PDF structure that something broke, and it
-    // covers every rejection this module cannot place. NEITHER arm authorizes
-    // reading the bytes as text: the vendor sniffs the first byte, so it names
-    // JSON or HTML for a valid PDF whose first byte is `{` or that carries an
-    // `<html>` prefix.
     return `not a readable PDF (${result.cause}): ${result.reason}`;
-  case "too_large":
-    return `${result.byteLength} bytes is above the ${result.maxBytes} byte cap`;
+  case "limit_exceeded":
+    return result.message;
   default: {
-    // Copy this arm. It is what makes "a door handles every outcome" a compile
-    // error rather than a convention: add a variant, and this line stops
-    // compiling in every door until each one handles it.
     const _exhaustive: never = result;
     return _exhaustive;
   }
 }
 ```
 
-## Three rules the package exists to hold
+All three limits are required positive safe integers. `maxBytes` is checked in
+the parent before a child starts. `maxParseMilliseconds` must not exceed Node's
+timer ceiling of `2_147_483_647`. It covers process startup, the vendor import,
+all vendor calls, and the complete reply. When it expires, the parent sends
+`SIGKILL`, waits for the child to exit, and ignores any late reply.
 
-**Every page number is 1-indexed.** The library is not: it reports OCR pages
-0-indexed from `classifyPdf` and 1-indexed from `extractPagesMarkdown`, for the
-same document. One module owns that conversion, so a page number Alfred states to
-a user is a real page. `pageCount` on `extracted` is `pages.length`, so
-`pages[pageCount - 1]` always exists.
+`maxCharacters` counts UTF-16 code units in content that crosses the process
+boundary:
 
-**The evidence decides the variant, not the vendor's `pdfType`, and not one
-vendor surface either.** `pdfType` is a whole-document prediction behind a
-text-density threshold, and it is wrong in both directions: an `ImageBased` scan
-can carry a readable born-digital cover page, and a `TextBased` document at
-confidence 1.00 can yield empty markdown on every page. `extractPagesMarkdown` is
-not the last word either: a scan with an invisible OCR text layer — what an office
-copier produces — returns empty markdown on every page while `extractText` returns
-the whole document.
+- `extracted`: every `pages[].markdown.length` plus `text.length`. The overlap
+  counts twice because both readings cross the boundary.
+- `text_without_pages`: `text.length`.
+- other results: zero content characters.
 
-So `extractPdf` reads three surfaces on **every** document, with no condition on
-any of them:
+The child checks page markdown before it calls the synchronous `extractText`,
+then checks the final public result again before serialization. A breach returns
+one `limit_exceeded` value and no partial content. The package does not truncate.
+Truncation would make an incomplete document look successful.
 
-1. any page holds text → `extracted`, carrying every page in `pages` **and** the
-   whole document in `text`;
-2. no page holds text and `extractText` does → `text_without_pages`, carrying that
-   text and **no page number**, because nothing said which page it came from;
-3. otherwise → `needs_ocr`, meaning no surface of the library read one character.
+## Process boundary
 
-**`pages` cite. `text` completes.** The two readings answer different questions,
-and the package hands both to the door rather than choosing:
+The NAPI vendor runs in a one-shot child process. A promise timeout would settle
+only the caller while native work continued. A worker thread would still share
+the process libuv pool. The child process isolates the server heap, event loop,
+and libuv pool, and it gives the parent a process that it can kill.
 
-- `pages` is the **citation anchor**. Every door that quotes a document renders
-  `pages` and states their page numbers. `text` never replaces them, because it
-  carries no page boundary and attributing it to page 1 would be the fabrication
-  this package exists to prevent.
-- `text` is the **completeness reading**. It covers the whole document, so it
-  OVERLAPS `pages` rather than extending them, and it is not simply the longer of
-  the two: on `image-based-text-cover.pdf` the pages hold 26 characters and `text`
-  holds 23.
+The child receives one bounded request and writes one bounded JSON line. The
+parent treats the line as `unknown` and validates the full discriminated protocol.
+Malformed JSON, more than one reply, trailing data, a pipe overflow, and a
+non-zero exit are dependency failures.
 
-**`text` proves nothing about coverage in either direction.** Its presence is not
-evidence the pages failed, and its emptiness is not evidence the pages are
-complete. The package deliberately emits **no coverage verdict**, because it
-cannot compute one and the vendor emits no signal for it. Two tracked fixtures say
-why an earlier rule — read `text` only when some page's markdown is empty — was
-wrong on both sides:
+The child runs with a 256 MiB V8 heap ceiling. The character cap limits what can
+escape the child, but it cannot stop the native vendor from allocating a string
+before JavaScript can measure it. Native allocation is therefore not a strict
+host-memory cap. The hard deadline and disposable process remain required.
 
-- `stamped-searchable-scan.pdf` is a searchable scan whose pages each carry a
-  visible `Page 1 of 2` footer. Every page reads, and the pages hold **28
-  characters of 1,408**. The vendor flags nothing: `needsOcr` is `false` and
-  `pagesNeedingOcr` is empty, so no later layer could detect the loss.
-- `blank-separator-page.pdf` is a complete born-digital document with one blank
-  sheet in the middle. One empty page said nothing about the other two, and a door
-  that read `text` first would have thrown away all three page numbers.
+## Reading rules
 
-`extractText` can fail on bytes the two parses accepted. It is only ever asked to
-improve an answer, so its failure never overturns one: the document keeps the
-verdict its pages earned.
+Every page number is 1-indexed. The vendor mixes index bases, so this package is
+the only place that converts them.
 
-Each of the three variants has a tracked fixture, and `needs_ocr` has a negative
-control: `scanned-single-page.pdf` and `scanned-with-text-layer.pdf` show the same
-per-page evidence and get different answers. `pdfType` is metadata a door may
-show, never a verdict.
+`pages` cite and `text` completes. They are two readings of the same document:
 
-**Every outcome that depends on the bytes is a value, so no door needs a
-`try`/`catch` to read a document.** Encrypted, scanned, damaged, unreadable and
-oversized bytes are all variants of `ExtractedPdf`. That holds for **every**
-failure the vendor's parser raises, not the ones this package thought of: a PDF
-copied in text mode fails with `"PDF parsing error: couldn't parse input: invalid
-file trailer"`, a message no substring table written before it could match, and it
-still returns `invalid` carrying that reason. The vendor's message vocabulary is
-open, so the message chooses `encrypted` over `invalid`, the sniffer's detail
-chooses among the three `cause` arms, and nothing more. An unrecognized message —
-and an unrecognized sniffer detail — reads as `damaged`, which is the safe side: a
-door declines its plain-text fallback rather than showing a user PDF syntax.
+- `pages` is the citation anchor. A door uses these page numbers for quotes.
+- `text` is the completeness reading. It has no page boundary and overlaps the
+  page markdown. A door never concatenates the two.
 
-`extractPdf` still throws, in two cases, and both mean a dependency problem rather
-than a fact about the document:
+The vendor `pdfType` is metadata, not the verdict. A readable page makes the
+result `extracted`. If no page reads but the document text reads, the result is
+`text_without_pages`. If no surface reads text, the result is `needs_ocr`.
 
-1. the native binary cannot load — no platform build, or a failed
-   optional-dependency install. That rejects with the library's own error;
-2. an error that is not a vendor parser failure escapes — an out-of-memory, a
-   programming error, an unrelated host fault. That arrives as
-   `PdfExtractionError`, whose message names this package, the vendor and the
-   vendor's `code`, and whose `cause` is the original error. Reporting one of
-   those as "your PDF is corrupt" is what the wrapper prevents.
+Encrypted and parser-rejected bytes are values. A missing native binary remains
+a native-load rejection. A non-vendor parser fault remains `PdfExtractionError`.
 
-A door that wants to survive both reports the throw on its dependency-outage path.
+## Vendor pin
 
-## Platforms
+`@firecrawl/pdf-inspector` is pinned to an exact version. The vendor reports
+encrypted and invalid inputs with the same `GenericFailure` code, so this package
+must use message text to distinguish those two result kinds. A vendor message
+change must therefore produce a failing fixture test before it can change the
+public result. Do not add a range operator to the catalog version.
 
-`@firecrawl/pdf-inspector` ships its parser as a NAPI binary, one per platform,
-delivered through `optionalDependencies`. There is **no `darwin-x64` build**: on an
-Intel Mac this package cannot run locally, and `extractPdf` rejects on its first
-call with `Cannot find native binding`. Every other target this repo uses is
-covered — `darwin-arm64` for Apple Silicon, and `linux-x64-gnu` for CI
-(`ubuntu-latest`) and for Railway (Debian 12, glibc 2.36, above the binary's 2.35
-floor).
+## Deployment
 
-No platform package runs a `postinstall`, so there is no `pnpm-workspace.yaml`
-build-allow entry to maintain.
+`apps/server` bundles `@alfred/*` sources, but the native vendor stays external.
+The server therefore declares both `@alfred/extraction` and
+`@firecrawl/pdf-inspector` and emits `dist/extract-pdf-child.js` as a separate
+entry beside `dist/index.js`. CI builds and runs this emitted child so a missing
+entry cannot reach deployment unnoticed.
 
-## Why the vendor is pinned exactly
-
-Every library failure arrives as `Error` with `code: "GenericFailure"` and a
-message shaped `"<rust_fn>: <reason>"`. There is no typed error class, so the
-message substring is the only way to tell an encrypted PDF from a rejected one.
-Those are the only two substrings this module reads — `"PDF is encrypted"` and the
-`"Not a PDF: "` prefix — and the sniffer DETAIL behind that prefix is read by
-nothing. The version is therefore pinned with no caret, and every row a door acts
-on carries an assertion: a tracked fixture where a document is needed, an inline
-buffer of magic bytes where four bytes will do. A reword becomes a red CI row
-instead of Alfred telling somebody their password-protected statement is a corrupt
-file.
-
-The pin lives in the `pnpm-workspace.yaml` `catalog:` block, and both manifests
-that need it — this package and `apps/server` — say `"catalog:"`. Two manifests
-with the same literal could be bumped one at a time, which would leave these
-fixtures green against a build the server does not load.
-
-## The server bundle
-
-`apps/server` bundles every `@alfred/*` package with tsdown, so this package's
-source is inlined there. A native module cannot be inlined, so
-`@firecrawl/pdf-inspector` is also a direct dependency of `apps/server`, listed in
-that app's tsdown `external`, and excused in `knip.json`. This is the same shape
-`sharp` uses, for the same reason.
+The vendor has no `darwin-x64` build. Apple Silicon and the Linux glibc target
+used by CI and Railway are supported. Its platform packages have no postinstall
+script, so no workspace build allow-list entry is needed.
