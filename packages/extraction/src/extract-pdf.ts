@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -87,6 +87,10 @@ interface PdfExtractorChildOptions {
   readonly childEntry: URL;
   readonly env?: Readonly<Record<string, string>>;
   readonly onSpawn?: (pid: number | undefined) => void;
+  readonly spawnChild?: (
+    spawnDefault: () => ChildProcessWithoutNullStreams,
+  ) => ChildProcessWithoutNullStreams;
+  readonly killChild?: (child: ChildProcessWithoutNullStreams) => void;
 }
 
 const CHILD_HEAP_MEGABYTES = 256;
@@ -132,41 +136,59 @@ async function runPdfExtractionChild(
   options: PdfExtractorChildOptions,
 ): Promise<ExtractedPdf> {
   const startedAt = Date.now();
-  const child = spawn(
-    process.execPath,
-    [
-      `--max-old-space-size=${CHILD_HEAP_MEGABYTES}`,
-      ...sourceLoaderArguments(options.childEntry),
-      fileURLToPath(options.childEntry),
-    ],
-    {
-      env: { ...process.env, ...options.env }, // drift-ok: child environment inheritance, not configuration reading
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+  const spawnDefault = () =>
+    spawn(
+      process.execPath,
+      [
+        `--max-old-space-size=${CHILD_HEAP_MEGABYTES}`,
+        ...sourceLoaderArguments(options.childEntry),
+        fileURLToPath(options.childEntry),
+      ],
+      {
+        env: { ...process.env, ...options.env }, // drift-ok: child environment inheritance, not configuration reading
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+  const child = options.spawnChild?.(spawnDefault) ?? spawnDefault();
   options.onSpawn?.(child.pid);
 
   return new Promise<ExtractedPdf>((resolve, reject) => {
     const stdout: Buffer[] = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
-    let deadlineActual: number | undefined;
-    let processFailure: Error | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let terminalCause:
+      | { readonly kind: "deadline"; readonly actual: number }
+      | { readonly kind: "process_failure"; readonly error: Error }
+      | undefined;
 
-    const stopForFailure = (message: string) => {
-      processFailure ??= new Error(message);
-      child.kill("SIGKILL");
+    const killChild = () => {
+      if (options.killChild === undefined) {
+        child.kill("SIGKILL");
+      } else {
+        options.killChild(child);
+      }
     };
 
-    const deadline = setTimeout(() => {
-      deadlineActual = Math.max(limits.maxParseMilliseconds, Date.now() - startedAt);
-      child.kill("SIGKILL");
-    }, limits.maxParseMilliseconds);
+    const stopForFailure = (error: Error) => {
+      if (terminalCause !== undefined) return;
+      terminalCause = { kind: "process_failure", error };
+      killChild();
+    };
+
+    const stopForDeadline = () => {
+      if (terminalCause !== undefined) return;
+      terminalCause = {
+        kind: "deadline",
+        actual: Math.max(limits.maxParseMilliseconds, Date.now() - startedAt),
+      };
+      killChild();
+    };
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.byteLength;
       if (stdoutBytes > maximumReplyBytes(limits.maxCharacters)) {
-        stopForFailure("PDF extraction child exceeded the bounded stdout protocol");
+        stopForFailure(new Error("PDF extraction child exceeded the bounded stdout protocol"));
         return;
       }
       stdout.push(chunk);
@@ -175,34 +197,34 @@ async function runPdfExtractionChild(
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.byteLength;
       if (stderrBytes > STDERR_LIMIT_BYTES) {
-        stopForFailure("PDF extraction child exceeded the bounded stderr protocol");
+        stopForFailure(new Error("PDF extraction child exceeded the bounded stderr protocol"));
       }
     });
 
     child.once("error", (error) => {
-      processFailure = error;
+      stopForFailure(error);
     });
 
     child.stdin.once("error", (error) => {
-      processFailure ??= error;
+      stopForFailure(error);
     });
 
     child.once("close", (code, signal) => {
-      clearTimeout(deadline);
+      if (deadline !== undefined) clearTimeout(deadline);
 
-      if (deadlineActual !== undefined) {
+      if (terminalCause?.kind === "deadline") {
         resolve(
           createPdfExtractionLimitResult(
             "parse_milliseconds",
-            deadlineActual,
+            terminalCause.actual,
             limits.maxParseMilliseconds,
           ),
         );
         return;
       }
 
-      if (processFailure !== undefined) {
-        reject(new PdfExtractionError(processFailure));
+      if (terminalCause?.kind === "process_failure") {
+        reject(new PdfExtractionError(terminalCause.error));
         return;
       }
 
@@ -252,6 +274,13 @@ async function runPdfExtractionChild(
       }
     });
 
+    const remainingMilliseconds = limits.maxParseMilliseconds - (Date.now() - startedAt);
+    if (remainingMilliseconds <= 0) {
+      stopForDeadline();
+      return;
+    }
+
+    deadline = setTimeout(stopForDeadline, remainingMilliseconds);
     child.stdin.end(serializePdfExtractionChildRequest(limits, bytes));
   });
 }
