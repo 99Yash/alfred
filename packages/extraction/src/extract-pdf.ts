@@ -11,24 +11,31 @@
 //      boss states to a user must not be a fabrication, so exactly one module
 //      owns the conversion. Everything this module returns is 1-indexed.
 //   2. FAILURE SHAPE. Every library failure arrives as `Error` with
-//      `code: "GenericFailure"` and a message of the form `"<rust_fn>: <reason>"`.
-//      There is no typed error class and no distinct code, so the message is the
-//      only discriminator. That mapping lives here, in one function, behind a
-//      pinned version and a tracked fixture per message.
+//      `code: "GenericFailure"` — one code for a bad password, a truncated
+//      file, plain text renamed `.pdf`, and every parse error the parser can
+//      raise. The message, shaped `"<rust_fn>: <reason>"`, is the only detail.
+//      That mapping lives here, in one function, behind a pinned version.
 //
 // The rule that decides what is a returned value and what is a thrown error:
 // a value describes an outcome that depends on the INPUT, a throw describes an
 // outcome that depends on the INSTALLATION. So an encrypted, scanned, invalid or
 // oversized document is a variant of `ExtractedPdf`.
 //
-// `extractPdf` throws in exactly two cases, and a door must treat both as a
-// dependency problem rather than a fact about the document:
+// The failure mapping is therefore TOTAL over the vendor's own failures: any
+// `Error` carrying `code: "GenericFailure"` is a fact about the bytes, so it
+// becomes `encrypted` or `invalid` and never a throw. The vendor's message
+// vocabulary is open — a PDF whose newlines were rewritten LF to CRLF by a
+// text-mode copy fails with `"PDF parsing error: couldn't parse input: invalid
+// file trailer"`, which no substring table written before it could match — so a
+// substring table decides only WHICH variant, never whether the caller gets one.
+//
+// `extractPdf` therefore throws in exactly two cases, and a door must treat both
+// as a dependency problem rather than a fact about the document:
 //
 //   * the native binary cannot load (no platform build, or a failed
 //     optional-dependency install);
-//   * the library fails with a message this module does not recognize. Mapping
-//     every unrecognized `GenericFailure` to `invalid` would report a broken
-//     install or an out-of-memory as "your PDF is corrupt", so it rethrows.
+//   * something that is not a vendor `GenericFailure` escapes — an
+//     out-of-memory, a programming error, an unrelated host fault.
 //
 // The document-level verdict comes from the PAGES, never from the library's
 // `pdfType`. `pdfType` is a whole-document prediction with a text-density
@@ -37,8 +44,16 @@
 // confidence 1.00 can yield empty markdown on every page. Both are reproduced
 // by tracked fixtures. So this module always runs the per-page extraction and
 // reads the answer off the pages; `pdfType` is carried as metadata only.
+//
+// One vendor surface is still not enough to conclude a document holds no text.
+// `extractPagesMarkdown` returns empty markdown for a scan carrying an invisible
+// OCR text layer — the ordinary output of an office copier — while `extractText`
+// on the same bytes returns that layer in full. So a document no page could read
+// is asked a second question before it is called `needs_ocr`, and text that
+// arrives with no page boundary is reported as `text_without_pages` rather than
+// attributed to a page it did not come from.
 
-import type { PdfType } from "@firecrawl/pdf-inspector";
+import type { PageMarkdownResult, PdfType } from "@firecrawl/pdf-inspector";
 
 /** The library's `PdfType`, in this repo's casing. */
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
@@ -70,11 +85,26 @@ export type ExtractedPdf =
       readonly pagesNeedingOcr: readonly number[];
     }
   /**
-   * Not one page of this document carried readable text, so there is nothing to
-   * read without OCR. This is the only variant a model ever sees, and it
-   * deliberately carries NO `pages` array — nothing downstream can assert a page
-   * number for a document nobody read. `pageCount` therefore comes from the
-   * classifier, which is the only count left.
+   * The document holds text, but no surface of the library could say which page
+   * any of it came from — a scan with an invisible OCR layer behind the image is
+   * the everyday case. The text is worth reading, so it is here; it deliberately
+   * carries NO `pages` array and no page number, because attributing it to page
+   * 1 would be the exact fabrication this package exists to prevent.
+   */
+  | {
+      readonly kind: "text_without_pages";
+      /** Reported metadata, not a verdict. The verdict is `kind`. */
+      readonly pdfType: PdfDocumentType;
+      /** How many pages the document has. Which page holds which text is unknown. */
+      readonly pageCount: number;
+      /** The whole document's text, with no page boundary in it. */
+      readonly text: string;
+    }
+  /**
+   * No surface of the library read one character of this document, so there is
+   * nothing to read without OCR. This is the only variant a model ever sees, and
+   * it deliberately carries NO `pages` array — nothing downstream can assert a
+   * page number for a document nobody read.
    */
   | { readonly kind: "needs_ocr"; readonly pdfType: PdfDocumentType; readonly pageCount: number }
   | { readonly kind: "encrypted" }
@@ -108,16 +138,25 @@ const PDF_DOCUMENT_TYPES: Readonly<Record<`${PdfType}`, PdfDocumentType>> = {
 };
 
 /**
- * Vendor message substrings, each mapped to the variant it means. Order matters
- * only in that the first match wins; the three substrings are disjoint today.
+ * The one `code` every vendor failure carries. It names the SOURCE of the error,
+ * not its cause: reaching this module means the parser rejected the bytes, which
+ * is a fact about the document and therefore a variant rather than a throw.
+ */
+const VENDOR_FAILURE_CODE = "GenericFailure";
+
+/**
+ * The one message substring this module reads, and it chooses BETWEEN variants
+ * rather than deciding whether the caller gets one. Encryption is the single
+ * failure a door treats differently — it can ask for a password — so it is the
+ * single substring worth pinning a version for. Everything else the parser
+ * rejects is `invalid`, carrying the vendor's own reason.
  *
- * A vendor reword breaks this table, which is why the version is pinned exactly
- * and why every row has a tracked fixture asserting it. A reword then shows up
- * as a red CI row instead of Alfred telling a user their password-protected
- * statement is a corrupt file.
+ * The vendor's message vocabulary is open, so a table that decided totality
+ * would be wrong the first time the vendor added a message. A tracked fixture
+ * asserts this row; a reword shows up as a red CI row instead of Alfred telling
+ * a user their password-protected statement is a corrupt file.
  */
 const ENCRYPTED_MESSAGE = "PDF is encrypted";
-const INVALID_MESSAGE_SUBSTRINGS: readonly string[] = ["Not a PDF", "Invalid PDF structure"];
 
 /** `"<rust_fn_name>: "` — the prefix every library message carries. */
 const RUST_FUNCTION_PREFIX = /^[a-z][a-z0-9_]*: /;
@@ -147,38 +186,54 @@ function toPdfDocumentType(pdfType: PdfType): PdfDocumentType {
 }
 
 /**
- * The variant a library failure means, or `undefined` when the failure is not one
- * this module recognizes.
- *
- * `undefined` is the important half. Mapping every `GenericFailure` to `invalid`
- * would report a broken install, an out-of-memory, or any error a future version
- * adds as "your PDF is corrupt". An unrecognized failure is rethrown instead.
+ * Whether an error came out of the vendor's parser. `code` is read through an
+ * `in` narrowing rather than a cast, because the vendor's declarations type the
+ * failure as a plain `Error` and the field is therefore `unknown` here.
  */
-function toExtractedPdfFailure(error: unknown): ExtractedPdf | undefined {
-  if (!(error instanceof Error)) return undefined;
-  const { message } = error;
-  if (message.includes(ENCRYPTED_MESSAGE)) return { kind: "encrypted" };
-  if (INVALID_MESSAGE_SUBSTRINGS.some((substring) => message.includes(substring))) {
-    return { kind: "invalid", reason: message.replace(RUST_FUNCTION_PREFIX, "") };
-  }
-  return undefined;
+function isVendorFailure(error: unknown): error is Error {
+  return error instanceof Error && "code" in error && error.code === VENDOR_FAILURE_CODE;
 }
 
 /**
- * A page counts as read when it carries any non-whitespace text. The library
- * returns `""` for a page it could not read, and `needsOcr` alone is not the
- * test: a page can be flagged `needsOcr` and still hold text worth keeping.
+ * The variant a library failure means, or `undefined` when the error did not
+ * come from the vendor's parser at all.
+ *
+ * TOTAL over vendor failures, and that is the point: the vendor's messages are
+ * an open vocabulary, so a table that had to recognize a message before the
+ * caller got a value would turn an ordinary damaged document — a PDF copied in
+ * text mode, one edited byte in the cross-reference table — into a throw. Every
+ * `GenericFailure` is a fact about the bytes, so every one becomes a variant.
+ *
+ * `undefined` survives for the other half: an error that is NOT a vendor failure
+ * is a broken install, an out-of-memory, or a programming error, and reporting
+ * one of those as "your PDF is corrupt" is the thing this rethrow prevents.
  */
-function pageHasText(page: ExtractedPdfPage): boolean {
-  return page.markdown.trim().length > 0;
+function toExtractedPdfFailure(error: unknown): ExtractedPdf | undefined {
+  if (!isVendorFailure(error)) return undefined;
+  const { message } = error;
+  if (message.includes(ENCRYPTED_MESSAGE)) return { kind: "encrypted" };
+  return { kind: "invalid", reason: message.replace(RUST_FUNCTION_PREFIX, "") };
 }
 
-function toExtractedPdfPage(page: {
-  page: number;
-  markdown: string;
-  needsOcr: boolean;
-  ocrReason?: string;
-}): ExtractedPdfPage {
+/**
+ * Text counts as read when it holds one non-whitespace character. The library
+ * answers `""` for a page it could not read and `"\n"` for a whole document it
+ * could not read, so the trim is what separates "nothing" from "almost nothing".
+ */
+function hasText(text: string): boolean {
+  return text.trim().length > 0;
+}
+
+/**
+ * A page counts as read when its markdown holds text. `needsOcr` alone is not
+ * the test: a page can be flagged `needsOcr` and still hold text worth keeping.
+ */
+function pageHasText(page: ExtractedPdfPage): boolean {
+  return hasText(page.markdown);
+}
+
+/** The vendor's page, in this module's 1-indexed shape. */
+function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
   return {
     // The one line the whole normalization rests on: the library counts from 0.
     pageNumber: page.page + 1,
@@ -192,16 +247,20 @@ function toExtractedPdfPage(page: {
 
 /**
  * Read a PDF's bytes. Returns exactly one `ExtractedPdf` variant for every
- * outcome that depends on those bytes. It throws only for the two
- * document-independent failures named in the module header: a native binary that
- * cannot load, and a vendor failure this module does not recognize.
+ * outcome that depends on those bytes — every failure the vendor's parser
+ * raises included. It throws only for the two document-independent failures
+ * named in the module header: a native binary that cannot load, and an error
+ * that did not come from the vendor's parser at all.
  *
- * Two library calls. `classifyPdfAsync` (about 4.7 ms on a 100-page document)
- * supplies `pdfType` and the classifier page count;
- * `extractPagesMarkdownAsync` (about 51 ms) supplies the pages that decide the
- * variant. The extraction always runs, including for a document the classifier
- * calls `Scanned`: the classifier is a prediction, and paying 51 ms is cheaper
- * than discarding a readable page.
+ * Two library calls on every document, and a third only when the first two
+ * found no text. `classifyPdfAsync` (about 4.7 ms on a 100-page document)
+ * supplies `pdfType`; `extractPagesMarkdownAsync` (about 51 ms) supplies the
+ * pages that decide the variant. The extraction always runs, including for a
+ * document the classifier calls `Scanned`: the classifier is a prediction, and
+ * paying 51 ms is cheaper than discarding a readable page. `extractText` runs
+ * only on the no-page-text path — it is the vendor's one synchronous entry
+ * point, so it holds the event loop, and it is asked only about a document that
+ * would otherwise be reported as holding nothing at all.
  */
 export async function extractPdf(
   bytes: Uint8Array,
@@ -221,29 +280,38 @@ export async function extractPdf(
     const pdfType = toPdfDocumentType(classification.pdfType);
     const extraction = await inspector.extractPagesMarkdownAsync(buffer);
     const pages = extraction.pages.map(toExtractedPdfPage);
+    // ONE count, read once, before any branch. The classifier reports a second
+    // page count from a second parse; the two agree today, and a number that is
+    // only observed to agree is a number that can start disagreeing without a
+    // test noticing. Items downstream cite page numbers, so an index that can
+    // run past the array is the defect class this package exists to prevent.
+    const pageCount = pages.length;
 
-    // The verdict is the pages' own evidence, never `pdfType`. A document is
-    // unreadable only when no page held text — one readable cover page in a
-    // scan is still a readable page, and a `TextBased` document that yielded
-    // nothing is still unreadable.
-    if (!pages.some(pageHasText)) {
-      return { kind: "needs_ocr", pdfType, pageCount: classification.pageCount };
+    // The verdict is the pages' own evidence, never `pdfType`. One readable
+    // cover page in a scan is still a readable page, and a `TextBased` document
+    // that yielded nothing on every page is still not `extracted`.
+    if (pages.some(pageHasText)) {
+      return {
+        kind: "extracted",
+        pdfType,
+        pageCount,
+        pages,
+        // Derived from the normalized pages rather than read from the library's own
+        // `pagesNeedingOcr`, so the document-level list and the per-page flags are
+        // one fact in one index base instead of two facts that can disagree.
+        pagesNeedingOcr: pages.filter((page) => page.needsOcr).map((page) => page.pageNumber),
+      };
     }
 
-    return {
-      kind: "extracted",
-      pdfType,
-      // From the pages, not from the classifier: two parses, and nothing holds
-      // a second count equal to `pages.length`. Items downstream cite page
-      // numbers, so an index that can run past the array is the defect class
-      // this package exists to prevent.
-      pageCount: pages.length,
-      pages,
-      // Derived from the normalized pages rather than read from the library's own
-      // `pagesNeedingOcr`, so the document-level list and the per-page flags are
-      // one fact in one index base instead of two facts that can disagree.
-      pagesNeedingOcr: pages.filter((page) => page.needsOcr).map((page) => page.pageNumber),
-    };
+    // No page could be read. Before this document is called unreadable, ask the
+    // one vendor surface that answers about the whole document: a scan with an
+    // invisible OCR text layer returns empty markdown per page and its whole
+    // text here. That text arrives with NO page boundary in it, so it gets a
+    // variant that asserts no page rather than being attributed to page 1.
+    const text = inspector.extractText(buffer);
+    if (hasText(text)) return { kind: "text_without_pages", pdfType, pageCount, text };
+
+    return { kind: "needs_ocr", pdfType, pageCount };
   } catch (error) {
     const failure = toExtractedPdfFailure(error);
     if (failure === undefined) throw error;

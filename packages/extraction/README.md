@@ -11,8 +11,11 @@ const result = await extractPdf(bytes, { maxBytes: 20_000_000 });
 switch (result.kind) {
   case "extracted":
     return result.pages.map((page) => `p${page.pageNumber}: ${page.markdown}`);
+  case "text_without_pages":
+    // Real text, and no page number for it. Cite the document, never a page.
+    return `${result.pageCount} page(s), text without page boundaries: ${result.text}`;
   case "needs_ocr":
-    return `${result.pageCount} scanned page(s); no text to read`;
+    return `${result.pageCount} page(s) no reader could read; OCR is the only way in`;
   case "encrypted":
     return "the document is password-protected";
   case "invalid":
@@ -37,26 +40,42 @@ same document. One module owns that conversion, so a page number Alfred states t
 a user is a real page. `pageCount` on `extracted` is `pages.length`, so
 `pages[pageCount - 1]` always exists.
 
-**The pages decide the variant, not the vendor's `pdfType`.** `pdfType` is a
-whole-document prediction behind a text-density threshold, and it is wrong in both
-directions: an `ImageBased` scan can carry a readable born-digital cover page, and
-a `TextBased` document at confidence 1.00 can yield empty markdown on every page.
-Both are tracked fixtures. So `extractPdf` always runs the per-page extraction and
-reports `needs_ocr` only when no page held text; `pdfType` is metadata a door may
+**The evidence decides the variant, not the vendor's `pdfType`, and not one
+vendor surface either.** `pdfType` is a whole-document prediction behind a
+text-density threshold, and it is wrong in both directions: an `ImageBased` scan
+can carry a readable born-digital cover page, and a `TextBased` document at
+confidence 1.00 can yield empty markdown on every page. `extractPagesMarkdown` is
+not the last word either: a scan with an invisible OCR text layer — what an office
+copier produces — returns empty markdown on every page while `extractText` returns
+the whole document. So `extractPdf` reads three surfaces in a fixed order:
+
+1. any page holds text → `extracted`, with every page in `pages`;
+2. otherwise `extractText` holds text → `text_without_pages`, carrying that text
+   and **no page number**, because nothing said which page it came from;
+3. otherwise → `needs_ocr`, meaning no surface of the library read one character.
+
+Each of the three has a tracked fixture, and `needs_ocr` has a negative control:
+`scanned-single-page.pdf` and `scanned-with-text-layer.pdf` show the same
+per-page evidence and get different answers. `pdfType` is metadata a door may
 show, never a verdict.
 
 **Every outcome that depends on the bytes is a value, so no door needs a
-`try`/`catch` to read a document.** Encrypted, scanned, unreadable and oversized
-bytes are all variants of `ExtractedPdf`.
+`try`/`catch` to read a document.** Encrypted, scanned, damaged, unreadable and
+oversized bytes are all variants of `ExtractedPdf`. That holds for **every**
+failure the vendor's parser raises, not the ones this package thought of: a PDF
+copied in text mode fails with `"PDF parsing error: couldn't parse input: invalid
+file trailer"`, a message no substring table written before it could match, and it
+still returns `invalid` carrying that reason. The vendor's message vocabulary is
+open, so the message chooses `encrypted` over `invalid` and nothing more.
 
 `extractPdf` still throws, in two cases, and both mean a dependency problem rather
 than a fact about the document:
 
 1. the native binary cannot load — no platform build, or a failed
    optional-dependency install;
-2. the library fails with a message this package does not recognize. Mapping every
-   unrecognized failure to `invalid` would report a broken install or an
-   out-of-memory as "your PDF is corrupt", so it rethrows instead.
+2. an error that is not a vendor parser failure escapes — an out-of-memory, a
+   programming error, an unrelated host fault. Reporting one of those as "your PDF
+   is corrupt" is what this rethrow prevents.
 
 A door that wants to survive both reports the throw on its dependency-outage path.
 
@@ -77,10 +96,11 @@ build-allow entry to maintain.
 
 Every library failure arrives as `Error` with `code: "GenericFailure"` and a
 message shaped `"<rust_fn>: <reason>"`. There is no typed error class, so the
-message substring is the only way to tell an encrypted PDF from a corrupt one. The
-version is therefore pinned with no caret, and `test/fixtures/` holds one document
-per message: a reword becomes a red CI row instead of Alfred telling somebody their
-password-protected statement is a corrupt file.
+message substring is the only way to tell an encrypted PDF from a corrupt one — and
+that is the only question the message answers here. The version is therefore pinned
+with no caret, and `test/fixtures/` holds a document for it: a reword becomes a red
+CI row instead of Alfred telling somebody their password-protected statement is a
+corrupt file.
 
 The pin lives in the `pnpm-workspace.yaml` `catalog:` block, and both manifests
 that need it — this package and `apps/server` — say `"catalog:"`. Two manifests
