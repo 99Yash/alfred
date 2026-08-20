@@ -1,8 +1,7 @@
 import {
   classifyUpload,
   type ChatAttachmentDescriptor,
-  isPassThrough,
-  isPdfContentType,
+  isChatUploadAllowed,
   SUPPORTED_FILE_TYPES,
 } from "@alfred/contracts";
 
@@ -19,9 +18,7 @@ const API_URL =
  */
 
 /** MIME types the composer accepts today — images and PDFs. */
-const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(
-  (mime) => isPassThrough(mime) || isPdfContentType(mime),
-);
+const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isChatUploadAllowed);
 
 /** `accept` attribute for the file input. */
 export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
@@ -39,8 +36,7 @@ export type UploadedAttachment = ChatAttachmentDescriptor;
 export function validateFile(file: File): string | null {
   const policy = classifyUpload(file.type);
   if (!policy) return `${file.name}: unsupported file type`;
-  // Images and PDFs are allowed; other degrade types are still gated.
-  if (!isPassThrough(file.type) && !isPdfContentType(file.type)) {
+  if (!isChatUploadAllowed(file.type)) {
     return `${file.name}: only images and PDFs are supported right now`;
   }
   if (file.size <= 0) return `${file.name}: file is empty`;

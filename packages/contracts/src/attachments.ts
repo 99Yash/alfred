@@ -175,6 +175,25 @@ export function classifyUpload(mime: string): IngestPolicyEntry | null {
 }
 
 /**
+ * MIME types whose chat ingest path is implemented end to end today.
+ *
+ * Keep this narrower than {@link INGEST_POLICY}: that policy also reserves
+ * limits for formats whose degrade workers have not shipped. Adding the next
+ * chat format changes this one set, and every server and browser gate follows.
+ */
+const CHAT_DEGRADED_UPLOAD_MIME_TYPES = new Set(["application/pdf"]);
+
+/** True when chat can accept and normalize this upload today. */
+export function isChatUploadAllowed(mime: string): boolean {
+  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const policy = classifyUpload(normalized);
+  return (
+    policy?.kind === "pass-through" ||
+    (policy !== null && CHAT_DEGRADED_UPLOAD_MIME_TYPES.has(normalized))
+  );
+}
+
+/**
  * True when the upload is a model-readable image that needs no degrade — the
  * only modality Phase 1 (ADR-0065) supports end to end.
  */

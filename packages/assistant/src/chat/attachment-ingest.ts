@@ -4,7 +4,12 @@ import { chatAttachments } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 
 import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
-import { createPdfExtractor, formatExtractedPdfText, type ExtractedPdf } from "@alfred/extraction";
+import {
+  createPdfExtractor,
+  formatExtractedPdfText,
+  MAX_EXTRACTED_TEXT_CHARACTERS,
+  type ExtractedPdf,
+} from "@alfred/extraction";
 import {
   assertPassThroughImageBytes,
   assertStoredAttachmentReady,
@@ -12,6 +17,7 @@ import {
   attachmentUrl,
   buildAttachmentKey,
   isStorageConfigured,
+  lockChatStorageKeys,
   objectExists,
   readObject,
   writeObject,
@@ -34,7 +40,7 @@ import {
 /** PDF extraction limits for chat uploads — bounded by the ingest policy's 10 MB cap. */
 const PDF_EXTRACTION_LIMITS = {
   maxBytes: 10 * 1024 * 1024,
-  maxCharacters: 100_000,
+  maxCharacters: MAX_EXTRACTED_TEXT_CHARACTERS,
   maxParseMilliseconds: 30_000,
 } as const;
 
@@ -68,6 +74,10 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
     case "extracted":
     case "text_without_pages":
       return null;
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
   }
 }
 
@@ -77,6 +87,7 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
  * process restart or an expired entry does not lose the PDF text.
  */
 const PENDING_PDF_TEXT_TTL_MS = 5 * 60 * 1_000;
+export const MAX_PENDING_PDF_TEXT_ENTRIES = 100;
 interface PendingPdfText {
   degradedText: string | null;
   expiresAt: number;
@@ -93,6 +104,13 @@ export function rememberPendingPdfDegradedText(
 ): void {
   const previous = pendingPdfDegradedText.get(storageKey);
   if (previous) clearTimeout(previous.evictionTimer);
+  if (!previous && pendingPdfDegradedText.size >= MAX_PENDING_PDF_TEXT_ENTRIES) {
+    for (const [oldestKey, oldestEntry] of pendingPdfDegradedText) {
+      clearTimeout(oldestEntry.evictionTimer);
+      pendingPdfDegradedText.delete(oldestKey);
+      break;
+    }
+  }
 
   const entry: PendingPdfText = {
     degradedText,
@@ -208,48 +226,55 @@ export async function uploadChatAttachment(
   let reservedPendingBytes = 0;
   try {
     await assertAttachmentUploadRateAllowed(input.userId);
-    const existingRows = await db()
-      .select({ id: chatAttachments.id })
-      .from(chatAttachments)
-      .where(eq(chatAttachments.id, input.attachmentId))
-      .limit(1);
-    if (existingRows[0]) {
-      throw Errors.ConflictError("Attachment already exists");
-    }
-    if (await objectExists(storageKey)) {
-      await assertStoredAttachmentReady({
-        storageKey,
-        mime: input.mime,
+    return await db().transaction(async (tx) => {
+      // This database-backed lock is shared by every replica and by pending
+      // cleanup. It makes each canonical storage key immutable: after the first
+      // writer commits, every concurrent or retried upload observes its object.
+      await lockChatStorageKeys(tx, [storageKey]);
+
+      const existingRows = await tx
+        .select({ id: chatAttachments.id })
+        .from(chatAttachments)
+        .where(eq(chatAttachments.id, input.attachmentId))
+        .limit(1);
+      if (existingRows[0]) {
+        throw Errors.ConflictError("Attachment already exists");
+      }
+      if (await objectExists(storageKey)) {
+        await assertStoredAttachmentReady({
+          storageKey,
+          mime: input.mime,
+          size: input.size,
+        });
+        await schedulePendingUploadCleanup(input.userId, storageKey);
+        return { storageKey };
+      }
+      const bytes = await input.readBytes();
+
+      // Extract PDFs before the common storage tail. Images keep their existing
+      // pass-through decode. No other degrade-text type is admitted by the gate.
+      const isPdf = isPdfContentType(input.mime);
+      let degradedText: string | null | undefined;
+      if (isPdf) {
+        degradedText = await extractChatPdfText(bytes);
+      } else {
+        await assertPassThroughImageBytes(bytes, input.mime);
+      }
+
+      await assertAttachmentUploadBudgetAllowed({
+        userId: input.userId,
+        threadId: input.threadId,
+        messageId: input.messageId,
         size: input.size,
       });
+      reservedPendingBytes = input.size;
+      await writeObject(storageKey, bytes, input.mime);
+      if (isPdf) {
+        rememberPendingPdfDegradedText(storageKey, degradedText ?? null);
+      }
       await schedulePendingUploadCleanup(input.userId, storageKey);
       return { storageKey };
-    }
-    const bytes = await input.readBytes();
-
-    // Extract PDFs before the common storage tail. Images keep their existing
-    // pass-through decode. No other degrade-text type is admitted by the gate.
-    const isPdf = isPdfContentType(input.mime);
-    let degradedText: string | null | undefined;
-    if (isPdf) {
-      degradedText = await extractChatPdfText(bytes);
-    } else {
-      await assertPassThroughImageBytes(bytes, input.mime);
-    }
-
-    await assertAttachmentUploadBudgetAllowed({
-      userId: input.userId,
-      threadId: input.threadId,
-      messageId: input.messageId,
-      size: input.size,
     });
-    reservedPendingBytes = input.size;
-    await writeObject(storageKey, bytes, input.mime);
-    if (isPdf) {
-      rememberPendingPdfDegradedText(storageKey, degradedText ?? null);
-    }
-    await schedulePendingUploadCleanup(input.userId, storageKey);
-    return { storageKey };
   } catch (err) {
     await releasePendingUploadBudget(input.userId, reservedPendingBytes);
     if (isApiError(err, "BAD_REQUEST", "CONFLICT", "TOO_MANY_REQUESTS", "SERVICE_UNAVAILABLE"))

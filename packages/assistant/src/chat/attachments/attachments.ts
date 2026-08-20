@@ -3,8 +3,7 @@ import {
   classifyUpload,
   Errors,
   isApiError,
-  isPassThrough,
-  isPdfContentType,
+  isChatUploadAllowed,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   type IngestPolicyEntry,
@@ -142,8 +141,7 @@ export function assertUploadAllowed(mime: string, size: number): IngestPolicyEnt
   if (!policy) {
     throw Errors.BadRequestError(`Unsupported file type: ${mime || "unknown"}`);
   }
-  // PDFs are allowed for deterministic extraction. Other degrade types remain gated.
-  if (!isPassThrough(mime) && !isPdfContentType(mime)) {
+  if (!isChatUploadAllowed(mime)) {
     throw Errors.BadRequestError(
       "Only image uploads are supported right now — other file types are coming soon.",
     );
