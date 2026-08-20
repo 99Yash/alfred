@@ -5,7 +5,11 @@ import {
   type AttributedCall,
 } from "@alfred/ai";
 import { db } from "@alfred/db";
-import { chatAttachmentRepresentations, chatAttachments, type ChatAttachment } from "@alfred/db/schemas";
+import {
+  chatAttachmentRepresentations,
+  chatAttachments,
+  type ChatAttachment,
+} from "@alfred/db/schemas";
 import {
   createPdfExtractor,
   REALTIME_PDF_EXTRACTION_LIMITS,
@@ -123,7 +127,10 @@ export async function recordChatAttachmentEnrichmentFailure(
   return rows.length === 1;
 }
 
-type EnrichmentAttachment = Pick<ChatAttachment, "id" | "messageId" | "storageKey" | "mime" | "size">;
+type EnrichmentAttachment = Pick<
+  ChatAttachment,
+  "id" | "messageId" | "storageKey" | "mime" | "size"
+>;
 
 export interface EnrichChatAttachmentDependencies {
   loadAttachment?: (attachmentId: string) => Promise<EnrichmentAttachment | null>;

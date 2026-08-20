@@ -105,11 +105,18 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   // Include `metadata` so a re-extraction that changes only the page
   // (identical text, new page anchor) does not stay stale — see D6 design checkpoint.
   const existingChunks = await db()
-    .select({ position: chunks.position, contentHash: chunks.contentHash, metadata: chunks.metadata })
+    .select({
+      position: chunks.position,
+      contentHash: chunks.contentHash,
+      metadata: chunks.metadata,
+    })
     .from(chunks)
     .where(eq(chunks.documentId, doc.id));
   const existingByPosition = new Map(
-    existingChunks.map((c) => [c.position, { hash: c.contentHash, page: extractPageFromMetadata(c.metadata) }]),
+    existingChunks.map((c) => [
+      c.position,
+      { hash: c.contentHash, page: extractPageFromMetadata(c.metadata) },
+    ]),
   );
 
   const toEmbed: Chunk[] = [];
