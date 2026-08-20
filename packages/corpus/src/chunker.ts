@@ -152,10 +152,7 @@ function sliceByChars(text: string, max: number): string[] {
  * text from two pages. Overlap is preserved *within* a page but disabled *across* pages,
  * so a chunk with `page: 3` never carries page 2's tail.
  */
-export function chunkPages(
-  pages: readonly PageInput[],
-  opts: ChunkerOptions = {},
-): Chunk[] {
+export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {}): Chunk[] {
   if (pages.length === 0) return [];
   const chunks: Chunk[] = [];
   let position = 0;
@@ -166,7 +163,12 @@ export function chunkPages(
     // Reuse the paragraph-aware splitter per page, but never bleed across pages.
     const pageChunks = chunkText(trimmed, opts);
     for (const pc of pageChunks) {
-      chunks.push({ position: position++, content: pc.content, tokenCount: pc.tokenCount, page: page.page });
+      chunks.push({
+        position: position++,
+        content: pc.content,
+        tokenCount: pc.tokenCount,
+        page: page.page,
+      });
     }
     // chunkText for a single short page yields one chunk already; the per-page call
     // inherently disables cross-page overlap — the boundary is the call itself.

@@ -20,7 +20,9 @@ describe("chunkText", () => {
   test("splits long content into multiple chunks with overlap", () => {
     // 10 paragraphs, each short, target 1000 tokens ~4000 chars, so should still fit in one
     // Use a forced small target to trigger splitting.
-    const paras = Array.from({ length: 10 }, (_, i) => `Paragraph ${i} with some text.`).join("\n\n");
+    const paras = Array.from({ length: 10 }, (_, i) => `Paragraph ${i} with some text.`).join(
+      "\n\n",
+    );
     const chunks = chunkText(paras, { targetTokens: 5, maxTokens: 10, overlapTokens: 1 });
     assert.ok(chunks.length > 1, "should split into multiple chunks with small limits");
     // Each chunk position is dense
@@ -52,7 +54,10 @@ describe("chunkText", () => {
       }
     }
     assert.ok(pageChunks.length >= 2);
-    assert.deepEqual(pageChunks.map((c) => c.position), pageChunks.map((_, i) => i));
+    assert.deepEqual(
+      pageChunks.map((c) => c.position),
+      pageChunks.map((_, i) => i),
+    );
   });
 
   test("estimateTokens rounds up and never returns 0", () => {
@@ -92,7 +97,10 @@ describe("chunkPages", () => {
       if (c.page === 3) assert.ok(!c.content.includes("Alpha") && !c.content.includes("Beta"));
     }
     // Positions are globally dense
-    assert.deepEqual(chunks.map((c) => c.position), chunks.map((_, i) => i));
+    assert.deepEqual(
+      chunks.map((c) => c.position),
+      chunks.map((_, i) => i),
+    );
   });
 
   test("skips empty pages but keeps dense positions", () => {
@@ -111,7 +119,11 @@ describe("chunkPages", () => {
   test("overlap is preserved within a page", () => {
     // Force a page to split into at least two chunks so overlap can be observed
     const longPara = Array.from({ length: 20 }, () => "Sentence one.").join(" ");
-    const chunks = chunkPages([{ page: 5, text: longPara }], { targetTokens: 5, maxTokens: 10, overlapTokens: 2 });
+    const chunks = chunkPages([{ page: 5, text: longPara }], {
+      targetTokens: 5,
+      maxTokens: 10,
+      overlapTokens: 2,
+    });
     assert.ok(chunks.length >= 2);
     assert.ok(chunks.every((c) => c.page === 5));
   });
