@@ -35,6 +35,7 @@ import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { getPath, isNonEmptyString, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import { createPdfExtractor, type ExtractedPdf } from "@alfred/extraction";
 import { Agent, request as undiciRequest } from "undici";
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
@@ -71,6 +72,13 @@ const NONTRIVIAL_HTML_BYTES = 500;
 /** Control bytes to drop from extracted text (keeps tab `\t` and newline `\n`). */
 // eslint-disable-next-line no-control-regex -- matching control bytes is the point: we strip them.
 const CONTROL_BYTES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+
+/** PDF extraction limits for fetch_url — bounded by MAX_FETCH_BYTES (8 MB). */
+const PDF_EXTRACTION_LIMITS = {
+  maxBytes: MAX_FETCH_BYTES,
+  maxCharacters: MAX_TEXT_CHARS,
+  maxParseMilliseconds: 30_000,
+} as const;
 
 interface FetchUrlOk {
   ok: true;
@@ -1208,7 +1216,13 @@ async function runFetchUrlImpl(
     };
   }
 
-  if (contentType && !isTextualType(contentType)) {
+  // PDFs are handled specially — extract text instead of rejecting.
+  const isPdf =
+    contentType === "application/pdf" ||
+    contentType === "application/x-pdf" ||
+    contentType?.startsWith("application/pdf;");
+
+  if (contentType && !isTextualType(contentType) && !isPdf) {
     await disposeBody(raw.body);
     return {
       ok: false,
@@ -1216,7 +1230,7 @@ async function runFetchUrlImpl(
       finalUrl,
       contentType,
       reason: "unsupported_content_type",
-      message: `That URL is a ${contentType} resource. This tool reads web pages in as text; it does not download binaries (PDFs, images, archives).`,
+      message: `That URL is a ${contentType} resource. This tool reads web pages in as text; it does not download binaries (images, archives).`,
     };
   }
 
@@ -1262,10 +1276,18 @@ async function runFetchUrlImpl(
     };
   }
 
+  // Handle PDFs declared by Content-Type (already passed the earlier check).
+  if (isPdf) {
+    return await extractPdfFromBytes(bytes, args.url, finalUrl, contentType || "application/pdf", raw);
+  }
+
   // Sniff before decoding — a binary body with a missing or lying Content-Type
-  // would otherwise inline as mojibake (#267).
+  // would otherwise inline as mojibake (#267). PDFs are extracted to text.
   const sniffed = sniffBinaryType(bytes);
   if (sniffed) {
+    if (sniffed === "application/pdf") {
+      return await extractPdfFromBytes(bytes, args.url, finalUrl, contentType || sniffed, raw);
+    }
     return {
       ok: false,
       url: args.url,
@@ -1335,4 +1357,85 @@ function decodeText(bytes: Buffer, charset: string | null): string {
     }
   }
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+}
+
+/**
+ * Format extracted PDF text with page markers for citation. Uses per-page
+ * markdown when available, falls back to the document-level text field.
+ */
+function formatPdfText(result: ExtractedPdf): string | null {
+  if (result.kind === "extracted" && result.pages.length > 0) {
+    return result.pages
+      .map((page) => `[page ${page.pageNumber}]\n${page.markdown}`)
+      .join("\n\n");
+  }
+  if (result.kind === "extracted" || result.kind === "text_without_pages") {
+    return result.text;
+  }
+  return null;
+}
+
+/**
+ * Extract text from PDF bytes and return a FetchUrlResult. Handles extraction
+ * failures honestly — encrypted, needs-ocr, and invalid PDFs report a clear
+ * error rather than silently returning nothing.
+ */
+async function extractPdfFromBytes(
+  bytes: Buffer,
+  url: string,
+  finalUrl: string,
+  contentType: string,
+  raw: RawResponse,
+): Promise<FetchUrlResult> {
+  const extractPdf = createPdfExtractor(PDF_EXTRACTION_LIMITS);
+  let result: ExtractedPdf;
+  try {
+    result = await extractPdf(new Uint8Array(bytes));
+  } catch (err) {
+    return {
+      ok: false,
+      url,
+      finalUrl,
+      contentType,
+      reason: "fetch_failed",
+      message: `Could not extract text from the PDF: ${toMessage(err)}`,
+      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+    };
+  }
+
+  const text = formatPdfText(result);
+  if (!text) {
+    const reason =
+      result.kind === "encrypted"
+        ? "This PDF is encrypted and its text cannot be extracted."
+        : result.kind === "needs_ocr"
+          ? "This PDF is image-based and needs OCR to extract text, which is not yet supported."
+          : result.kind === "limit_exceeded"
+            ? `PDF extraction exceeded the limit: ${result.message}`
+            : result.kind === "invalid"
+              ? `This PDF is invalid: ${result.reason}`
+              : "Could not extract text from this PDF.";
+    return {
+      ok: false,
+      url,
+      finalUrl,
+      contentType,
+      reason: "unsupported_content_type",
+      message: reason,
+      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+    };
+  }
+
+  const truncated = text.length > MAX_TEXT_CHARS;
+  const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
+  return {
+    ok: true,
+    url,
+    finalUrl,
+    contentType,
+    text: finalText,
+    chars: finalText.length,
+    truncated,
+    ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+  };
 }

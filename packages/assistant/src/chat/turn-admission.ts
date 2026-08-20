@@ -34,7 +34,7 @@ import {
   toAttachmentRow,
 } from "./attachments";
 import { releasePendingUploadBudget } from "./attachment-upload-quota";
-import { schedulePendingUploadCleanup } from "./attachment-ingest";
+import { consumePendingPdfDegradedText, schedulePendingUploadCleanup } from "./attachment-ingest";
 import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
 import { requestChatStop } from "./stop-signal";
 import {
@@ -395,11 +395,13 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
   const freshAttachmentRows: AttachmentInsertRow[] = [];
   if (!reuseExistingAttachmentRows) {
     for (const [position, attachment] of attachments.entries()) {
+      const degradedText = consumePendingPdfDegradedText(attachment.id);
       const row = toAttachmentRow({
         userId: userId,
         threadId,
         messageId: userMessageId,
         attachment: { ...attachment, position },
+        ...(degradedText !== undefined ? { degradedText } : {}),
       });
       freshAttachmentRows.push(row);
     }
