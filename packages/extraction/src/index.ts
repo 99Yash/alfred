@@ -3,7 +3,6 @@
 // `@firecrawl/pdf-inspector`; the configured reader runs it in a killable child.
 export {
   createPdfExtractor,
-  MAX_EXTRACTED_TEXT_CHARACTERS,
   PdfExtractionError,
   REALTIME_PDF_EXTRACTION_LIMITS,
 } from "./extract-pdf";

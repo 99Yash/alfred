@@ -5,6 +5,7 @@ import {
   Errors,
   isApiError,
   isChatUploadAllowed,
+  isPdfContentType,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   type IngestPolicyEntry,
@@ -22,6 +23,12 @@ import { buildAttachmentKey, headObject } from "./storage";
 
 /** A client-supplied attachment descriptor (the bytes are already uploaded). */
 export type AttachmentInput = ChatAttachmentDescriptor;
+
+/**
+ * The model-readable state produced at the ingest boundary. The discriminator
+ * prevents image rows from carrying PDF's explicit `null` (needs OCR) state.
+ */
+export type AttachmentDegradation = { kind: "image" } | { kind: "pdf"; text: string | null };
 
 const MIN_MODEL_IMAGE_EDGE_PX = 64;
 // Anthropic rejects images whose longest edge exceeds 8000px; stay at that
@@ -170,19 +177,22 @@ export function assertAttachmentBatchAllowed(
 
 /**
  * Build the durable `chat_attachments` insert row for one upload — validating
- * the policy and rebuilding the storage key server-side. Phase 1 images are
- * pass-through, so the row lands `ready` (no degrade). Insert with
- * `onConflictDoNothing` on the id so retries remain idempotent.
+ * the policy and rebuilding the storage key server-side. PDF's `null` means
+ * deterministic extraction proved OCR is needed; images omit the field.
+ * Insert with `onConflictDoNothing` on the id so retries remain idempotent.
  */
 export function toAttachmentRow(opts: {
   userId: string;
   threadId: string;
   messageId: string;
   attachment: AttachmentInput;
-  degradedText?: string | null;
+  degradation: AttachmentDegradation;
 }): NewChatAttachment {
-  const { userId, threadId, messageId, attachment, degradedText } = opts;
+  const { userId, threadId, messageId, attachment, degradation } = opts;
   assertUploadAllowed(attachment.mime, attachment.size);
+  if (isPdfContentType(attachment.mime) !== (degradation.kind === "pdf")) {
+    throw Errors.BadRequestError("Attachment content state doesn't match its file type");
+  }
   return {
     id: attachment.id,
     userId,
@@ -199,7 +209,7 @@ export function toAttachmentRow(opts: {
     size: attachment.size,
     position: attachment.position,
     status: "ready",
-    ...(degradedText !== undefined ? { degradedText } : {}),
+    ...(degradation.kind === "pdf" ? { degradedText: degradation.text } : {}),
   };
 }
 

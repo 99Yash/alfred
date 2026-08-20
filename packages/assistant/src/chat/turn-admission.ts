@@ -1,6 +1,7 @@
 import {
   Errors,
   getPath,
+  isPdfContentType,
   isNonEmptyString,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -34,7 +35,7 @@ import {
   toAttachmentRow,
 } from "./attachments";
 import { releasePendingUploadBudget } from "./attachment-upload-quota";
-import { resolvePdfDegradedText, schedulePendingUploadCleanup } from "./attachment-ingest";
+import { resolveAttachmentDegradation, schedulePendingUploadCleanup } from "./attachment-ingest";
 import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
 import { requestChatStop } from "./stop-signal";
 import {
@@ -396,17 +397,25 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
   const freshAttachmentRows: AttachmentInsertRow[] = [];
   if (!reuseExistingAttachmentRows) {
     for (const [position, attachment] of attachments.entries()) {
-      const baseRow = toAttachmentRow({
-        userId: userId,
-        threadId,
-        messageId: userMessageId,
-        attachment: { ...attachment, position },
-      });
-      const degradedText = await resolvePdfDegradedText({
-        storageKey: baseRow.storageKey,
+      const degradation = await resolveAttachmentDegradation({
+        storageKey: buildAttachmentKey({
+          userId,
+          threadId,
+          messageId: userMessageId,
+          attachmentId: attachment.id,
+          fileName: attachment.name,
+        }),
         mime: attachment.mime,
       });
-      freshAttachmentRows.push(degradedText !== undefined ? { ...baseRow, degradedText } : baseRow);
+      freshAttachmentRows.push(
+        toAttachmentRow({
+          userId: userId,
+          threadId,
+          messageId: userMessageId,
+          attachment: { ...attachment, position },
+          degradation,
+        }),
+      );
     }
   }
 
@@ -447,7 +456,9 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
             size: src.size,
             position,
           },
-          degradedText: src.degradedText,
+          degradation: isPdfContentType(src.mime)
+            ? { kind: "pdf", text: src.degradedText }
+            : { kind: "image" },
         }),
       );
     }
