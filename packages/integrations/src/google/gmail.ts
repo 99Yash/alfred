@@ -591,7 +591,7 @@ export interface GetAttachmentResult {
 }
 
 export async function getAttachment(args: GetAttachmentArgs): Promise<GetAttachmentResult> {
-  const url = `${API_BASE}/messages/${args.messageId}/attachments/${args.attachmentId}`;
+  const url = `${API_BASE}/messages/${encodeURIComponent(args.messageId)}/attachments/${encodeURIComponent(args.attachmentId)}`;
   const json = await getJson(url, args.accessToken);
   const parsed = getAttachmentResponseSchema.parse(json);
   const dataBase64Url = parsed.data ?? "";

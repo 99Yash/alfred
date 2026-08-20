@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
-import { chunks, documents, user } from "@alfred/db/schemas";
+import { documents, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { ingestGmailPdfAttachments } from "../src/connections/ingestion/gmail-attachment";
 import type { GmailMessage } from "@alfred/integrations/google";
@@ -64,7 +64,6 @@ function makeMessage(args: {
 describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
   test("ingest creates gmail_attachment document with page offsets and isolates from gmail source", async () => {
     const userId = await seedUser();
-    const credentialId = `cred-${randomUUID()}`;
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
@@ -78,7 +77,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4 fake bytes"));
     let indexCalls = 0;
     const result = await ingestGmailPdfAttachments({
-      credentialId,
       userId,
       accountId,
       message,
@@ -160,7 +158,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
   test("re-ingest with changed bytes updates content and re-embeds", async () => {
     const userId = await seedUser();
-    const credentialId = `cred-${randomUUID()}`;
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
@@ -205,7 +202,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     };
 
     const r1 = await ingestGmailPdfAttachments({
-      credentialId,
       userId,
       accountId,
       message,
@@ -224,7 +220,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     indexCalls = 0;
     const r2 = await ingestGmailPdfAttachments({
-      credentialId,
       userId,
       accountId,
       message,
@@ -250,7 +245,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
   test("re-ingest unchanged is idempotent on document row", async () => {
     const userId = await seedUser();
-    const credentialId = `cred-${randomUUID()}`;
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
@@ -280,7 +274,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     };
 
     await ingestGmailPdfAttachments({
-      credentialId,
       userId,
       accountId,
       message,
@@ -294,7 +287,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
     )[0]!;
     await ingestGmailPdfAttachments({
-      credentialId,
       userId,
       accountId,
       message,
@@ -315,12 +307,10 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
     assert.equal(count.length, 1);
-    void chunks; // keep import used if no Voyage
   });
 
   test("scanned PDF (needs_ocr) is skipped, not ingested", async () => {
     const userId = await seedUser();
-    const credentialId = `cred-${randomUUID()}`;
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
@@ -332,7 +322,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     });
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
     const result = await ingestGmailPdfAttachments({
-      credentialId,
       userId,
       accountId,
       message,
