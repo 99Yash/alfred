@@ -23,7 +23,7 @@ import {
 } from "@alfred/integrations/google";
 import { installGmailWatch } from "@alfred/integrations/google/internal";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { ingestGmailPdfAttachments } from "./gmail-attachment";
+import { ingestGmailMediaAttachments } from "./gmail-media";
 import { internalDateToDate, sha256 } from "./gmail-ingest-helpers";
 
 /**
@@ -372,12 +372,12 @@ function buildContent(extracted: ReturnType<typeof extractMessageContent>): stri
 }
 
 /**
- * Single owner for post-persist PDF attachment ingestion. Centralizes the
+ * Single owner for post-persist media attachment ingestion. Centralizes the
  * `ignored` (self-authored) guard so a new ingest path cannot forget it,
  * and keeps attachment ingest behind the same domain order: persist message
  * → ingest attachments. Callers state domain order, not wiring.
  */
-async function tryIngestPdfAttachmentsAfterPersist(args: {
+async function tryIngestMediaAttachmentsAfterPersist(args: {
   cred: CredentialContext;
   message: GmailMessage;
   accessToken: string;
@@ -386,7 +386,7 @@ async function tryIngestPdfAttachmentsAfterPersist(args: {
 }): Promise<void> {
   if (args.persistResult.outcome === "ignored") return;
   try {
-    await ingestGmailPdfAttachments({
+    await ingestGmailMediaAttachments({
       userId: args.cred.userId,
       accountId: args.cred.accountId,
       message: args.message,
@@ -400,11 +400,14 @@ async function tryIngestPdfAttachmentsAfterPersist(args: {
   }
 }
 
+/** @deprecated Use tryIngestMediaAttachmentsAfterPersist — kept for call-site greppability during migration. */
+const tryIngestPdfAttachmentsAfterPersist = tryIngestMediaAttachmentsAfterPersist;
+
 /**
  * Retry attachment ingest for a known message that was pre-filtered by
  * `partitionKnownGmailRefs`. Self-authored mail is still dropped.
  */
-async function tryIngestPdfAttachmentsForKnownMessage(args: {
+async function tryIngestMediaAttachmentsForKnownMessage(args: {
   cred: CredentialContext;
   message: GmailMessage;
   accessToken: string;
@@ -413,7 +416,7 @@ async function tryIngestPdfAttachmentsForKnownMessage(args: {
   const extracted = extractMessageContent(args.message);
   if (isSelfAuthored(extracted.from)) return;
   try {
-    await ingestGmailPdfAttachments({
+    await ingestGmailMediaAttachments({
       userId: args.cred.userId,
       accountId: args.cred.accountId,
       message: args.message,
@@ -426,6 +429,9 @@ async function tryIngestPdfAttachmentsForKnownMessage(args: {
     );
   }
 }
+
+/** @deprecated Use tryIngestMediaAttachmentsForKnownMessage. */
+const tryIngestPdfAttachmentsForKnownMessage = tryIngestMediaAttachmentsForKnownMessage;
 
 /** Numeric compare on history-id strings — Gmail's ids are stringified ints. */
 function compareHistoryIds(a: string, b: string): number {

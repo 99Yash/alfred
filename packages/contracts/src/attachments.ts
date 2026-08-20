@@ -48,13 +48,21 @@ export interface ChatAttachmentDescriptor {
 export const ingestKindValues = ["pass-through", "degrade-text", "degrade-av", "reject"] as const;
 export type IngestKind = (typeof ingestKindValues)[number];
 
+/**
+ * Content family for `degrade-text` types. Each family owns one extractor
+ * and one set of extraction limits per door. `undefined` means the type
+ * needs no byte-to-text extraction (pass-through / degrade-av).
+ */
+export const contentFamilyValues = ["pdf", "document", "spreadsheet", "text"] as const;
+export type ContentFamily = (typeof contentFamilyValues)[number];
+
 export interface IngestPolicyEntry {
   /** How this MIME type is normalized for the model. */
   kind: Exclude<IngestKind, "reject">;
   /** Per-file upload cap, in bytes. Single-user caps (ADR-0065) — modest. */
   maxBytes: number;
   /** Content family needed by format-specific readers after policy lookup. */
-  contentFamily?: "pdf";
+  contentFamily?: ContentFamily;
 }
 
 const MB = 1024 * 1024;
@@ -128,14 +136,16 @@ export const INGEST_POLICY = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
+    contentFamily: "document",
   },
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
+    contentFamily: "spreadsheet",
   },
-  "text/plain": { kind: "degrade-text", maxBytes: 10 * MB },
-  "text/markdown": { kind: "degrade-text", maxBytes: 10 * MB },
-  "text/csv": { kind: "degrade-text", maxBytes: 10 * MB },
+  "text/plain": { kind: "degrade-text", maxBytes: 10 * MB, contentFamily: "text" },
+  "text/markdown": { kind: "degrade-text", maxBytes: 10 * MB, contentFamily: "text" },
+  "text/csv": { kind: "degrade-text", maxBytes: 10 * MB, contentFamily: "text" },
 } as const satisfies Readonly<Record<string, IngestPolicyEntry>>;
 
 const ingestPolicyByMime: Readonly<Record<string, IngestPolicyEntry>> = INGEST_POLICY;
@@ -156,6 +166,12 @@ export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 export function isPdfContentType(mime: string): boolean {
   const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
   return classifyUpload(normalized)?.contentFamily === "pdf";
+}
+
+/** Content family for a MIME type after normalization, or null when outside the whitelist. */
+export function getContentFamily(mime: string): ContentFamily | null {
+  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  return classifyUpload(normalized)?.contentFamily ?? null;
 }
 
 /**
