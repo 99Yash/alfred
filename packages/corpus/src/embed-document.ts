@@ -1,4 +1,4 @@
-import { embedMany } from "@alfred/ai/embeddings";
+import { embedMany, VOYAGE_INPUT_PRICE_PER_MTOK_USD } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
@@ -9,13 +9,12 @@ import {
   parseDocumentPages,
   parseDocumentPagesMixed,
 } from "@alfred/contracts";
-import { createHash } from "node:crypto";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
+import { sha256 } from "./hash";
 
 const EMBED_COST_CAP_USD = 0.5;
-const VOYAGE_INPUT_PER_MTOK = 0.06; // voyage-3.5, the default at `ai/src/embeddings.ts:24`
 const MAX_EMBED_TOKENS_PER_DOC = Math.floor(
-  (EMBED_COST_CAP_USD / VOYAGE_INPUT_PER_MTOK) * 1_000_000,
+  (EMBED_COST_CAP_USD / VOYAGE_INPUT_PRICE_PER_MTOK_USD) * 1_000_000,
 );
 
 /**
@@ -58,18 +57,20 @@ async function markDocumentEmbedTerminal(documentId: string, reason: string): Pr
 }
 
 /**
- * Single owner for the $0.50 embed budget. Truncates `chunks` in place to
- * the first N that fit `MAX_EMBED_TOKENS_PER_DOC` and keeps `hashes` in
- * sync. The policy is truncate-and-warn, not dead-letter, except when
- * even the first chunk exceeds the cap (handled by the caller).
+ * Single owner for the $0.50 embed budget. Pure — returns sliced copies
+ * and never mutates the inputs. The policy is truncate-and-warn, not
+ * dead-letter; even the first chunk exceeding the cap yields an empty
+ * result that the caller handles without a second dead-letter path.
  */
 function capChunksForBudget(
-  chunks: Chunk[],
-  hashes: string[],
+  chunks: readonly Chunk[],
+  hashes: readonly string[],
   docId: string,
-): { truncated: boolean; kept: number; total: number } {
+): { chunks: Chunk[]; hashes: string[]; truncated: boolean; kept: number; total: number } {
   const total = chunks.reduce((sum, c) => sum + c.tokenCount, 0);
-  if (total <= MAX_EMBED_TOKENS_PER_DOC) return { truncated: false, kept: chunks.length, total };
+  if (total <= MAX_EMBED_TOKENS_PER_DOC) {
+    return { chunks: [...chunks], hashes: [...hashes], truncated: false, kept: chunks.length, total };
+  }
   let used = 0;
   let keep = 0;
   for (const c of chunks) {
@@ -80,9 +81,13 @@ function capChunksForBudget(
   console.warn(
     `[embed-document] cost cap hit for doc=${docId}: ${total} tokens > ${MAX_EMBED_TOKENS_PER_DOC} (cap $${EMBED_COST_CAP_USD}), embedding first ${keep}/${chunks.length} chunks`,
   );
-  chunks.splice(keep);
-  hashes.splice(keep);
-  return { truncated: true, kept: keep, total };
+  return {
+    chunks: chunks.slice(0, keep),
+    hashes: hashes.slice(0, keep),
+    truncated: true,
+    kept: keep,
+    total,
+  };
 }
 
 /**
@@ -195,13 +200,16 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   // after the existing-hash filter, not to the total `splits`. Capping
   // `splits` would discard tail chunks even when the embed bill is tiny
   // (e.g. 1990 cached + 10 new = 10 billable tokens, but 16M total).
-  // Truncation is the policy — we keep the first N chunks that fit the
-  // budget and warn; only a doc whose *first* chunk exceeds the cap is
-  // dead-lettered (never happens at $0.50 / $0.06 Mtok).
-  capChunksForBudget(toEmbed, toEmbedHashes, doc.id);
-  if (toEmbed.length === 0 && splits.length > 0) {
-    await markDocumentEmbedTerminal(doc.id, "exceeds embedding cost cap ($0.50)");
-    return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: true };
+  // Pure cap — slice, don't mutate, and let an empty result flow to the
+  // normal embed path (no second dead-letter; first chunk never exceeds
+  // $0.50 at $0.06/Mtok).
+  const capped = capChunksForBudget(toEmbed, toEmbedHashes, doc.id);
+  let cappedChunks = capped.chunks;
+  let cappedHashes = capped.hashes;
+  if (cappedChunks.length === 0) {
+    // Budget truncated everything (first chunk over cap or all filtered).
+    // No vectors to embed — return without calling Voyage.
+    return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
   }
 
   // Only the Voyage call (and validating its output) counts toward the embed
@@ -213,16 +221,16 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   let vectors: number[][];
   try {
     vectors = await embedMany(
-      toEmbed.map((c) => c.content),
+      cappedChunks.map((c) => c.content),
       {
         userId: doc.userId,
         inputType: "document",
         idempotencyKey: args.idempotencyKey ?? `embed-doc:${doc.id}`,
       },
     );
-    if (vectors.length !== toEmbed.length) {
+    if (vectors.length !== cappedChunks.length) {
       throw new Error(
-        `[embed-document] vector count mismatch: got ${vectors.length} for ${toEmbed.length} chunks`,
+        `[embed-document] vector count mismatch: got ${vectors.length} for ${cappedChunks.length} chunks`,
       );
     }
   } catch (err) {
@@ -246,14 +254,14 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     await tx
       .insert(chunks)
       .values(
-        toEmbed.map((chunk, i) => ({
+        cappedChunks.map((chunk, i) => ({
           documentId: doc.id,
           userId: doc.userId,
           position: chunk.position,
           content: chunk.content,
           embedding: vectors[i]!,
           tokenCount: chunk.tokenCount,
-          contentHash: toEmbedHashes[i]!,
+          contentHash: cappedHashes[i]!,
           metadata: chunk.page != null ? { page: chunk.page } : {},
         })),
       )
@@ -288,7 +296,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
 
   return {
     documentId: doc.id,
-    chunksWritten: toEmbed.length,
+    chunksWritten: cappedChunks.length,
     chunksSkipped: skipped,
     empty: false,
   };
@@ -323,10 +331,6 @@ export async function findUnembeddedDocumentIds(opts: {
     .orderBy(desc(documents.ingestedAt))
     .limit(limit);
   return rows.map((r) => r.id);
-}
-
-function sha256(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
 }
 
 /**

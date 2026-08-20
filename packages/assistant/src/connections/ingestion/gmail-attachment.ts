@@ -1,4 +1,3 @@
-import { createMediaExtractor } from "@alfred/extraction";
 import type { GmailMessage } from "@alfred/integrations/google";
 import {
   ingestGmailMediaAttachments,
@@ -37,11 +36,12 @@ export async function ingestGmailPdfAttachments(
   args: GmailAttachmentIngestArgs,
 ): Promise<GmailAttachmentIngestResult> {
   const baseCreateExtractor = args.deps?.createExtractor;
-  const pdfOnlyCreateExtractor: GmailMediaIngestDeps["createExtractor"] = (opts) => {
-    if (opts.family !== "pdf") return null;
-    if (baseCreateExtractor) return baseCreateExtractor(opts);
-    return createMediaExtractor("gmailAttachment", "pdf");
-  };
+  const pdfOnlyCreateExtractor: GmailMediaIngestDeps["createExtractor"] = baseCreateExtractor
+    ? (opts) => {
+        if (opts.family !== "pdf") return null;
+        return baseCreateExtractor(opts);
+      }
+    : undefined;
 
   return ingestGmailMediaAttachments({
     userId: args.userId,
@@ -50,7 +50,8 @@ export async function ingestGmailPdfAttachments(
     accessToken: args.accessToken,
     deps: {
       getAttachment: args.deps?.getAttachment,
-      createExtractor: pdfOnlyCreateExtractor,
+      ...(pdfOnlyCreateExtractor ? { createExtractor: pdfOnlyCreateExtractor } : {}),
+      ...(baseCreateExtractor ? {} : { allowedFamilies: ["pdf"] as const }),
       indexDocument: args.deps?.indexDocument,
     },
   });
