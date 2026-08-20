@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { lockChatStorageKeys } from "@alfred/assistant/chat";
+import { lockChatStorageKeys, withChatStorageKeyLock } from "@alfred/assistant/chat";
 import { closeConnections, db } from "@alfred/db";
 import { pgErrorChain } from "@alfred/db/pg-errors";
 import { sql } from "drizzle-orm";
@@ -53,5 +53,36 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
         await lockChatStorageKeys(tx, [storageKey]);
       }),
     );
+  });
+
+  test("session upload lock coordinates with transaction cleanup lock", async () => {
+    const storageKey = `chat/test/thread/message/${randomUUID()}-report.pdf`;
+    const sessionLocked = Promise.withResolvers<void>();
+    const releaseSession = Promise.withResolvers<void>();
+
+    const upload = withChatStorageKeyLock(storageKey, async () => {
+      sessionLocked.resolve();
+      await releaseSession.promise;
+    });
+    await sessionLocked.promise;
+
+    try {
+      await assert.rejects(
+        db().transaction(async (tx) => {
+          await tx.execute(sql`set local lock_timeout = '100ms'`);
+          await lockChatStorageKeys(tx, [storageKey]);
+        }),
+        (error: unknown) => {
+          assert.equal(
+            [...pgErrorChain(error)].some((entry) => entry.code === PG_LOCK_NOT_AVAILABLE),
+            true,
+          );
+          return true;
+        },
+      );
+    } finally {
+      releaseSession.resolve();
+      await upload;
+    }
   });
 });

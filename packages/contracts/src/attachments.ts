@@ -53,8 +53,6 @@ export interface IngestPolicyEntry {
   kind: Exclude<IngestKind, "reject">;
   /** Per-file upload cap, in bytes. Single-user caps (ADR-0065) — modest. */
   maxBytes: number;
-  /** True only when this format's chat ingest path exists end to end today. */
-  chatAllowed: boolean;
   /** Content family needed by format-specific readers after policy lookup. */
   contentFamily?: "pdf";
 }
@@ -83,76 +81,81 @@ export const MAX_ATTACHMENT_BYTES_PER_FILE = Math.floor(
  * Gemini image input type, so it waits for the Phase 2/3 transcode path rather
  * than being accepted as raw pass-through. HEIC/HEIF likewise need transcode.
  */
-export const INGEST_POLICY: Readonly<Record<string, IngestPolicyEntry>> = {
+export const INGEST_POLICY = {
   // Images — pass-through (the universal modality).
   "image/jpeg": {
     kind: "pass-through",
     maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
-    chatAllowed: true,
   },
   "image/png": {
     kind: "pass-through",
     maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
-    chatAllowed: true,
   },
   "image/webp": {
     kind: "pass-through",
     maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
-    chatAllowed: true,
   },
   // Image formats that need transcode at ingest.
-  "image/gif": { kind: "degrade-av", maxBytes: 15 * MB, chatAllowed: false },
-  "image/heic": { kind: "degrade-av", maxBytes: 15 * MB, chatAllowed: false },
-  "image/heif": { kind: "degrade-av", maxBytes: 15 * MB, chatAllowed: false },
+  "image/gif": { kind: "degrade-av", maxBytes: 15 * MB },
+  "image/heic": { kind: "degrade-av", maxBytes: 15 * MB },
+  "image/heif": { kind: "degrade-av", maxBytes: 15 * MB },
 
   // Audio — transcribe to text.
-  "audio/mpeg": { kind: "degrade-text", maxBytes: 15 * MB, chatAllowed: false },
-  "audio/mp4": { kind: "degrade-text", maxBytes: 15 * MB, chatAllowed: false },
-  "audio/wav": { kind: "degrade-text", maxBytes: 15 * MB, chatAllowed: false },
-  "audio/x-wav": { kind: "degrade-text", maxBytes: 15 * MB, chatAllowed: false },
-  "audio/webm": { kind: "degrade-text", maxBytes: 15 * MB, chatAllowed: false },
-  "audio/ogg": { kind: "degrade-text", maxBytes: 15 * MB, chatAllowed: false },
-  "audio/aac": { kind: "degrade-text", maxBytes: 15 * MB, chatAllowed: false },
+  "audio/mpeg": { kind: "degrade-text", maxBytes: 15 * MB },
+  "audio/mp4": { kind: "degrade-text", maxBytes: 15 * MB },
+  "audio/wav": { kind: "degrade-text", maxBytes: 15 * MB },
+  "audio/x-wav": { kind: "degrade-text", maxBytes: 15 * MB },
+  "audio/webm": { kind: "degrade-text", maxBytes: 15 * MB },
+  "audio/ogg": { kind: "degrade-text", maxBytes: 15 * MB },
+  "audio/aac": { kind: "degrade-text", maxBytes: 15 * MB },
 
   // Video — split audio→transcript + keyframes→images.
-  "video/mp4": { kind: "degrade-av", maxBytes: 15 * MB, chatAllowed: false },
-  "video/webm": { kind: "degrade-av", maxBytes: 15 * MB, chatAllowed: false },
-  "video/quicktime": { kind: "degrade-av", maxBytes: 15 * MB, chatAllowed: false },
+  "video/mp4": { kind: "degrade-av", maxBytes: 15 * MB },
+  "video/webm": { kind: "degrade-av", maxBytes: 15 * MB },
+  "video/quicktime": { kind: "degrade-av", maxBytes: 15 * MB },
 
   // Documents & code — extract text.
   "application/pdf": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
-    chatAllowed: true,
+    contentFamily: "pdf",
+  },
+  "application/x-pdf": {
+    kind: "degrade-text",
+    maxBytes: 10 * MB,
     contentFamily: "pdf",
   },
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
-    chatAllowed: false,
   },
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
-    chatAllowed: false,
   },
-  "text/plain": { kind: "degrade-text", maxBytes: 10 * MB, chatAllowed: false },
-  "text/markdown": { kind: "degrade-text", maxBytes: 10 * MB, chatAllowed: false },
-  "text/csv": { kind: "degrade-text", maxBytes: 10 * MB, chatAllowed: false },
-} as const;
+  "text/plain": { kind: "degrade-text", maxBytes: 10 * MB },
+  "text/markdown": { kind: "degrade-text", maxBytes: 10 * MB },
+  "text/csv": { kind: "degrade-text", maxBytes: 10 * MB },
+} as const satisfies Readonly<Record<string, IngestPolicyEntry>>;
+
+const ingestPolicyByMime: Readonly<Record<string, IngestPolicyEntry>> = INGEST_POLICY;
+
+/** Formats whose complete chat ingest path is available today. */
+const CHAT_UPLOAD_ALLOWED_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "application/x-pdf",
+] satisfies readonly (keyof typeof INGEST_POLICY)[]);
 
 /** Every MIME type the upload boundary accepts (the whitelist). */
 export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 
-/** Legacy response MIME accepted by HTTP readers but not by chat upload policy. */
-const LEGACY_PDF_CONTENT_TYPE = "application/x-pdf";
-
 /** True when a Content-Type identifies a PDF, after MIME normalization. */
 export function isPdfContentType(mime: string): boolean {
   const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
-  return (
-    normalized === LEGACY_PDF_CONTENT_TYPE || classifyUpload(normalized)?.contentFamily === "pdf"
-  );
+  return classifyUpload(normalized)?.contentFamily === "pdf";
 }
 
 /**
@@ -196,12 +199,13 @@ export const MAX_ATTACHMENT_BYTES = Math.max(
  */
 export function classifyUpload(mime: string): IngestPolicyEntry | null {
   const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
-  return INGEST_POLICY[normalized] ?? null;
+  return ingestPolicyByMime[normalized] ?? null;
 }
 
 /** True when chat can accept and normalize this upload today. */
 export function isChatUploadAllowed(mime: string): boolean {
-  return classifyUpload(mime)?.chatAllowed === true;
+  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  return CHAT_UPLOAD_ALLOWED_TYPES.has(normalized);
 }
 
 /**

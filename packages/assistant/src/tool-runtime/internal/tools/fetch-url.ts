@@ -45,7 +45,7 @@ import {
 import { Agent, request as undiciRequest } from "undici";
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
-export const MAX_TEXT_CHARS = REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxCharacters;
+export const MAX_TEXT_CHARS = 100_000;
 
 /** Stop reading (and tear down the socket) once a body passes this many bytes. */
 const MAX_FETCH_BYTES = REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxBytes;
@@ -1220,18 +1220,6 @@ async function runFetchUrlImpl(
   // PDFs are handled specially — extract text instead of rejecting.
   const isPdf = isPdfContentType(contentType);
 
-  if (contentType && !isTextualType(contentType) && !isPdf) {
-    await disposeBody(raw.body);
-    return {
-      ok: false,
-      url: args.url,
-      finalUrl,
-      contentType,
-      reason: "unsupported_content_type",
-      message: `That URL is a ${contentType} resource. This tool reads web pages in as text; it does not download binaries (images, archives).`,
-    };
-  }
-
   if (contentLength != null && contentLength > MAX_FETCH_BYTES) {
     await disposeBody(raw.body);
     return {
@@ -1307,6 +1295,20 @@ async function runFetchUrlImpl(
       contentType: contentType || sniffed,
       reason: "unsupported_content_type",
       message: `That URL is a binary resource (looks like ${sniffed}). This tool reads web pages in as text; it does not download binaries.`,
+    };
+  }
+
+  // A generic binary Content-Type can still contain a PDF. Reject a declared
+  // binary only after bounded byte sniffing has had the chance to prove that
+  // case; otherwise `application/octet-stream` PDFs never reach extraction.
+  if (contentType && !isTextualType(contentType)) {
+    return {
+      ok: false,
+      url: args.url,
+      finalUrl,
+      contentType,
+      reason: "unsupported_content_type",
+      message: `That URL is a ${contentType} resource. This tool reads web pages in as text; it does not download binaries (images, archives).`,
     };
   }
 

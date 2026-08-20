@@ -123,6 +123,26 @@ export function buildAttachmentKey(opts: {
   return `chat/${opts.userId}/${opts.threadId}/${opts.messageId}/${opts.attachmentId}-${sanitizeFileName(opts.fileName)}`;
 }
 
+const PDF_DEGRADED_ARTIFACT_SUFFIX = ".alfred-pdf-text.json";
+
+/** The durable text sidecar owned by one raw PDF object. */
+export function pdfDegradedArtifactKey(storageKey: string): string {
+  return `${storageKey}${PDF_DEGRADED_ARTIFACT_SUFFIX}`;
+}
+
+/**
+ * Every degraded artifact that shares the raw attachment's lifecycle. Add new
+ * sidecar families here so exact-key cleanup cannot forget them.
+ */
+export function degradedArtifactKeysFor(storageKey: string): readonly string[] {
+  return [pdfDegradedArtifactKey(storageKey)];
+}
+
+/** The raw attachment and every object whose lifecycle it owns. */
+export function attachmentObjectKeys(storageKey: string): readonly string[] {
+  return [storageKey, ...degradedArtifactKeysFor(storageKey)];
+}
+
 /**
  * A short-lived read URL for an object — used for the composer's image preview
  * (the model gets inlined bytes via `readObject`, not a URL). Presigned GET

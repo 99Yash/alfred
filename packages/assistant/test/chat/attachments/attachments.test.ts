@@ -111,11 +111,49 @@ describe("toAttachmentRow", () => {
         size: 123,
         position: 0,
       },
-      degradedText: null,
+      degradation: { kind: "pdf", text: null },
     });
 
     assert.equal(Object.hasOwn(row, "degradedText"), true);
     assert.equal(row.degradedText, null);
+  });
+
+  test("omits PDF degradation state from an image row", () => {
+    const row = toAttachmentRow({
+      userId: "user-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      attachment: {
+        id: "attachment-1",
+        name: "photo.png",
+        mime: "image/png",
+        size: 123,
+        position: 0,
+      },
+      degradation: { kind: "image" },
+    });
+
+    assert.equal(Object.hasOwn(row, "degradedText"), false);
+  });
+
+  test("rejects a degradation state that does not match the MIME family", () => {
+    assert.throws(
+      () =>
+        toAttachmentRow({
+          userId: "user-1",
+          threadId: "thread-1",
+          messageId: "message-1",
+          attachment: {
+            id: "attachment-1",
+            name: "scan.pdf",
+            mime: "application/pdf",
+            size: 123,
+            position: 0,
+          },
+          degradation: { kind: "image" },
+        }),
+      /doesn't match/,
+    );
   });
 });
 

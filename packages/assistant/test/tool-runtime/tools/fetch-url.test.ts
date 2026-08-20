@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
+import { REALTIME_PDF_EXTRACTION_LIMITS } from "@alfred/extraction";
 import {
   decodeEntities,
   decodeResponseBody,
@@ -156,6 +157,10 @@ describe("isBlockedHost", () => {
 });
 
 describe("runFetchUrl (stubbed transport)", () => {
+  test("keeps the PDF parse ceiling separate from the returned text ceiling", () => {
+    assert.ok(REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxCharacters > MAX_TEXT_CHARS);
+  });
+
   function streamOf(...parts: Array<string | Uint8Array>): AsyncIterable<Uint8Array> {
     return {
       async *[Symbol.asyncIterator]() {
@@ -428,6 +433,24 @@ describe("runFetchUrl (stubbed transport)", () => {
       assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
       assert.match(r.text, /\[page 2\]\n.*PAGE TWO MARKER bravo/s);
       assert.equal(r.truncated, false);
+    }
+  });
+
+  test("extracts a PDF served as application/octet-stream after byte sniffing", async () => {
+    const bytes = new Uint8Array(
+      await readFile(
+        new URL("../../../../extraction/test/fixtures/born-digital-two-page.pdf", import.meta.url),
+      ),
+    );
+    const r = await runFetchUrl(
+      { url: "https://example.com/download" },
+      { transport: transportOf({ contentType: "application/octet-stream", body: [bytes] }) },
+    );
+
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
+      assert.equal(r.contentType, "application/octet-stream");
     }
   });
 

@@ -12,18 +12,22 @@ export {
   assertUploadAllowed,
   sniffPassThroughImageMime,
   toAttachmentRow,
+  type AttachmentDegradation,
   type AttachmentInput,
 } from "./attachments";
 export {
+  attachmentObjectKeys,
   attachmentUrl,
   buildAttachmentKey,
   copyObject,
+  degradedArtifactKeysFor,
   isStorageConfigured,
   objectExists,
+  pdfDegradedArtifactKey,
   readObject,
   writeObject,
 } from "./storage";
-export { lockChatStorageKeys } from "./storage-coordination";
+export { lockChatStorageKeys, withChatStorageKeyLock } from "./storage-coordination";
 // Media attachment enrichment cost/representation helpers. `chat`
 // (`chat-history-retrieval` and `compaction`) read these through this seam;
 // the enrichment implementation stays private to this `attachments` folder.

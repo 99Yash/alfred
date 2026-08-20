@@ -29,8 +29,11 @@ export interface PdfExtractionLimits {
   readonly maxParseMilliseconds: number;
 }
 
-/** Canonical text budget shared by every realtime PDF extraction door. */
-export const MAX_EXTRACTED_TEXT_CHARACTERS = 100_000;
+const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
+// `fetch_url` returns at most 100k characters, but its parser may read farther
+// so the caller can truncate an otherwise valid document instead of treating
+// the output limit as an extraction failure.
+const FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT = 200_000;
 
 /**
  * Required child-process limits for each realtime PDF door.
@@ -42,12 +45,12 @@ export const MAX_EXTRACTED_TEXT_CHARACTERS = 100_000;
 export const REALTIME_PDF_EXTRACTION_LIMITS = {
   chatUpload: {
     maxBytes: 10 * 1024 * 1024,
-    maxCharacters: MAX_EXTRACTED_TEXT_CHARACTERS,
+    maxCharacters: CHAT_PDF_EXTRACTION_CHARACTER_LIMIT,
     maxParseMilliseconds: 30_000,
   },
   fetchUrl: {
     maxBytes: 8_000_000,
-    maxCharacters: MAX_EXTRACTED_TEXT_CHARACTERS,
+    maxCharacters: FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT,
     maxParseMilliseconds: 30_000,
   },
 } as const satisfies Readonly<Record<"chatUpload" | "fetchUrl", PdfExtractionLimits>>;

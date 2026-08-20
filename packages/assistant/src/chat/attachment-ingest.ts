@@ -19,9 +19,11 @@ import {
   attachmentUrl,
   buildAttachmentKey,
   isStorageConfigured,
-  lockChatStorageKeys,
   objectExists,
+  pdfDegradedArtifactKey,
   readObject,
+  type AttachmentDegradation,
+  withChatStorageKeyLock,
   writeObject,
 } from "./attachments";
 import {
@@ -65,15 +67,6 @@ const pdfDegradedArtifactSchema = z.discriminatedUnion("kind", [
   z.object({ version: z.literal(1), kind: z.literal("needs_ocr") }).strict(),
 ]);
 type PdfDegradedArtifact = z.infer<typeof pdfDegradedArtifactSchema>;
-const PDF_DEGRADED_ARTIFACT_SUFFIX = ".alfred-pdf-text.json";
-
-/** Prevent two local requests from writing different bytes under one storage key. */
-const inFlightAttachmentUploads = new Set<string>();
-
-/** Durable sidecar stored under the same lifecycle prefix as the raw PDF. */
-export function pdfDegradedArtifactKey(storageKey: string): string {
-  return `${storageKey}${PDF_DEGRADED_ARTIFACT_SUFFIX}`;
-}
 
 function artifactFromDegradedText(degradedText: string | null): PdfDegradedArtifact {
   return degradedText === null
@@ -125,14 +118,14 @@ async function ensurePdfDegradedArtifact(
   return degradedText;
 }
 
-/** Read the upload-time artifact, repairing it from raw bytes only when absent or invalid. */
-export async function resolvePdfDegradedText(opts: {
+/** Read or repair the model-readable state owned by one stored attachment. */
+export async function resolveAttachmentDegradation(opts: {
   storageKey: string;
   mime: string;
-}): Promise<string | null | undefined> {
-  if (!isPdfContentType(opts.mime)) return undefined;
+}): Promise<AttachmentDegradation> {
+  if (!isPdfContentType(opts.mime)) return { kind: "image" };
   try {
-    return await ensurePdfDegradedArtifact(opts.storageKey);
+    return { kind: "pdf", text: await ensurePdfDegradedArtifact(opts.storageKey) };
   } catch (err) {
     if (isApiError(err, "BAD_REQUEST")) throw err;
     console.warn("[chat] PDF artifact read failed:", toMessage(err));
@@ -197,20 +190,14 @@ export async function uploadChatAttachment(
     attachmentId: input.attachmentId,
     fileName: input.name,
   });
-  if (inFlightAttachmentUploads.has(storageKey)) {
-    throw Errors.ConflictError("Attachment upload is already in progress");
-  }
-  inFlightAttachmentUploads.add(storageKey);
   let reservedPendingBytes = 0;
   try {
     await assertAttachmentUploadRateAllowed(input.userId);
-    return await db().transaction(async (tx) => {
-      // This database-backed lock is shared by every replica and by pending
-      // cleanup. It makes each canonical storage key immutable: after the first
-      // writer commits, every concurrent or retried upload observes its object.
-      await lockChatStorageKeys(tx, [storageKey]);
-
-      const existingRows = await tx
+    return await withChatStorageKeyLock(storageKey, async (storageDb) => {
+      // The session advisory lock is shared by every replica and uses the same
+      // namespace as turn admission and pending cleanup. It keeps the key
+      // immutable without holding an open transaction during object-store I/O.
+      const existingRows = await storageDb
         .select({ id: chatAttachments.id })
         .from(chatAttachments)
         .where(eq(chatAttachments.id, input.attachmentId))
@@ -238,10 +225,10 @@ export async function uploadChatAttachment(
 
       // Extract PDFs before the common storage tail. Images keep their existing
       // pass-through decode. No other degrade-text type is admitted by the gate.
-      let degradedText: string | null | undefined;
-      if (isPdf) {
-        degradedText = await extractChatPdfText(bytes);
-      } else {
+      const degradation: AttachmentDegradation = isPdf
+        ? { kind: "pdf", text: await extractChatPdfText(bytes) }
+        : { kind: "image" };
+      if (degradation.kind === "image") {
         await assertPassThroughImageBytes(bytes, input.mime);
       }
 
@@ -254,10 +241,10 @@ export async function uploadChatAttachment(
       reservedPendingBytes = input.size;
       await writeObject(storageKey, bytes, input.mime);
       // Enqueue cleanup as soon as raw bytes exist. If the sidecar write or the
-      // transaction commit fails, the delayed job still owns the orphan.
+      // later turn commit fails, the delayed job still owns the orphan.
       await schedulePendingUploadCleanup(input.userId, storageKey);
-      if (isPdf) {
-        await writePdfDegradedArtifact(storageKey, degradedText ?? null);
+      if (degradation.kind === "pdf") {
+        await writePdfDegradedArtifact(storageKey, degradation.text);
       }
       return { storageKey };
     });
@@ -267,8 +254,6 @@ export async function uploadChatAttachment(
       throw err;
     console.error("[chat] proxied upload failed:", toMessage(err));
     throw Errors.BadGatewayError("Couldn't store the upload. Try again.");
-  } finally {
-    inFlightAttachmentUploads.delete(storageKey);
   }
 }
 
