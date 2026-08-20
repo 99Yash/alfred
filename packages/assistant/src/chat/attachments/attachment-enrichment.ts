@@ -5,7 +5,7 @@ import {
   type AttributedCall,
 } from "@alfred/ai";
 import { db } from "@alfred/db";
-import { chatAttachmentRepresentations, chatAttachments } from "@alfred/db/schemas";
+import { chatAttachmentRepresentations, chatAttachments, type ChatAttachment } from "@alfred/db/schemas";
 import {
   createPdfExtractor,
   REALTIME_PDF_EXTRACTION_LIMITS,
@@ -123,13 +123,7 @@ export async function recordChatAttachmentEnrichmentFailure(
   return rows.length === 1;
 }
 
-type EnrichmentAttachment = {
-  id: string;
-  messageId: string;
-  storageKey: string;
-  mime: string;
-  size: number;
-};
+type EnrichmentAttachment = Pick<ChatAttachment, "id" | "messageId" | "storageKey" | "mime" | "size">;
 
 export interface EnrichChatAttachmentDependencies {
   loadAttachment?: (attachmentId: string) => Promise<EnrichmentAttachment | null>;
@@ -147,6 +141,19 @@ export interface EnrichChatAttachmentDependencies {
   extract?: ExtractPdf;
   persist?: typeof persistChatAttachmentRepresentation;
   fail?: typeof recordChatAttachmentEnrichmentFailure;
+}
+
+function buildEnrichmentRepresentation(
+  attachment: EnrichmentAttachment,
+  output: z.infer<typeof enrichmentOutputSchema>,
+) {
+  return {
+    schemaVersion: CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+    attachmentId: attachment.id,
+    messageId: attachment.messageId,
+    mime: attachment.mime,
+    ...output,
+  };
 }
 
 export async function enrichClaimedChatAttachment(
@@ -169,23 +176,11 @@ export async function enrichClaimedChatAttachment(
     if (modality === "pdf") {
       const extract =
         dependencies.extract ?? createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.chatUpload);
-      let extracted: ExtractedPdf;
-      try {
-        extracted = await extract(bytes);
-      } catch (error) {
-        // Child process failures surface as PdfExtractionError — bubble as generation failure.
-        throw error;
-      }
+      const extracted = await extract(bytes);
       const deterministic = buildDeterministicPdfOutput(extracted);
       if (deterministic) {
         const persisted = await persist({
-          representation: {
-            schemaVersion: CHAT_ATTACHMENT_REPRESENTATION_VERSION,
-            attachmentId: attachment.id,
-            messageId: attachment.messageId,
-            mime: attachment.mime,
-            ...deterministic.output,
-          },
+          representation: buildEnrichmentRepresentation(attachment, deterministic.output),
           provider: deterministic.provider,
           model: deterministic.model,
           estimatedCostMicrousd: args.estimatedCostMicrousd,
@@ -207,13 +202,7 @@ export async function enrichClaimedChatAttachment(
           })),
         };
         const persisted = await persist({
-          representation: {
-            schemaVersion: CHAT_ATTACHMENT_REPRESENTATION_VERSION,
-            attachmentId: attachment.id,
-            messageId: attachment.messageId,
-            mime: attachment.mime,
-            ...outputWithNullPage,
-          },
+          representation: buildEnrichmentRepresentation(attachment, outputWithNullPage),
           provider: generated.provider,
           model: generated.model,
           estimatedCostMicrousd: args.estimatedCostMicrousd,
@@ -229,14 +218,16 @@ export async function enrichClaimedChatAttachment(
       modality,
       attribution: args.attribution,
     });
+    // Non-PDF LLM output: models cannot assert page provenance — strip to null.
+    const outputWithNullPage = {
+      ...generated.output,
+      evidence: generated.output.evidence.map((item) => ({
+        ...item,
+        page: null as number | null,
+      })),
+    };
     const persisted = await persist({
-      representation: {
-        schemaVersion: CHAT_ATTACHMENT_REPRESENTATION_VERSION,
-        attachmentId: attachment.id,
-        messageId: attachment.messageId,
-        mime: attachment.mime,
-        ...generated.output,
-      },
+      representation: buildEnrichmentRepresentation(attachment, outputWithNullPage),
       provider: generated.provider,
       model: generated.model,
       estimatedCostMicrousd: args.estimatedCostMicrousd,
@@ -268,7 +259,7 @@ function buildDeterministicPdfOutput(
         visualDescription: null,
         ocrText: null,
         salientEntities: [],
-        evidence: evidence.length > 0 ? evidence : [],
+        evidence,
       },
       provider: "deterministic",
       model: "@firecrawl/pdf-inspector",

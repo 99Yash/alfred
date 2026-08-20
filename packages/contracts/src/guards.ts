@@ -68,6 +68,17 @@ export function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
+ * True for a 1-indexed positive integer — the provenance constraint for PDF
+ * page anchors. Extractors produce these; models must not assert them. Use
+ * this guard at every boundary that receives a page value from `unknown`
+ * (metadata, JSON, provider output) to replace the repeated
+ * `typeof x === "number" && Number.isInteger(x) && x >= 1` check.
+ */
+export function isValidPage(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
+}
+
+/**
  * Coerce an `unknown` (typically a nullable `jsonb` column) to a record,
  * falling back to an empty object when it isn't one. Replaces the repeated
  * `(x as Record<string, unknown> | null) ?? {}` — which lied for arrays and

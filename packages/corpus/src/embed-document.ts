@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
-import { isRecord } from "@alfred/contracts";
+import { isRecord, isValidPage } from "@alfred/contracts";
 import { createHash } from "node:crypto";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 
@@ -179,6 +179,14 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
       },
     });
 
+  // Remove orphan tail rows from a previous re-extraction that produced more chunks.
+  // Positions are dense 0..N-1, so any position >= splits.length is stale.
+  if (existingChunks.length > splits.length) {
+    await db()
+      .delete(chunks)
+      .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
+  }
+
   // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
   // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
   // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
@@ -230,7 +238,7 @@ function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
 }
 
-function extractPageInputs(doc: { content: string; metadata: unknown }): PageInput[] | null {
+function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
   if (!isRecord(doc.metadata)) return null;
   const rawPages = doc.metadata.pages;
   if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
@@ -238,7 +246,7 @@ function extractPageInputs(doc: { content: string; metadata: unknown }): PageInp
   for (const entry of rawPages) {
     if (!isRecord(entry)) continue;
     const pageRaw = entry.page;
-    const pageNum = typeof pageRaw === "number" && Number.isInteger(pageRaw) && pageRaw >= 1 ? pageRaw : null;
+    const pageNum = isValidPage(pageRaw) ? pageRaw : null;
     if (pageNum == null) continue;
     const textRaw = entry.text;
     if (typeof textRaw === "string") {
@@ -259,5 +267,5 @@ function extractPageInputs(doc: { content: string; metadata: unknown }): PageInp
 function extractPageFromMetadata(raw: unknown): number | null {
   if (!isRecord(raw)) return null;
   const page = raw.page;
-  return typeof page === "number" && Number.isInteger(page) && page >= 1 ? page : null;
+  return isValidPage(page) ? page : null;
 }
