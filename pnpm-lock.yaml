@@ -732,6 +732,9 @@ importers:
 
   packages/extraction:
     dependencies:
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@firecrawl/pdf-inspector':
         specifier: 'catalog:'
         version: 1.15.0
