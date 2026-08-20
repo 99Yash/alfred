@@ -61,6 +61,14 @@ async function markDocumentEmbedTerminal(documentId: string, reason: string): Pr
  * Callers can use `findUnembeddedDocumentIds` to find docs that need a
  * (re-)embedding pass and call `indexDocument` for each (`retryPending`
  * folds that sweep).
+ *
+ * Concurrency: the persistence phase (UPSERT chunks, DELETE orphan tail,
+ * and poison-pill reset) runs inside a single `db().transaction(...)` so
+ * the SELECT → embed → UPSERT → DELETE chain cannot interleave a stale
+ * snapshot delete. Per-document serialization is via the transaction's
+ * snapshot — concurrent `indexDocument` calls for the same `documentId`
+ * that shorten to different lengths are serialized by the transaction
+ * rather than by a separate advisory lock.
  */
 export interface IndexDocumentArgs {
   documentId: string;
@@ -116,6 +124,24 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   const skipped = splits.length - toEmbed.length;
 
   if (toEmbed.length === 0) {
+    // No changed chunks, but still atomically clean orphan tails and poison-pill
+    // state so a re-encode that shortens without changing retained hashes does
+    // not leave stale searchable chunks.
+    const needsOrphanDelete = existingChunks.length > splits.length;
+    const needsReset =
+      doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null;
+    if (needsOrphanDelete || needsReset) {
+      await db().transaction(async (tx) => {
+        if (needsOrphanDelete) {
+          await tx
+            .delete(chunks)
+            .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
+        }
+        if (needsReset) {
+          await tx.update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
+        }
+      });
+    }
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
   }
 
@@ -151,49 +177,55 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     throw err;
   }
 
-  // Upsert every changed position in one round-trip. Conflict updates must
-  // read from `excluded`: each row has different content, vector, and hash.
-  await db()
-    .insert(chunks)
-    .values(
-      toEmbed.map((chunk, i) => ({
-        documentId: doc.id,
-        userId: doc.userId,
-        position: chunk.position,
-        content: chunk.content,
-        embedding: vectors[i]!,
-        tokenCount: chunk.tokenCount,
-        contentHash: toEmbedHashes[i]!,
-        metadata: chunk.page != null ? { page: chunk.page } : {},
-      })),
-    )
-    .onConflictDoUpdate({
-      target: [chunks.documentId, chunks.position],
-      set: {
-        content: sql`excluded.content`,
-        embedding: sql`excluded.embedding`,
-        tokenCount: sql`excluded.token_count`,
-        contentHash: sql`excluded.content_hash`,
-        metadata: sql`excluded.metadata`,
-        updatedAt: new Date(),
-      },
-    });
+  // Persistence is atomic: UPSERT changed chunks, DELETE orphan tail, and
+  // poison-pill reset commit together. This closes the interleaving where
+  // T1 reads existing (10 rows), T2 reads existing (10 rows), T1 embeds 4
+  // and deletes >=4, and T2's stale delete then operates on a stale snapshot.
+  await db().transaction(async (tx) => {
+    // Upsert every changed position in one round-trip. Conflict updates must
+    // read from `excluded`: each row has different content, vector, and hash.
+    await tx
+      .insert(chunks)
+      .values(
+        toEmbed.map((chunk, i) => ({
+          documentId: doc.id,
+          userId: doc.userId,
+          position: chunk.position,
+          content: chunk.content,
+          embedding: vectors[i]!,
+          tokenCount: chunk.tokenCount,
+          contentHash: toEmbedHashes[i]!,
+          metadata: chunk.page != null ? { page: chunk.page } : {},
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [chunks.documentId, chunks.position],
+        set: {
+          content: sql`excluded.content`,
+          embedding: sql`excluded.embedding`,
+          tokenCount: sql`excluded.token_count`,
+          contentHash: sql`excluded.content_hash`,
+          metadata: sql`excluded.metadata`,
+          updatedAt: new Date(),
+        },
+      });
 
-  // Remove orphan tail rows from a previous re-extraction that produced more chunks.
-  // Positions are dense 0..N-1, so any position >= splits.length is stale.
-  if (existingChunks.length > splits.length) {
-    await db()
-      .delete(chunks)
-      .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
-  }
+    // Remove orphan tail rows from a previous re-extraction that produced more chunks.
+    // Positions are dense 0..N-1, so any position >= splits.length is stale.
+    if (existingChunks.length > splits.length) {
+      await tx
+        .delete(chunks)
+        .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
+    }
 
-  // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
-  // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
-  // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
-  // so an ordinary first-time embed (the common case) skips the extra write.
-  if (doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null) {
-    await db().update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
-  }
+    // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
+    // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
+    // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
+    // so an ordinary first-time embed (the common case) skips the extra write.
+    if (doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null) {
+      await tx.update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
+    }
+  });
 
   return {
     documentId: doc.id,
@@ -238,6 +270,16 @@ function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
 }
 
+/**
+ * Manual parse of `documents.metadata.pages`. The canonical page shape is
+ * `ExtractedPdfPage.pageNumber` proven by `parsePdfExtractionChildReply`
+ * (positive integer, dense 1..N) and `chunks.metadata.page` checked by
+ * `isValidPage`. `documents.metadata` is `unknown` jsonb with no static
+ * guarantee, so this boundary re-validates with `isRecord`/`isValidPage`.
+ * Two encodings (`{text}` vs `{start,end}`) share one un-tagged array;
+ * a shared DocumentPagesSchema in @alfred/contracts would own that union
+ * but is deferred until the encodings are tagged — hence the manual parse.
+ */
 function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
   if (!isRecord(doc.metadata)) return null;
   const rawPages = doc.metadata.pages;

@@ -156,6 +156,15 @@ function buildEnrichmentRepresentation(
   };
 }
 
+function stripPageProvenance(
+  output: z.infer<typeof enrichmentOutputSchema>,
+): z.infer<typeof enrichmentOutputSchema> {
+  return {
+    ...output,
+    evidence: output.evidence.map((item) => ({ ...item, page: null })),
+  };
+}
+
 export async function enrichClaimedChatAttachment(
   args: {
     attachmentId: string;
@@ -194,13 +203,7 @@ export async function enrichClaimedChatAttachment(
           modality,
           attribution: args.attribution,
         });
-        const outputWithNullPage = {
-          ...generated.output,
-          evidence: generated.output.evidence.map((item) => ({
-            ...item,
-            page: null as number | null,
-          })),
-        };
+        const outputWithNullPage = stripPageProvenance(generated.output);
         const persisted = await persist({
           representation: buildEnrichmentRepresentation(attachment, outputWithNullPage),
           provider: generated.provider,
@@ -219,13 +222,7 @@ export async function enrichClaimedChatAttachment(
       attribution: args.attribution,
     });
     // Non-PDF LLM output: models cannot assert page provenance — strip to null.
-    const outputWithNullPage = {
-      ...generated.output,
-      evidence: generated.output.evidence.map((item) => ({
-        ...item,
-        page: null as number | null,
-      })),
-    };
+    const outputWithNullPage = stripPageProvenance(generated.output);
     const persisted = await persist({
       representation: buildEnrichmentRepresentation(attachment, outputWithNullPage),
       provider: generated.provider,
@@ -294,8 +291,14 @@ function pdfExtractionFailureError(result: ExtractedPdf): Error {
       return new Error(`pdf_invalid:${result.cause}`);
     case "limit_exceeded":
       return new Error(`pdf_limit_exceeded:${result.limit}`);
-    default:
-      return new Error("pdf_extraction_unreadable");
+    case "extracted":
+    case "text_without_pages":
+    case "needs_ocr":
+      throw new Error(`pdfExtractionFailureError: unexpected kind ${result.kind}`);
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
   }
 }
 
