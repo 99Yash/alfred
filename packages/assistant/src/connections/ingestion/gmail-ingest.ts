@@ -24,6 +24,7 @@ import {
 import { installGmailWatch } from "@alfred/integrations/google/internal";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
+import { ingestGmailPdfAttachments } from "./gmail-attachment";
 
 /**
  * Gmail ingestion orchestration. Relocated out of `@alfred/integrations`
@@ -168,6 +169,22 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
         ignored++;
       } else {
         skipped++;
+      }
+      if (result.outcome !== "ignored") {
+        try {
+          await ingestGmailPdfAttachments({
+            credentialId: cred.credentialId,
+            userId: cred.userId,
+            accountId: cred.accountId,
+            message,
+            accessToken,
+          });
+        } catch (err) {
+          console.warn(
+            `[gmail.ingestor] attachment ingest failed for message=${ref.id}:`,
+            toMessage(err),
+          );
+        }
       }
       if (message.historyId) {
         if (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0) {
@@ -763,6 +780,22 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
+      if (result.outcome !== "ignored") {
+        try {
+          await ingestGmailPdfAttachments({
+            credentialId: cred.credentialId,
+            userId: cred.userId,
+            accountId: cred.accountId,
+            message,
+            accessToken,
+          });
+        } catch (err) {
+          console.warn(
+            `[gmail.ingestor] attachment ingest failed for message=${id}:`,
+            toMessage(err),
+          );
+        }
+      }
     } catch (err) {
       errors++;
       console.warn(`[gmail.ingestor] poll fetch failed for message=${id}:`, toMessage(err));
@@ -948,6 +981,22 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
         if (result.isSent) {
           sentDocumentIds.push(result.documentId);
           if (message.threadId) touchedThreadIds.add(message.threadId);
+        }
+      }
+      if (result.outcome !== "ignored") {
+        try {
+          await ingestGmailPdfAttachments({
+            credentialId: cred.credentialId,
+            userId: cred.userId,
+            accountId: cred.accountId,
+            message,
+            accessToken,
+          });
+        } catch (err) {
+          console.warn(
+            `[gmail.ingestor] attachment ingest failed for message=${ref.id}:`,
+            toMessage(err),
+          );
         }
       }
       if (
