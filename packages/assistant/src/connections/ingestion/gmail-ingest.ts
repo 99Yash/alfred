@@ -23,8 +23,8 @@ import {
 } from "@alfred/integrations/google";
 import { installGmailWatch } from "@alfred/integrations/google/internal";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
 import { ingestGmailPdfAttachments } from "./gmail-attachment";
+import { internalDateToDate, sha256 } from "./gmail-ingest-helpers";
 
 /**
  * Gmail ingestion orchestration. Relocated out of `@alfred/integrations`
@@ -170,22 +170,13 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       } else {
         skipped++;
       }
-      if (result.outcome !== "ignored") {
-        try {
-          await ingestGmailPdfAttachments({
-            credentialId: cred.credentialId,
-            userId: cred.userId,
-            accountId: cred.accountId,
-            message,
-            accessToken,
-          });
-        } catch (err) {
-          console.warn(
-            `[gmail.ingestor] attachment ingest failed for message=${ref.id}:`,
-            toMessage(err),
-          );
-        }
-      }
+      await tryIngestPdfAttachmentsAfterPersist({
+        cred,
+        message,
+        accessToken,
+        persistResult: result,
+        logId: ref.id,
+      });
       if (message.historyId) {
         if (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0) {
           highWaterHistoryId = message.historyId;
@@ -380,15 +371,60 @@ function buildContent(extracted: ReturnType<typeof extractMessageContent>): stri
   return header ? `${header}\n\n${extracted.body}` : extracted.body;
 }
 
-function sha256(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
+/**
+ * Single owner for post-persist PDF attachment ingestion. Centralizes the
+ * `ignored` (self-authored) guard so a new ingest path cannot forget it,
+ * and keeps attachment ingest behind the same domain order: persist message
+ * → ingest attachments. Callers state domain order, not wiring.
+ */
+async function tryIngestPdfAttachmentsAfterPersist(args: {
+  cred: CredentialContext;
+  message: GmailMessage;
+  accessToken: string;
+  persistResult: PersistMessageResult;
+  logId: string;
+}): Promise<void> {
+  if (args.persistResult.outcome === "ignored") return;
+  try {
+    await ingestGmailPdfAttachments({
+      userId: args.cred.userId,
+      accountId: args.cred.accountId,
+      message: args.message,
+      accessToken: args.accessToken,
+    });
+  } catch (err) {
+    console.warn(
+      `[gmail.ingestor] attachment ingest failed for message=${args.logId}:`,
+      toMessage(err),
+    );
+  }
 }
 
-function internalDateToDate(internalDate: string | undefined): Date | null {
-  if (!internalDate) return null;
-  const ms = Number(internalDate);
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms);
+/**
+ * Retry attachment ingest for a known message that was pre-filtered by
+ * `partitionKnownGmailRefs`. Self-authored mail is still dropped.
+ */
+async function tryIngestPdfAttachmentsForKnownMessage(args: {
+  cred: CredentialContext;
+  message: GmailMessage;
+  accessToken: string;
+  logId: string;
+}): Promise<void> {
+  const extracted = extractMessageContent(args.message);
+  if (isSelfAuthored(extracted.from)) return;
+  try {
+    await ingestGmailPdfAttachments({
+      userId: args.cred.userId,
+      accountId: args.cred.accountId,
+      message: args.message,
+      accessToken: args.accessToken,
+    });
+  } catch (err) {
+    console.warn(
+      `[gmail.ingestor] attachment retry failed for message=${args.logId}:`,
+      toMessage(err),
+    );
+  }
 }
 
 /** Numeric compare on history-id strings — Gmail's ids are stringified ints. */
@@ -780,22 +816,13 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
-      if (result.outcome !== "ignored") {
-        try {
-          await ingestGmailPdfAttachments({
-            credentialId: cred.credentialId,
-            userId: cred.userId,
-            accountId: cred.accountId,
-            message,
-            accessToken,
-          });
-        } catch (err) {
-          console.warn(
-            `[gmail.ingestor] attachment ingest failed for message=${id}:`,
-            toMessage(err),
-          );
-        }
-      }
+      await tryIngestPdfAttachmentsAfterPersist({
+        cred,
+        message,
+        accessToken,
+        persistResult: result,
+        logId: id,
+      });
     } catch (err) {
       errors++;
       console.warn(`[gmail.ingestor] poll fetch failed for message=${id}:`, toMessage(err));
@@ -947,9 +974,9 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   // SENT rows on the floor. A sent copy may have been inserted by history
   // catch-up or a prior attempt that died before side effects; the realtime
   // webhook must still force the thread's reply re-eval.
-  const { unknownRefs, knownSentDocs } = refs.length
+  const { unknownRefs, knownRefs, knownSentDocs } = refs.length
     ? await partitionKnownGmailRefs(cred.userId, refs)
-    : { unknownRefs: [], knownSentDocs: [] };
+    : { unknownRefs: [], knownRefs: [], knownSentDocs: [] };
   let skipped = refs.length - unknownRefs.length;
   let inserted = 0;
   let ignored = 0;
@@ -983,22 +1010,13 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
-      if (result.outcome !== "ignored") {
-        try {
-          await ingestGmailPdfAttachments({
-            credentialId: cred.credentialId,
-            userId: cred.userId,
-            accountId: cred.accountId,
-            message,
-            accessToken,
-          });
-        } catch (err) {
-          console.warn(
-            `[gmail.ingestor] attachment ingest failed for message=${ref.id}:`,
-            toMessage(err),
-          );
-        }
-      }
+      await tryIngestPdfAttachmentsAfterPersist({
+        cred,
+        message,
+        accessToken,
+        persistResult: result,
+        logId: ref.id,
+      });
       if (
         message.historyId &&
         (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
@@ -1013,6 +1031,38 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       );
     }
   });
+
+  // Retry attachment ingest for known messages that were dropped by the
+  // pre-filter. A transient getAttachment/extractPdf throw on the first
+  // attempt must not permanently orphan the PDF — pollGmailHistory and
+  // ingestRecentGmail would retry (no pre-filter), but the realtime path
+  // previously hid the retry behind partitionKnownGmailRefs.
+  if (knownRefs.length > 0) {
+    await mapConcurrent(knownRefs, concurrency, async (ref) => {
+      try {
+        const message = await getMessage({ accessToken, id: ref.id, format: "full" });
+        await tryIngestPdfAttachmentsForKnownMessage({
+          cred,
+          message,
+          accessToken,
+          logId: ref.id,
+        });
+        if (
+          message.historyId &&
+          (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
+        ) {
+          highWaterHistoryId = message.historyId;
+        }
+      } catch (err) {
+        // Best-effort retry — a failure here does not count as a poll error
+        // because the mail itself is already persisted; the next poll retries.
+        console.warn(
+          `[gmail.ingestor] poll-recent attachment retry failed for message=${ref.id}:`,
+          toMessage(err),
+        );
+      }
+    });
+  }
 
   // #560b: detect a coverage gap when the Pub/Sub push historyId is far ahead
   // of our stored cursor. A large jump means the watch was down or the process
@@ -1082,6 +1132,7 @@ async function partitionKnownGmailRefs(
   refs: { id: string; threadId: string }[],
 ): Promise<{
   unknownRefs: { id: string; threadId: string }[];
+  knownRefs: { id: string; threadId: string }[];
   knownSentDocs: KnownSentGmailDoc[];
 }> {
   const ids = refs.map((r) => r.id);
@@ -1102,13 +1153,14 @@ async function partitionKnownGmailRefs(
     );
   const known = new Map(existing.map((row) => [row.sourceId, row]));
   const unknownRefs = refs.filter((r) => !known.has(r.id));
+  const knownRefs = refs.filter((r) => known.has(r.id));
   const knownSentDocs: KnownSentGmailDoc[] = [];
   for (const row of existing) {
     if (isStoredGmailSentMetadata(row.metadata)) {
       knownSentDocs.push({ documentId: row.id, threadId: row.sourceThreadId });
     }
   }
-  return { unknownRefs, knownSentDocs };
+  return { unknownRefs, knownRefs, knownSentDocs };
 }
 
 function isStoredGmailSentMetadata(metadata: unknown): boolean {

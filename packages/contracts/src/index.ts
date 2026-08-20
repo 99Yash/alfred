@@ -7,6 +7,7 @@ export * from "./passthrough";
 export * from "./passthrough-bounds";
 export * from "./credentials";
 export * from "./document-source";
+export * from "./document-pages";
 export * from "./gmail-document-metadata";
 export * from "./integration-objects";
 export * from "./integration-availability";

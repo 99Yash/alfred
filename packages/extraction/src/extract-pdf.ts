@@ -53,7 +53,14 @@ export const REALTIME_PDF_EXTRACTION_LIMITS = {
     maxCharacters: FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT,
     maxParseMilliseconds: 30_000,
   },
-} as const satisfies Readonly<Record<"chatUpload" | "fetchUrl", PdfExtractionLimits>>;
+  gmailAttachment: {
+    maxBytes: 10 * 1024 * 1024,
+    maxCharacters: 200_000,
+    maxParseMilliseconds: 30_000,
+  },
+} as const satisfies Readonly<
+  Record<"chatUpload" | "fetchUrl" | "gmailAttachment", PdfExtractionLimits>
+>;
 
 export type ExtractedPdf =
   | {

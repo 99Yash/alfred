@@ -1,26 +1,18 @@
-import { toMessage } from "@alfred/contracts";
+import { isPdfContentType, toMessage } from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
-import { createPdfExtractor, type ExtractPdf } from "@alfred/extraction";
+import {
+  createPdfExtractor,
+  REALTIME_PDF_EXTRACTION_LIMITS,
+  type ExtractPdf,
+} from "@alfred/extraction";
 import { extractAttachments, getAttachment, type GmailMessage } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
+import { internalDateToDate, sha256 } from "./gmail-ingest-helpers";
 
-const GMAIL_ATTACHMENT_PDF_LIMITS = {
-  maxBytes: 10 * 1024 * 1024,
-  maxCharacters: 200_000,
-  maxParseMilliseconds: 30_000,
-} as const;
-
-function isPdfMime(mimeType: string): boolean {
-  const normalized = mimeType.split(";")[0]!.trim().toLowerCase();
-  return normalized === "application/pdf" || normalized === "application/x-pdf";
-}
-
-function sha256(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
-}
+// Single source of truth for the gmail_attachment door — mirrors REALTIME_PDF_EXTRACTION_LIMITS.gmailAttachment
+const GMAIL_ATTACHMENT_PDF_LIMITS = REALTIME_PDF_EXTRACTION_LIMITS.gmailAttachment;
 
 export interface GmailAttachmentIngestResult {
   attempted: number;
@@ -31,37 +23,35 @@ export interface GmailAttachmentIngestResult {
 }
 
 export interface GmailAttachmentIngestDeps {
-  getAttachment?: (args: {
-    accessToken: string;
-    messageId: string;
-    attachmentId: string;
-  }) => Promise<{ bytes: Uint8Array; size: number }>;
-  extractPdf?: ExtractPdf;
-  indexDocument?: (args: { documentId: string }) => Promise<unknown>;
+  getAttachment?:
+    | ((args: {
+        accessToken: string;
+        messageId: string;
+        attachmentId: string;
+      }) => Promise<{ bytes: Uint8Array; size: number }>)
+    | undefined;
+  extractPdf?: ExtractPdf | undefined;
+  indexDocument?: ((args: { documentId: string }) => Promise<unknown>) | undefined;
 }
 
 export interface GmailAttachmentIngestArgs {
-  credentialId: string;
   userId: string;
   accountId: string;
   message: GmailMessage;
   accessToken: string;
-  /** @deprecated Use deps.extractPdf */
-  extractPdf?: ExtractPdf;
-  deps?: GmailAttachmentIngestDeps;
+  deps?: GmailAttachmentIngestDeps | undefined;
 }
 
 export async function ingestGmailPdfAttachments(
   args: GmailAttachmentIngestArgs,
 ): Promise<GmailAttachmentIngestResult> {
-  const attachments = extractAttachments(args.message).filter((a) => isPdfMime(a.mimeType));
+  const attachments = extractAttachments(args.message).filter((a) => isPdfContentType(a.mimeType));
   if (attachments.length === 0) {
     return { attempted: 0, ingested: 0, skipped: 0, errors: 0, documentIds: [] };
   }
 
   const getAttachmentFn = args.deps?.getAttachment ?? getAttachment;
-  const extractPdf =
-    args.deps?.extractPdf ?? args.extractPdf ?? createPdfExtractor(GMAIL_ATTACHMENT_PDF_LIMITS);
+  const extractPdf = args.deps?.extractPdf ?? createPdfExtractor(GMAIL_ATTACHMENT_PDF_LIMITS);
   const indexDocumentFn = args.deps?.indexDocument ?? indexDocument;
 
   let attempted = 0;
@@ -112,7 +102,6 @@ export async function ingestGmailPdfAttachments(
         continue;
       }
 
-      // Deterministic: extracted or text_without_pages.
       let content: string;
       let pages: { page: number; start: number; end: number }[] | null = null;
 
@@ -139,7 +128,6 @@ export async function ingestGmailPdfAttachments(
         }
         pages = pageOffsets.length > 0 ? pageOffsets : null;
       } else {
-        // text_without_pages
         content = result.text;
         if (content.trim().length === 0) {
           skipped++;
@@ -171,7 +159,7 @@ export async function ingestGmailPdfAttachments(
           content,
           contentHash,
           metadata,
-          authoredAt: parseInternalDate(args.message.internalDate),
+          authoredAt: internalDateToDate(args.message.internalDate),
           raw: { messageId: args.message.id, attachment: att },
         })
         .onConflictDoUpdate({
@@ -220,11 +208,4 @@ export async function ingestGmailPdfAttachments(
   }
 
   return { attempted, ingested, skipped, errors, documentIds };
-}
-
-function parseInternalDate(internalDate: string | undefined): Date | null {
-  if (!internalDate) return null;
-  const ms = Number(internalDate);
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms);
 }

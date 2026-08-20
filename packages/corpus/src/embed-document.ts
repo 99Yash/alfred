@@ -3,7 +3,12 @@ import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
-import { isRecord, isValidPage } from "@alfred/contracts";
+import {
+  documentPagesMixedSchema,
+  documentPagesSchema,
+  isRecord,
+  isValidPage,
+} from "@alfred/contracts";
 import { createHash } from "node:crypto";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 
@@ -278,36 +283,38 @@ function sha256(input: string): string {
 }
 
 /**
- * Manual parse of `documents.metadata.pages`. The canonical page shape is
- * `ExtractedPdfPage.pageNumber` proven by `parsePdfExtractionChildReply`
- * (positive integer, dense 1..N) and `chunks.metadata.page` checked by
- * `isValidPage`. `documents.metadata` is `unknown` jsonb with no static
- * guarantee, so this boundary re-validates with `isRecord`/`isValidPage`.
- * Two encodings (`{text}` vs `{start,end}`) share one un-tagged array;
- * a shared DocumentPagesSchema in @alfred/contracts would own that union
- * but is deferred until the encodings are tagged — hence the manual parse.
+ * Parse `documents.metadata.pages` via the shared contract schema. The
+ * canonical page shape is `ExtractedPdfPage.pageNumber` proven by
+ * `parsePdfExtractionChildReply` (positive integer, dense 1..N) and
+ * `chunks.metadata.page` checked by `isValidPage`. `documents.metadata` is
+ * `unknown` jsonb with no static guarantee, so this boundary parses with
+ * `documentPagesSchema` / `documentPagesMixedSchema` in `@alfred/contracts`
+ * rather than hand-rolled `isRecord` checks.
  */
 function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
   if (!isRecord(doc.metadata)) return null;
   const rawPages = doc.metadata.pages;
   if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
-  const out: PageInput[] = [];
-  for (const entry of rawPages) {
-    if (!isRecord(entry)) continue;
-    const pageRaw = entry.page;
-    const pageNum = isValidPage(pageRaw) ? pageRaw : null;
-    if (pageNum == null) continue;
-    const textRaw = entry.text;
-    if (typeof textRaw === "string") {
-      out.push({ page: pageNum, text: textRaw });
-      continue;
+
+  // Try offset-encoded pages first — the canonical writer path.
+  const offsetParsed = documentPagesSchema.safeParse(rawPages);
+  if (offsetParsed.success) {
+    const out: PageInput[] = [];
+    for (const entry of offsetParsed.data) {
+      out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
     }
-    const startRaw = entry.start;
-    const endRaw = entry.end;
-    if (typeof startRaw === "number" && typeof endRaw === "number") {
-      const start = Math.max(0, Math.floor(startRaw));
-      const end = Math.max(start, Math.floor(endRaw));
-      out.push({ page: pageNum, text: doc.content.slice(start, end) });
+    return out.length > 0 ? out : null;
+  }
+
+  // Legacy fallback: mixed union of {page, text} and {page, start, end}
+  const mixedParsed = documentPagesMixedSchema.safeParse(rawPages);
+  if (!mixedParsed.success) return null;
+  const out: PageInput[] = [];
+  for (const entry of mixedParsed.data) {
+    if ("text" in entry) {
+      out.push({ page: entry.page, text: entry.text });
+    } else {
+      out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
     }
   }
   return out.length > 0 ? out : null;
