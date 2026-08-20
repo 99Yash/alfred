@@ -59,6 +59,19 @@ describe("assertAttachmentBatchAllowed", () => {
     assert.equal(isPassThrough("image/gif"), false);
     assert.throws(() => assertUploadAllowed("image/gif", 1), /Only image uploads/);
   });
+
+  test("accepts PDFs but keeps other degrade-text types gated", () => {
+    assert.doesNotThrow(() => assertUploadAllowed("application/pdf", 1));
+    assert.throws(() => assertUploadAllowed("audio/mpeg", 1), /Only image uploads/);
+    assert.throws(
+      () =>
+        assertUploadAllowed(
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          1,
+        ),
+      /Only image uploads/,
+    );
+  });
 });
 
 describe("assertPassThroughImageBytes", () => {

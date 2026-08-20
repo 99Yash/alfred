@@ -1,10 +1,10 @@
-import { Errors, isApiError, toMessage } from "@alfred/contracts";
+import { Errors, isApiError, isPdfContentType, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 
 import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
-import { createPdfExtractor, type ExtractedPdf } from "@alfred/extraction";
+import { createPdfExtractor, formatExtractedPdfText, type ExtractedPdf } from "@alfred/extraction";
 import {
   assertPassThroughImageBytes,
   assertStoredAttachmentReady,
@@ -13,6 +13,7 @@ import {
   buildAttachmentKey,
   isStorageConfigured,
   objectExists,
+  readObject,
   writeObject,
 } from "./attachments";
 import {
@@ -38,53 +39,108 @@ const PDF_EXTRACTION_LIMITS = {
 } as const;
 
 /**
- * Format extracted PDF text with page markers for citation. Uses per-page
- * markdown when available, falls back to the document-level text field.
+ * Extract chat-safe text from PDF bytes. A scanned PDF can continue without
+ * deterministic text. Invalid, encrypted, and resource-limited PDFs fail at
+ * the ingest boundary instead of creating a ready row with no readable data.
  */
-function formatPdfText(result: ExtractedPdf): string | null {
-  if (result.kind === "extracted" && result.pages.length > 0) {
-    return result.pages
-      .map((page) => `[page ${page.pageNumber}]\n${page.markdown}`)
-      .join("\n\n");
-  }
-  if (result.kind === "extracted" || result.kind === "text_without_pages") {
-    return result.text;
-  }
-  return null;
-}
-
-/**
- * Extract text from PDF bytes. Returns the extracted text with page markers,
- * or null if extraction fails (encrypted, needs OCR, invalid, etc.).
- */
-async function extractPdfText(bytes: Uint8Array): Promise<string | null> {
+export async function extractChatPdfText(bytes: Uint8Array): Promise<string | null> {
   const extractPdf = createPdfExtractor(PDF_EXTRACTION_LIMITS);
   let result: ExtractedPdf;
   try {
     result = await extractPdf(bytes);
-  } catch {
-    return null;
+  } catch (err) {
+    console.warn("[chat] PDF extraction failed:", toMessage(err));
+    throw Errors.BadGatewayError("Couldn't read the PDF. Try again.");
   }
-  return formatPdfText(result);
+
+  const text = formatExtractedPdfText(result);
+  if (text !== null) return text;
+
+  switch (result.kind) {
+    case "needs_ocr":
+      return null;
+    case "encrypted":
+      throw Errors.BadRequestError("This PDF is encrypted and can't be read");
+    case "invalid":
+      throw Errors.BadRequestError(`This PDF is invalid: ${result.reason}`);
+    case "limit_exceeded":
+      throw Errors.BadRequestError(`PDF extraction exceeded the limit: ${result.message}`);
+    case "extracted":
+    case "text_without_pages":
+      return null;
+  }
 }
 
 /**
- * Ephemeral cache for PDF degraded text between upload and send. Keyed by
- * attachment ID. Populated during `uploadChatAttachment`, consumed during
- * `startChatTurn` when the row is written. Cleared after use.
+ * The upload and send are separate requests. This short cache avoids a second
+ * extraction in the normal path. The raw object is the durable fallback, so a
+ * process restart or an expired entry does not lose the PDF text.
  */
-const pendingPdfDegradedText = new Map<string, string>();
+const PENDING_PDF_TEXT_TTL_MS = 5 * 60 * 1_000;
+interface PendingPdfText {
+  degradedText: string | null;
+  expiresAt: number;
+  evictionTimer: ReturnType<typeof setTimeout>;
+}
+const pendingPdfDegradedText = new Map<string, PendingPdfText>();
+
+/** Prevent two local requests from writing different bytes under one storage key. */
+const inFlightAttachmentUploads = new Set<string>();
+
+export function rememberPendingPdfDegradedText(
+  storageKey: string,
+  degradedText: string | null,
+): void {
+  const previous = pendingPdfDegradedText.get(storageKey);
+  if (previous) clearTimeout(previous.evictionTimer);
+
+  const entry: PendingPdfText = {
+    degradedText,
+    expiresAt: Date.now() + PENDING_PDF_TEXT_TTL_MS,
+    evictionTimer: setTimeout(() => {
+      if (pendingPdfDegradedText.get(storageKey) === entry) {
+        pendingPdfDegradedText.delete(storageKey);
+      }
+    }, PENDING_PDF_TEXT_TTL_MS),
+  };
+  entry.evictionTimer.unref?.();
+  pendingPdfDegradedText.set(storageKey, entry);
+}
 
 /**
  * Retrieve and consume the cached degraded text for a PDF attachment.
- * Returns the text if present, or undefined if not (non-PDF or extraction failed).
+ * `null` records a known OCR-only PDF; `undefined` means there is no live entry.
  */
-export function consumePendingPdfDegradedText(attachmentId: string): string | undefined {
-  const text = pendingPdfDegradedText.get(attachmentId);
-  if (text !== undefined) {
-    pendingPdfDegradedText.delete(attachmentId);
+export function consumePendingPdfDegradedText(storageKey: string): string | null | undefined {
+  const entry = pendingPdfDegradedText.get(storageKey);
+  if (!entry) return undefined;
+
+  clearTimeout(entry.evictionTimer);
+  pendingPdfDegradedText.delete(storageKey);
+  if (entry.expiresAt <= Date.now()) return undefined;
+  return entry.degradedText;
+}
+
+/**
+ * Consume the upload-time result, or recover it from durable raw bytes after a
+ * restart or cache expiry. A known OCR-only result produces no degraded text.
+ */
+export async function consumeOrRecoverPdfDegradedText(opts: {
+  storageKey: string;
+  mime: string;
+}): Promise<string | undefined> {
+  if (!isPdfContentType(opts.mime)) return undefined;
+  const pending = consumePendingPdfDegradedText(opts.storageKey);
+  if (pending !== undefined) return pending ?? undefined;
+
+  let bytes: Uint8Array;
+  try {
+    bytes = await readObject(opts.storageKey);
+  } catch (err) {
+    console.warn("[chat] PDF recovery read failed:", toMessage(err));
+    throw Errors.BadGatewayError("Couldn't read the uploaded PDF. Try again.");
   }
-  return text;
+  return (await extractChatPdfText(bytes)) ?? undefined;
 }
 
 /** A fresh upload the composer has sent to the server. */
@@ -129,7 +185,7 @@ export async function schedulePendingUploadCleanup(
  */
 export async function uploadChatAttachment(
   input: UploadChatAttachmentInput,
-): Promise<{ storageKey: string; degradedText?: string }> {
+): Promise<{ storageKey: string }> {
   if (!isStorageConfigured()) {
     throw Errors.ServiceUnavailableError(
       "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
@@ -137,7 +193,7 @@ export async function uploadChatAttachment(
   }
   // Validate the declared mime + actual byte size against the ingest
   // policy (per-type cap); the storage key is rebuilt server-side.
-  const policy = assertUploadAllowed(input.mime, input.size);
+  assertUploadAllowed(input.mime, input.size);
   const storageKey = buildAttachmentKey({
     userId: input.userId,
     threadId: input.threadId,
@@ -145,6 +201,10 @@ export async function uploadChatAttachment(
     attachmentId: input.attachmentId,
     fileName: input.name,
   });
+  if (inFlightAttachmentUploads.has(storageKey)) {
+    throw Errors.ConflictError("Attachment upload is already in progress");
+  }
+  inFlightAttachmentUploads.add(storageKey);
   let reservedPendingBytes = 0;
   try {
     await assertAttachmentUploadRateAllowed(input.userId);
@@ -167,25 +227,16 @@ export async function uploadChatAttachment(
     }
     const bytes = await input.readBytes();
 
-    // PDFs are extracted to text at upload time; images use the pass-through decode.
-    if (policy.kind === "degrade-text" && input.mime === "application/pdf") {
-      const degradedText = await extractPdfText(bytes);
-      if (degradedText) {
-        pendingPdfDegradedText.set(input.attachmentId, degradedText);
-      }
-      await assertAttachmentUploadBudgetAllowed({
-        userId: input.userId,
-        threadId: input.threadId,
-        messageId: input.messageId,
-        size: input.size,
-      });
-      reservedPendingBytes = input.size;
-      await writeObject(storageKey, bytes, input.mime);
-      await schedulePendingUploadCleanup(input.userId, storageKey);
-      return { storageKey };
+    // Extract PDFs before the common storage tail. Images keep their existing
+    // pass-through decode. No other degrade-text type is admitted by the gate.
+    const isPdf = isPdfContentType(input.mime);
+    let degradedText: string | null | undefined;
+    if (isPdf) {
+      degradedText = await extractChatPdfText(bytes);
+    } else {
+      await assertPassThroughImageBytes(bytes, input.mime);
     }
 
-    await assertPassThroughImageBytes(bytes, input.mime);
     await assertAttachmentUploadBudgetAllowed({
       userId: input.userId,
       threadId: input.threadId,
@@ -194,6 +245,9 @@ export async function uploadChatAttachment(
     });
     reservedPendingBytes = input.size;
     await writeObject(storageKey, bytes, input.mime);
+    if (isPdf) {
+      rememberPendingPdfDegradedText(storageKey, degradedText ?? null);
+    }
     await schedulePendingUploadCleanup(input.userId, storageKey);
     return { storageKey };
   } catch (err) {
@@ -202,6 +256,8 @@ export async function uploadChatAttachment(
       throw err;
     console.error("[chat] proxied upload failed:", toMessage(err));
     throw Errors.BadGatewayError("Couldn't store the upload. Try again.");
+  } finally {
+    inFlightAttachmentUploads.delete(storageKey);
   }
 }
 
