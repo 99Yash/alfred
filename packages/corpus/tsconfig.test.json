@@ -3,7 +3,7 @@
   // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
   // composite build emits declarations only for `src` and never sees `test/**`.
   //
-   // `@alfred/corpus` got its first `test/` tree with this project. The tree holds
+  // `@alfred/corpus` got its first `test/` tree with this project. The tree holds
   // THREE `*.test.ts` files: `chunker.test.ts` is pure and pins the paragraph-aware chunker
   // and the page-bounded `chunkPages` invariant, `retry-pending.test.ts` is DB-backed — it drives the
   // `retryPending` sweep against real rows — and `db-backed-guard.test.ts` is

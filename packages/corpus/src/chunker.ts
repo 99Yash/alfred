@@ -22,6 +22,8 @@
 
 const CHARS_PER_TOKEN = 4;
 
+import { isValidPage } from "@alfred/contracts";
+
 export interface ChunkerOptions {
   /** Target token count per chunk. Default 1000. */
   targetTokens?: number;
@@ -158,7 +160,7 @@ export function chunkPages(
   const chunks: Chunk[] = [];
   let position = 0;
   for (const page of pages) {
-    const normalized = Number.isInteger(page.page) && page.page >= 1 ? page.page : 1;
+    const normalized = isValidPage(page.page) ? page.page : 1;
     const trimmed = page.text.trim();
     if (!trimmed) continue;
     // Reuse the paragraph-aware splitter per page, but never bleed across pages.
