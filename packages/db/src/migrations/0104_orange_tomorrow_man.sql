@@ -1,0 +1,2 @@
+ALTER TABLE "documents" DROP CONSTRAINT "documents_source_valid";--> statement-breakpoint
+ALTER TABLE "documents" ADD CONSTRAINT "documents_source_valid" CHECK ("documents"."source" IN ('gmail', 'gmail_attachment', 'drive', 'gcal', 'slack', 'linear', 'github', 'notion', 'imessage'));

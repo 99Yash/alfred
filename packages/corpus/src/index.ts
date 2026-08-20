@@ -7,6 +7,8 @@ export {
   findUnembeddedDocumentIds,
   recordDocumentEmbedFailure,
 } from "./embed-document";
+export { chunkPages, chunkText, estimateTokens } from "./chunker";
+export type { Chunk, ChunkerOptions, PageInput } from "./chunker";
 export type { IndexDocumentArgs, IndexDocumentResult } from "./embed-document";
 export { retryPending } from "./retry-pending";
 export type { RetryPendingArgs, RetryPendingResult } from "./retry-pending";

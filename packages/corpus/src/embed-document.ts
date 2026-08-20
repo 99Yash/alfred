@@ -3,8 +3,9 @@ import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
+import { isRecord } from "@alfred/contracts";
 import { createHash } from "node:crypto";
-import { chunkText, type Chunk } from "./chunker";
+import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 
 /**
  * Record an embed failure on the document row via the shared poison-pill guard
@@ -80,7 +81,8 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   const doc = docRows[0];
   if (!doc) throw new Error(`[embed-document] not found: ${args.documentId}`);
 
-  const splits = chunkText(doc.content);
+  const pageInputs = extractPageInputs(doc);
+  const splits = pageInputs ? chunkPages(pageInputs) : chunkText(doc.content);
   if (splits.length === 0) {
     // No embeddable content, and documents are immutable — this row would
     // otherwise be re-selected by the sweep on every tick. Dead-letter it.
@@ -92,17 +94,22 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   // already match. We don't delete-and-rewrite — keeping ids stable
   // helps any future foreign-key references and lets the HNSW index
   // reuse warmed pages.
+  // Include `metadata` so a re-extraction that changes only the page
+  // (identical text, new page anchor) does not stay stale — see D6 design checkpoint.
   const existingChunks = await db()
-    .select({ position: chunks.position, contentHash: chunks.contentHash })
+    .select({ position: chunks.position, contentHash: chunks.contentHash, metadata: chunks.metadata })
     .from(chunks)
     .where(eq(chunks.documentId, doc.id));
-  const existingByPosition = new Map(existingChunks.map((c) => [c.position, c.contentHash]));
+  const existingByPosition = new Map(
+    existingChunks.map((c) => [c.position, { hash: c.contentHash, page: extractPageFromMetadata(c.metadata) }]),
+  );
 
   const toEmbed: Chunk[] = [];
   const toEmbedHashes: string[] = [];
   for (const chunk of splits) {
     const hash = sha256(chunk.content);
-    if (existingByPosition.get(chunk.position) === hash) continue;
+    const existing = existingByPosition.get(chunk.position);
+    if (existing && existing.hash === hash && existing.page === (chunk.page ?? null)) continue;
     toEmbed.push(chunk);
     toEmbedHashes.push(hash);
   }
@@ -157,6 +164,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
         embedding: vectors[i]!,
         tokenCount: chunk.tokenCount,
         contentHash: toEmbedHashes[i]!,
+        metadata: chunk.page != null ? { page: chunk.page } : {},
       })),
     )
     .onConflictDoUpdate({
@@ -166,6 +174,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
         embedding: sql`excluded.embedding`,
         tokenCount: sql`excluded.token_count`,
         contentHash: sql`excluded.content_hash`,
+        metadata: sql`excluded.metadata`,
         updatedAt: new Date(),
       },
     });
@@ -219,4 +228,36 @@ export async function findUnembeddedDocumentIds(opts: {
 
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+function extractPageInputs(doc: { content: string; metadata: unknown }): PageInput[] | null {
+  if (!isRecord(doc.metadata)) return null;
+  const rawPages = doc.metadata.pages;
+  if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
+  const out: PageInput[] = [];
+  for (const entry of rawPages) {
+    if (!isRecord(entry)) continue;
+    const pageRaw = entry.page;
+    const pageNum = typeof pageRaw === "number" && Number.isInteger(pageRaw) && pageRaw >= 1 ? pageRaw : null;
+    if (pageNum == null) continue;
+    const textRaw = entry.text;
+    if (typeof textRaw === "string") {
+      out.push({ page: pageNum, text: textRaw });
+      continue;
+    }
+    const startRaw = entry.start;
+    const endRaw = entry.end;
+    if (typeof startRaw === "number" && typeof endRaw === "number") {
+      const start = Math.max(0, Math.floor(startRaw));
+      const end = Math.max(start, Math.floor(endRaw));
+      out.push({ page: pageNum, text: doc.content.slice(start, end) });
+    }
+  }
+  return out.length > 0 ? out : null;
+}
+
+function extractPageFromMetadata(raw: unknown): number | null {
+  if (!isRecord(raw)) return null;
+  const page = raw.page;
+  return typeof page === "number" && Number.isInteger(page) && page >= 1 ? page : null;
 }
