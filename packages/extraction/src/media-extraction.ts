@@ -113,6 +113,11 @@ export const REALTIME_EXTRACTION_LIMITS = {
   },
 } as const satisfies Readonly<Record<ExtractionDoor, Record<ContentFamily, ExtractionLimits>>>;
 
+/**
+ * @deprecated Use `extraction({ door }).extract({ mime, bytes })` — this helper
+ * leaks `ContentFamily` and `limits` to the call site. It remains for the
+ * facade's internal use and for the test-only `deps.createExtractor` seam.
+ */
 export function extractionLimitsFor(door: ExtractionDoor, family: ContentFamily): ExtractionLimits {
   return REALTIME_EXTRACTION_LIMITS[door][family];
 }
@@ -264,6 +269,10 @@ const MEDIA_EXTRACTOR_FACTORIES = {
 } as const satisfies Record<ContentFamily, (limits: ExtractionLimits) => MediaExtractor>;
 
 /**
+ * @deprecated Use `extraction({ door }).forMime(mime)` or
+ * `extraction({ door }).extract({ mime, bytes })` — this leaks `ContentFamily`
+ * to the call site. It remains for the facade and for test-only injection.
+ *
  * Create one door's extractor for one family. The hot call accepts only bytes.
  * Callers that already hold `ContentFamily` go through this; callers that hold
  * a MIME should use `createMediaExtractorForMime`.
@@ -275,6 +284,10 @@ export function createMediaExtractor(door: ExtractionDoor, family: ContentFamily
 }
 
 /**
+ * @deprecated Use `extraction({ door }).forMime(mime)` — this is the same
+ * lookup with the same `null` for pass-through/unknown MIMEs, but via the
+ * door-bound facade that memoizes per family.
+ *
  * Create an extractor directly from a MIME type via `INGEST_POLICY`.
  * Returns null when the MIME is outside the whitelist or has no
  * `contentFamily` (e.g. pass-through images).

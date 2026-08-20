@@ -36,7 +36,7 @@ import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { getPath, isNonEmptyString, isPdfContentType, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
-  createPdfExtractor,
+  extraction,
   interpretPdfText,
   REALTIME_PDF_EXTRACTION_LIMITS,
   type ExtractPdf,
@@ -1386,11 +1386,54 @@ async function extractPdfFromBytes(
   raw: RawResponse,
   injectedExtractPdf?: ExtractPdf,
 ): Promise<FetchUrlResult> {
-  const extractPdf =
-    injectedExtractPdf ?? createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl);
-  let result: ExtractedPdf;
+  // Test seam keeps the legacy ExtractPdf shape; prod uses the door-bound facade.
+  if (injectedExtractPdf) {
+    const extractPdf = injectedExtractPdf;
+    let result: ExtractedPdf;
+    try {
+      result = await extractPdf(new Uint8Array(bytes));
+    } catch (err) {
+      return {
+        ok: false,
+        url,
+        finalUrl,
+        contentType,
+        reason: "fetch_failed",
+        message: `Could not extract text from the PDF: ${toMessage(err)}`,
+        ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      };
+    }
+    const interpretation = interpretPdfText(result);
+    if (interpretation.kind === "unreadable") {
+      return {
+        ok: false,
+        url,
+        finalUrl,
+        contentType,
+        reason: "unsupported_content_type",
+        message: interpretation.message,
+        ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      };
+    }
+    const { text } = interpretation;
+    const truncated = text.length > MAX_TEXT_CHARS;
+    const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
+    return {
+      ok: true,
+      url,
+      finalUrl,
+      contentType,
+      text: finalText,
+      chars: finalText.length,
+      truncated,
+      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+    };
+  }
+
+  const media = extraction({ door: "fetchUrl" });
+  let mediaResult: Awaited<ReturnType<typeof media.extract>>;
   try {
-    result = await extractPdf(new Uint8Array(bytes));
+    mediaResult = await media.extract({ mime: "application/pdf", bytes: new Uint8Array(bytes) });
   } catch (err) {
     return {
       ok: false,
@@ -1399,28 +1442,31 @@ async function extractPdfFromBytes(
       contentType,
       reason: "fetch_failed",
       message: `Could not extract text from the PDF: ${toMessage(err)}`,
-      ...(raw.redirectChain && raw.redirectChain.length > 0
-        ? { redirects: raw.redirectChain }
-        : {}),
+      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
     };
   }
-
-  const interpretation = interpretPdfText(result);
-  if (interpretation.kind === "unreadable") {
+  if (!mediaResult || mediaResult.kind !== "extracted") {
+    const message =
+      !mediaResult
+        ? "This PDF cannot be read."
+        : mediaResult.kind === "needs_ocr"
+          ? "This PDF is image-based and needs OCR to extract text, which is not yet supported."
+          : mediaResult.kind === "encrypted"
+            ? "This PDF is encrypted and its text cannot be extracted."
+            : mediaResult.kind === "invalid"
+              ? `This PDF is invalid: ${mediaResult.reason}`
+              : `PDF extraction exceeded the limit: ${mediaResult.message}`;
     return {
       ok: false,
       url,
       finalUrl,
       contentType,
       reason: "unsupported_content_type",
-      message: interpretation.message,
-      ...(raw.redirectChain && raw.redirectChain.length > 0
-        ? { redirects: raw.redirectChain }
-        : {}),
+      message,
+      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
     };
   }
-
-  const { text } = interpretation;
+  const text = mediaResult.content;
   const truncated = text.length > MAX_TEXT_CHARS;
   const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
   return {

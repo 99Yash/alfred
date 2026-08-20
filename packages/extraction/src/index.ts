@@ -30,3 +30,5 @@ export type {
   MediaExtractionResult,
   MediaExtractor,
 } from "./media-extraction";
+export { extraction } from "./extraction.facade";
+export type { Extraction, ExtractionOptions } from "./extraction.facade";

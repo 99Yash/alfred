@@ -20,6 +20,9 @@ import type { CallAttribution } from "./metering/types";
 
 export const EMBEDDING_DIMENSIONS = 1024;
 
+/** Voyage 3.5 input price per million tokens — single owner for cost-cap math. */
+export const VOYAGE_INPUT_PRICE_PER_MTOK_USD = 0.06;
+
 const VOYAGE_API_BASE = "https://api.voyageai.com/v1/embeddings";
 const VOYAGE_DEFAULT_MODEL = "voyage-3.5";
 

@@ -1,13 +1,10 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "@alfred/corpus";
 
 /**
- * SHA-256 hex digest of a string — the content hash for documents.
- * Single home for the helper previously duplicated in gmail-ingest.ts and
- * gmail-attachment.ts.
+ * Single owner for `sha256` is `@alfred/corpus` — this re-export keeps
+ * the import path stable for call sites that already import from helpers.
  */
-export function sha256(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
-}
+export { sha256 };
 
 /**
  * Convert Gmail's `internalDate` (ms-since-epoch as string) to a Date.

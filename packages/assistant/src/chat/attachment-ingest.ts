@@ -5,12 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
-import {
-  createPdfExtractor,
-  interpretPdfText,
-  REALTIME_PDF_EXTRACTION_LIMITS,
-  type ExtractedPdf,
-} from "@alfred/extraction";
+import { extraction } from "@alfred/extraction";
 import {
   assertPassThroughImageBytes,
   assertStoredAttachmentBytesMatch,
@@ -45,21 +40,31 @@ import {
  * Extract chat-safe text from PDF bytes. A scanned PDF can continue without
  * deterministic text. Invalid, encrypted, and resource-limited PDFs fail at
  * the ingest boundary instead of creating a ready row with no readable data.
+ * Door-bound via `extraction({ door: "chatUpload" })` — no `ContentFamily` at
+ * the call site.
  */
 export async function extractChatPdfText(bytes: Uint8Array): Promise<string | null> {
-  const extractPdf = createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.chatUpload);
-  let result: ExtractedPdf;
+  const media = extraction({ door: "chatUpload" });
+  let result: Awaited<ReturnType<typeof media.extract>>;
   try {
-    result = await extractPdf(bytes);
+    result = await media.extract({ mime: "application/pdf", bytes });
   } catch (err) {
     console.warn("[chat] PDF extraction failed:", toMessage(err));
     throw Errors.BadGatewayError("Couldn't read the PDF. Try again.");
   }
 
-  const interpretation = interpretPdfText(result);
-  if (interpretation.kind === "text") return interpretation.text;
-  if (interpretation.reason === "needs_ocr") return null;
-  throw Errors.BadRequestError(interpretation.message);
+  if (!result) throw Errors.BadRequestError("Unsupported file type.");
+  if (result.kind === "extracted") return result.content;
+  if (result.kind === "needs_ocr") return null;
+  const message =
+    result.kind === "limit_exceeded"
+      ? result.message
+      : result.kind === "invalid"
+        ? result.reason
+        : result.kind === "encrypted"
+          ? "The PDF is encrypted and cannot be read."
+          : "The PDF cannot be read.";
+  throw Errors.BadRequestError(message);
 }
 
 const pdfDegradedArtifactSchema = z.discriminatedUnion("kind", [
