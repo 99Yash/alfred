@@ -141,7 +141,8 @@ export function assertUploadAllowed(mime: string, size: number): IngestPolicyEnt
   if (!policy) {
     throw Errors.BadRequestError(`Unsupported file type: ${mime || "unknown"}`);
   }
-  if (!isPassThrough(mime)) {
+  // PDFs are allowed for text extraction; other degrade-text types are still gated.
+  if (!isPassThrough(mime) && policy.kind !== "degrade-text") {
     throw Errors.BadRequestError(
       "Only image uploads are supported right now — other file types are coming soon.",
     );
@@ -178,8 +179,9 @@ export function toAttachmentRow(opts: {
   threadId: string;
   messageId: string;
   attachment: AttachmentInput;
+  degradedText?: string;
 }): NewChatAttachment {
-  const { userId, threadId, messageId, attachment } = opts;
+  const { userId, threadId, messageId, attachment, degradedText } = opts;
   assertUploadAllowed(attachment.mime, attachment.size);
   return {
     id: attachment.id,
@@ -197,6 +199,7 @@ export function toAttachmentRow(opts: {
     size: attachment.size,
     position: attachment.position,
     status: "ready",
+    ...(degradedText ? { degradedText } : {}),
   };
 }
 
