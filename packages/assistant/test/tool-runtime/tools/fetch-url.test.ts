@@ -431,6 +431,31 @@ describe("runFetchUrl (stubbed transport)", () => {
     }
   });
 
+  test("returns an empty deterministic PDF result as an honest success", async () => {
+    const r = await runFetchUrl(
+      { url: "https://example.com/empty.pdf" },
+      {
+        transport: transportOf({ contentType: "application/pdf", body: "%PDF-1.7" }),
+        extractPdf: async () => ({
+          kind: "text_without_pages",
+          pdfType: "text_based",
+          pageCount: 0,
+          text: "",
+        }),
+      },
+    );
+
+    assert.deepEqual(r, {
+      ok: true,
+      url: "https://example.com/empty.pdf",
+      finalUrl: "https://example.com/",
+      contentType: "application/pdf",
+      text: "",
+      chars: 0,
+      truncated: false,
+    });
+  });
+
   test("reads the body for PDF extraction instead of disposing it eagerly", async () => {
     const body = destroyableBody();
     const r = await runFetchUrl(

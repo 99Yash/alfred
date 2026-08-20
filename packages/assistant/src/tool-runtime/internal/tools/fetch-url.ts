@@ -37,17 +37,18 @@ import { getPath, isNonEmptyString, isPdfContentType, toMessage } from "@alfred/
 import { serverEnv } from "@alfred/env/server";
 import {
   createPdfExtractor,
-  formatExtractedPdfText,
-  MAX_EXTRACTED_TEXT_CHARACTERS,
+  interpretPdfText,
+  REALTIME_PDF_EXTRACTION_LIMITS,
+  type ExtractPdf,
   type ExtractedPdf,
 } from "@alfred/extraction";
 import { Agent, request as undiciRequest } from "undici";
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
-export const MAX_TEXT_CHARS = MAX_EXTRACTED_TEXT_CHARACTERS;
+export const MAX_TEXT_CHARS = REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxCharacters;
 
 /** Stop reading (and tear down the socket) once a body passes this many bytes. */
-const MAX_FETCH_BYTES = 8_000_000;
+const MAX_FETCH_BYTES = REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxBytes;
 
 const FETCH_TIMEOUT_MS = 15_000;
 
@@ -77,13 +78,6 @@ const NONTRIVIAL_HTML_BYTES = 500;
 /** Control bytes to drop from extracted text (keeps tab `\t` and newline `\n`). */
 // eslint-disable-next-line no-control-regex -- matching control bytes is the point: we strip them.
 const CONTROL_BYTES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
-
-/** PDF extraction limits for fetch_url — bounded by MAX_FETCH_BYTES (8 MB). */
-const PDF_EXTRACTION_LIMITS = {
-  maxBytes: MAX_FETCH_BYTES,
-  maxCharacters: MAX_TEXT_CHARS,
-  maxParseMilliseconds: 30_000,
-} as const;
 
 interface FetchUrlOk {
   ok: true;
@@ -495,6 +489,8 @@ export interface FetchUrlDeps {
   transport?: Transport;
   /** Injectable render seam for the #509/#510 escalation. Defaults to Firecrawl. */
   render?: Renderer;
+  /** Injectable configured PDF reader. Defaults to the fetch_url door policy. */
+  extractPdf?: ExtractPdf;
 }
 
 /** The slice of `undici.request` {@link safeRequest} uses — injectable for tests. */
@@ -1286,6 +1282,7 @@ async function runFetchUrlImpl(
       finalUrl,
       contentType || "application/pdf",
       raw,
+      deps.extractPdf,
     );
   }
 
@@ -1294,7 +1291,14 @@ async function runFetchUrlImpl(
   const sniffed = sniffBinaryType(bytes);
   if (sniffed) {
     if (isPdfContentType(sniffed)) {
-      return await extractPdfFromBytes(bytes, args.url, finalUrl, contentType || sniffed, raw);
+      return await extractPdfFromBytes(
+        bytes,
+        args.url,
+        finalUrl,
+        contentType || sniffed,
+        raw,
+        deps.extractPdf,
+      );
     }
     return {
       ok: false,
@@ -1378,8 +1382,10 @@ async function extractPdfFromBytes(
   finalUrl: string,
   contentType: string,
   raw: RawResponse,
+  injectedExtractPdf?: ExtractPdf,
 ): Promise<FetchUrlResult> {
-  const extractPdf = createPdfExtractor(PDF_EXTRACTION_LIMITS);
+  const extractPdf =
+    injectedExtractPdf ?? createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl);
   let result: ExtractedPdf;
   try {
     result = await extractPdf(new Uint8Array(bytes));
@@ -1397,45 +1403,22 @@ async function extractPdfFromBytes(
     };
   }
 
-  const text = formatExtractedPdfText(result);
-  if (!text) {
-    let reason: string;
-    switch (result.kind) {
-      case "encrypted":
-        reason = "This PDF is encrypted and its text cannot be extracted.";
-        break;
-      case "needs_ocr":
-        reason =
-          "This PDF is image-based and needs OCR to extract text, which is not yet supported.";
-        break;
-      case "limit_exceeded":
-        reason = `PDF extraction exceeded the limit: ${result.message}`;
-        break;
-      case "invalid":
-        reason = `This PDF is invalid: ${result.reason}`;
-        break;
-      case "extracted":
-      case "text_without_pages":
-        reason = "Could not extract text from this PDF.";
-        break;
-      default: {
-        const _exhaustive: never = result;
-        return _exhaustive;
-      }
-    }
+  const interpretation = interpretPdfText(result);
+  if (interpretation.kind === "unreadable") {
     return {
       ok: false,
       url,
       finalUrl,
       contentType,
       reason: "unsupported_content_type",
-      message: reason,
+      message: interpretation.message,
       ...(raw.redirectChain && raw.redirectChain.length > 0
         ? { redirects: raw.redirectChain }
         : {}),
     };
   }
 
+  const { text } = interpretation;
   const truncated = text.length > MAX_TEXT_CHARS;
   const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
   return {

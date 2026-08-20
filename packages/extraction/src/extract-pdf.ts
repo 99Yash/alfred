@@ -32,6 +32,26 @@ export interface PdfExtractionLimits {
 /** Canonical text budget shared by every realtime PDF extraction door. */
 export const MAX_EXTRACTED_TEXT_CHARACTERS = 100_000;
 
+/**
+ * Required child-process limits for each realtime PDF door.
+ *
+ * The byte limits differ by transport on purpose. Keeping the complete table
+ * here makes a new door choose all three limits next to the extraction seam
+ * instead of copying a partial policy into a leaf caller.
+ */
+export const REALTIME_PDF_EXTRACTION_LIMITS = {
+  chatUpload: {
+    maxBytes: 10 * 1024 * 1024,
+    maxCharacters: MAX_EXTRACTED_TEXT_CHARACTERS,
+    maxParseMilliseconds: 30_000,
+  },
+  fetchUrl: {
+    maxBytes: 8_000_000,
+    maxCharacters: MAX_EXTRACTED_TEXT_CHARACTERS,
+    maxParseMilliseconds: 30_000,
+  },
+} as const satisfies Readonly<Record<"chatUpload" | "fetchUrl", PdfExtractionLimits>>;
+
 export type ExtractedPdf =
   | {
       readonly kind: "extracted";

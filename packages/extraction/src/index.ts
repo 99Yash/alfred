@@ -5,8 +5,9 @@ export {
   createPdfExtractor,
   MAX_EXTRACTED_TEXT_CHARACTERS,
   PdfExtractionError,
+  REALTIME_PDF_EXTRACTION_LIMITS,
 } from "./extract-pdf";
-export { formatExtractedPdfText } from "./format-extracted-pdf";
+export { formatExtractedPdfText, interpretPdfText } from "./format-extracted-pdf";
 export type {
   ExtractPdf,
   ExtractedPdf,
@@ -16,3 +17,4 @@ export type {
   PdfExtractionLimitKind,
   PdfExtractionLimits,
 } from "./extract-pdf";
+export type { PdfTextInterpretation } from "./format-extracted-pdf";

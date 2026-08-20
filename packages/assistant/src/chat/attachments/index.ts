@@ -7,6 +7,7 @@
 export {
   assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,
+  assertStoredAttachmentBytesMatch,
   assertStoredAttachmentReady,
   assertUploadAllowed,
   sniffPassThroughImageMime,

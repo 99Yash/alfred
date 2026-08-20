@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import {
   type ChatAttachmentDescriptor,
   classifyUpload,
@@ -143,7 +144,7 @@ export function assertUploadAllowed(mime: string, size: number): IngestPolicyEnt
   }
   if (!isChatUploadAllowed(mime)) {
     throw Errors.BadRequestError(
-      "Only image uploads are supported right now — other file types are coming soon.",
+      "Only images and PDFs are supported right now — other file types are coming soon.",
     );
   }
   if (size <= 0) throw Errors.BadRequestError("File must not be empty");
@@ -178,7 +179,7 @@ export function toAttachmentRow(opts: {
   threadId: string;
   messageId: string;
   attachment: AttachmentInput;
-  degradedText?: string;
+  degradedText?: string | null;
 }): NewChatAttachment {
   const { userId, threadId, messageId, attachment, degradedText } = opts;
   assertUploadAllowed(attachment.mime, attachment.size);
@@ -198,8 +199,22 @@ export function toAttachmentRow(opts: {
     size: attachment.size,
     position: attachment.position,
     status: "ready",
-    ...(degradedText ? { degradedText } : {}),
+    ...(degradedText !== undefined ? { degradedText } : {}),
   };
+}
+
+/**
+ * Prove that a retry presents the exact bytes already stored at its canonical
+ * key. Matching size and MIME are not sufficient because different payloads
+ * can share both values.
+ */
+export function assertStoredAttachmentBytesMatch(opts: {
+  storedBytes: Uint8Array;
+  candidateBytes: Uint8Array;
+}): void {
+  if (!Buffer.from(opts.storedBytes).equals(opts.candidateBytes)) {
+    throw Errors.ConflictError("Attachment storage key already belongs to different bytes");
+  }
 }
 
 /**
