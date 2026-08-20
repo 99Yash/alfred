@@ -4,7 +4,8 @@
   // composite build emits declarations only for `src` and never sees `test/**`.
   //
   // `@alfred/corpus` got its first `test/` tree with this project. The tree holds
-  // TWO `*.test.ts` files: `retry-pending.test.ts` is DB-backed — it drives the
+  // THREE `*.test.ts` files: `chunker.test.ts` is pure and pins the paragraph-aware chunker
+  // and the page-bounded `chunkPages` invariant, `retry-pending.test.ts` is DB-backed — it drives the
   // `retryPending` sweep against real rows — and `db-backed-guard.test.ts` is
   // pure and pins the three arms of `decideDbBackedSkip`. The `leaf-db-tests` CI
   // job runs both with Postgres. This pass is what reads their types: an

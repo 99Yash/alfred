@@ -3,8 +3,9 @@ import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
+import { isRecord, isValidPage } from "@alfred/contracts";
 import { createHash } from "node:crypto";
-import { chunkText, type Chunk } from "./chunker";
+import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 
 /**
  * Record an embed failure on the document row via the shared poison-pill guard
@@ -60,6 +61,14 @@ async function markDocumentEmbedTerminal(documentId: string, reason: string): Pr
  * Callers can use `findUnembeddedDocumentIds` to find docs that need a
  * (re-)embedding pass and call `indexDocument` for each (`retryPending`
  * folds that sweep).
+ *
+ * Concurrency: the persistence phase (UPSERT chunks, DELETE orphan tail,
+ * and poison-pill reset) runs inside a single `db().transaction(...)` so
+ * the SELECT → embed → UPSERT → DELETE chain cannot interleave a stale
+ * snapshot delete. Per-document serialization is via the transaction's
+ * snapshot — concurrent `indexDocument` calls for the same `documentId`
+ * that shorten to different lengths are serialized by the transaction
+ * rather than by a separate advisory lock.
  */
 export interface IndexDocumentArgs {
   documentId: string;
@@ -80,7 +89,8 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   const doc = docRows[0];
   if (!doc) throw new Error(`[embed-document] not found: ${args.documentId}`);
 
-  const splits = chunkText(doc.content);
+  const pageInputs = extractPageInputs(doc);
+  const splits = pageInputs ? chunkPages(pageInputs) : chunkText(doc.content);
   if (splits.length === 0) {
     // No embeddable content, and documents are immutable — this row would
     // otherwise be re-selected by the sweep on every tick. Dead-letter it.
@@ -92,23 +102,53 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   // already match. We don't delete-and-rewrite — keeping ids stable
   // helps any future foreign-key references and lets the HNSW index
   // reuse warmed pages.
+  // Include `metadata` so a re-extraction that changes only the page
+  // (identical text, new page anchor) does not stay stale — see D6 design checkpoint.
   const existingChunks = await db()
-    .select({ position: chunks.position, contentHash: chunks.contentHash })
+    .select({
+      position: chunks.position,
+      contentHash: chunks.contentHash,
+      metadata: chunks.metadata,
+    })
     .from(chunks)
     .where(eq(chunks.documentId, doc.id));
-  const existingByPosition = new Map(existingChunks.map((c) => [c.position, c.contentHash]));
+  const existingByPosition = new Map(
+    existingChunks.map((c) => [
+      c.position,
+      { hash: c.contentHash, page: extractPageFromMetadata(c.metadata) },
+    ]),
+  );
 
   const toEmbed: Chunk[] = [];
   const toEmbedHashes: string[] = [];
   for (const chunk of splits) {
     const hash = sha256(chunk.content);
-    if (existingByPosition.get(chunk.position) === hash) continue;
+    const existing = existingByPosition.get(chunk.position);
+    if (existing && existing.hash === hash && existing.page === (chunk.page ?? null)) continue;
     toEmbed.push(chunk);
     toEmbedHashes.push(hash);
   }
   const skipped = splits.length - toEmbed.length;
 
   if (toEmbed.length === 0) {
+    // No changed chunks, but still atomically clean orphan tails and poison-pill
+    // state so a re-encode that shortens without changing retained hashes does
+    // not leave stale searchable chunks.
+    const needsOrphanDelete = existingChunks.length > splits.length;
+    const needsReset =
+      doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null;
+    if (needsOrphanDelete || needsReset) {
+      await db().transaction(async (tx) => {
+        if (needsOrphanDelete) {
+          await tx
+            .delete(chunks)
+            .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
+        }
+        if (needsReset) {
+          await tx.update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
+        }
+      });
+    }
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
   }
 
@@ -144,39 +184,55 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     throw err;
   }
 
-  // Upsert every changed position in one round-trip. Conflict updates must
-  // read from `excluded`: each row has different content, vector, and hash.
-  await db()
-    .insert(chunks)
-    .values(
-      toEmbed.map((chunk, i) => ({
-        documentId: doc.id,
-        userId: doc.userId,
-        position: chunk.position,
-        content: chunk.content,
-        embedding: vectors[i]!,
-        tokenCount: chunk.tokenCount,
-        contentHash: toEmbedHashes[i]!,
-      })),
-    )
-    .onConflictDoUpdate({
-      target: [chunks.documentId, chunks.position],
-      set: {
-        content: sql`excluded.content`,
-        embedding: sql`excluded.embedding`,
-        tokenCount: sql`excluded.token_count`,
-        contentHash: sql`excluded.content_hash`,
-        updatedAt: new Date(),
-      },
-    });
+  // Persistence is atomic: UPSERT changed chunks, DELETE orphan tail, and
+  // poison-pill reset commit together. This closes the interleaving where
+  // T1 reads existing (10 rows), T2 reads existing (10 rows), T1 embeds 4
+  // and deletes >=4, and T2's stale delete then operates on a stale snapshot.
+  await db().transaction(async (tx) => {
+    // Upsert every changed position in one round-trip. Conflict updates must
+    // read from `excluded`: each row has different content, vector, and hash.
+    await tx
+      .insert(chunks)
+      .values(
+        toEmbed.map((chunk, i) => ({
+          documentId: doc.id,
+          userId: doc.userId,
+          position: chunk.position,
+          content: chunk.content,
+          embedding: vectors[i]!,
+          tokenCount: chunk.tokenCount,
+          contentHash: toEmbedHashes[i]!,
+          metadata: chunk.page != null ? { page: chunk.page } : {},
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [chunks.documentId, chunks.position],
+        set: {
+          content: sql`excluded.content`,
+          embedding: sql`excluded.embedding`,
+          tokenCount: sql`excluded.token_count`,
+          contentHash: sql`excluded.content_hash`,
+          metadata: sql`excluded.metadata`,
+          updatedAt: new Date(),
+        },
+      });
 
-  // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
-  // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
-  // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
-  // so an ordinary first-time embed (the common case) skips the extra write.
-  if (doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null) {
-    await db().update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
-  }
+    // Remove orphan tail rows from a previous re-extraction that produced more chunks.
+    // Positions are dense 0..N-1, so any position >= splits.length is stale.
+    if (existingChunks.length > splits.length) {
+      await tx
+        .delete(chunks)
+        .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
+    }
+
+    // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
+    // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
+    // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
+    // so an ordinary first-time embed (the common case) skips the extra write.
+    if (doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null) {
+      await tx.update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
+    }
+  });
 
   return {
     documentId: doc.id,
@@ -219,4 +275,46 @@ export async function findUnembeddedDocumentIds(opts: {
 
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+/**
+ * Manual parse of `documents.metadata.pages`. The canonical page shape is
+ * `ExtractedPdfPage.pageNumber` proven by `parsePdfExtractionChildReply`
+ * (positive integer, dense 1..N) and `chunks.metadata.page` checked by
+ * `isValidPage`. `documents.metadata` is `unknown` jsonb with no static
+ * guarantee, so this boundary re-validates with `isRecord`/`isValidPage`.
+ * Two encodings (`{text}` vs `{start,end}`) share one un-tagged array;
+ * a shared DocumentPagesSchema in @alfred/contracts would own that union
+ * but is deferred until the encodings are tagged — hence the manual parse.
+ */
+function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
+  if (!isRecord(doc.metadata)) return null;
+  const rawPages = doc.metadata.pages;
+  if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
+  const out: PageInput[] = [];
+  for (const entry of rawPages) {
+    if (!isRecord(entry)) continue;
+    const pageRaw = entry.page;
+    const pageNum = isValidPage(pageRaw) ? pageRaw : null;
+    if (pageNum == null) continue;
+    const textRaw = entry.text;
+    if (typeof textRaw === "string") {
+      out.push({ page: pageNum, text: textRaw });
+      continue;
+    }
+    const startRaw = entry.start;
+    const endRaw = entry.end;
+    if (typeof startRaw === "number" && typeof endRaw === "number") {
+      const start = Math.max(0, Math.floor(startRaw));
+      const end = Math.max(start, Math.floor(endRaw));
+      out.push({ page: pageNum, text: doc.content.slice(start, end) });
+    }
+  }
+  return out.length > 0 ? out : null;
+}
+
+function extractPageFromMetadata(raw: unknown): number | null {
+  if (!isRecord(raw)) return null;
+  const page = raw.page;
+  return isValidPage(page) ? page : null;
 }
