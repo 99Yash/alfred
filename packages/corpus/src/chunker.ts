@@ -160,13 +160,13 @@ export function chunkPages(
   const chunks: Chunk[] = [];
   let position = 0;
   for (const page of pages) {
-    const normalized = isValidPage(page.page) ? page.page : 1;
+    if (!isValidPage(page.page)) continue;
     const trimmed = page.text.trim();
     if (!trimmed) continue;
     // Reuse the paragraph-aware splitter per page, but never bleed across pages.
     const pageChunks = chunkText(trimmed, opts);
     for (const pc of pageChunks) {
-      chunks.push({ position: position++, content: pc.content, tokenCount: pc.tokenCount, page: normalized });
+      chunks.push({ position: position++, content: pc.content, tokenCount: pc.tokenCount, page: page.page });
     }
     // chunkText for a single short page yields one chunk already; the per-page call
     // inherently disables cross-page overlap — the boundary is the call itself.
