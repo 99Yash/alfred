@@ -3,6 +3,8 @@ import { z } from "zod";
 /** Providers that can own a row in the shared documents corpus. */
 export const DOCUMENT_SOURCES = [
   "gmail",
+  "gmail_attachment",
+  "drive",
   "gcal",
   "slack",
   "linear",

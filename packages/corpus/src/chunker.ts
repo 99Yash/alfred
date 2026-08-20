@@ -22,6 +22,8 @@
 
 const CHARS_PER_TOKEN = 4;
 
+import { isValidPage } from "@alfred/contracts";
+
 export interface ChunkerOptions {
   /** Target token count per chunk. Default 1000. */
   targetTokens?: number;
@@ -38,6 +40,15 @@ export interface Chunk {
   position: number;
   content: string;
   tokenCount: number;
+  /** 1-indexed page anchor for PDF-sourced chunks. Absent for non-paged sources. */
+  page?: number | undefined;
+}
+
+export interface PageInput {
+  /** 1-indexed page number, proven by the extractor. */
+  page: number;
+  /** Markdown text for this page. */
+  text: string;
 }
 
 const PARAGRAPH_SPLIT = /\n{2,}/;
@@ -134,6 +145,36 @@ function sliceByChars(text: string, max: number): string[] {
   const out: string[] = [];
   for (let i = 0; i < text.length; i += max) out.push(text.slice(i, i + max));
   return out;
+}
+
+/**
+ * Page-bounded chunker (ADR-0091 D6). Chunks each page independently so no chunk claims
+ * text from two pages. Overlap is preserved *within* a page but disabled *across* pages,
+ * so a chunk with `page: 3` never carries page 2's tail.
+ */
+export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {}): Chunk[] {
+  if (pages.length === 0) return [];
+  const chunks: Chunk[] = [];
+  let position = 0;
+  for (const page of pages) {
+    if (!isValidPage(page.page)) continue;
+    const trimmed = page.text.trim();
+    if (!trimmed) continue;
+    // Reuse the paragraph-aware splitter per page, but never bleed across pages.
+    const pageChunks = chunkText(trimmed, opts);
+    for (const pc of pageChunks) {
+      chunks.push({
+        position: position++,
+        content: pc.content,
+        tokenCount: pc.tokenCount,
+        page: page.page,
+      });
+    }
+    // chunkText for a single short page yields one chunk already; the per-page call
+    // inherently disables cross-page overlap — the boundary is the call itself.
+  }
+  // Re-assign positions globally so they remain dense 0..N-1 after empty pages are skipped.
+  return chunks;
 }
 
 export function estimateTokens(text: string): number {
