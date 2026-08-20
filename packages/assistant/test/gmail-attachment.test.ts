@@ -83,16 +83,14 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accessToken: "fake-token",
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
-        extractPdf: async () => ({
-          kind: "extracted",
-          pdfType: "text_based",
-          pageCount: 2,
+        createExtractor: () => async () => ({
+          kind: "extracted" as const,
+          family: "pdf" as const,
+          content: "page one text\n\npage two text",
           pages: [
-            { pageNumber: 1, markdown: "page one text", needsOcr: false },
-            { pageNumber: 2, markdown: "page two text", needsOcr: false },
+            { page: 1, start: 0, end: 13 },
+            { page: 2, start: 15, end: 28 },
           ],
-          pagesNeedingOcr: [],
-          text: "page one text\n\npage two text",
         }),
         indexDocument: async () => {
           indexCalls++;
@@ -169,32 +167,35 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     });
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
     let extractVersion = 0;
-    const extractStub = async () => {
-      extractVersion++;
-      if (extractVersion === 1) {
+    const createExtractorStub =
+      () =>
+      async (): Promise<{
+        kind: "extracted";
+        family: "pdf";
+        content: string;
+        pages: readonly { page: number; start: number; end: number }[] | null;
+      }> => {
+        extractVersion++;
+        if (extractVersion === 1) {
+          return {
+            kind: "extracted" as const,
+            family: "pdf" as const,
+            content: "version one",
+            pages: [{ page: 1, start: 0, end: 11 }],
+          };
+        }
         return {
           kind: "extracted" as const,
-          pdfType: "text_based" as const,
-          pageCount: 1,
-          pages: [{ pageNumber: 1, markdown: "version one", needsOcr: false }],
-          pagesNeedingOcr: [],
-          text: "version one",
+          family: "pdf" as const,
+          content: "version two changed",
+          pages: [{ page: 1, start: 0, end: 19 }],
         };
-      }
-      return {
-        kind: "extracted" as const,
-        pdfType: "text_based" as const,
-        pageCount: 1,
-        pages: [{ pageNumber: 1, markdown: "version two changed", needsOcr: false }],
-        pagesNeedingOcr: [],
-        text: "version two changed",
       };
-    };
 
     let indexCalls = 0;
     const deps = {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
-      extractPdf: extractStub,
+      createExtractor: createExtractorStub,
       indexDocument: async () => {
         indexCalls++;
         return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
@@ -257,13 +258,11 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
     const deps = {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
-      extractPdf: async () => ({
+      createExtractor: () => async () => ({
         kind: "extracted" as const,
-        pdfType: "text_based" as const,
-        pageCount: 1,
-        pages: [{ pageNumber: 1, markdown: "same text", needsOcr: false }],
-        pagesNeedingOcr: [],
-        text: "same text",
+        family: "pdf" as const,
+        content: "same text",
+        pages: [{ page: 1, start: 0, end: 9 }],
       }),
       indexDocument: async () => ({
         documentId: "fake",
@@ -328,7 +327,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accessToken: "t",
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
-        extractPdf: async () => ({ kind: "needs_ocr", pdfType: "scanned", pageCount: 2 }),
+        createExtractor: () => async () => ({ kind: "needs_ocr" as const, family: "pdf" as const }),
         indexDocument: async () => {
           assert.fail("indexDocument must not be called for needs_ocr");
         },
