@@ -573,6 +573,38 @@ function walkAttachments(part: MessagePart | undefined, out: ExtractedAttachment
  * the email "as the sender intended" in a sandboxed iframe — the existing
  * `body` field stays the text/plain fallback for the markdown view.
  */
+export const getAttachmentResponseSchema = z.object({
+  size: z.number().optional(),
+  data: z.string().optional(),
+});
+
+export interface GetAttachmentArgs {
+  accessToken: string;
+  messageId: string;
+  attachmentId: string;
+}
+
+export interface GetAttachmentResult {
+  size: number;
+  dataBase64Url: string;
+  bytes: Uint8Array;
+}
+
+export async function getAttachment(args: GetAttachmentArgs): Promise<GetAttachmentResult> {
+  const url = `${API_BASE}/messages/${args.messageId}/attachments/${args.attachmentId}`;
+  const json = await getJson(url, args.accessToken);
+  const parsed = getAttachmentResponseSchema.parse(json);
+  const dataBase64Url = parsed.data ?? "";
+  const bytes = dataBase64Url
+    ? Buffer.from(dataBase64Url.replace(/-/g, "+").replace(/_/g, "/"), "base64")
+    : Buffer.alloc(0);
+  return {
+    size: parsed.size ?? bytes.byteLength,
+    dataBase64Url,
+    bytes: new Uint8Array(bytes),
+  };
+}
+
 export function extractMessageHtml(message: GmailMessage): string | null {
   const html = collectText(message.payload, "text/html");
   return html || null;
