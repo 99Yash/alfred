@@ -8,12 +8,15 @@ import {
   type ChatMediaPendingUploadCleanupRequest,
 } from "@alfred/assistant/connections/ingestion";
 import {
+  attachmentObjectKeys,
   claimChatAttachmentEnrichment,
+  deleteObjects,
+  deletePrefix,
   enrichClaimedChatAttachment,
+  isStorageConfigured,
+  lockChatStorageKeys,
   recordChatAttachmentEnrichmentFailure,
 } from "@alfred/assistant/chat";
-import { deleteObjects, deletePrefix, isStorageConfigured } from "@alfred/assistant/chat";
-import { lockChatStorageKeys } from "@alfred/assistant/chat";
 
 interface ChatMediaAdapterDeps {
   claimEnrichment(attachmentId: string): Promise<"claimed" | "existing">;
@@ -41,7 +44,7 @@ async function cleanupPendingUploads(
       );
     const retained = new Set(rows.map((row) => row.storageKey));
     const orphaned = request.keys.filter((key) => !retained.has(key));
-    return deleteObjects(orphaned);
+    return deleteObjects(orphaned.flatMap(attachmentObjectKeys));
   });
 }
 

@@ -53,6 +53,8 @@ export interface IngestPolicyEntry {
   kind: Exclude<IngestKind, "reject">;
   /** Per-file upload cap, in bytes. Single-user caps (ADR-0065) — modest. */
   maxBytes: number;
+  /** Content family needed by format-specific readers after policy lookup. */
+  contentFamily?: "pdf";
 }
 
 const MB = 1024 * 1024;
@@ -79,11 +81,20 @@ export const MAX_ATTACHMENT_BYTES_PER_FILE = Math.floor(
  * Gemini image input type, so it waits for the Phase 2/3 transcode path rather
  * than being accepted as raw pass-through. HEIC/HEIF likewise need transcode.
  */
-export const INGEST_POLICY: Readonly<Record<string, IngestPolicyEntry>> = {
+export const INGEST_POLICY = {
   // Images — pass-through (the universal modality).
-  "image/jpeg": { kind: "pass-through", maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE },
-  "image/png": { kind: "pass-through", maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE },
-  "image/webp": { kind: "pass-through", maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE },
+  "image/jpeg": {
+    kind: "pass-through",
+    maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
+  },
+  "image/png": {
+    kind: "pass-through",
+    maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
+  },
+  "image/webp": {
+    kind: "pass-through",
+    maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
+  },
   // Image formats that need transcode at ingest.
   "image/gif": { kind: "degrade-av", maxBytes: 15 * MB },
   "image/heic": { kind: "degrade-av", maxBytes: 15 * MB },
@@ -104,7 +115,16 @@ export const INGEST_POLICY: Readonly<Record<string, IngestPolicyEntry>> = {
   "video/quicktime": { kind: "degrade-av", maxBytes: 15 * MB },
 
   // Documents & code — extract text.
-  "application/pdf": { kind: "degrade-text", maxBytes: 10 * MB },
+  "application/pdf": {
+    kind: "degrade-text",
+    maxBytes: 10 * MB,
+    contentFamily: "pdf",
+  },
+  "application/x-pdf": {
+    kind: "degrade-text",
+    maxBytes: 10 * MB,
+    contentFamily: "pdf",
+  },
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
@@ -116,10 +136,27 @@ export const INGEST_POLICY: Readonly<Record<string, IngestPolicyEntry>> = {
   "text/plain": { kind: "degrade-text", maxBytes: 10 * MB },
   "text/markdown": { kind: "degrade-text", maxBytes: 10 * MB },
   "text/csv": { kind: "degrade-text", maxBytes: 10 * MB },
-} as const;
+} as const satisfies Readonly<Record<string, IngestPolicyEntry>>;
+
+const ingestPolicyByMime: Readonly<Record<string, IngestPolicyEntry>> = INGEST_POLICY;
+
+/** Formats whose complete chat ingest path is available today. */
+const CHAT_UPLOAD_ALLOWED_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "application/x-pdf",
+] satisfies readonly (keyof typeof INGEST_POLICY)[]);
 
 /** Every MIME type the upload boundary accepts (the whitelist). */
 export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
+
+/** True when a Content-Type identifies a PDF, after MIME normalization. */
+export function isPdfContentType(mime: string): boolean {
+  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  return classifyUpload(normalized)?.contentFamily === "pdf";
+}
 
 /**
  * Max files attachable to a single chat message (ADR-0065). Single source of
@@ -162,7 +199,13 @@ export const MAX_ATTACHMENT_BYTES = Math.max(
  */
 export function classifyUpload(mime: string): IngestPolicyEntry | null {
   const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
-  return INGEST_POLICY[normalized] ?? null;
+  return ingestPolicyByMime[normalized] ?? null;
+}
+
+/** True when chat can accept and normalize this upload today. */
+export function isChatUploadAllowed(mime: string): boolean {
+  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  return CHAT_UPLOAD_ALLOWED_TYPES.has(normalized);
 }
 
 /**

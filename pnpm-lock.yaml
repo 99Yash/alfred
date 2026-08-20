@@ -514,6 +514,9 @@ importers:
       '@alfred/env':
         specifier: workspace:*
         version: link:../env
+      '@alfred/extraction':
+        specifier: workspace:*
+        version: link:../extraction
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../integrations

@@ -48,8 +48,14 @@ export {
   recordChatAttachmentEnrichmentFailure,
 } from "./attachments/attachment-enrichment";
 
-export { deleteObjects, deletePrefix, isStorageConfigured } from "./attachments/storage";
+export {
+  attachmentObjectKeys,
+  deleteObjects,
+  deletePrefix,
+  isStorageConfigured,
+  pdfDegradedArtifactKey,
+} from "./attachments/storage";
 
-export { lockChatStorageKeys } from "./attachments/storage-coordination";
+export { lockChatStorageKeys, withChatStorageKeyLock } from "./attachments/storage-coordination";
 
 export { registerChatSystemToolAdapter } from "./system-tool-adapter";

@@ -1,17 +1,29 @@
-import { Errors, isApiError, toMessage } from "@alfred/contracts";
+import { Errors, isApiError, isPdfContentType, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
 import {
+  createPdfExtractor,
+  interpretPdfText,
+  REALTIME_PDF_EXTRACTION_LIMITS,
+  type ExtractedPdf,
+} from "@alfred/extraction";
+import {
   assertPassThroughImageBytes,
+  assertStoredAttachmentBytesMatch,
   assertStoredAttachmentReady,
   assertUploadAllowed,
   attachmentUrl,
   buildAttachmentKey,
   isStorageConfigured,
   objectExists,
+  pdfDegradedArtifactKey,
+  readObject,
+  type AttachmentDegradation,
+  withChatStorageKeyLock,
   writeObject,
 } from "./attachments";
 import {
@@ -29,6 +41,98 @@ import {
  * into a status. It takes no decision that outlives the response.
  */
 
+/**
+ * Extract chat-safe text from PDF bytes. A scanned PDF can continue without
+ * deterministic text. Invalid, encrypted, and resource-limited PDFs fail at
+ * the ingest boundary instead of creating a ready row with no readable data.
+ */
+export async function extractChatPdfText(bytes: Uint8Array): Promise<string | null> {
+  const extractPdf = createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.chatUpload);
+  let result: ExtractedPdf;
+  try {
+    result = await extractPdf(bytes);
+  } catch (err) {
+    console.warn("[chat] PDF extraction failed:", toMessage(err));
+    throw Errors.BadGatewayError("Couldn't read the PDF. Try again.");
+  }
+
+  const interpretation = interpretPdfText(result);
+  if (interpretation.kind === "text") return interpretation.text;
+  if (interpretation.reason === "needs_ocr") return null;
+  throw Errors.BadRequestError(interpretation.message);
+}
+
+const pdfDegradedArtifactSchema = z.discriminatedUnion("kind", [
+  z.object({ version: z.literal(1), kind: z.literal("text"), text: z.string() }).strict(),
+  z.object({ version: z.literal(1), kind: z.literal("needs_ocr") }).strict(),
+]);
+type PdfDegradedArtifact = z.infer<typeof pdfDegradedArtifactSchema>;
+
+function artifactFromDegradedText(degradedText: string | null): PdfDegradedArtifact {
+  return degradedText === null
+    ? { version: 1, kind: "needs_ocr" }
+    : { version: 1, kind: "text", text: degradedText };
+}
+
+function degradedTextFromArtifact(artifact: PdfDegradedArtifact): string | null {
+  return artifact.kind === "text" ? artifact.text : null;
+}
+
+async function writePdfDegradedArtifact(
+  storageKey: string,
+  degradedText: string | null,
+): Promise<void> {
+  const bytes = new TextEncoder().encode(JSON.stringify(artifactFromDegradedText(degradedText)));
+  await writeObject(pdfDegradedArtifactKey(storageKey), bytes, "application/json");
+}
+
+async function readPdfDegradedArtifact(storageKey: string): Promise<PdfDegradedArtifact | null> {
+  const artifactKey = pdfDegradedArtifactKey(storageKey);
+  if (!(await objectExists(artifactKey))) return null;
+  const bytes = await readObject(artifactKey);
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch (err) {
+    console.warn("[chat] stored PDF artifact JSON is invalid:", toMessage(err));
+    return null;
+  }
+  const parsed = pdfDegradedArtifactSchema.safeParse(value);
+  if (!parsed.success) {
+    console.warn("[chat] stored PDF artifact shape is invalid");
+    return null;
+  }
+  return parsed.data;
+}
+
+async function ensurePdfDegradedArtifact(
+  storageKey: string,
+  fallbackBytes?: Uint8Array,
+): Promise<string | null> {
+  const artifact = await readPdfDegradedArtifact(storageKey);
+  if (artifact) return degradedTextFromArtifact(artifact);
+
+  const bytes = fallbackBytes ?? (await readObject(storageKey));
+  const degradedText = await extractChatPdfText(bytes);
+  await writePdfDegradedArtifact(storageKey, degradedText);
+  return degradedText;
+}
+
+/** Read or repair the model-readable state owned by one stored attachment. */
+export async function resolveAttachmentDegradation(opts: {
+  storageKey: string;
+  mime: string;
+}): Promise<AttachmentDegradation> {
+  if (!isPdfContentType(opts.mime)) return { kind: "image" };
+  try {
+    return { kind: "pdf", text: await ensurePdfDegradedArtifact(opts.storageKey) };
+  } catch (err) {
+    if (isApiError(err, "BAD_REQUEST")) throw err;
+    console.warn("[chat] PDF artifact read failed:", toMessage(err));
+    throw Errors.BadGatewayError("Couldn't read the uploaded PDF. Try again.");
+  }
+}
+
 /** A fresh upload the composer has sent to the server. */
 export interface UploadChatAttachmentInput {
   userId: string;
@@ -39,11 +143,10 @@ export interface UploadChatAttachmentInput {
   mime: string;
   size: number;
   /**
-   * The bytes, read on demand. A thunk, not a `Uint8Array`, because the two
-   * short circuits above it (a duplicate row, an object already at this key)
-   * answer without reading the body at all — an eager parameter would read
-   * bytes this path never reads. A `File` would do the same job, but a Web
-   * `File` is a transport shape and does not belong in a product signature.
+   * The bytes, read on demand. A duplicate row rejects before reading them; an
+   * existing object reads them to prove an exact retry instead of trusting only
+   * size and MIME. A `File` would do the same job, but a Web `File` is a
+   * transport shape and does not belong in a product signature.
    */
   readBytes: () => Promise<Uint8Array>;
 }
@@ -90,35 +193,61 @@ export async function uploadChatAttachment(
   let reservedPendingBytes = 0;
   try {
     await assertAttachmentUploadRateAllowed(input.userId);
-    const existingRows = await db()
-      .select({ id: chatAttachments.id })
-      .from(chatAttachments)
-      .where(eq(chatAttachments.id, input.attachmentId))
-      .limit(1);
-    if (existingRows[0]) {
-      throw Errors.ConflictError("Attachment already exists");
-    }
-    if (await objectExists(storageKey)) {
-      await assertStoredAttachmentReady({
-        storageKey,
-        mime: input.mime,
+    return await withChatStorageKeyLock(storageKey, async (storageDb) => {
+      // The session advisory lock is shared by every replica and uses the same
+      // namespace as turn admission and pending cleanup. It keeps the key
+      // immutable without holding an open transaction during object-store I/O.
+      const existingRows = await storageDb
+        .select({ id: chatAttachments.id })
+        .from(chatAttachments)
+        .where(eq(chatAttachments.id, input.attachmentId))
+        .limit(1);
+      if (existingRows[0]) {
+        throw Errors.ConflictError("Attachment already exists");
+      }
+      const isPdf = isPdfContentType(input.mime);
+      if (await objectExists(storageKey)) {
+        const candidateBytes = await input.readBytes();
+        const storedBytes = await readObject(storageKey);
+        await assertStoredAttachmentReady({
+          storageKey,
+          mime: input.mime,
+          size: input.size,
+        });
+        assertStoredAttachmentBytesMatch({ storedBytes, candidateBytes });
+        if (isPdf) {
+          await ensurePdfDegradedArtifact(storageKey, storedBytes);
+        }
+        await schedulePendingUploadCleanup(input.userId, storageKey);
+        return { storageKey };
+      }
+      const bytes = await input.readBytes();
+
+      // Extract PDFs before the common storage tail. Images keep their existing
+      // pass-through decode. No other degrade-text type is admitted by the gate.
+      const degradation: AttachmentDegradation = isPdf
+        ? { kind: "pdf", text: await extractChatPdfText(bytes) }
+        : { kind: "image" };
+      if (degradation.kind === "image") {
+        await assertPassThroughImageBytes(bytes, input.mime);
+      }
+
+      await assertAttachmentUploadBudgetAllowed({
+        userId: input.userId,
+        threadId: input.threadId,
+        messageId: input.messageId,
         size: input.size,
       });
+      reservedPendingBytes = input.size;
+      await writeObject(storageKey, bytes, input.mime);
+      // Enqueue cleanup as soon as raw bytes exist. If the sidecar write or the
+      // later turn commit fails, the delayed job still owns the orphan.
       await schedulePendingUploadCleanup(input.userId, storageKey);
+      if (degradation.kind === "pdf") {
+        await writePdfDegradedArtifact(storageKey, degradation.text);
+      }
       return { storageKey };
-    }
-    const bytes = await input.readBytes();
-    await assertPassThroughImageBytes(bytes, input.mime);
-    await assertAttachmentUploadBudgetAllowed({
-      userId: input.userId,
-      threadId: input.threadId,
-      messageId: input.messageId,
-      size: input.size,
     });
-    reservedPendingBytes = input.size;
-    await writeObject(storageKey, bytes, input.mime);
-    await schedulePendingUploadCleanup(input.userId, storageKey);
-    return { storageKey };
   } catch (err) {
     await releasePendingUploadBudget(input.userId, reservedPendingBytes);
     if (isApiError(err, "BAD_REQUEST", "CONFLICT", "TOO_MANY_REQUESTS", "SERVICE_UNAVAILABLE"))
