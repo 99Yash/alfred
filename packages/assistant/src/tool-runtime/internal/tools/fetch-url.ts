@@ -35,11 +35,16 @@ import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { getPath, isNonEmptyString, isPdfContentType, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { createPdfExtractor, formatExtractedPdfText, type ExtractedPdf } from "@alfred/extraction";
+import {
+  createPdfExtractor,
+  formatExtractedPdfText,
+  MAX_EXTRACTED_TEXT_CHARACTERS,
+  type ExtractedPdf,
+} from "@alfred/extraction";
 import { Agent, request as undiciRequest } from "undici";
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
-export const MAX_TEXT_CHARS = 100_000;
+export const MAX_TEXT_CHARS = MAX_EXTRACTED_TEXT_CHARACTERS;
 
 /** Stop reading (and tear down the socket) once a body passes this many bytes. */
 const MAX_FETCH_BYTES = 8_000_000;
@@ -1394,16 +1399,30 @@ async function extractPdfFromBytes(
 
   const text = formatExtractedPdfText(result);
   if (!text) {
-    const reason =
-      result.kind === "encrypted"
-        ? "This PDF is encrypted and its text cannot be extracted."
-        : result.kind === "needs_ocr"
-          ? "This PDF is image-based and needs OCR to extract text, which is not yet supported."
-          : result.kind === "limit_exceeded"
-            ? `PDF extraction exceeded the limit: ${result.message}`
-            : result.kind === "invalid"
-              ? `This PDF is invalid: ${result.reason}`
-              : "Could not extract text from this PDF.";
+    let reason: string;
+    switch (result.kind) {
+      case "encrypted":
+        reason = "This PDF is encrypted and its text cannot be extracted.";
+        break;
+      case "needs_ocr":
+        reason =
+          "This PDF is image-based and needs OCR to extract text, which is not yet supported.";
+        break;
+      case "limit_exceeded":
+        reason = `PDF extraction exceeded the limit: ${result.message}`;
+        break;
+      case "invalid":
+        reason = `This PDF is invalid: ${result.reason}`;
+        break;
+      case "extracted":
+      case "text_without_pages":
+        reason = "Could not extract text from this PDF.";
+        break;
+      default: {
+        const _exhaustive: never = result;
+        return _exhaustive;
+      }
+    }
     return {
       ok: false,
       url,

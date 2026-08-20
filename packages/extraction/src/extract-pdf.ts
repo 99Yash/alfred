@@ -29,6 +29,9 @@ export interface PdfExtractionLimits {
   readonly maxParseMilliseconds: number;
 }
 
+/** Canonical text budget shared by every realtime PDF extraction door. */
+export const MAX_EXTRACTED_TEXT_CHARACTERS = 100_000;
+
 export type ExtractedPdf =
   | {
       readonly kind: "extracted";

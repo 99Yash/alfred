@@ -5,6 +5,7 @@ import { describe, test } from "node:test";
 import {
   consumePendingPdfDegradedText,
   extractChatPdfText,
+  MAX_PENDING_PDF_TEXT_ENTRIES,
   rememberPendingPdfDegradedText,
 } from "@alfred/assistant/chat/attachment-ingest";
 
@@ -26,5 +27,19 @@ describe("chat PDF ingest", () => {
     rememberPendingPdfDegradedText(storageKey, degradedText);
     assert.equal(consumePendingPdfDegradedText(storageKey), degradedText);
     assert.equal(consumePendingPdfDegradedText(storageKey), undefined);
+  });
+
+  test("bounds the upload-time handoff cache by evicting its oldest entry", () => {
+    const keys = Array.from(
+      { length: MAX_PENDING_PDF_TEXT_ENTRIES + 1 },
+      (_, index) => `chat/u1/t1/m1/att-pdf-${index}.pdf`,
+    );
+
+    for (const key of keys) rememberPendingPdfDegradedText(key, key);
+
+    assert.equal(consumePendingPdfDegradedText(keys[0] ?? ""), undefined);
+    for (const key of keys.slice(1)) {
+      assert.equal(consumePendingPdfDegradedText(key), key);
+    }
   });
 });

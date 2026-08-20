@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isPdfContentType } from "../src/attachments";
+import { isChatUploadAllowed, isPdfContentType } from "../src/attachments";
 
 describe("isPdfContentType", () => {
   test("accepts canonical, legacy, and parametrized PDF content types", () => {
@@ -13,5 +13,25 @@ describe("isPdfContentType", () => {
   test("rejects non-PDF content types", () => {
     assert.equal(isPdfContentType("application/octet-stream"), false);
     assert.equal(isPdfContentType("text/plain"), false);
+  });
+});
+
+describe("isChatUploadAllowed", () => {
+  test("accepts the chat formats implemented end to end", () => {
+    assert.equal(isChatUploadAllowed("image/jpeg"), true);
+    assert.equal(isChatUploadAllowed("IMAGE/PNG; charset=binary"), true);
+    assert.equal(isChatUploadAllowed("application/pdf"), true);
+  });
+
+  test("keeps policy-listed formats gated until their degrade path exists", () => {
+    assert.equal(isChatUploadAllowed("image/gif"), false);
+    assert.equal(isChatUploadAllowed("audio/mpeg"), false);
+    assert.equal(
+      isChatUploadAllowed(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+      false,
+    );
+    assert.equal(isChatUploadAllowed("application/x-pdf"), false);
   });
 });
