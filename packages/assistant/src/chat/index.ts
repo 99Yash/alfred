@@ -14,7 +14,11 @@ export { chatTurnWorkflow } from "./chat-turn";
 
 export { startChatTurn, stopChatTurn } from "./turn-admission";
 
-export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachment-ingest";
+export {
+  pdfDegradedArtifactKey,
+  resolveChatAttachmentContentUrl,
+  uploadChatAttachment,
+} from "./attachment-ingest";
 
 export {
   backgroundCompactionThresholdTokens,

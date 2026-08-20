@@ -34,7 +34,7 @@ import {
   toAttachmentRow,
 } from "./attachments";
 import { releasePendingUploadBudget } from "./attachment-upload-quota";
-import { consumeOrRecoverPdfDegradedText, schedulePendingUploadCleanup } from "./attachment-ingest";
+import { resolvePdfDegradedText, schedulePendingUploadCleanup } from "./attachment-ingest";
 import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
 import { requestChatStop } from "./stop-signal";
 import {
@@ -402,7 +402,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
         messageId: userMessageId,
         attachment: { ...attachment, position },
       });
-      const degradedText = await consumeOrRecoverPdfDegradedText({
+      const degradedText = await resolvePdfDegradedText({
         storageKey: baseRow.storageKey,
         mime: attachment.mime,
       });
@@ -447,7 +447,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
             size: src.size,
             position,
           },
-          ...(src.degradedText ? { degradedText: src.degradedText } : {}),
+          degradedText: src.degradedText,
         }),
       );
     }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { formatExtractedPdfText, type ExtractedPdf } from "../src/index";
+import { formatExtractedPdfText, interpretPdfText, type ExtractedPdf } from "../src/index";
 
 describe("formatExtractedPdfText", () => {
   test("adds one proven marker to each extracted page", () => {
@@ -29,6 +29,17 @@ describe("formatExtractedPdfText", () => {
     } satisfies ExtractedPdf;
 
     assert.equal(formatExtractedPdfText(result), result.text);
+  });
+
+  test("preserves an empty deterministic text result", () => {
+    const result = {
+      kind: "text_without_pages",
+      pdfType: "text_based",
+      pageCount: 0,
+      text: "",
+    } satisfies ExtractedPdf;
+
+    assert.deepEqual(interpretPdfText(result), { kind: "text", text: "" });
   });
 
   test("returns null when no deterministic text exists", () => {
