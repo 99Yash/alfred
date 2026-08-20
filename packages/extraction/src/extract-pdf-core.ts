@@ -94,6 +94,32 @@ function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
   };
 }
 
+function truncatePagesToFit(
+  pages: readonly ExtractedPdfPage[],
+  maxCharacters: number,
+): ExtractedPdfPage[] {
+  const out: ExtractedPdfPage[] = [];
+  let used = 0;
+  for (const page of pages) {
+    const len = page.markdown.length;
+    if (used + len <= maxCharacters) {
+      out.push(page);
+      used += len;
+    } else {
+      const remaining = maxCharacters - used;
+      if (remaining > 0) {
+        out.push({ ...page, markdown: page.markdown.slice(0, remaining) });
+      }
+      break;
+    }
+  }
+  return out;
+}
+
+function truncateTextToFit(text: string, maxCharacters: number): string {
+  return text.length > maxCharacters ? text.slice(0, maxCharacters) : text;
+}
+
 /**
  * Run all vendor work inside the extraction child. Page output is checked before
  * the synchronous document read, then the exact public content count is checked
@@ -103,6 +129,7 @@ export async function extractPdfCore(
   bytes: Uint8Array,
   maxCharacters: number,
   load: LoadPdfInspector = loadInspector,
+  truncateOnOutputExceed = false,
 ): Promise<ExtractedPdf> {
   // Keep native-load rejection distinct from PdfExtractionError. The child
   // protocol preserves this distinction for the parent.
@@ -115,35 +142,73 @@ export async function extractPdfCore(
     const extraction = await inspector.extractPagesMarkdownAsync(buffer);
     const pages = extraction.pages.map(toExtractedPdfPage);
     const pageCount = pages.length;
-    const pageCharacters = pdfExtractionPageCharacterCount(pages);
+    let mutablePages = pages;
+    const pageCharacters = pdfExtractionPageCharacterCount(mutablePages);
 
     if (pageCharacters > maxCharacters) {
-      return createPdfExtractionLimitResult("output_characters", pageCharacters, maxCharacters);
+      if (truncateOnOutputExceed) {
+        mutablePages = truncatePagesToFit(mutablePages, maxCharacters);
+      } else {
+        return createPdfExtractionLimitResult("output_characters", pageCharacters, maxCharacters);
+      }
     }
 
     const text = readDocumentText(inspector, buffer);
 
-    if (pages.some(pageHasText)) {
-      const documentText = text ?? "";
-      const result: ExtractedPdf = {
+    if (mutablePages.some(pageHasText)) {
+      let documentText = text ?? "";
+      let result: ExtractedPdf = {
         kind: "extracted",
         pdfType,
         pageCount,
-        pages,
-        pagesNeedingOcr: pages.filter((page) => page.needsOcr).map((page) => page.pageNumber),
+        pages: mutablePages,
+        pagesNeedingOcr: mutablePages
+          .filter((page) => page.needsOcr)
+          .map((page) => page.pageNumber),
         text: documentText,
       };
       const totalCharacters = pdfExtractionContentCharacterCount(result);
       if (totalCharacters > maxCharacters) {
-        return createPdfExtractionLimitResult("output_characters", totalCharacters, maxCharacters);
+        if (truncateOnOutputExceed) {
+          // Truncate text to fit remaining budget after pages
+          const pageChars = pdfExtractionPageCharacterCount(mutablePages);
+          const remaining = Math.max(0, maxCharacters - pageChars);
+          documentText = truncateTextToFit(documentText, remaining);
+          result = {
+            kind: "extracted",
+            pdfType,
+            pageCount,
+            pages: mutablePages,
+            pagesNeedingOcr: mutablePages
+              .filter((page) => page.needsOcr)
+              .map((page) => page.pageNumber),
+            text: documentText,
+          };
+        } else {
+          return createPdfExtractionLimitResult(
+            "output_characters",
+            totalCharacters,
+            maxCharacters,
+          );
+        }
       }
       return result;
     }
 
     if (text !== undefined) {
-      const result: ExtractedPdf = { kind: "text_without_pages", pdfType, pageCount, text };
+      let truncatedText = text;
+      const result: ExtractedPdf = {
+        kind: "text_without_pages",
+        pdfType,
+        pageCount,
+        text: truncatedText,
+      };
       const totalCharacters = pdfExtractionContentCharacterCount(result);
       if (totalCharacters > maxCharacters) {
+        if (truncateOnOutputExceed) {
+          truncatedText = truncateTextToFit(text, maxCharacters);
+          return { kind: "text_without_pages", pdfType, pageCount, text: truncatedText };
+        }
         return createPdfExtractionLimitResult("output_characters", totalCharacters, maxCharacters);
       }
       return result;
