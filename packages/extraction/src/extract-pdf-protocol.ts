@@ -82,10 +82,19 @@ export function parsePdfExtractionLimits(value: unknown): PdfExtractionLimits {
   if (maxParseMilliseconds > MAX_TIMER_MILLISECONDS) {
     throw new RangeError(`maxParseMilliseconds must be at most ${MAX_TIMER_MILLISECONDS}`);
   }
+  const truncateOnOutputExceed =
+    value.truncateOnOutputExceed === undefined
+      ? undefined
+      : typeof value.truncateOnOutputExceed === "boolean"
+        ? value.truncateOnOutputExceed
+        : (() => {
+            throw new RangeError("truncateOnOutputExceed must be a boolean");
+          })();
   return {
     maxBytes: positiveSafeInteger("maxBytes", value.maxBytes),
     maxCharacters: positiveSafeInteger("maxCharacters", value.maxCharacters),
     maxParseMilliseconds,
+    ...(truncateOnOutputExceed === undefined ? {} : { truncateOnOutputExceed }),
   };
 }
 

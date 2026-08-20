@@ -12,6 +12,12 @@ import {
 import { createHash } from "node:crypto";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 
+const EMBED_COST_CAP_USD = 0.5;
+const VOYAGE_INPUT_PER_MTOK = 0.06; // voyage-3.5, the default at `ai/src/embeddings.ts:24`
+const MAX_EMBED_TOKENS_PER_DOC = Math.floor(
+  (EMBED_COST_CAP_USD / VOYAGE_INPUT_PER_MTOK) * 1_000_000,
+);
+
 /**
  * Record an embed failure on the document row via the shared poison-pill guard
  * (`buildEmbedFailureSet` in `@alfred/db/helpers`): a per-input-permanent error
@@ -95,12 +101,33 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   if (!doc) throw new Error(`[embed-document] not found: ${args.documentId}`);
 
   const pageInputs = extractPageInputs(doc);
-  const splits = pageInputs ? chunkPages(pageInputs) : chunkText(doc.content);
+  let splits = pageInputs ? chunkPages(pageInputs) : chunkText(doc.content);
   if (splits.length === 0) {
     // No embeddable content, and documents are immutable — this row would
     // otherwise be re-selected by the sweep on every tick. Dead-letter it.
     await markDocumentEmbedTerminal(doc.id, "no embeddable content (0 chunks)");
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: 0, empty: true };
+  }
+
+  // Cap total tokens per document to $0.50. This is a safety net for
+  // very long but valuable docs (500k+ chars) that we now keep instead of skip.
+  const totalTokens = splits.reduce((sum, c) => sum + c.tokenCount, 0);
+  if (totalTokens > MAX_EMBED_TOKENS_PER_DOC) {
+    let used = 0;
+    let keep = 0;
+    for (const chunk of splits) {
+      if (used + chunk.tokenCount > MAX_EMBED_TOKENS_PER_DOC) break;
+      used += chunk.tokenCount;
+      keep++;
+    }
+    console.warn(
+      `[embed-document] cost cap hit for doc=${doc.id}: ${totalTokens} tokens > ${MAX_EMBED_TOKENS_PER_DOC} (cap $${EMBED_COST_CAP_USD}), chunking first ${keep}/${splits.length} chunks`,
+    );
+    splits = splits.slice(0, keep);
+    if (splits.length === 0) {
+      await markDocumentEmbedTerminal(doc.id, "exceeds embedding cost cap ($0.50)");
+      return { documentId: doc.id, chunksWritten: 0, chunksSkipped: 0, empty: true };
+    }
   }
 
   // Look up existing chunk rows to skip work when the content hashes
@@ -155,6 +182,26 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
       });
     }
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
+  }
+
+  // Cap embedding cost per document. Long but valuable docs (e.g., 500k chars)
+  // would otherwise create thousands of chunks. $0.50 at voyage-3.5 ($0.06/MTok)
+  // allows ~8M tokens (~32M chars), far above the 1M char Gmail extraction
+  // cap, so this is a safety net, not the primary bound.
+  const totalTokensForBudget = toEmbed.reduce((sum, c) => sum + c.tokenCount, 0);
+  if (totalTokensForBudget > MAX_EMBED_TOKENS_PER_DOC) {
+    let used = 0;
+    let keep = 0;
+    for (const chunk of toEmbed) {
+      if (used + chunk.tokenCount > MAX_EMBED_TOKENS_PER_DOC) break;
+      used += chunk.tokenCount;
+      keep++;
+    }
+    console.warn(
+      `[embed-document] cost cap hit for doc=${doc.id}: ${totalTokensForBudget} tokens > ${MAX_EMBED_TOKENS_PER_DOC} (cap $${EMBED_COST_CAP_USD}), embedding first ${keep}/${toEmbed.length} chunks`,
+    );
+    toEmbed.splice(keep);
+    toEmbedHashes.splice(keep);
   }
 
   // Only the Voyage call (and validating its output) counts toward the embed

@@ -27,6 +27,8 @@ export interface PdfExtractionLimits {
   readonly maxBytes: number;
   readonly maxCharacters: number;
   readonly maxParseMilliseconds: number;
+  /** When true, output over `maxCharacters` truncates instead of returning `limit_exceeded`. */
+  readonly truncateOnOutputExceed?: boolean | undefined;
 }
 
 const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
@@ -55,8 +57,10 @@ export const REALTIME_PDF_EXTRACTION_LIMITS = {
   },
   gmailAttachment: {
     maxBytes: 10 * 1024 * 1024,
-    maxCharacters: 200_000,
+    // Long but valuable docs: keep as much as the 10 MB input allows, truncate at 1M chars instead of skip.
+    maxCharacters: 1_000_000,
     maxParseMilliseconds: 30_000,
+    truncateOnOutputExceed: true,
   },
 } as const satisfies Readonly<
   Record<"chatUpload" | "fetchUrl" | "gmailAttachment", PdfExtractionLimits>
@@ -152,6 +156,53 @@ function sourceLoaderArguments(childEntry: URL): readonly string[] {
 
 function maximumReplyBytes(maxCharacters: number): number {
   return Math.min(Number.MAX_SAFE_INTEGER, maxCharacters * 6 + PROTOCOL_OVERHEAD_BYTES);
+}
+
+function truncatePagesToFitForLimit(
+  pages: readonly ExtractedPdfPage[],
+  maxCharacters: number,
+): ExtractedPdfPage[] {
+  const out: ExtractedPdfPage[] = [];
+  let used = 0;
+  for (const page of pages) {
+    const len = page.markdown.length;
+    if (used + len <= maxCharacters) {
+      out.push(page);
+      used += len;
+    } else {
+      const remaining = maxCharacters - used;
+      if (remaining > 0) out.push({ ...page, markdown: page.markdown.slice(0, remaining) });
+      break;
+    }
+  }
+  return out;
+}
+
+function truncateExtractedForLimit(result: ExtractedPdf, maxCharacters: number): ExtractedPdf {
+  if (result.kind === "extracted") {
+    const truncatedPages = truncatePagesToFitForLimit(result.pages, maxCharacters);
+    const pageChars = truncatedPages.reduce((sum, p) => sum + p.markdown.length, 0);
+    const remaining = Math.max(0, maxCharacters - pageChars);
+    const truncatedText =
+      result.text.length > remaining ? result.text.slice(0, remaining) : result.text;
+    return {
+      kind: "extracted",
+      pdfType: result.pdfType,
+      pageCount: result.pageCount,
+      pages: truncatedPages,
+      pagesNeedingOcr: truncatedPages.filter((p) => p.needsOcr).map((p) => p.pageNumber),
+      text: truncatedText,
+    };
+  }
+  if (result.kind === "text_without_pages") {
+    return {
+      kind: "text_without_pages",
+      pdfType: result.pdfType,
+      pageCount: result.pageCount,
+      text: result.text.slice(0, maxCharacters),
+    };
+  }
+  return result;
 }
 
 function remoteNativeError(name: string, message: string, code?: string): Error {
@@ -327,15 +378,21 @@ async function runPdfExtractionChild(
         }
 
         const characterCount = pdfExtractionContentCharacterCount(result);
-        resolve(
-          characterCount > limits.maxCharacters
-            ? createPdfExtractionLimitResult(
+        if (characterCount > limits.maxCharacters) {
+          if (limits.truncateOnOutputExceed) {
+            resolve(truncateExtractedForLimit(result, limits.maxCharacters));
+          } else {
+            resolve(
+              createPdfExtractionLimitResult(
                 "output_characters",
                 characterCount,
                 limits.maxCharacters,
-              )
-            : result,
-        );
+              ),
+            );
+          }
+        } else {
+          resolve(result);
+        }
       } catch (error) {
         reject(new PdfExtractionError(error));
       }
