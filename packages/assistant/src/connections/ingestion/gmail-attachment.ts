@@ -109,8 +109,7 @@ export async function ingestGmailPdfAttachments(
         const markdowns: string[] = [];
         const pageOffsets: { page: number; start: number; end: number }[] = [];
         let offset = 0;
-        for (let i = 0; i < result.pages.length; i++) {
-          const page = result.pages[i]!;
+        for (const [idx, page] of result.pages.entries()) {
           const text = page.markdown;
           markdowns.push(text);
           if (text.length > 0) {
@@ -119,7 +118,7 @@ export async function ingestGmailPdfAttachments(
             pageOffsets.push({ page: page.pageNumber, start, end });
           }
           offset += text.length;
-          if (i < result.pages.length - 1) offset += 2; // "\n\n"
+          if (idx < result.pages.length - 1) offset += 2; // "\n\n"
         }
         content = markdowns.join("\n\n");
         if (content.trim().length === 0) {

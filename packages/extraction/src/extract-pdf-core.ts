@@ -11,6 +11,8 @@ import {
   createPdfExtractionLimitResult,
   pdfExtractionContentCharacterCount,
   pdfExtractionPageCharacterCount,
+  truncatePagesToFit,
+  truncateTextToFit,
 } from "./extract-pdf-protocol";
 
 interface PdfInspector {
@@ -92,32 +94,6 @@ function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
     needsOcr: page.needsOcr,
     ...(page.ocrReason === undefined ? {} : { ocrReason: page.ocrReason }),
   };
-}
-
-function truncatePagesToFit(
-  pages: readonly ExtractedPdfPage[],
-  maxCharacters: number,
-): ExtractedPdfPage[] {
-  const out: ExtractedPdfPage[] = [];
-  let used = 0;
-  for (const page of pages) {
-    const len = page.markdown.length;
-    if (used + len <= maxCharacters) {
-      out.push(page);
-      used += len;
-    } else {
-      const remaining = maxCharacters - used;
-      if (remaining > 0) {
-        out.push({ ...page, markdown: page.markdown.slice(0, remaining) });
-      }
-      break;
-    }
-  }
-  return out;
-}
-
-function truncateTextToFit(text: string, maxCharacters: number): string {
-  return text.length > maxCharacters ? text.slice(0, maxCharacters) : text;
 }
 
 /**

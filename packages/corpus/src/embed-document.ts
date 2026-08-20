@@ -4,10 +4,10 @@ import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import {
-  documentPagesMixedSchema,
-  documentPagesSchema,
   isRecord,
   isValidPage,
+  parseDocumentPages,
+  parseDocumentPagesMixed,
 } from "@alfred/contracts";
 import { createHash } from "node:crypto";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
@@ -58,6 +58,34 @@ async function markDocumentEmbedTerminal(documentId: string, reason: string): Pr
 }
 
 /**
+ * Single owner for the $0.50 embed budget. Truncates `chunks` in place to
+ * the first N that fit `MAX_EMBED_TOKENS_PER_DOC` and keeps `hashes` in
+ * sync. The policy is truncate-and-warn, not dead-letter, except when
+ * even the first chunk exceeds the cap (handled by the caller).
+ */
+function capChunksForBudget(
+  chunks: Chunk[],
+  hashes: string[],
+  docId: string,
+): { truncated: boolean; kept: number; total: number } {
+  const total = chunks.reduce((sum, c) => sum + c.tokenCount, 0);
+  if (total <= MAX_EMBED_TOKENS_PER_DOC) return { truncated: false, kept: chunks.length, total };
+  let used = 0;
+  let keep = 0;
+  for (const c of chunks) {
+    if (used + c.tokenCount > MAX_EMBED_TOKENS_PER_DOC) break;
+    used += c.tokenCount;
+    keep++;
+  }
+  console.warn(
+    `[embed-document] cost cap hit for doc=${docId}: ${total} tokens > ${MAX_EMBED_TOKENS_PER_DOC} (cap $${EMBED_COST_CAP_USD}), embedding first ${keep}/${chunks.length} chunks`,
+  );
+  chunks.splice(keep);
+  hashes.splice(keep);
+  return { truncated: true, kept: keep, total };
+}
+
+/**
  * Chunk + embed a single document. Idempotent on the unique
  * `(document_id, position)` index — re-running for the same document
  * is a no-op unless the content hash changed (in which case we rewrite
@@ -101,33 +129,12 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   if (!doc) throw new Error(`[embed-document] not found: ${args.documentId}`);
 
   const pageInputs = extractPageInputs(doc);
-  let splits = pageInputs ? chunkPages(pageInputs) : chunkText(doc.content);
+  const splits = pageInputs ? chunkPages(pageInputs) : chunkText(doc.content);
   if (splits.length === 0) {
     // No embeddable content, and documents are immutable — this row would
     // otherwise be re-selected by the sweep on every tick. Dead-letter it.
     await markDocumentEmbedTerminal(doc.id, "no embeddable content (0 chunks)");
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: 0, empty: true };
-  }
-
-  // Cap total tokens per document to $0.50. This is a safety net for
-  // very long but valuable docs (500k+ chars) that we now keep instead of skip.
-  const totalTokens = splits.reduce((sum, c) => sum + c.tokenCount, 0);
-  if (totalTokens > MAX_EMBED_TOKENS_PER_DOC) {
-    let used = 0;
-    let keep = 0;
-    for (const chunk of splits) {
-      if (used + chunk.tokenCount > MAX_EMBED_TOKENS_PER_DOC) break;
-      used += chunk.tokenCount;
-      keep++;
-    }
-    console.warn(
-      `[embed-document] cost cap hit for doc=${doc.id}: ${totalTokens} tokens > ${MAX_EMBED_TOKENS_PER_DOC} (cap $${EMBED_COST_CAP_USD}), chunking first ${keep}/${splits.length} chunks`,
-    );
-    splits = splits.slice(0, keep);
-    if (splits.length === 0) {
-      await markDocumentEmbedTerminal(doc.id, "exceeds embedding cost cap ($0.50)");
-      return { documentId: doc.id, chunksWritten: 0, chunksSkipped: 0, empty: true };
-    }
   }
 
   // Look up existing chunk rows to skip work when the content hashes
@@ -184,24 +191,17 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
   }
 
-  // Cap embedding cost per document. Long but valuable docs (e.g., 500k chars)
-  // would otherwise create thousands of chunks. $0.50 at voyage-3.5 ($0.06/MTok)
-  // allows ~8M tokens (~32M chars), far above the 1M char Gmail extraction
-  // cap, so this is a safety net, not the primary bound.
-  const totalTokensForBudget = toEmbed.reduce((sum, c) => sum + c.tokenCount, 0);
-  if (totalTokensForBudget > MAX_EMBED_TOKENS_PER_DOC) {
-    let used = 0;
-    let keep = 0;
-    for (const chunk of toEmbed) {
-      if (used + chunk.tokenCount > MAX_EMBED_TOKENS_PER_DOC) break;
-      used += chunk.tokenCount;
-      keep++;
-    }
-    console.warn(
-      `[embed-document] cost cap hit for doc=${doc.id}: ${totalTokensForBudget} tokens > ${MAX_EMBED_TOKENS_PER_DOC} (cap $${EMBED_COST_CAP_USD}), embedding first ${keep}/${toEmbed.length} chunks`,
-    );
-    toEmbed.splice(keep);
-    toEmbedHashes.splice(keep);
+  // Single owner for the $0.50 cap. Apply to the *new* chunks (`toEmbed`)
+  // after the existing-hash filter, not to the total `splits`. Capping
+  // `splits` would discard tail chunks even when the embed bill is tiny
+  // (e.g. 1990 cached + 10 new = 10 billable tokens, but 16M total).
+  // Truncation is the policy — we keep the first N chunks that fit the
+  // budget and warn; only a doc whose *first* chunk exceeds the cap is
+  // dead-lettered (never happens at $0.50 / $0.06 Mtok).
+  capChunksForBudget(toEmbed, toEmbedHashes, doc.id);
+  if (toEmbed.length === 0 && splits.length > 0) {
+    await markDocumentEmbedTerminal(doc.id, "exceeds embedding cost cap ($0.50)");
+    return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: true };
   }
 
   // Only the Voyage call (and validating its output) counts toward the embed
@@ -330,12 +330,12 @@ function sha256(input: string): string {
 }
 
 /**
- * Parse `documents.metadata.pages` via the shared contract schema. The
+ * Parse `documents.metadata.pages` via the shared contract helpers. The
  * canonical page shape is `ExtractedPdfPage.pageNumber` proven by
  * `parsePdfExtractionChildReply` (positive integer, dense 1..N) and
  * `chunks.metadata.page` checked by `isValidPage`. `documents.metadata` is
- * `unknown` jsonb with no static guarantee, so this boundary parses with
- * `documentPagesSchema` / `documentPagesMixedSchema` in `@alfred/contracts`
+ * `unknown` jsonb with no static guarantee, so this boundary delegates to
+ * `parseDocumentPages` / `parseDocumentPagesMixed` in `@alfred/contracts`
  * rather than hand-rolled `isRecord` checks.
  */
 function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
@@ -344,20 +344,20 @@ function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInp
   if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
 
   // Try offset-encoded pages first — the canonical writer path.
-  const offsetParsed = documentPagesSchema.safeParse(rawPages);
-  if (offsetParsed.success) {
+  const offsetPages = parseDocumentPages(rawPages);
+  if (offsetPages) {
     const out: PageInput[] = [];
-    for (const entry of offsetParsed.data) {
+    for (const entry of offsetPages) {
       out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
     }
     return out.length > 0 ? out : null;
   }
 
   // Legacy fallback: mixed union of {page, text} and {page, start, end}
-  const mixedParsed = documentPagesMixedSchema.safeParse(rawPages);
-  if (!mixedParsed.success) return null;
+  const mixedPages = parseDocumentPagesMixed(rawPages);
+  if (!mixedPages) return null;
   const out: PageInput[] = [];
-  for (const entry of mixedParsed.data) {
+  for (const entry of mixedPages) {
     if ("text" in entry) {
       out.push({ page: entry.page, text: entry.text });
     } else {

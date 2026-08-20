@@ -590,9 +590,12 @@ export interface GetAttachmentResult {
   bytes: Uint8Array;
 }
 
-export async function getAttachment(args: GetAttachmentArgs): Promise<GetAttachmentResult> {
+export async function getAttachment(
+  args: GetAttachmentArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<GetAttachmentResult> {
   const url = `${API_BASE}/messages/${encodeURIComponent(args.messageId)}/attachments/${encodeURIComponent(args.attachmentId)}`;
-  const json = await getJson(url, args.accessToken);
+  const json = await getJson(url, args.accessToken, retry);
   const parsed = getAttachmentResponseSchema.parse(json);
   const dataBase64Url = parsed.data ?? "";
   const bytes = dataBase64Url
