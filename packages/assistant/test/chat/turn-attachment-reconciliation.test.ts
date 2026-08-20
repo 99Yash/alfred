@@ -47,6 +47,7 @@ function retrySource(
     name: `${id}.png`,
     mime: "image/png",
     size: 100,
+    degradedText: null,
     ...overrides,
   };
 }

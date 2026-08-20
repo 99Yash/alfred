@@ -121,6 +121,15 @@ export const INGEST_POLICY: Readonly<Record<string, IngestPolicyEntry>> = {
 /** Every MIME type the upload boundary accepts (the whitelist). */
 export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 
+/** PDF response MIME types recognized at HTTP and upload boundaries. */
+const PDF_CONTENT_TYPES = new Set(["application/pdf", "application/x-pdf"]);
+
+/** True when a Content-Type identifies a PDF, after MIME normalization. */
+export function isPdfContentType(mime: string): boolean {
+  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  return PDF_CONTENT_TYPES.has(normalized);
+}
+
 /**
  * Max files attachable to a single chat message (ADR-0065). Single source of
  * truth shared by the composer (stage-time cap), the turn endpoint, and the

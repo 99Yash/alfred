@@ -4,6 +4,7 @@ import {
   Errors,
   isApiError,
   isPassThrough,
+  isPdfContentType,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   type IngestPolicyEntry,
@@ -141,8 +142,8 @@ export function assertUploadAllowed(mime: string, size: number): IngestPolicyEnt
   if (!policy) {
     throw Errors.BadRequestError(`Unsupported file type: ${mime || "unknown"}`);
   }
-  // PDFs are allowed for text extraction; other degrade-text types are still gated.
-  if (!isPassThrough(mime) && policy.kind !== "degrade-text") {
+  // PDFs are allowed for deterministic extraction. Other degrade types remain gated.
+  if (!isPassThrough(mime) && !isPdfContentType(mime)) {
     throw Errors.BadRequestError(
       "Only image uploads are supported right now — other file types are coming soon.",
     );

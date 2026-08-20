@@ -33,9 +33,9 @@ import dns from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
-import { getPath, isNonEmptyString, toMessage } from "@alfred/contracts";
+import { getPath, isNonEmptyString, isPdfContentType, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { createPdfExtractor, type ExtractedPdf } from "@alfred/extraction";
+import { createPdfExtractor, formatExtractedPdfText, type ExtractedPdf } from "@alfred/extraction";
 import { Agent, request as undiciRequest } from "undici";
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
@@ -1217,10 +1217,7 @@ async function runFetchUrlImpl(
   }
 
   // PDFs are handled specially — extract text instead of rejecting.
-  const isPdf =
-    contentType === "application/pdf" ||
-    contentType === "application/x-pdf" ||
-    contentType?.startsWith("application/pdf;");
+  const isPdf = isPdfContentType(contentType);
 
   if (contentType && !isTextualType(contentType) && !isPdf) {
     await disposeBody(raw.body);
@@ -1278,14 +1275,20 @@ async function runFetchUrlImpl(
 
   // Handle PDFs declared by Content-Type (already passed the earlier check).
   if (isPdf) {
-    return await extractPdfFromBytes(bytes, args.url, finalUrl, contentType || "application/pdf", raw);
+    return await extractPdfFromBytes(
+      bytes,
+      args.url,
+      finalUrl,
+      contentType || "application/pdf",
+      raw,
+    );
   }
 
   // Sniff before decoding — a binary body with a missing or lying Content-Type
   // would otherwise inline as mojibake (#267). PDFs are extracted to text.
   const sniffed = sniffBinaryType(bytes);
   if (sniffed) {
-    if (sniffed === "application/pdf") {
+    if (isPdfContentType(sniffed)) {
       return await extractPdfFromBytes(bytes, args.url, finalUrl, contentType || sniffed, raw);
     }
     return {
@@ -1360,22 +1363,6 @@ function decodeText(bytes: Buffer, charset: string | null): string {
 }
 
 /**
- * Format extracted PDF text with page markers for citation. Uses per-page
- * markdown when available, falls back to the document-level text field.
- */
-function formatPdfText(result: ExtractedPdf): string | null {
-  if (result.kind === "extracted" && result.pages.length > 0) {
-    return result.pages
-      .map((page) => `[page ${page.pageNumber}]\n${page.markdown}`)
-      .join("\n\n");
-  }
-  if (result.kind === "extracted" || result.kind === "text_without_pages") {
-    return result.text;
-  }
-  return null;
-}
-
-/**
  * Extract text from PDF bytes and return a FetchUrlResult. Handles extraction
  * failures honestly — encrypted, needs-ocr, and invalid PDFs report a clear
  * error rather than silently returning nothing.
@@ -1399,11 +1386,13 @@ async function extractPdfFromBytes(
       contentType,
       reason: "fetch_failed",
       message: `Could not extract text from the PDF: ${toMessage(err)}`,
-      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      ...(raw.redirectChain && raw.redirectChain.length > 0
+        ? { redirects: raw.redirectChain }
+        : {}),
     };
   }
 
-  const text = formatPdfText(result);
+  const text = formatExtractedPdfText(result);
   if (!text) {
     const reason =
       result.kind === "encrypted"
@@ -1422,7 +1411,9 @@ async function extractPdfFromBytes(
       contentType,
       reason: "unsupported_content_type",
       message: reason,
-      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      ...(raw.redirectChain && raw.redirectChain.length > 0
+        ? { redirects: raw.redirectChain }
+        : {}),
     };
   }
 
