@@ -6,6 +6,12 @@ import {
 } from "@alfred/ai";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments } from "@alfred/db/schemas";
+import {
+  createPdfExtractor,
+  REALTIME_PDF_EXTRACTION_LIMITS,
+  type ExtractedPdf,
+  type ExtractPdf,
+} from "@alfred/extraction";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { readObject } from "./storage";
@@ -20,6 +26,7 @@ const evidenceSchema = z
   .object({
     kind: z.enum(["ocr", "transcript", "document_text", "chart", "visual", "metadata"]),
     text: boundedText,
+    page: z.number().int().min(1).nullable().optional(),
   })
   .strict();
 
@@ -137,6 +144,7 @@ export interface EnrichChatAttachmentDependencies {
     provider: string;
     model: string;
   }>;
+  extract?: ExtractPdf;
   persist?: typeof persistChatAttachmentRepresentation;
   fail?: typeof recordChatAttachmentEnrichmentFailure;
 }
@@ -156,13 +164,71 @@ export async function enrichClaimedChatAttachment(
   try {
     const modality = mediaModalityForMime(attachment.mime);
     const bytes = await (dependencies.readBytes ?? readObject)(attachment.storageKey);
+    const persist = dependencies.persist ?? persistChatAttachmentRepresentation;
+
+    if (modality === "pdf") {
+      const extract =
+        dependencies.extract ?? createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.chatUpload);
+      let extracted: ExtractedPdf;
+      try {
+        extracted = await extract(bytes);
+      } catch (error) {
+        // Child process failures surface as PdfExtractionError — bubble as generation failure.
+        throw error;
+      }
+      const deterministic = buildDeterministicPdfOutput(extracted);
+      if (deterministic) {
+        const persisted = await persist({
+          representation: {
+            schemaVersion: CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+            attachmentId: attachment.id,
+            messageId: attachment.messageId,
+            mime: attachment.mime,
+            ...deterministic.output,
+          },
+          provider: deterministic.provider,
+          model: deterministic.model,
+          estimatedCostMicrousd: args.estimatedCostMicrousd,
+        });
+        return persisted ? "persisted" : "superseded";
+      }
+      if (extracted.kind === "needs_ocr") {
+        const generated = await (dependencies.generate ?? generateAttachmentRepresentation)({
+          attachment,
+          bytes,
+          modality,
+          attribution: args.attribution,
+        });
+        const outputWithNullPage = {
+          ...generated.output,
+          evidence: generated.output.evidence.map((item) => ({
+            ...item,
+            page: null as number | null,
+          })),
+        };
+        const persisted = await persist({
+          representation: {
+            schemaVersion: CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+            attachmentId: attachment.id,
+            messageId: attachment.messageId,
+            mime: attachment.mime,
+            ...outputWithNullPage,
+          },
+          provider: generated.provider,
+          model: generated.model,
+          estimatedCostMicrousd: args.estimatedCostMicrousd,
+        });
+        return persisted ? "persisted" : "superseded";
+      }
+      throw pdfExtractionFailureError(extracted);
+    }
+
     const generated = await (dependencies.generate ?? generateAttachmentRepresentation)({
       attachment,
       bytes,
       modality,
       attribution: args.attribution,
     });
-    const persist = dependencies.persist ?? persistChatAttachmentRepresentation;
     const persisted = await persist({
       representation: {
         schemaVersion: CHAT_ATTACHMENT_REPRESENTATION_VERSION,
@@ -183,12 +249,71 @@ export async function enrichClaimedChatAttachment(
   }
 }
 
+function buildDeterministicPdfOutput(
+  result: ExtractedPdf,
+): { output: z.infer<typeof enrichmentOutputSchema>; provider: string; model: string } | null {
+  if (result.kind === "extracted") {
+    const evidence = result.pages
+      .slice(0, 100)
+      .map((page) => ({
+        kind: "document_text" as const,
+        text: page.markdown.slice(0, 20_000),
+        page: page.pageNumber,
+      }))
+      .filter((item) => item.text.length > 0);
+    // An extracted PDF with no non-empty page still yields a deterministic representation
+    // rather than a model call — the evidence is empty but the page provenance is proven.
+    return {
+      output: {
+        visualDescription: null,
+        ocrText: null,
+        salientEntities: [],
+        evidence: evidence.length > 0 ? evidence : [],
+      },
+      provider: "deterministic",
+      model: "@firecrawl/pdf-inspector",
+    };
+  }
+  if (result.kind === "text_without_pages") {
+    return {
+      output: {
+        visualDescription: null,
+        ocrText: null,
+        salientEntities: [],
+        evidence: [
+          {
+            kind: "document_text" as const,
+            text: result.text.slice(0, 20_000),
+            page: null,
+          },
+        ],
+      },
+      provider: "deterministic",
+      model: "@firecrawl/pdf-inspector",
+    };
+  }
+  return null;
+}
+
+function pdfExtractionFailureError(result: ExtractedPdf): Error {
+  switch (result.kind) {
+    case "encrypted":
+      return new Error("pdf_encrypted");
+    case "invalid":
+      return new Error(`pdf_invalid:${result.cause}`);
+    case "limit_exceeded":
+      return new Error(`pdf_limit_exceeded:${result.limit}`);
+    default:
+      return new Error("pdf_extraction_unreadable");
+  }
+}
+
 export function mediaModalityForMime(mime: string): "image" | "audio" | "video" | "pdf" {
   const normalized = mime.split(";")[0]!.trim().toLowerCase();
   if (normalized.startsWith("image/")) return "image";
   if (normalized.startsWith("audio/")) return "audio";
   if (normalized.startsWith("video/")) return "video";
-  if (normalized === "application/pdf") return "pdf";
+  if (normalized === "application/pdf" || normalized === "application/x-pdf") return "pdf";
   throw new Error("media_enrichment_mime_unsupported");
 }
 
