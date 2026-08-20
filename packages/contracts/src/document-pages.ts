@@ -49,14 +49,25 @@ export type DocumentPagesMixed = z.infer<typeof documentPagesMixedSchema>;
 
 /**
  * Parse `metadata.pages` from an untrusted jsonb payload. Returns the
- * offset-encoded pages when valid, otherwise `null` (caller falls back to
- * plain text chunking). Accepts the mixed union so legacy text rows do not
- * throw — they are parsed as text pages.
+ * offset-encoded pages when valid, otherwise `null`. Offset pages are the
+ * canonical writer path (`{page,start,end}`). Legacy `{page,text}` rows
+ * return `null` here — use `parseDocumentPagesMixed` when you need the
+ * mixed fallback.
  */
 export function parseDocumentPages(raw: unknown): DocumentPages | null {
   if (!Array.isArray(raw)) return null;
   const parsed = documentPagesSchema.safeParse(raw);
-  if (parsed.success) return parsed.data;
-  // Legacy text pages are not offset pages — signal null so caller can handle separately
-  return null;
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Parse `metadata.pages` that may contain legacy `{page,text}` entries.
+ * Returns `null` only when the payload is not an array or fails the
+ * mixed union. Callers that only handle offset pages should use
+ * `parseDocumentPages` above.
+ */
+export function parseDocumentPagesMixed(raw: unknown): DocumentPagesMixed | null {
+  if (!Array.isArray(raw)) return null;
+  const parsed = documentPagesMixedSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
