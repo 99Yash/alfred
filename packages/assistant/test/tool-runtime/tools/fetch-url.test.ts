@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
+import { REALTIME_PDF_EXTRACTION_LIMITS } from "@alfred/extraction";
 import {
   decodeEntities,
   decodeResponseBody,
@@ -155,6 +157,10 @@ describe("isBlockedHost", () => {
 });
 
 describe("runFetchUrl (stubbed transport)", () => {
+  test("keeps the PDF parse ceiling separate from the returned text ceiling", () => {
+    assert.ok(REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxCharacters > MAX_TEXT_CHARS);
+  });
+
   function streamOf(...parts: Array<string | Uint8Array>): AsyncIterable<Uint8Array> {
     return {
       async *[Symbol.asyncIterator]() {
@@ -398,19 +404,82 @@ describe("runFetchUrl (stubbed transport)", () => {
     if (r.ok) assert.equal(r.contentType, "text/plain");
   });
 
-  test("refuses a binary content type honestly", async () => {
+  test("extracts text from a PDF content type", async () => {
     const r = await runFetchUrl(
       { url: "https://example.com/resume.pdf" },
       { transport: transportOf({ contentType: "application/pdf", body: "%PDF-1.7" }) },
     );
+    // Fake PDF data fails extraction — honest error, not a rejection.
     assert.equal(r.ok, false);
     if (!r.ok) {
       assert.equal(r.reason, "unsupported_content_type");
-      assert.match(r.message, /application\/pdf/);
+      assert.match(r.message, /invalid PDF/);
     }
   });
 
-  test("disposes the body when refusing a binary content type", async () => {
+  test("returns extracted text with proven page markers for a valid PDF", async () => {
+    const bytes = new Uint8Array(
+      await readFile(
+        new URL("../../../../extraction/test/fixtures/born-digital-two-page.pdf", import.meta.url),
+      ),
+    );
+    const r = await runFetchUrl(
+      { url: "https://example.com/report.pdf" },
+      { transport: transportOf({ contentType: "application/pdf", body: [bytes] }) },
+    );
+
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
+      assert.match(r.text, /\[page 2\]\n.*PAGE TWO MARKER bravo/s);
+      assert.equal(r.truncated, false);
+    }
+  });
+
+  test("extracts a PDF served as application/octet-stream after byte sniffing", async () => {
+    const bytes = new Uint8Array(
+      await readFile(
+        new URL("../../../../extraction/test/fixtures/born-digital-two-page.pdf", import.meta.url),
+      ),
+    );
+    const r = await runFetchUrl(
+      { url: "https://example.com/download" },
+      { transport: transportOf({ contentType: "application/octet-stream", body: [bytes] }) },
+    );
+
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
+      assert.equal(r.contentType, "application/octet-stream");
+    }
+  });
+
+  test("returns an empty deterministic PDF result as an honest success", async () => {
+    const r = await runFetchUrl(
+      { url: "https://example.com/empty.pdf" },
+      {
+        transport: transportOf({ contentType: "application/pdf", body: "%PDF-1.7" }),
+        extractPdf: async () => ({
+          kind: "text_without_pages",
+          pdfType: "text_based",
+          pageCount: 0,
+          text: "",
+        }),
+      },
+    );
+
+    assert.deepEqual(r, {
+      ok: true,
+      url: "https://example.com/empty.pdf",
+      finalUrl: "https://example.com/",
+      contentType: "application/pdf",
+      text: "",
+      chars: 0,
+      truncated: false,
+    });
+  });
+
+  test("reads the body for PDF extraction instead of disposing it eagerly", async () => {
     const body = destroyableBody();
     const r = await runFetchUrl(
       { url: "https://example.com/resume.pdf" },
@@ -425,15 +494,17 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+    // The body is read for extraction, not disposed eagerly.
     assert.equal(r.ok, false);
-    assert.equal(body.destroyed, true);
+    assert.equal(body.destroyed, false);
   });
 
-  test("refuses a binary body even when Content-Type lies (sniff)", async () => {
+  test("extracts text from a PDF even when Content-Type lies (sniff)", async () => {
     const r = await runFetchUrl(
       { url: "https://example.com/sneaky" },
       { transport: transportOf({ contentType: "text/html", body: "%PDF-1.7\n%binary" }) },
     );
+    // Fake PDF data fails extraction — honest error, not a rejection.
     assert.equal(r.ok, false);
     if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
   });

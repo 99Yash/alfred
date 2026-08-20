@@ -273,6 +273,25 @@ describe("buildStoredContentParts", () => {
     ]);
   });
 
+  test("an OCR-only PDF contributes no invented text", () => {
+    const parts = buildStoredContentParts("read this", [
+      {
+        id: "att_ocr",
+        storageKey: "key_ocr",
+        mime: "application/pdf",
+        size: 900_000,
+        degradedText: null,
+        degradedImageKeys: [],
+      },
+    ]);
+
+    assert.deepEqual(
+      parts,
+      [{ type: "text", text: "read this" }],
+      "null is an explicit OCR-only state; no page text is fabricated",
+    );
+  });
+
   test("an attachment that degraded to nothing contributes nothing", () => {
     const parts = buildStoredContentParts("", [
       {

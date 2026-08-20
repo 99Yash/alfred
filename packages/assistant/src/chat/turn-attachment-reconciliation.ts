@@ -20,7 +20,7 @@ export type ExistingAttachmentSummary = Pick<
 >;
 export type RetryAttachmentSource = Pick<
   ChatAttachment,
-  "id" | "storageKey" | "name" | "mime" | "size"
+  "id" | "storageKey" | "name" | "mime" | "size" | "degradedText"
 >;
 /**
  * The turn path's view of a fresh attachment: `AttachmentInput`, but with

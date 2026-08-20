@@ -88,6 +88,7 @@
     "@alfred/corpus": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/extraction": "workspace:*",
     "@alfred/integrations": "workspace:*",
     "@alfred/logging": "workspace:*",
     "@alfred/mailer": "workspace:*",

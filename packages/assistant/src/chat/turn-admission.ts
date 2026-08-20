@@ -1,6 +1,7 @@
 import {
   Errors,
   getPath,
+  isPdfContentType,
   isNonEmptyString,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -34,7 +35,7 @@ import {
   toAttachmentRow,
 } from "./attachments";
 import { releasePendingUploadBudget } from "./attachment-upload-quota";
-import { schedulePendingUploadCleanup } from "./attachment-ingest";
+import { resolveAttachmentDegradation, schedulePendingUploadCleanup } from "./attachment-ingest";
 import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
 import { requestChatStop } from "./stop-signal";
 import {
@@ -317,6 +318,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
         name: chatAttachments.name,
         mime: chatAttachments.mime,
         size: chatAttachments.size,
+        degradedText: chatAttachments.degradedText,
       })
       .from(chatAttachments)
       .innerJoin(chatMessages, eq(chatMessages.id, chatAttachments.messageId))
@@ -395,22 +397,34 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
   const freshAttachmentRows: AttachmentInsertRow[] = [];
   if (!reuseExistingAttachmentRows) {
     for (const [position, attachment] of attachments.entries()) {
-      const row = toAttachmentRow({
-        userId: userId,
-        threadId,
-        messageId: userMessageId,
-        attachment: { ...attachment, position },
+      const degradation = await resolveAttachmentDegradation({
+        storageKey: buildAttachmentKey({
+          userId,
+          threadId,
+          messageId: userMessageId,
+          attachmentId: attachment.id,
+          fileName: attachment.name,
+        }),
+        mime: attachment.mime,
       });
-      freshAttachmentRows.push(row);
+      freshAttachmentRows.push(
+        toAttachmentRow({
+          userId: userId,
+          threadId,
+          messageId: userMessageId,
+          attachment: { ...attachment, position },
+          degradation,
+        }),
+      );
     }
   }
 
-  // Faithful retry (ADR-0065): re-attach a prior message's images by
-  // copying their bytes under this new message's key prefix, then
-  // writing fresh rows (which sync back via pull). The bytes already
+  // Faithful retry (ADR-0065): re-attach a prior message's attachments by
+  // copying their bytes under this new message's key prefix, then writing fresh
+  // rows (which sync back via pull). The bytes and any extracted text already
   // exist, so nothing is re-uploaded — the client sent only source ids.
   // Ownership-scoped to this user. Honors the combined per-message cap,
-  // and rejects instead of silently dropping requested images.
+  // and rejects instead of silently dropping requested attachments.
   const retryAttachmentRows: AttachmentInsertRow[] = [];
   if (retrySources.length > 0 && !reuseExistingAttachmentRows) {
     for (const src of retrySources) {
@@ -442,6 +456,9 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
             size: src.size,
             position,
           },
+          degradation: isPdfContentType(src.mime)
+            ? { kind: "pdf", text: src.degradedText }
+            : { kind: "image" },
         }),
       );
     }

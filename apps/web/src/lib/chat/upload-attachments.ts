@@ -1,7 +1,7 @@
 import {
   classifyUpload,
   type ChatAttachmentDescriptor,
-  isPassThrough,
+  isChatUploadAllowed,
   SUPPORTED_FILE_TYPES,
 } from "@alfred/contracts";
 
@@ -17,8 +17,8 @@ const API_URL =
  * user gets an instant, friendly rejection.
  */
 
-/** MIME types the composer accepts today — the model-readable images. */
-const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isPassThrough);
+/** MIME types the composer accepts today — images and PDFs. */
+const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isChatUploadAllowed);
 
 /** `accept` attribute for the file input. */
 export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
@@ -31,13 +31,13 @@ export type UploadedAttachment = ChatAttachmentDescriptor;
 /**
  * Validate a picked file against the ingest policy. Returns an error message to
  * show the user, or `null` when the file is accepted. Phase 1 accepts only
- * model-readable images; other types are rejected with a "coming soon" note.
+ * model-readable images and PDFs; other types are rejected with a "coming soon" note.
  */
 export function validateFile(file: File): string | null {
   const policy = classifyUpload(file.type);
   if (!policy) return `${file.name}: unsupported file type`;
-  if (!isPassThrough(file.type)) {
-    return `${file.name}: only images are supported right now`;
+  if (!isChatUploadAllowed(file.type)) {
+    return `${file.name}: only images and PDFs are supported right now`;
   }
   if (file.size <= 0) return `${file.name}: file is empty`;
   if (file.size > policy.maxBytes) {

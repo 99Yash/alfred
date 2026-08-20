@@ -69,6 +69,38 @@ export function db() {
 /** The pool-backed root database client returned by {@link db}. */
 export type DbRoot = ReturnType<typeof db>;
 
+/** Query runner shared by pool-backed and checked-out Drizzle clients. */
+export type DbSessionRunner = Omit<DbRoot, "$client">;
+
+/**
+ * One checked-out database session. Use this only when PostgreSQL state must
+ * outlive one statement without opening a transaction (for example, a
+ * session-scoped advisory lock around an external call).
+ */
+export type DbSession = {
+  /** Drizzle runner pinned to this physical session. */
+  db: DbSessionRunner;
+  /** Raw query seam for PostgreSQL session controls. */
+  client: Pick<pg.PoolClient, "query">;
+};
+
+/**
+ * Run work on one physical PostgreSQL session. A failed callback discards the
+ * connection so session-local state cannot leak to the next pool borrower.
+ */
+export async function withDbSession<T>(body: (session: DbSession) => Promise<T>): Promise<T> {
+  db();
+  const client = await _pool!.connect();
+  try {
+    const result = await body({ db: drizzle(client), client });
+    client.release();
+    return result;
+  } catch (err) {
+    client.release(true);
+    throw err;
+  }
+}
+
 /**
  * A Drizzle transaction handle — the value `db().transaction(cb)` hands its
  * callback. Write helpers accept one so several writes commit atomically in a

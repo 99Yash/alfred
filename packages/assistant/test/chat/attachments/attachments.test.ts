@@ -14,7 +14,9 @@ import sharp from "sharp";
 import {
   assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,
+  assertStoredAttachmentBytesMatch,
   assertUploadAllowed,
+  toAttachmentRow,
   validateStoredMeta,
 } from "@alfred/assistant/chat/attachments/attachments";
 
@@ -57,7 +59,101 @@ describe("assertAttachmentBatchAllowed", () => {
 
   test("does not accept GIF as phase-1 pass-through", () => {
     assert.equal(isPassThrough("image/gif"), false);
-    assert.throws(() => assertUploadAllowed("image/gif", 1), /Only image uploads/);
+    assert.throws(() => assertUploadAllowed("image/gif", 1), /Only images and PDFs/);
+  });
+
+  test("accepts PDFs but keeps other degrade-text types gated", () => {
+    assert.doesNotThrow(() => assertUploadAllowed("application/pdf", 1));
+    assert.throws(() => assertUploadAllowed("audio/mpeg", 1), /Only images and PDFs/);
+    assert.throws(
+      () =>
+        assertUploadAllowed(
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          1,
+        ),
+      /Only images and PDFs/,
+    );
+  });
+});
+
+describe("assertStoredAttachmentBytesMatch", () => {
+  test("accepts an identical retry", () => {
+    assert.doesNotThrow(() =>
+      assertStoredAttachmentBytesMatch({
+        storedBytes: new Uint8Array([1, 2, 3]),
+        candidateBytes: new Uint8Array([1, 2, 3]),
+      }),
+    );
+  });
+
+  test("rejects different bytes with the same length", () => {
+    assert.throws(
+      () =>
+        assertStoredAttachmentBytesMatch({
+          storedBytes: new Uint8Array([1, 2, 3]),
+          candidateBytes: new Uint8Array([1, 9, 3]),
+        }),
+      /different bytes/,
+    );
+  });
+});
+
+describe("toAttachmentRow", () => {
+  test("preserves an explicit OCR-only null instead of omitting the domain state", () => {
+    const row = toAttachmentRow({
+      userId: "user-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      attachment: {
+        id: "attachment-1",
+        name: "scan.pdf",
+        mime: "application/pdf",
+        size: 123,
+        position: 0,
+      },
+      degradation: { kind: "pdf", text: null },
+    });
+
+    assert.equal(Object.hasOwn(row, "degradedText"), true);
+    assert.equal(row.degradedText, null);
+  });
+
+  test("omits PDF degradation state from an image row", () => {
+    const row = toAttachmentRow({
+      userId: "user-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      attachment: {
+        id: "attachment-1",
+        name: "photo.png",
+        mime: "image/png",
+        size: 123,
+        position: 0,
+      },
+      degradation: { kind: "image" },
+    });
+
+    assert.equal(Object.hasOwn(row, "degradedText"), false);
+  });
+
+  test("rejects a degradation state that does not match the MIME family", () => {
+    assert.throws(
+      () =>
+        toAttachmentRow({
+          userId: "user-1",
+          threadId: "thread-1",
+          messageId: "message-1",
+          attachment: {
+            id: "attachment-1",
+            name: "scan.pdf",
+            mime: "application/pdf",
+            size: 123,
+            position: 0,
+          },
+          degradation: { kind: "image" },
+        }),
+      /doesn't match/,
+    );
   });
 });
 
