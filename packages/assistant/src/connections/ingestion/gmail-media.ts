@@ -24,7 +24,12 @@ export function internalDateToDate(internalDate: string | undefined): Date | nul
   return new Date(ms);
 }
 
-export interface GmailMediaIngestResult {
+/**
+ * The six per-run counters attachment ingest reports. One home so adding a
+ * seventh field is one edit here plus the merge, not six hand-rolled
+ * aggregations across the poll entry points.
+ */
+export interface GmailMediaTally {
   attempted: number;
   ingested: number;
   /** Attachment docs that already existed — download, extraction, and embed all skipped. */
@@ -32,6 +37,33 @@ export interface GmailMediaIngestResult {
   skipped: number;
   errors: number;
   embedFailures: number;
+}
+
+export const ZERO_MEDIA_TALLY: GmailMediaTally = {
+  attempted: 0,
+  ingested: 0,
+  deduped: 0,
+  skipped: 0,
+  errors: 0,
+  embedFailures: 0,
+};
+
+/** Accumulate one run's counters into a poll-level tally. Mutates `acc`. */
+export function mergeMediaTally(
+  acc: GmailMediaTally,
+  result: GmailMediaIngestResult | null | undefined,
+): GmailMediaTally {
+  if (!result) return acc;
+  acc.attempted += result.attempted;
+  acc.ingested += result.ingested;
+  acc.deduped += result.deduped;
+  acc.skipped += result.skipped;
+  acc.errors += result.errors;
+  acc.embedFailures += result.embedFailures;
+  return acc;
+}
+
+export interface GmailMediaIngestResult extends GmailMediaTally {
   documentIds: string[];
 }
 
@@ -71,15 +103,7 @@ export async function ingestGmailMediaAttachments(
 ): Promise<GmailMediaIngestResult> {
   const attachments = extractAttachments(args.message);
   if (attachments.length === 0) {
-    return {
-      attempted: 0,
-      ingested: 0,
-      deduped: 0,
-      skipped: 0,
-      errors: 0,
-      embedFailures: 0,
-      documentIds: [],
-    };
+    return { ...ZERO_MEDIA_TALLY, documentIds: [] };
   }
 
   const getAttachmentFn = args.deps?.getAttachment ?? getAttachment;
@@ -96,24 +120,19 @@ export async function ingestGmailMediaAttachments(
 
   const candidates = attachments.filter((a) => media.isSupported(a.mimeType));
   if (candidates.length === 0) {
-    return {
-      attempted: 0,
-      ingested: 0,
-      deduped: 0,
-      skipped: 0,
-      errors: 0,
-      embedFailures: 0,
-      documentIds: [],
-    };
+    return { ...ZERO_MEDIA_TALLY, documentIds: [] };
   }
 
   // Skip-if-exists: one indexed SELECT replaces a full attachment download +
   // child-process extraction for every already-ingested part. Gmail
   // attachmentIds are immutable, so an existing `messageId:attachmentId` row
   // can never gain new content. A failed first attempt never persisted a row,
-  // so the known-message retry in pollGmailRecent still recovers it; a row
-  // that persisted but failed to embed is recovered by the corpus sweep
-  // (`retryPending`), not by re-downloading.
+  // so the flagged known-message retry in pollGmailRecent still recovers it.
+  // Embed-failure recovery is split by failure class: a transient embed error
+  // is retried by the corpus sweep (`gmail.embed_sweep`, which covers BOTH
+  // `gmail` and `gmail_attachment` sources), while a permanent one
+  // dead-letters the row — dedup then treats it as terminal BY DESIGN, and
+  // only an explicit `indexDocument` call revives it.
   const sourceIdOf = (att: { attachmentId: string }): string =>
     `${args.message.id}:${att.attachmentId}`;
   const existingRows = await db()
@@ -140,28 +159,23 @@ export async function ingestGmailMediaAttachments(
     return media.extract({ mime, bytes });
   }
 
-  let attempted = 0;
-  let ingested = 0;
-  let deduped = 0;
-  let skipped = 0;
-  let errors = 0;
-  let embedFailures = 0;
+  const tally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
   const documentIds: string[] = [];
 
   for (const att of candidates) {
-    attempted++;
+    tally.attempted++;
 
     // Already ingested — the row exists, so fetch/extract/embed would repeat
     // identical work. See the skip-if-exists note above the loop's query.
     if (existingSourceIds.has(sourceIdOf(att))) {
-      deduped++;
+      tally.deduped++;
       continue;
     }
 
     // Pre-fetch hint: avoid the round-trip when Gmail already reports an
     // over-limit part. No limits leak — the facade owns the policy.
     if (media.wouldExceed(att.mimeType, att.size)) {
-      skipped++;
+      tally.skipped++;
       continue;
     }
 
@@ -174,13 +188,13 @@ export async function ingestGmailMediaAttachments(
       });
       bytes = fetched.bytes;
     } catch (err) {
-      errors++;
+      tally.errors++;
       console.warn(`[gmail.media] fetch failed for ${att.filename}:`, toMessage(err));
       continue;
     }
 
     if (bytes.byteLength === 0) {
-      skipped++;
+      tally.skipped++;
       continue;
     }
 
@@ -188,24 +202,24 @@ export async function ingestGmailMediaAttachments(
     try {
       result = await extractForMime(att.mimeType, bytes);
     } catch (err) {
-      errors++;
+      tally.errors++;
       console.warn(`[gmail.media] extract failed for ${att.filename}:`, toMessage(err));
       continue;
     }
 
     if (!result) {
-      skipped++;
+      tally.skipped++;
       continue;
     }
 
     if (result.kind !== "extracted") {
-      skipped++;
+      tally.skipped++;
       continue;
     }
 
     const content = result.content;
     if (content.trim().length === 0) {
-      skipped++;
+      tally.skipped++;
       continue;
     }
     const pages = result.pages && result.pages.length > 0 ? result.pages : null;
@@ -266,27 +280,53 @@ export async function ingestGmailMediaAttachments(
         documentId = rows[0]?.id ?? null;
       }
     } catch (err) {
-      errors++;
+      tally.errors++;
       console.warn(`[gmail.media] persist failed for ${att.filename}:`, toMessage(err));
       continue;
     }
 
     if (!documentId) {
-      errors++;
+      tally.errors++;
       continue;
     }
 
     try {
       await indexDocumentFn({ documentId });
     } catch (err) {
-      embedFailures++;
+      tally.embedFailures++;
       console.warn(`[gmail.media] embed failed for doc=${documentId}:`, toMessage(err));
       continue;
     }
 
     documentIds.push(documentId);
-    ingested++;
+    tally.ingested++;
   }
 
-  return { attempted, ingested, deduped, skipped, errors, embedFailures, documentIds };
+  return { ...tally, documentIds };
+}
+
+/**
+ * Mark (or clear) a mail document as having attachment ingest pending. The
+ * realtime poll pre-filter uses this flag to retry only known messages whose
+ * attachments failed — not every known message in the window. Best-effort:
+ * a failed set means the next poll may miss the retry (history catch-up still
+ * covers it); a failed clear costs one extra dedup-only retry.
+ */
+export async function setMediaPending(documentId: string, pending: boolean): Promise<void> {
+  try {
+    await db()
+      .update(documents)
+      .set({
+        metadata: pending
+          ? sql`${documents.metadata} || '{"mediaPending":true}'::jsonb`
+          : sql`${documents.metadata} - 'mediaPending'`,
+        updatedAt: new Date(),
+      })
+      .where(eq(documents.id, documentId));
+  } catch (err) {
+    console.warn(
+      `[gmail.media] mediaPending=${pending} write failed doc=${documentId}:`,
+      toMessage(err),
+    );
+  }
 }

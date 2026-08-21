@@ -44,6 +44,28 @@ export function formatExtractedMediaText(result: MediaExtractionResult): string 
   return result.content;
 }
 
+/**
+ * The one user-facing message per failed `MediaExtractionResult` kind — the
+ * same strings `interpretPdfText` owns for the legacy `ExtractedPdf` shape.
+ * Callers handle `null` (unsupported MIME) and `extracted` before this, so
+ * those cases never reach it. One home: a wording change lands here, not in
+ * a ternary chain per consumer.
+ */
+export function mediaFailureMessage(result: MediaExtractionResult): string {
+  switch (result.kind) {
+    case "needs_ocr":
+      return "This PDF is image-based and needs OCR to extract text, which is not yet supported.";
+    case "encrypted":
+      return "This PDF is encrypted and its text cannot be extracted.";
+    case "invalid":
+      return `This PDF is invalid: ${result.reason}`;
+    case "limit_exceeded":
+      return `PDF extraction exceeded the limit: ${result.message}`;
+    case "extracted":
+      return "";
+  }
+}
+
 export type PdfTextInterpretation =
   | { readonly kind: "text"; readonly text: string }
   | {

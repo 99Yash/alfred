@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
-import { extraction, formatExtractedMediaText } from "@alfred/extraction";
+import { extraction, formatExtractedMediaText, mediaFailureMessage } from "@alfred/extraction";
 import {
   assertPassThroughImageBytes,
   assertStoredAttachmentBytesMatch,
@@ -60,15 +60,7 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
     return formatExtractedMediaText(result) ?? result.content;
   }
   if (result.kind === "needs_ocr") return null;
-  const message =
-    result.kind === "limit_exceeded"
-      ? result.message
-      : result.kind === "invalid"
-        ? result.reason
-        : result.kind === "encrypted"
-          ? "The PDF is encrypted and cannot be read."
-          : "The PDF cannot be read.";
-  throw Errors.BadRequestError(message);
+  throw Errors.BadRequestError(mediaFailureMessage(result));
 }
 
 const pdfDegradedArtifactSchema = z.discriminatedUnion("kind", [

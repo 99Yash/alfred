@@ -586,7 +586,6 @@ export interface GetAttachmentArgs {
 
 export interface GetAttachmentResult {
   size: number;
-  dataBase64Url: string;
   bytes: Uint8Array;
 }
 
@@ -598,12 +597,13 @@ export async function getAttachment(
   const json = await getJson(url, args.accessToken, retry);
   const parsed = getAttachmentResponseSchema.parse(json);
   const dataBase64Url = parsed.data ?? "";
+  // Gmail returns URL-safe base64. Node's lenient base64 decoder accepts the
+  // `-`/`_` alphabet swap and missing padding, so a manual re-pad is unneeded.
   const bytes = dataBase64Url
     ? Buffer.from(dataBase64Url.replace(/-/g, "+").replace(/_/g, "/"), "base64")
     : Buffer.alloc(0);
   return {
     size: parsed.size ?? bytes.byteLength,
-    dataBase64Url,
     bytes: new Uint8Array(bytes),
   };
 }
