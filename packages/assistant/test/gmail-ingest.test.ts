@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
-import { ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
+import { documents, ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 // Imports the RELOCATED consumer module (Phase-5 item 01). The cursor-seed
@@ -13,7 +13,11 @@ import { and, eq, inArray } from "drizzle-orm";
 // byte-identical move is provably unchanged — and it is the one delicate piece
 // of the move (Risk: a watch install that fails to seed a cursor drops a
 // freshly-watched credential into perpetual full re-sync).
-import { seedGmailHistoryCursorIfAbsent } from "@alfred/assistant/connections/ingestion/internal";
+import {
+  pollGmailRecent,
+  seedGmailHistoryCursorIfAbsent,
+} from "@alfred/assistant/connections/ingestion/internal";
+import type { GmailMessage } from "@alfred/integrations/google";
 import { dbBackedSkip } from "./support/db-backed";
 
 const ID_PREFIX = "test-gmail-ingest-";
@@ -121,3 +125,208 @@ describe(
     });
   },
 );
+
+function makePollMessage(args: {
+  id: string;
+  threadId: string;
+  attachmentId: string;
+  filename: string;
+  historyId: string;
+}): GmailMessage {
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- SAFETY: test factory builds minimal GmailMessage; parser only reads id/threadId/labelIds/payload/historyId.
+  return {
+    id: args.id,
+    threadId: args.threadId,
+    labelIds: [],
+    snippet: "test snippet",
+    historyId: args.historyId,
+    internalDate: String(Date.now()),
+    payload: {
+      headers: [
+        { name: "Subject", value: "Test mail with PDF" },
+        { name: "From", value: "sender@example.com" },
+      ],
+      mimeType: "multipart/mixed",
+      parts: [
+        { mimeType: "text/plain", body: { data: Buffer.from("hello").toString("base64url") } },
+        {
+          partId: "1",
+          mimeType: "application/pdf",
+          filename: args.filename,
+          body: { attachmentId: args.attachmentId, size: 1024 },
+        },
+      ],
+    },
+    sizeEstimate: 2048,
+  } as unknown as GmailMessage;
+}
+
+describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: SKIP }, () => {
+  test("transient getAttachment failure on known message is retried on next poll and not permanently orphaned", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const threadId = `thr-${randomUUID()}`;
+    const messageId = `msg-${randomUUID()}`;
+    const attachmentId = `att-${randomUUID()}`;
+    const historyId = "2000";
+
+    await db().insert(documents).values({
+      userId,
+      source: "gmail",
+      sourceId: messageId,
+      sourceThreadId: threadId,
+      accountId: `acc-${randomUUID()}`,
+      title: "Test mail with PDF",
+      content: "From: sender@example.com\n\nhello",
+      contentHash: randomUUID(),
+      metadata: {
+        from: "sender@example.com",
+        labelIds: [],
+        isSent: false,
+        internalDate: String(Date.now()),
+        historyId,
+      },
+      raw: { id: messageId },
+      authoredAt: new Date(),
+    });
+
+    const message = makePollMessage({ id: messageId, threadId, attachmentId, filename: "retry.pdf", historyId });
+
+    let getAttachmentCalls = 0;
+    const failOnceThenSucceed = async () => {
+      getAttachmentCalls++;
+      if (getAttachmentCalls === 1) throw new Error("transient getAttachment failure");
+      return { bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")), size: 1024 };
+    };
+
+    let indexCalls = 0;
+    const result1 = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        listMessages: async () => ({ messages: [{ id: messageId, threadId }], nextPageToken: undefined }),
+        getMessage: async () => message,
+        media: {
+          getAttachment: failOnceThenSucceed,
+          allowedFamilies: ["pdf"] as const,
+          createExtractor: () => async () => ({
+            kind: "extracted" as const,
+            family: "pdf" as const,
+            content: "pdf text from retry",
+            pages: [{ page: 1, start: 0, end: 8 }],
+          }),
+          indexDocument: async () => {
+            indexCalls++;
+            return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+          },
+        },
+      },
+    });
+
+    assert.equal(result1.listed, 1);
+    assert.equal(result1.inserted, 0);
+    assert.equal(result1.skipped, 1);
+    assert.equal(result1.mediaErrors, 1, "transient attachment fetch counted in mediaErrors");
+    assert.equal(result1.mediaIngested, 0);
+    assert.equal(indexCalls, 0, "index not called when fetch failed");
+
+    const beforeRows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(beforeRows.length, 0, "no gmail_attachment row after transient failure");
+
+    indexCalls = 0;
+    const result2 = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        listMessages: async () => ({ messages: [{ id: messageId, threadId }], nextPageToken: undefined }),
+        getMessage: async () => message,
+        media: {
+          getAttachment: async () => ({ bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")), size: 1024 }),
+          allowedFamilies: ["pdf"] as const,
+          createExtractor: () => async () => ({
+            kind: "extracted" as const,
+            family: "pdf" as const,
+            content: "pdf text from retry",
+            pages: [{ page: 1, start: 0, end: 8 }],
+          }),
+          indexDocument: async () => {
+            indexCalls++;
+            return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+          },
+        },
+      },
+    });
+
+    assert.equal(result2.mediaIngested, 1);
+    assert.equal(result2.mediaErrors, 0);
+    assert.equal(result2.mediaEmbedFailures, 0);
+    assert.equal(indexCalls, 1, "retry re-embeds the PDF");
+    assert.equal(result2.mediaDocumentIds.length, 1);
+
+    const afterRows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(afterRows.length, 1);
+    assert.equal(afterRows[0]!.sourceId, `${messageId}:${attachmentId}`);
+    assert.equal(afterRows[0]!.content, "pdf text from retry");
+  });
+
+  test("attachment embed failure is counted in mediaEmbedFailures and does not fail mail poll", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const threadId = `thr-${randomUUID()}`;
+    const messageId = `msg-${randomUUID()}`;
+    const attachmentId = `att-${randomUUID()}`;
+    const message = makePollMessage({
+      id: messageId,
+      threadId,
+      attachmentId,
+      filename: "embed-fail.pdf",
+      historyId: "3000",
+    });
+
+    const result = await pollGmailRecent({
+      credentialId,
+      maxMessages: 10,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        listMessages: async () => ({ messages: [{ id: messageId, threadId }], nextPageToken: undefined }),
+        getMessage: async () => message,
+        media: {
+          getAttachment: async () => ({ bytes: new Uint8Array(Buffer.from("%PDF-1.4")), size: 1024 }),
+          allowedFamilies: ["pdf"] as const,
+          createExtractor: () => async () => ({
+            kind: "extracted" as const,
+            family: "pdf" as const,
+            content: "embed me",
+            pages: null,
+          }),
+          indexDocument: async () => {
+            throw new Error("voyage down");
+          },
+        },
+      },
+    });
+
+    assert.equal(result.inserted, 1);
+    assert.equal(result.mediaIngested, 0, "ingested counts only successful embeds");
+    assert.equal(result.mediaEmbedFailures, 1);
+    assert.equal(result.mediaErrors, 0);
+    assert.equal(result.errors, 0, "attachment embed failure does not bubble to poll errors");
+
+    const attRows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(attRows.length, 1);
+    assert.equal(attRows[0]!.sourceId, `${messageId}:${attachmentId}`);
+  });
+});
