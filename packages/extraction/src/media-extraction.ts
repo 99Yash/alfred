@@ -1,4 +1,4 @@
-import type { ContentFamily } from "@alfred/contracts";
+import type { ContentFormat } from "@alfred/contracts";
 import {
   createPdfExtractor,
   REALTIME_PDF_EXTRACTION_LIMITS,
@@ -7,31 +7,31 @@ import {
 } from "./extract-pdf";
 import { parsePdfExtractionLimits, truncateTextToFit } from "./extract-pdf-protocol";
 
-// Reuse the PDF limits shape for all families — byte / char / time + optional truncation.
+// Reuse the PDF limits shape for all formats — byte / char / time + optional truncation.
 // Alias keeps the matrix typed without a second identical interface.
 export type ExtractionLimits = PdfExtractionLimits;
 
 export type ExtractionDoor = "chatUpload" | "fetchUrl" | "gmailAttachment";
 
 /**
- * Normalized extraction result for any `ContentFamily`. PDF keeps page offsets;
- * text-like families produce `content` without pages. Error kinds stay identical
+ * Normalized extraction result for any `ContentFormat`. PDF keeps page offsets;
+ * text-like formats produce `content` without pages. Error kinds stay identical
  * so the Gmail persist loop can handle them uniformly.
  */
 export type MediaExtractionResult =
   | {
       readonly kind: "extracted";
-      readonly family: ContentFamily;
+      readonly format: ContentFormat;
       readonly content: string;
-      /** Page offsets for families that prove them (pdf). Null otherwise. */
+      /** Page offsets for formats that prove them (pdf). Null otherwise. */
       readonly pages: readonly { page: number; start: number; end: number }[] | null;
     }
-  | { readonly kind: "needs_ocr"; readonly family: ContentFamily }
-  | { readonly kind: "encrypted"; readonly family: ContentFamily }
-  | { readonly kind: "invalid"; readonly family: ContentFamily; readonly reason: string }
+  | { readonly kind: "needs_ocr"; readonly format: ContentFormat }
+  | { readonly kind: "encrypted"; readonly format: ContentFormat }
+  | { readonly kind: "invalid"; readonly format: ContentFormat; readonly reason: string }
   | {
       readonly kind: "limit_exceeded";
-      readonly family: ContentFamily;
+      readonly format: ContentFormat;
       readonly limit: "input_bytes" | "output_characters" | "parse_milliseconds";
       readonly actual: number;
       readonly maximum: number;
@@ -41,7 +41,7 @@ export type MediaExtractionResult =
 export type MediaExtractor = (bytes: Uint8Array) => Promise<MediaExtractionResult>;
 
 /**
- * Shared office preset (docx/xlsx). Deltas other families take are visible
+ * Shared office preset (docx/xlsx). Deltas other formats take are visible
  * against these three literals.
  */
 const OFFICE_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = {
@@ -77,13 +77,13 @@ const TEXT_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = 
 };
 
 /**
- * The one door-policy table. Every family × door extraction limit lives here,
+ * The one door-policy table. Every format × door extraction limit lives here,
  * so "what does the fetchUrl door allow?" is one read. The pdf row IS
  * `REALTIME_PDF_EXTRACTION_LIMITS` — the PDF child-process presets stay the
  * single source for their direct consumers (`fetch-url`, chat enrichment).
- * Office families share one preset; text states only its deltas from it
+ * Office formats share one preset; text states only its deltas from it
  * (cheap 5s parse, smaller fetchUrl output). The `satisfies` pin makes a
- * family or door missing here a type error.
+ * format or door missing here a type error.
  */
 export const DOOR_LIMITS = {
   pdf: REALTIME_PDF_EXTRACTION_LIMITS,
@@ -91,19 +91,19 @@ export const DOOR_LIMITS = {
   spreadsheet: OFFICE_LIMITS_BY_DOOR,
   text: TEXT_LIMITS_BY_DOOR,
 } as const satisfies Readonly<
-  Record<ContentFamily, Readonly<Record<ExtractionDoor, ExtractionLimits>>>
+  Record<ContentFormat, Readonly<Record<ExtractionDoor, ExtractionLimits>>>
 >;
 
 /**
- * The one family table. Each entry owns the one fact extraction needs for a
- * content family: how bytes become text (`factory`). Limits live beside it in
- * `DOOR_LIMITS`. The literal plus `satisfies` pins the direction — a family
+ * The one format table. Each entry owns the one fact extraction needs for a
+ * content format: how bytes become text (`factory`). Limits live beside it in
+ * `DOOR_LIMITS`. The literal plus `satisfies` pins the direction — a format
  * missing here, or an entry no contract name backs, is a type error. Adding a
- * family is one `INGEST_POLICY` edit in `@alfred/contracts` (the browser-safe
- * MIME → family map stays there), one entry here, and one `DOOR_LIMITS` row;
+ * format is one `INGEST_POLICY` edit in `@alfred/contracts` (the browser-safe
+ * MIME → format map stays there), one entry here, and one `DOOR_LIMITS` row;
  * nothing else in the repo changes.
  */
-export const FAMILY_REGISTRY = {
+export const FORMAT_REGISTRY = {
   pdf: {
     factory: createPdfMediaExtractor,
   },
@@ -118,7 +118,7 @@ export const FAMILY_REGISTRY = {
   },
 } as const satisfies Readonly<
   Record<
-    ContentFamily,
+    ContentFormat,
     {
       readonly factory: (limits: ExtractionLimits) => MediaExtractor;
     }
@@ -126,10 +126,10 @@ export const FAMILY_REGISTRY = {
 >;
 
 // ---------------------------------------------------------------------------
-// Family extractors
+// Format extractors
 // ---------------------------------------------------------------------------
 
-function pdfResultToMedia(result: ExtractedPdf, family: ContentFamily): MediaExtractionResult {
+function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExtractionResult {
   switch (result.kind) {
     case "extracted": {
       const markdowns: string[] = [];
@@ -149,23 +149,23 @@ function pdfResultToMedia(result: ExtractedPdf, family: ContentFamily): MediaExt
       const content = markdowns.join("\n\n");
       return {
         kind: "extracted",
-        family,
+        format,
         content,
         pages: pageOffsets.length > 0 ? pageOffsets : null,
       };
     }
     case "text_without_pages":
-      return { kind: "extracted", family, content: result.text, pages: null };
+      return { kind: "extracted", format, content: result.text, pages: null };
     case "needs_ocr":
-      return { kind: "needs_ocr", family };
+      return { kind: "needs_ocr", format };
     case "encrypted":
-      return { kind: "encrypted", family };
+      return { kind: "encrypted", format };
     case "invalid":
-      return { kind: "invalid", family, reason: result.reason };
+      return { kind: "invalid", format, reason: result.reason };
     case "limit_exceeded":
       return {
         kind: "limit_exceeded",
-        family,
+        format,
         limit: result.limit,
         actual: result.actual,
         maximum: result.maximum,
@@ -190,13 +190,13 @@ function createPdfMediaExtractor(limits: ExtractionLimits): MediaExtractor {
   };
 }
 
-function createTextMediaExtractor(family: ContentFamily, limits: ExtractionLimits): MediaExtractor {
+function createTextMediaExtractor(format: ContentFormat, limits: ExtractionLimits): MediaExtractor {
   const parsed = parsePdfExtractionLimits(limits);
   return async (bytes) => {
     if (bytes.byteLength > parsed.maxBytes) {
       return {
         kind: "limit_exceeded",
-        family,
+        format,
         limit: "input_bytes",
         actual: bytes.byteLength,
         maximum: parsed.maxBytes,
@@ -204,7 +204,7 @@ function createTextMediaExtractor(family: ContentFamily, limits: ExtractionLimit
       };
     }
     if (bytes.byteLength === 0) {
-      return { kind: "invalid", family, reason: "empty file" };
+      return { kind: "invalid", format, reason: "empty file" };
     }
     // NUL-safe decode — strip controls that would poison the document table.
     let text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
@@ -217,7 +217,7 @@ function createTextMediaExtractor(family: ContentFamily, limits: ExtractionLimit
       } else {
         return {
           kind: "limit_exceeded",
-          family,
+          format,
           limit: "output_characters",
           actual: text.length,
           maximum: parsed.maxCharacters,
@@ -226,9 +226,9 @@ function createTextMediaExtractor(family: ContentFamily, limits: ExtractionLimit
       }
     }
     if (text.trim().length === 0) {
-      return { kind: "invalid", family, reason: "empty text" };
+      return { kind: "invalid", format, reason: "empty text" };
     }
-    return { kind: "extracted", family, content: text, pages: null };
+    return { kind: "extracted", format, content: text, pages: null };
   };
 }
 
@@ -239,7 +239,7 @@ function createTextMediaExtractor(family: ContentFamily, limits: ExtractionLimit
  * without touching Gmail ingest.
  */
 function createOfficeMediaExtractor(
-  family: ContentFamily,
+  format: ContentFormat,
   limits: ExtractionLimits,
 ): MediaExtractor {
   const parsed = parsePdfExtractionLimits(limits);
@@ -247,7 +247,7 @@ function createOfficeMediaExtractor(
     if (bytes.byteLength > parsed.maxBytes) {
       return {
         kind: "limit_exceeded",
-        family,
+        format,
         limit: "input_bytes",
         actual: bytes.byteLength,
         maximum: parsed.maxBytes,
@@ -256,6 +256,6 @@ function createOfficeMediaExtractor(
     }
     // Docx/xlsx are ZIP containers (PK header). Don't decode as UTF-8 — we'd
     // embed binary noise. Signal `invalid` until a real parser replaces this.
-    return { kind: "invalid", family, reason: "office extraction not yet implemented" };
+    return { kind: "invalid", format, reason: "office extraction not yet implemented" };
   };
 }

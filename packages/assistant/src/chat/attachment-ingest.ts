@@ -40,7 +40,7 @@ import {
  * Extract chat-safe text from PDF bytes. A scanned PDF can continue without
  * deterministic text. Invalid, encrypted, and resource-limited PDFs fail at
  * the ingest boundary instead of creating a ready row with no readable data.
- * Door-bound via `extraction({ door: "chatUpload" })` — no `ContentFamily` at
+ * Door-bound via `extraction({ door: "chatUpload" })` — no `ContentFormat` at
  * the call site.
  */
 export async function extractChatPdfText(bytes: Uint8Array): Promise<string | null> {

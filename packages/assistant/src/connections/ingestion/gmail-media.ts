@@ -15,7 +15,7 @@ const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 
 /**
  * Module-level door bind for the cheap schedule-time predicate below. Holds
- * no bytes; each family extractor is lazily built and memoized inside.
+ * no bytes; each format extractor is lazily built and memoized inside.
  */
 const DOOR_MEDIA = extraction({ door: GMAIL_MEDIA_DOOR });
 
@@ -75,11 +75,12 @@ export interface GmailMediaIngestDeps {
     | undefined;
   /**
    * Test seam — overrides door-bound extraction. Same composed shape
-   * `fetch-url` injects: tests restrict families by what this object's
-   * `isSupported`/`extract` accept, not by a separate family list.
+   * `fetch-url` injects: tests restrict formats by what this object's
+   * `isSupported`/`extract` accept, not by a separate format list.
    */
   media?: Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> | undefined;
-  indexDocument?: ((args: { documentId: string }) => Promise<unknown>) | undefined;}
+  indexDocument?: ((args: { documentId: string }) => Promise<unknown>) | undefined;
+}
 
 export interface GmailMediaIngestArgs {
   userId: string;
@@ -101,10 +102,10 @@ export function hasIngestableAttachments(message: GmailMessage): boolean {
 }
 
 /**
- * Ingest for any `contentFamily`. The loop owns fetch → extract → persist → embed.
- * Family logic (bytes → text, page offsets, limits) lives in
+ * Ingest for any `contentFormat`. The loop owns fetch → extract → persist → embed.
+ * Format logic (bytes → text, page offsets, limits) lives in
  * `@alfred/extraction` behind `extraction({ door }).extract({ mime, bytes })`.
- * Add a family with one registry entry, not a new `gmail-*` file.
+ * Add a format with one registry entry, not a new `gmail-*` file.
  * The caller binds the door once, then extracts each MIME.
  * Unsupported MIME yields null (skip); supported yields `MediaExtractionResult`.
  */
@@ -119,8 +120,8 @@ export async function ingestGmailMediaAttachments(
   const getAttachmentFn = args.deps?.getAttachment ?? getAttachment;
   const indexDocumentFn = args.deps?.indexDocument ?? indexDocument;
 
-  // Door-bound extraction — one bind, memoized per family. The facade hides
-  // `mime → family → gate → limits → factory`. Tests inject the whole
+  // Door-bound extraction — one bind, memoized per format. The facade hides
+  // `mime → format → gate → limits → factory`. Tests inject the whole
   // `media` object to avoid the child process; production uses the registry.
   const media = args.deps?.media ?? extraction({ door: GMAIL_MEDIA_DOOR });
 
@@ -226,7 +227,7 @@ export async function ingestGmailMediaAttachments(
       attachmentId: att.attachmentId,
       mimeType: att.mimeType,
       size: att.size,
-      family: result.family,
+      format: result.format,
     };
     if (pages) metadata.pages = pages;
 

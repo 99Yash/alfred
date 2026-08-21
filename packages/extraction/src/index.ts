@@ -16,7 +16,7 @@ export type {
   PdfExtractionLimitKind,
   PdfExtractionLimits,
 } from "./extract-pdf";
-export { DOOR_LIMITS, FAMILY_REGISTRY } from "./media-extraction";
+export { DOOR_LIMITS, FORMAT_REGISTRY } from "./media-extraction";
 export type {
   ExtractionDoor,
   ExtractionLimits,
