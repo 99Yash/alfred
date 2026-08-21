@@ -12,10 +12,12 @@ import { findUnembeddedDocumentIds, indexDocument } from "./embed-document";
  *
  * Counting rules are preserved exactly: a document counts as `succeeded`
  * only when `indexDocument` wrote (or would have written) chunks — an empty
- * / dead-lettered doc does not; a throw counts as `failed`. The durable
- * poison-pill record is written inside `indexDocument` before it rethrows,
- * so the failing document drops out of the candidate set on the next sweep
- * without any bookkeeping here.
+ * / dead-lettered doc does not; a throw counts as `failed`. A cost-capped
+ * document writes its head chunks and counts as `succeeded`; its terminal
+ * marker drops it from later sweeps. The durable poison-pill record is
+ * written inside `indexDocument` before it rethrows, so the failing document
+ * drops out of the candidate set on the next sweep without any bookkeeping
+ * here.
  */
 export interface RetryPendingArgs {
   source?: Document["source"];
