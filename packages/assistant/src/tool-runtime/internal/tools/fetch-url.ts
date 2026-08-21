@@ -37,6 +37,7 @@ import { getPath, isNonEmptyString, isPdfContentType, toMessage } from "@alfred/
 import { serverEnv } from "@alfred/env/server";
 import {
   extraction,
+  formatExtractedMediaText,
   interpretPdfText,
   REALTIME_PDF_EXTRACTION_LIMITS,
   type ExtractPdf,
@@ -1400,7 +1401,9 @@ async function extractPdfFromBytes(
         contentType,
         reason: "fetch_failed",
         message: `Could not extract text from the PDF: ${toMessage(err)}`,
-        ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+        ...(raw.redirectChain && raw.redirectChain.length > 0
+          ? { redirects: raw.redirectChain }
+          : {}),
       };
     }
     const interpretation = interpretPdfText(result);
@@ -1412,7 +1415,9 @@ async function extractPdfFromBytes(
         contentType,
         reason: "unsupported_content_type",
         message: interpretation.message,
-        ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+        ...(raw.redirectChain && raw.redirectChain.length > 0
+          ? { redirects: raw.redirectChain }
+          : {}),
       };
     }
     const { text } = interpretation;
@@ -1426,7 +1431,9 @@ async function extractPdfFromBytes(
       text: finalText,
       chars: finalText.length,
       truncated,
-      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      ...(raw.redirectChain && raw.redirectChain.length > 0
+        ? { redirects: raw.redirectChain }
+        : {}),
     };
   }
 
@@ -1442,20 +1449,21 @@ async function extractPdfFromBytes(
       contentType,
       reason: "fetch_failed",
       message: `Could not extract text from the PDF: ${toMessage(err)}`,
-      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      ...(raw.redirectChain && raw.redirectChain.length > 0
+        ? { redirects: raw.redirectChain }
+        : {}),
     };
   }
   if (!mediaResult || mediaResult.kind !== "extracted") {
-    const message =
-      !mediaResult
-        ? "This PDF cannot be read."
-        : mediaResult.kind === "needs_ocr"
-          ? "This PDF is image-based and needs OCR to extract text, which is not yet supported."
-          : mediaResult.kind === "encrypted"
-            ? "This PDF is encrypted and its text cannot be extracted."
-            : mediaResult.kind === "invalid"
-              ? `This PDF is invalid: ${mediaResult.reason}`
-              : `PDF extraction exceeded the limit: ${mediaResult.message}`;
+    const message = !mediaResult
+      ? "This PDF cannot be read."
+      : mediaResult.kind === "needs_ocr"
+        ? "This PDF is image-based and needs OCR to extract text, which is not yet supported."
+        : mediaResult.kind === "encrypted"
+          ? "This PDF is encrypted and its text cannot be extracted."
+          : mediaResult.kind === "invalid"
+            ? `This PDF is invalid: ${mediaResult.reason}`
+            : `PDF extraction exceeded the limit: ${mediaResult.message}`;
     return {
       ok: false,
       url,
@@ -1463,10 +1471,14 @@ async function extractPdfFromBytes(
       contentType,
       reason: "unsupported_content_type",
       message,
-      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      ...(raw.redirectChain && raw.redirectChain.length > 0
+        ? { redirects: raw.redirectChain }
+        : {}),
     };
   }
-  const text = mediaResult.content;
+  // Same `[page N]` rendering as the legacy seam above (ADR-0091 D4); the
+  // corpus path keeps the marker-less `content` plus offsets.
+  const text = formatExtractedMediaText(mediaResult) ?? mediaResult.content;
   const truncated = text.length > MAX_TEXT_CHARS;
   const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
   return {

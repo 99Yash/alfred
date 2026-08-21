@@ -1,4 +1,14 @@
 import type { ExtractedPdf } from "./extract-pdf";
+import type { MediaExtractionResult } from "./media-extraction";
+
+interface MarkedPage {
+  readonly pageNumber: number;
+  readonly markdown: string;
+}
+
+function joinMarkedPages(pages: readonly MarkedPage[]): string {
+  return pages.map((page) => `[page ${page.pageNumber}]\n${page.markdown}`).join("\n\n");
+}
 
 /**
  * Format deterministic PDF output for a text consumer. Page markers are added
@@ -6,12 +16,32 @@ import type { ExtractedPdf } from "./extract-pdf";
  */
 export function formatExtractedPdfText(result: ExtractedPdf): string | null {
   if (result.kind === "extracted" && result.pages.length > 0) {
-    return result.pages.map((page) => `[page ${page.pageNumber}]\n${page.markdown}`).join("\n\n");
+    return joinMarkedPages(result.pages);
   }
   if (result.kind === "extracted" || result.kind === "text_without_pages") {
     return result.text;
   }
   return null;
+}
+
+/**
+ * Format a normalized media extraction for a text consumer — the same
+ * `[page N]` contract as `formatExtractedPdfText`, rebuilt from the page
+ * offsets that travel with `MediaExtractionResult`. Corpus consumers slice
+ * `content` by those offsets and must not use this marked-up rendering.
+ */
+export function formatExtractedMediaText(result: MediaExtractionResult): string | null {
+  if (result.kind !== "extracted") return null;
+  if (result.family === "pdf" && result.pages && result.pages.length > 0) {
+    const { content, pages } = result;
+    return joinMarkedPages(
+      pages.map((entry) => ({
+        pageNumber: entry.page,
+        markdown: content.slice(entry.start, entry.end),
+      })),
+    );
+  }
+  return result.content;
 }
 
 export type PdfTextInterpretation =

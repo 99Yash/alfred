@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
-import { extraction } from "@alfred/extraction";
+import { extraction, formatExtractedMediaText } from "@alfred/extraction";
 import {
   assertPassThroughImageBytes,
   assertStoredAttachmentBytesMatch,
@@ -54,7 +54,11 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
   }
 
   if (!result) throw Errors.BadRequestError("Unsupported file type.");
-  if (result.kind === "extracted") return result.content;
+  if (result.kind === "extracted") {
+    // ADR-0091 D4: `degradedText` carries `[page N]` markers; the corpus path
+    // keeps the marker-less `content` plus offsets.
+    return formatExtractedMediaText(result) ?? result.content;
+  }
   if (result.kind === "needs_ocr") return null;
   const message =
     result.kind === "limit_exceeded"

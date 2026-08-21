@@ -6,7 +6,11 @@ export {
   PdfExtractionError,
   REALTIME_PDF_EXTRACTION_LIMITS,
 } from "./extract-pdf";
-export { formatExtractedPdfText, interpretPdfText } from "./format-extracted-pdf";
+export {
+  formatExtractedMediaText,
+  formatExtractedPdfText,
+  interpretPdfText,
+} from "./format-extracted-pdf";
 export type {
   ExtractPdf,
   ExtractedPdf,
