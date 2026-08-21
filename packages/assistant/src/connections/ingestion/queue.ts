@@ -10,6 +10,7 @@ import {
   pollGmailRecent,
   runGmailMediaIngest,
 } from "./gmail-ingest";
+import { formatMediaTally } from "./gmail-media";
 import { retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { publishDomainEvent, type GmailDocumentsIngestedPayload } from "@alfred/assistant/triggers";
@@ -591,9 +592,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         documentId: data.documentId,
       });
       console.log(
-        `[ingestion:worker] gmail.media_ingest message=${data.messageId} ` +
-          `attempted=${result.attempted} ingested=${result.ingested} deduped=${result.deduped} ` +
-          `skipped=${result.skipped} errors=${result.errors} embedFailures=${result.embedFailures}`,
+        `[ingestion:worker] gmail.media_ingest message=${data.messageId} ${formatMediaTally(result)}`,
       );
       return result;
     }
