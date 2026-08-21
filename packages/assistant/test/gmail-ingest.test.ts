@@ -240,7 +240,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
             bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")),
             size: 1024,
           }),
-          ...pdfOnlyMedia(async () => ({
+          media: pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
             format: "pdf" as const,
             content: "pdf text from job",
@@ -378,7 +378,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
           getAttachment: async () => {
             throw new Error("transient getAttachment failure");
           },
-          ...pdfOnlyMedia(async () => {
+          media: pdfOnlyMedia(async () => {
             throw new Error("extraction must not run when the fetch fails");
           }),
         },
@@ -454,7 +454,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
             bytes: new Uint8Array(Buffer.from("%PDF-1.4")),
             size: 1024,
           }),
-          ...pdfOnlyMedia(async () => ({
+          media: pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
             format: "pdf" as const,
             content: "embed me",
