@@ -1,4 +1,4 @@
-import { getContentFamily, type ContentFamily } from "@alfred/contracts";
+import type { ContentFamily } from "@alfred/contracts";
 import {
   createPdfExtractor,
   REALTIME_PDF_EXTRACTION_LIMITS,
@@ -41,86 +41,101 @@ export type MediaExtractionResult =
 export type MediaExtractor = (bytes: Uint8Array) => Promise<MediaExtractionResult>;
 
 /**
- * Door × family matrix. Every door must choose all three limits for every
- * family — `satisfies` makes a missing cell a type error (tier 1). The PDF
- * door values are the same objects that `REALTIME_PDF_EXTRACTION_LIMITS` uses;
- * other families start with the same caps and can diverge per product decision
- * without touching call sites.
+ * The one family table. Each entry owns the two facts extraction needs for a
+ * content family: how bytes become text (`factory`) and what each door's
+ * limits are (`limitsByDoor`). The literal plus `satisfies` pins both
+ * directions — a family missing here, or an entry no contract name backs,
+ * is a type error. Adding a family is one `INGEST_POLICY` edit in
+ * `@alfred/contracts` (the browser-safe MIME → family map stays there)
+ * plus one entry here; nothing else in the repo changes.
  */
-export const REALTIME_EXTRACTION_LIMITS = {
-  chatUpload: {
-    pdf: REALTIME_PDF_EXTRACTION_LIMITS.chatUpload,
-    document: {
-      maxBytes: 10 * 1024 * 1024,
-      maxCharacters: 1_000_000,
-      maxParseMilliseconds: 30_000,
-      truncateOnOutputExceed: false,
-    },
-    spreadsheet: {
-      maxBytes: 10 * 1024 * 1024,
-      maxCharacters: 1_000_000,
-      maxParseMilliseconds: 30_000,
-      truncateOnOutputExceed: false,
-    },
-    text: {
-      maxBytes: 10 * 1024 * 1024,
-      maxCharacters: 100_000,
-      maxParseMilliseconds: 5_000,
-      truncateOnOutputExceed: false,
+export const FAMILY_REGISTRY = {
+  pdf: {
+    factory: createPdfMediaExtractor,
+    limitsByDoor: {
+      chatUpload: REALTIME_PDF_EXTRACTION_LIMITS.chatUpload,
+      fetchUrl: REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl,
+      gmailAttachment: REALTIME_PDF_EXTRACTION_LIMITS.gmailAttachment,
     },
   },
-  fetchUrl: {
-    pdf: REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl,
-    document: {
-      maxBytes: 8_000_000,
-      maxCharacters: 200_000,
-      maxParseMilliseconds: 30_000,
-      truncateOnOutputExceed: false,
-    },
-    spreadsheet: {
-      maxBytes: 8_000_000,
-      maxCharacters: 200_000,
-      maxParseMilliseconds: 30_000,
-      truncateOnOutputExceed: false,
-    },
-    text: {
-      maxBytes: 8_000_000,
-      maxCharacters: 100_000,
-      maxParseMilliseconds: 5_000,
-      truncateOnOutputExceed: false,
-    },
-  },
-  gmailAttachment: {
-    pdf: REALTIME_PDF_EXTRACTION_LIMITS.gmailAttachment,
-    document: {
-      maxBytes: 10 * 1024 * 1024,
-      maxCharacters: 1_000_000,
-      maxParseMilliseconds: 30_000,
-      truncateOnOutputExceed: true,
-    },
-    spreadsheet: {
-      maxBytes: 10 * 1024 * 1024,
-      maxCharacters: 1_000_000,
-      maxParseMilliseconds: 30_000,
-      truncateOnOutputExceed: true,
-    },
-    text: {
-      maxBytes: 10 * 1024 * 1024,
-      maxCharacters: 1_000_000,
-      maxParseMilliseconds: 5_000,
-      truncateOnOutputExceed: true,
+  document: {
+    factory: (limits: ExtractionLimits) => createOfficeMediaExtractor("document", limits),
+    limitsByDoor: {
+      chatUpload: {
+        maxBytes: 10 * 1024 * 1024,
+        maxCharacters: 1_000_000,
+        maxParseMilliseconds: 30_000,
+        truncateOnOutputExceed: false,
+      },
+      fetchUrl: {
+        maxBytes: 8_000_000,
+        maxCharacters: 200_000,
+        maxParseMilliseconds: 30_000,
+        truncateOnOutputExceed: false,
+      },
+      gmailAttachment: {
+        maxBytes: 10 * 1024 * 1024,
+        maxCharacters: 1_000_000,
+        maxParseMilliseconds: 30_000,
+        truncateOnOutputExceed: true,
+      },
     },
   },
-} as const satisfies Readonly<Record<ExtractionDoor, Record<ContentFamily, ExtractionLimits>>>;
-
-/**
- * @deprecated Use `extraction({ door }).extract({ mime, bytes })` — this helper
- * leaks `ContentFamily` and `limits` to the call site. It remains for the
- * facade's internal use and for the test-only `deps.createExtractor` seam.
- */
-export function extractionLimitsFor(door: ExtractionDoor, family: ContentFamily): ExtractionLimits {
-  return REALTIME_EXTRACTION_LIMITS[door][family];
-}
+  spreadsheet: {
+    factory: (limits: ExtractionLimits) => createOfficeMediaExtractor("spreadsheet", limits),
+    limitsByDoor: {
+      chatUpload: {
+        maxBytes: 10 * 1024 * 1024,
+        maxCharacters: 1_000_000,
+        maxParseMilliseconds: 30_000,
+        truncateOnOutputExceed: false,
+      },
+      fetchUrl: {
+        maxBytes: 8_000_000,
+        maxCharacters: 200_000,
+        maxParseMilliseconds: 30_000,
+        truncateOnOutputExceed: false,
+      },
+      gmailAttachment: {
+        maxBytes: 10 * 1024 * 1024,
+        maxCharacters: 1_000_000,
+        maxParseMilliseconds: 30_000,
+        truncateOnOutputExceed: true,
+      },
+    },
+  },
+  text: {
+    factory: (limits: ExtractionLimits) => createTextMediaExtractor("text", limits),
+    limitsByDoor: {
+      chatUpload: {
+        maxBytes: 10 * 1024 * 1024,
+        maxCharacters: 100_000,
+        maxParseMilliseconds: 5_000,
+        truncateOnOutputExceed: false,
+      },
+      fetchUrl: {
+        maxBytes: 8_000_000,
+        maxCharacters: 100_000,
+        maxParseMilliseconds: 5_000,
+        truncateOnOutputExceed: false,
+      },
+      gmailAttachment: {
+        maxBytes: 10 * 1024 * 1024,
+        maxCharacters: 1_000_000,
+        maxParseMilliseconds: 5_000,
+        truncateOnOutputExceed: true,
+      },
+    },
+  },
+} as const satisfies Readonly<
+  Record<
+    ContentFamily,
+    {
+      readonly factory: (limits: ExtractionLimits) => MediaExtractor;
+      readonly limitsByDoor: Readonly<Record<ExtractionDoor, ExtractionLimits>>;
+    }
+  >
+>;
 
 // ---------------------------------------------------------------------------
 // Family extractors
@@ -255,48 +270,4 @@ function createOfficeMediaExtractor(
     // embed binary noise. Signal `invalid` until a real parser replaces this.
     return { kind: "invalid", family, reason: "office extraction not yet implemented" };
   };
-}
-
-/**
- * Registry of family → extractor factory. `satisfies` makes a missing
- * family a type error; `as const` keeps the keys narrow. Tier 1.
- */
-const MEDIA_EXTRACTOR_FACTORIES = {
-  pdf: createPdfMediaExtractor,
-  document: (limits: ExtractionLimits) => createOfficeMediaExtractor("document", limits),
-  spreadsheet: (limits: ExtractionLimits) => createOfficeMediaExtractor("spreadsheet", limits),
-  text: (limits: ExtractionLimits) => createTextMediaExtractor("text", limits),
-} as const satisfies Record<ContentFamily, (limits: ExtractionLimits) => MediaExtractor>;
-
-/**
- * @deprecated Use `extraction({ door }).forMime(mime)` or
- * `extraction({ door }).extract({ mime, bytes })` — this leaks `ContentFamily`
- * to the call site. It remains for the facade and for test-only injection.
- *
- * Create one door's extractor for one family. The hot call accepts only bytes.
- * Callers that already hold `ContentFamily` go through this; callers that hold
- * a MIME should use `createMediaExtractorForMime`.
- */
-export function createMediaExtractor(door: ExtractionDoor, family: ContentFamily): MediaExtractor {
-  const limits = extractionLimitsFor(door, family);
-  const factory = MEDIA_EXTRACTOR_FACTORIES[family];
-  return factory(limits);
-}
-
-/**
- * @deprecated Use `extraction({ door }).forMime(mime)` — this is the same
- * lookup with the same `null` for pass-through/unknown MIMEs, but via the
- * door-bound facade that memoizes per family.
- *
- * Create an extractor directly from a MIME type via `INGEST_POLICY`.
- * Returns null when the MIME is outside the whitelist or has no
- * `contentFamily` (e.g. pass-through images).
- */
-export function createMediaExtractorForMime(
-  door: ExtractionDoor,
-  mime: string,
-): MediaExtractor | null {
-  const family = getContentFamily(mime);
-  if (!family) return null;
-  return createMediaExtractor(door, family);
 }

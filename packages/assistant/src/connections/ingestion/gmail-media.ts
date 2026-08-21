@@ -1,4 +1,4 @@
-import { getContentFamily, toMessage, type ContentFamily } from "@alfred/contracts";
+import { toMessage, type ContentFamily } from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -31,10 +31,8 @@ export interface GmailMediaIngestDeps {
         attachmentId: string;
       }) => Promise<{ bytes: Uint8Array; size: number }>)
     | undefined;
-  /** Override extractor for a family — used by tests to avoid the child process. */
-  createExtractor?:
-    | ((args: { family: ContentFamily; mimeType: string }) => MediaExtractor | null)
-    | undefined;
+  /** Override extractor for a MIME — used by tests to avoid the child process. */
+  createExtractor?: ((args: { mimeType: string }) => MediaExtractor | null) | undefined;
   /** Restrict ingest to these families. When undefined, all extractable families are allowed. */
   allowedFamilies?: readonly ContentFamily[] | undefined;
   indexDocument?: ((args: { documentId: string }) => Promise<unknown>) | undefined;
@@ -74,30 +72,15 @@ export async function ingestGmailMediaAttachments(
   const indexDocumentFn = args.deps?.indexDocument ?? indexDocument;
 
   // Door-bound extraction — one bind, memoized per family. The facade hides
-  // `mime → family → limits → factory`. Tests inject via `deps.createExtractor`
-  // to avoid the child process; production uses the registry.
-  const media = extraction({ door: GMAIL_MEDIA_DOOR });
+  // `mime → family → gate → limits → factory`, including the `allowedFamilies`
+  // ledger. Tests inject via `deps.createExtractor` to avoid the child
+  // process; production uses the registry.
+  const media = extraction({
+    door: GMAIL_MEDIA_DOOR,
+    allowedFamilies: args.deps?.allowedFamilies,
+  });
 
-  function isFamilyAllowed(family: ContentFamily | null): boolean {
-    if (!family) return false;
-    if (args.deps?.allowedFamilies && !args.deps.allowedFamilies.includes(family)) return false;
-    return true;
-  }
-
-  function resolveExtractor(mime: string): MediaExtractor | null {
-    const family = getContentFamily(mime);
-    if (!isFamilyAllowed(family)) return null;
-    if (args.deps?.createExtractor) {
-      return args.deps.createExtractor({ family: family!, mimeType: mime });
-    }
-    return media.forMime(mime);
-  }
-
-  function isSupported(mime: string): boolean {
-    return resolveExtractor(mime) !== null;
-  }
-
-  const candidates = attachments.filter((a) => isSupported(a.mimeType));
+  const candidates = attachments.filter((a) => media.isSupported(a.mimeType));
   if (candidates.length === 0) {
     return { attempted: 0, ingested: 0, skipped: 0, errors: 0, embedFailures: 0, documentIds: [] };
   }
@@ -106,9 +89,12 @@ export async function ingestGmailMediaAttachments(
     mime: string,
     bytes: Uint8Array,
   ): Promise<MediaExtractionResult | null> {
-    const extractor = resolveExtractor(mime);
-    if (!extractor) return null;
-    return extractor(bytes);
+    if (args.deps?.createExtractor) {
+      const extractor = args.deps.createExtractor({ mimeType: mime });
+      if (!extractor) return null;
+      return extractor(bytes);
+    }
+    return media.extract({ mime, bytes });
   }
 
   let attempted = 0;

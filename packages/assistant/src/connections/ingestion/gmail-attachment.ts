@@ -26,23 +26,15 @@ export interface GmailAttachmentIngestArgs {
 /**
  * @deprecated Use `ingestGmailMediaAttachments` from `./gmail-media`.
  * This PDF-only wrapper remains for DB-backed tests that assert
- * `gmail_attachment` rows with page offsets. It filters to `family === "pdf"`
- * and delegates to the generic loop so that `fetch → limit → extract →
- * persist → embed` has one owner (tier 3). New callers must not add
- * PDF-specific hooks here — add a family in `@alfred/contracts` and a
- * factory in `@alfred/extraction` instead.
+ * `gmail_attachment` rows with page offsets. The PDF-only restriction is the
+ * `allowedFamilies: ["pdf"]` ledger, enforced inside `extraction()`; this file
+ * adds no second extraction hook. New callers must not add PDF-specific hooks
+ * here — add a family in `@alfred/contracts` and a `FAMILY_REGISTRY` entry in
+ * `@alfred/extraction` instead.
  */
 export async function ingestGmailPdfAttachments(
   args: GmailAttachmentIngestArgs,
 ): Promise<GmailAttachmentIngestResult> {
-  const baseCreateExtractor = args.deps?.createExtractor;
-  const pdfOnlyCreateExtractor: GmailMediaIngestDeps["createExtractor"] = baseCreateExtractor
-    ? (opts) => {
-        if (opts.family !== "pdf") return null;
-        return baseCreateExtractor(opts);
-      }
-    : undefined;
-
   return ingestGmailMediaAttachments({
     userId: args.userId,
     accountId: args.accountId,
@@ -51,7 +43,7 @@ export async function ingestGmailPdfAttachments(
     deps: {
       getAttachment: args.deps?.getAttachment,
       allowedFamilies: ["pdf"] as const,
-      ...(pdfOnlyCreateExtractor ? { createExtractor: pdfOnlyCreateExtractor } : {}),
+      createExtractor: args.deps?.createExtractor,
       indexDocument: args.deps?.indexDocument,
     },
   });

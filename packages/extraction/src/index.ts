@@ -21,13 +21,7 @@ export type {
   PdfExtractionLimits,
 } from "./extract-pdf";
 export type { PdfTextInterpretation } from "./format-extracted-pdf";
-export {
-  createMediaExtractor,
-  createMediaExtractorForMime,
-  extractionLimitsFor,
-  mediaResultFromExtractedPdf,
-  REALTIME_EXTRACTION_LIMITS,
-} from "./media-extraction";
+export { FAMILY_REGISTRY } from "./media-extraction";
 export type {
   ExtractionDoor,
   ExtractionLimits,
