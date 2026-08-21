@@ -83,9 +83,9 @@ function costCapTruncationError(
  * is a no-op unless the content hash changed (in which case we rewrite
  * the chunk row in place).
  *
- * Embeddings are written together with the rows: one Voyage call per
- * document covers all its chunks (Voyage allows up to 1000 inputs per
- * batch; emails rarely exceed a handful of chunks).
+ * Embeddings are written together with the rows: `embedMany` covers all
+ * of a document's chunks, splitting into multiple Voyage calls when the
+ * set exceeds Voyage's per-request limits (1000 inputs / 120k tokens).
  *
  * Cost policy: the $0.50 cap (`EMBED_COST_CAP_USD` in `./embed-policy`)
  * governs ONE call — the new-chunk set this invocation sends. A truncation
@@ -216,8 +216,8 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     };
   }
 
-  // Single owner for the $0.50 cap. The cap governs ONE call — the *new*
-  // chunks (`toEmbed`) after the existing-hash filter, not the total
+  // Single owner for the $0.50 cap. The cap governs this invocation's
+  // *new* chunks (`toEmbed`) after the existing-hash filter, not the total
   // `splits` and not the document lifetime. Capping `splits` would discard
   // tail chunks even when the embed bill is tiny (e.g. 1990 cached + 10 new
   // = 10 billable tokens, but 16M total). When the cap bites, the document
