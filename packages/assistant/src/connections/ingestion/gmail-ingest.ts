@@ -483,8 +483,6 @@ async function tryIngestMediaAttachmentsForKnownMessage(args: {
   }
 }
 
-
-
 /** Numeric compare on history-id strings — Gmail's ids are stringified ints. */
 function compareHistoryIds(a: string, b: string): number {
   // Coerce via BigInt so we don't trip on JS double precision for very large ids.
