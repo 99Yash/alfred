@@ -25,14 +25,13 @@ import {
 import { installGmailWatch } from "@alfred/integrations/google/internal";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
+  hasIngestableAttachments,
   ingestGmailMediaAttachments,
   internalDateToDate,
-  mergeMediaTally,
   setMediaPending,
   ZERO_MEDIA_TALLY,
   type GmailMediaIngestDeps,
   type GmailMediaIngestResult,
-  type GmailMediaTally,
 } from "./gmail-media";
 
 /**
@@ -51,6 +50,19 @@ import {
  * `documents` (no re-fetching from Gmail required).
  */
 
+/**
+ * Deferred attachment ingest (ADR-0091 amendment): the poll paths never run
+ * fetch + child-process parse inline — a message with several attachments
+ * could hold the poll job for minutes and delay cursor advance and sibling
+ * messages. Instead they schedule one `gmail.media_ingest` job per message
+ * (`queue.ts` owns the real enqueue; tests inject a recorder).
+ */
+export type ScheduleGmailMediaIngest = (args: {
+  credentialId: string;
+  messageId: string;
+  documentId: string;
+}) => Promise<void>;
+
 export interface IngestRecentArgs {
   credentialId: string;
   /** Default: last 30 days. Overridable for smoke tests. */
@@ -68,8 +80,8 @@ export interface IngestRecentArgs {
   updateCursor?: boolean | undefined;
   /** #560b: set true when this ingest covers a detected coverage gap. */
   coverageGap?: boolean | undefined;
-  /** Test seam — overrides attachment ingestion I/O. */
-  mediaDeps?: GmailMediaIngestDeps | undefined;
+  /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
+  scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;
 }
 
 export interface IngestRecentResult {
@@ -115,18 +127,6 @@ export interface IngestRecentResult {
   touchedThreadIds: string[];
   /** User who owns the credential — handy for downstream fanout (triage, indexing). */
   userId: string;
-  /** Attachment docs ingested this run (gmail_attachment rows). */
-  mediaIngested: number;
-  /** Attachment ingest failures (fetch/extract/persist) — does not fail mail persist. */
-  mediaErrors: number;
-  /** Attachment embed failures — does not fail mail persist, visible only here. */
-  mediaEmbedFailures: number;
-  /** Attachment ingest skipped (over-limit, needs_ocr, empty, unsupported). */
-  mediaSkipped: number;
-  /** Attachment docs already on file — download/extract/embed skipped (skip-if-exists dedup). */
-  mediaDeduped: number;
-  /** Attachment document ids produced this run (may include updates to known messages). */
-  mediaDocumentIds: string[];
 }
 
 const DEFAULT_QUERY = "newer_than:30d";
@@ -164,8 +164,6 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   const triageDocumentIds: string[] = [];
   const sentDocumentIds: string[] = [];
   const touchedThreadIds = new Set<string>();
-  const mediaTally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
-  const mediaDocumentIds: string[] = [];
 
   for (const ref of refs) {
     try {
@@ -195,18 +193,13 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       } else {
         skipped++;
       }
-      const mediaResult = await tryIngestMediaAttachmentsAfterPersist({
+      await scheduleMediaAttachmentsAfterPersist({
         cred,
         message,
-        accessToken,
         persistResult: result,
+        schedule: args.scheduleMediaIngest,
         logId: ref.id,
-        mediaDeps: args.mediaDeps,
       });
-      mergeMediaTally(mediaTally, mediaResult);
-      if (mediaResult?.documentIds.length) {
-        mediaDocumentIds.push(...mediaResult.documentIds);
-      }
       if (message.historyId) {
         if (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0) {
           highWaterHistoryId = message.historyId;
@@ -244,12 +237,6 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     sentDocumentIds,
     touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
-    mediaIngested: mediaTally.ingested,
-    mediaErrors: mediaTally.errors,
-    mediaEmbedFailures: mediaTally.embedFailures,
-    mediaSkipped: mediaTally.skipped,
-    mediaDeduped: mediaTally.deduped,
-    mediaDocumentIds,
   };
 }
 
@@ -413,96 +400,110 @@ function buildContent(extracted: ReturnType<typeof extractMessageContent>): stri
 }
 
 /**
- * Single owner for post-persist media attachment ingestion. Centralizes the
- * `ignored` (self-authored) guard so a new ingest path cannot forget it,
- * and keeps attachment ingest behind the same domain order: persist message
- * → ingest attachments. Callers state domain order, not wiring.
- * Returns the media result for observability aggregation; a throw is logged
- * and mapped to a one-count `errors` result so the poll does not fail the
- * mail persist but still surfaces in `mediaErrors`.
+ * Single owner for post-persist attachment scheduling. Centralizes the
+ * `ignored` (self-authored) and no-attachment guards so a new ingest path
+ * cannot forget them, and keeps domain order explicit: persist message →
+ * schedule attachments. Never runs extraction inline (ADR-0091 amendment):
+ * a five-attachment message must not hold the poll for minutes.
  */
-async function tryIngestMediaAttachmentsAfterPersist(args: {
+async function scheduleMediaAttachmentsAfterPersist(args: {
   cred: CredentialContext;
   message: GmailMessage;
-  accessToken: string;
   persistResult: PersistMessageResult;
+  schedule?: ScheduleGmailMediaIngest | undefined;
   logId: string;
-  mediaDeps?: GmailMediaIngestDeps | undefined;
-}): Promise<GmailMediaIngestResult | null> {
-  if (args.persistResult.outcome === "ignored") return null;
-  const documentId = args.persistResult.documentId;
+}): Promise<void> {
+  if (args.persistResult.outcome !== "inserted") return;
+  if (!hasIngestableAttachments(args.message)) return;
+  await scheduleGmailMediaIngestBestEffort({
+    credentialId: args.cred.credentialId,
+    messageId: args.message.id,
+    documentId: args.persistResult.documentId,
+    schedule: args.schedule,
+    logId: args.logId,
+  });
+}
+
+/**
+ * Flag-first scheduling. The mail row carries `mediaPending` until a
+ * `gmail.media_ingest` job completes cleanly, so a lost or failed enqueue is
+ * recovered by the next poll's flagged-known-message pass (and BullMQ's own
+ * attempts cover transient job failures). A failed flag write only costs one
+ * extra dedup-only retry; a failed schedule with the flag set is retried on
+ * the next poll.
+ */
+async function scheduleGmailMediaIngestBestEffort(args: {
+  credentialId: string;
+  messageId: string;
+  documentId: string;
+  schedule: ScheduleGmailMediaIngest | undefined;
+  logId: string;
+}): Promise<void> {
+  if (!args.schedule) {
+    console.warn(
+      `[gmail.ingestor] no media scheduler wired; attachment ingest deferred for message=${args.logId}`,
+    );
+    return;
+  }
   try {
-    const result = await ingestGmailMediaAttachments({
-      userId: args.cred.userId,
-      accountId: args.cred.accountId,
-      message: args.message,
-      accessToken: args.accessToken,
-      ...(args.mediaDeps ? { deps: args.mediaDeps } : {}),
+    await setMediaPending(args.documentId, true);
+    await args.schedule({
+      credentialId: args.credentialId,
+      messageId: args.messageId,
+      documentId: args.documentId,
     });
-    if (result.embedFailures > 0 || result.errors > 0) {
-      console.warn(
-        `[gmail.ingestor] attachment ingest mediaErrors=${result.errors} mediaEmbedFailures=${result.embedFailures} for message=${args.logId}`,
-      );
-    }
-    // Flag fetch/extract/persist failures so the realtime poll's pre-filter
-    // retries exactly this message later. Embed failures are not flagged —
-    // the corpus sweep recovers those (it covers `gmail_attachment` rows).
-    if (result.errors > 0) await setMediaPending(documentId, true);
-    return result;
   } catch (err) {
     console.warn(
-      `[gmail.ingestor] attachment ingest failed for message=${args.logId}:`,
+      `[gmail.ingestor] attachment schedule failed for message=${args.logId}:`,
       toMessage(err),
     );
-    await setMediaPending(documentId, true);
-    return { ...ZERO_MEDIA_TALLY, errors: 1, documentIds: [] };
   }
 }
 
 /**
- * Retry attachment ingest for a known message flagged by a prior failed
- * attempt (`mediaPending` on the mail row — see
- * `tryIngestMediaAttachmentsAfterPersist`). Self-authored mail is still
- * dropped. The re-check duplicates `persistMessage`'s gate deliberately:
- * it is belt-and-suspenders for rows written before the current
- * `isSelfAuthored` rule, and both sites call the one predicate.
- * Returns the media result for observability aggregation; on throw returns
- * a one-count `errors` result without counting as a poll `errors` (best-effort
- * retry — next poll retries).
+ * Job-side runner for `gmail.media_ingest`. Fetches the full message fresh
+ * (the poll paths no longer carry it), re-applies the self-authored guard as
+ * belt-and-suspenders for rows written before the current rule, runs the
+ * attachment ingest loop, then resolves the `mediaPending` flag by outcome:
+ * cleared on a clean pass, held on any fetch/extract/persist error so the
+ * next poll re-schedules. Embed failures are not flagged — the corpus sweep
+ * recovers those (`gmail.embed_sweep` covers `gmail_attachment` rows).
  */
-async function tryIngestMediaAttachmentsForKnownMessage(args: {
-  cred: CredentialContext;
-  message: GmailMessage;
-  accessToken: string;
+export async function runGmailMediaIngest(args: {
+  credentialId: string;
+  messageId: string;
   documentId: string;
-  logId: string;
-  mediaDeps?: GmailMediaIngestDeps | undefined;
-}): Promise<GmailMediaIngestResult | null> {
-  const extracted = extractMessageContent(args.message);
-  if (isSelfAuthored(extracted.from)) return null;
-  try {
-    const result = await ingestGmailMediaAttachments({
-      userId: args.cred.userId,
-      accountId: args.cred.accountId,
-      message: args.message,
-      accessToken: args.accessToken,
-      ...(args.mediaDeps ? { deps: args.mediaDeps } : {}),
-    });
-    if (result.embedFailures > 0 || result.errors > 0) {
-      console.warn(
-        `[gmail.ingestor] attachment retry mediaErrors=${result.errors} mediaEmbedFailures=${result.embedFailures} for message=${args.logId}`,
-      );
-    } else {
-      await setMediaPending(args.documentId, false);
-    }
-    return result;
-  } catch (err) {
+  /** Test seam — overrides Gmail I/O and attachment ingest deps. */
+  deps?: RunGmailMediaIngestDeps | undefined;
+}): Promise<GmailMediaIngestResult> {
+  const getFreshAccessTokenFn = args.deps?.getFreshAccessToken ?? getFreshAccessToken;
+  const getMessageFn = args.deps?.getMessage ?? getMessage;
+  const cred = await loadCredentialOrThrow(args.credentialId);
+  const accessToken = await getFreshAccessTokenFn(args.credentialId);
+  const message = await getMessageFn({ accessToken, id: args.messageId, format: "full" });
+  const extracted = extractMessageContent(message);
+  if (isSelfAuthored(extracted.from)) return { ...ZERO_MEDIA_TALLY, documentIds: [] };
+  const result = await ingestGmailMediaAttachments({
+    userId: cred.userId,
+    accountId: cred.accountId,
+    message,
+    accessToken,
+    ...(args.deps?.media ? { deps: args.deps.media } : {}),
+  });
+  if (result.errors > 0 || result.embedFailures > 0) {
     console.warn(
-      `[gmail.ingestor] attachment retry failed for message=${args.logId}:`,
-      toMessage(err),
+      `[gmail.media] job mediaErrors=${result.errors} mediaEmbedFailures=${result.embedFailures} ` +
+        `for message=${args.messageId}`,
     );
-    return { ...ZERO_MEDIA_TALLY, errors: 1, documentIds: [] };
   }
+  await setMediaPending(args.documentId, result.errors > 0);
+  return result;
+}
+
+export interface RunGmailMediaIngestDeps {
+  getFreshAccessToken?: typeof getFreshAccessToken | undefined;
+  getMessage?: typeof getMessage | undefined;
+  media?: GmailMediaIngestDeps | undefined;
 }
 
 /** Numeric compare on history-id strings — Gmail's ids are stringified ints. */
@@ -687,8 +688,8 @@ export interface PollHistoryArgs {
    * channel went silent for days and the history is huge.
    */
   maxPages?: number | undefined;
-  /** Test seam — overrides attachment ingestion I/O. */
-  mediaDeps?: GmailMediaIngestDeps | undefined;
+  /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
+  scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;
 }
 
 export interface PollHistoryResult {
@@ -732,14 +733,6 @@ export interface PollHistoryResult {
   touchedThreadIds: string[];
   /** User who owns the credential. */
   userId: string;
-  /** Attachment docs ingested this run (gmail_attachment rows). */
-  mediaIngested: number;
-  mediaErrors: number;
-  mediaEmbedFailures: number;
-  mediaSkipped: number;
-  /** Attachment docs already on file — download/extract/embed skipped (skip-if-exists dedup). */
-  mediaDeduped: number;
-  mediaDocumentIds: string[];
 }
 
 /**
@@ -767,7 +760,11 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     // No cursor yet — m7a never ran for this credential, or watch hasn't
     // installed. Fall back to recent ingest; that path also seeds the
     // cursor via `upsertIngestionState`.
-    const recent = await ingestRecentGmail({ credentialId: args.credentialId, maxMessages: 200 });
+    const recent = await ingestRecentGmail({
+      credentialId: args.credentialId,
+      maxMessages: 200,
+      scheduleMediaIngest: args.scheduleMediaIngest,
+    });
     return {
       pagesFetched: 0,
       inserted: recent.inserted,
@@ -786,12 +783,6 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       sentDocumentIds: recent.sentDocumentIds,
       touchedThreadIds: recent.touchedThreadIds,
       userId: cred.userId,
-      mediaIngested: recent.mediaIngested,
-      mediaErrors: recent.mediaErrors,
-      mediaEmbedFailures: recent.mediaEmbedFailures,
-      mediaSkipped: recent.mediaSkipped,
-      mediaDeduped: recent.mediaDeduped,
-      mediaDocumentIds: recent.mediaDocumentIds,
     };
   }
 
@@ -835,6 +826,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         credentialId: args.credentialId,
         maxMessages: 500,
         coverageGap: true,
+        scheduleMediaIngest: args.scheduleMediaIngest,
       });
       // #560b: clear coverageGap after the full re-sync repair. The
       // ingestRecentGmail call above set it to true (which is correct for
@@ -865,12 +857,6 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         sentDocumentIds: recent.sentDocumentIds,
         touchedThreadIds: recent.touchedThreadIds,
         userId: cred.userId,
-        mediaIngested: recent.mediaIngested,
-        mediaErrors: recent.mediaErrors,
-        mediaEmbedFailures: recent.mediaEmbedFailures,
-        mediaSkipped: recent.mediaSkipped,
-        mediaDeduped: recent.mediaDeduped,
-        mediaDocumentIds: recent.mediaDocumentIds,
       };
     }
     throw err;
@@ -886,8 +872,6 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   const triageDocumentIds: string[] = [];
   const sentDocumentIds: string[] = [];
   const touchedThreadIds = new Set<string>();
-  const mediaTally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
-  const mediaDocumentIds: string[] = [];
 
   for (const id of messageIds) {
     try {
@@ -918,18 +902,13 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
-      const mediaResult = await tryIngestMediaAttachmentsAfterPersist({
+      await scheduleMediaAttachmentsAfterPersist({
         cred,
         message,
-        accessToken,
         persistResult: result,
+        schedule: args.scheduleMediaIngest,
         logId: id,
-        mediaDeps: args.mediaDeps,
       });
-      mergeMediaTally(mediaTally, mediaResult);
-      if (mediaResult?.documentIds.length) {
-        mediaDocumentIds.push(...mediaResult.documentIds);
-      }
     } catch (err) {
       errors++;
       console.warn(`[gmail.ingestor] poll fetch failed for message=${id}:`, toMessage(err));
@@ -961,12 +940,6 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     sentDocumentIds,
     touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
-    mediaIngested: mediaTally.ingested,
-    mediaErrors: mediaTally.errors,
-    mediaEmbedFailures: mediaTally.embedFailures,
-    mediaSkipped: mediaTally.skipped,
-    mediaDeduped: mediaTally.deduped,
-    mediaDocumentIds,
   };
 }
 
@@ -978,7 +951,8 @@ export interface PollRecentDeps {
   listMessages?: typeof listMessages | undefined;
   getMessage?: typeof getMessage | undefined;
   getFreshAccessToken?: typeof getFreshAccessToken | undefined;
-  media?: GmailMediaIngestDeps | undefined;
+  /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
+  scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;
 }
 
 export interface PollRecentArgs {
@@ -1030,14 +1004,6 @@ export interface PollRecentResult {
   /** Threads with a fresh insert or observed SENT row — reconciled against live Gmail (issue #279). */
   touchedThreadIds: string[];
   userId: string;
-  /** Attachment docs ingested this run (gmail_attachment rows). */
-  mediaIngested: number;
-  mediaErrors: number;
-  mediaEmbedFailures: number;
-  mediaSkipped: number;
-  /** Attachment docs already on file — download/extract/embed skipped (skip-if-exists dedup). */
-  mediaDeduped: number;
-  mediaDocumentIds: string[];
 }
 
 /**
@@ -1068,7 +1034,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   const listMessagesFn = args.deps?.listMessages ?? listMessages;
   const getMessageFn = args.deps?.getMessage ?? getMessage;
   const getFreshAccessTokenFn = args.deps?.getFreshAccessToken ?? getFreshAccessToken;
-  const mediaDeps = args.deps?.media;
+  const scheduleMediaIngest = args.deps?.scheduleMediaIngest;
   // Header loads are independent (cred row, token refresh, cursor row).
   // Running them serially added ~40-60ms to every webhook for no reason;
   // any contention is harmless — both cred reads are SELECTs on the same
@@ -1122,8 +1088,6 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   const touchedThreadIds = new Set(
     knownSentDocs.map((doc) => doc.threadId).filter((threadId) => threadId !== null),
   );
-  const mediaTally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
-  const mediaDocumentIds: string[] = [];
 
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
@@ -1146,18 +1110,13 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
-      const mediaResult = await tryIngestMediaAttachmentsAfterPersist({
+      await scheduleMediaAttachmentsAfterPersist({
         cred,
         message,
-        accessToken,
         persistResult: result,
+        schedule: scheduleMediaIngest,
         logId: ref.id,
-        mediaDeps,
       });
-      mergeMediaTally(mediaTally, mediaResult);
-      if (mediaResult?.documentIds.length) {
-        mediaDocumentIds.push(...mediaResult.documentIds);
-      }
       if (
         message.historyId &&
         (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
@@ -1173,43 +1132,19 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     }
   });
 
-  // Retry attachment ingest for known messages whose mail row carries the
-  // `mediaPending` flag from a prior failed attempt. A transient
-  // getAttachment/extractPdf throw on the first attempt must not permanently
-  // orphan the PDF — pollGmailHistory and ingestRecentGmail would retry (no
-  // pre-filter), but the realtime path previously hid the retry behind
-  // partitionKnownGmailRefs. Flagging keeps the retry targeted: unflagged
-  // known messages are not re-fetched at all.
-  if (knownRefs.length > 0) {
+  // Re-schedule attachment ingest for known messages whose mail row carries
+  // the `mediaPending` flag from a lost or failed job. No `messages.get`
+  // roundtrip here — the flag alone identifies the retry set, and the job
+  // fetches the full message itself.
+  if (knownRefs.length > 0 && scheduleMediaIngest) {
     await mapConcurrent(knownRefs, concurrency, async (ref) => {
-      try {
-        const message = await getMessageFn({ accessToken, id: ref.id, format: "full" });
-        const mediaResult = await tryIngestMediaAttachmentsForKnownMessage({
-          cred,
-          message,
-          accessToken,
-          documentId: ref.documentId,
-          logId: ref.id,
-          mediaDeps,
-        });
-        mergeMediaTally(mediaTally, mediaResult);
-        if (mediaResult?.documentIds.length) {
-          mediaDocumentIds.push(...mediaResult.documentIds);
-        }
-        if (
-          message.historyId &&
-          (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
-        ) {
-          highWaterHistoryId = message.historyId;
-        }
-      } catch (err) {
-        // Best-effort retry — a failure here does not count as a poll error
-        // because the mail itself is already persisted; the next poll retries.
-        console.warn(
-          `[gmail.ingestor] poll-recent attachment retry failed for message=${ref.id}:`,
-          toMessage(err),
-        );
-      }
+      await scheduleGmailMediaIngestBestEffort({
+        credentialId: args.credentialId,
+        messageId: ref.id,
+        documentId: ref.documentId,
+        schedule: scheduleMediaIngest,
+        logId: ref.id,
+      });
     });
   }
 
@@ -1268,12 +1203,6 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     sentDocumentIds,
     touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
-    mediaIngested: mediaTally.ingested,
-    mediaErrors: mediaTally.errors,
-    mediaEmbedFailures: mediaTally.embedFailures,
-    mediaSkipped: mediaTally.skipped,
-    mediaDeduped: mediaTally.deduped,
-    mediaDocumentIds,
   };
 }
 
@@ -1287,7 +1216,7 @@ async function partitionKnownGmailRefs(
   refs: { id: string; threadId: string }[],
 ): Promise<{
   unknownRefs: { id: string; threadId: string }[];
-  /** Known messages whose mail row carries `mediaPending` — the only ones the retry re-fetches. */
+  /** Known messages whose mail row carries `mediaPending` — the only ones the retry re-schedules. */
   knownRefs: { id: string; threadId: string; documentId: string }[];
   knownSentDocs: KnownSentGmailDoc[];
 }> {
