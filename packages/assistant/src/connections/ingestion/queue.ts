@@ -358,7 +358,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       console.log(
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors} ` +
-          `mediaIngested=${result.mediaIngested} mediaErrors=${result.mediaErrors} mediaEmbedFailures=${result.mediaEmbedFailures} mediaSkipped=${result.mediaSkipped}`,
+          `mediaIngested=${result.mediaIngested} mediaErrors=${result.mediaErrors} mediaEmbedFailures=${result.mediaEmbedFailures} mediaSkipped=${result.mediaSkipped} mediaDeduped=${result.mediaDeduped}`,
       );
       if (hasGmailPostInsertSideEffects(result)) {
         // Publish the batch fact; the composition-registered consumers react.
@@ -387,7 +387,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
           `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
           `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"} ` +
-          `mediaIngested=${result.mediaIngested} mediaErrors=${result.mediaErrors} mediaEmbedFailures=${result.mediaEmbedFailures} mediaSkipped=${result.mediaSkipped}`,
+          `mediaIngested=${result.mediaIngested} mediaErrors=${result.mediaErrors} mediaEmbedFailures=${result.mediaEmbedFailures} mediaSkipped=${result.mediaSkipped} mediaDeduped=${result.mediaDeduped}`,
       );
       if (hasGmailPostInsertSideEffects(result)) {
         await publishGmailDocumentsIngested({
@@ -405,7 +405,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
           `skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors} fullResync=${result.fullResync} ` +
           `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"} ` +
-          `mediaIngested=${result.mediaIngested} mediaErrors=${result.mediaErrors} mediaEmbedFailures=${result.mediaEmbedFailures} mediaSkipped=${result.mediaSkipped}`,
+          `mediaIngested=${result.mediaIngested} mediaErrors=${result.mediaErrors} mediaEmbedFailures=${result.mediaEmbedFailures} mediaSkipped=${result.mediaSkipped} mediaDeduped=${result.mediaDeduped}`,
       );
       // Catch-up path (ADR-0037): the realtime `gmail.poll_recent` job covers
       // the steady state; anything it misses shows up here. The batch fact

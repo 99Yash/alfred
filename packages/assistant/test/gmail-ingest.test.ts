@@ -284,6 +284,7 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
     assert.equal(result2.mediaIngested, 1);
     assert.equal(result2.mediaErrors, 0);
     assert.equal(result2.mediaEmbedFailures, 0);
+    assert.equal(result2.mediaDeduped, 0, "no row existed after the transient failure");
     assert.equal(indexCalls, 1, "retry re-embeds the PDF");
     assert.equal(result2.mediaDocumentIds.length, 1);
 

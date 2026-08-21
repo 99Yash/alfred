@@ -155,7 +155,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(allRows.filter((r) => r.source === "gmail_attachment").length, 1);
   });
 
-  test("re-ingest with changed bytes updates content and re-embeds", async () => {
+  test("re-ingest of an existing attachment dedups without fetch, extract, or embed", async () => {
     const userId = await seedUser();
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
@@ -166,38 +166,20 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       attachmentId,
       filename: "invoice.pdf",
     });
-    const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
-    let extractVersion = 0;
-    const createExtractorStub =
-      () =>
-      async (): Promise<{
-        kind: "extracted";
-        family: "pdf";
-        content: string;
-        pages: readonly { page: number; start: number; end: number }[] | null;
-      }> => {
-        extractVersion++;
-        if (extractVersion === 1) {
-          return {
-            kind: "extracted" as const,
-            family: "pdf" as const,
-            content: "version one",
-            pages: [{ page: 1, start: 0, end: 11 }],
-          };
-        }
-        return {
-          kind: "extracted" as const,
-          family: "pdf" as const,
-          content: "version two changed",
-          pages: [{ page: 1, start: 0, end: 19 }],
-        };
-      };
-
+    let getAttachmentCalls = 0;
     let indexCalls = 0;
     const deps = {
-      getAttachment: async () => ({ bytes, size: bytes.byteLength }),
+      getAttachment: async () => {
+        getAttachmentCalls++;
+        return { bytes: new Uint8Array(Buffer.from("%PDF-1.4")), size: 9 };
+      },
       allowedFamilies: ["pdf"] as const,
-      createExtractor: createExtractorStub,
+      createExtractor: () => async () => ({
+        kind: "extracted" as const,
+        family: "pdf" as const,
+        content: "version one",
+        pages: [{ page: 1, start: 0, end: 11 }],
+      }),
       indexDocument: async () => {
         indexCalls++;
         return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
@@ -212,16 +194,12 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       deps,
     });
     assert.equal(r1.ingested, 1);
-    const doc1 = (
-      await db()
-        .select()
-        .from(documents)
-        .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
-    )[0]!;
-    assert.equal(doc1.content, "version one");
-    const hash1 = doc1.contentHash;
+    assert.equal(r1.deduped, 0);
+    assert.equal(getAttachmentCalls, 1);
 
-    indexCalls = 0;
+    // Gmail attachmentIds are immutable, so a second ingest of the same
+    // messageId:attachmentId can never produce new content. The row exists,
+    // so the whole download → extract → persist → embed chain must be skipped.
     const r2 = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -229,21 +207,17 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accessToken: "t",
       deps,
     });
-    assert.equal(r2.ingested, 1);
-    const doc2 = (
-      await db()
-        .select()
-        .from(documents)
-        .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
-    )[0]!;
-    assert.equal(doc2.content, "version two changed");
-    assert.notEqual(
-      doc2.contentHash,
-      hash1,
-      "contentHash must change on re-ingest with changed bytes",
-    );
-    assert.equal(doc2.id, doc1.id, "same document row updated, not duplicated");
-    assert.equal(indexCalls, 1, "re-embed called for changed content");
+    assert.equal(r2.ingested, 0);
+    assert.equal(r2.deduped, 1);
+    assert.equal(getAttachmentCalls, 1, "existing attachment must not be re-downloaded");
+    assert.equal(indexCalls, 1, "embed must not run again for an existing attachment");
+
+    const rows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(rows.length, 1, "no duplicate row");
+    assert.equal(rows[0]!.content, "version one", "original content preserved");
   });
 
   test("re-ingest unchanged is idempotent on document row", async () => {
@@ -258,6 +232,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       filename: "report.pdf",
     });
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
+    let indexCalls = 0;
     const deps = {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
       allowedFamilies: ["pdf"] as const,
@@ -267,34 +242,37 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         content: "same text",
         pages: [{ page: 1, start: 0, end: 9 }],
       }),
-      indexDocument: async () => ({
-        documentId: "fake",
-        chunksWritten: 0,
-        chunksSkipped: 1,
-        empty: false,
-      }),
+      indexDocument: async () => {
+        indexCalls++;
+        return { documentId: "fake", chunksWritten: 0, chunksSkipped: 1, empty: false };
+      },
     };
 
-    await ingestGmailMediaAttachments({
+    const r1 = await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
       accessToken: "t",
       deps,
     });
+    assert.equal(r1.ingested, 1);
+    assert.equal(indexCalls, 1);
     const doc1 = (
       await db()
         .select()
         .from(documents)
         .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
     )[0]!;
-    await ingestGmailMediaAttachments({
+    const r2 = await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
       accessToken: "t",
       deps,
     });
+    assert.equal(r2.ingested, 0);
+    assert.equal(r2.deduped, 1);
+    assert.equal(indexCalls, 1, "embed must not run again for an existing attachment");
     const doc2 = (
       await db()
         .select()
