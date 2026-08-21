@@ -1,15 +1,17 @@
 import type { Chunk } from "./chunker";
 
 /**
- * Per-call embed spend ceiling for one `indexDocument` call, in USD.
+ * Per-`indexDocument` embed spend ceiling, in USD.
  *
  * Policy (decided 2026-08, architecture review candidate 2): the cap governs
- * ONE Voyage batch — the new-chunk set a single call sends — not the document
- * lifetime. When the cap truncates, the caller marks the document terminal
- * for the sweep (`embed_failed_at` + a `last_embed_error` reason) so a capped
- * tail is a durable, visible decision instead of a silent one. An explicit
- * re-index still makes progress, because each call caps only the chunks that
- * do not already match stored hashes.
+ * the new-chunk set a single `indexDocument` invocation sends — which
+ * `embedMany` may split across several Voyage requests at the provider's
+ * per-request limits — not the document lifetime. When the cap truncates,
+ * the caller marks the document terminal for the sweep (`embed_failed_at`
+ * + a `last_embed_error` reason) so a capped tail is a durable, visible
+ * decision instead of a silent one. An explicit re-index still makes
+ * progress, because each call caps only the chunks that do not already
+ * match stored hashes.
  */
 export const EMBED_COST_CAP_USD = 0.5;
 
