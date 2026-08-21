@@ -170,7 +170,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       } else {
         skipped++;
       }
-      await tryIngestPdfAttachmentsAfterPersist({
+      await tryIngestMediaAttachmentsAfterPersist({
         cred,
         message,
         accessToken,
@@ -400,9 +400,6 @@ async function tryIngestMediaAttachmentsAfterPersist(args: {
   }
 }
 
-/** @deprecated Use tryIngestMediaAttachmentsAfterPersist — kept for call-site greppability during migration. */
-const tryIngestPdfAttachmentsAfterPersist = tryIngestMediaAttachmentsAfterPersist;
-
 /**
  * Retry attachment ingest for a known message that was pre-filtered by
  * `partitionKnownGmailRefs`. Self-authored mail is still dropped.
@@ -430,8 +427,7 @@ async function tryIngestMediaAttachmentsForKnownMessage(args: {
   }
 }
 
-/** @deprecated Use tryIngestMediaAttachmentsForKnownMessage. */
-const tryIngestPdfAttachmentsForKnownMessage = tryIngestMediaAttachmentsForKnownMessage;
+
 
 /** Numeric compare on history-id strings — Gmail's ids are stringified ints. */
 function compareHistoryIds(a: string, b: string): number {
@@ -822,7 +818,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
-      await tryIngestPdfAttachmentsAfterPersist({
+      await tryIngestMediaAttachmentsAfterPersist({
         cred,
         message,
         accessToken,
@@ -1016,7 +1012,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
-      await tryIngestPdfAttachmentsAfterPersist({
+      await tryIngestMediaAttachmentsAfterPersist({
         cred,
         message,
         accessToken,
@@ -1047,7 +1043,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     await mapConcurrent(knownRefs, concurrency, async (ref) => {
       try {
         const message = await getMessage({ accessToken, id: ref.id, format: "full" });
-        await tryIngestPdfAttachmentsForKnownMessage({
+        await tryIngestMediaAttachmentsForKnownMessage({
           cred,
           message,
           accessToken,

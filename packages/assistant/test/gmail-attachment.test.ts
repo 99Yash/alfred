@@ -4,7 +4,7 @@ import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import { documents, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-import { ingestGmailPdfAttachments } from "../src/connections/ingestion/gmail-attachment";
+import { ingestGmailMediaAttachments } from "../src/connections/ingestion/gmail-media";
 import type { GmailMessage } from "@alfred/integrations/google";
 import { dbBackedSkip } from "./support/db-backed";
 
@@ -76,13 +76,14 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4 fake bytes"));
     let indexCalls = 0;
-    const result = await ingestGmailPdfAttachments({
+    const result = await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
       accessToken: "fake-token",
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
+        allowedFamilies: ["pdf"] as const,
         createExtractor: () => async () => ({
           kind: "extracted" as const,
           family: "pdf" as const,
@@ -195,6 +196,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     let indexCalls = 0;
     const deps = {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
+      allowedFamilies: ["pdf"] as const,
       createExtractor: createExtractorStub,
       indexDocument: async () => {
         indexCalls++;
@@ -202,7 +204,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       },
     };
 
-    const r1 = await ingestGmailPdfAttachments({
+    const r1 = await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
@@ -220,7 +222,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const hash1 = doc1.contentHash;
 
     indexCalls = 0;
-    const r2 = await ingestGmailPdfAttachments({
+    const r2 = await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
@@ -258,6 +260,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
     const deps = {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
+      allowedFamilies: ["pdf"] as const,
       createExtractor: () => async () => ({
         kind: "extracted" as const,
         family: "pdf" as const,
@@ -272,7 +275,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       }),
     };
 
-    await ingestGmailPdfAttachments({
+    await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
@@ -285,7 +288,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         .from(documents)
         .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
     )[0]!;
-    await ingestGmailPdfAttachments({
+    await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
@@ -320,13 +323,14 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       filename: "scan.pdf",
     });
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
-    const result = await ingestGmailPdfAttachments({
+    const result = await ingestGmailMediaAttachments({
       userId,
       accountId,
       message,
       accessToken: "t",
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
+        allowedFamilies: ["pdf"] as const,
         createExtractor: () => async () => ({ kind: "needs_ocr" as const, family: "pdf" as const }),
         indexDocument: async () => {
           assert.fail("indexDocument must not be called for needs_ocr");
