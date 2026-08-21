@@ -93,6 +93,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accountId,
       message,
       accessToken: "fake-token",
+      authoredAt: new Date(),
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
         media: pdfOnlyMedia(async () => ({
@@ -201,6 +202,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accountId,
       message,
       accessToken: "t",
+      authoredAt: new Date(),
       deps,
     });
     assert.equal(r1.ingested, 1);
@@ -215,6 +217,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accountId,
       message,
       accessToken: "t",
+      authoredAt: new Date(),
       deps,
     });
     assert.equal(r2.ingested, 0);
@@ -262,6 +265,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accountId,
       message,
       accessToken: "t",
+      authoredAt: new Date(),
       deps,
     });
     assert.equal(r1.ingested, 1);
@@ -277,6 +281,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accountId,
       message,
       accessToken: "t",
+      authoredAt: new Date(),
       deps,
     });
     assert.equal(r2.ingested, 0);
@@ -315,6 +320,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accountId,
       message,
       accessToken: "t",
+      authoredAt: new Date(),
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
         media: pdfOnlyMedia(async () => ({

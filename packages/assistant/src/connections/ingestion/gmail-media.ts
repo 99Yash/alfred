@@ -20,17 +20,6 @@ const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 const DOOR_MEDIA = extraction({ door: GMAIL_MEDIA_DOOR });
 
 /**
- * Convert Gmail's `internalDate` (ms-since-epoch as string) to a Date.
- * Returns null when missing or non-numeric — the column is nullable.
- */
-export function internalDateToDate(internalDate: string | undefined): Date | null {
-  if (!internalDate) return null;
-  const ms = Number(internalDate);
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms);
-}
-
-/**
  * The six per-run counters attachment ingest reports. One home so adding a
  * seventh field is one edit here — `formatMediaTally` renders it in logs
  * with no call-site change.
@@ -87,6 +76,12 @@ export interface GmailMediaIngestArgs {
   accountId: string;
   message: GmailMessage;
   accessToken: string;
+  /**
+   * The mail row's timestamp, resolved by the caller that owns the mail
+   * persist path. Attachment rows share it so a thread reads as one
+   * timeline; null keeps the column null.
+   */
+  authoredAt: Date | null;
   deps?: GmailMediaIngestDeps | undefined;
 }
 
@@ -245,7 +240,7 @@ export async function ingestGmailMediaAttachments(
           content,
           contentHash,
           metadata,
-          authoredAt: internalDateToDate(args.message.internalDate),
+          authoredAt: args.authoredAt,
           raw: { messageId: args.message.id, attachment: att },
         })
         .onConflictDoUpdate({

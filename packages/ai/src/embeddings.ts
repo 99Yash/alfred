@@ -20,8 +20,17 @@ import type { CallAttribution } from "./metering/types";
 
 export const EMBEDDING_DIMENSIONS = 1024;
 
-/** Voyage 3.5 input price per million tokens — single owner for cost-cap math. */
-export const VOYAGE_INPUT_PRICE_PER_MTOK_USD = 0.06;
+/**
+ * Voyage input price per million tokens — the fallback when
+ * `VOYAGE_INPUT_PRICE_PER_MTOK_USD` is unset. Vendor pricing drifts; the env
+ * var owns the live value and this default only seeds fresh deployments.
+ */
+const VOYAGE_INPUT_PRICE_PER_MTOK_USD_DEFAULT = 0.06;
+
+/** Single owner for the price the embed cost-cap math derives its budget from. */
+export function voyageInputPricePerMtokUsd(): number {
+  return serverEnv().VOYAGE_INPUT_PRICE_PER_MTOK_USD ?? VOYAGE_INPUT_PRICE_PER_MTOK_USD_DEFAULT;
+}
 
 /**
  * Voyage per-request batch limits: at most 1000 inputs and 120k total

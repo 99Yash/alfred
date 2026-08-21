@@ -6,6 +6,7 @@ import {
   type ExtractedPdfPage,
   type InvalidPdfCause,
   type PdfDocumentType,
+  type PdfExtractionLimits,
 } from "./extract-pdf";
 import {
   createPdfExtractionLimitResult,
@@ -103,10 +104,10 @@ function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
  */
 export async function extractPdfCore(
   bytes: Uint8Array,
-  maxCharacters: number,
+  limits: Pick<PdfExtractionLimits, "maxCharacters" | "truncateOnOutputExceed">,
   load: LoadPdfInspector = loadInspector,
-  truncateOnOutputExceed = false,
 ): Promise<ExtractedPdf> {
+  const { maxCharacters } = limits;
   // Keep native-load rejection distinct from PdfExtractionError. The child
   // protocol preserves this distinction for the parent.
   const inspector = await load();
@@ -122,7 +123,7 @@ export async function extractPdfCore(
     const pageCharacters = pdfExtractionPageCharacterCount(mutablePages);
 
     if (pageCharacters > maxCharacters) {
-      if (truncateOnOutputExceed) {
+      if (limits.truncateOnOutputExceed) {
         mutablePages = truncatePagesToFit(mutablePages, maxCharacters);
       } else {
         return createPdfExtractionLimitResult("output_characters", pageCharacters, maxCharacters);
@@ -145,7 +146,7 @@ export async function extractPdfCore(
       };
       const totalCharacters = pdfExtractionContentCharacterCount(result);
       if (totalCharacters > maxCharacters) {
-        if (truncateOnOutputExceed) {
+        if (limits.truncateOnOutputExceed) {
           // Truncate text to fit remaining budget after pages
           const pageChars = pdfExtractionPageCharacterCount(mutablePages);
           const remaining = Math.max(0, maxCharacters - pageChars);
@@ -181,7 +182,7 @@ export async function extractPdfCore(
       };
       const totalCharacters = pdfExtractionContentCharacterCount(result);
       if (totalCharacters > maxCharacters) {
-        if (truncateOnOutputExceed) {
+        if (limits.truncateOnOutputExceed) {
           truncatedText = truncateTextToFit(text, maxCharacters);
           return { kind: "text_without_pages", pdfType, pageCount, text: truncatedText };
         }

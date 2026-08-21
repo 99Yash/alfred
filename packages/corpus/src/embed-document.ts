@@ -1,4 +1,4 @@
-import { embedMany, VOYAGE_INPUT_PRICE_PER_MTOK_USD } from "@alfred/ai/embeddings";
+import { embedMany, voyageInputPricePerMtokUsd } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
@@ -115,9 +115,10 @@ export interface IndexDocumentArgs {
   idempotencyKey?: string;
   /**
    * Provider input price per million tokens, used to derive the per-call
-   * token budget from `EMBED_COST_CAP_USD`. Defaults to the Voyage constant —
-   * the one wiring point that knows the provider price; tests and future
-   * providers inject a value here instead of the policy importing one.
+   * token budget from `EMBED_COST_CAP_USD`. Defaults to the Voyage price
+   * (`voyageInputPricePerMtokUsd`, env-overridable) — the one wiring point
+   * that knows the provider price; tests and future providers inject a value
+   * here instead of the policy importing one.
    */
   pricePerMtokUsd?: number;
 }
@@ -224,7 +225,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   // is marked terminal for the sweep below (durable truncation, not a silent
   // one); an explicit re-index still progresses because each call caps only
   // the chunks that do not already match stored hashes.
-  const maxTokens = maxTokensForPrice(args.pricePerMtokUsd ?? VOYAGE_INPUT_PRICE_PER_MTOK_USD);
+  const maxTokens = maxTokensForPrice(args.pricePerMtokUsd ?? voyageInputPricePerMtokUsd());
   const capped = capChunksForBudget(toEmbed, toEmbedHashes, maxTokens);
   const cappedChunks = capped.chunks;
   const cappedHashes = capped.hashes;

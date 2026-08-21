@@ -1,6 +1,6 @@
 import {
   gmailDocumentMetadataSchema,
-  isRecord,
+  getPath,
   mapConcurrent,
   parseGmailDocumentMetadata,
   toMessage,
@@ -27,7 +27,6 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   hasIngestableAttachments,
   ingestGmailMediaAttachments,
-  internalDateToDate,
   setMediaPending,
   ZERO_MEDIA_TALLY,
   type GmailMediaIngestDeps,
@@ -285,6 +284,17 @@ type PersistMessageResult =
   // stays in the provider package (`@alfred/integrations/google`).
   | { outcome: "ignored" };
 
+/**
+ * Convert Gmail's `internalDate` (ms-since-epoch as string) to a Date.
+ * Returns null when missing or non-numeric — the column is nullable.
+ */
+function internalDateToDate(internalDate: string | undefined): Date | null {
+  if (!internalDate) return null;
+  const ms = Number(internalDate);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms);
+}
+
 async function persistMessage(
   cred: CredentialContext,
   message: GmailMessage,
@@ -488,6 +498,7 @@ export async function runGmailMediaIngest(args: {
     accountId: cred.accountId,
     message,
     accessToken,
+    authoredAt: internalDateToDate(message.internalDate),
     ...(args.deps?.media ? { deps: args.deps.media } : {}),
   });
   if (result.errors > 0 || result.embedFailures > 0) {
@@ -1238,15 +1249,12 @@ async function partitionKnownGmailRefs(
     );
   const known = new Map(existing.map((row) => [row.sourceId, row]));
   const unknownRefs = refs.filter((r) => !known.has(r.id));
-  const knownRefs = refs
-    .filter((r) => {
-      const row = known.get(r.id);
-      return row !== undefined && isMediaPending(row.metadata);
-    })
-    .map((r) => {
-      const row = known.get(r.id)!;
-      return { id: r.id, threadId: r.threadId, documentId: row.id };
-    });
+  const knownRefs = refs.flatMap((r) => {
+    const row = known.get(r.id);
+    return row !== undefined && isMediaPending(row.metadata)
+      ? [{ id: r.id, threadId: r.threadId, documentId: row.id }]
+      : [];
+  });
   const knownSentDocs: KnownSentGmailDoc[] = [];
   for (const row of existing) {
     if (isStoredGmailSentMetadata(row.metadata)) {
@@ -1262,8 +1270,7 @@ async function partitionKnownGmailRefs(
  * absent or non-true means "no retry needed".
  */
 function isMediaPending(metadata: unknown): boolean {
-  if (!isRecord(metadata)) return false;
-  return metadata.mediaPending === true;
+  return getPath(metadata, "mediaPending") === true;
 }
 
 function isStoredGmailSentMetadata(metadata: unknown): boolean {
