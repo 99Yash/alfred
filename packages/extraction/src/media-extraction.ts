@@ -41,98 +41,86 @@ export type MediaExtractionResult =
 export type MediaExtractor = (bytes: Uint8Array) => Promise<MediaExtractionResult>;
 
 /**
- * The one family table. Each entry owns the two facts extraction needs for a
- * content family: how bytes become text (`factory`) and what each door's
- * limits are (`limitsByDoor`). The literal plus `satisfies` pins both
- * directions — a family missing here, or an entry no contract name backs,
- * is a type error. Adding a family is one `INGEST_POLICY` edit in
- * `@alfred/contracts` (the browser-safe MIME → family map stays there)
- * plus one entry here; nothing else in the repo changes.
+ * Shared office preset (docx/xlsx). Deltas other families take are visible
+ * against these three literals.
+ */
+const OFFICE_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = {
+  chatUpload: {
+    maxBytes: 10 * 1024 * 1024,
+    maxCharacters: 1_000_000,
+    maxParseMilliseconds: 30_000,
+    truncateOnOutputExceed: false,
+  },
+  fetchUrl: {
+    maxBytes: 8_000_000,
+    maxCharacters: 200_000,
+    maxParseMilliseconds: 30_000,
+    truncateOnOutputExceed: false,
+  },
+  gmailAttachment: {
+    maxBytes: 10 * 1024 * 1024,
+    maxCharacters: 1_000_000,
+    maxParseMilliseconds: 30_000,
+    truncateOnOutputExceed: true,
+  },
+};
+
+/** Text decodes cheaply — short parse budget, smaller fetchUrl output budget. */
+const TEXT_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = {
+  chatUpload: { ...OFFICE_LIMITS_BY_DOOR.chatUpload, maxParseMilliseconds: 5_000 },
+  fetchUrl: {
+    ...OFFICE_LIMITS_BY_DOOR.fetchUrl,
+    maxCharacters: 100_000,
+    maxParseMilliseconds: 5_000,
+  },
+  gmailAttachment: { ...OFFICE_LIMITS_BY_DOOR.gmailAttachment, maxParseMilliseconds: 5_000 },
+};
+
+/**
+ * The one door-policy table. Every family × door extraction limit lives here,
+ * so "what does the fetchUrl door allow?" is one read. The pdf row IS
+ * `REALTIME_PDF_EXTRACTION_LIMITS` — the PDF child-process presets stay the
+ * single source for their direct consumers (`fetch-url`, chat enrichment).
+ * Office families share one preset; text states only its deltas from it
+ * (cheap 5s parse, smaller fetchUrl output). The `satisfies` pin makes a
+ * family or door missing here a type error.
+ */
+export const DOOR_LIMITS = {
+  pdf: REALTIME_PDF_EXTRACTION_LIMITS,
+  document: OFFICE_LIMITS_BY_DOOR,
+  spreadsheet: OFFICE_LIMITS_BY_DOOR,
+  text: TEXT_LIMITS_BY_DOOR,
+} as const satisfies Readonly<
+  Record<ContentFamily, Readonly<Record<ExtractionDoor, ExtractionLimits>>>
+>;
+
+/**
+ * The one family table. Each entry owns the one fact extraction needs for a
+ * content family: how bytes become text (`factory`). Limits live beside it in
+ * `DOOR_LIMITS`. The literal plus `satisfies` pins the direction — a family
+ * missing here, or an entry no contract name backs, is a type error. Adding a
+ * family is one `INGEST_POLICY` edit in `@alfred/contracts` (the browser-safe
+ * MIME → family map stays there), one entry here, and one `DOOR_LIMITS` row;
+ * nothing else in the repo changes.
  */
 export const FAMILY_REGISTRY = {
   pdf: {
     factory: createPdfMediaExtractor,
-    limitsByDoor: {
-      chatUpload: REALTIME_PDF_EXTRACTION_LIMITS.chatUpload,
-      fetchUrl: REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl,
-      gmailAttachment: REALTIME_PDF_EXTRACTION_LIMITS.gmailAttachment,
-    },
   },
   document: {
     factory: (limits: ExtractionLimits) => createOfficeMediaExtractor("document", limits),
-    limitsByDoor: {
-      chatUpload: {
-        maxBytes: 10 * 1024 * 1024,
-        maxCharacters: 1_000_000,
-        maxParseMilliseconds: 30_000,
-        truncateOnOutputExceed: false,
-      },
-      fetchUrl: {
-        maxBytes: 8_000_000,
-        maxCharacters: 200_000,
-        maxParseMilliseconds: 30_000,
-        truncateOnOutputExceed: false,
-      },
-      gmailAttachment: {
-        maxBytes: 10 * 1024 * 1024,
-        maxCharacters: 1_000_000,
-        maxParseMilliseconds: 30_000,
-        truncateOnOutputExceed: true,
-      },
-    },
   },
   spreadsheet: {
     factory: (limits: ExtractionLimits) => createOfficeMediaExtractor("spreadsheet", limits),
-    limitsByDoor: {
-      chatUpload: {
-        maxBytes: 10 * 1024 * 1024,
-        maxCharacters: 1_000_000,
-        maxParseMilliseconds: 30_000,
-        truncateOnOutputExceed: false,
-      },
-      fetchUrl: {
-        maxBytes: 8_000_000,
-        maxCharacters: 200_000,
-        maxParseMilliseconds: 30_000,
-        truncateOnOutputExceed: false,
-      },
-      gmailAttachment: {
-        maxBytes: 10 * 1024 * 1024,
-        maxCharacters: 1_000_000,
-        maxParseMilliseconds: 30_000,
-        truncateOnOutputExceed: true,
-      },
-    },
   },
   text: {
     factory: (limits: ExtractionLimits) => createTextMediaExtractor("text", limits),
-    limitsByDoor: {
-      chatUpload: {
-        maxBytes: 10 * 1024 * 1024,
-        maxCharacters: 100_000,
-        maxParseMilliseconds: 5_000,
-        truncateOnOutputExceed: false,
-      },
-      fetchUrl: {
-        maxBytes: 8_000_000,
-        maxCharacters: 100_000,
-        maxParseMilliseconds: 5_000,
-        truncateOnOutputExceed: false,
-      },
-      gmailAttachment: {
-        maxBytes: 10 * 1024 * 1024,
-        maxCharacters: 1_000_000,
-        maxParseMilliseconds: 5_000,
-        truncateOnOutputExceed: true,
-      },
-    },
   },
 } as const satisfies Readonly<
   Record<
     ContentFamily,
     {
       readonly factory: (limits: ExtractionLimits) => MediaExtractor;
-      readonly limitsByDoor: Readonly<Record<ExtractionDoor, ExtractionLimits>>;
     }
   >
 >;
