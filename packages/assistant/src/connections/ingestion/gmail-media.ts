@@ -9,7 +9,7 @@ import {
   type MediaExtractionResult,
 } from "@alfred/extraction";
 import { extractAttachments, getAttachment, type GmailMessage } from "@alfred/integrations/google";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 
@@ -27,6 +27,8 @@ export function internalDateToDate(internalDate: string | undefined): Date | nul
 export interface GmailMediaIngestResult {
   attempted: number;
   ingested: number;
+  /** Attachment docs that already existed — download, extraction, and embed all skipped. */
+  deduped: number;
   skipped: number;
   errors: number;
   embedFailures: number;
@@ -69,7 +71,15 @@ export async function ingestGmailMediaAttachments(
 ): Promise<GmailMediaIngestResult> {
   const attachments = extractAttachments(args.message);
   if (attachments.length === 0) {
-    return { attempted: 0, ingested: 0, skipped: 0, errors: 0, embedFailures: 0, documentIds: [] };
+    return {
+      attempted: 0,
+      ingested: 0,
+      deduped: 0,
+      skipped: 0,
+      errors: 0,
+      embedFailures: 0,
+      documentIds: [],
+    };
   }
 
   const getAttachmentFn = args.deps?.getAttachment ?? getAttachment;
@@ -86,8 +96,37 @@ export async function ingestGmailMediaAttachments(
 
   const candidates = attachments.filter((a) => media.isSupported(a.mimeType));
   if (candidates.length === 0) {
-    return { attempted: 0, ingested: 0, skipped: 0, errors: 0, embedFailures: 0, documentIds: [] };
+    return {
+      attempted: 0,
+      ingested: 0,
+      deduped: 0,
+      skipped: 0,
+      errors: 0,
+      embedFailures: 0,
+      documentIds: [],
+    };
   }
+
+  // Skip-if-exists: one indexed SELECT replaces a full attachment download +
+  // child-process extraction for every already-ingested part. Gmail
+  // attachmentIds are immutable, so an existing `messageId:attachmentId` row
+  // can never gain new content. A failed first attempt never persisted a row,
+  // so the known-message retry in pollGmailRecent still recovers it; a row
+  // that persisted but failed to embed is recovered by the corpus sweep
+  // (`retryPending`), not by re-downloading.
+  const sourceIdOf = (att: { attachmentId: string }): string =>
+    `${args.message.id}:${att.attachmentId}`;
+  const existingRows = await db()
+    .select({ sourceId: documents.sourceId })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, args.userId),
+        eq(documents.source, "gmail_attachment"),
+        inArray(documents.sourceId, candidates.map(sourceIdOf)),
+      ),
+    );
+  const existingSourceIds = new Set(existingRows.map((row) => row.sourceId));
 
   async function extractForMime(
     mime: string,
@@ -103,6 +142,7 @@ export async function ingestGmailMediaAttachments(
 
   let attempted = 0;
   let ingested = 0;
+  let deduped = 0;
   let skipped = 0;
   let errors = 0;
   let embedFailures = 0;
@@ -110,6 +150,13 @@ export async function ingestGmailMediaAttachments(
 
   for (const att of candidates) {
     attempted++;
+
+    // Already ingested — the row exists, so fetch/extract/embed would repeat
+    // identical work. See the skip-if-exists note above the loop's query.
+    if (existingSourceIds.has(sourceIdOf(att))) {
+      deduped++;
+      continue;
+    }
 
     // Pre-fetch hint: avoid the round-trip when Gmail already reports an
     // over-limit part. No limits leak — the facade owns the policy.
@@ -163,7 +210,7 @@ export async function ingestGmailMediaAttachments(
     }
     const pages = result.pages && result.pages.length > 0 ? result.pages : null;
 
-    const sourceId = `${args.message.id}:${att.attachmentId}`;
+    const sourceId = sourceIdOf(att);
     const contentHash = sha256(content);
     const metadata: Record<string, unknown> = {
       filename: att.filename,
@@ -241,5 +288,5 @@ export async function ingestGmailMediaAttachments(
     ingested++;
   }
 
-  return { attempted, ingested, skipped, errors, embedFailures, documentIds };
+  return { attempted, ingested, deduped, skipped, errors, embedFailures, documentIds };
 }

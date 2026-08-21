@@ -116,6 +116,8 @@ export interface IngestRecentResult {
   mediaEmbedFailures: number;
   /** Attachment ingest skipped (over-limit, needs_ocr, empty, unsupported). */
   mediaSkipped: number;
+  /** Attachment docs already on file — download/extract/embed skipped (skip-if-exists dedup). */
+  mediaDeduped: number;
   /** Attachment document ids produced this run (may include updates to known messages). */
   mediaDocumentIds: string[];
 }
@@ -159,6 +161,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   let mediaErrors = 0;
   let mediaEmbedFailures = 0;
   let mediaSkipped = 0;
+  let mediaDeduped = 0;
   const mediaDocumentIds: string[] = [];
 
   for (const ref of refs) {
@@ -201,6 +204,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
         mediaErrors += mediaResult.errors;
         mediaEmbedFailures += mediaResult.embedFailures;
         mediaSkipped += mediaResult.skipped;
+        mediaDeduped += mediaResult.deduped;
         mediaDocumentIds.push(...mediaResult.documentIds);
       }
       if (message.historyId) {
@@ -244,6 +248,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     mediaErrors,
     mediaEmbedFailures,
     mediaSkipped,
+    mediaDeduped,
     mediaDocumentIds,
   };
 }
@@ -444,7 +449,15 @@ async function tryIngestMediaAttachmentsAfterPersist(args: {
       `[gmail.ingestor] attachment ingest failed for message=${args.logId}:`,
       toMessage(err),
     );
-    return { attempted: 0, ingested: 0, skipped: 0, errors: 1, embedFailures: 0, documentIds: [] };
+    return {
+      attempted: 0,
+      ingested: 0,
+      deduped: 0,
+      skipped: 0,
+      errors: 1,
+      embedFailures: 0,
+      documentIds: [],
+    };
   }
 }
 
@@ -483,7 +496,15 @@ async function tryIngestMediaAttachmentsForKnownMessage(args: {
       `[gmail.ingestor] attachment retry failed for message=${args.logId}:`,
       toMessage(err),
     );
-    return { attempted: 0, ingested: 0, skipped: 0, errors: 1, embedFailures: 0, documentIds: [] };
+    return {
+      attempted: 0,
+      ingested: 0,
+      deduped: 0,
+      skipped: 0,
+      errors: 1,
+      embedFailures: 0,
+      documentIds: [],
+    };
   }
 }
 
@@ -717,6 +738,8 @@ export interface PollHistoryResult {
   mediaErrors: number;
   mediaEmbedFailures: number;
   mediaSkipped: number;
+  /** Attachment docs already on file — download/extract/embed skipped (skip-if-exists dedup). */
+  mediaDeduped: number;
   mediaDocumentIds: string[];
 }
 
@@ -768,6 +791,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       mediaErrors: recent.mediaErrors,
       mediaEmbedFailures: recent.mediaEmbedFailures,
       mediaSkipped: recent.mediaSkipped,
+      mediaDeduped: recent.mediaDeduped,
       mediaDocumentIds: recent.mediaDocumentIds,
     };
   }
@@ -846,6 +870,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         mediaErrors: recent.mediaErrors,
         mediaEmbedFailures: recent.mediaEmbedFailures,
         mediaSkipped: recent.mediaSkipped,
+        mediaDeduped: recent.mediaDeduped,
         mediaDocumentIds: recent.mediaDocumentIds,
       };
     }
@@ -866,6 +891,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   let mediaErrors = 0;
   let mediaEmbedFailures = 0;
   let mediaSkipped = 0;
+  let mediaDeduped = 0;
   const mediaDocumentIds: string[] = [];
 
   for (const id of messageIds) {
@@ -909,6 +935,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         mediaErrors += mediaResult.errors;
         mediaEmbedFailures += mediaResult.embedFailures;
         mediaSkipped += mediaResult.skipped;
+        mediaDeduped += mediaResult.deduped;
         mediaDocumentIds.push(...mediaResult.documentIds);
       }
     } catch (err) {
@@ -946,6 +973,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     mediaErrors,
     mediaEmbedFailures,
     mediaSkipped,
+    mediaDeduped,
     mediaDocumentIds,
   };
 }
@@ -1015,6 +1043,8 @@ export interface PollRecentResult {
   mediaErrors: number;
   mediaEmbedFailures: number;
   mediaSkipped: number;
+  /** Attachment docs already on file — download/extract/embed skipped (skip-if-exists dedup). */
+  mediaDeduped: number;
   mediaDocumentIds: string[];
 }
 
@@ -1104,6 +1134,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   let mediaErrors = 0;
   let mediaEmbedFailures = 0;
   let mediaSkipped = 0;
+  let mediaDeduped = 0;
   const mediaDocumentIds: string[] = [];
 
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
@@ -1140,6 +1171,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
         mediaErrors += mediaResult.errors;
         mediaEmbedFailures += mediaResult.embedFailures;
         mediaSkipped += mediaResult.skipped;
+        mediaDeduped += mediaResult.deduped;
         mediaDocumentIds.push(...mediaResult.documentIds);
       }
       if (
@@ -1178,6 +1210,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
           mediaErrors += mediaResult.errors;
           mediaEmbedFailures += mediaResult.embedFailures;
           mediaSkipped += mediaResult.skipped;
+          mediaDeduped += mediaResult.deduped;
           mediaDocumentIds.push(...mediaResult.documentIds);
         }
         if (
@@ -1256,6 +1289,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     mediaErrors,
     mediaEmbedFailures,
     mediaSkipped,
+    mediaDeduped,
     mediaDocumentIds,
   };
 }
