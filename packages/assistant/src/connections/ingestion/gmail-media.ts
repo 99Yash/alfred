@@ -32,8 +32,8 @@ export function internalDateToDate(internalDate: string | undefined): Date | nul
 
 /**
  * The six per-run counters attachment ingest reports. One home so adding a
- * seventh field is one edit here plus the merge, not six hand-rolled
- * aggregations across the poll entry points.
+ * seventh field is one edit here — `formatMediaTally` renders it in logs
+ * with no call-site change.
  */
 export interface GmailMediaTally {
   attempted: number;
@@ -54,19 +54,11 @@ export const ZERO_MEDIA_TALLY: GmailMediaTally = {
   embedFailures: 0,
 };
 
-/** Accumulate one run's counters into a poll-level tally. Mutates `acc`. */
-export function mergeMediaTally(
-  acc: GmailMediaTally,
-  result: GmailMediaIngestResult | null | undefined,
-): GmailMediaTally {
-  if (!result) return acc;
-  acc.attempted += result.attempted;
-  acc.ingested += result.ingested;
-  acc.deduped += result.deduped;
-  acc.skipped += result.skipped;
-  acc.errors += result.errors;
-  acc.embedFailures += result.embedFailures;
-  return acc;
+/** Render the tally as a `key=value` log fragment. New fields log automatically. */
+export function formatMediaTally(tally: GmailMediaTally): string {
+  return Object.entries(tally)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ");
 }
 
 export interface GmailMediaIngestResult extends GmailMediaTally {
