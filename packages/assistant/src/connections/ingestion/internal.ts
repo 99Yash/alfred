@@ -30,5 +30,6 @@ export {
   ingestRecentGmail,
   pollGmailHistory,
   pollGmailRecent,
+  runGmailMediaIngest,
   seedGmailHistoryCursorIfAbsent,
 } from "./gmail-ingest";

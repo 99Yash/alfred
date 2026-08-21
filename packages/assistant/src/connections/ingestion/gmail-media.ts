@@ -14,6 +14,12 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 
 /**
+ * Module-level door bind for the cheap schedule-time predicate below. Holds
+ * no bytes; each family extractor is lazily built and memoized inside.
+ */
+const DOOR_MEDIA = extraction({ door: GMAIL_MEDIA_DOOR });
+
+/**
  * Convert Gmail's `internalDate` (ms-since-epoch as string) to a Date.
  * Returns null when missing or non-numeric — the column is nullable.
  */
@@ -88,6 +94,17 @@ export interface GmailMediaIngestArgs {
   message: GmailMessage;
   accessToken: string;
   deps?: GmailMediaIngestDeps | undefined;
+}
+
+/**
+ * Cheap predicate for the poll hot path: does this message carry any
+ * attachment whose MIME is extractable under the Gmail door? A message with
+ * none must not pay for a `gmail.media_ingest` job. This checks the same
+ * whitelist the ingest loop will apply, so a scheduled job never no-ops on
+ * support alone (size/limit skips still happen inside the job).
+ */
+export function hasIngestableAttachments(message: GmailMessage): boolean {
+  return extractAttachments(message).some((att) => DOOR_MEDIA.isSupported(att.mimeType));
 }
 
 /**
