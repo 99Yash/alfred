@@ -92,8 +92,12 @@ export function extraction(options: ExtractionOptions): Extraction {
     return extractor;
   }
 
+  function resolveFamily(mime: string): ContentFamily | null {
+    return getContentFamily(mime);
+  }
+
   function resolveMime(mime: string): MediaExtractor | null {
-    const family = getContentFamily(mime);
+    const family = resolveFamily(mime);
     if (!family) return null;
     return getExtractor(family);
   }
@@ -107,9 +111,9 @@ export function extraction(options: ExtractionOptions): Extraction {
       return resolveMime(mime);
     },
     wouldExceed(mime: string, byteLength: number): boolean {
-      const family = getContentFamily(mime);
+      const family = resolveFamily(mime);
       if (!family) return false;
-      if (byteLength <= 0) return false;
+      if (!Number.isSafeInteger(byteLength) || byteLength <= 0) return false;
       const limits = extractionLimitsFor(options.door, family);
       return byteLength > limits.maxBytes;
     },

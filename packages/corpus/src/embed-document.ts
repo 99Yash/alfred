@@ -57,10 +57,12 @@ async function markDocumentEmbedTerminal(documentId: string, reason: string): Pr
 }
 
 /**
- * Single owner for the $0.50 embed budget. Pure — returns sliced copies
- * and never mutates the inputs. The policy is truncate-and-warn, not
- * dead-letter; even the first chunk exceeding the cap yields an empty
- * result that the caller handles without a second dead-letter path.
+ * Single owner for the $0.50 embed budget. Returns sliced copies and never
+ * mutates the inputs. The policy is truncate-and-warn, not dead-letter; even
+ * the first chunk exceeding the cap yields an empty result that the caller
+ * handles without a second dead-letter path. The `console.warn` is the
+ * observable policy signal — the function otherwise stays pure in its return
+ * value (slice, don't mutate).
  */
 function capChunksForBudget(
   chunks: readonly Chunk[],
@@ -69,7 +71,13 @@ function capChunksForBudget(
 ): { chunks: Chunk[]; hashes: string[]; truncated: boolean; kept: number; total: number } {
   const total = chunks.reduce((sum, c) => sum + c.tokenCount, 0);
   if (total <= MAX_EMBED_TOKENS_PER_DOC) {
-    return { chunks: [...chunks], hashes: [...hashes], truncated: false, kept: chunks.length, total };
+    return {
+      chunks: [...chunks],
+      hashes: [...hashes],
+      truncated: false,
+      kept: chunks.length,
+      total,
+    };
   }
   let used = 0;
   let keep = 0;

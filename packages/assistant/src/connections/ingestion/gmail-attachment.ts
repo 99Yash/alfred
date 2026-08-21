@@ -50,8 +50,8 @@ export async function ingestGmailPdfAttachments(
     accessToken: args.accessToken,
     deps: {
       getAttachment: args.deps?.getAttachment,
+      allowedFamilies: ["pdf"] as const,
       ...(pdfOnlyCreateExtractor ? { createExtractor: pdfOnlyCreateExtractor } : {}),
-      ...(baseCreateExtractor ? {} : { allowedFamilies: ["pdf"] as const }),
       indexDocument: args.deps?.indexDocument,
     },
   });

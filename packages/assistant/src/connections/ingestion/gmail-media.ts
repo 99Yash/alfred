@@ -78,16 +78,23 @@ export async function ingestGmailMediaAttachments(
   // to avoid the child process; production uses the registry.
   const media = extraction({ door: GMAIL_MEDIA_DOOR });
 
-  function isSupported(mime: string): boolean {
+  function isFamilyAllowed(family: ContentFamily | null): boolean {
+    if (!family) return false;
+    if (args.deps?.allowedFamilies && !args.deps.allowedFamilies.includes(family)) return false;
+    return true;
+  }
+
+  function resolveExtractor(mime: string): MediaExtractor | null {
     const family = getContentFamily(mime);
-    if (args.deps?.allowedFamilies && family && !args.deps.allowedFamilies.includes(family)) {
-      return false;
-    }
+    if (!isFamilyAllowed(family)) return null;
     if (args.deps?.createExtractor) {
-      if (!family) return false;
-      return args.deps.createExtractor({ family, mimeType: mime }) !== null;
+      return args.deps.createExtractor({ family: family!, mimeType: mime });
     }
-    return media.isSupported(mime);
+    return media.forMime(mime);
+  }
+
+  function isSupported(mime: string): boolean {
+    return resolveExtractor(mime) !== null;
   }
 
   const candidates = attachments.filter((a) => isSupported(a.mimeType));
@@ -99,17 +106,9 @@ export async function ingestGmailMediaAttachments(
     mime: string,
     bytes: Uint8Array,
   ): Promise<MediaExtractionResult | null> {
-    const family = getContentFamily(mime);
-    if (args.deps?.allowedFamilies && family && !args.deps.allowedFamilies.includes(family)) {
-      return null;
-    }
-    if (args.deps?.createExtractor) {
-      if (!family) return null;
-      const extractor = args.deps.createExtractor({ family, mimeType: mime });
-      if (!extractor) return null;
-      return extractor(bytes);
-    }
-    return media.extract({ mime, bytes });
+    const extractor = resolveExtractor(mime);
+    if (!extractor) return null;
+    return extractor(bytes);
   }
 
   let attempted = 0;
