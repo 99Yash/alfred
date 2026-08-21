@@ -20,10 +20,22 @@ import {
   seedGmailHistoryCursorIfAbsent,
 } from "@alfred/assistant/connections/ingestion/internal";
 import type { GmailMessage } from "@alfred/integrations/google";
+import type { Extraction } from "@alfred/extraction";
 import { dbBackedSkip } from "./support/db-backed";
 
 const ID_PREFIX = "test-gmail-ingest-";
 const SKIP = dbBackedSkip("database");
+
+/** Test-only media door: supports PDF only, returns the given extract result. */
+function pdfOnlyMedia(
+  extract: Extraction["extract"],
+): Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> {
+  return {
+    isSupported: (mime) => mime === "application/pdf",
+    wouldExceed: () => false,
+    extract,
+  };
+}
 
 const createdUserIds: string[] = [];
 
@@ -228,13 +240,12 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
             bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")),
             size: 1024,
           }),
-          allowedFamilies: ["pdf"] as const,
-          createExtractor: () => async () => ({
+          ...pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
             family: "pdf" as const,
             content: "pdf text from job",
             pages: [{ page: 1, start: 0, end: 8 }],
-          }),
+          })),
           indexDocument: async () => {
             indexCalls++;
             return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
@@ -365,7 +376,9 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
           getAttachment: async () => {
             throw new Error("transient getAttachment failure");
           },
-          allowedFamilies: ["pdf"] as const,
+          ...pdfOnlyMedia(async () => {
+            throw new Error("extraction must not run when the fetch fails");
+          }),
         },
       },
     });
@@ -439,13 +452,12 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
             bytes: new Uint8Array(Buffer.from("%PDF-1.4")),
             size: 1024,
           }),
-          allowedFamilies: ["pdf"] as const,
-          createExtractor: () => async () => ({
+          ...pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
             family: "pdf" as const,
             content: "embed me",
             pages: null,
-          }),
+          })),
           indexDocument: async () => {
             throw new Error("voyage down");
           },

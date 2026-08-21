@@ -5,12 +5,24 @@ import { closeConnections, db } from "@alfred/db";
 import { documents, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { ingestGmailMediaAttachments } from "../src/connections/ingestion/gmail-media";
+import type { Extraction } from "@alfred/extraction";
 import type { GmailMessage } from "@alfred/integrations/google";
 import { dbBackedSkip } from "./support/db-backed";
 
 const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-gmail-att-";
 const createdUserIds: string[] = [];
+
+/** Test-only media door: supports PDF only, returns the given extract result. */
+function pdfOnlyMedia(
+  extract: Extraction["extract"],
+): Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> {
+  return {
+    isSupported: (mime) => mime === "application/pdf",
+    wouldExceed: () => false,
+    extract,
+  };
+}
 
 after(async () => {
   if (createdUserIds.length) {
@@ -83,8 +95,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accessToken: "fake-token",
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
-        allowedFamilies: ["pdf"] as const,
-        createExtractor: () => async () => ({
+        media: pdfOnlyMedia(async () => ({
           kind: "extracted" as const,
           family: "pdf" as const,
           content: "page one text\n\npage two text",
@@ -92,7 +103,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
             { page: 1, start: 0, end: 13 },
             { page: 2, start: 15, end: 28 },
           ],
-        }),
+        })),
         indexDocument: async () => {
           indexCalls++;
           return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
@@ -173,14 +184,12 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         getAttachmentCalls++;
         return { bytes: new Uint8Array(Buffer.from("%PDF-1.4")), size: 9 };
       },
-      allowedFamilies: ["pdf"] as const,
-      createExtractor: () => async () => ({
+      media: pdfOnlyMedia(async () => ({
         kind: "extracted" as const,
         family: "pdf" as const,
         content: "version one",
         pages: [{ page: 1, start: 0, end: 11 }],
-      }),
-      indexDocument: async () => {
+      })),      indexDocument: async () => {
         indexCalls++;
         return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
       },
@@ -235,13 +244,12 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     let indexCalls = 0;
     const deps = {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
-      allowedFamilies: ["pdf"] as const,
-      createExtractor: () => async () => ({
+      media: pdfOnlyMedia(async () => ({
         kind: "extracted" as const,
         family: "pdf" as const,
         content: "same text",
         pages: [{ page: 1, start: 0, end: 9 }],
-      }),
+      })),
       indexDocument: async () => {
         indexCalls++;
         return { documentId: "fake", chunksWritten: 0, chunksSkipped: 1, empty: false };
@@ -308,8 +316,10 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       accessToken: "t",
       deps: {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
-        allowedFamilies: ["pdf"] as const,
-        createExtractor: () => async () => ({ kind: "needs_ocr" as const, family: "pdf" as const }),
+        media: pdfOnlyMedia(async () => ({
+          kind: "needs_ocr" as const,
+          family: "pdf" as const,
+        })),
         indexDocument: async () => {
           assert.fail("indexDocument must not be called for needs_ocr");
         },

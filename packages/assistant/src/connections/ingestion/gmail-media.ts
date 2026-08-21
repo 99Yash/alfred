@@ -1,11 +1,11 @@
-import { toMessage, type ContentFamily } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { indexDocument, sha256 } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import {
   extraction,
+  type Extraction,
   type ExtractionDoor,
-  type MediaExtractor,
   type MediaExtractionResult,
 } from "@alfred/extraction";
 import { extractAttachments, getAttachment, type GmailMessage } from "@alfred/integrations/google";
@@ -73,12 +73,13 @@ export interface GmailMediaIngestDeps {
         attachmentId: string;
       }) => Promise<{ bytes: Uint8Array; size: number }>)
     | undefined;
-  /** Override extractor for a MIME — used by tests to avoid the child process. */
-  createExtractor?: ((args: { mimeType: string }) => MediaExtractor | null) | undefined;
-  /** Restrict ingest to these families. When undefined, all extractable families are allowed. */
-  allowedFamilies?: readonly ContentFamily[] | undefined;
-  indexDocument?: ((args: { documentId: string }) => Promise<unknown>) | undefined;
-}
+  /**
+   * Test seam — overrides door-bound extraction. Same composed shape
+   * `fetch-url` injects: tests restrict families by what this object's
+   * `isSupported`/`extract` accept, not by a separate family list.
+   */
+  media?: Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> | undefined;
+  indexDocument?: ((args: { documentId: string }) => Promise<unknown>) | undefined;}
 
 export interface GmailMediaIngestArgs {
   userId: string;
@@ -119,13 +120,9 @@ export async function ingestGmailMediaAttachments(
   const indexDocumentFn = args.deps?.indexDocument ?? indexDocument;
 
   // Door-bound extraction — one bind, memoized per family. The facade hides
-  // `mime → family → gate → limits → factory`, including the `allowedFamilies`
-  // ledger. Tests inject via `deps.createExtractor` to avoid the child
-  // process; production uses the registry.
-  const media = extraction({
-    door: GMAIL_MEDIA_DOOR,
-    allowedFamilies: args.deps?.allowedFamilies,
-  });
+  // `mime → family → gate → limits → factory`. Tests inject the whole
+  // `media` object to avoid the child process; production uses the registry.
+  const media = args.deps?.media ?? extraction({ door: GMAIL_MEDIA_DOOR });
 
   const candidates = attachments.filter((a) => media.isSupported(a.mimeType));
   if (candidates.length === 0) {
@@ -155,18 +152,6 @@ export async function ingestGmailMediaAttachments(
       ),
     );
   const existingSourceIds = new Set(existingRows.map((row) => row.sourceId));
-
-  async function extractForMime(
-    mime: string,
-    bytes: Uint8Array,
-  ): Promise<MediaExtractionResult | null> {
-    if (args.deps?.createExtractor) {
-      const extractor = args.deps.createExtractor({ mimeType: mime });
-      if (!extractor) return null;
-      return extractor(bytes);
-    }
-    return media.extract({ mime, bytes });
-  }
 
   const tally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
   const documentIds: string[] = [];
@@ -209,7 +194,7 @@ export async function ingestGmailMediaAttachments(
 
     let result: MediaExtractionResult | null;
     try {
-      result = await extractForMime(att.mimeType, bytes);
+      result = await media.extract({ mime: att.mimeType, bytes });
     } catch (err) {
       tally.errors++;
       console.warn(`[gmail.media] extract failed for ${att.filename}:`, toMessage(err));

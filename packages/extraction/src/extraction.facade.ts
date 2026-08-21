@@ -46,19 +46,13 @@ import {
 export interface ExtractionOptions {
   /** Which ingest policy door owns the limits (chat, fetch, gmail). */
   door: ExtractionDoor;
-  /**
-   * Restrict extractable families to this list. A MIME whose family is not
-   * listed behaves exactly like an unsupported MIME (`null` everywhere).
-   * Undefined means every registered family is allowed.
-   */
-  allowedFamilies?: readonly ContentFamily[] | undefined;
 }
 
 export interface Extraction {
   /**
    * Extract text from bytes for a MIME type under the bound door.
-   * Returns `null` when the MIME is outside the whitelist or has no
-   * `contentFamily` (e.g. pass-through images) — the caller should skip
+   * Returns `null` when the MIME has no `contentFamily` (e.g. pass-through
+   * images) — the caller should skip
    * without embedding. Otherwise returns the normalized
    * `MediaExtractionResult` (extracted / needs_ocr / encrypted / invalid /
    * limit_exceeded) so the ingest loop can handle each case uniformly.
@@ -91,10 +85,6 @@ export interface Extraction {
 export function extraction(options: ExtractionOptions): Extraction {
   const cache = new Map<ContentFamily, MediaExtractor>();
 
-  function isFamilyAllowed(family: ContentFamily): boolean {
-    return !options.allowedFamilies || options.allowedFamilies.includes(family);
-  }
-
   function getExtractor(family: ContentFamily): MediaExtractor {
     const cached = cache.get(family);
     if (cached) return cached;
@@ -110,7 +100,7 @@ export function extraction(options: ExtractionOptions): Extraction {
 
   function resolveMime(mime: string): MediaExtractor | null {
     const family = resolveFamily(mime);
-    if (!family || !isFamilyAllowed(family)) return null;
+    if (!family) return null;
     return getExtractor(family);
   }
 
@@ -124,7 +114,7 @@ export function extraction(options: ExtractionOptions): Extraction {
     },
     wouldExceed(mime: string, byteLength: number): boolean {
       const family = resolveFamily(mime);
-      if (!family || !isFamilyAllowed(family)) return false;
+      if (!family) return false;
       if (!Number.isSafeInteger(byteLength) || byteLength <= 0) return false;
       const maxBytes = DOOR_LIMITS[family][options.door].maxBytes;
       return byteLength > maxBytes;
