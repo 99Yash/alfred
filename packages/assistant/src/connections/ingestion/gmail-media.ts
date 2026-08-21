@@ -47,18 +47,12 @@ export interface GmailMediaIngestArgs {
 }
 
 /**
- * Common ingest for Gmail attachments of any `contentFamily`. The loop owns
- * *fetch → extract → persist → embed*. Family-specific concerns
- * (byte-to-text, page offsets, limits) live in `@alfred/extraction` behind
- * `extraction({ door }).extract({ mime, bytes })`. Adding `docx` is one
- * registry entry, not a new `gmail-*` file.
- *
- * Call-site narrative: `extraction({ door }).extract({ mime, bytes })`
- * states the workflow in domain order — choose the ingest door once,
- * then extract each MIME. The caller never names `ContentFamily`,
- * never reads `getContentFamily`, and never handles `limits` or
- * `factory` misses. An unsupported MIME yields `null` (skip); a
- * supported one yields a discriminated `MediaExtractionResult`.
+ * Ingest for any `contentFamily`. The loop owns fetch → extract → persist → embed.
+ * Family logic (bytes → text, page offsets, limits) lives in
+ * `@alfred/extraction` behind `extraction({ door }).extract({ mime, bytes })`.
+ * Add a family with one registry entry, not a new `gmail-*` file.
+ * The caller binds the door once, then extracts each MIME.
+ * Unsupported MIME yields null (skip); supported yields `MediaExtractionResult`.
  */
 export async function ingestGmailMediaAttachments(
   args: GmailMediaIngestArgs,
