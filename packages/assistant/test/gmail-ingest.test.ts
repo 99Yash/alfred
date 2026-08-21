@@ -170,27 +170,35 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
     const attachmentId = `att-${randomUUID()}`;
     const historyId = "2000";
 
-    await db().insert(documents).values({
-      userId,
-      source: "gmail",
-      sourceId: messageId,
-      sourceThreadId: threadId,
-      accountId: `acc-${randomUUID()}`,
-      title: "Test mail with PDF",
-      content: "From: sender@example.com\n\nhello",
-      contentHash: randomUUID(),
-      metadata: {
-        from: "sender@example.com",
-        labelIds: [],
-        isSent: false,
-        internalDate: String(Date.now()),
-        historyId,
-      },
-      raw: { id: messageId },
-      authoredAt: new Date(),
-    });
+    await db()
+      .insert(documents)
+      .values({
+        userId,
+        source: "gmail",
+        sourceId: messageId,
+        sourceThreadId: threadId,
+        accountId: `acc-${randomUUID()}`,
+        title: "Test mail with PDF",
+        content: "From: sender@example.com\n\nhello",
+        contentHash: randomUUID(),
+        metadata: {
+          from: "sender@example.com",
+          labelIds: [],
+          isSent: false,
+          internalDate: String(Date.now()),
+          historyId,
+        },
+        raw: { id: messageId },
+        authoredAt: new Date(),
+      });
 
-    const message = makePollMessage({ id: messageId, threadId, attachmentId, filename: "retry.pdf", historyId });
+    const message = makePollMessage({
+      id: messageId,
+      threadId,
+      attachmentId,
+      filename: "retry.pdf",
+      historyId,
+    });
 
     let getAttachmentCalls = 0;
     const failOnceThenSucceed = async () => {
@@ -206,7 +214,10 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
       maxMessages: 10,
       deps: {
         getFreshAccessToken: async () => "fake-token",
-        listMessages: async () => ({ messages: [{ id: messageId, threadId }], nextPageToken: undefined }),
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
         getMessage: async () => message,
         media: {
           getAttachment: failOnceThenSucceed,
@@ -245,10 +256,16 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
       maxMessages: 10,
       deps: {
         getFreshAccessToken: async () => "fake-token",
-        listMessages: async () => ({ messages: [{ id: messageId, threadId }], nextPageToken: undefined }),
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
         getMessage: async () => message,
         media: {
-          getAttachment: async () => ({ bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")), size: 1024 }),
+          getAttachment: async () => ({
+            bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")),
+            size: 1024,
+          }),
           allowedFamilies: ["pdf"] as const,
           createExtractor: () => async () => ({
             kind: "extracted" as const,
@@ -298,10 +315,16 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
       maxMessages: 10,
       deps: {
         getFreshAccessToken: async () => "fake-token",
-        listMessages: async () => ({ messages: [{ id: messageId, threadId }], nextPageToken: undefined }),
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
         getMessage: async () => message,
         media: {
-          getAttachment: async () => ({ bytes: new Uint8Array(Buffer.from("%PDF-1.4")), size: 1024 }),
+          getAttachment: async () => ({
+            bytes: new Uint8Array(Buffer.from("%PDF-1.4")),
+            size: 1024,
+          }),
           allowedFamilies: ["pdf"] as const,
           createExtractor: () => async () => ({
             kind: "extracted" as const,
