@@ -1,7 +1,6 @@
 import { getContentFamily, type ContentFamily } from "@alfred/contracts";
 import {
-  createMediaExtractor,
-  extractionLimitsFor,
+  FAMILY_REGISTRY,
   type ExtractionDoor,
   type MediaExtractionResult,
   type MediaExtractor,
@@ -29,22 +28,28 @@ import {
  *      the PDF extractor, and touching it twice yields the SAME extractor.
  *      The memo covers CLIENT CONSTRUCTION only — no bytes are cached.
  *
- *   3. It is GENERIC over the family registry: the factory map and the
- *      door × family limit matrix are declared ONCE in `media-extraction.ts`,
- *      and `satisfies` makes a missing cell a type error. Adding a family
- *      is one entry in each registry; `extraction()` needs no second place.
+ *   3. It is GENERIC over `FAMILY_REGISTRY`: the family → {factory,
+ *      limitsByDoor} table is declared ONCE in `media-extraction.ts`, and
+ *      `satisfies` makes a missing or extra family a type error. Adding a
+ *      family is one registry entry; `extraction()` needs no second place.
  *
  * The discipline that keeps this from drifting into a pass-through facade:
- * each call hides the full `mime → family → limits → factory` chain. The
- * caller never names `ContentFamily`, never checks `getContentFamily`,
- * never reads `extractionLimitsFor`, and never handles a factory miss —
- * `null` from `forMime` is the only signal for an unsupported MIME, and
+ * each call hides the full `mime → family → gate → limits → factory` chain.
+ * The caller never names `ContentFamily`, never checks `getContentFamily`,
+ * never reads limits, and never handles a factory miss — `null` from
+ * `forMime` is the only signal for an unsupported (or gated) MIME, and
  * `extract` maps that to `null` so the ingest loop can `continue`.
  */
 
 export interface ExtractionOptions {
   /** Which ingest policy door owns the limits (chat, fetch, gmail). */
   door: ExtractionDoor;
+  /**
+   * Restrict extractable families to this list. A MIME whose family is not
+   * listed behaves exactly like an unsupported MIME (`null` everywhere).
+   * Undefined means every registered family is allowed.
+   */
+  allowedFamilies?: readonly ContentFamily[] | undefined;
 }
 
 export interface Extraction {
@@ -84,10 +89,15 @@ export interface Extraction {
 export function extraction(options: ExtractionOptions): Extraction {
   const cache = new Map<ContentFamily, MediaExtractor>();
 
+  function isFamilyAllowed(family: ContentFamily): boolean {
+    return !options.allowedFamilies || options.allowedFamilies.includes(family);
+  }
+
   function getExtractor(family: ContentFamily): MediaExtractor {
     const cached = cache.get(family);
     if (cached) return cached;
-    const extractor = createMediaExtractor(options.door, family);
+    const entry = FAMILY_REGISTRY[family];
+    const extractor = entry.factory(entry.limitsByDoor[options.door]);
     cache.set(family, extractor);
     return extractor;
   }
@@ -98,7 +108,7 @@ export function extraction(options: ExtractionOptions): Extraction {
 
   function resolveMime(mime: string): MediaExtractor | null {
     const family = resolveFamily(mime);
-    if (!family) return null;
+    if (!family || !isFamilyAllowed(family)) return null;
     return getExtractor(family);
   }
 
@@ -112,10 +122,10 @@ export function extraction(options: ExtractionOptions): Extraction {
     },
     wouldExceed(mime: string, byteLength: number): boolean {
       const family = resolveFamily(mime);
-      if (!family) return false;
+      if (!family || !isFamilyAllowed(family)) return false;
       if (!Number.isSafeInteger(byteLength) || byteLength <= 0) return false;
-      const limits = extractionLimitsFor(options.door, family);
-      return byteLength > limits.maxBytes;
+      const maxBytes = FAMILY_REGISTRY[family].limitsByDoor[options.door].maxBytes;
+      return byteLength > maxBytes;
     },
     async extract(args: {
       mime: string;
