@@ -97,7 +97,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
         media: pdfOnlyMedia(async () => ({
           kind: "extracted" as const,
-          family: "pdf" as const,
+          format: "pdf" as const,
           content: "page one text\n\npage two text",
           pages: [
             { page: 1, start: 0, end: 13 },
@@ -186,10 +186,11 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       },
       media: pdfOnlyMedia(async () => ({
         kind: "extracted" as const,
-        family: "pdf" as const,
+        format: "pdf" as const,
         content: "version one",
         pages: [{ page: 1, start: 0, end: 11 }],
-      })),      indexDocument: async () => {
+      })),
+      indexDocument: async () => {
         indexCalls++;
         return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
       },
@@ -246,7 +247,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
       media: pdfOnlyMedia(async () => ({
         kind: "extracted" as const,
-        family: "pdf" as const,
+        format: "pdf" as const,
         content: "same text",
         pages: [{ page: 1, start: 0, end: 9 }],
       })),
@@ -318,7 +319,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         getAttachment: async () => ({ bytes, size: bytes.byteLength }),
         media: pdfOnlyMedia(async () => ({
           kind: "needs_ocr" as const,
-          family: "pdf" as const,
+          format: "pdf" as const,
         })),
         indexDocument: async () => {
           assert.fail("indexDocument must not be called for needs_ocr");

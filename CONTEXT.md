@@ -152,7 +152,7 @@ These three bias every subsystem below. Read them first.
 
 ## Attachments
 
-**Content family.** The coarse byte-format class a `degrade-text` upload belongs to — `pdf | document | spreadsheet | text` (`contentFamilyValues` in `@alfred/contracts`). The name list and the MIME → family map (`INGEST_POLICY`) live in contracts because the browser composer validates against them; the extraction-side owner of "how a family's bytes become text, and what each door's limits are" is `FAMILY_REGISTRY` in `@alfred/extraction` — one table whose literal + `satisfies` pin makes a family missing from either side a type error. A new family is one contracts edit plus one registry entry; nothing else changes. ADR-0091.
+**Content format.** The coarse byte-format class a `degrade-text` upload belongs to — `pdf | document | spreadsheet | text` (`contentFormatValues` in `@alfred/contracts`). The name list and the MIME → format map (`INGEST_POLICY`) live in contracts because the browser composer validates against them; the extraction-side owner of "how a format's bytes become text, and what each door's limits are" is `FORMAT_REGISTRY` in `@alfred/extraction` — one table whose literal + `satisfies` pin makes a format missing from either side a type error. A new format is one contracts edit plus one registry entry; nothing else changes. ADR-0091.
 
 > **Designed, not built.** ADR-0039's attachment ingestion pipeline is design, not shipped state: there is no `attachments` or `attachment_pages` schema in `packages/db/src/schema/`, and no doc-extraction queue or worker. Chat file uploads (ADR-0065) are a **separate, shipped** path that degrades files at ingest — they do not use any of the vocabulary below.
 

@@ -22,8 +22,8 @@ describe("isChatUploadAllowed", () => {
     assert.equal(isChatUploadAllowed("IMAGE/PNG; charset=binary"), true);
     assert.equal(isChatUploadAllowed("application/pdf"), true);
     assert.equal(isChatUploadAllowed("application/x-pdf"), true);
-    assert.equal(classifyUpload("application/pdf")?.contentFamily, "pdf");
-    assert.equal(classifyUpload("application/x-pdf")?.contentFamily, "pdf");
+    assert.equal(classifyUpload("application/pdf")?.contentFormat, "pdf");
+    assert.equal(classifyUpload("application/x-pdf")?.contentFormat, "pdf");
   });
 
   test("keeps policy-listed formats gated until their degrade path exists", () => {

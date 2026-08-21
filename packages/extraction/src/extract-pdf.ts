@@ -51,7 +51,7 @@ const GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT = 1_000_000;
  * The byte limits differ by transport on purpose. Keeping the complete table
  * here makes a new door choose all three limits next to the extraction seam
  * instead of copying a partial policy into a leaf caller. This object is also
- * the `pdf` row of `DOOR_LIMITS` (`media-extraction.ts`) — the family-generic
+ * the `pdf` row of `DOOR_LIMITS` (`media-extraction.ts`) — the format-generic
  * facade reads its pdf limits from here, so a change lands once.
  */
 export const REALTIME_PDF_EXTRACTION_LIMITS = {

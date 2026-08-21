@@ -17,7 +17,7 @@ function joinMarkedPages(pages: readonly MarkedPage[]): string {
  */
 export function formatExtractedMediaText(result: MediaExtractionResult): string | null {
   if (result.kind !== "extracted") return null;
-  if (result.family === "pdf" && result.pages && result.pages.length > 0) {
+  if (result.format === "pdf" && result.pages && result.pages.length > 0) {
     const { content, pages } = result;
     return joinMarkedPages(
       pages.map((entry) => ({

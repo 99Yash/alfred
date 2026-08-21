@@ -462,7 +462,7 @@ describe("runFetchUrl (stubbed transport)", () => {
         media: {
           extract: async () => ({
             kind: "extracted" as const,
-            family: "pdf" as const,
+            format: "pdf" as const,
             content: "",
             pages: null,
           }),

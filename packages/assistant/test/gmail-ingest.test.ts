@@ -242,7 +242,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
           }),
           ...pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
-            family: "pdf" as const,
+            format: "pdf" as const,
             content: "pdf text from job",
             pages: [{ page: 1, start: 0, end: 8 }],
           })),
@@ -313,26 +313,28 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       historyId,
     });
 
-    await db().insert(documents).values({
-      userId,
-      source: "gmail",
-      sourceId: messageId,
-      sourceThreadId: threadId,
-      accountId: `acc-${randomUUID()}`,
-      title: "Test mail with PDF",
-      content: "From: sender@example.com\n\nhello",
-      contentHash: randomUUID(),
-      metadata: {
-        from: "sender@example.com",
-        labelIds: [],
-        isSent: false,
-        internalDate: String(Date.now()),
-        historyId,
-        mediaPending: true,
-      },
-      raw: { id: messageId },
-      authoredAt: new Date(),
-    });
+    await db()
+      .insert(documents)
+      .values({
+        userId,
+        source: "gmail",
+        sourceId: messageId,
+        sourceThreadId: threadId,
+        accountId: `acc-${randomUUID()}`,
+        title: "Test mail with PDF",
+        content: "From: sender@example.com\n\nhello",
+        contentHash: randomUUID(),
+        metadata: {
+          from: "sender@example.com",
+          labelIds: [],
+          isSent: false,
+          internalDate: String(Date.now()),
+          historyId,
+          mediaPending: true,
+        },
+        raw: { id: messageId },
+        authoredAt: new Date(),
+      });
 
     let getMessageCalls = 0;
     const scheduled: { messageId: string; documentId: string }[] = [];
@@ -454,7 +456,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
           }),
           ...pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
-            family: "pdf" as const,
+            format: "pdf" as const,
             content: "embed me",
             pages: null,
           })),

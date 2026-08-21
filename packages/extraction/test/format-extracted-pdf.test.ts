@@ -11,7 +11,7 @@ describe("formatExtractedMediaText", () => {
   test("rebuilds the same markers from pdf page offsets", () => {
     const result = {
       kind: "extracted",
-      family: "pdf",
+      format: "pdf",
       content: "First page\n\nSecond page",
       pages: [
         { page: 1, start: 0, end: 10 },
@@ -25,7 +25,7 @@ describe("formatExtractedMediaText", () => {
   test("uses plain content when no offsets are proven", () => {
     const result = {
       kind: "extracted",
-      family: "text",
+      format: "text",
       content: "plain text",
       pages: null,
     } satisfies MediaExtractionResult;
@@ -34,7 +34,7 @@ describe("formatExtractedMediaText", () => {
   });
 
   test("returns null for unreadable results", () => {
-    const result = { kind: "needs_ocr", family: "pdf" } satisfies MediaExtractionResult;
+    const result = { kind: "needs_ocr", format: "pdf" } satisfies MediaExtractionResult;
 
     assert.equal(formatExtractedMediaText(result), null);
   });
@@ -44,21 +44,21 @@ describe("mediaFailureMessage", () => {
   test("maps each failure kind to its user-facing message", () => {
     const cases: [MediaExtractionResult, string][] = [
       [
-        { kind: "needs_ocr", family: "pdf" },
+        { kind: "needs_ocr", format: "pdf" },
         "This PDF is image-based and needs OCR to extract text, which is not yet supported.",
       ],
       [
-        { kind: "encrypted", family: "pdf" },
+        { kind: "encrypted", format: "pdf" },
         "This PDF is encrypted and its text cannot be extracted.",
       ],
       [
-        { kind: "invalid", family: "pdf", reason: "corrupt xref" },
+        { kind: "invalid", format: "pdf", reason: "corrupt xref" },
         "This PDF is invalid: corrupt xref",
       ],
       [
         {
           kind: "limit_exceeded",
-          family: "pdf",
+          format: "pdf",
           limit: "output_characters",
           actual: 200,
           maximum: 100,
@@ -75,7 +75,7 @@ describe("mediaFailureMessage", () => {
   test("returns an empty string for extracted results (callers handle those earlier)", () => {
     const result = {
       kind: "extracted",
-      family: "pdf",
+      format: "pdf",
       content: "text",
       pages: null,
     } satisfies MediaExtractionResult;
