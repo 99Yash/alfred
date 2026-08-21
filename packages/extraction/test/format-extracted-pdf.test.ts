@@ -42,10 +42,7 @@ describe("formatExtractedMediaText", () => {
 
 describe("mediaFailureMessage", () => {
   test("maps each failure kind to its user-facing message", () => {
-    const cases: [
-      Exclude<MediaExtractionResult, { kind: "extracted" }>,
-      string,
-    ][] = [
+    const cases: [Exclude<MediaExtractionResult, { kind: "extracted" }>, string][] = [
       [
         { kind: "needs_ocr", format: "pdf" },
         "This PDF is image-based and needs OCR to extract text, which is not yet supported.",
