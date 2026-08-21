@@ -39,12 +39,7 @@ export async function runPdfExtractionChild(): Promise<number> {
   }
 
   try {
-    const result = await extractPdfCore(
-      request.bytes,
-      request.limits.maxCharacters,
-      undefined,
-      request.limits.truncateOnOutputExceed ?? false,
-    );
+    const result = await extractPdfCore(request.bytes, request.limits);
     await writeReply({ kind: "result", result });
     return 0;
   } catch (error) {

@@ -1426,7 +1426,7 @@ async function extractPdfFromBytes(
   }
   // `[page N]` rendering per ADR-0091 D4; the corpus path keeps the
   // marker-less `content` plus offsets.
-  const text = formatExtractedMediaText(mediaResult) ?? mediaResult.content;
+  const text = formatExtractedMediaText(mediaResult);
   const truncated = text.length > MAX_TEXT_CHARS;
   const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
   return {

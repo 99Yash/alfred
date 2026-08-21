@@ -597,11 +597,15 @@ export async function getAttachment(
   const json = await getJson(url, args.accessToken, retry);
   const parsed = getAttachmentResponseSchema.parse(json);
   const dataBase64Url = parsed.data ?? "";
-  // Gmail returns URL-safe base64. Node's lenient base64 decoder accepts the
-  // `-`/`_` alphabet swap and missing padding, so a manual re-pad is unneeded.
-  const bytes = dataBase64Url
-    ? Buffer.from(dataBase64Url.replace(/-/g, "+").replace(/_/g, "/"), "base64")
-    : Buffer.alloc(0);
+  // Gmail returns URL-safe base64. Node's base64 decoder accepts the
+  // `-`/`_` alphabet and missing padding, so no normalization is needed.
+  const bytes = dataBase64Url ? Buffer.from(dataBase64Url, "base64") : Buffer.alloc(0);
+  if (parsed.size !== undefined && parsed.size !== bytes.byteLength) {
+    console.warn(
+      `[gmail] attachment size mismatch for message=${args.messageId} ` +
+        `attachment=${args.attachmentId}: reported=${parsed.size} decoded=${bytes.byteLength}`,
+    );
+  }
   return {
     size: parsed.size ?? bytes.byteLength,
     bytes: new Uint8Array(bytes),

@@ -57,7 +57,7 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
   if (result.kind === "extracted") {
     // ADR-0091 D4: `degradedText` carries `[page N]` markers; the corpus path
     // keeps the marker-less `content` plus offsets.
-    return formatExtractedMediaText(result) ?? result.content;
+    return formatExtractedMediaText(result);
   }
   if (result.kind === "needs_ocr") return null;
   throw Errors.BadRequestError(mediaFailureMessage(result));

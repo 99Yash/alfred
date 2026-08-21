@@ -342,6 +342,11 @@ async function runPdfExtractionChild(
         }
 
         const characterCount = pdfExtractionContentCharacterCount(result);
+        // Defensive: the child already truncates (or fails) against
+        // `maxCharacters` when `truncateOnOutputExceed` is forwarded, so a
+        // well-formed reply never lands here over budget. The re-check guards
+        // against protocol drift — an older child or a reply that skipped the
+        // child-side check must not surface over-limit content as `extracted`.
         if (characterCount > limits.maxCharacters) {
           if (limits.truncateOnOutputExceed) {
             resolve(truncateExtractedForLimit(result, limits.maxCharacters));
