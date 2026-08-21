@@ -1,5 +1,5 @@
 import { toMessage, type ContentFamily } from "@alfred/contracts";
-import { indexDocument } from "@alfred/corpus";
+import { indexDocument, sha256 } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import {
@@ -10,9 +10,19 @@ import {
 } from "@alfred/extraction";
 import { extractAttachments, getAttachment, type GmailMessage } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
-import { internalDateToDate, sha256 } from "./gmail-ingest-helpers";
 
 const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
+
+/**
+ * Convert Gmail's `internalDate` (ms-since-epoch as string) to a Date.
+ * Returns null when missing or non-numeric — the column is nullable.
+ */
+export function internalDateToDate(internalDate: string | undefined): Date | null {
+  if (!internalDate) return null;
+  const ms = Number(internalDate);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms);
+}
 
 export interface GmailMediaIngestResult {
   attempted: number;

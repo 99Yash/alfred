@@ -41,6 +41,9 @@ const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
 // so the caller can truncate an otherwise valid document instead of treating
 // the output limit as an extraction failure.
 const FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT = 200_000;
+// Long but valuable docs: keep as much as the 10 MB input allows, truncate
+// at the limit instead of skipping the attachment.
+const GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT = 1_000_000;
 
 /**
  * Required child-process limits for each realtime PDF door.
@@ -64,8 +67,7 @@ export const REALTIME_PDF_EXTRACTION_LIMITS = {
   },
   gmailAttachment: {
     maxBytes: 10 * 1024 * 1024,
-    // Long but valuable docs: keep as much as the 10 MB input allows, truncate at 1M chars instead of skip.
-    maxCharacters: 1_000_000,
+    maxCharacters: GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT,
     maxParseMilliseconds: 30_000,
     truncateOnOutputExceed: true,
   },
