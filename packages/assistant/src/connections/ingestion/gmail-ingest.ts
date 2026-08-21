@@ -4,7 +4,7 @@ import {
   parseGmailDocumentMetadata,
   toMessage,
 } from "@alfred/contracts";
-import { indexDocument } from "@alfred/corpus";
+import { indexDocument, sha256 } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
@@ -23,8 +23,12 @@ import {
 } from "@alfred/integrations/google";
 import { installGmailWatch } from "@alfred/integrations/google/internal";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { ingestGmailMediaAttachments } from "./gmail-media";
-import { internalDateToDate, sha256 } from "./gmail-ingest-helpers";
+import {
+  ingestGmailMediaAttachments,
+  internalDateToDate,
+  type GmailMediaIngestDeps,
+  type GmailMediaIngestResult,
+} from "./gmail-media";
 
 /**
  * Gmail ingestion orchestration. Relocated out of `@alfred/integrations`
@@ -418,8 +422,8 @@ async function tryIngestMediaAttachmentsAfterPersist(args: {
   accessToken: string;
   persistResult: PersistMessageResult;
   logId: string;
-  mediaDeps?: import("./gmail-media").GmailMediaIngestDeps | undefined;
-}): Promise<import("./gmail-media").GmailMediaIngestResult | null> {
+  mediaDeps?: GmailMediaIngestDeps | undefined;
+}): Promise<GmailMediaIngestResult | null> {
   if (args.persistResult.outcome === "ignored") return null;
   try {
     const result = await ingestGmailMediaAttachments({
@@ -456,8 +460,8 @@ async function tryIngestMediaAttachmentsForKnownMessage(args: {
   message: GmailMessage;
   accessToken: string;
   logId: string;
-  mediaDeps?: import("./gmail-media").GmailMediaIngestDeps | undefined;
-}): Promise<import("./gmail-media").GmailMediaIngestResult | null> {
+  mediaDeps?: GmailMediaIngestDeps | undefined;
+}): Promise<GmailMediaIngestResult | null> {
   const extracted = extractMessageContent(args.message);
   if (isSelfAuthored(extracted.from)) return null;
   try {
@@ -954,7 +958,7 @@ export interface PollRecentDeps {
   listMessages?: typeof listMessages | undefined;
   getMessage?: typeof getMessage | undefined;
   getFreshAccessToken?: typeof getFreshAccessToken | undefined;
-  media?: import("./gmail-media").GmailMediaIngestDeps | undefined;
+  media?: GmailMediaIngestDeps | undefined;
 }
 
 export interface PollRecentArgs {
