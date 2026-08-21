@@ -516,12 +516,28 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       // Pick up documents whose embed step failed during ingest. Bounded
       // batch — anything left over comes back next tick. The sweep loop is
       // owned by @alfred/corpus (`retryPending`); this case only schedules it
-      // and reports the summary count.
-      const r = await retryPending({ source: "gmail", limit: 50 });
+      // and reports the summary count. BOTH Gmail sources are covered: mail
+      // rows (`gmail`) and attachment rows (`gmail_attachment`) — the latter
+      // never re-ingest (skip-if-exists dedup), so this sweep is their only
+      // transient-embed-failure recovery path.
+      const [mail, media] = await Promise.all([
+        retryPending({ source: "gmail", limit: 50 }),
+        retryPending({ source: "gmail_attachment", limit: 50 }),
+      ]);
+      const candidates = mail.candidates + media.candidates;
+      const succeeded = mail.succeeded + media.succeeded;
+      const failed = mail.failed + media.failed;
       console.log(
-        `[ingestion:worker] gmail.embed_sweep candidates=${r.candidates} succeeded=${r.succeeded} failed=${r.failed}`,
+        `[ingestion:worker] gmail.embed_sweep candidates=${candidates} succeeded=${succeeded} failed=${failed} ` +
+          `(mail ${mail.candidates}/${mail.succeeded}/${mail.failed}, attachment ${media.candidates}/${media.succeeded}/${media.failed})`,
       );
-      return r;
+      return {
+        candidates,
+        succeeded,
+        failed,
+        mail,
+        media,
+      };
     }
     case "user_model.gmail_kind_refold": {
       return runGmailKindRefoldJob(data.userId);

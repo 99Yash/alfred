@@ -4,6 +4,7 @@ import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
 import { documents, ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
+import { findUnembeddedDocumentIds } from "@alfred/corpus";
 import { and, eq, inArray } from "drizzle-orm";
 
 // Imports the RELOCATED consumer module (Phase-5 item 01). The cursor-seed
@@ -187,6 +188,10 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
           isSent: false,
           internalDate: String(Date.now()),
           historyId,
+          // Production sequence: the first attempt failed on the unknown path,
+          // which stamped this flag. The realtime retry only re-fetches
+          // flagged known messages.
+          mediaPending: true,
         },
         raw: { id: messageId },
         authoredAt: new Date(),
@@ -201,6 +206,7 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
     });
 
     let getAttachmentCalls = 0;
+    let getMessageCalls = 0;
     const failOnceThenSucceed = async () => {
       getAttachmentCalls++;
       if (getAttachmentCalls === 1) throw new Error("transient getAttachment failure");
@@ -218,7 +224,10 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
           messages: [{ id: messageId, threadId }],
           nextPageToken: undefined,
         }),
-        getMessage: async () => message,
+        getMessage: async () => {
+          getMessageCalls++;
+          return message;
+        },
         media: {
           getAttachment: failOnceThenSucceed,
           allowedFamilies: ["pdf"] as const,
@@ -242,6 +251,7 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
     assert.equal(result1.mediaErrors, 1, "transient attachment fetch counted in mediaErrors");
     assert.equal(result1.mediaIngested, 0);
     assert.equal(indexCalls, 0, "index not called when fetch failed");
+    assert.equal(getMessageCalls, 1, "flagged known message is re-fetched for the retry");
 
     const beforeRows = await db()
       .select()
@@ -260,7 +270,10 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
           messages: [{ id: messageId, threadId }],
           nextPageToken: undefined,
         }),
-        getMessage: async () => message,
+        getMessage: async () => {
+          getMessageCalls++;
+          return message;
+        },
         media: {
           getAttachment: async () => ({
             bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")),
@@ -295,6 +308,37 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
     assert.equal(afterRows.length, 1);
     assert.equal(afterRows[0]!.sourceId, `${messageId}:${attachmentId}`);
     assert.equal(afterRows[0]!.content, "pdf text from retry");
+
+    // Success cleared the flag: the next poll must not re-fetch the message.
+    const callsBeforePoll3 = getMessageCalls;
+    const result3 = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
+        getMessage: async () => {
+          getMessageCalls++;
+          return message;
+        },
+        media: {
+          getAttachment: async () => ({ bytes: new Uint8Array(Buffer.from("%PDF-1.4")), size: 9 }),
+          indexDocument: async () => {
+            throw new Error("indexDocument must not run for an unflagged known message");
+          },
+        },
+      },
+    });
+    assert.equal(result3.mediaErrors, 0);
+    assert.equal(
+      getMessageCalls,
+      callsBeforePoll3,
+      "unflagged known message must not be re-fetched",
+    );
   });
 
   test("attachment embed failure is counted in mediaEmbedFailures and does not fail mail poll", async () => {
@@ -352,5 +396,18 @@ describe("pollGmailRecent — knownRefs attachment retry (DB-backed)", { skip: S
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
     assert.equal(attRows.length, 1);
     assert.equal(attRows[0]!.sourceId, `${messageId}:${attachmentId}`);
+
+    // The corpus sweep is the recovery path for this exact state (row
+    // persisted, transient embed failure, no chunks). It must select
+    // `gmail_attachment` rows — the queue's gmail.embed_sweep sweeps both
+    // sources; this pins the candidate half of that wiring.
+    const sweepCandidates = await findUnembeddedDocumentIds({
+      source: "gmail_attachment",
+      limit: 50,
+    });
+    assert.ok(
+      sweepCandidates.includes(attRows[0]!.id),
+      "embed_sweep candidate query must cover gmail_attachment rows",
+    );
   });
 });

@@ -459,12 +459,14 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/empty.pdf" },
       {
         transport: transportOf({ contentType: "application/pdf", body: "%PDF-1.7" }),
-        extractPdf: async () => ({
-          kind: "text_without_pages",
-          pdfType: "text_based",
-          pageCount: 0,
-          text: "",
-        }),
+        media: {
+          extract: async () => ({
+            kind: "extracted" as const,
+            family: "pdf" as const,
+            content: "",
+            pages: null,
+          }),
+        },
       },
     );
 

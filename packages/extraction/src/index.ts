@@ -10,6 +10,7 @@ export {
   formatExtractedMediaText,
   formatExtractedPdfText,
   interpretPdfText,
+  mediaFailureMessage,
 } from "./format-extracted-pdf";
 export type {
   ExtractPdf,
