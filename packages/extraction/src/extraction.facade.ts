@@ -1,5 +1,6 @@
 import { getContentFamily, type ContentFamily } from "@alfred/contracts";
 import {
+  DOOR_LIMITS,
   FAMILY_REGISTRY,
   type ExtractionDoor,
   type MediaExtractionResult,
@@ -28,10 +29,11 @@ import {
  *      the PDF extractor, and touching it twice yields the SAME extractor.
  *      The memo covers CLIENT CONSTRUCTION only — no bytes are cached.
  *
- *   3. It is GENERIC over `FAMILY_REGISTRY`: the family → {factory,
- *      limitsByDoor} table is declared ONCE in `media-extraction.ts`, and
- *      `satisfies` makes a missing or extra family a type error. Adding a
- *      family is one registry entry; `extraction()` needs no second place.
+ *   3. It is GENERIC over two `satisfies`-pinned tables: `FAMILY_REGISTRY`
+ *      (family → factory) and `DOOR_LIMITS` (family × door limits), both
+ *      declared ONCE in `media-extraction.ts`. Adding a family is one
+ *      registry entry plus one `DOOR_LIMITS` row; `extraction()` needs no
+ *      second place.
  *
  * The discipline that keeps this from drifting into a pass-through facade:
  * each call hides the full `mime → family → gate → limits → factory` chain.
@@ -97,7 +99,7 @@ export function extraction(options: ExtractionOptions): Extraction {
     const cached = cache.get(family);
     if (cached) return cached;
     const entry = FAMILY_REGISTRY[family];
-    const extractor = entry.factory(entry.limitsByDoor[options.door]);
+    const extractor = entry.factory(DOOR_LIMITS[family][options.door]);
     cache.set(family, extractor);
     return extractor;
   }
@@ -124,7 +126,7 @@ export function extraction(options: ExtractionOptions): Extraction {
       const family = resolveFamily(mime);
       if (!family || !isFamilyAllowed(family)) return false;
       if (!Number.isSafeInteger(byteLength) || byteLength <= 0) return false;
-      const maxBytes = FAMILY_REGISTRY[family].limitsByDoor[options.door].maxBytes;
+      const maxBytes = DOOR_LIMITS[family][options.door].maxBytes;
       return byteLength > maxBytes;
     },
     async extract(args: {
