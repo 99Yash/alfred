@@ -52,8 +52,15 @@ export interface CreatePresentationResult {
 export async function createPresentation(
   args: CreatePresentationArgs,
 ): Promise<CreatePresentationResult> {
-  const json = await sendJson("POST", API_BASE, args.accessToken, { title: args.title });
-  const parsed = createPresentationResponseSchema.parse(json);
+  const parsed = await sendJson(
+    createPresentationResponseSchema,
+    "POST",
+    API_BASE,
+    args.accessToken,
+    {
+      title: args.title,
+    },
+  );
   return { presentationId: parsed.presentationId, title: parsed.title };
 }
 
@@ -75,8 +82,7 @@ export async function getPresentation(
   retry: RetryPolicy | "none" = "none",
 ): Promise<GetPresentationResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.presentationId)}`;
-  const json = await sendJson("GET", url, args.accessToken, undefined, retry);
-  const parsed = presentationSchema.parse(json);
+  const parsed = await sendJson(presentationSchema, "GET", url, args.accessToken, undefined, retry);
   return {
     presentationId: parsed.presentationId,
     title: parsed.title,
@@ -105,8 +111,9 @@ export async function batchUpdatePresentation(
   args: BatchUpdatePresentationArgs,
 ): Promise<BatchUpdatePresentationResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.presentationId)}:batchUpdate`;
-  const json = await sendJson("POST", url, args.accessToken, { requests: args.requests });
-  const parsed = batchUpdateResponseSchema.parse(json);
+  const parsed = await sendJson(batchUpdateResponseSchema, "POST", url, args.accessToken, {
+    requests: args.requests,
+  });
   return { replies: parsed.replies ?? [] };
 }
 
@@ -126,10 +133,13 @@ export async function addSlide(args: {
   });
 }
 
-const sendJson = (
+/** Send and parse at the seam — a raw response cannot reach a caller. */
+const sendJson = <T>(
+  schema: z.ZodType<T>,
   method: "GET" | "POST",
   url: string,
   accessToken: string,
   payload?: unknown,
   retry: RetryPolicy | "none" = "none",
-): Promise<unknown> => googleJson("slides", method, url, accessToken, payload, retry);
+): Promise<T> =>
+  googleJson("slides", method, url, accessToken, payload, retry).then((raw) => schema.parse(raw));

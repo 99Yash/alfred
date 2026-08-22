@@ -98,12 +98,12 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
     // First revision flips draft → active. Subsequent revisions only
     // touch the pointer; documentation / manual edits don't reset state.
     const flippingFromDraft = args.kind === "distilled" && skill.status === "draft";
-    const updatePatch: Record<string, unknown> = {
+    const updatePatch = {
       currentRevisionId: revision.id,
       rowVersion: sql`${skills.rowVersion} + 1`,
+      ...(args.newName ? { name: args.newName } : {}),
+      ...(flippingFromDraft ? { status: "active" as const } : {}),
     };
-    if (args.newName) updatePatch.name = args.newName;
-    if (flippingFromDraft) updatePatch.status = "active";
 
     await tx.update(skills).set(updatePatch).where(eq(skills.id, args.skillId));
 

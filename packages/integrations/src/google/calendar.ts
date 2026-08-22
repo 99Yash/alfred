@@ -95,8 +95,7 @@ export async function listEvents(
   url.searchParams.set("orderBy", orderBy);
   url.searchParams.set("maxResults", String(args.maxResults ?? 50));
 
-  const json = await getJson(url.toString(), args.accessToken, retry);
-  const parsed = listEventsResponseSchema.parse(json);
+  const parsed = await getJson(listEventsResponseSchema, url.toString(), args.accessToken, retry);
   // Filter out cancelled occurrences so callers don't need to special-case them.
   const events = (parsed.items ?? []).filter((e) => e.status !== "cancelled");
   return { events, timeZone: parsed.timeZone };
@@ -139,12 +138,24 @@ export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent>
     },
     attendees: args.attendees?.map((email) => ({ email })),
   };
-  const json = await postJson(url.toString(), args.accessToken, payload);
-  return eventSchema.parse(json);
+  return postJson(eventSchema, url.toString(), args.accessToken, payload);
 }
 
-const getJson = (url: string, accessToken: string, retry: RetryPolicy | "none"): Promise<unknown> =>
-  googleJson("calendar", "GET", url, accessToken, undefined, retry);
+/** GET and parse at the seam — a raw response cannot reach a caller. */
+const getJson = <T>(
+  schema: z.ZodType<T>,
+  url: string,
+  accessToken: string,
+  retry: RetryPolicy | "none",
+): Promise<T> =>
+  googleJson("calendar", "GET", url, accessToken, undefined, retry).then((raw) =>
+    schema.parse(raw),
+  );
 
-const postJson = (url: string, accessToken: string, payload: unknown): Promise<unknown> =>
-  googleJson("calendar", "POST", url, accessToken, payload);
+const postJson = <T>(
+  schema: z.ZodType<T>,
+  url: string,
+  accessToken: string,
+  payload: unknown,
+): Promise<T> =>
+  googleJson("calendar", "POST", url, accessToken, payload).then((raw) => schema.parse(raw));
