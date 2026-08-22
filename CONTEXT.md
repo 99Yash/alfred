@@ -152,6 +152,8 @@ These three bias every subsystem below. Read them first.
 
 ## Attachments
 
+**Content format.** The coarse byte-format class a `degrade-text` upload belongs to — `pdf | document | spreadsheet | text` (`contentFormatValues` in `@alfred/contracts`). The name list and the MIME → format map (`INGEST_POLICY`) live in contracts because the browser composer validates against them; the extraction-side owner of "how a format's bytes become text, and what each door's limits are" is `FORMAT_REGISTRY` in `@alfred/extraction` — one table whose literal + `satisfies` pin makes a format missing from either side a type error. A new format is one contracts edit plus one registry entry; nothing else changes. ADR-0091.
+
 > **Designed, not built.** ADR-0039's attachment ingestion pipeline is design, not shipped state: there is no `attachments` or `attachment_pages` schema in `packages/db/src/schema/`, and no doc-extraction queue or worker. Chat file uploads (ADR-0065) are a **separate, shipped** path that degrades files at ingest — they do not use any of the vocabulary below.
 
 **Attachment.** A non-text payload arriving alongside a document — PDF, image, spreadsheet. Modeled as its own row in `attachments` (sibling to `documents`, not a row in it), linked back via `parent_document_id`. Carries identity (mime type, filename, size, page count), extraction status, and binary location. Drives a distinct ingestion path because its content shape (typed segments, pages, figures) doesn't fit `documents`'s "flat text body" assumption.

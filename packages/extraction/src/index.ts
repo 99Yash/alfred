@@ -6,7 +6,7 @@ export {
   PdfExtractionError,
   REALTIME_PDF_EXTRACTION_LIMITS,
 } from "./extract-pdf";
-export { formatExtractedPdfText, interpretPdfText } from "./format-extracted-pdf";
+export { formatExtractedMediaText, mediaFailureMessage } from "./format-extracted-pdf";
 export type {
   ExtractPdf,
   ExtractedPdf,
@@ -16,4 +16,12 @@ export type {
   PdfExtractionLimitKind,
   PdfExtractionLimits,
 } from "./extract-pdf";
-export type { PdfTextInterpretation } from "./format-extracted-pdf";
+export { DOOR_LIMITS, FORMAT_REGISTRY } from "./media-extraction";
+export type {
+  ExtractionDoor,
+  ExtractionLimits,
+  MediaExtractionResult,
+  MediaExtractor,
+} from "./media-extraction";
+export { extraction } from "./extraction.facade";
+export type { Extraction, ExtractionOptions } from "./extraction.facade";

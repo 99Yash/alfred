@@ -36,11 +36,11 @@ import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { getPath, isNonEmptyString, isPdfContentType, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
-  createPdfExtractor,
-  interpretPdfText,
+  extraction,
+  formatExtractedMediaText,
+  mediaFailureMessage,
   REALTIME_PDF_EXTRACTION_LIMITS,
-  type ExtractPdf,
-  type ExtractedPdf,
+  type Extraction,
 } from "@alfred/extraction";
 import { Agent, request as undiciRequest } from "undici";
 
@@ -489,8 +489,12 @@ export interface FetchUrlDeps {
   transport?: Transport;
   /** Injectable render seam for the #509/#510 escalation. Defaults to Firecrawl. */
   render?: Renderer;
-  /** Injectable configured PDF reader. Defaults to the fetch_url door policy. */
-  extractPdf?: ExtractPdf;
+  /**
+   * Injectable door-bound extraction seam. Defaults to
+   * `extraction({ door: "fetchUrl" })`. Tests inject the same `extract`
+   * shape the facade returns — there is no second, legacy seam.
+   */
+  media?: Pick<Extraction, "extract">;
 }
 
 /** The slice of `undici.request` {@link safeRequest} uses — injectable for tests. */
@@ -1270,7 +1274,7 @@ async function runFetchUrlImpl(
       finalUrl,
       contentType || "application/pdf",
       raw,
-      deps.extractPdf,
+      deps.media,
     );
   }
 
@@ -1285,7 +1289,7 @@ async function runFetchUrlImpl(
         finalUrl,
         contentType || sniffed,
         raw,
-        deps.extractPdf,
+        deps.media,
       );
     }
     return {
@@ -1384,13 +1388,15 @@ async function extractPdfFromBytes(
   finalUrl: string,
   contentType: string,
   raw: RawResponse,
-  injectedExtractPdf?: ExtractPdf,
+  injectedMedia?: Pick<Extraction, "extract">,
 ): Promise<FetchUrlResult> {
-  const extractPdf =
-    injectedExtractPdf ?? createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl);
-  let result: ExtractedPdf;
+  // One door for prod and tests alike — tests inject the same `extract` shape
+  // the door-bound facade returns, so there is no legacy branch to keep in
+  // sync with this mapping.
+  const media = injectedMedia ?? extraction({ door: "fetchUrl" });
+  let mediaResult: Awaited<ReturnType<typeof media.extract>>;
   try {
-    result = await extractPdf(new Uint8Array(bytes));
+    mediaResult = await media.extract({ mime: "application/pdf", bytes: new Uint8Array(bytes) });
   } catch (err) {
     return {
       ok: false,
@@ -1404,23 +1410,23 @@ async function extractPdfFromBytes(
         : {}),
     };
   }
-
-  const interpretation = interpretPdfText(result);
-  if (interpretation.kind === "unreadable") {
+  if (!mediaResult || mediaResult.kind !== "extracted") {
+    const message = !mediaResult ? "This PDF cannot be read." : mediaFailureMessage(mediaResult);
     return {
       ok: false,
       url,
       finalUrl,
       contentType,
       reason: "unsupported_content_type",
-      message: interpretation.message,
+      message,
       ...(raw.redirectChain && raw.redirectChain.length > 0
         ? { redirects: raw.redirectChain }
         : {}),
     };
   }
-
-  const { text } = interpretation;
+  // `[page N]` rendering per ADR-0091 D4; the corpus path keeps the
+  // marker-less `content` plus offsets.
+  const text = formatExtractedMediaText(mediaResult);
   const truncated = text.length > MAX_TEXT_CHARS;
   const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
   return {

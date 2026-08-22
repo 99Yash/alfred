@@ -122,6 +122,12 @@ const serverEnvSchema = z.object({
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1),
   OPENAI_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
+  /**
+   * Vendor pricing override for the embed cost-cap math (`maxTokensForPrice`
+   * in `@alfred/corpus`). Optional: unset falls back to the in-code Voyage
+   * list price, so a vendor price change is an env edit, not a deploy.
+   */
+  VOYAGE_INPUT_PRICE_PER_MTOK_USD: z.coerce.number().positive().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
   /**
    * Firecrawl render+extract API — the escalation path for JS-rendered pages

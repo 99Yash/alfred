@@ -1,11 +1,22 @@
-import { embedMany } from "@alfred/ai/embeddings";
+import { embedMany, voyageInputPricePerMtokUsd } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
-import { isRecord, isValidPage } from "@alfred/contracts";
-import { createHash } from "node:crypto";
+import {
+  isRecord,
+  isValidPage,
+  parseDocumentPages,
+  parseDocumentPagesMixed,
+} from "@alfred/contracts";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
+import {
+  capChunksForBudget,
+  EMBED_COST_CAP_USD,
+  maxTokensForPrice,
+  type EmbedBudgetSlice,
+} from "./embed-policy";
+import { sha256 } from "./hash";
 
 /**
  * Record an embed failure on the document row via the shared poison-pill guard
@@ -35,15 +46,35 @@ export async function recordDocumentEmbedFailure(documentId: string, err: unknow
     .where(eq(documents.id, documentId));
 }
 
-/** Dead-letter a document that can never produce chunks (no embeddable content). */
+/**
+ * The `.set(...)` payload that marks a document terminal for the sweep: the
+ * row keeps its head chunks (still searchable) but `embed_failed_at` drops it
+ * from `findUnembeddedDocumentIds`, and `last_embed_error` carries the reason.
+ * Shared by the no-embeddable-content path and the cost-cap truncation path so
+ * both write the identical marker shape.
+ */
+function embedTerminalSet(reason: string) {
+  return {
+    embedFailedAt: sql`COALESCE(${documents.embedFailedAt}, now())`,
+    lastEmbedError: reason,
+  };
+}
+
+/** Dead-letter a document that can never embed (no content, or fully cost-capped). */
 async function markDocumentEmbedTerminal(documentId: string, reason: string): Promise<void> {
-  await db()
-    .update(documents)
-    .set({
-      embedFailedAt: sql`COALESCE(${documents.embedFailedAt}, now())`,
-      lastEmbedError: reason,
-    })
-    .where(eq(documents.id, documentId));
+  await db().update(documents).set(embedTerminalSet(reason)).where(eq(documents.id, documentId));
+}
+
+/** The durable `last_embed_error` reason a cost-cap truncation leaves behind. */
+function costCapTruncationError(
+  capped: EmbedBudgetSlice,
+  newChunkCount: number,
+  maxTokens: number,
+): string {
+  return (
+    `cost cap: embedded ${capped.kept} of ${newChunkCount} new chunks ` +
+    `(${capped.total} tokens exceed the ${maxTokens}-token per-call budget)`
+  );
 }
 
 /**
@@ -52,9 +83,17 @@ async function markDocumentEmbedTerminal(documentId: string, reason: string): Pr
  * is a no-op unless the content hash changed (in which case we rewrite
  * the chunk row in place).
  *
- * Embeddings are written together with the rows: one Voyage call per
- * document covers all its chunks (Voyage allows up to 1000 inputs per
- * batch; emails rarely exceed a handful of chunks).
+ * Embeddings are written together with the rows: `embedMany` covers all
+ * of a document's chunks, splitting into multiple Voyage calls when the
+ * set exceeds Voyage's per-request limits (1000 inputs / 120k tokens).
+ *
+ * Cost policy: the $0.50 cap (`EMBED_COST_CAP_USD` in `./embed-policy`)
+ * governs ONE call — the new-chunk set this invocation sends. A truncation
+ * writes the fitting prefix, marks the document terminal for the sweep
+ * (`embed_failed_at` + reason in `last_embed_error`), reports
+ * `truncated: true`, and warns; it does not throw. The tail stays
+ * un-embedded by decision, and an explicit re-index makes progress because
+ * each call caps only chunks that do not match stored hashes.
  *
  * Failures here don't roll back the parent `documents` row — the doc is
  * still useful as a SQL-searchable artifact even if embedding failed.
@@ -74,6 +113,14 @@ export interface IndexDocumentArgs {
   documentId: string;
   /** Voyage idempotency key forwarded for cost-attribution greppability. */
   idempotencyKey?: string;
+  /**
+   * Provider input price per million tokens, used to derive the per-call
+   * token budget from `EMBED_COST_CAP_USD`. Defaults to the Voyage price
+   * (`voyageInputPricePerMtokUsd`, env-overridable) — the one wiring point
+   * that knows the provider price; tests and future providers inject a value
+   * here instead of the policy importing one.
+   */
+  pricePerMtokUsd?: number;
 }
 
 export interface IndexDocumentResult {
@@ -82,6 +129,12 @@ export interface IndexDocumentResult {
   chunksSkipped: number;
   /** True when nothing was written because the doc had no embeddable content. */
   empty: boolean;
+  /**
+   * True when the per-call cost cap truncated the new-chunk set. The written
+   * prefix is searchable; the doc carries a terminal marker for the sweep and
+   * `lastEmbedError` names the truncation.
+   */
+  truncated: boolean;
 }
 
 export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocumentResult> {
@@ -95,7 +148,13 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     // No embeddable content, and documents are immutable — this row would
     // otherwise be re-selected by the sweep on every tick. Dead-letter it.
     await markDocumentEmbedTerminal(doc.id, "no embeddable content (0 chunks)");
-    return { documentId: doc.id, chunksWritten: 0, chunksSkipped: 0, empty: true };
+    return {
+      documentId: doc.id,
+      chunksWritten: 0,
+      chunksSkipped: 0,
+      empty: true,
+      truncated: false,
+    };
   }
 
   // Look up existing chunk rows to skip work when the content hashes
@@ -149,7 +208,49 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
         }
       });
     }
-    return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
+    return {
+      documentId: doc.id,
+      chunksWritten: 0,
+      chunksSkipped: skipped,
+      empty: false,
+      truncated: false,
+    };
+  }
+
+  // Single owner for the $0.50 cap. The cap governs this invocation's
+  // *new* chunks (`toEmbed`) after the existing-hash filter, not the total
+  // `splits` and not the document lifetime. Capping `splits` would discard
+  // tail chunks even when the embed bill is tiny (e.g. 1990 cached + 10 new
+  // = 10 billable tokens, but 16M total). When the cap bites, the document
+  // is marked terminal for the sweep below (durable truncation, not a silent
+  // one); an explicit re-index still progresses because each call caps only
+  // the chunks that do not already match stored hashes.
+  const maxTokens = maxTokensForPrice(args.pricePerMtokUsd ?? voyageInputPricePerMtokUsd());
+  const capped = capChunksForBudget(toEmbed, toEmbedHashes, maxTokens);
+  const cappedChunks = capped.chunks;
+  const cappedHashes = capped.hashes;
+  if (capped.truncated) {
+    // The caller-side observable for the pure cap: one warn with the counts,
+    // plus the durable marker written on every truncation path below.
+    console.warn(
+      `[embed-document] cost cap hit for doc=${doc.id}: ${capped.total} tokens exceed the ${maxTokens}-token budget (cap $${EMBED_COST_CAP_USD}/call), embedding first ${capped.kept}/${toEmbed.length} new chunks`,
+    );
+  }
+  if (cappedChunks.length === 0) {
+    // Budget truncated everything (first chunk over cap). No vectors to embed
+    // and no chunk rows would be written — without a marker the sweep would
+    // re-select this doc forever, so dead-letter it with the reason.
+    await markDocumentEmbedTerminal(
+      doc.id,
+      costCapTruncationError(capped, toEmbed.length, maxTokens),
+    );
+    return {
+      documentId: doc.id,
+      chunksWritten: 0,
+      chunksSkipped: skipped,
+      empty: false,
+      truncated: true,
+    };
   }
 
   // Only the Voyage call (and validating its output) counts toward the embed
@@ -161,16 +262,16 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   let vectors: number[][];
   try {
     vectors = await embedMany(
-      toEmbed.map((c) => c.content),
+      cappedChunks.map((c) => c.content),
       {
         userId: doc.userId,
         inputType: "document",
         idempotencyKey: args.idempotencyKey ?? `embed-doc:${doc.id}`,
       },
     );
-    if (vectors.length !== toEmbed.length) {
+    if (vectors.length !== cappedChunks.length) {
       throw new Error(
-        `[embed-document] vector count mismatch: got ${vectors.length} for ${toEmbed.length} chunks`,
+        `[embed-document] vector count mismatch: got ${vectors.length} for ${cappedChunks.length} chunks`,
       );
     }
   } catch (err) {
@@ -194,14 +295,14 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     await tx
       .insert(chunks)
       .values(
-        toEmbed.map((chunk, i) => ({
+        cappedChunks.map((chunk, i) => ({
           documentId: doc.id,
           userId: doc.userId,
           position: chunk.position,
           content: chunk.content,
           embedding: vectors[i]!,
           tokenCount: chunk.tokenCount,
-          contentHash: toEmbedHashes[i]!,
+          contentHash: cappedHashes[i]!,
           metadata: chunk.page != null ? { page: chunk.page } : {},
         })),
       )
@@ -225,20 +326,33 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
         .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
     }
 
-    // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
-    // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
-    // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
-    // so an ordinary first-time embed (the common case) skips the extra write.
-    if (doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null) {
+    // Terminal vs reset, decided once: a cost-capped write stamps the
+    // truncation marker (same shape as `markDocumentEmbedTerminal`) so the
+    // sweep drops the half-embedded doc instead of ignoring or re-selecting
+    // it; a clean write clears any prior poison-pill streak now that the doc
+    // embedded cleanly, so the wall-clock grace is per-failure-streak. Both
+    // are gated on the pre-read row / cap result so an ordinary first-time
+    // embed (the common case) skips the extra write.
+    if (capped.truncated) {
+      await tx
+        .update(documents)
+        .set(embedTerminalSet(costCapTruncationError(capped, toEmbed.length, maxTokens)))
+        .where(eq(documents.id, doc.id));
+    } else if (
+      doc.embedAttempts > 0 ||
+      doc.embedFailedAt !== null ||
+      doc.embedFirstFailedAt !== null
+    ) {
       await tx.update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
     }
   });
 
   return {
     documentId: doc.id,
-    chunksWritten: toEmbed.length,
+    chunksWritten: cappedChunks.length,
     chunksSkipped: skipped,
     empty: false,
+    truncated: capped.truncated,
   };
 }
 
@@ -246,6 +360,11 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
  * Find documents with no chunks. Used by the post-ingest backfill in
  * m7c onwards (and by the m7b smoke test to confirm the embed pipeline
  * reached every ingested document).
+ *
+ * Cost-capped documents are excluded by the same `embed_failed_at` filter as
+ * dead-lettered ones: a truncation stamps that marker, so a half-embedded
+ * doc never re-enters the candidate set. An explicit `indexDocument` call
+ * ignores the marker and remains the way to finish (or re-index) one.
  */
 export async function findUnembeddedDocumentIds(opts: {
   userId?: string;
@@ -273,41 +392,39 @@ export async function findUnembeddedDocumentIds(opts: {
   return rows.map((r) => r.id);
 }
 
-function sha256(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
-}
-
 /**
- * Manual parse of `documents.metadata.pages`. The canonical page shape is
- * `ExtractedPdfPage.pageNumber` proven by `parsePdfExtractionChildReply`
- * (positive integer, dense 1..N) and `chunks.metadata.page` checked by
- * `isValidPage`. `documents.metadata` is `unknown` jsonb with no static
- * guarantee, so this boundary re-validates with `isRecord`/`isValidPage`.
- * Two encodings (`{text}` vs `{start,end}`) share one un-tagged array;
- * a shared DocumentPagesSchema in @alfred/contracts would own that union
- * but is deferred until the encodings are tagged — hence the manual parse.
+ * Parse `documents.metadata.pages` via the shared contract helpers. The
+ * canonical page shape is `ExtractedPdfPage.pageNumber` proven by
+ * `parsePdfExtractionChildReply` (positive integer, dense 1..N) and
+ * `chunks.metadata.page` checked by `isValidPage`. `documents.metadata` is
+ * `unknown` jsonb with no static guarantee, so this boundary delegates to
+ * `parseDocumentPages` / `parseDocumentPagesMixed` in `@alfred/contracts`
+ * rather than hand-rolled `isRecord` checks.
  */
 function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
   if (!isRecord(doc.metadata)) return null;
   const rawPages = doc.metadata.pages;
   if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
-  const out: PageInput[] = [];
-  for (const entry of rawPages) {
-    if (!isRecord(entry)) continue;
-    const pageRaw = entry.page;
-    const pageNum = isValidPage(pageRaw) ? pageRaw : null;
-    if (pageNum == null) continue;
-    const textRaw = entry.text;
-    if (typeof textRaw === "string") {
-      out.push({ page: pageNum, text: textRaw });
-      continue;
+
+  // Try offset-encoded pages first — the canonical writer path.
+  const offsetPages = parseDocumentPages(rawPages);
+  if (offsetPages) {
+    const out: PageInput[] = [];
+    for (const entry of offsetPages) {
+      out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
     }
-    const startRaw = entry.start;
-    const endRaw = entry.end;
-    if (typeof startRaw === "number" && typeof endRaw === "number") {
-      const start = Math.max(0, Math.floor(startRaw));
-      const end = Math.max(start, Math.floor(endRaw));
-      out.push({ page: pageNum, text: doc.content.slice(start, end) });
+    return out.length > 0 ? out : null;
+  }
+
+  // Legacy fallback: mixed union of {page, text} and {page, start, end}
+  const mixedPages = parseDocumentPagesMixed(rawPages);
+  if (!mixedPages) return null;
+  const out: PageInput[] = [];
+  for (const entry of mixedPages) {
+    if ("text" in entry) {
+      out.push({ page: entry.page, text: entry.text });
+    } else {
+      out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
     }
   }
   return out.length > 0 ? out : null;

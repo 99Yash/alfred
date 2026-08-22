@@ -376,7 +376,11 @@ test("a page-only character breach skips the synchronous document read", async (
     },
   };
 
-  const result = await extractPdfCore(new Uint8Array([1]), 10, async () => inspector);
+  const result = await extractPdfCore(
+    new Uint8Array([1]),
+    { maxCharacters: 10 },
+    async () => inspector,
+  );
 
   assert.equal(result.kind, "limit_exceeded");
   if (result.kind !== "limit_exceeded") return;
