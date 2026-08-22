@@ -12,7 +12,7 @@ import {
   Users2,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { APP_TINTS, type AppTint } from "~/lib/tints";
+import type { AppTint } from "~/lib/tints";
 
 export const SECTIONS = [
   { id: "user", label: "User", icon: User },
@@ -96,6 +96,3 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     comingSoon: true,
   },
 ];
-
-/** Background-agent tile tints, drawn from the shared app tint palette. */
-export const TINT_TILE = APP_TINTS;

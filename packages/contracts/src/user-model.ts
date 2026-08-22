@@ -409,9 +409,9 @@ export type JsonPrimitive = string | number | boolean | null;
 /**
  * Exactly what `jsonValueSchema` below accepts — no `undefined` on the value
  * side. The two must stay in lockstep: this type guards the same values the
- * validator rejects at the persistence boundary (`observationPayloadSchema`),
- * so admitting a present-`undefined` here would let the compiler bless a
- * payload that `observationInsertSchema.parse` then throws on.
+ * validator rejects at the persistence boundary (`jsonObjectSchema`), so
+ * admitting a present-`undefined` here would let the compiler bless a payload
+ * that `observationInsertSchema.parse` then throws on.
  *
  * A JSON-shaped object with declared optional properties therefore cannot be
  * assigned into a `JsonValue` index signature under
@@ -555,8 +555,7 @@ export const observationParticipantsSchema = z
   });
 export type ObservationParticipants = z.infer<typeof observationParticipantsSchema>;
 
-export const observationPayloadSchema = jsonObjectSchema;
-export type ObservationPayload = z.infer<typeof observationPayloadSchema>;
+export type ObservationPayload = z.infer<typeof jsonObjectSchema>;
 
 export const gmailEmailMessagePayloadSchema = z
   .object({
@@ -686,7 +685,7 @@ export const observationInsertSchema = z
     subjectIdentity: observationSubjectSchema,
     objectIdentity: identityRefSchema.nullable().optional(),
     participants: observationParticipantsSchema.default({ items: [], recipientCount: 0 }),
-    payload: observationPayloadSchema.default({}),
+    payload: jsonObjectSchema.default({}),
     schemaVersion: z.number().int().min(1).default(1),
     reducerVersion: z.number().int().min(1).default(1),
     supersedesObservationId: z.string().min(1).nullable().optional(),

@@ -31,7 +31,8 @@ import { faviconFor as faviconUrl } from "~/lib/favicon";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { hasRemoteEmailMedia } from "./inbox-feed-media";
-import { RAIL_TOOL_TONE, type RailInboxItem } from "./models";
+import { APP_TINTS } from "~/lib/tints";
+import { type RailInboxItem } from "./models";
 import type { InboxPagination } from "./rail-data";
 
 const PAGE_SIZE = 8;
@@ -486,7 +487,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
         className={cn(
           "relative mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
           "overflow-hidden text-[11px] font-semibold tabular-nums",
-          RAIL_TOOL_TONE[item.tone],
+          APP_TINTS[item.tone],
         )}
       >
         <span className="absolute inset-0 inline-flex items-center justify-center">
@@ -514,7 +515,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
       className={cn(
         "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
         "text-[11px] font-semibold tabular-nums",
-        RAIL_TOOL_TONE[item.tone],
+        APP_TINTS[item.tone],
       )}
     >
       {item.initial}
