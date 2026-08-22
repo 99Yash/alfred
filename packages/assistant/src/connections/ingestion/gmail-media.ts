@@ -28,7 +28,7 @@ const DOOR_MEDIA = extraction({ door: GMAIL_MEDIA_DOOR });
 export interface GmailMediaTally {
   attempted: number;
   ingested: number;
-  /** Attachment docs that already existed — download, extraction, and embed all skipped. */
+  /** Attachment docs whose row already existed — download, extraction, and embed all skipped. Also covers an insert race lost to a sibling job that persisted this same part. */
   deduped: number;
   /**
    * Occurrences of content that is already stored under a DIFFERENT
@@ -134,7 +134,9 @@ async function findCanonicalByContentHash(
  * Record an occurrence on the canonical row. Idempotent per
  * `(messageId, attachmentId)`: the append rewrites `metadata.references`
  * from the stored array plus only entries it does not already hold, so a
- * retried job cannot stack duplicates.
+ * retried job cannot stack duplicates. The predicate uses IS DISTINCT FROM,
+ * not `=`: SQL NULL from an element missing a key must keep the element
+ * (`NOT (NULL AND …)` filters it out and would delete it silently).
  */
 export async function appendContentReference(
   documentId: string,
@@ -146,7 +148,8 @@ export async function appendContentReference(
       metadata: sql`${documents.metadata} || jsonb_build_object('references', (
         SELECT coalesce(jsonb_agg(elem), '[]'::jsonb)
         FROM jsonb_array_elements(coalesce(${documents.metadata}->'references', '[]'::jsonb)) AS elem
-        WHERE NOT (elem->>'messageId' = ${ref.messageId} AND elem->>'attachmentId' = ${ref.attachmentId})
+        WHERE elem->>'messageId' IS DISTINCT FROM ${ref.messageId}
+           OR elem->>'attachmentId' IS DISTINCT FROM ${ref.attachmentId}
       ) || ${JSON.stringify([ref])}::jsonb)`,
       updatedAt: new Date(),
     })
@@ -322,8 +325,9 @@ export async function ingestGmailMediaAttachments(
     // Content-level dedup (cross-message): the same unchanged file arriving
     // under a different `messageId:attachmentId` — a resume forwarded to ten
     // recruiters is ONE corpus row. The unique index on
-    // (userId, source, contentHash) is the race backstop; this lookup keeps
-    // the common path to a single SELECT. The occurrence rides the
+    // (userId, source, contentHash) is the race backstop; this lookup avoids
+    // the insert-race fallback on the repeat path, at the cost of one extra
+    // indexed SELECT per fresh candidate. The occurrence rides the
     // canonical row's `metadata.references`, so chat can still trace the
     // document back to the thread that carried it.
     const canonical = await findCanonicalByContentHash(args.userId, contentHash);
@@ -380,9 +384,15 @@ export async function ingestGmailMediaAttachments(
     if (!documentId) {
       // Lost an insert race. Either this exact part now exists (identical
       // content — nothing to add), or the content's canonical row does
-      // (record the occurrence on it).
+      // (record the occurrence on it). The two unique indexes cap the
+      // result at two rows — one per index — so both picks below are
+      // deterministic by construction.
       const winners = await db()
-        .select({ id: documents.id, sourceId: documents.sourceId })
+        .select({
+          id: documents.id,
+          sourceId: documents.sourceId,
+          contentHash: documents.contentHash,
+        })
         .from(documents)
         .where(
           and(
@@ -396,7 +406,7 @@ export async function ingestGmailMediaAttachments(
         tally.deduped++;
         continue;
       }
-      const canon = winners[0];
+      const canon = winners.find((row) => row.contentHash === contentHash);
       if (!canon) {
         tally.errors++;
         continue;

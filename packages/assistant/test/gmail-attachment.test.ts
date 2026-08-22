@@ -4,7 +4,10 @@ import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import { documents, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-import { ingestGmailMediaAttachments } from "../src/connections/ingestion/gmail-media";
+import {
+  appendContentReference,
+  ingestGmailMediaAttachments,
+} from "../src/connections/ingestion/gmail-media";
 import type { Extraction } from "@alfred/extraction";
 import type { GmailMessage } from "@alfred/integrations/google";
 import { dbBackedSkip } from "./support/db-backed";
@@ -403,6 +406,55 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: same jsonb narrowing as above.
     const metaAfter = after[0]!.metadata as { references?: unknown[] };
     assert.equal(metaAfter.references!.length, 1, "reference append must be idempotent");
+  });
+
+  test("reference append keeps entries that lack dedup keys", async () => {
+    const userId = await seedUser();
+    const documentId = `doc-${randomUUID()}`;
+    // A future writer may store an element without messageId/attachmentId.
+    // The append predicate must keep such elements (IS DISTINCT FROM), not
+    // silently delete them the way `NOT (NULL AND …)` does.
+    await db()
+      .insert(documents)
+      .values({
+        id: documentId,
+        userId,
+        source: "gmail_attachment",
+        sourceId: `msg-${randomUUID()}:att-${randomUUID()}`,
+        title: "seed.pdf",
+        content: "seed text",
+        contentHash: `hash-${randomUUID()}`,
+        metadata: {
+          references: [
+            { foo: "bar" },
+            { messageId: "m1", attachmentId: "a1", filename: "a.pdf", size: 1 },
+          ],
+        },
+      });
+    const ref = {
+      messageId: "m2",
+      attachmentId: "a2",
+      threadId: null,
+      filename: "b.pdf",
+      size: 2,
+      authoredAt: null,
+    };
+
+    await appendContentReference(documentId, ref);
+    await appendContentReference(documentId, ref);
+
+    const rows = await db().select().from(documents).where(eq(documents.id, documentId));
+    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: documents.metadata is jsonb unknown; test narrows to the reference shape.
+    const meta = rows[0]!.metadata as { references?: Array<Record<string, unknown>> };
+    assert.equal(meta.references!.length, 3, "malformed entry kept, new entry appended once");
+    assert.deepEqual(meta.references![0], { foo: "bar" }, "keyless element must survive");
+    assert.deepEqual(meta.references![1], {
+      messageId: "m1",
+      attachmentId: "a1",
+      filename: "a.pdf",
+      size: 1,
+    });
+    assert.deepEqual(meta.references![2], ref, "second identical append must be a no-op");
   });
 
   test("scanned PDF (needs_ocr) is skipped, not ingested", async () => {
