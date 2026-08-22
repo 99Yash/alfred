@@ -1,8 +1,5 @@
 import { route, resolveEffectiveInputWindowTokens, type ChatModelTier } from "@alfred/ai";
-import {
-  COMPACTION_THRESHOLD_PCT,
-  type AgentTranscriptMessage,
-} from "@alfred/contracts";
+import { COMPACTION_THRESHOLD_PCT, type AgentTranscriptMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
