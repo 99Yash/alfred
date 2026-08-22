@@ -2,6 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
+import { FETCH_URL_MAX_TEXT_CHARS } from "@alfred/contracts";
+
 import {
   createPdfExtractionLimitResult,
   parsePdfExtractionChildReply,
@@ -37,10 +39,11 @@ export interface PdfExtractionLimits {
 }
 
 const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
-// `fetch_url` returns at most 100k characters, but its parser may read farther
-// so the caller can truncate an otherwise valid document instead of treating
-// the output limit as an extraction failure.
-const FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT = 200_000;
+// `fetch_url` returns at most FETCH_URL_MAX_TEXT_CHARS characters, but
+// its PDF parser may read farther so the caller can truncate an otherwise valid
+// document instead of treating the output limit as an extraction failure.
+// Derived from the shared tool cap so the two sides cannot drift.
+const FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT = FETCH_URL_MAX_TEXT_CHARS * 2;
 // Long but valuable docs: keep as much as the 10 MB input allows, truncate
 // at the limit instead of skipping the attachment.
 const GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT = 1_000_000;

@@ -15,7 +15,7 @@
 
 import { integrations } from "@alfred/integrations";
 import { search } from "@alfred/corpus";
-import type { RetryPolicy } from "@alfred/integrations/shared";
+import { RETRY_BASE_DELAY_MS, type RetryPolicy } from "@alfred/integrations/shared";
 
 import type { ToolExecuteContext, ToolExecuteContextFields } from "./internal/registry";
 
@@ -33,7 +33,7 @@ import type { ToolExecuteContext, ToolExecuteContextFields } from "./internal/re
  */
 const TOOL_DISPATCH_RETRY: RetryPolicy = {
   maxAttempts: 2,
-  baseDelayMs: 250,
+  baseDelayMs: RETRY_BASE_DELAY_MS,
   maxDelayMs: 1_000,
 };
 
