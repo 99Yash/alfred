@@ -65,7 +65,7 @@ async function seedAttachmentDoc(userId: string): Promise<string> {
             authoredAt: "2026-08-02T10:00:00.000Z",
           },
           { foo: "bar" },
-          { ...validShape(), size: "big" },
+          { ...validReference(), size: "big" },
         ],
       },
     })
@@ -74,7 +74,7 @@ async function seedAttachmentDoc(userId: string): Promise<string> {
   return doc.id;
 }
 
-function validShape(): Record<string, unknown> {
+function validReference() {
   return {
     messageId: "msg-2",
     attachmentId: "att-2",
