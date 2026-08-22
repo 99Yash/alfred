@@ -1573,6 +1573,18 @@ export const fetchUrlInput = z
   })
   .strict();
 
+export const corpusSearchInput = z
+  .object({
+    query: z
+      .string()
+      .min(1)
+      .max(1_000)
+      .describe(
+        "A focused natural-language question or phrase to find in the user's ingested documents. Phrase it as the information you want, the way it would appear in the document.",
+      ),
+  })
+  .strict();
+
 export const suggestTodoInput = coerceJsonArrayFields(
   ["sources"],
   z
@@ -1782,6 +1794,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.suggest_todo": suggestTodoInput,
   "system.web_search": webSearchInput,
   "system.fetch_url": fetchUrlInput,
+  "system.corpus_search": corpusSearchInput,
   "system.create_artifact": createArtifactInput,
   "system.append_artifact_page": appendArtifactPageInput,
   "system.append_artifact_section": appendArtifactSectionInput,

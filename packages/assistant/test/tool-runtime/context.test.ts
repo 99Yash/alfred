@@ -46,7 +46,7 @@ describe("toolExecuteContext", () => {
     }
   });
 
-  test("derives the provider bind rather than taking one — exactly one key is added", () => {
+  test("derives the binds rather than taking one — exactly the derived keys are added", () => {
     const ctx = toolExecuteContext(fields);
 
     assert.equal(
@@ -54,11 +54,17 @@ describe("toolExecuteContext", () => {
       false,
       "the fields type must not carry a bind",
     );
-    assert.ok(ctx.integrations, "the constructor must attach a bind");
+    assert.equal(
+      Object.hasOwn(fields, "corpus"),
+      false,
+      "the fields type must not carry the corpus bind",
+    );
+    assert.ok(ctx.integrations, "the constructor must attach a provider bind");
+    assert.ok(ctx.corpus, "the constructor must attach a corpus bind");
     assert.deepEqual(
       Object.keys(ctx).sort(),
-      [...Object.keys(fields), "integrations"].sort(),
-      "the constructor added or dropped a key beyond the derived bind",
+      [...Object.keys(fields), "corpus", "integrations"].sort(),
+      "the constructor added or dropped a key beyond the derived binds",
     );
   });
 

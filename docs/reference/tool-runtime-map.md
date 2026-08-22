@@ -21,6 +21,13 @@ eager main barrel does not load provider or database graphs. Neither user
 surface imports the other, and neither reaches the catalog itself. Each crossing
 from chat or workflows goes through one boot seam.
 
+Tool declarations follow the same rule in miniature: a tool module never imports
+a provider or database graph. `system.corpus_search`
+(`tool-runtime/internal/tools/corpus.ts`) reads the ingested corpus through
+`ctx.corpus.search`, a bind built beside the provider bind in
+`tool-runtime/context.ts`, so the tool graph stays free of the static
+`@alfred/db`/`@alfred/corpus` edge.
+
 ## The four players
 
 | Player                | Role                                                                                     |
