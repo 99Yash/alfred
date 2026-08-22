@@ -86,6 +86,28 @@ export const documents = pgTable(
   (t) => [
     check("documents_source_valid", sql`${t.source} IN (${inList(DOCUMENT_SOURCES)})`),
     uniqueIndex("documents_source_id_idx").on(t.userId, t.source, t.sourceId),
+    /**
+     * One corpus row per distinct attachment content (ADR-0091 lane: content
+     * dedup). The same unchanged file arriving under N different
+     * `messageId:attachmentId` source ids extracts and embeds once; later
+     * occurrences are recorded as `metadata.references` on the canonical row.
+     * Partial by source so identical mail bodies across two emails never
+     * collide — only the immutable-bytes attachment door claims
+     * content-level identity today.
+     *
+     * Accepted edges, decided in #877/#878:
+     * - Keyed by user, not account: identical content across two linked
+     *   accounts folds into one row whose `accountId` names the first
+     *   carrier only. Per-carrier provenance rides `metadata.references`
+     *   (each entry carries `accountId`).
+     * - `content_hash` covers normalized extractor text, not bytes. An
+     *   extractor upgrade mints a fresh canonical row for byte-identical
+     *   files; dedup decays until a re-index. Deliberately not salted with
+     *   an extractor version — salting cannot prevent the duplicate.
+     */
+    uniqueIndex("documents_attachment_content_hash_idx")
+      .on(t.userId, t.source, t.contentHash)
+      .where(sql`${t.source} = 'gmail_attachment'`),
     index("documents_user_source_idx").on(t.userId, t.source, t.authoredAt),
     index("documents_thread_idx").on(t.userId, t.source, t.sourceThreadId),
     index("documents_embed_sweep_idx")
