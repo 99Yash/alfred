@@ -1,7 +1,4 @@
-import {
-  isIndexable,
-  SENSITIVE_LOG_PATHS,
-} from "@alfred/contracts";
+import { isIndexable, SENSITIVE_LOG_PATHS } from "@alfred/contracts";
 import { nodeEnv } from "@alfred/env/server";
 import pino, { type DestinationStream } from "pino";
 import { AppError } from "@alfred/contracts/app-errors";
