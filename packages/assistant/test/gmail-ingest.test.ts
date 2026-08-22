@@ -248,7 +248,13 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
           })),
           indexDocument: async () => {
             indexCalls++;
-            return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+            return {
+              documentId: "fake",
+              chunksWritten: 1,
+              chunksSkipped: 0,
+              empty: false,
+              truncated: false,
+            };
           },
         },
       },

@@ -1,5 +1,5 @@
 import { boundToolResult } from "./bound";
-import { isPlainRecord } from "./guards";
+import { isRecord } from "./guards";
 import type { PassthroughTruncation } from "./passthrough";
 import { sanitizeToolResult } from "./sanitize";
 
@@ -77,7 +77,7 @@ function capArrays(value: unknown): ArrayCapResult {
     });
     return { value: changed ? out : value, dropped };
   }
-  if (isPlainRecord(value)) {
+  if (isRecord(value)) {
     let dropped = 0;
     let changed = false;
     const out: Record<string, unknown> = {};
@@ -119,7 +119,7 @@ function pruneToBudget(value: unknown, budget: number): unknown {
     }
     return out;
   }
-  if (isPlainRecord(value)) {
+  if (isRecord(value)) {
     const out: Record<string, unknown> = {};
     let used = 2;
     const entries = Object.entries(value);
@@ -153,7 +153,7 @@ const OVERFLOW = Symbol("overflow");
 function fitChild(child: unknown, remaining: number): unknown | typeof OVERFLOW {
   if (remaining <= 0) return OVERFLOW;
   if (approxBytes(child) <= remaining) return child;
-  if (Array.isArray(child) || isPlainRecord(child)) {
+  if (Array.isArray(child) || isRecord(child)) {
     return pruneToBudget(child, remaining);
   }
   return OVERFLOW;

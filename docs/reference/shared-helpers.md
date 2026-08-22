@@ -60,7 +60,7 @@ and just signal how load-bearing each surface is.
 
 ### Value-shape guards — `@alfred/contracts` (`src/guards.ts`)
 Validate external / persisted / protocol data instead of asserting it.
-- `isRecord`, `isPlainRecord`, `isIndexable`, `isNonEmptyString`
+- `isRecord`, `isIndexable`, `isNonEmptyString`
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
 - `getPath`, `getStringPath` (safe nested read)
 - `parseEmailAddress`
