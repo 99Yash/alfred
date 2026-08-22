@@ -1,4 +1,9 @@
-import { rowToCredentialWire, type BearerProvider, type CredentialRowWire, type IntegrationSlug } from "@alfred/contracts";
+import {
+  rowToCredentialWire,
+  type BearerProvider,
+  type CredentialRowWire,
+  type IntegrationSlug,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
