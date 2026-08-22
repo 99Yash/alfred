@@ -62,6 +62,7 @@ export const INTEGRATION_ACTIONS = {
     "suggest_todo",
     "web_search",
     "fetch_url",
+    "corpus_search",
     "create_artifact",
     "append_artifact_page",
     "append_artifact_section",
@@ -418,6 +419,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     done: "Read a web page",
     title: "read a web page",
   },
+  "system.corpus_search": {
+    running: "Searching your documents",
+    done: "Searched your documents",
+    title: "search your ingested documents",
+  },
   "system.create_artifact": {
     running: "Creating an artifact",
     done: "Created an artifact",
@@ -717,6 +723,7 @@ export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
   "system.suggest_todo": "action",
   "system.web_search": "source",
   "system.fetch_url": "source",
+  "system.corpus_search": "source",
   "system.create_artifact": "action",
   "system.append_artifact_page": "action",
   "system.append_artifact_section": "action",

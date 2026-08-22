@@ -36,6 +36,10 @@ import {
 // `@alfred/db` and `@alfred/corpus` into the import graph of the module every
 // tool declaration imports. Building a context lives in `../context`.
 import type { Integrations } from "@alfred/integrations";
+// Same erasure rule: the corpus bind is a TYPE here so tool declarations can
+// name it without loading the embedder + pg graph. The value is attached in
+// `../context`, next to the provider bind.
+import type { SearchArgs, SearchHit } from "@alfred/corpus";
 import { z } from "zod";
 import { joinToolInput } from "../join-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
@@ -155,6 +159,15 @@ export interface ToolExecuteContext {
    */
   integrations: Integrations;
   /**
+   * Corpus reads, already bound to THIS call's user — the same inversion the
+   * provider bind gets: a tool calls `ctx.corpus.search({ query })` and never
+   * imports `@alfred/db` or `@alfred/corpus` itself. Built in `../context`
+   * beside `integrations`, so the tool graph stays free of the static db edge.
+   */
+  corpus: {
+    search(args: SearchArgs): Promise<SearchHit[]>;
+  };
+  /**
    * The user's operational IANA timezone (the `"timezone"` pref, falling back
    * to UTC), resolved once by the dispatcher. Tools that turn a relative window
    * ("today", "the past week") into concrete bounds resolve it against this so
@@ -196,10 +209,11 @@ export interface ToolExecuteContext {
 
 /**
  * Everything a caller supplies to build a {@link ToolExecuteContext} — which is
- * everything EXCEPT the provider bind, because that is derived rather than
- * passed. See `toolExecuteContext` in `../context`.
+ * everything EXCEPT the derived binds (the provider bind and the corpus bind),
+ * because those are derived rather than passed. See `toolExecuteContext` in
+ * `../context`.
  */
-export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations">;
+export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations" | "corpus">;
 
 export interface LiveToolArgs<
   I extends IntegrationSlug,

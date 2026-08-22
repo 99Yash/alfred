@@ -3,6 +3,7 @@ import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { extractPageFromMetadata } from "./embed-document";
 
 /**
  * Semantic search over the chunked corpus. Returns top-K chunks ranked
@@ -34,6 +35,12 @@ export interface SearchHit {
   source: Document["source"];
   title: string | null;
   position: number;
+  /**
+   * The 1-indexed PDF page the extractor proved this chunk sits on, when the
+   * parent document carries page structure. `null` for every other document —
+   * never state a page the extractor did not prove (ADR-0091).
+   */
+  page: number | null;
   /** First ~280 chars of the chunk for surfacing. */
   preview: string;
   /**
@@ -80,6 +87,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         title: documents.title,
         position: chunks.position,
         content: chunks.content,
+        metadata: chunks.metadata,
         authoredAt: documents.authoredAt,
         distance: sql<number>`${chunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
       })
@@ -98,6 +106,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         title: candidates.title,
         position: candidates.position,
         content: candidates.content,
+        metadata: candidates.metadata,
         authoredAt: candidates.authoredAt,
         distance: candidates.distance,
       })
@@ -112,6 +121,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
     source: r.source,
     title: r.title,
     position: r.position,
+    page: extractPageFromMetadata(r.metadata),
     preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
     similarity: 1 - Number(r.distance),
     authoredAt: r.authoredAt,
