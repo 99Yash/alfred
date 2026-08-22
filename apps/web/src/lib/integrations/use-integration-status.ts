@@ -1,4 +1,4 @@
-import { credentialShapeForSlug } from "@alfred/contracts";
+import { credentialRowSchema, credentialShapeForSlug } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { z } from "zod";
@@ -14,33 +14,25 @@ import {
 } from "~/lib/integrations/integrations";
 
 /**
- * The web projection of every integration credential route. The server routes
- * intentionally have provider-specific row types; this boundary keeps only the
- * fields the connectedness UI consumes and normalizes the one provider-specific
- * field (`installationId`) to null.
+ * The web projection of the integration credential routes, derived from the
+ * owning wire schema in `@alfred/contracts`. The only local delta is the
+ * normalization of the provider-specific `installationId` (absent on bearer
+ * rows) to null, so consumers read one shape.
  */
-export const credentialRowSchema = z.object({
-  id: z.string(),
-  accountId: z.string(),
-  accountLabel: z.string().nullable(),
-  status: z.string(),
-  scopes: z.array(z.string()).readonly(),
+export const parsedCredentialRowSchema = credentialRowSchema.extend({
   installationId: z
     .string()
     .nullable()
     .optional()
     .transform((value) => value ?? null),
-  expiresAt: z.string().nullable(),
-  lastRefreshedAt: z.string().nullable(),
-  createdAt: z.string(),
 });
-export type CredentialRow = z.infer<typeof credentialRowSchema>;
+export type CredentialRow = z.infer<typeof parsedCredentialRowSchema>;
 
 /** Parse each row independently so one malformed credential cannot hide valid siblings. */
 export function parseCredentialRows(input: unknown): CredentialRow[] {
   if (!Array.isArray(input)) return [];
   return input.flatMap((row) => {
-    const parsed = credentialRowSchema.safeParse(row);
+    const parsed = parsedCredentialRowSchema.safeParse(row);
     return parsed.success ? [parsed.data] : [];
   });
 }

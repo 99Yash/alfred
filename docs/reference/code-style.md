@@ -80,6 +80,18 @@ export const setPreferenceArgsSchema = preferenceInsertSchema
 
 The same shape declared in `@alfred/contracts`, `@alfred/sync`, `@alfred/assistant`, and `apps/web` is four chances to disagree. Declare it **once** (contracts/sync are the usual home) and import it. Mind the boundary: `apps/web` cannot import `@alfred/db` (or any server package) — `pnpm check:web-boundaries` enforces this. If web needs a row shape, the canonical type belongs in `@alfred/contracts`, which both sides import.
 
+### Schemas that cross a seam: one owner, consumers derive
+
+A shape two packages must agree on gets **one owning schema** (browser-safe → `@alfred/contracts`) plus derivation at every consumer:
+
+- Variants come from `.pick()` / `.omit()` / `.extend()` on the owner — never a restated `z.object`.
+- Producers pin themselves to the owner at compile time: map through a typed function returning the wire type (see `rowToCredentialWire` in `packages/contracts/src/credentials.ts` and its three route callers), or annotate with `satisfies z.ZodType<...>`. A field renamed on the producing side then fails `tsc` instead of silently dropping from the client.
+- A narrower local projection is legitimate when it deliberately reshapes for UI — but it derives from the owner and says so in a comment.
+
+Enforcement is compile-time pins, not a lint script: a generic "did someone hand-copy this schema" checker cannot separate legitimate projections from drift. If a third unpinned copy of an owned shape appears, revisit.
+
+**Rejected:** per-package `schemas/` directories. Placement does not concentrate complexity — ownership-by-role does; moving files changes nothing a consumer can check (evidence and surveyed repos in [schema-and-const-homes](../research/schema-and-const-homes-2026-08-22.md)).
+
 ### When a literal IS correct
 
 Deriving is the default, not a law. A standalone `interface`/`type` is right when the shape is **deliberately not** the source-of-truth shape:
@@ -139,6 +151,7 @@ Put the constant at the narrowest stable owner:
 
 - **`@alfred/contracts`** only for cross-boundary semantics: API/schema limits, synced/wire enums, client-visible tool caps, output truncation guarantees, and values that both server and web/model contracts must agree on.
 - **Owning package/module** for implementation mechanics: provider HTTP timeouts, Redis TTLs, queue batch sizes, retry windows, cache keys, local prompt budgets, and private heuristics. If several files in the same domain need it, create a small local `constants.ts` / `config.ts` in that package instead of exporting it from contracts.
+- **A dedicated constants file earns its place only when values couple** — several derived expressions depend on one knob, so the file encodes a relationship (the model is `packages/env/src/pool.ts`: `derivePoolMax()` from `AGENT_WORKER_CONCURRENCY_DEFAULT`). Proximity alone does not justify one; an uncoupled grab-bag file fails the deletion test — deleting it just moves the numbers.
 - **Environment** only for deploy-time operator knobs, secrets, endpoints, or values that should differ by environment. Do not use env vars just to avoid naming a constant.
 
 Before moving a value into `@alfred/contracts`, confirm the web bundle is allowed to import every dependency it pulls in. Contracts must stay runtime-light and server-agnostic.
