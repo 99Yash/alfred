@@ -122,6 +122,7 @@ export const chunks = pgTable(
     tokenCount: integer("token_count"),
     contentHash: text("content_hash").notNull(),
     metadata: jsonb("metadata")
+      .$type<ChunkMetadata>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     ...lifecycle_dates,
@@ -131,6 +132,20 @@ export const chunks = pgTable(
     index("chunks_user_idx").on(t.userId),
   ],
 );
+
+/**
+ * The shape `@alfred/corpus` writes into `chunks.metadata`. The embed pipeline
+ * is the column's only writer, so this type names every key the column can
+ * carry; `page` is optional because rows written before a document had page
+ * structure carry none. The database layer cannot constrain jsonb contents,
+ * so the corpus package still narrows reads through its validity gate
+ * (`extractPageFromMetadata`) — this type makes the honest shape visible, not
+ * the persisted rows trustworthy on their own.
+ */
+export interface ChunkMetadata {
+  /** The 1-indexed PDF page the extractor proved this chunk sits on. */
+  page?: number;
+}
 
 export type Document = typeof documents.$inferSelect;
 export type DocumentChunk = typeof chunks.$inferSelect;

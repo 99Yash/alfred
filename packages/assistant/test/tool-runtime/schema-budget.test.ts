@@ -36,9 +36,11 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // description. These are lazy (never kernel), so the growth is only paid when everything loads.
 // Measured 2026-08-01: full 80,532 B — workflow recovery added one small lazy tool that
 // revalidates a blocked immutable draft before the existing high-risk activation tool runs.
+// Measured 2026-08-21: full 81,604 B — system.corpus_search (lane 08 of #649) added one lazy
+// read-only search over the ingested corpus.
 const KERNEL_SCHEMA_BYTES_CEILING = 6_600;
 const KERNEL_SCHEMA_TOKENS_CEILING = 1_700;
-const FULL_SCHEMA_BYTES_CEILING = 81_000;
+const FULL_SCHEMA_BYTES_CEILING = 85_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
 const NON_KERNEL_GIANTS: readonly ToolName[] = [

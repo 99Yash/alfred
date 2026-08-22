@@ -14,6 +14,7 @@
  */
 
 import { integrations } from "@alfred/integrations";
+import { search } from "@alfred/corpus";
 import type { RetryPolicy } from "@alfred/integrations/shared";
 
 import type { ToolExecuteContext, ToolExecuteContextFields } from "./internal/registry";
@@ -55,5 +56,6 @@ export function toolExecuteContext(fields: ToolExecuteContextFields): ToolExecut
       retry: TOOL_DISPATCH_RETRY,
       accountRef: fields.accountRef,
     }),
+    corpus: { search },
   };
 }

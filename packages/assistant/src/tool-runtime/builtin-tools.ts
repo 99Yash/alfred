@@ -9,6 +9,7 @@ import {
   type RegisteredTool,
 } from "./internal/registry";
 import { calendarTools } from "./internal/tools/calendar";
+import { corpusTools } from "./internal/tools/corpus";
 import { docsTools } from "./internal/tools/docs";
 import { driveTools } from "./internal/tools/drive";
 import { githubTools } from "./internal/tools/github";
@@ -35,6 +36,7 @@ const builtinToolRegistry: BuiltinToolRegistry = {
 
 export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(systemTools);
+  registerTools(corpusTools);
   registerTools(gmailTools);
   registerTools(calendarTools);
   registerTools(driveTools);
