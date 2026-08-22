@@ -303,6 +303,108 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(count.length, 1);
   });
 
+  test("same content under a different message references the canonical row without re-embedding", async () => {
+    const userId = await seedUser();
+    const accountId = `acc-${randomUUID()}`;
+    const bytes = new Uint8Array(Buffer.from("%PDF-1.4 same file"));
+    let indexCalls = 0;
+    const threadOne = `thr-${randomUUID()}`;
+    const threadTwo = `thr-${randomUUID()}`;
+
+    // First arrival: recruiter thread one — this creates the canonical row.
+    const firstMessage = makeMessage({
+      id: `msg-${randomUUID()}`,
+      threadId: threadOne,
+      attachmentId: `att-${randomUUID()}`,
+      filename: "resume.pdf",
+    });
+    const depsFor = () => ({
+      getAttachment: async () => ({ bytes, size: bytes.byteLength }),
+      media: pdfOnlyMedia(async () => ({
+        kind: "extracted" as const,
+        format: "pdf" as const,
+        content: "resume text",
+        pages: [{ page: 1, start: 0, end: 11 }],
+      })),
+      indexDocument: async () => {
+        indexCalls++;
+        return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+      },
+    });
+    const first = await ingestGmailMediaAttachments({
+      userId,
+      accountId,
+      message: firstMessage,
+      accessToken: "t",
+      authoredAt: new Date("2026-08-01T10:00:00Z"),
+      deps: depsFor(),
+    });
+
+    assert.equal(first.ingested, 1);
+    assert.equal(indexCalls, 1);
+
+    // Second arrival: identical bytes forwarded to recruiter thread two.
+    const attachmentIdTwo = `att-${randomUUID()}`;
+    const secondMessage = makeMessage({
+      id: `msg-${randomUUID()}`,
+      threadId: threadTwo,
+      attachmentId: attachmentIdTwo,
+      filename: "resume.pdf",
+    });
+    const second = await ingestGmailMediaAttachments({
+      userId,
+      accountId,
+      message: secondMessage,
+      accessToken: "t",
+      authoredAt: new Date("2026-08-02T10:00:00Z"),
+      deps: depsFor(),
+    });
+
+    assert.equal(second.ingested, 0);
+    assert.equal(second.referenced, 1);
+    assert.equal(indexCalls, 1, "identical content must not embed twice");
+
+    const rows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(rows.length, 1, "one canonical row per distinct content");
+
+    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: documents.metadata is jsonb unknown; test narrows to the reference shape ingest wrote.
+    const meta = rows[0]!.metadata as { references?: unknown[] };
+    assert.ok(Array.isArray(meta.references));
+    assert.equal(meta.references!.length, 1);
+    assert.deepEqual(meta.references![0], {
+      messageId: secondMessage.id,
+      attachmentId: attachmentIdTwo,
+      threadId: threadTwo,
+      filename: "resume.pdf",
+      size: 1024,
+      authoredAt: "2026-08-02T10:00:00.000Z",
+    });
+
+    // The canonical row keeps its own provenance: the first carrier thread.
+    assert.notEqual(rows[0]!.sourceThreadId, threadTwo);
+
+    // Re-running the second occurrence stays idempotent — no stacked entries.
+    const again = await ingestGmailMediaAttachments({
+      userId,
+      accountId,
+      message: secondMessage,
+      accessToken: "t",
+      authoredAt: new Date("2026-08-02T10:00:00Z"),
+      deps: depsFor(),
+    });
+    assert.equal(again.referenced, 1);
+    const after = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: same jsonb narrowing as above.
+    const metaAfter = after[0]!.metadata as { references?: unknown[] };
+    assert.equal(metaAfter.references!.length, 1, "reference append must be idempotent");
+  });
+
   test("scanned PDF (needs_ocr) is skipped, not ingested", async () => {
     const userId = await seedUser();
     const accountId = `acc-${randomUUID()}`;

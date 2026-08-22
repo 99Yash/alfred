@@ -86,6 +86,18 @@ export const documents = pgTable(
   (t) => [
     check("documents_source_valid", sql`${t.source} IN (${inList(DOCUMENT_SOURCES)})`),
     uniqueIndex("documents_source_id_idx").on(t.userId, t.source, t.sourceId),
+    /**
+     * One corpus row per distinct attachment content (ADR-0091 lane: content
+     * dedup). The same unchanged file arriving under N different
+     * `messageId:attachmentId` source ids extracts and embeds once; later
+     * occurrences are recorded as `metadata.references` on the canonical row.
+     * Partial by source so identical mail bodies across two emails never
+     * collide — only the immutable-bytes attachment door claims
+     * content-level identity today.
+     */
+    uniqueIndex("documents_attachment_content_hash_idx")
+      .on(t.userId, t.source, t.contentHash)
+      .where(sql`${t.source} = 'gmail_attachment'`),
     index("documents_user_source_idx").on(t.userId, t.source, t.authoredAt),
     index("documents_thread_idx").on(t.userId, t.source, t.sourceThreadId),
     index("documents_embed_sweep_idx")
