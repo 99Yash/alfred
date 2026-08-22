@@ -1,9 +1,4 @@
-import {
-  ACCOUNT_PERSONAS,
-  Errors,
-  rowToCredentialWire,
-  toMessage,
-} from "@alfred/contracts";
+import { ACCOUNT_PERSONAS, Errors, rowToCredentialWire, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
