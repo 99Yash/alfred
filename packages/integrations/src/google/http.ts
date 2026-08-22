@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { authedJson } from "../shared/authed-json";
 import type { RetryPolicy } from "../shared/retry";
 
@@ -18,6 +19,14 @@ import type { RetryPolicy } from "../shared/retry";
 
 /** Provider tag threaded into the thrown `HttpError` for telemetry. */
 export type GoogleService = "calendar" | "gmail" | "drive" | "docs" | "sheets" | "slides";
+
+/**
+ * Schema for fire-and-forget commands whose response is deliberately not
+ * validated — the call only needs the request to succeed. It accepts any
+ * value and cannot fail, so a call site passing it is visibly saying
+ * "response unchecked" instead of silently skipping validation.
+ */
+export const uncheckedResponse: z.ZodType<unknown> = z.unknown();
 
 /**
  * Issue an authenticated Google API request and parse the JSON response.
