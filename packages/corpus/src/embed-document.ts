@@ -430,7 +430,12 @@ function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInp
   return out.length > 0 ? out : null;
 }
 
-function extractPageFromMetadata(raw: unknown): number | null {
+/**
+ * Read the proven page anchor off stored chunk metadata. Shared with
+ * `search`, so every reader of `chunks.metadata.page` applies the same
+ * validity rule (`isValidPage`) and a hit can never claim an unproven page.
+ */
+export function extractPageFromMetadata(raw: unknown): number | null {
   if (!isRecord(raw)) return null;
   const page = raw.page;
   return isValidPage(page) ? page : null;
