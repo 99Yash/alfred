@@ -6,8 +6,12 @@
   "editor.defaultFormatter": "oxc.oxc-vscode",
   "oxc.fmt.experimental": true,
   "oxc.fmt.configPath": ".oxfmtrc.json",
+  // VS Code merges this object across scopes, so a `source.organizeImports`
+  // in the user settings still fires here. Nothing in this repo enforces import
+  // order, so the action only re-sorts imports into diff noise on every save.
   "editor.codeActionsOnSave": {
-    "source.fixAll.oxc": "explicit"
+    "source.fixAll.oxc": "explicit",
+    "source.organizeImports": "never"
   },
   "[typescript]": {
     "editor.defaultFormatter": "oxc.oxc-vscode"
