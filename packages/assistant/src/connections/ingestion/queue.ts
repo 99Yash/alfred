@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Queue, Worker, type Job } from "bullmq";
-import { toMessage } from "@alfred/contracts";
+import { GMAIL_POLL_DEDUP_TTL_MS, toMessage } from "@alfred/contracts";
 import { findExpiringGmailWatches } from "@alfred/integrations/google";
 import {
   findCredentialsNeedingPoll,
@@ -551,8 +551,14 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           // TTL-bounded dedup: collapses overlap between the 5-min sweep and
           // a near-simultaneous webhook push for the same credential, but
           // releases inside the sweep cadence so the next legitimate sync
-          // can land. See gmail-webhook.ts for the matching dedup key.
-          { deduplication: { id: `gmail.poll_history.${c.credentialId}`, ttl: 30_000 } },
+          // can land. The TTL is shared with gmail-webhook.ts via
+          // GMAIL_POLL_DEDUP_TTL_MS.
+          {
+            deduplication: {
+              id: `gmail.poll_history.${c.credentialId}`,
+              ttl: GMAIL_POLL_DEDUP_TTL_MS,
+            },
+          },
         );
       }
       console.log(`[ingestion:worker] gmail.poll_sweep enqueued=${stale.length}`);

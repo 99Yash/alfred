@@ -1,18 +1,11 @@
-import { isIndexable } from "@alfred/contracts";
+import {
+  isIndexable,
+  SENSITIVE_LOG_PATHS,
+} from "@alfred/contracts";
 import { nodeEnv } from "@alfred/env/server";
 import pino, { type DestinationStream } from "pino";
 import { AppError } from "@alfred/contracts/app-errors";
 import { pgErrorChain } from "@alfred/db/pg-errors";
-
-const REDACT_PATHS = [
-  "req.headers.authorization",
-  "req.headers.cookie",
-  "*.accessToken",
-  "*.refreshToken",
-  "*.apiKey",
-  "*.clientSecret",
-  "*.password",
-] as const;
 
 type SafeErrorLog = {
   type: string;
@@ -128,7 +121,7 @@ export function createLogger(destination?: DestinationStream, opts?: { verboseEr
   const options = {
     name: "alfred-api",
     serializers: { err: (err: unknown) => serializeError(err, verbose) },
-    redact: { paths: [...REDACT_PATHS], censor: "[redacted]" },
+    redact: { paths: [...SENSITIVE_LOG_PATHS], censor: "[redacted]" },
   };
   return destination ? pino(options, destination) : pino(options);
 }

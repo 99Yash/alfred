@@ -55,9 +55,17 @@ export interface RetryPolicy {
   maxDelayMs?: number;
 }
 
+/**
+ * The first backoff step every retry envelope here starts from (doubles each
+ * attempt). Exported so callers that size their own policy — e.g. the tool
+ * dispatcher's turn-budget envelope in `@alfred/assistant` — derive their base
+ * from the same value instead of re-declaring a bare `250`.
+ */
+export const RETRY_BASE_DELAY_MS = 250;
+
 const DEFAULT_POLICY: Required<RetryPolicy> = {
   maxAttempts: 3,
-  baseDelayMs: 250,
+  baseDelayMs: RETRY_BASE_DELAY_MS,
   maxDelayMs: 4_000,
 };
 

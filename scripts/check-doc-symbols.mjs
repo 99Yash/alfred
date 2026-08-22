@@ -70,10 +70,6 @@ const ALLOWED = new Map([
   ["nextRunAtIso", "placeholder inside a BullMQ jobId template, not an exported name"],
   ["some_provider", "metavariable in an integration-activity `providerKind` example"],
   ["suggestedMessages", "dimension.dev's entity name, cited as the shape Alfred did NOT copy"],
-  [
-    "SENSITIVE_LOG_PATHS",
-    "named in CONTEXT.md precisely to record that ADR-0038's central redaction const was never built",
-  ],
 ]);
 
 function referenceDocs() {

@@ -132,3 +132,23 @@ test("verbose logger writes the raw message; default logger does not", () => {
   );
   assert.doesNotMatch(strictOut, /Field required/);
 });
+
+test("pino redact config censors the shared SENSITIVE_LOG_PATHS set", async () => {
+  const { redactSensitiveLogPaths, SENSITIVE_LOG_PATHS } = await import("@alfred/contracts");
+  let output = "";
+  createLogger({ write: (c: string) => (output += c) }).warn({
+    req: { headers: { authorization: "Bearer sk_live", cookie: "session=abc" } },
+    credential: { accessToken: "tok" },
+  });
+  assert.match(output, /\[redacted\]/);
+  assert.doesNotMatch(output, /sk_live|session=abc|"tok"/);
+  // The sink-level walker and pino's path config interpret the same table.
+  const viaWalker = JSON.stringify(
+    redactSensitiveLogPaths({
+      req: { headers: { authorization: "Bearer sk_live", cookie: "session=abc" } },
+      credential: { accessToken: "tok" },
+    }),
+  );
+  assert.ok(SENSITIVE_LOG_PATHS.length > 0);
+  assert.doesNotMatch(viaWalker, /sk_live|session=abc|"tok"/);
+});
