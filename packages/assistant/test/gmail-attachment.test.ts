@@ -110,7 +110,13 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         })),
         indexDocument: async () => {
           indexCalls++;
-          return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+          return {
+            documentId: "fake",
+            chunksWritten: 1,
+            chunksSkipped: 0,
+            empty: false,
+            truncated: false,
+          };
         },
       },
     });
@@ -196,7 +202,13 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       })),
       indexDocument: async () => {
         indexCalls++;
-        return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+        return {
+          documentId: "fake",
+          chunksWritten: 1,
+          chunksSkipped: 0,
+          empty: false,
+          truncated: false,
+        };
       },
     };
 
@@ -259,7 +271,13 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       })),
       indexDocument: async () => {
         indexCalls++;
-        return { documentId: "fake", chunksWritten: 0, chunksSkipped: 1, empty: false };
+        return {
+          documentId: "fake",
+          chunksWritten: 0,
+          chunksSkipped: 1,
+          empty: false,
+          truncated: false,
+        };
       },
     };
 
@@ -331,7 +349,13 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       })),
       indexDocument: async () => {
         indexCalls++;
-        return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+        return {
+          documentId: "fake",
+          chunksWritten: 1,
+          chunksSkipped: 0,
+          empty: false,
+          truncated: false,
+        };
       },
     });
     const first = await ingestGmailMediaAttachments({
@@ -447,8 +471,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     await appendContentReference(documentId, ref);
 
     const rows = await db().select().from(documents).where(eq(documents.id, documentId));
-    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: documents.metadata is jsonb unknown; test narrows to the reference shape.
-    const meta = rows[0]!.metadata as { references?: Array<Record<string, unknown>> };
+    // SAFETY: documents.metadata is untyped jsonb here; the test inspects the raw
+    // persisted element order that appendContentReference wrote.
+    const meta = rows[0]!.metadata as { references?: unknown[] };
     assert.equal(meta.references!.length, 3, "malformed entry kept, new entry appended once");
     assert.deepEqual(meta.references![0], { foo: "bar" }, "keyless element must survive");
     assert.deepEqual(meta.references![1], {

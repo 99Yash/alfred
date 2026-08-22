@@ -1,4 +1,4 @@
-import { isPlainRecord } from "./guards";
+import { isRecord } from "./guards";
 
 /**
  * Persistence poison-resistance (ADR-0070).
@@ -87,7 +87,7 @@ export function sanitizeToolResult(value: unknown): SanitizeResult {
     });
     return { value: changed ? out : value, removed, collisions };
   }
-  if (isPlainRecord(value)) {
+  if (isRecord(value)) {
     // Skip exotic objects we shouldn't (and can't safely) rebuild — Date,
     // Map/Set, class instances, etc. jsonb persistence only ever sees plain
     // objects/arrays; anything else is serialized by the driver, and rewriting

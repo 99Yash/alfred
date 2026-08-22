@@ -1,4 +1,4 @@
-import { isPlainRecord } from "./guards";
+import { isRecord } from "./guards";
 
 /**
  * Tool-result payload bounding — a runaway-payload GUARDRAIL (not the accrual
@@ -91,7 +91,7 @@ export function boundToolResult(
     });
     return { value: changed ? out : value, clipped };
   }
-  if (isPlainRecord(value)) {
+  if (isRecord(value)) {
     let clipped = 0;
     let changed = false;
     const out: Record<string, unknown> = {};

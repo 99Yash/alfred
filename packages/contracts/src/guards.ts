@@ -31,11 +31,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-/** Alias for call sites where the plain-object requirement is the point being documented. */
-export function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return isRecord(value);
-}
-
 /**
  * True for any non-null *reference* value — a plain object, array, `Date`,
  * `Map`, class instance, driver error, or function. Put differently: anything

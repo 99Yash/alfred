@@ -1,5 +1,5 @@
 import { toMessage, type AttachmentContentReference } from "@alfred/contracts";
-import { indexDocument, sha256 } from "@alfred/corpus";
+import { indexDocument, sha256, type IndexDocumentResult } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import {
@@ -77,7 +77,7 @@ export interface GmailMediaIngestDeps {
    * `isSupported`/`extract` accept, not by a separate format list.
    */
   media?: Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> | undefined;
-  indexDocument?: ((args: { documentId: string }) => Promise<unknown>) | undefined;
+  indexDocument?: ((args: { documentId: string }) => Promise<IndexDocumentResult>) | undefined;
 }
 
 export interface GmailMediaIngestArgs {
@@ -344,15 +344,16 @@ export async function ingestGmailMediaAttachments(
       continue;
     }
 
-    const metadata: Record<string, unknown> = {
+    const metadata = {
       filename: att.filename,
       messageId: args.message.id,
       attachmentId: att.attachmentId,
       mimeType: att.mimeType,
       size: att.size,
       format: result.format,
+      // exactOptionalPropertyTypes: omit `pages` entirely rather than set it undefined.
+      ...(pages ? { pages } : {}),
     };
-    if (pages) metadata.pages = pages;
 
     let documentId: string | null = null;
     try {

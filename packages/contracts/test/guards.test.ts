@@ -5,7 +5,6 @@ import {
   getPath,
   getStringPath,
   isIndexable,
-  isPlainRecord,
   isRecord,
   isToolRiskTier,
   toRecord,
@@ -14,7 +13,6 @@ import {
 
 test("isRecord accepts only plain object records", () => {
   assert.equal(isRecord({ a: 1 }), true);
-  assert.equal(isPlainRecord({ a: 1 }), true);
 
   const nullProto = Object.create(null) as Record<string, unknown>;
   nullProto.a = 1;
