@@ -1,4 +1,6 @@
 import {
+  INBOX_DEFAULT_LIMIT,
+  INBOX_MAX_LIMIT,
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
   USAGE_ACTIVITY_DEFAULT_PAGE_SIZE,
   USAGE_ACTIVITY_MAX_PAGE_SIZE,
@@ -66,8 +68,8 @@ import {
  * to see your latest unread threads here").
  */
 
-const INBOX_DEFAULT_LIMIT = 8;
-const INBOX_MAX_LIMIT = 50;
+// INBOX_DEFAULT_LIMIT / INBOX_MAX_LIMIT live in `@alfred/contracts` — the web
+// rail paginates with the same values.
 const BRIEFING_RUN_THROTTLE_SECONDS = 60;
 let briefingRunThrottleRedis: BoundedRedis | undefined;
 

@@ -1,12 +1,15 @@
-import { isTriageCategory, parseEmailAddress, type TriageCategory } from "@alfred/contracts";
+import {
+  INBOX_DEFAULT_LIMIT,
+  isTriageCategory,
+  parseEmailAddress,
+  type TriageCategory,
+} from "@alfred/contracts";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, type EdenData } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import type { RailInboxItem, RailToolTone } from "~/routes/-chat/rail/models";
-
-export const INBOX_PAGE_SIZE = 8;
 
 export interface InboxPage {
   items: ReadonlyArray<RailInboxItem>;
@@ -20,7 +23,7 @@ export function useInbox() {
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const res = await client.api.me.inbox.get({
         query: {
-          limit: INBOX_PAGE_SIZE,
+          limit: INBOX_DEFAULT_LIMIT,
           ...(pageParam ? { cursor: pageParam } : {}),
         },
       });

@@ -66,7 +66,8 @@ interface InboxFeedProps {
 /**
  * Right-rail Inbox feed.
  *
- * Renders the top Gmail rows surfaced by `/api/me/inbox` (PAGE_SIZE = 8 per page). Each row
+ * Renders the top Gmail rows surfaced by `/api/me/inbox` (paged at
+ * `INBOX_DEFAULT_LIMIT`). Each row
  * carries the triage `category` (when classified) and the sender's
  * domain-derived brand. The list supports:
  *
