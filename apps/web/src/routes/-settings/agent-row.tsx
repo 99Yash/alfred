@@ -1,6 +1,7 @@
 import { AppSwitch } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { TINT_TILE, type BackgroundAgentDef } from "./helpers";
+import { APP_TINTS } from "~/lib/tints";
+import { type BackgroundAgentDef } from "./helpers";
 
 export function AgentRow({
   agent,
@@ -27,7 +28,7 @@ export function AgentRow({
         <span
           className={cn(
             "grid size-8 shrink-0 place-items-center rounded-xl",
-            TINT_TILE[agent.tint],
+            APP_TINTS[agent.tint],
           )}
           aria-hidden
         >

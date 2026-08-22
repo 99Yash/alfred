@@ -1,5 +1,5 @@
 import type { AttentionBand, TriageCategory, TriageTagSource } from "@alfred/contracts";
-import { APP_TINTS, type AppTint } from "~/lib/tints";
+import type { AppTint } from "~/lib/tints";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 export type ChatSidePanelMode = "inline" | "overlay";
@@ -44,5 +44,3 @@ export interface RailMeetingItem {
 }
 
 export type RailToolTone = AppTint;
-
-export const RAIL_TOOL_TONE = APP_TINTS;

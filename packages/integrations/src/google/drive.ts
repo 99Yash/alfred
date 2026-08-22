@@ -77,8 +77,7 @@ export async function listFiles(
   url.searchParams.set("supportsAllDrives", "true");
   url.searchParams.set("includeItemsFromAllDrives", "true");
 
-  const json = await getJson(url.toString(), args.accessToken, retry);
-  const parsed = listFilesResponseSchema.parse(json);
+  const parsed = await getJson(listFilesResponseSchema, url.toString(), args.accessToken, retry);
   return { files: parsed.files ?? [], nextPageToken: parsed.nextPageToken };
 }
 
@@ -95,8 +94,7 @@ export async function getFile(
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}`);
   url.searchParams.set("fields", FILE_FIELDS);
   url.searchParams.set("supportsAllDrives", "true");
-  const json = await getJson(url.toString(), args.accessToken, retry);
-  return fileSchema.parse(json);
+  return getJson(fileSchema, url.toString(), args.accessToken, retry);
 }
 
 /** Hard cap on inlined file contents so a large file can't blow up the caller's context. */
@@ -153,8 +151,14 @@ export async function downloadFile(
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
 
-const getJson = (url: string, accessToken: string, retry: RetryPolicy | "none"): Promise<unknown> =>
-  googleJson("drive", "GET", url, accessToken, undefined, retry);
+/** GET and parse at the seam — a raw response cannot reach a caller. */
+const getJson = <T>(
+  schema: z.ZodType<T>,
+  url: string,
+  accessToken: string,
+  retry: RetryPolicy | "none",
+): Promise<T> =>
+  googleJson("drive", "GET", url, accessToken, undefined, retry).then((raw) => schema.parse(raw));
 
 async function getText(
   url: string,
