@@ -1,4 +1,9 @@
-import type { BearerProvider, IntegrationSlug } from "@alfred/contracts";
+import {
+  rowToCredentialWire,
+  type BearerProvider,
+  type CredentialRowWire,
+  type IntegrationSlug,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
@@ -134,29 +139,17 @@ export async function deleteIntegrationCredential(args: {
   return deleted[0] ?? null;
 }
 
-export type BearerCredentialSummary = Pick<
-  IntegrationCredential,
-  | "id"
-  | "status"
-  | "accountId"
-  | "accountLabel"
-  | "scopes"
-  | "expiresAt"
-  | "createdAt"
-  | "lastRefreshedAt"
->;
-
 /** List a user's credential rows for a bearer-token provider (UI status + management). */
 export async function listBearerCredentials(
   userId: string,
   provider: BearerProvider,
-): Promise<BearerCredentialSummary[]> {
-  return db()
+): Promise<CredentialRowWire[]> {
+  const rows = await db()
     .select({
       id: integrationCredentials.id,
-      status: integrationCredentials.status,
       accountId: integrationCredentials.accountId,
       accountLabel: integrationCredentials.accountLabel,
+      status: integrationCredentials.status,
       scopes: integrationCredentials.scopes,
       expiresAt: integrationCredentials.expiresAt,
       createdAt: integrationCredentials.createdAt,
@@ -168,6 +161,7 @@ export async function listBearerCredentials(
     )
     .orderBy(desc(integrationCredentials.createdAt))
     .limit(100);
+  return rows.map(rowToCredentialWire);
 }
 
 export type ActiveBearerCredential = Pick<

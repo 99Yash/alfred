@@ -16,6 +16,7 @@ export * from "./user-model";
 export * from "./chat-memory";
 export * from "./identity-affiliation";
 export * from "./tool-constants";
+export * from "./inbox-constants";
 export * from "./tool-schemas";
 export * from "./github-search";
 export * from "./tool-fields";

@@ -1,4 +1,4 @@
-import { Errors } from "@alfred/contracts";
+import { Errors, rowToCredentialWire } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -74,7 +74,7 @@ export const githubIntegrationRoutes = new Elysia({
               eq(integrationCredentials.provider, "github"),
             ),
           );
-        return { credentials: rows };
+        return { credentials: rows.map(rowToCredentialWire) };
       })
       .delete(
         "/:id",

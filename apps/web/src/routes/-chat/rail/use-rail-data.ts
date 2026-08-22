@@ -1,7 +1,12 @@
-import { scoreAttentionForItems, type AttentionBand, type TriageCategory } from "@alfred/contracts";
+import {
+  INBOX_DEFAULT_LIMIT,
+  scoreAttentionForItems,
+  type AttentionBand,
+  type TriageCategory,
+} from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "./use-inbox";
+import { useInbox, useMarkInboxRead, type InboxPage } from "./use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "./use-meetings";
 import { useRunBriefing } from "./use-run-briefing";
@@ -127,7 +132,7 @@ export function useRailData(): RailData {
   // churning every downstream callback / memo that depends on it.
   const pages = useMemo(() => inbox.data?.pages ?? EMPTY_INBOX_PAGES, [inbox.data?.pages]);
   const total = pages[0]?.total ?? 0;
-  const inboxPageCount = Math.max(1, Math.ceil(total / INBOX_PAGE_SIZE));
+  const inboxPageCount = Math.max(1, Math.ceil(total / INBOX_DEFAULT_LIMIT));
   // Clamp during render — when invalidation drops the total below the
   // parked index (e.g. user archived items from another client), the rail
   // shows the last valid page without a state write. Prev/next handlers
