@@ -178,10 +178,6 @@ function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExt
   }
 }
 
-export function mediaResultFromExtractedPdf(result: ExtractedPdf): MediaExtractionResult {
-  return pdfResultToMedia(result, "pdf");
-}
-
 function createPdfMediaExtractor(limits: ExtractionLimits): MediaExtractor {
   const pdfExtractor = createPdfExtractor(parsePdfExtractionLimits(limits));
   return async (bytes) => {
