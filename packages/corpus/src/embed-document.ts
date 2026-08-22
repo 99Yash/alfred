@@ -3,12 +3,8 @@ import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
-import {
-  isRecord,
-  isValidPage,
-  parseDocumentPages,
-  parseDocumentPagesMixed,
-} from "@alfred/contracts";
+import { isRecord, parseDocumentPages, parseDocumentPagesMixed } from "@alfred/contracts";
+import { chunkMetadata, extractPageFromMetadata } from "./chunk-metadata";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 import {
   capChunksForBudget,
@@ -303,7 +299,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
           embedding: vectors[i]!,
           tokenCount: chunk.tokenCount,
           contentHash: cappedHashes[i]!,
-          metadata: chunk.page != null ? { page: chunk.page } : {},
+          metadata: chunkMetadata(chunk.page ?? null),
         })),
       )
       .onConflictDoUpdate({
@@ -428,15 +424,4 @@ function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInp
     }
   }
   return out.length > 0 ? out : null;
-}
-
-/**
- * Read the proven page anchor off stored chunk metadata. Shared with
- * `search`, so every reader of `chunks.metadata.page` applies the same
- * validity rule (`isValidPage`) and a hit can never claim an unproven page.
- */
-export function extractPageFromMetadata(raw: unknown): number | null {
-  if (!isRecord(raw)) return null;
-  const page = raw.page;
-  return isValidPage(page) ? page : null;
 }

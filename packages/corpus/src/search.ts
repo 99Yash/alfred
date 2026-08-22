@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
-import { extractPageFromMetadata } from "./embed-document";
+import { extractPageFromMetadata } from "./chunk-metadata";
 
 /**
  * Semantic search over the chunked corpus. Returns top-K chunks ranked

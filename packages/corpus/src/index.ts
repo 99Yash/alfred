@@ -7,6 +7,8 @@ export {
   findUnembeddedDocumentIds,
   recordDocumentEmbedFailure,
 } from "./embed-document";
+export { chunkMetadata, extractPageFromMetadata } from "./chunk-metadata";
+export type { ChunkMetadata } from "./chunk-metadata";
 export { sha256 } from "./hash";
 export { chunkPages, chunkText, estimateTokens } from "./chunker";
 export type { Chunk, ChunkerOptions, PageInput } from "./chunker";
