@@ -3,6 +3,9 @@
 -- corpus row (the oldest), and later occurrences are recorded as
 -- `metadata.references` on it. Collapse any duplicates that already exist so
 -- the unique index below cannot fail on live data.
+-- The collapse is permanent: deleted rows take their `raw` payloads, and any
+-- chat history that cites a removed document id will dangle. Both statements
+-- run as one batch, so collapse and index commit together.
 DELETE FROM "documents"
 WHERE "source" = 'gmail_attachment'
   AND "id" NOT IN (

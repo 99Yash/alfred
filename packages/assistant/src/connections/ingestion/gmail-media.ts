@@ -105,6 +105,8 @@ export interface AttachmentContentReference {
   messageId: string;
   attachmentId: string;
   threadId: string | null;
+  /** Carrying account, when the ingest knew it — folds across linked accounts stay attributable. */
+  accountId: string | null;
   filename: string;
   size: number;
   /** ISO instant of the carrying mail's Date, or null when unknown. */
@@ -232,6 +234,7 @@ export async function ingestGmailMediaAttachments(
     messageId: args.message.id,
     attachmentId: att.attachmentId,
     threadId: args.message.threadId ?? null,
+    accountId: args.accountId ?? null,
     filename: att.filename,
     size: att.size,
     authoredAt: args.authoredAt ? args.authoredAt.toISOString() : null,
@@ -330,6 +333,11 @@ export async function ingestGmailMediaAttachments(
     // indexed SELECT per fresh candidate. The occurrence rides the
     // canonical row's `metadata.references`, so chat can still trace the
     // document back to the thread that carried it.
+    // Known, accepted edge: `contentHash` covers normalized extractor text,
+    // not bytes. Upgrading an extractor changes that text and mints a second
+    // canonical row for byte-identical files — dedup decays until a re-index,
+    // deliberately not salted with an extractor version (salting cannot
+    // prevent the duplicate; it only renames the cause).
     const canonical = await findCanonicalByContentHash(args.userId, contentHash);
     if (canonical) {
       if (canonical.sourceId === sourceId) {
