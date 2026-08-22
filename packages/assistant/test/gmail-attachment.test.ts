@@ -383,6 +383,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       threadId: threadTwo,
       accountId,
       filename: "resume.pdf",
+      mimeType: "application/pdf",
       size: 1024,
       authoredAt: "2026-08-02T10:00:00.000Z",
     });

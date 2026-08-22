@@ -9,6 +9,7 @@ export * from "./credentials";
 export * from "./document-source";
 export * from "./document-pages";
 export * from "./gmail-document-metadata";
+export * from "./attachment-content-references";
 export * from "./integration-objects";
 export * from "./integration-availability";
 export * from "./user-model";
