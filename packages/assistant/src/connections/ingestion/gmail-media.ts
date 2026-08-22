@@ -9,7 +9,8 @@ import {
   type MediaExtractionResult,
 } from "@alfred/extraction";
 import { extractAttachments, getAttachment, type GmailMessage } from "@alfred/integrations/google";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import type { ExtractedAttachment } from "@alfred/integrations/google";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 
 const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 
@@ -20,8 +21,8 @@ const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 const DOOR_MEDIA = extraction({ door: GMAIL_MEDIA_DOOR });
 
 /**
- * The six per-run counters attachment ingest reports. One home so adding a
- * seventh field is one edit here — `formatMediaTally` renders it in logs
+ * The seven per-run counters attachment ingest reports. One home so adding an
+ * eighth field is one edit here — `formatMediaTally` renders it in logs
  * with no call-site change.
  */
 export interface GmailMediaTally {
@@ -29,6 +30,13 @@ export interface GmailMediaTally {
   ingested: number;
   /** Attachment docs that already existed — download, extraction, and embed all skipped. */
   deduped: number;
+  /**
+   * Occurrences of content that is already stored under a DIFFERENT
+   * `messageId:attachmentId` — the same unchanged file forwarded to another
+   * thread. No new row and no embed; the occurrence rides
+   * `metadata.references` on the canonical document.
+   */
+  referenced: number;
   skipped: number;
   errors: number;
   embedFailures: number;
@@ -38,6 +46,7 @@ export const ZERO_MEDIA_TALLY: GmailMediaTally = {
   attempted: 0,
   ingested: 0,
   deduped: 0,
+  referenced: 0,
   skipped: 0,
   errors: 0,
   embedFailures: 0,
@@ -86,6 +95,65 @@ export interface GmailMediaIngestArgs {
 }
 
 /**
+ * One recorded occurrence of the canonical document's content arriving under
+ * a different `messageId:attachmentId`. Lives in `metadata.references` on the
+ * canonical row, so a chat question can trace a document back to every
+ * thread that carried it — including threads whose own ingest never created
+ * a row.
+ */
+export interface AttachmentContentReference {
+  messageId: string;
+  attachmentId: string;
+  threadId: string | null;
+  filename: string;
+  size: number;
+  /** ISO instant of the carrying mail's Date, or null when unknown. */
+  authoredAt: string | null;
+}
+
+/** The canonical attachment row for this exact extracted content, if one exists. */
+async function findCanonicalByContentHash(
+  userId: string,
+  contentHash: string,
+): Promise<{ id: string; sourceId: string } | null> {
+  const rows = await db()
+    .select({ id: documents.id, sourceId: documents.sourceId })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(documents.source, "gmail_attachment"),
+        eq(documents.contentHash, contentHash),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Record an occurrence on the canonical row. Idempotent per
+ * `(messageId, attachmentId)`: the append rewrites `metadata.references`
+ * from the stored array plus only entries it does not already hold, so a
+ * retried job cannot stack duplicates.
+ */
+export async function appendContentReference(
+  documentId: string,
+  ref: AttachmentContentReference,
+): Promise<void> {
+  await db()
+    .update(documents)
+    .set({
+      metadata: sql`${documents.metadata} || jsonb_build_object('references', (
+        SELECT coalesce(jsonb_agg(elem), '[]'::jsonb)
+        FROM jsonb_array_elements(coalesce(${documents.metadata}->'references', '[]'::jsonb)) AS elem
+        WHERE NOT (elem->>'messageId' = ${ref.messageId} AND elem->>'attachmentId' = ${ref.attachmentId})
+      ) || ${JSON.stringify([ref])}::jsonb)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(documents.id, documentId));
+}
+
+/**
  * Cheap predicate for the poll hot path: does this message carry any
  * attachment whose MIME is extractable under the Gmail door? A message with
  * none must not pay for a `gmail.media_ingest` job. This checks the same
@@ -130,6 +198,10 @@ export async function ingestGmailMediaAttachments(
   // attachmentIds are immutable, so an existing `messageId:attachmentId` row
   // can never gain new content. A failed first attempt never persisted a row,
   // so the flagged known-message retry in pollGmailRecent still recovers it.
+  // This is the FIRST of two dedup layers: after extraction, a second lookup
+  // on (userId, source, contentHash) folds repeated identical content — the
+  // same unchanged file forwarded under new attachment ids — into one
+  // canonical row plus `metadata.references` entries.
   // Embed-failure recovery is split by failure class: a transient embed error
   // is retried by the corpus sweep (`gmail.embed_sweep`, which covers BOTH
   // `gmail` and `gmail_attachment` sources), while a permanent one
@@ -151,6 +223,36 @@ export async function ingestGmailMediaAttachments(
 
   const tally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
   const documentIds: string[] = [];
+
+  /** The occurrence record one carrying mail contributes to a canonical doc. */
+  const referenceFor = (att: ExtractedAttachment): AttachmentContentReference => ({
+    messageId: args.message.id,
+    attachmentId: att.attachmentId,
+    threadId: args.message.threadId ?? null,
+    filename: att.filename,
+    size: att.size,
+    authoredAt: args.authoredAt ? args.authoredAt.toISOString() : null,
+  });
+
+  /** Append an occurrence to the canonical row; false on failure (counted). */
+  const recordOccurrence = async (
+    canonicalId: string,
+    ref: AttachmentContentReference,
+    label: string,
+  ): Promise<boolean> => {
+    try {
+      await appendContentReference(canonicalId, ref);
+      tally.referenced++;
+      return true;
+    } catch (err) {
+      tally.errors++;
+      console.warn(
+        `[gmail.media] reference append failed for ${label} doc=${canonicalId}:`,
+        toMessage(err),
+      );
+      return false;
+    }
+  };
 
   for (const att of candidates) {
     tally.attempted++;
@@ -216,6 +318,24 @@ export async function ingestGmailMediaAttachments(
 
     const sourceId = sourceIdOf(att);
     const contentHash = sha256(content);
+
+    // Content-level dedup (cross-message): the same unchanged file arriving
+    // under a different `messageId:attachmentId` — a resume forwarded to ten
+    // recruiters is ONE corpus row. The unique index on
+    // (userId, source, contentHash) is the race backstop; this lookup keeps
+    // the common path to a single SELECT. The occurrence rides the
+    // canonical row's `metadata.references`, so chat can still trace the
+    // document back to the thread that carried it.
+    const canonical = await findCanonicalByContentHash(args.userId, contentHash);
+    if (canonical) {
+      if (canonical.sourceId === sourceId) {
+        tally.deduped++;
+        continue;
+      }
+      await recordOccurrence(canonical.id, referenceFor(att), att.filename);
+      continue;
+    }
+
     const metadata: Record<string, unknown> = {
       filename: att.filename,
       messageId: args.message.id,
@@ -228,6 +348,10 @@ export async function ingestGmailMediaAttachments(
 
     let documentId: string | null = null;
     try {
+      // `onConflictDoNothing` (not a targeted upsert) so EITHER unique index
+      // can win the concurrent-poll race: an identical part persisted by a
+      // sibling job, or identical content claiming the hash index. The
+      // fallback below resolves which.
       const inserted = await db()
         .insert(documents)
         .values({
@@ -243,32 +367,10 @@ export async function ingestGmailMediaAttachments(
           authoredAt: args.authoredAt,
           raw: { messageId: args.message.id, attachment: att },
         })
-        .onConflictDoUpdate({
-          target: [documents.userId, documents.source, documents.sourceId],
-          set: {
-            title: sql`excluded.title`,
-            content: sql`excluded.content`,
-            contentHash: sql`excluded.content_hash`,
-            metadata: sql`excluded.metadata`,
-            updatedAt: new Date(),
-          },
-        })
+        .onConflictDoNothing()
         .returning({ id: documents.id });
 
       documentId = inserted[0]?.id ?? null;
-      if (!documentId) {
-        const rows = await db()
-          .select({ id: documents.id })
-          .from(documents)
-          .where(
-            and(
-              eq(documents.userId, args.userId),
-              eq(documents.source, "gmail_attachment"),
-              eq(documents.sourceId, sourceId),
-            ),
-          );
-        documentId = rows[0]?.id ?? null;
-      }
     } catch (err) {
       tally.errors++;
       console.warn(`[gmail.media] persist failed for ${att.filename}:`, toMessage(err));
@@ -276,7 +378,30 @@ export async function ingestGmailMediaAttachments(
     }
 
     if (!documentId) {
-      tally.errors++;
+      // Lost an insert race. Either this exact part now exists (identical
+      // content — nothing to add), or the content's canonical row does
+      // (record the occurrence on it).
+      const winners = await db()
+        .select({ id: documents.id, sourceId: documents.sourceId })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.userId, args.userId),
+            eq(documents.source, "gmail_attachment"),
+            or(eq(documents.sourceId, sourceId), eq(documents.contentHash, contentHash)),
+          ),
+        );
+      const twin = winners.find((row) => row.sourceId === sourceId);
+      if (twin) {
+        tally.deduped++;
+        continue;
+      }
+      const canon = winners[0];
+      if (!canon) {
+        tally.errors++;
+        continue;
+      }
+      await recordOccurrence(canon.id, referenceFor(att), att.filename);
       continue;
     }
 
