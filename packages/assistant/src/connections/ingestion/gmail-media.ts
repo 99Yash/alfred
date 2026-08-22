@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { toMessage, type AttachmentContentReference } from "@alfred/contracts";
 import { indexDocument, sha256 } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -99,19 +99,10 @@ export interface GmailMediaIngestArgs {
  * a different `messageId:attachmentId`. Lives in `metadata.references` on the
  * canonical row, so a chat question can trace a document back to every
  * thread that carried it — including threads whose own ingest never created
- * a row.
+ * a row. The shape is owned by `@alfred/contracts`
+ * (`AttachmentContentReference`) so retrieval parses the persisted jsonb
+ * against the same contract this writer fulfills.
  */
-export interface AttachmentContentReference {
-  messageId: string;
-  attachmentId: string;
-  threadId: string | null;
-  /** Carrying account, when the ingest knew it — folds across linked accounts stay attributable. */
-  accountId: string | null;
-  filename: string;
-  size: number;
-  /** ISO instant of the carrying mail's Date, or null when unknown. */
-  authoredAt: string | null;
-}
 
 /** The canonical attachment row for this exact extracted content, if one exists. */
 async function findCanonicalByContentHash(
@@ -236,6 +227,7 @@ export async function ingestGmailMediaAttachments(
     threadId: args.message.threadId ?? null,
     accountId: args.accountId ?? null,
     filename: att.filename,
+    mimeType: att.mimeType,
     size: att.size,
     authoredAt: args.authoredAt ? args.authoredAt.toISOString() : null,
   });
@@ -338,6 +330,10 @@ export async function ingestGmailMediaAttachments(
     // canonical row for byte-identical files — dedup decays until a re-index,
     // deliberately not salted with an extractor version (salting cannot
     // prevent the duplicate; it only renames the cause).
+    // Format twins (decided in #878): identical extracted text folds across
+    // mimeTypes — one logical document — and each reference entry now carries
+    // the carrier's mimeType, so a folded .txt/.pdf pair stays traceable at
+    // retrieval instead of the second format vanishing without trace.
     const canonical = await findCanonicalByContentHash(args.userId, contentHash);
     if (canonical) {
       if (canonical.sourceId === sourceId) {

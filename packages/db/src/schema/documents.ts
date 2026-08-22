@@ -104,6 +104,10 @@ export const documents = pgTable(
      *   extractor upgrade mints a fresh canonical row for byte-identical
      *   files; dedup decays until a re-index. Deliberately not salted with
      *   an extractor version — salting cannot prevent the duplicate.
+     * - Format twins fold: identical extracted text under two mimeTypes
+     *   (.txt vs .pdf of one doc) is one logical document. Each
+     *   `metadata.references` entry carries the carrier's `mimeType`, so
+     *   retrieval sees both formats instead of losing the second (#878).
      */
     uniqueIndex("documents_attachment_content_hash_idx")
       .on(t.userId, t.source, t.contentHash)
