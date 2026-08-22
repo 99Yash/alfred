@@ -8,7 +8,9 @@ import {
   installGmailWatchAndSeedCursor,
   pollGmailHistory,
   pollGmailRecent,
+  runGmailMediaIngest,
 } from "./gmail-ingest";
+import { formatMediaTally } from "./gmail-media";
 import { retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { publishDomainEvent, type GmailDocumentsIngestedPayload } from "@alfred/assistant/triggers";
@@ -33,6 +35,8 @@ import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
  *  - gmail.watch_renew    (m7c) — replace watch channels nearing expiry
  *  - gmail.poll_sweep     (m7c) — repeatable: enqueue polls for stale cursors
  *  - gmail.embed_sweep    (m7c) — repeatable: retry embed for chunkless docs
+ *  - gmail.media_ingest   (ADR-0091 amendment) — deferred attachment ingest:
+ *                    fetch + extract + persist + embed one message's attachments
  *  - user_model.gmail_kind_refold — refresh active Gmail kind projection after
  *                    live observation capture.
  */
@@ -154,6 +158,21 @@ export type IngestionJobData =
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
   | { kind: "gmail.embed_sweep" }
+  | {
+      /**
+       * Deferred attachment ingest for one Gmail message (ADR-0091
+       * amendment). Scheduled by the poll paths instead of running fetch +
+       * child-process parse inline, so a multi-attachment message cannot hold
+       * the poll job (cursor advance + sibling messages) for minutes.
+       * Idempotent: skip-if-exists dedup makes re-runs a no-op; the mail row's
+       * `mediaPending` flag stays set until a clean pass clears it.
+       */
+      kind: "gmail.media_ingest";
+      credentialId: string;
+      messageId: string;
+      /** Mail document id — the row carrying the `mediaPending` flag. */
+      documentId: string;
+    }
   | {
       /**
        * Re-project the active Gmail kind-only user-model after live observation
@@ -343,6 +362,31 @@ export async function closeIngestionQueue(): Promise<void> {
   }
 }
 
+const GMAIL_MEDIA_INGEST_DEDUP_TTL_MS = 60_000;
+
+/**
+ * Schedule deferred attachment ingest for one Gmail message (ADR-0091
+ * amendment). The TTL-bounded dedup id collapses duplicate schedules from
+ * concurrent poll paths within a minute; a later re-schedule (flagged retry,
+ * next sweep) creates a fresh job. The job itself is idempotent.
+ */
+export async function enqueueGmailMediaIngest(args: {
+  credentialId: string;
+  messageId: string;
+  documentId: string;
+}): Promise<void> {
+  await getIngestionQueue().add(
+    "gmail.media_ingest",
+    { kind: "gmail.media_ingest", ...args },
+    {
+      deduplication: {
+        id: `gmail.media_ingest.${args.messageId}`,
+        ttl: GMAIL_MEDIA_INGEST_DEDUP_TTL_MS,
+      },
+    },
+  );
+}
+
 async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown> {
   return processIngestionJobData(job.data);
 }
@@ -354,6 +398,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         credentialId: data.credentialId,
         query: data.query,
         maxMessages: data.maxMessages,
+        scheduleMediaIngest: enqueueGmailMediaIngest,
       });
       console.log(
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
@@ -381,6 +426,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       const result = await pollGmailRecent({
         credentialId: data.credentialId,
         pushHistoryId: data.pushHistoryId,
+        deps: { scheduleMediaIngest: enqueueGmailMediaIngest },
       });
       console.log(
         `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
@@ -397,7 +443,10 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       return result;
     }
     case "gmail.poll_history": {
-      const result = await pollGmailHistory({ credentialId: data.credentialId });
+      const result = await pollGmailHistory({
+        credentialId: data.credentialId,
+        scheduleMediaIngest: enqueueGmailMediaIngest,
+      });
       console.log(
         `[ingestion:worker] gmail.poll_history credential=${data.credentialId} ` +
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
@@ -513,12 +562,39 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       // Pick up documents whose embed step failed during ingest. Bounded
       // batch — anything left over comes back next tick. The sweep loop is
       // owned by @alfred/corpus (`retryPending`); this case only schedules it
-      // and reports the summary count.
-      const r = await retryPending({ source: "gmail", limit: 50 });
+      // and reports the summary count. BOTH Gmail sources are covered: mail
+      // rows (`gmail`) and attachment rows (`gmail_attachment`) — the latter
+      // never re-ingest (skip-if-exists dedup), so this sweep is their only
+      // transient-embed-failure recovery path.
+      const [mail, media] = await Promise.all([
+        retryPending({ source: "gmail", limit: 50 }),
+        retryPending({ source: "gmail_attachment", limit: 50 }),
+      ]);
+      const candidates = mail.candidates + media.candidates;
+      const succeeded = mail.succeeded + media.succeeded;
+      const failed = mail.failed + media.failed;
       console.log(
-        `[ingestion:worker] gmail.embed_sweep candidates=${r.candidates} succeeded=${r.succeeded} failed=${r.failed}`,
+        `[ingestion:worker] gmail.embed_sweep candidates=${candidates} succeeded=${succeeded} failed=${failed} ` +
+          `(mail ${mail.candidates}/${mail.succeeded}/${mail.failed}, attachment ${media.candidates}/${media.succeeded}/${media.failed})`,
       );
-      return r;
+      return {
+        candidates,
+        succeeded,
+        failed,
+        mail,
+        media,
+      };
+    }
+    case "gmail.media_ingest": {
+      const result = await runGmailMediaIngest({
+        credentialId: data.credentialId,
+        messageId: data.messageId,
+        documentId: data.documentId,
+      });
+      console.log(
+        `[ingestion:worker] gmail.media_ingest message=${data.messageId} ${formatMediaTally(result)}`,
+      );
+      return result;
     }
     case "user_model.gmail_kind_refold": {
       return runGmailKindRefoldJob(data.userId);

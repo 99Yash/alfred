@@ -48,13 +48,21 @@ export interface ChatAttachmentDescriptor {
 export const ingestKindValues = ["pass-through", "degrade-text", "degrade-av", "reject"] as const;
 export type IngestKind = (typeof ingestKindValues)[number];
 
+/**
+ * Content format for `degrade-text` types. Each format owns one extractor
+ * and one set of extraction limits per door. `undefined` means the type
+ * needs no byte-to-text extraction (pass-through / degrade-av).
+ */
+export const contentFormatValues = ["pdf", "document", "spreadsheet", "text"] as const;
+export type ContentFormat = (typeof contentFormatValues)[number];
+
 export interface IngestPolicyEntry {
   /** How this MIME type is normalized for the model. */
   kind: Exclude<IngestKind, "reject">;
   /** Per-file upload cap, in bytes. Single-user caps (ADR-0065) — modest. */
   maxBytes: number;
-  /** Content family needed by format-specific readers after policy lookup. */
-  contentFamily?: "pdf";
+  /** Content format needed by format-specific readers after policy lookup. */
+  contentFormat?: ContentFormat;
 }
 
 const MB = 1024 * 1024;
@@ -118,24 +126,26 @@ export const INGEST_POLICY = {
   "application/pdf": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
-    contentFamily: "pdf",
+    contentFormat: "pdf",
   },
   "application/x-pdf": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
-    contentFamily: "pdf",
+    contentFormat: "pdf",
   },
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
+    contentFormat: "document",
   },
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
+    contentFormat: "spreadsheet",
   },
-  "text/plain": { kind: "degrade-text", maxBytes: 10 * MB },
-  "text/markdown": { kind: "degrade-text", maxBytes: 10 * MB },
-  "text/csv": { kind: "degrade-text", maxBytes: 10 * MB },
+  "text/plain": { kind: "degrade-text", maxBytes: 10 * MB, contentFormat: "text" },
+  "text/markdown": { kind: "degrade-text", maxBytes: 10 * MB, contentFormat: "text" },
+  "text/csv": { kind: "degrade-text", maxBytes: 10 * MB, contentFormat: "text" },
 } as const satisfies Readonly<Record<string, IngestPolicyEntry>>;
 
 const ingestPolicyByMime: Readonly<Record<string, IngestPolicyEntry>> = INGEST_POLICY;
@@ -155,7 +165,13 @@ export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 /** True when a Content-Type identifies a PDF, after MIME normalization. */
 export function isPdfContentType(mime: string): boolean {
   const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
-  return classifyUpload(normalized)?.contentFamily === "pdf";
+  return classifyUpload(normalized)?.contentFormat === "pdf";
+}
+
+/** Content format for a MIME type after normalization, or null when outside the whitelist. */
+export function getContentFormat(mime: string): ContentFormat | null {
+  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  return classifyUpload(normalized)?.contentFormat ?? null;
 }
 
 /**

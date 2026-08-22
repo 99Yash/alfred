@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
-import { ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
+import { documents, ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
+import { findUnembeddedDocumentIds } from "@alfred/corpus";
 import { and, eq, inArray } from "drizzle-orm";
 
 // Imports the RELOCATED consumer module (Phase-5 item 01). The cursor-seed
@@ -13,11 +14,28 @@ import { and, eq, inArray } from "drizzle-orm";
 // byte-identical move is provably unchanged — and it is the one delicate piece
 // of the move (Risk: a watch install that fails to seed a cursor drops a
 // freshly-watched credential into perpetual full re-sync).
-import { seedGmailHistoryCursorIfAbsent } from "@alfred/assistant/connections/ingestion/internal";
+import {
+  pollGmailRecent,
+  runGmailMediaIngest,
+  seedGmailHistoryCursorIfAbsent,
+} from "@alfred/assistant/connections/ingestion/internal";
+import type { GmailMessage } from "@alfred/integrations/google";
+import type { Extraction } from "@alfred/extraction";
 import { dbBackedSkip } from "./support/db-backed";
 
 const ID_PREFIX = "test-gmail-ingest-";
 const SKIP = dbBackedSkip("database");
+
+/** Test-only media door: supports PDF only, returns the given extract result. */
+function pdfOnlyMedia(
+  extract: Extraction["extract"],
+): Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> {
+  return {
+    isSupported: (mime) => mime === "application/pdf",
+    wouldExceed: () => false,
+    extract,
+  };
+}
 
 const createdUserIds: string[] = [];
 
@@ -121,3 +139,371 @@ describe(
     });
   },
 );
+
+function makePollMessage(args: {
+  id: string;
+  threadId: string;
+  attachmentId: string;
+  filename: string;
+  historyId: string;
+}): GmailMessage {
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- SAFETY: test factory builds minimal GmailMessage; parser only reads id/threadId/labelIds/payload/historyId.
+  return {
+    id: args.id,
+    threadId: args.threadId,
+    labelIds: [],
+    snippet: "test snippet",
+    historyId: args.historyId,
+    internalDate: String(Date.now()),
+    payload: {
+      headers: [
+        { name: "Subject", value: "Test mail with PDF" },
+        { name: "From", value: "sender@example.com" },
+      ],
+      mimeType: "multipart/mixed",
+      parts: [
+        { mimeType: "text/plain", body: { data: Buffer.from("hello").toString("base64url") } },
+        {
+          partId: "1",
+          mimeType: "application/pdf",
+          filename: args.filename,
+          body: { attachmentId: args.attachmentId, size: 1024 },
+        },
+      ],
+    },
+    sizeEstimate: 2048,
+  } as unknown as GmailMessage;
+}
+
+describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip: SKIP }, () => {
+  test("fresh insert schedules the job, flags mediaPending, and a clean job run clears it", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const threadId = `thr-${randomUUID()}`;
+    const messageId = `msg-${randomUUID()}`;
+    const attachmentId = `att-${randomUUID()}`;
+    const message = makePollMessage({
+      id: messageId,
+      threadId,
+      attachmentId,
+      filename: "scheduled.pdf",
+      historyId: "2000",
+    });
+
+    let getMessageCalls = 0;
+    let indexCalls = 0;
+    const scheduled: { credentialId: string; messageId: string; documentId: string }[] = [];
+
+    const result1 = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
+        getMessage: async () => {
+          getMessageCalls++;
+          return message;
+        },
+        scheduleMediaIngest: async (args) => {
+          scheduled.push(args);
+        },
+      },
+    });
+
+    assert.equal(result1.inserted, 1);
+    assert.equal(scheduled.length, 1, "one media job scheduled for the fresh insert");
+    assert.equal(scheduled[0]!.credentialId, credentialId);
+    assert.equal(scheduled[0]!.messageId, messageId);
+    const mailRow = await loadMailRow(userId, messageId);
+    assert.ok(mailRow);
+    assert.equal(scheduled[0]!.documentId, mailRow.id);
+    assert.equal(
+      (mailRow.metadata as Record<string, unknown>).mediaPending,
+      true,
+      "flag set at schedule time — a lost job is retried via the flagged-known pass",
+    );
+
+    // Simulate the worker running gmail.media_ingest.
+    const jobResult = await runGmailMediaIngest({
+      credentialId,
+      messageId,
+      documentId: scheduled[0]!.documentId,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        getMessage: async () => message,
+        media: {
+          getAttachment: async () => ({
+            bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")),
+            size: 1024,
+          }),
+          media: pdfOnlyMedia(async () => ({
+            kind: "extracted" as const,
+            format: "pdf" as const,
+            content: "pdf text from job",
+            pages: [{ page: 1, start: 0, end: 8 }],
+          })),
+          indexDocument: async () => {
+            indexCalls++;
+            return { documentId: "fake", chunksWritten: 1, chunksSkipped: 0, empty: false };
+          },
+        },
+      },
+    });
+    assert.equal(jobResult.ingested, 1);
+    assert.equal(indexCalls, 1);
+
+    const afterRows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(afterRows.length, 1);
+    assert.equal(afterRows[0]!.sourceId, `${messageId}:${attachmentId}`);
+    assert.equal(afterRows[0]!.content, "pdf text from job");
+
+    const clearedRow = await loadMailRow(userId, messageId);
+    assert.ok(clearedRow);
+    assert.equal(
+      (clearedRow.metadata as Record<string, unknown>).mediaPending,
+      undefined,
+      "a clean job run clears the flag",
+    );
+
+    // Next poll: known + unflagged → no re-schedule, no re-fetch.
+    const callsBeforePoll2 = getMessageCalls;
+    const result2 = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
+        getMessage: async () => {
+          getMessageCalls++;
+          return message;
+        },
+        scheduleMediaIngest: async (args) => {
+          scheduled.push(args);
+        },
+      },
+    });
+    assert.equal(result2.skipped, 1);
+    assert.equal(scheduled.length, 1, "unflagged known message is not re-scheduled");
+    assert.equal(getMessageCalls, callsBeforePoll2, "unflagged known message is not re-fetched");
+  });
+
+  test("transient job failure keeps the flag; the next poll re-schedules without a fetch", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const threadId = `thr-${randomUUID()}`;
+    const messageId = `msg-${randomUUID()}`;
+    const attachmentId = `att-${randomUUID()}`;
+    const historyId = "3000";
+    const message = makePollMessage({
+      id: messageId,
+      threadId,
+      attachmentId,
+      filename: "retry.pdf",
+      historyId,
+    });
+
+    await db()
+      .insert(documents)
+      .values({
+        userId,
+        source: "gmail",
+        sourceId: messageId,
+        sourceThreadId: threadId,
+        accountId: `acc-${randomUUID()}`,
+        title: "Test mail with PDF",
+        content: "From: sender@example.com\n\nhello",
+        contentHash: randomUUID(),
+        metadata: {
+          from: "sender@example.com",
+          labelIds: [],
+          isSent: false,
+          internalDate: String(Date.now()),
+          historyId,
+          mediaPending: true,
+        },
+        raw: { id: messageId },
+        authoredAt: new Date(),
+      });
+
+    let getMessageCalls = 0;
+    const scheduled: { messageId: string; documentId: string }[] = [];
+    const pollDeps = () => ({
+      getFreshAccessToken: async () => "fake-token",
+      listMessages: async () => ({
+        messages: [{ id: messageId, threadId }],
+        nextPageToken: undefined,
+      }),
+      getMessage: async () => {
+        getMessageCalls++;
+        return message;
+      },
+      scheduleMediaIngest: async (args: { messageId: string; documentId: string }) => {
+        scheduled.push(args);
+      },
+    });
+
+    const mailRow = await loadMailRow(userId, messageId);
+    assert.ok(mailRow);
+
+    const result1 = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: pollDeps(),
+    });
+    assert.equal(result1.skipped, 1);
+    assert.equal(scheduled.length, 1, "flagged known message is re-scheduled");
+    assert.equal(getMessageCalls, 0, "the retry schedules without re-fetching the message");
+
+    // The job runs but the attachment fetch fails transiently.
+    const jobResult = await runGmailMediaIngest({
+      credentialId,
+      messageId,
+      documentId: scheduled[0]!.documentId,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        getMessage: async () => message,
+        media: {
+          getAttachment: async () => {
+            throw new Error("transient getAttachment failure");
+          },
+          media: pdfOnlyMedia(async () => {
+            throw new Error("extraction must not run when the fetch fails");
+          }),
+        },
+      },
+    });
+    assert.equal(jobResult.errors, 1);
+
+    const afterFail = await loadMailRow(userId, messageId);
+    assert.ok(afterFail);
+    assert.equal(
+      (afterFail.metadata as Record<string, unknown>).mediaPending,
+      true,
+      "failure keeps the flag so the next poll retries",
+    );
+    const attRows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(attRows.length, 0, "no gmail_attachment row after transient failure");
+
+    const result2 = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: pollDeps(),
+    });
+    assert.equal(result2.errors, 0, "scheduling retry does not count as a poll error");
+    assert.equal(scheduled.length, 2, "next poll re-schedules the flagged message");
+    assert.equal(getMessageCalls, 0, "still no message fetch on the retry path");
+  });
+
+  test("job-side embed failure persists the row, clears the flag, and stays sweep-recoverable", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const threadId = `thr-${randomUUID()}`;
+    const messageId = `msg-${randomUUID()}`;
+    const attachmentId = `att-${randomUUID()}`;
+    const message = makePollMessage({
+      id: messageId,
+      threadId,
+      attachmentId,
+      filename: "embed-fail.pdf",
+      historyId: "4000",
+    });
+
+    const scheduled: { documentId: string }[] = [];
+    await pollGmailRecent({
+      credentialId,
+      maxMessages: 10,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
+        getMessage: async () => message,
+        scheduleMediaIngest: async (args) => {
+          scheduled.push(args);
+        },
+      },
+    });
+    assert.equal(scheduled.length, 1);
+
+    const jobResult = await runGmailMediaIngest({
+      credentialId,
+      messageId,
+      documentId: scheduled[0]!.documentId,
+      deps: {
+        getFreshAccessToken: async () => "fake-token",
+        getMessage: async () => message,
+        media: {
+          getAttachment: async () => ({
+            bytes: new Uint8Array(Buffer.from("%PDF-1.4")),
+            size: 1024,
+          }),
+          media: pdfOnlyMedia(async () => ({
+            kind: "extracted" as const,
+            format: "pdf" as const,
+            content: "embed me",
+            pages: null,
+          })),
+          indexDocument: async () => {
+            throw new Error("voyage down");
+          },
+        },
+      },
+    });
+    assert.equal(jobResult.ingested, 0, "ingested counts only successful embeds");
+    assert.equal(jobResult.embedFailures, 1);
+    assert.equal(jobResult.errors, 0);
+
+    const attRows = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    assert.equal(attRows.length, 1);
+    assert.equal(attRows[0]!.sourceId, `${messageId}:${attachmentId}`);
+
+    // Embed failures are NOT flagged — the corpus sweep is their recovery path
+    // (`gmail.embed_sweep` covers `gmail_attachment` rows). This pins both halves:
+    // the flag cleared, and the sweep candidate query covering the row.
+    const mailRow = await loadMailRow(userId, messageId);
+    assert.ok(mailRow);
+    assert.equal((mailRow.metadata as Record<string, unknown>).mediaPending, undefined);
+    const sweepCandidates = await findUnembeddedDocumentIds({
+      source: "gmail_attachment",
+      limit: 50,
+    });
+    assert.ok(
+      sweepCandidates.includes(attRows[0]!.id),
+      "embed_sweep candidate query must cover gmail_attachment rows",
+    );
+  });
+});
+
+async function loadMailRow(userId: string, sourceId: string) {
+  const rows = await db()
+    .select()
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(documents.source, "gmail"),
+        eq(documents.sourceId, sourceId),
+      ),
+    );
+  return rows[0] ?? null;
+}

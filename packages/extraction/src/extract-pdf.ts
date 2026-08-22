@@ -8,6 +8,7 @@ import {
   parsePdfExtractionLimits,
   pdfExtractionContentCharacterCount,
   serializePdfExtractionChildRequest,
+  truncateExtractedForLimit,
 } from "./extract-pdf-protocol";
 
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
@@ -27,6 +28,12 @@ export interface PdfExtractionLimits {
   readonly maxBytes: number;
   readonly maxCharacters: number;
   readonly maxParseMilliseconds: number;
+  /**
+   * When true, output over `maxCharacters` truncates instead of returning
+   * `limit_exceeded`. Absent means `false` — the flag is optional for
+   * backward compat, but canonical door presets declare it explicitly.
+   */
+  readonly truncateOnOutputExceed?: boolean | undefined;
 }
 
 const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
@@ -34,26 +41,41 @@ const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
 // so the caller can truncate an otherwise valid document instead of treating
 // the output limit as an extraction failure.
 const FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT = 200_000;
+// Long but valuable docs: keep as much as the 10 MB input allows, truncate
+// at the limit instead of skipping the attachment.
+const GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT = 1_000_000;
 
 /**
  * Required child-process limits for each realtime PDF door.
  *
  * The byte limits differ by transport on purpose. Keeping the complete table
  * here makes a new door choose all three limits next to the extraction seam
- * instead of copying a partial policy into a leaf caller.
+ * instead of copying a partial policy into a leaf caller. This object is also
+ * the `pdf` row of `DOOR_LIMITS` (`media-extraction.ts`) — the format-generic
+ * facade reads its pdf limits from here, so a change lands once.
  */
 export const REALTIME_PDF_EXTRACTION_LIMITS = {
   chatUpload: {
     maxBytes: 10 * 1024 * 1024,
     maxCharacters: CHAT_PDF_EXTRACTION_CHARACTER_LIMIT,
     maxParseMilliseconds: 30_000,
+    truncateOnOutputExceed: false,
   },
   fetchUrl: {
     maxBytes: 8_000_000,
     maxCharacters: FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT,
     maxParseMilliseconds: 30_000,
+    truncateOnOutputExceed: false,
   },
-} as const satisfies Readonly<Record<"chatUpload" | "fetchUrl", PdfExtractionLimits>>;
+  gmailAttachment: {
+    maxBytes: 10 * 1024 * 1024,
+    maxCharacters: GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT,
+    maxParseMilliseconds: 30_000,
+    truncateOnOutputExceed: true,
+  },
+} as const satisfies Readonly<
+  Record<"chatUpload" | "fetchUrl" | "gmailAttachment", PdfExtractionLimits>
+>;
 
 export type ExtractedPdf =
   | {
@@ -320,15 +342,26 @@ async function runPdfExtractionChild(
         }
 
         const characterCount = pdfExtractionContentCharacterCount(result);
-        resolve(
-          characterCount > limits.maxCharacters
-            ? createPdfExtractionLimitResult(
+        // Defensive: the child already truncates (or fails) against
+        // `maxCharacters` when `truncateOnOutputExceed` is forwarded, so a
+        // well-formed reply never lands here over budget. The re-check guards
+        // against protocol drift — an older child or a reply that skipped the
+        // child-side check must not surface over-limit content as `extracted`.
+        if (characterCount > limits.maxCharacters) {
+          if (limits.truncateOnOutputExceed) {
+            resolve(truncateExtractedForLimit(result, limits.maxCharacters));
+          } else {
+            resolve(
+              createPdfExtractionLimitResult(
                 "output_characters",
                 characterCount,
                 limits.maxCharacters,
-              )
-            : result,
-        );
+              ),
+            );
+          }
+        } else {
+          resolve(result);
+        }
       } catch (error) {
         reject(new PdfExtractionError(error));
       }

@@ -11,6 +11,7 @@
     "test": "tsx --test --test-force-exit \"test/**/*.test.ts\""
   },
   "dependencies": {
+    "@alfred/contracts": "workspace:*",
     "@firecrawl/pdf-inspector": "catalog:"
   },
   "devDependencies": {

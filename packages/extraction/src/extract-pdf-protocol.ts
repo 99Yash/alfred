@@ -82,10 +82,19 @@ export function parsePdfExtractionLimits(value: unknown): PdfExtractionLimits {
   if (maxParseMilliseconds > MAX_TIMER_MILLISECONDS) {
     throw new RangeError(`maxParseMilliseconds must be at most ${MAX_TIMER_MILLISECONDS}`);
   }
+  const truncateOnOutputExceed =
+    value.truncateOnOutputExceed === undefined
+      ? undefined
+      : typeof value.truncateOnOutputExceed === "boolean"
+        ? value.truncateOnOutputExceed
+        : (() => {
+            throw new RangeError("truncateOnOutputExceed must be a boolean");
+          })();
   return {
     maxBytes: positiveSafeInteger("maxBytes", value.maxBytes),
     maxCharacters: positiveSafeInteger("maxCharacters", value.maxCharacters),
     maxParseMilliseconds,
+    ...(truncateOnOutputExceed === undefined ? {} : { truncateOnOutputExceed }),
   };
 }
 
@@ -538,4 +547,64 @@ export function parsePdfExtractionChildReply(output: Buffer): PdfExtractionChild
 
 export function serializePdfExtractionChildReply(reply: PdfExtractionChildReply): string {
   return `${JSON.stringify(reply)}\n`;
+}
+
+/**
+ * Single home for page-budget truncation. Both `extract-pdf-core` (child)
+ * and `extract-pdf` (parent) previously held an identical copy. One
+ * domain change (keep-first-N-chars vs keep-first-N-pages) now lands
+ * in one place. Tier 1: import.
+ */
+export function truncatePagesToFit(
+  pages: readonly ExtractedPdfPage[],
+  maxCharacters: number,
+): ExtractedPdfPage[] {
+  const out: ExtractedPdfPage[] = [];
+  let used = 0;
+  for (const page of pages) {
+    const len = page.markdown.length;
+    if (used + len <= maxCharacters) {
+      out.push(page);
+      used += len;
+    } else {
+      const remaining = maxCharacters - used;
+      if (remaining > 0) out.push({ ...page, markdown: page.markdown.slice(0, remaining) });
+      break;
+    }
+  }
+  return out;
+}
+
+export function truncateTextToFit(text: string, maxCharacters: number): string {
+  return text.length > maxCharacters ? text.slice(0, maxCharacters) : text;
+}
+
+export function truncateExtractedForLimit(
+  result: ExtractedPdf,
+  maxCharacters: number,
+): ExtractedPdf {
+  if (result.kind === "extracted") {
+    const truncatedPages = truncatePagesToFit(result.pages, maxCharacters);
+    const pageChars = truncatedPages.reduce((sum, p) => sum + p.markdown.length, 0);
+    const remaining = Math.max(0, maxCharacters - pageChars);
+    const truncatedText =
+      result.text.length > remaining ? result.text.slice(0, remaining) : result.text;
+    return {
+      kind: "extracted",
+      pdfType: result.pdfType,
+      pageCount: result.pageCount,
+      pages: truncatedPages,
+      pagesNeedingOcr: truncatedPages.filter((p) => p.needsOcr).map((p) => p.pageNumber),
+      text: truncatedText,
+    };
+  }
+  if (result.kind === "text_without_pages") {
+    return {
+      kind: "text_without_pages",
+      pdfType: result.pdfType,
+      pageCount: result.pageCount,
+      text: result.text.slice(0, maxCharacters),
+    };
+  }
+  return result;
 }
