@@ -376,10 +376,18 @@ export async function updateArtifact(
       return { status: "stale_content" as const };
     }
 
-    const set: Record<string, unknown> = { rowVersion: sql`${artifacts.rowVersion} + 1` };
-    if (input.title !== undefined) set.title = input.title;
-    if (input.markdown !== undefined) set.content = { kind: "document", markdown: input.markdown };
-    if (input.pages !== undefined) set.content = { kind: "pages", pages: input.pages };
+    // Spread order matters: `pages` wins over `markdown` when both arrive,
+    // matching the previous assignment order.
+    const set = {
+      rowVersion: sql`${artifacts.rowVersion} + 1`,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.markdown !== undefined
+        ? { content: { kind: "document" as const, markdown: input.markdown } }
+        : {}),
+      ...(input.pages !== undefined
+        ? { content: { kind: "pages" as const, pages: input.pages } }
+        : {}),
+    };
 
     await tx
       .update(artifacts)

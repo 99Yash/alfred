@@ -280,9 +280,11 @@ export interface StartWatchResult {
 }
 
 export async function startWatch(args: StartWatchArgs): Promise<StartWatchResult> {
-  const payload: Record<string, unknown> = { topicName: args.topicName };
-  if (args.labelIds && args.labelIds.length) payload.labelIds = args.labelIds;
-  if (args.labelFilterAction) payload.labelFilterAction = args.labelFilterAction;
+  const payload = {
+    topicName: args.topicName,
+    ...(args.labelIds?.length ? { labelIds: args.labelIds } : {}),
+    ...(args.labelFilterAction ? { labelFilterAction: args.labelFilterAction } : {}),
+  };
   const json = await postJson(`${API_BASE}/watch`, args.accessToken, payload);
   const parsed = watchResponseSchema.parse(json);
   return {
@@ -328,7 +330,7 @@ export interface CreateLabelArgs {
 }
 
 export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
-  const payload: Record<string, unknown> = {
+  const payload = {
     name: args.name,
     messageListVisibility: args.messageListVisibility ?? "show",
     labelListVisibility: args.labelListVisibility ?? "labelShow",
@@ -354,9 +356,10 @@ export interface ModifyMessageLabelsArgs {
  * post-modify label set without an extra get call.
  */
 export async function modifyMessageLabels(args: ModifyMessageLabelsArgs): Promise<GmailMessage> {
-  const payload: Record<string, unknown> = {};
-  if (args.addLabelIds?.length) payload.addLabelIds = args.addLabelIds;
-  if (args.removeLabelIds?.length) payload.removeLabelIds = args.removeLabelIds;
+  const payload = {
+    ...(args.addLabelIds?.length ? { addLabelIds: args.addLabelIds } : {}),
+    ...(args.removeLabelIds?.length ? { removeLabelIds: args.removeLabelIds } : {}),
+  };
   const json = await postJson(
     `${API_BASE}/messages/${args.messageId}/modify`,
     args.accessToken,
@@ -396,9 +399,11 @@ export async function batchModifyMessages(args: BatchModifyMessagesArgs): Promis
       `[gmail] batchModifyMessages exceeds Gmail's 1000-id cap (got ${args.messageIds.length})`,
     );
   }
-  const payload: Record<string, unknown> = { ids: args.messageIds };
-  if (args.addLabelIds?.length) payload.addLabelIds = args.addLabelIds;
-  if (args.removeLabelIds?.length) payload.removeLabelIds = args.removeLabelIds;
+  const payload = {
+    ids: args.messageIds,
+    ...(args.addLabelIds?.length ? { addLabelIds: args.addLabelIds } : {}),
+    ...(args.removeLabelIds?.length ? { removeLabelIds: args.removeLabelIds } : {}),
+  };
   await postJson(`${API_BASE}/messages/batchModify`, args.accessToken, payload);
 }
 
@@ -463,8 +468,10 @@ export async function sendMessage(args: SendMessageArgs): Promise<SendMessageRes
   const mime = `${headers.join("\r\n")}\r\n\r\n${args.bodyText}`;
   const raw = Buffer.from(mime, "utf8").toString("base64url");
 
-  const payload: Record<string, unknown> = { raw };
-  if (args.threadId) payload.threadId = args.threadId;
+  const payload = {
+    raw,
+    ...(args.threadId ? { threadId: args.threadId } : {}),
+  };
 
   const json = await postJson(`${API_BASE}/messages/send`, args.accessToken, payload);
   const parsed = messageSchema.parse(json);

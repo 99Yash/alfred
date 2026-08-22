@@ -1,7 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
-import { RAIL_TOOL_TONE, type RailToolTone } from "~/routes/-chat/rail/models";
+import { APP_TINTS } from "~/lib/tints";
+import { type RailToolTone } from "~/routes/-chat/rail/models";
 
 /**
  * `sources` footer under an assistant turn. Each pill is either an integration
@@ -56,7 +57,7 @@ function SourcePill({ item: props }: { item: SourceItem }) {
     <span
       className={cn(
         "inline-flex h-6 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium",
-        RAIL_TOOL_TONE[props.tone],
+        APP_TINTS[props.tone],
       )}
     >
       <Icon size={11} />
