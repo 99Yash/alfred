@@ -1,4 +1,8 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
+import {
+  parseAttachmentContentReferences,
+  type AttachmentContentReference,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
@@ -50,6 +54,16 @@ export interface SearchHit {
    */
   similarity: number;
   authoredAt: Date | null;
+  /**
+   * Other carriers of byte-identical content — the same file forwarded under
+   * new `messageId:attachmentId` pairs folds into one canonical row, and each
+   * later occurrence is recorded here (filenames, threadIds, mimeTypes), so a
+   * question about `Acme_Offer_Letter.pdf` can reconcile against a row titled
+   * by the first carrier. Parsed defensively from the document's unknown
+   * `metadata.references`; present only on `gmail_attachment` hits that hold
+   * at least one valid reference.
+   */
+  occurrences?: AttachmentContentReference[];
 }
 
 export async function search(args: SearchArgs): Promise<SearchHit[]> {
@@ -81,13 +95,19 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
 
     const candidates = tx
       .select({
-        chunkId: chunks.id,
-        documentId: documents.id,
+        // Aliased apart: chunks.id and documents.id would otherwise both
+        // project as "id" and the outer rerank SELECT could not reference
+        // either without an ambiguous-column error.
+        chunkId: sql<string>`${chunks.id}`.as("chunk_id"),
+        documentId: sql<string>`${documents.id}`.as("document_id"),
         source: documents.source,
         title: documents.title,
         position: chunks.position,
         content: chunks.content,
         metadata: chunks.metadata,
+        // Aliased apart from chunks.metadata: two projected columns named
+        // "metadata" would collide in the subquery result mapping.
+        documentMetadata: sql`${documents.metadata}`.as("document_metadata"),
         authoredAt: documents.authoredAt,
         distance: sql<number>`${chunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
       })
@@ -107,6 +127,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         position: candidates.position,
         content: candidates.content,
         metadata: candidates.metadata,
+        documentMetadata: candidates.documentMetadata,
         authoredAt: candidates.authoredAt,
         distance: candidates.distance,
       })
@@ -115,17 +136,24 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       .limit(limit);
   });
 
-  return rows.map((r) => ({
-    chunkId: r.chunkId,
-    documentId: r.documentId,
-    source: r.source,
-    title: r.title,
-    position: r.position,
-    page: extractPageFromMetadata(r.metadata),
-    preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
-    similarity: 1 - Number(r.distance),
-    authoredAt: r.authoredAt,
-  }));
+  return rows.map((r) => {
+    const hit: SearchHit = {
+      chunkId: r.chunkId,
+      documentId: r.documentId,
+      source: r.source,
+      title: r.title,
+      position: r.position,
+      page: extractPageFromMetadata(r.metadata),
+      preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
+      similarity: 1 - Number(r.distance),
+      authoredAt: r.authoredAt,
+    };
+    if (r.source === "gmail_attachment") {
+      const occurrences = parseAttachmentContentReferences(r.documentMetadata);
+      if (occurrences.length > 0) hit.occurrences = occurrences;
+    }
+    return hit;
+  });
 }
 
 function hashQuery(q: string): string {
