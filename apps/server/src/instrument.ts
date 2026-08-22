@@ -1,3 +1,4 @@
+import { redactSensitiveLogPaths } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import * as Sentry from "@sentry/node";
 
@@ -19,5 +20,15 @@ if (SENTRY_DSN && (NODE_ENV === "production" || SENTRY_ENABLE_DEV)) {
     ...(SENTRY_RELEASE ? { release: SENTRY_RELEASE } : {}),
     tracesSampleRate: NODE_ENV === "production" ? 0.1 : 1.0,
     sendDefaultPii: false,
+    // Strip the shared SENSITIVE_LOG_PATHS set (ADR-0038) from events and
+    // breadcrumbs before they leave the process. The same table backs Pino's
+    // `redact` config, so no sink can drift from another on what is secret.
+    // Stack frames survive; only field values disappear.
+    beforeSend(event) {
+      return redactSensitiveLogPaths(event);
+    },
+    beforeBreadcrumb(breadcrumb) {
+      return redactSensitiveLogPaths(breadcrumb);
+    },
   });
 }

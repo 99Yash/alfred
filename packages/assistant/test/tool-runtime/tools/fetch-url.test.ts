@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
+import { FETCH_URL_MAX_TEXT_CHARS } from "@alfred/contracts";
 import { REALTIME_PDF_EXTRACTION_LIMITS } from "@alfred/extraction";
 import {
   decodeEntities,
@@ -11,7 +12,6 @@ import {
   htmlToText,
   isBlockedHost,
   isBlockedIp,
-  MAX_TEXT_CHARS,
   pinningLookup,
   redactCredentialUrl,
   runFetchUrl,
@@ -158,7 +158,7 @@ describe("isBlockedHost", () => {
 
 describe("runFetchUrl (stubbed transport)", () => {
   test("keeps the PDF parse ceiling separate from the returned text ceiling", () => {
-    assert.ok(REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxCharacters > MAX_TEXT_CHARS);
+    assert.ok(REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxCharacters > FETCH_URL_MAX_TEXT_CHARS);
   });
 
   function streamOf(...parts: Array<string | Uint8Array>): AsyncIterable<Uint8Array> {
@@ -661,14 +661,14 @@ describe("runFetchUrl (stubbed transport)", () => {
       {
         transport: transportOf({
           contentType: "text/plain",
-          body: "x".repeat(MAX_TEXT_CHARS + 5_000),
+          body: "x".repeat(FETCH_URL_MAX_TEXT_CHARS + 5_000),
         }),
       },
     );
     assert.equal(r.ok, true);
     if (r.ok) {
       assert.equal(r.truncated, true);
-      assert.equal(r.chars, MAX_TEXT_CHARS);
+      assert.equal(r.chars, FETCH_URL_MAX_TEXT_CHARS);
     }
   });
 });

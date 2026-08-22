@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import { Errors, getStringPath, parseJsonWith, toMessage } from "@alfred/contracts";
+import {
+  Errors,
+  GMAIL_POLL_DEDUP_TTL_MS,
+  getStringPath,
+  parseJsonWith,
+  toMessage,
+} from "@alfred/contracts";
 import {
   assertGmailPushOidcConfigured,
   findCredentialByEmail,
@@ -267,9 +273,11 @@ export function makeGmailWebhookRoutes(
       // Deduplicate rapid-fire pushes for the same credential — Pub/Sub can
       // redeliver and Gmail can publish multiple history changes per second.
       // The TTL window collapses bursts but releases quickly so a *new* push
-      // arriving 30s later still enqueues a fresh poll. (Static `jobId` doesn't
-      // work here — BullMQ keeps completed jobs around per `removeOnComplete`,
-      // so re-enqueues with the same id become silent no-ops for hours.)
+      // arriving after the window still enqueues a fresh poll. (Static `jobId`
+      // doesn't work here — BullMQ keeps completed jobs around per
+      // `removeOnComplete`, so re-enqueues with the same id become silent
+      // no-ops for hours.) The TTL is shared with the ingestion sweep via
+      // GMAIL_POLL_DEDUP_TTL_MS.
       //
       // Routes to `gmail.poll_recent` (ADR-0037) — Gmail's search index is the
       // realtime-consistent surface; history.list lags pub/sub and is now
@@ -278,7 +286,12 @@ export function makeGmailWebhookRoutes(
       await queue.add(
         "gmail.poll_recent",
         { kind: "gmail.poll_recent", credentialId: cred.id, pushHistoryId: historyId },
-        { deduplication: { id: `gmail.poll_recent.${cred.id}`, ttl: 30_000 } },
+        {
+          deduplication: {
+            id: `gmail.poll_recent.${cred.id}`,
+            ttl: GMAIL_POLL_DEDUP_TTL_MS,
+          },
+        },
       );
 
       return { ok: true, credentialId: cred.id, receiptPersisted: receipt.inserted };
