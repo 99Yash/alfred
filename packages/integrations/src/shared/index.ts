@@ -18,7 +18,7 @@ export {
   type AuthedFetchRequest,
 } from "./authed-fetch";
 export { authedJson, type AuthedJsonOptions } from "./authed-json";
-export { type RetryPolicy } from "./retry";
+export { RETRY_BASE_DELAY_MS, type RetryPolicy } from "./retry";
 export { throwUpstreamError } from "./upstream-error";
 export {
   defineProviderClient,

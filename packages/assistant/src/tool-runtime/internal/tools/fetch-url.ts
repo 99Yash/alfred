@@ -14,7 +14,7 @@
  *   - size-bounded: the body is *streamed* and the connection is torn down once
  *     it passes {@link MAX_FETCH_BYTES}, so a chunked response with no
  *     `Content-Length` can't blow memory; the readable text is then capped at
- *     {@link MAX_TEXT_CHARS} with a `truncated` flag the boss can surface.
+ *     {@link FETCH_URL_MAX_TEXT_CHARS} with a `truncated` flag the boss can surface.
  *   - NUL-safe: extraction drops control bytes and the platform dispatch-boundary
  *     sanitizer (ADR-0070) strips any residual before persist.
  *
@@ -33,7 +33,13 @@ import dns from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
-import { getPath, isNonEmptyString, isPdfContentType, toMessage } from "@alfred/contracts";
+import {
+  FETCH_URL_MAX_TEXT_CHARS,
+  getPath,
+  isNonEmptyString,
+  isPdfContentType,
+  toMessage,
+} from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
   extraction,
@@ -45,8 +51,6 @@ import {
 import { Agent, request as undiciRequest } from "undici";
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
-export const MAX_TEXT_CHARS = 100_000;
-
 /** Stop reading (and tear down the socket) once a body passes this many bytes. */
 const MAX_FETCH_BYTES = REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxBytes;
 
@@ -93,7 +97,7 @@ interface FetchUrlOk {
   text: string;
   /** Character count of {@link text} after the size bound. */
   chars: number;
-  /** True when the text was cut off at {@link MAX_TEXT_CHARS}. */
+  /** True when the text was cut off at {@link FETCH_URL_MAX_TEXT_CHARS}. */
   truncated: boolean;
   /**
    * Ordered URLs that issued a redirect on the way to {@link finalUrl} (the
@@ -1135,8 +1139,8 @@ async function renderViaFirecrawl(
   }
   if (!out || out.text.replace(/\s+/g, "").length < MIN_READABLE_CHARS) return null;
 
-  const truncated = out.text.length > MAX_TEXT_CHARS;
-  const text = truncated ? out.text.slice(0, MAX_TEXT_CHARS) : out.text;
+  const truncated = out.text.length > FETCH_URL_MAX_TEXT_CHARS;
+  const text = truncated ? out.text.slice(0, FETCH_URL_MAX_TEXT_CHARS) : out.text;
   return {
     ok: true,
     url: args.url,
@@ -1323,8 +1327,8 @@ async function runFetchUrlImpl(
   const title = looksHtml ? extractTitle(decoded) : undefined;
   const body = looksHtml ? htmlToText(decoded) : decoded.replace(CONTROL_BYTES, "").trim();
 
-  const truncated = body.length > MAX_TEXT_CHARS;
-  const text = truncated ? body.slice(0, MAX_TEXT_CHARS) : body;
+  const truncated = body.length > FETCH_URL_MAX_TEXT_CHARS;
+  const text = truncated ? body.slice(0, FETCH_URL_MAX_TEXT_CHARS) : body;
 
   // #509 — a client-rendered SPA (x.com, many JS apps) serves a 200 text/html
   // shell that's almost all <script>, so extraction yields no readable copy. A
@@ -1427,8 +1431,8 @@ async function extractPdfFromBytes(
   // `[page N]` rendering per ADR-0091 D4; the corpus path keeps the
   // marker-less `content` plus offsets.
   const text = formatExtractedMediaText(mediaResult);
-  const truncated = text.length > MAX_TEXT_CHARS;
-  const finalText = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
+  const truncated = text.length > FETCH_URL_MAX_TEXT_CHARS;
+  const finalText = truncated ? text.slice(0, FETCH_URL_MAX_TEXT_CHARS) : text;
   return {
     ok: true,
     url,
