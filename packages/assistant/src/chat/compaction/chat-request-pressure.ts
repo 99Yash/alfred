@@ -9,8 +9,6 @@ import {
   CHAT_SYNC_COMPACTION_RATIO,
 } from "./constants";
 
-export { CHAT_HYDRATED_IMAGE_TOKENS, CHAT_MAX_OUTPUT_TOKENS };
-
 export interface ChatRequestTokenEstimate {
   systemTokens: number;
   toolTokens: number;

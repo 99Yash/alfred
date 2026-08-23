@@ -1,5 +1,7 @@
 import type { Chunk } from "./chunker";
 
+// Re-export from canonical owner `@alfred/contracts/pricing` for
+// backward compat. New code should import from `@alfred/contracts/pricing`.
 export { EMBED_COST_CAP_USD, maxTokensForPrice } from "@alfred/contracts/pricing";
 
 /** What `capChunksForBudget` returns: the kept prefix plus honest counts. */
