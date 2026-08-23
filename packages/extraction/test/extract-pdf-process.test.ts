@@ -7,8 +7,8 @@ import {
   createPdfExtractor,
   createPdfExtractorWithChild,
   PdfExtractionError,
-  type PdfExtractionLimits,
 } from "../src/extract-pdf";
+import type { PdfExtractionLimits } from "../src/constants";
 
 const CHILD_ENTRY = new URL("./support/extract-pdf-process-child.ts", import.meta.url);
 const BASE_LIMITS: PdfExtractionLimits = {
