@@ -3,8 +3,8 @@ import type {
   ExtractedPdfPage,
   PdfDocumentType,
   PdfExtractionLimitKind,
-  PdfExtractionLimits,
 } from "./extract-pdf";
+import type { PdfExtractionLimits } from "./constants";
 
 // Keep this child-process protocol dependency-free. In particular, do not
 // import @alfred/contracts guards: extraction intentionally has only the pinned

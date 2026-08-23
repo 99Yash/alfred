@@ -3,11 +3,7 @@ import { asSchema, type ModelMessage, type ToolSet } from "ai";
 import { effectiveInputWindowTokens } from "@alfred/ai";
 
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
-import {
-  CHAT_HYDRATED_IMAGE_TOKENS,
-  CHAT_MAX_OUTPUT_TOKENS,
-  CHAT_SYNC_COMPACTION_RATIO,
-} from "./constants";
+import { CHAT_HYDRATED_IMAGE_TOKENS, CHAT_SYNC_COMPACTION_RATIO } from "./constants";
 
 export interface ChatRequestTokenEstimate {
   systemTokens: number;

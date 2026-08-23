@@ -58,6 +58,12 @@ const ALLOWED = new Map([
   ["JobsOptions", "BullMQ's exported type, referenced but not re-declared here"],
   ["webhook_secret", "field in GitHub's app-manifest conversion response"],
   ["in_progress", "example of a provider's own native state string"],
+  // Future symbols documented in CONTEXT.md before code lands — design, not stale.
+  [
+    "getRelevantInstructions",
+    "CONTEXT.md central store retriever — designed interface, implementation deferred",
+  ],
+  ["force_category", "CONTEXT.md standing-instruction effect — designed, handler deferred"],
   // Metavariables and analogies in review/style examples.
   ["DocArg", "illustrative shape in a code-style example"],
   ["fooSchema", "metavariable in a code-style example"],
