@@ -9,7 +9,7 @@
 
 ## Problem Statement
 
-Alfred can run unattended work, but it cannot be *extended* unattended. Three specific ceilings:
+Alfred can run unattended work, but it cannot be _extended_ unattended. Three specific ceilings:
 
 1. **Nothing outside a hardcoded list can wake it.** `EVENT_SOURCES` in `packages/contracts/src/event-triggers.ts` is a three-value enum (`gmail`, `google.oauth.callback`, `learn-skill`). Every new push source is a code change in three places, so "expose a webhook and react to it" is not a capability the product has.
 2. **Work cannot accumulate.** There is no durable place for an agent to put a file that a later step, a later run, or a different execution environment can read. Artifacts are a presentation surface, not a workspace.
@@ -27,16 +27,16 @@ does the job.
 
 Most of that already describes Alfred, which is the useful finding:
 
-| Primitive | Alfred today |
-| --- | --- |
-| Durable execution, checkpoint-before-execute, crash recovery | **Have it.** `Workflow<S>` named steps, BullMQ, Postgres checkpoints, recovery sweep, ADR-0070 non-progressing-step backstop |
-| Sub-agents with typed join | **Have the join** (ADR-0073 child-completion wake). Per-child isolated storage is not load-bearing at n=1 |
-| Persistent sessions + compaction | **Have it** (#223 compactor and cache-breakpoint discipline). Tree-forking is chat UX, not substrate |
-| Capability-scoped code execution, no ambient authority | **ADR-0087 is this design**, derived independently. Scoped to one job |
-| Syscall table with authorization | **Ahead.** The dispatcher authorizes against risk tiers, an approval floor, an exact `allowed_tools` envelope, and a user model. A bare kernel grants capabilities; ours grants them against who the user is and what they approved |
-| Program promotion / revisioning | **Ahead, on paper.** `workflows-v1.md` specifies draft child revision → fixture eval → compare-and-swap promotion → rollback. Think's self-authored extensions have no equivalent |
-| Execution ladder | **Missing, including its bottom rung** |
-| Hibernate-to-zero economics | **Not applicable.** That is a multi-tenant argument. Alfred is n=1 and 96% of spend is Anthropic |
+| Primitive                                                    | Alfred today                                                                                                                                                                                                                        |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Durable execution, checkpoint-before-execute, crash recovery | **Have it.** `Workflow<S>` named steps, BullMQ, Postgres checkpoints, recovery sweep, ADR-0070 non-progressing-step backstop                                                                                                        |
+| Sub-agents with typed join                                   | **Have the join** (ADR-0073 child-completion wake). Per-child isolated storage is not load-bearing at n=1                                                                                                                           |
+| Persistent sessions + compaction                             | **Have it** (#223 compactor and cache-breakpoint discipline). Tree-forking is chat UX, not substrate                                                                                                                                |
+| Capability-scoped code execution, no ambient authority       | **ADR-0087 is this design**, derived independently. Scoped to one job                                                                                                                                                               |
+| Syscall table with authorization                             | **Ahead.** The dispatcher authorizes against risk tiers, an approval floor, an exact `allowed_tools` envelope, and a user model. A bare kernel grants capabilities; ours grants them against who the user is and what they approved |
+| Program promotion / revisioning                              | **Ahead, on paper.** `workflows-v1.md` specifies draft child revision → fixture eval → compare-and-swap promotion → rollback. Think's self-authored extensions have no equivalent                                                   |
+| Execution ladder                                             | **Missing, including its bottom rung**                                                                                                                                                                                              |
+| Hibernate-to-zero economics                                  | **Not applicable.** That is a multi-tenant argument. Alfred is n=1 and 96% of spend is Anthropic                                                                                                                                    |
 
 So this plan adds the ladder and its bottom rung. It does not rebuild the kernel; it renames what is
 already there and gives it somewhere to dispatch.
@@ -83,7 +83,7 @@ integration mirror, or Code Mode as a prerequisite.
    which errors are worth fixing at all, and that judgment belongs in Alfred's user model, not in a
    coding agent.
 6. **Code Mode stays off the critical path.** ADR-0087's rung-(a) truncation thermometer has not fired.
-   The isolate is built here for a *second* driver (it is a ladder rung), which is what justifies
+   The isolate is built here for a _second_ driver (it is a ladder rung), which is what justifies
    building it now; the context-virtualization gate is unchanged.
 7. **No agent-authored webhook verifiers.** Thirty lines each, one per source, has to be right. Authored
    code earns its keep on the long tail the user will not specify twice (bulk mutations, one-off
@@ -94,12 +94,12 @@ integration mirror, or Code Mode as a prerequisite.
 The ladder splits on one mechanical question: **does the program need to call synchronously back into
 the kernel while it runs?**
 
-| Rung | Job | Network | Credentials | Data entering it | Callback to kernel | Substrate |
-| --- | --- | --- | --- | --- | --- | --- |
-| **0 · workspace** | read/write durable files | n/a | n/a | whatever the run put there | n/a | Postgres metadata + R2 content |
-| **A · isolate** | compute over parked handles and workspace files | **none** | **none** | the user's private reads | **required** (`load`, `broker.read`) | in-process `isolated-vm@6.1.2` in a `--no-node-snapshot` forked worker |
-| **B · browser** | see and act on pages | origin-allowlisted | none (logged out v1) | public page content | not needed | Vercel Sandbox |
-| **C · coding agent** | change one repo | broad (git, registries, Anthropic) | one repo, branch+PR only | the user's own source + a trace | not needed | Vercel Sandbox |
+| Rung                 | Job                                             | Network                            | Credentials              | Data entering it                | Callback to kernel                   | Substrate                                                              |
+| -------------------- | ----------------------------------------------- | ---------------------------------- | ------------------------ | ------------------------------- | ------------------------------------ | ---------------------------------------------------------------------- |
+| **0 · workspace**    | read/write durable files                        | n/a                                | n/a                      | whatever the run put there      | n/a                                  | Postgres metadata + R2 content                                         |
+| **A · isolate**      | compute over parked handles and workspace files | **none**                           | **none**                 | the user's private reads        | **required** (`load`, `broker.read`) | in-process `isolated-vm@6.1.2` in a `--no-node-snapshot` forked worker |
+| **B · browser**      | see and act on pages                            | origin-allowlisted                 | none (logged out v1)     | public page content             | not needed                           | Vercel Sandbox                                                         |
+| **C · coding agent** | change one repo                                 | broad (git, registries, Anthropic) | one repo, branch+PR only | the user's own source + a trace | not needed                           | Vercel Sandbox                                                         |
 
 Rung A **cannot** move to a remote sandbox. Vercel Sandbox has no host-callback channel; data flows in
 via `writeFiles`/args and out via `stdout`/`readFile`. Implementing `load(handle)` there means either
@@ -121,7 +121,7 @@ capability-scoped bindings and real module resolution, at near-zero marginal cos
 for reasons that are about mechanism rather than taste.
 
 - **Its value requires co-location.** The point of capability bindings is that they bind to a durable
-  store *next to the isolate*. Alfred's durable store is Postgres on Railway. A CF isolate reaching it
+  store _next to the isolate_. Alfred's durable store is Postgres on Railway. A CF isolate reaching it
   is a network hop plus a token shipped into the isolate — which is worse than a local isolate on
   custody and no better on capability. A satellite program plane therefore does not work; only moving
   the kernel does, and that is migration.
@@ -154,13 +154,13 @@ A descriptor owns exactly the provider-specific knowledge and nothing else:
 
 ```ts
 interface InboundSourceDescriptor {
-  slug: string;                                    // registry key, curated
-  verify(raw: string, headers: Headers): VerifyResult;   // timing-safe, over RAW bytes
+  slug: string; // registry key, curated
+  verify(raw: string, headers: Headers): VerifyResult; // timing-safe, over RAW bytes
   deliveryId(raw: string, headers: Headers): string | null;
-  eventTypes: readonly string[];                   // what a workflow may subscribe to
-  project(payload: unknown): NormalizedEvent;      // typed projection, never a cast
-  subscription?: SubscriptionAdapter;              // provision / renew / verify, where the provider has one
-  cursor?: CursorAdapter;                          // provider-native recovery, where one exists
+  eventTypes: readonly string[]; // what a workflow may subscribe to
+  project(payload: unknown): NormalizedEvent; // typed projection, never a cast
+  subscription?: SubscriptionAdapter; // provision / renew / verify, where the provider has one
+  cursor?: CursorAdapter; // provider-native recovery, where one exists
 }
 ```
 
@@ -168,7 +168,7 @@ interface InboundSourceDescriptor {
 `on conflict do nothing` into `webhook_events` keyed on `X-GitHub-Delivery`. The work is generalizing
 it, not inventing it. The subscription / receipt / cursor primitives are already specified in the
 [integration event lifecycle research](../research/workflows-v1-integration-event-lifecycle.md) §319–367
-and are adopted here unchanged, including its rule that cursor *interpretation* stays in provider code.
+and are adopted here unchanged, including its rule that cursor _interpretation_ stays in provider code.
 
 Rules:
 
@@ -185,7 +185,7 @@ Rules:
   1000 timeouts in 24h**, so a slow handler does not degrade delivery, it ends it.
 - A source with no healthy subscription reports `trigger_degraded`. Absence of deliveries never renders
   as a confident "nothing happened".
-- The registry is the authorable trigger surface's *ceiling*, not its definition. Which descriptors a
+- The registry is the authorable trigger surface's _ceiling_, not its definition. Which descriptors a
   user may subscribe a workflow to remains a curated subset.
 
 **Non-obvious consequence:** rung B and rung C completion notices arrive as inbound webhooks too. Of
@@ -221,16 +221,16 @@ One typed effect, with the rung as a parameter rather than a bespoke feature per
 ```ts
 interface DelegatedRun {
   rung: "isolate" | "browser" | "coding_agent";
-  brief: string | CompiledProgram;      // interpreted brief, or a pinned program artifact
+  brief: string | CompiledProgram; // interpreted brief, or a pinned program artifact
   grants: {
     workspace: WorkspaceSubtreeGrant[];
-    handles?: HandleRef[];              // rung A only
-    reads?: BrokerReadScope[];          // rung A only
+    handles?: HandleRef[]; // rung A only
+    reads?: BrokerReadScope[]; // rung A only
     credential?: ScopedCredentialGrant; // rung C only, minted per run
-    origins?: string[];                 // rung B only, enforced by the sandbox firewall
+    origins?: string[]; // rung B only, enforced by the sandbox firewall
   };
   limits: { wallClockMs: number; costUsd?: number; turns?: number; bytesOut: number };
-  completion: { descriptor: string; deliveryKey: string };   // ingress descriptor to report into
+  completion: { descriptor: string; deliveryKey: string }; // ingress descriptor to report into
 }
 ```
 
@@ -316,10 +316,10 @@ Each step ends at something demonstrable, and each gates the next.
 4. **Rung B, read-only.** Ends at: a preview URL is screenshotted and asserted, evidence lands in the
    workspace, and the result posts back through the ingress descriptor.
 5. **Rung A.** Ends at: a program computes over a parked handle and workspace files with forced
-   provenance. Gated on ADR-0087's thermometer for the *context-virtualization* claim; buildable earlier
+   provenance. Gated on ADR-0087's thermometer for the _context-virtualization_ claim; buildable earlier
    as a ladder rung.
 6. **Promotion.** Compiled programs via draft child revision → fixture eval → compare-and-swap, per
-   `workflows-v1.md`. Gated on volume and low trajectory entropy. Try trace *retrieval* first — the
+   `workflows-v1.md`. Gated on volume and low trajectory entropy. Try trace _retrieval_ first — the
    [generation research](../research/trace-to-workflow-generation.md) found the measured prize of
    compilation is fewer turns rather than determinism, and that putting the last successful trajectory in
    front of the interpreted brief is the cheapest well-evidenced win and a rung the ladder is missing.

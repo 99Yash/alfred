@@ -69,7 +69,7 @@ ORDER BY next_run_at ASC
 LIMIT 100;
 ```
 
-Per row: (1) `createRun({ workflowSlug, userId, trigger: { kind: 'cron', scheduledFor: nextRunAtIso } })`; (2) `enqueueRun(runId, { jobId: \`workflow:${id}:scheduled:${nextRunAtIso}\` })`; (3) compute `next_run_at` via `cron-parser` from the row's `trigger.schedule` + tz, UPDATE the row with new `next_run_at` and `last_scheduled_at = scheduledFor`. The `LIMIT 100` is a personal-scale ceiling — if N grows past one tick's budget, cursor on `next_run_at` and re-tick. Today 100 covers a lifetime; document the cursor as future work.
+Per row: (1) `createRun({ workflowSlug, userId, trigger: { kind: 'cron', scheduledFor: nextRunAtIso } })`; (2) `enqueueRun(runId, { jobId: \`workflow:${id}:scheduled:${nextRunAtIso}\` })`; (3) compute `next_run_at`via`cron-parser`from the row's`trigger.schedule`+ tz, UPDATE the row with new`next_run_at`and`last_scheduled_at = scheduledFor`. The `LIMIT 100`is a personal-scale ceiling — if N grows past one tick's budget, cursor on`next_run_at` and re-tick. Today 100 covers a lifetime; document the cursor as future work.
 
 **`createRun` signature.**
 

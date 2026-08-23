@@ -21,14 +21,14 @@ without regressing the in-app briefing surface.
 
 The naming is inverted from how the code actually works. As of 2026-06-09:
 
-| | `morning-briefing` (currently live) | `daily-briefing` (the target) |
-|---|---|---|
-| Compose | boss-model, structured multi-source gather (ADR-0041) | LLM-composed prose, watermarked delta, reads prior briefings as memory (ADR-0048) |
-| Slots | morning + evening | morning + evening |
-| Canonical table | **`briefings`** via the full state machine in `briefing/store.ts` (`beginBriefing` → `markBriefingComposing` → `markBriefingComposed` → `markBriefingSent` / `markBriefingSuppressed` / `markBriefingFailed`) | **`briefing_runs`** (legacy) via `recordBriefingRun` in `briefing/read.ts` |
-| Morning suppression (ADR-0048 discretionary morning) | yes (`markBriefingSuppressed`) | **no** — `send` step always sends |
-| In-app surface integration | yes (reads `briefings`) | no |
-| Smoke-validated against samples | n/a (live) | **never validated** — its own description says "Replaces m10 morning-briefing once smoke validates" |
+|                                                      | `morning-briefing` (currently live)                                                                                                                                                                           | `daily-briefing` (the target)                                                                       |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Compose                                              | boss-model, structured multi-source gather (ADR-0041)                                                                                                                                                         | LLM-composed prose, watermarked delta, reads prior briefings as memory (ADR-0048)                   |
+| Slots                                                | morning + evening                                                                                                                                                                                             | morning + evening                                                                                   |
+| Canonical table                                      | **`briefings`** via the full state machine in `briefing/store.ts` (`beginBriefing` → `markBriefingComposing` → `markBriefingComposed` → `markBriefingSent` / `markBriefingSuppressed` / `markBriefingFailed`) | **`briefing_runs`** (legacy) via `recordBriefingRun` in `briefing/read.ts`                          |
+| Morning suppression (ADR-0048 discretionary morning) | yes (`markBriefingSuppressed`)                                                                                                                                                                                | **no** — `send` step always sends                                                                   |
+| In-app surface integration                           | yes (reads `briefings`)                                                                                                                                                                                       | no                                                                                                  |
+| Smoke-validated against samples                      | n/a (live)                                                                                                                                                                                                    | **never validated** — its own description says "Replaces m10 morning-briefing once smoke validates" |
 
 So swapping `enqueueBriefingRun` to `DAILY_BRIEFING_WORKFLOW_SLUG` would send
 LLM emails but write the legacy table, skip suppression, and orphan the in-app

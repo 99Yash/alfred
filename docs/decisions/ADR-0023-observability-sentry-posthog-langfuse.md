@@ -1,6 +1,5 @@
 # ADR-0023 — Observability: Sentry + PostHog + Langfuse
 
-
 **Decision.** Three tools, three lanes, all on free tiers:
 
 - **Sentry** — server + browser exception tracking, perf, breadcrumbs. SDK in `apps/server` and `apps/web`; init via `instrumentation.ts` (milkpod has the pattern). Replicache mutators wrapped to surface mutator errors.

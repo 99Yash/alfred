@@ -4,7 +4,7 @@
 intended and decided at a point in time. It is not a description of current
 behavior, and it was not updated when the code moved on.
 
-Read a plan for its *reasoning* — the constraints, the rejected shapes, the order
+Read a plan for its _reasoning_ — the constraints, the rejected shapes, the order
 of attack. Never read one to learn how the system works today; for that, read the
 code, or [`../reference/`](../reference/) for the conventions around it.
 

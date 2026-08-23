@@ -1,6 +1,5 @@
 # ADR-0021 — Embedding model
 
-
 **Decision.** Voyage family as primary, Gemini text-embedding-005 as fallback (credential-gated).
 
 - **Ingestion**: voyage-context-3 at 1024 dim — contextualized embeddings handle long-form emails/docs where chunk-in-isolation loses meaning.

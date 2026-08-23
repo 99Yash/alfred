@@ -225,7 +225,6 @@ Do not make each provider reinvent the CAS loop.
 
 `packages/api/src/modules/user-model/entity-kind-classifier.ts`.
 
-
 Add a deterministic classifier used only by the fold:
 
 ```ts
@@ -263,7 +262,6 @@ change.
 `packages/api/src/modules/user-model/gmail-kind-fold.ts`. This slice writes the
 `entity_profiles.kind` + classifier provenance subset only; significance, edges,
 co-occurrence, and reciprocity remain deferred as designed below.
-
 
 Add a projection runner, likely under
 `packages/api/src/modules/user-model/fold/`.
@@ -324,7 +322,6 @@ gate validation lives in
 `packages/api/test/user-model/gmail-kind-projection-gates.test.ts`; prod
 activation is documented in the
 [activation runbook](../reference/user-model-gmail-projection-activation.md).
-
 
 Add `apps/server/src/scripts/backfills/project-user-model-gmail-shadow-committed.ts`.
 

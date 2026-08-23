@@ -1,6 +1,5 @@
 # ADR-0018 — MCP scope: client-side only at v1
 
-
 **Decision.** Alfred is an **MCP client** at v1: it connects to external MCP servers configured per-user, imports their tool catalogs into its tool registry, and the agent invokes them like any native tool. Alfred-as-MCP-server (exposing alfred's own tools to other agents) is **deferred**.
 
 **Schema sketch.**

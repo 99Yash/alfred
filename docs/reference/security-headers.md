@@ -3,10 +3,10 @@
 Alfred serves two browser-facing surfaces from separate Railway services, so the
 security-header policy lives in two repo-owned places:
 
-| Surface   | Origin              | Policy owner                                      | Mechanism                                                                   |
-| --------- | ------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| Surface   | Origin              | Policy owner                                       | Mechanism                                                                   |
+| --------- | ------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
 | API       | `api.alfred.beauty` | `packages/http/src/middleware/security-headers.ts` | Elysia `onRequest` plugin, wired in `apps/server/src/index.ts` next to CORS |
-| Web (SPA) | `alfred.beauty`     | root `Caddyfile`                                  | Railpack serves the Vite build with Caddy and uses this file verbatim       |
+| Web (SPA) | `alfred.beauty`     | root `Caddyfile`                                   | Railpack serves the Vite build with Caddy and uses this file verbatim       |
 
 ## API (`api.alfred.beauty`)
 

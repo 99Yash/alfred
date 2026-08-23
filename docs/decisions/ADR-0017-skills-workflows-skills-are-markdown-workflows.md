@@ -1,6 +1,5 @@
 # ADR-0017 — Skills + workflows: skills are markdown, workflows are trigger + brief + optional step DAG
 
-
 **Decision.**
 
 **Skills are markdown documents** with optional frontmatter for structured metadata (tools, default model, examples, activation hints). The body is the skill content; the frontmatter is parsed for runtime use. Skills are activated explicitly via `@skill:slug` references in workflow briefs or chat messages — the runtime resolves the slug, injects `content_md` into the system prompt, and applies frontmatter constraints.

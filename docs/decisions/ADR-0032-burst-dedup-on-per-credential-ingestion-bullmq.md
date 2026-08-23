@@ -1,6 +1,5 @@
 # ADR-0032 — Burst dedup on per-credential ingestion: BullMQ `deduplication: { id, ttl }`, never a static `jobId`
 
-
 **Decision.** Both call sites that enqueue `gmail.poll_history` (the webhook handler and the 5-min sweep) collapse simultaneous enqueues for the same credential via BullMQ's `deduplication: { id, ttl }` option — never via the legacy `jobId` option as a dedup key. The dedup id is `gmail.poll_history.{credentialId}` and the TTL is 30 seconds. The webhook and sweep share the same dedup id so a webhook arriving inside the same 30s window as a sweep enqueue collapses into a single poll, not two redundant ones.
 
 **Why this is its own ADR.** The static-`jobId`-as-dedup pattern is the obvious-looking choice and it almost works. It bit prod twice in one session before we understood the failure mode and switched. The choice deserves the same surface area as a real ADR so future contributors don't reach for the same gun.
@@ -41,7 +40,7 @@ await queue.add(
 
 The dedup id format is `gmail.poll_history.{credentialId}` with `.` separator (BullMQ forbids `:` in jobIds and we standardize on `.` for any id-like string we hand BullMQ, dedup-id or otherwise — a separator slip-up was its own session-of-pain).
 
-**Worker log shape.** PR #22 added `skipped=` and `cursor=before->after` to the `gmail.poll_history` worker log so that the next time someone reads `inserted=0 errors=0`, they can tell at a glance whether Gmail returned no messages, returned messages that all dedup'd via `onConflictDoNothing`, or simply advanced the cursor during a quiet window. Worth restating: the dedup we're documenting in this ADR is at the queue layer (collapsing redundant *jobs*); `onConflictDoNothing` on `(userId, source, sourceId)` is the orthogonal dedup at the storage layer (collapsing redundant *documents*).
+**Worker log shape.** PR #22 added `skipped=` and `cursor=before->after` to the `gmail.poll_history` worker log so that the next time someone reads `inserted=0 errors=0`, they can tell at a glance whether Gmail returned no messages, returned messages that all dedup'd via `onConflictDoNothing`, or simply advanced the cursor during a quiet window. Worth restating: the dedup we're documenting in this ADR is at the queue layer (collapsing redundant _jobs_); `onConflictDoNothing` on `(userId, source, sourceId)` is the orthogonal dedup at the storage layer (collapsing redundant _documents_).
 
 **Alternatives.**
 

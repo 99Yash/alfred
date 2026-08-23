@@ -43,6 +43,7 @@ Phase 4 polish.
 ## v1 scope
 
 **In:**
+
 - Artifact kinds: **`document`** (markdown) and **`pages`** (ordered HTML pages;
   `format: "slides" | "pdf"` drives aspect ratio/styling). `pages` reuses the existing
   `ArtifactPageFrame` (scaled sandboxed `<iframe srcDoc>`, ResizeObserver) — already in
@@ -56,6 +57,7 @@ Phase 4 polish.
 - "Suggest an edit in chat" → boss calls `update_artifact` (re-renders in place).
 
 **Out (deferred, with seams left):**
+
 - `spreadsheet` kind (needs Univer — heavy commercial dep). Type union includes it but
   no renderer/tool ships.
 - Token-level streaming (above).
@@ -70,21 +72,21 @@ Phase 4 polish.
 
 `packages/db/src/schema/artifacts.ts` — new table `artifacts`:
 
-| column        | type                                   | notes                                              |
-|---------------|----------------------------------------|----------------------------------------------------|
-| `id`          | `text` PK `$defaultFn(createId("art"))`|                                                    |
-| `user_id`     | `text` notNull → `user.id` **cascade** |                                                    |
-| `thread_id`   | `text` notNull → `chat_threads.id` cascade | which chat produced it                         |
-| `run_id`      | `text` → `agent_runs.id` **set null**  | authoring run                                      |
-| `message_id`  | `text` → `chat_messages.id` **set null**| assistant message that authored it (for the card) |
-| `kind`        | `text` `$type<ArtifactKind>`           | `document` \| `pages` \| `spreadsheet`(reserved)   |
-| `format`      | `text` `$type<ArtifactFormat>` null    | for `pages`: `slides` \| `pdf`                     |
-| `title`       | `text` notNull                         |                                                    |
-| `status`      | `text` `$type<ArtifactStatus>`         | `generating` \| `complete` \| `error`              |
-| `content`     | `jsonb` `$type<ArtifactContent>`       | `{markdown}` or `{pages:[{title,html}]}`           |
-| `storage_key` | `text` null                            | R2 seam (unused v1)                                |
-| `row_version` | `integer` notNull default 0            | **sync signal — bump on every write**              |
-| `...lifecycle_dates`                                   | `created_at`, `updated_at`         |
+| column               | type                                       | notes                                             |
+| -------------------- | ------------------------------------------ | ------------------------------------------------- |
+| `id`                 | `text` PK `$defaultFn(createId("art"))`    |                                                   |
+| `user_id`            | `text` notNull → `user.id` **cascade**     |                                                   |
+| `thread_id`          | `text` notNull → `chat_threads.id` cascade | which chat produced it                            |
+| `run_id`             | `text` → `agent_runs.id` **set null**      | authoring run                                     |
+| `message_id`         | `text` → `chat_messages.id` **set null**   | assistant message that authored it (for the card) |
+| `kind`               | `text` `$type<ArtifactKind>`               | `document` \| `pages` \| `spreadsheet`(reserved)  |
+| `format`             | `text` `$type<ArtifactFormat>` null        | for `pages`: `slides` \| `pdf`                    |
+| `title`              | `text` notNull                             |                                                   |
+| `status`             | `text` `$type<ArtifactStatus>`             | `generating` \| `complete` \| `error`             |
+| `content`            | `jsonb` `$type<ArtifactContent>`           | `{markdown}` or `{pages:[{title,html}]}`          |
+| `storage_key`        | `text` null                                | R2 seam (unused v1)                               |
+| `row_version`        | `integer` notNull default 0                | **sync signal — bump on every write**             |
+| `...lifecycle_dates` | `created_at`, `updated_at`                 |
 
 Indexes: `(user_id)`, `(thread_id, created_at)`, `(run_id)`.
 
@@ -98,6 +100,7 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
 ## Phases (dependency-ordered, each independently verifiable)
 
 ### Phase 1 — substrate (no UI, no model) ✅ _done + verified_
+
 1. `ArtifactKind`/`ArtifactFormat`/`ArtifactStatus`/`ArtifactContent` types + zod in
    `@alfred/contracts`.
 2. `artifacts` Drizzle table + generated migration.
@@ -105,10 +108,12 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
 4. `IDB_KEY.ARTIFACT`, client mutators (`artifactUpsertClient`), registration.
 5. Server `ENTITY_FETCHERS.ARTIFACT` + serializer; server mutator.
 6. Client hooks `useArtifacts(threadId)`, `useArtifact(id)`.
+
 - **Verify:** `pnpm check-types`, `pnpm check:web-boundaries`; a scripted insert →
   pull round-trip shows the row arrive on the client.
 
 ### Phase 2 — authoring tools (model can produce, still no sidebar) ✅ _done + verified_
+
 1. Added `create_artifact` / `append_artifact_page` / `update_artifact` to
    `INTEGRATION_ACTIONS.system` + `TOOL_LABELS` + `TOOL_INPUT_SCHEMAS` in
    `@alfred/contracts`. The authorable-kind enum derives from `artifactKindSchema`
@@ -127,11 +132,12 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
    flips every still-`generating` row for the run to `complete` (and the failure
    finalizer to `error`) inside the existing chat-turn finalizers — so an artifact is
    never stuck `generating` if the boss forgets to "finish" it.
-5. Boss-prompt: reconciled the ADR-0071 "honest surfaces" line (which *denied* this
+5. Boss-prompt: reconciled the ADR-0071 "honest surfaces" line (which _denied_ this
    capability — "producing a downloadable binary is a capability you do not have") to
    distinguish in-app artifacts (now produced via `create_artifact`) from a live Google
    link (still fine) from a downloadable binary export (still not a capability). Tool
    selection leads from the tool descriptions per the no-prompt-patching lesson.
+
 - **Verified:** a throwaway script drove the **real `dispatchToolCall` path** for all
   three tools end to end against the local DB — 15/15 assertions: create document/pages,
   page-granular append + count, `wrong_kind` guards, `invalid_input` (pages w/o format)
@@ -142,6 +148,7 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
   exists; the dispatch round-trip already pins the tool contract + write path.)
 
 ### Phase 3 — sidebar UI on live `/chat`
+
 1. Promote the static `ArtifactPanel` (today only in the styleguide, fed by
    `SYCAMORE_BRIEF_PAGES`) into a real component reading a `SyncedArtifact`.
 2. Renderers: `document` → markdown renderer (existing `markdown-renderer.tsx`);
@@ -151,10 +158,12 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
    open/closed persisted to `localStorage`. Mobile = drawer (Radix Dialog).
 4. Trigger card in the assistant message when a `create_artifact` tool call is present
    → opens the sidebar to that artifact.
+
 - **Verify:** `/run` skill — author an artifact in live chat, see it render; resize,
   fullscreen, reload (renders from synced row).
 
 ### Phase 4 — generating state + edit-in-chat + polish ⏳ _built, live verify pending_
+
 1. **Auto-open generating state.** ✅ Implemented by binding to the **synced row**,
    not the `chat.tool` `started` event: the started event only carries the title
    (the artifact id is minted server-side), whereas the synced `artifacts` row
@@ -186,16 +195,16 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
 
 ## Stack mapping (dimension → Alfred)
 
-| dimension                              | Alfred                                                        |
-|----------------------------------------|---------------------------------------------------------------|
-| Zustand + immer store                  | Replicache synced entity + a small local UI store (open/width/selected) |
-| tRPC `artifacts.*` queries             | `useArtifacts`/`useArtifact` Replicache hooks                 |
-| partial-json streaming of tool args    | **page-granular** writes + pokes (no token stream in v1)      |
-| Univer spreadsheet                     | **deferred**                                                  |
-| `re-resizable`                         | reuse if already a dep, else a small CSS-resize handle        |
-| `framer-motion`                        | prefer existing CSS animation utilities in `index.css`        |
-| iframe slide/PDF card                  | existing `ArtifactPageFrame` (already token-for-token this)   |
-| content in their DB + preview URLs     | content in `artifacts.content` jsonb (Postgres), R2 seam      |
+| dimension                           | Alfred                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| Zustand + immer store               | Replicache synced entity + a small local UI store (open/width/selected) |
+| tRPC `artifacts.*` queries          | `useArtifacts`/`useArtifact` Replicache hooks                           |
+| partial-json streaming of tool args | **page-granular** writes + pokes (no token stream in v1)                |
+| Univer spreadsheet                  | **deferred**                                                            |
+| `re-resizable`                      | reuse if already a dep, else a small CSS-resize handle                  |
+| `framer-motion`                     | prefer existing CSS animation utilities in `index.css`                  |
+| iframe slide/PDF card               | existing `ArtifactPageFrame` (already token-for-token this)             |
+| content in their DB + preview URLs  | content in `artifacts.content` jsonb (Postgres), R2 seam                |
 
 ---
 
@@ -247,7 +256,7 @@ allow-same-origin allow-popups allow-forms allow-downloads"` iframe + an "Open i
 Drive" affordance (`webViewLink`). This is a trusted third-party origin (Google)
 that needs its own scripts/same-origin — the opposite posture from the authored
 `pages` kind's fully-locked `srcDoc` frame; `allow-same-origin` grants the framed
-Google page access to *its* origin, never Alfred's. Reuses the whole sidebar
+Google page access to _its_ origin, never Alfred's. Reuses the whole sidebar
 (auto-open on the authoring run, trigger card, resize, mobile drawer, reload
 persistence); edit/copy/download/fullscreen are gated off.
 

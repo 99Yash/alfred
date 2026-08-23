@@ -1,6 +1,5 @@
 # ADR-0013 — Style profiles: dedicated table, channel × audience keyed
 
-
 **Decision.** Dedicated `style_profiles` table. Each row = `(channel, audience_bucket, optional recipient_id) → profile_doc + few-shot examples + provenance`. Lazy materialization: generic-per-channel profiles seed at signup; narrower profiles generated in background on first need.
 
 ```

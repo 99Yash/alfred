@@ -12,7 +12,7 @@ Cross-references: issues **#249** (Deep over-thinks trivial queries — the prox
 trigger; the separate "started event after hydration" perceived-TTFT bug is already
 fixed), **#224** (Deep silently fell to Gemini for weeks — the silent-degradation
 class this design must prevent), **#216** (traces label nominal not served model —
-*prerequisite*), **#193** (full-transcript replay — why mid-thread model swaps hurt),
+_prerequisite_), **#193** (full-transcript replay — why mid-thread model swaps hurt),
 **#223** (boss 0% prompt-cache). Relevant journal entries:
 `~/journal/2026-06-20T151328Z.md`, `2026-06-21T064729Z.md`,
 `2026-06-21T074846Z.md`, `2026-06-22T045121Z.md`,
@@ -21,7 +21,7 @@ class this design must prevent), **#216** (traces label nominal not served model
 (`getChatModel`/`getChatProviderOptions`/`withFallback`),
 `packages/api/src/modules/agent/workflows/chat-turn.ts` (`run()`, model + providerOptions
 selection ~617–627), `apps/web/src/routes/-chat/model-tier-picker.tsx` (the Auto/Deep
-picker), `api_call_log` (records the *served* model — the data source for observability).
+picker), `api_call_log` (records the _served_ model — the data source for observability).
 
 ---
 
@@ -34,45 +34,45 @@ Sonnet 4.6 @ low effort`, `Deep → Opus 4.8 @ high effort`. Two problems:
    ("what's in this image", "is my 3pm free") burns seconds of extended thinking for zero
    quality gain (#249). **Update 2026-07-05:** a live A/B disproved the thinking-budget half
    of this — Opus 4.8 adaptive thinking already self-sizes trivial turns to ~0 reasoning (see
-   Phase 1). Any residual over-serving is the *tool-loop / dig* axis (#405) or output length,
+   Phase 1). Any residual over-serving is the _tool-loop / dig_ axis (#405) or output length,
    not the effort ceiling.
 2. **It asks the user to manage models.** Frontier models ship every couple of weeks.
-   Making the end user track which model fits which task is a tax that only *developers
-   building coding tools* should pay. Alfred is a single-user personal assistant; the
+   Making the end user track which model fits which task is a tax that only _developers
+   building coding tools_ should pay. Alfred is a single-user personal assistant; the
    chat persona is "ask my assistant," not "pick an engine."
 
 **The thesis (reframed during the grill):** the router is **not** a query-difficulty
 classifier. Its real job is to be the **one seam that absorbs model churn** so the user —
 and the rest of the codebase — never feels a model swap. "Auto" and "Deep" stop being
-models and become an **effort envelope**: *how much the turn is authorized to spend to
-answer well.* Model identity becomes an internal lever, not a user choice.
+models and become an **effort envelope**: _how much the turn is authorized to spend to
+answer well._ Model identity becomes an internal lever, not a user choice.
 
 ### Reconciling the standard critique of model routers
 
 A senior engineer's critique (paraphrased): routers are over-hyped, they break feedback
 loops, they fight prompt cache, and "knowing your model is a skill." Each is true of a
-*bad* router and is defeated here by construction:
+_bad_ router and is defeated here by construction:
 
-| Critique | How v1 defeats it |
-|---|---|
-| "Knowing your model is a skill." | True for coding tools; weak for a single-user assistant. We still preserve the lever (Deep) and full retrospective visibility (the activity table). |
-| "Routers break the feedback loop." | The observability table (served model + mode + cost + latency) + the Deep override **are** the loop. Hiding the model is only safe *because* what ran is visible. |
-| "Prompt cache limits routing." | We never swap **model** mid-thread (sticky escalation-only); only **effort + tool-loop** vary per turn, and those are request params / loop counts that don't invalidate the cached prefix. |
-| "Effectiveness is exaggerated." | We don't build a speculative classifier. Self-routing rides the answering model's own first move (zero extra call), and a labeled eval lane proves it earns its keep. |
+| Critique                           | How v1 defeats it                                                                                                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Knowing your model is a skill."   | True for coding tools; weak for a single-user assistant. We still preserve the lever (Deep) and full retrospective visibility (the activity table).                                         |
+| "Routers break the feedback loop." | The observability table (served model + mode + cost + latency) + the Deep override **are** the loop. Hiding the model is only safe _because_ what ran is visible.                           |
+| "Prompt cache limits routing."     | We never swap **model** mid-thread (sticky escalation-only); only **effort + tool-loop** vary per turn, and those are request params / loop counts that don't invalidate the cached prefix. |
+| "Effectiveness is exaggerated."    | We don't build a speculative classifier. Self-routing rides the answering model's own first move (zero extra call), and a labeled eval lane proves it earns its keep.                       |
 
 ---
 
 ## 2. Non-goals (v1)
 
 - **Not a separate classifier call.** No cheap-model or Opus pre-flight gate. (Rejected:
-  adds latency-before-first-token to *every* turn — that *is* #249, one layer up.)
+  adds latency-before-first-token to _every_ turn — that _is_ #249, one layer up.)
 - **Not cross-model routing mid-thread / mid-stream.** [ADR-0065](../decisions/ADR-0065-chat-file-uploads-degrade-every-non-universal.md)
   already rejected per-turn model routing because transcript replay (#193) pins a thread
   to a provider. v1 honors that: model is sticky per-thread.
 - **Not system-wide.** Governs the **chat surface only** (`getChatModel`/
   `getChatProviderOptions` + the chat tool-loop). Boss (`getBossModel`), the sub-agent
   dispatcher (ADR-0016/0026), triage, and briefing keep their current explicit selection.
-  *The registry module is built standalone so they can adopt it later without a rewrite.*
+  _The registry module is built standalone so they can adopt it later without a rewrite._
 - **Not sub-agent fan-out control.** The "spawn sub-agents to go deeper" lever is deferred
   (filed as a fast-follow issue).
 - **Not auto model-escalation under Auto.** In v1 only explicit Deep jumps the model;
@@ -99,21 +99,21 @@ answering model for a thread. See
 The router's output is **not "a model"** — it is an **effort envelope** (a budget the turn
 may consume), of which model identity is one lever.
 
-| # | Decision | Choice |
-|---|---|---|
-| 1 | **Scope** | Chat surface only; registry built standalone for later reuse. |
-| 2 | **What the picker means** | Auto/Deep = an *effort envelope* (authorization), not a model. Model identity is internal. |
-| 3 | **Envelope levers (v1)** | Model tier · thinking/reasoning effort · tool-loop / agentic depth. (Fan-out deferred.) |
-| 4 | **Ceiling, not mandate** | Effort intent *caps* spend; it never forces it. Deep on a trivial turn still answers directly — verified: Opus 4.8 adaptive thinking already self-sizes trivial turns to ~0 reasoning (see Phase 1), so the ceiling never needs lowering. |
-| 5 | **Routing mechanism** | **Self-routing** — the answering model decides direct vs research-mode as its first move. No separate classifier. |
-| 6 | **Model cadence** | **Sticky per-thread, escalation-only.** Never flaps down within a thread. |
-| 7 | **Effort + tool-loop cadence** | **Per-turn, self-routed.** Cache-safe (not part of the cached prefix). |
-| 8 | **Model-jump trigger (v1)** | **Explicit Deep only.** Auto ramps effort + tool-loop on the current model; never swaps it. |
-| 9 | **Deep persistence** | **High-water mark.** Deep ratchets the thread floor to Opus permanently; later Auto turns stay ≥ Opus (effort may relax, model won't drop). Reset = new thread. |
-| 10 | **Gate signal** | **Hybrid.** Direct path just answers (mode derived). Research path first emits a one-line plan/rationale (mode + why) → feeds the table, the eval label, and a live "what I'm digging into" line. |
-| 11 | **Observability** | A settings **model-activity table** (dimension's surfacing pattern, Alfred's own), backed by `api_call_log`. Deep is the live override. |
-| 12 | **Eval** | **Labeled gate eval** on evalite; fixtures mined from `api_call_log` + real threads; deterministic mode-match scorer first, LLM-judge only at boundaries. |
-| 13 | **Thread model pin** | Sticky means a concrete primary model id/registry version is captured on the thread. Storing only `standard`/`deep` would make old threads silently move when the registry changes, violating the cache/replay premise. |
+| #   | Decision                       | Choice                                                                                                                                                                                                                                    |
+| --- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Scope**                      | Chat surface only; registry built standalone for later reuse.                                                                                                                                                                             |
+| 2   | **What the picker means**      | Auto/Deep = an _effort envelope_ (authorization), not a model. Model identity is internal.                                                                                                                                                |
+| 3   | **Envelope levers (v1)**       | Model tier · thinking/reasoning effort · tool-loop / agentic depth. (Fan-out deferred.)                                                                                                                                                   |
+| 4   | **Ceiling, not mandate**       | Effort intent _caps_ spend; it never forces it. Deep on a trivial turn still answers directly — verified: Opus 4.8 adaptive thinking already self-sizes trivial turns to ~0 reasoning (see Phase 1), so the ceiling never needs lowering. |
+| 5   | **Routing mechanism**          | **Self-routing** — the answering model decides direct vs research-mode as its first move. No separate classifier.                                                                                                                         |
+| 6   | **Model cadence**              | **Sticky per-thread, escalation-only.** Never flaps down within a thread.                                                                                                                                                                 |
+| 7   | **Effort + tool-loop cadence** | **Per-turn, self-routed.** Cache-safe (not part of the cached prefix).                                                                                                                                                                    |
+| 8   | **Model-jump trigger (v1)**    | **Explicit Deep only.** Auto ramps effort + tool-loop on the current model; never swaps it.                                                                                                                                               |
+| 9   | **Deep persistence**           | **High-water mark.** Deep ratchets the thread floor to Opus permanently; later Auto turns stay ≥ Opus (effort may relax, model won't drop). Reset = new thread.                                                                           |
+| 10  | **Gate signal**                | **Hybrid.** Direct path just answers (mode derived). Research path first emits a one-line plan/rationale (mode + why) → feeds the table, the eval label, and a live "what I'm digging into" line.                                         |
+| 11  | **Observability**              | A settings **model-activity table** (dimension's surfacing pattern, Alfred's own), backed by `api_call_log`. Deep is the live override.                                                                                                   |
+| 12  | **Eval**                       | **Labeled gate eval** on evalite; fixtures mined from `api_call_log` + real threads; deterministic mode-match scorer first, LLM-judge only at boundaries.                                                                                 |
+| 13  | **Thread model pin**           | Sticky means a concrete primary model id/registry version is captured on the thread. Storing only `standard`/`deep` would make old threads silently move when the registry changes, violating the cache/replay premise.                   |
 
 ### The two-cadence insight (the spine of the whole design)
 
@@ -158,7 +158,7 @@ turn arrives (picker tier rides with the send, as today)
        (model never changes inside the run; providerOptions change only on later requests)
 ```
 
-- **Thread state addition:** a persisted per-thread semantic floor *and* concrete pinned
+- **Thread state addition:** a persisted per-thread semantic floor _and_ concrete pinned
   primary model (or equivalent registry-version pin). Today `getChatModel(state.tier)` is
   recomputed per turn from the send's tier; v1 must make the primary model a thread fact.
   A fallback-served model (Gemini during an Anthropic blip) does **not** become the pin.
@@ -201,17 +201,17 @@ turn arrives (picker tier rides with the send, as today)
   solely on `response.modelId`.
 - **Columns:** per turn/thread → requested tier · pinned primary · served model · declared
   and observed mode · effort · tool rounds · tokens/cost · latency · error/fallback state.
-  This is where a silent Gemini fallback (#224) or a model swap becomes *visible* instead
+  This is where a silent Gemini fallback (#224) or a model swap becomes _visible_ instead
   of festering.
-- **Scope asymmetry (intentional):** the *router* is chat-only, but the *table* can show
+- **Scope asymmetry (intentional):** the _router_ is chat-only, but the _table_ can show
   **all** model activity (chat, triage, briefing, boss) once the non-chat callers also
   plumb `role`/surface metadata. Until then, all-surface rows are useful but coarser.
 - **Live override stays the Deep button** (re-ask with more authorization). Table =
   retrospective loop; Deep = in-the-moment loop.
 - **Prerequisite:** #216 (served ≠ nominal in traces) must be fixed first, or the table
   lies.
-- **Fast-follow (not v1):** a *loud* signal — flag a thread when fallback-rate or cost
-  spikes — because a table you must *visit* is passive, and passivity is exactly why #224
+- **Fast-follow (not v1):** a _loud_ signal — flag a thread when fallback-rate or cost
+  spikes — because a table you must _visit_ is passive, and passivity is exactly why #224
   stayed silent for weeks.
 
 ---
@@ -229,7 +229,7 @@ Labeled **gate eval** on the existing evalite lane (ADR-0055):
   LLM-judge only for ambiguous boundary turns.
 - **What it protects:** a model swap (churn) silently shifting gate behavior; the gate
   drifting toward over- or under-serving. Re-run when a new model is slotted into the
-  registry — this *is* the churn-defense.
+  registry — this _is_ the churn-defense.
 - **Not in v1:** outcome eval (replay at both effort levels, judge which sufficed) — heavier
   and judge-dependent; file as a follow-up if gate-match proves insufficient.
 
@@ -245,7 +245,7 @@ Labeled **gate eval** on the existing evalite lane (ADR-0055):
   follow-ups. Accepted tradeoff for cache stability + simplicity; reset = new thread; the
   activity table surfaces the cost so it's never invisible.
 - **Gate declares research but underdelivers / vice-versa:** mode is hybrid-derived, so the
-  table can show *declared* vs *observed* divergence; eval catches systematic drift.
+  table can show _declared_ vs _observed_ divergence; eval catches systematic drift.
 - **Provider blip mid-stream:** unchanged from today — `withFallback` only covers
   pre-stream errors (documented streaming caveat in `provider.ts`).
 - **Registry update breaks stickiness:** if `model_floor='standard'` is the only thread
@@ -263,15 +263,15 @@ Labeled **gate eval** on the existing evalite lane (ADR-0055):
 
 ## 8. Build sequence (phased, ordered)
 
-**Phase 0 — prerequisite.** Fix **#216** (log/trace the *served* model, not the nominal)
+**Phase 0 — prerequisite.** Fix **#216** (log/trace the _served_ model, not the nominal)
 and add the chat telemetry contract above (`messageId`, `threadId`, requested tier, floor,
 effort, mode, fallback evidence). The activity table and eval both depend on truthful
 served-model and mode data.
 
 **Phase 1 — the #249 thin edge: investigated, no thinking-axis change needed (2026-07-05).**
 The original proposal (de-pin `getChatProviderOptions("deep")` from `effort: "high"`) and its
-successor (an unconditional adaptive-thinking *nudge* in the frozen charter) both target the
-*thinking axis*. A live A/B on the real Deep config — Opus 4.8 @ `effort: high`, adaptive
+successor (an unconditional adaptive-thinking _nudge_ in the frozen charter) both target the
+_thinking axis_. A live A/B on the real Deep config — Opus 4.8 @ `effort: high`, adaptive
 thinking — measured reasoning old-prompt vs nudge-prompt across trivial and hard turns and
 found the premise does **not reproduce**: adaptive thinking already self-sizes trivial turns
 to ~0 reasoning, so there is no thinking over-budget to remove.
@@ -281,14 +281,14 @@ to ~0 reasoning, so there is no thinking over-budget to remove.
   reasoning, no arm difference.
 - vision-trivial ("what's in this image?"): ~120 ms reasoning, no reduction from the nudge.
 - hard (multi-step puzzle; research → tools): reasoning depth **and** tool trajectory
-  preserved across arms (guardrail — a de-pin *would* have risked these; the nudge did not,
+  preserved across arms (guardrail — a de-pin _would_ have risked these; the nudge did not,
   but it also bought nothing).
 
 Conclusion: the thinking axis needs no code change on Opus 4.8. `effort` stays pinned at
 `high` as the ceiling (adaptive thinking is the self-sizer beneath it). **#249's remaining
 latency lever is elsewhere** and moves off this plan's Phase 1:
 
-- **Dig / tool-selection axis (#405):** deliberation over *which* tools to load/call on a
+- **Dig / tool-selection axis (#405):** deliberation over _which_ tools to load/call on a
   richer turn — the straightforward-task fast path's other axis. This is where a trivial turn
   can still feel slow, and it is #405's preloader/lazy-tool work, not a thinking budget.
 - **Output length / narration:** Opus 4.8 narrates more and asks more often than 4.7 — real

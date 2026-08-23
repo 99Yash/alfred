@@ -1,6 +1,5 @@
 # ADR-0006 — Agent runtime: roll-your-own durable execution
 
-
 **Decision.** Build a small durable agent runtime in TypeScript: state table in Drizzle, step function (`runStep(state) → nextState | interrupt | done`), worker loop driven by BullMQ, `interrupt()` primitive for HIL pauses. AI SDK is called inside steps; tool definitions are AI-SDK-native.
 
 **Why.**

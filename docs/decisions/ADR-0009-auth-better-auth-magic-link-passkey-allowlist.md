@@ -1,6 +1,5 @@
 # ADR-0009 — Auth: Better Auth + magic link + passkey + allowlist
 
-
 **Decision.** Better Auth with both email-magic-link and passkey enabled. A signup hook enforces a one-email allowlist (env var). Same shape as `@milkpod/auth`.
 
 **Why.**

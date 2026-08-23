@@ -6,9 +6,9 @@ per-occurrence packet + calendar-watch trigger), the **meeting-prep gatherer** f
 grilling to fold in the proactive calendar-watch trigger. Read ADR-0054 first for the
 rationale; this file is the build sequence.
 
-Cross-references: [`../../CONTEXT.md`](../../CONTEXT.md) (glossary: *Meeting prep packet*,
-and the new terms this plan lands — *`meeting_preps`*, *`system.prepare_meeting`*, *Prep
-reference*, *Calendar watch*, *Prep horizon*, *Gated recompute*),
+Cross-references: [`../../CONTEXT.md`](../../CONTEXT.md) (glossary: _Meeting prep packet_,
+and the new terms this plan lands — _`meeting_preps`_, _`system.prepare_meeting`_, _Prep
+reference_, _Calendar watch_, _Prep horizon_, _Gated recompute_),
 [`../../decisions.md`](../../decisions.md) (ADRs 0024 change-notifications, 0041 briefing
 cross-source compose, 0047 `emitEvent` event-trigger dispatch, 0049 reference resolver in
 contracts, 0050 todos, 0053 dispatch-enforced gates), the briefing pipeline it mirrors
@@ -36,7 +36,7 @@ webhook path out of the first correctness loop.
 
 Meeting prep is the highest-value demo surface: an upcoming event → who's coming → the
 recent threads with them → what Alfred knows about them → the open todos that touch the
-meeting → a short cited note, ready *before* you walk in. It exercises every part of the
+meeting → a short cited note, ready _before_ you walk in. It exercises every part of the
 spine at once (Calendar + Gmail corpus + memory + todos + citations) and is the clearest
 proof that Alfred is a unified work hub, not a single-channel tool. v1 ships the **packet**
 (gather → compose → persist → sync) plus the **proactive trigger** (a calendar push channel
@@ -78,7 +78,7 @@ upsert meeting_preps (user_id, event_key)   status machine; gather jsonb (audit)
 Replicache sync (read-only)  →  in-app prep surface (UI is UI-001 / MEET-002 territory)
 ```
 
-The cheap-vs-quality split is deliberate (grilling 2026-06-11): **minimize the *number* of
+The cheap-vs-quality split is deliberate (grilling 2026-06-11): **minimize the _number_ of
 composes** (recompute gate + 48h horizon) and spend **boss-tier quality** on each one that
 fires. "Minimise costs" was about frequency, not tier.
 
@@ -128,12 +128,12 @@ credential, state irrelevant outside the watch module).
 
 ```ts
 metadata.calendarWatch = {
-  channelId:   string,   // our uuid, maps push → credential
-  resourceId:  string,   // Google's opaque resource id
-  expiresAt:   string,   // ISO; renewal cron watches this
-  syncToken:   string,   // incremental events.list cursor (NOT historyId — Calendar uses syncToken)
-  calendarId:  'primary', // v1: primary calendar only
-}
+  channelId: string, // our uuid, maps push → credential
+  resourceId: string, // Google's opaque resource id
+  expiresAt: string, // ISO; renewal cron watches this
+  syncToken: string, // incremental events.list cursor (NOT historyId — Calendar uses syncToken)
+  calendarId: "primary", // v1: primary calendar only
+};
 ```
 
 ### 3c. No event mirror (locked)
@@ -157,42 +157,43 @@ read schema agree by construction.
 - **`MEETING_PREP_REFERENCE_KINDS = ['meeting','email','todo'] as const`** + parallel
   resolver `resolveMeetingPrepReferences(prose, gather)`, `parseMeetingPrepReference`,
   `listMeetingPrepReferenceOptions` — mirrors the briefing resolver (relocated to contracts
-  per ADR-0049), expanding against the *prep* gather. Briefing's enum/resolver stay
+  per ADR-0049), expanding against the _prep_ gather. Briefing's enum/resolver stay
   untouched (locked: parallel, not extend, not generalize).
   - `meeting:<eventKey>` → static chip (no nav target v1)
   - `email:<documentId>` → Gmail thread url (clickable)
-  - `todo:<todoId>`      → rail deep-link (navigable)
+  - `todo:<todoId>` → rail deep-link (navigable)
   - **memory facts are NOT a citation kind** — woven into prose; `gather.facts[].id`
     retained for audit and a future SEARCH-001 evidence layer.
 
 ## 5. Components & files
 
-| Area | File | What |
-|---|---|---|
-| Schema | `packages/db/src/schema/meeting-preps.ts` (new), `packages/db/src/schemas.ts` | table export + migration; `db:generate` → `db:migrate` (never `db:push`) |
-| Contracts | `packages/contracts/src/meeting-prep.ts` (new), `packages/contracts/src/index.ts` | gather/note zod schemas + types, reference enum + resolver |
-| Tool contracts | `packages/contracts/src/tools.ts`, `packages/contracts/src/tool-schemas.ts`, `packages/contracts/src/tool-fields.ts` | add `system.prepare_meeting`, input schema, tool label/field metadata |
-| Event contracts | `packages/contracts/src/event-triggers.ts` | add source `calendar` + type `event_scheduled`; `emitEvent` refuses unknown source/type pairs |
-| Event dispatcher | `packages/api/src/modules/workflows/events.ts` | preserve bounded event payload in `createRun.input` / trigger payload so calendar workflows can read `eventKey` |
-| Sync contracts | `packages/sync/src/keys.ts`, `packages/sync/src/schemas.ts` | `MEETING_PREP` IDB key + `SyncedMeetingPrep` read schema |
-| Replicache | `packages/api/src/modules/replicache/entities.ts` | fetch + serialize `meeting_preps`, prune by `event_start`, row-version diffing |
-| Integrations REST | `packages/integrations/src/google/calendar.ts` | add `watchEvents()`, `stopEventsWatch()`, `listEventsDelta(syncToken)` |
-| Integrations state | `packages/integrations/src/google/watch.ts` | add calendar watch lifecycle fns beside Gmail (`metadata.calendarWatch`, lookup by channel id, expiring scan) |
-| Gather | `packages/api/src/modules/meeting-prep/gather.ts` (new) | deterministic gather + pure testable units; vector recall is additive |
-| Compose | `packages/api/src/modules/meeting-prep/compose.ts` (new) | boss-tier `meteredGenerateObject` over the gather; cite only `availableReferences` |
-| Store | `packages/api/src/modules/meeting-prep/store.ts` (new) | begin/upsert/status transitions + recompute gate (`material_hash`) |
-| Orchestration | `packages/api/src/modules/meeting-prep/index.ts` (new), `packages/api/src/index.ts` | `prepareMeeting(userId, input)` export: resolve event → gate → gather → compose → upsert |
-| Tool | `packages/api/src/modules/tools/system.ts` | register `system.prepare_meeting` (`riskTier: "no_risk"`, autonomy) and return `{ok, prepId, status, gate}` |
-| Built-in workflow | `apps/server/src/builtins/workflows/meeting-prep.ts` (new), `apps/server/src/builtins/index.ts` | event-trigger wrapper whose only product step calls `system.prepare_meeting` / `prepareMeeting` |
-| Webhook | `packages/api/src/modules/integrations/calendar-webhook.ts` (new), `packages/api/src/modules/integrations/index.ts` | unauthenticated Google push receiver; parse `X-Goog-*`, lookup credential by channel, enqueue delta processing |
-| Google routes | `packages/api/src/modules/integrations/google-routes.ts` | user-visible install/status/delete routes for calendar watch, separate from Gmail `/:id/watch` if needed |
-| Repeatables | `packages/api/src/modules/integrations/repeatable.ts` or a new meeting-prep repeatable module | ~20m horizon sweep + watch-channel renewal; register from `apps/server/src/index.ts` |
-| Connect hook | Google OAuth callback path in `google-routes.ts` | install/renew calendar watch when a credential has Calendar scope; failure logs but does not fail OAuth |
-| Smoke | `apps/server/src/scripts/smokes/smoke-meeting-prep.ts` (new) | local manual path first; webhook path only with a public HTTPS callback |
+| Area               | File                                                                                                                 | What                                                                                                            |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Schema             | `packages/db/src/schema/meeting-preps.ts` (new), `packages/db/src/schemas.ts`                                        | table export + migration; `db:generate` → `db:migrate` (never `db:push`)                                        |
+| Contracts          | `packages/contracts/src/meeting-prep.ts` (new), `packages/contracts/src/index.ts`                                    | gather/note zod schemas + types, reference enum + resolver                                                      |
+| Tool contracts     | `packages/contracts/src/tools.ts`, `packages/contracts/src/tool-schemas.ts`, `packages/contracts/src/tool-fields.ts` | add `system.prepare_meeting`, input schema, tool label/field metadata                                           |
+| Event contracts    | `packages/contracts/src/event-triggers.ts`                                                                           | add source `calendar` + type `event_scheduled`; `emitEvent` refuses unknown source/type pairs                   |
+| Event dispatcher   | `packages/api/src/modules/workflows/events.ts`                                                                       | preserve bounded event payload in `createRun.input` / trigger payload so calendar workflows can read `eventKey` |
+| Sync contracts     | `packages/sync/src/keys.ts`, `packages/sync/src/schemas.ts`                                                          | `MEETING_PREP` IDB key + `SyncedMeetingPrep` read schema                                                        |
+| Replicache         | `packages/api/src/modules/replicache/entities.ts`                                                                    | fetch + serialize `meeting_preps`, prune by `event_start`, row-version diffing                                  |
+| Integrations REST  | `packages/integrations/src/google/calendar.ts`                                                                       | add `watchEvents()`, `stopEventsWatch()`, `listEventsDelta(syncToken)`                                          |
+| Integrations state | `packages/integrations/src/google/watch.ts`                                                                          | add calendar watch lifecycle fns beside Gmail (`metadata.calendarWatch`, lookup by channel id, expiring scan)   |
+| Gather             | `packages/api/src/modules/meeting-prep/gather.ts` (new)                                                              | deterministic gather + pure testable units; vector recall is additive                                           |
+| Compose            | `packages/api/src/modules/meeting-prep/compose.ts` (new)                                                             | boss-tier `meteredGenerateObject` over the gather; cite only `availableReferences`                              |
+| Store              | `packages/api/src/modules/meeting-prep/store.ts` (new)                                                               | begin/upsert/status transitions + recompute gate (`material_hash`)                                              |
+| Orchestration      | `packages/api/src/modules/meeting-prep/index.ts` (new), `packages/api/src/index.ts`                                  | `prepareMeeting(userId, input)` export: resolve event → gate → gather → compose → upsert                        |
+| Tool               | `packages/api/src/modules/tools/system.ts`                                                                           | register `system.prepare_meeting` (`riskTier: "no_risk"`, autonomy) and return `{ok, prepId, status, gate}`     |
+| Built-in workflow  | `apps/server/src/builtins/workflows/meeting-prep.ts` (new), `apps/server/src/builtins/index.ts`                      | event-trigger wrapper whose only product step calls `system.prepare_meeting` / `prepareMeeting`                 |
+| Webhook            | `packages/api/src/modules/integrations/calendar-webhook.ts` (new), `packages/api/src/modules/integrations/index.ts`  | unauthenticated Google push receiver; parse `X-Goog-*`, lookup credential by channel, enqueue delta processing  |
+| Google routes      | `packages/api/src/modules/integrations/google-routes.ts`                                                             | user-visible install/status/delete routes for calendar watch, separate from Gmail `/:id/watch` if needed        |
+| Repeatables        | `packages/api/src/modules/integrations/repeatable.ts` or a new meeting-prep repeatable module                        | ~20m horizon sweep + watch-channel renewal; register from `apps/server/src/index.ts`                            |
+| Connect hook       | Google OAuth callback path in `google-routes.ts`                                                                     | install/renew calendar watch when a credential has Calendar scope; failure logs but does not fail OAuth         |
+| Smoke              | `apps/server/src/scripts/smokes/smoke-meeting-prep.ts` (new)                                                         | local manual path first; webhook path only with a public HTTPS callback                                         |
 
 ## 6. Phased plan (each lands before the next; sub-steps parallel-safe)
 
 ### Phase 0 — contracts, schema, sync shape (no runtime behavior)
+
 - Add `MeetingPrepGather` / `MeetingPrepNote` schemas and the parallel resolver:
   `MEETING_PREP_REFERENCE_KINDS = ['meeting','email','todo']`.
 - Add `prepareMeetingInput` to `tool-schemas.ts`, `prepare_meeting` to `SYSTEM_ACTIONS`,
@@ -206,6 +207,7 @@ read schema agree by construction.
 **Exit gate:** resolver unit tests, `pnpm check-types`, and `pnpm check:web-boundaries`.
 
 ### Phase 1 — gather (deterministic acceptance first)
+
 - Implement pure units with focused tests:
   `parseEmails`, `matchAttendee`, `selectThreads`, `matchTodos`, `matchMemory`,
   `computeMaterialHash`, `qualifyMeetingEvent`, `eventKeyFor`.
@@ -225,6 +227,7 @@ read schema agree by construction.
 no LLM and no Google webhook dependency.
 
 ### Phase 2 — manual packet path (demoable before watch)
+
 - Implement `store.ts` as the only writer for `meeting_preps`:
   `beginPrepareMeeting`, `markGathering`, `markComposing`, `markReady`, `markFailed`,
   `markCancelled`, `markTimeOnlyUpdate`, each bumping `rowVersion`.
@@ -248,6 +251,7 @@ no LLM and no Google webhook dependency.
 pull includes it, `pnpm check-types`, `pnpm check:web-boundaries`, focused api tests.
 
 ### Phase 3 — event trigger wrapper (still no external webhook)
+
 - Add a built-in `meeting-prep` workflow with trigger
   `{ kind: 'event', source: 'calendar', type: 'event_scheduled' }`.
 - Its state/input is small: `{ eventKey, reason?: 'push'|'sweep'|'manual' }`. The workflow
@@ -265,6 +269,7 @@ eventId:eventKey, payload:{ eventKey } })` creates exactly one non-duplicate wor
 and lands on the same `meeting_preps` row as the manual path.
 
 ### Phase 4 — proactive producer (calendar watch + sweep)
+
 - `calendar.ts`: add Calendar v3 `events.watch`, `channels.stop`, and
   `events.list(syncToken)` delta helpers. Preserve cancelled events in the delta helper so
   cancellation handling can see them; keep the existing window `listEvents` filtering.
@@ -288,6 +293,7 @@ and lands on the same `meeting_preps` row as the manual path.
 with a deployed/tunnel callback and a real Google push channel.
 
 ### Phase 5 — observability + QA
+
 - Log a compact audit line at each packet run:
   `prep.gate`, `eventKey`, `eventStart`, `materialHashChanged`, source counts, model id,
   unresolved refs.

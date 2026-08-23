@@ -6,8 +6,8 @@ ADR-0083 before starting the verified-floor or native-mirror architecture.
 **Decision (2026-07-01):** For agent-built decks/docs, optimize **pristine read-only** as the
 flagship deliverable, plus a thin **structured→Google Slides escape hatch** for "I want to
 edit this in Slides." (Chosen over structured-only and read-only-only.) This reframes
-`artifact-native-mirror-v1.md`: its Option B (structured→native) is demoted from *primary*
-to the *escape-hatch* lane; this doc is the flagship.
+`artifact-native-mirror-v1.md`: its Option B (structured→native) is demoted from _primary_
+to the _escape-hatch_ lane; this doc is the flagship.
 
 **Builds on:** ADR-0075 artifact system (`packages/contracts/src/artifacts.ts`,
 `apps/web/src/components/artifact-page-frame.tsx`, tools `system.create_artifact` /
@@ -55,7 +55,7 @@ borrow the design-system recipe and add the floor they lack.
   in the shell. Mirrors Dimension's `template.py`, but generated from `tokens.ts`.
 - `themes/` — **Alfred-original** themes (v1: a house theme + 1–2 more), each an exemplar
   HTML library of core layout archetypes (v1 ≈ 6–8: title, section, content-split, list,
-  stats/CSS-chart, comparison, quote, image). Built by us on their *principles*
+  stats/CSS-chart, comparison, quote, image). Built by us on their _principles_
   (bounded-box fit discipline, asymmetric splits, CSS data-viz, micro-texture, exact token
   discipline). **Not copied** — clean IP + the honest "studied their approach, built my own
   system" story.
@@ -72,7 +72,7 @@ layout archetype per page. Reuses the existing `append_artifact_page` path.
 
 - **Fit-check (deterministic):** headless-measure the rendered page against the bounded box;
   on overflow, feed the offending element + overflow delta back → bounded auto-`update`
-  (≤2 retries). Kills freehand's #1 failure mode (Dimension only *instructs* "no overflow").
+  (≤2 retries). Kills freehand's #1 failure mode (Dimension only _instructs_ "no overflow").
 - **Vision critique/repair (optional, flag-gated):** screenshot → vision model + theme spec
   with a rubric (overflow / contrast / alignment / theme-consistency) → auto-repair on fail.
   Affordable at single-user scale; the primary "exceed" lever.
@@ -82,9 +82,9 @@ layout archetype per page. Reuses the existing `append_artifact_page` path.
 - **Native browser print (shipped, Phase 3a).** Because each page is already a
   self-contained house-shell document with locked geometry, the browser's own print engine
   emits a 1:1 "Save as PDF" with zero new infra: `buildArtifactPrintDocument(pages, format,
-  title)` (in `@alfred/artifacts-design`) concatenates every page under the shell styles +
+title)` (in `@alfred/artifacts-design`) concatenates every page under the shell styles +
   an `@page`-sized print layer, and `printArtifactPages` (`apps/web/src/lib/artifacts/
-  export-artifact.ts`) renders it in an off-screen iframe sandboxed with only
+export-artifact.ts`) renders it in an off-screen iframe sandboxed with only
   `allow-modals allow-same-origin` and calls `print()` from the trusted parent. It never grants
   `allow-scripts`, so authored HTML remains inert. Constraint discovered: the on-screen render
   iframe is `sandbox=""` (scripts + modals blocked), so it cannot print itself. Tradeoff: goes
@@ -119,7 +119,7 @@ not pristine). Shares tokens for visual consistency where feasible.
 **Phase 1 — design-system core (no new infra, biggest quality jump).**
 `@alfred/artifacts-design` (tokens → shell + prompt + 1 house theme with ~6 layout
 exemplars); wire the prompt block + shell into the artifact-authoring turn; retrofit
-`append_artifact_page` to wrap body in the shell. Result: the *existing* in-app artifacts
+`append_artifact_page` to wrap body in the shell. Result: the _existing_ in-app artifacts
 become pristine, cached, and consistent — zero new services.
 
 **Phase 2a — document medium + authoring floor (shipped).** Live use answered Open Question 1:
@@ -181,7 +181,7 @@ native mirrors.
    exist precisely to lift a smaller model — but quality-vs-cost needs a call.
 2. **Vision-repair in v1 or flag-gated later?** Cost/latency vs the biggest exceed lever.
 3. **Outline-HIL** (Dimension's `propose_outline`) for multi-slide decks in v1? Quality gate
-   + user control vs an added step.
+   - user control vs an added step.
 4. **A structured `deck` variant for the pristine lane too** (for cheap re-skinning /
    author-once), or freehand-HTML-only for simplicity?
 5. **Browser for slide-PDF:** Browserless sidecar (self-host on Railway) vs a managed
@@ -190,7 +190,7 @@ native mirrors.
    strings/data (web-safe); Typst/Browserless drivers are server-only. Split so `apps/web`
    never imports the server bits (`check:web-boundaries`).
 7. **ADR-0083 scope:** one ADR covering both lanes (this doc = flagship; `artifact-native-
-   mirror-v1.md` = escape-hatch lane), superseding the "populate-on-create" line in ADR-0043's
+mirror-v1.md` = escape-hatch lane), superseding the "populate-on-create" line in ADR-0043's
    plan. Confirm.
 8. **Page geometry:** `format: "pdf"` currently means portrait US Letter. Before expanding
    beyond the single-user v1, split delivery format from explicit page size/orientation so A4,

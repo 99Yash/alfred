@@ -27,16 +27,16 @@ Either path is wrong for v1. (a) is theater; (b) is premature. Skip the layer cl
 
 **What the posture defends against:**
 
-| Threat | Posture defends? |
-| --- | --- |
-| Stolen Railway disk image / lost backup file | Vendor crypto ✅ |
-| Accidental `console.log` of email body in a worker | Pino redactor ✅ |
-| Error stack trace with chunk text reaches Sentry | Sentry scrubber ✅ |
-| Fat `documents.raw` JSON copied into a debug dump | Column doesn't exist ✅ |
-| App-server RCE | No (true for any server-side scheme) |
-| Vendor employee with raw DB access | No (would need (b) above) |
-| Voyage / Anthropic / Perplexity reading content we send them | No (contractual) |
-| Embedding inversion from leaked vector | No (architectural) |
+| Threat                                                       | Posture defends?                     |
+| ------------------------------------------------------------ | ------------------------------------ |
+| Stolen Railway disk image / lost backup file                 | Vendor crypto ✅                     |
+| Accidental `console.log` of email body in a worker           | Pino redactor ✅                     |
+| Error stack trace with chunk text reaches Sentry             | Sentry scrubber ✅                   |
+| Fat `documents.raw` JSON copied into a debug dump            | Column doesn't exist ✅              |
+| App-server RCE                                               | No (true for any server-side scheme) |
+| Vendor employee with raw DB access                           | No (would need (b) above)            |
+| Voyage / Anthropic / Perplexity reading content we send them | No (contractual)                     |
+| Embedding inversion from leaked vector                       | No (architectural)                   |
 
 **Alternatives.**
 
@@ -87,8 +87,8 @@ shapes:
   from anywhere, for as long as the grant survives. Railway workspace tokens
   cannot even be scoped down: one is full workspace write.
 
-So the blast-radius argument still applies to the *same* attacker (app-server
-RCE reads the KEK and calls `open`), but credentials have a *different* attacker
+So the blast-radius argument still applies to the _same_ attacker (app-server
+RCE reads the KEK and calls `open`), but credentials have a _different_ attacker
 the content argument never had to price: anyone holding a database artifact that
 travelled without the secret environment. A backup file, a support export, a
 read replica, a snapshot in someone's downloads folder. For content that
@@ -103,13 +103,13 @@ deferral was sized for a read-mostly blast radius that no longer holds.
 
 **What this defends, stated honestly.**
 
-| Threat | Defended? |
-| --- | --- |
-| Leaked row, replica, snapshot, or support export | Yes — the tokens are envelopes |
-| Off-platform backup that does not carry the env | Yes |
-| Vendor employee with raw DB access | Yes, for credentials specifically |
-| App-server RCE | **No** — that attacker reads the KEK and calls `open` |
-| Someone who holds both the dump and the environment | No |
+| Threat                                              | Defended?                                             |
+| --------------------------------------------------- | ----------------------------------------------------- |
+| Leaked row, replica, snapshot, or support export    | Yes — the tokens are envelopes                        |
+| Off-platform backup that does not carry the env     | Yes                                                   |
+| Vendor employee with raw DB access                  | Yes, for credentials specifically                     |
+| App-server RCE                                      | **No** — that attacker reads the KEK and calls `open` |
+| Someone who holds both the dump and the environment | No                                                    |
 
 A KEK beside the app is a real reduction in blast radius, not secrecy from the
 app itself. Do not let user-facing copy imply otherwise.

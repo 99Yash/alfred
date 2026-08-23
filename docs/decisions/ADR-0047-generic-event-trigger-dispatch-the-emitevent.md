@@ -1,6 +1,5 @@
 # ADR-0047 — Generic `event`-trigger dispatch: the `emitEvent` bus + triage unification
 
-
 **Status.** Accepted (m13 Phase 8a).
 
 **Decision.** Lift `event`-trigger dispatch from per-feature hardcoding to one generic bus:
@@ -23,7 +22,7 @@
 
 - (a) **Additive sidecar** — keep `enqueueTriageRuns` imperative, add a parallel user-workflow query leg. Rejected: preserves the two paths the bus exists to collapse; any new event source would have to choose a path.
 - (b) **`emitEvent` over Redis Pub/Sub** — rejected: an extra hop for no gain; the ingestion worker already runs in-process with `createRun`, and fan-out is a DB query any instance can do where the work already is.
-- (c) **DB unique index on `(user_id, workflow_slug, eventId)`** — rejected: triage deliberately reuses `eventId=documentId` across `reason`s (a later reply-retriage of the same document), which the index would wrongly block. The real risk profile is *missed* fires, not duplicates.
+- (c) **DB unique index on `(user_id, workflow_slug, eventId)`** — rejected: triage deliberately reuses `eventId=documentId` across `reason`s (a later reply-retriage of the same document), which the index would wrongly block. The real risk profile is _missed_ fires, not duplicates.
 - (d) **Live `filter` evaluation in v1** — rejected: an untestable matching mini-language; the brief-only boss already judges relevance from the bounded trigger context and can read more through the source tool when needed.
 - (e) **`source`-only (no `type`)** — rejected: can't distinguish received-vs-sent mail; the existing `'gmail.ingest'` string already informally encoded a type.
 - (f) **Inline full inbound content into `<trigger_event>`** — rejected: great for tiny emails, bad as a default. It makes the first boss turn hostage to unbounded third-party text and can crowd out the workflow brief, tool definitions, and user policy context before compaction has a chance to run.
@@ -45,7 +44,7 @@
 
 The shipped `EVENT_SOURCES` (`packages/contracts/src/event-triggers.ts`) is `['gmail', 'google.oauth.callback', 'learn-skill']`, not the gmail-only set the main decision describes. Each carries a closed type: `gmail.message_received`, `google.oauth.callback.completed`, `learn-skill.completed`. The bus is the one generic `event`-trigger path for all three; the `webhook|ingest|manual` breadcrumb still rides `trigger.payload.reason`.
 
-**This does not reopen the no-dead-paths rule that deferred `on_signal`.** That rule rejected building a *dispatcher subscriber* for a signal nobody emits — runnable code that can never be exercised. A `source` enum value is the opposite: a typed const with zero runtime behavior of its own. Declaring it ahead of its producer is cheap, reversible, and lets the producer land against a stable contract instead of editing the enum and the producer in lockstep. The honest line: **an enum value may precede its producer, but every declared source must have a producer committed in the same milestone** — no source ships purely speculative.
+**This does not reopen the no-dead-paths rule that deferred `on_signal`.** That rule rejected building a _dispatcher subscriber_ for a signal nobody emits — runnable code that can never be exercised. A `source` enum value is the opposite: a typed const with zero runtime behavior of its own. Declaring it ahead of its producer is cheap, reversible, and lets the producer land against a stable contract instead of editing the enum and the producer in lockstep. The honest line: **an enum value may precede its producer, but every declared source must have a producer committed in the same milestone** — no source ships purely speculative.
 
 Producer status at amendment time:
 

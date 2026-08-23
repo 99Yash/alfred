@@ -1,6 +1,5 @@
 # Open / deferred
 
-
 Items intentionally not decided yet. Each is a future ADR when its time comes.
 
 **Deferred features:**

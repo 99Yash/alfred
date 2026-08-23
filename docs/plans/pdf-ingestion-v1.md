@@ -12,14 +12,14 @@ sequences the work into campaign items.
 
 ## Name map (issue → repo today)
 
-| Issue says | Repo has |
-| --- | --- |
-| `@alfred/ingestion` | `@alfred/corpus` (`packages/corpus/`); `packages/ingestion/` is untracked build residue |
-| `embedDocument` | `indexDocument` (`packages/corpus/src/embed-document.ts:78`) |
-| `semanticSearch` | `search` (`packages/corpus/src/search.ts:48`) |
-| classification `"text_based" \| "mixed" \| "scanned" \| "image_based"` | JS API returns `'TextBased' \| 'Scanned' \| 'ImageBased' \| 'Mixed'`; snake_case is the Python API |
-| "the pure chunker tests in `@alfred/ingestion`" | `chunkText` has zero tests; nearest pure prior art is `packages/corpus/test/db-backed-guard.test.ts` |
-| "the same way ADR-0065 requires ffmpeg" | ffmpeg was never added; no Dockerfile or Nixpacks config exists. The real precedent is `sharp` as a plain npm dep |
+| Issue says                                                             | Repo has                                                                                                          |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `@alfred/ingestion`                                                    | `@alfred/corpus` (`packages/corpus/`); `packages/ingestion/` is untracked build residue                           |
+| `embedDocument`                                                        | `indexDocument` (`packages/corpus/src/embed-document.ts:78`)                                                      |
+| `semanticSearch`                                                       | `search` (`packages/corpus/src/search.ts:48`)                                                                     |
+| classification `"text_based" \| "mixed" \| "scanned" \| "image_based"` | JS API returns `'TextBased' \| 'Scanned' \| 'ImageBased' \| 'Mixed'`; snake_case is the Python API                |
+| "the pure chunker tests in `@alfred/ingestion`"                        | `chunkText` has zero tests; nearest pure prior art is `packages/corpus/test/db-backed-guard.test.ts`              |
+| "the same way ADR-0065 requires ffmpeg"                                | ffmpeg was never added; no Dockerfile or Nixpacks config exists. The real precedent is `sharp` as a plain npm dep |
 
 ## Hidden scope the issue does not list
 

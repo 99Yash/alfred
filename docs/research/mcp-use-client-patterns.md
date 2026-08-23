@@ -1,7 +1,7 @@
 # mcp-use client patterns relevant to Alfred issue #540
 
 Status: researched 2026-07-25
-Scope: the `mcp-use` monorepo (TypeScript library `mcp-use@1.34.5`, MIT), read as a *client*
+Scope: the `mcp-use` monorepo (TypeScript library `mcp-use@1.34.5`, MIT), read as a _client_
 implementation; comparison with
 [`mcp-raw-client-v1-requirements.md`](./mcp-raw-client-v1-requirements.md),
 [`vscode-mcp-client-patterns.md`](./vscode-mcp-client-patterns.md), and
@@ -12,7 +12,7 @@ Source snapshot: [`feda0068`](https://github.com/mcp-use/mcp-use/tree/feda006831
 ## Conclusion
 
 Do not take the dependency. `mcp-use` is a batteries-included agent framework — LangChain agents, an
-MCP *server* builder, React hooks, widgets, an inspector — and its published package carries
+MCP _server_ builder, React hooks, widgets, an inspector — and its published package carries
 `express`, `hono`, `@hono/node-server`, `posthog-node`, `posthog-js`, plus its own CLI and inspector
 as **runtime** dependencies, while pinning `@modelcontextprotocol/sdk` at 1.26.0 against Alfred's
 1.29.0. Alfred needs a hardened outbound client, which is the one thing the library does not supply:
@@ -54,8 +54,8 @@ SDK behavior `protocol.ts` collapses with `maxTotalTimeout === timeout`, and for
 extendable deadline blurs the delivery boundary the ledger depends on.
 
 **Consequence for Alfred.** This is a concrete instance of the rule already written into the
-no-replay invariant in `broker.ts` — *before admitting any wrapper into this path, confirm its retry
-is disabled or provably pre-delivery*. Had Alfred wrapped the SDK with `mcp-use`, the
+no-replay invariant in `broker.ts` — _before admitting any wrapper into this path, confirm its retry
+is disabled or provably pre-delivery_. Had Alfred wrapped the SDK with `mcp-use`, the
 `session_expired` → `ambiguous` path would have been silently replaced by a double-write on the SSE
 transport. Alfred's `isMcpSessionExpiredError` → rethrow (never re-issue) is the correct handling and
 should not be "improved" into a reconnect-and-retry.
@@ -81,7 +81,7 @@ problem.
   and advertised when supplied (`client.ts:121-134`). Alfred v1 advertises an empty capability object
   deliberately.
 - **Telemetry is on by default** (PostHog EU + Scarf, `MCP_USE_ANONYMIZED_TELEMETRY=false` to
-  disable). Payloads are redacted — `ClientAddServerEvent` sends the URL *hostname* and a `has_auth`
+  disable). Payloads are redacted — `ClientAddServerEvent` sends the URL _hostname_ and a `has_auth`
   boolean, not the config — so this is an egress-posture note, not a leak.
 
 ## Reusable patterns
@@ -100,7 +100,7 @@ full descriptor for a named tool — so a survey of a wide catalog paid for pros
 Adopted as a `detail: "names" | "summary"` input (`packages/contracts/src/mcp.ts`,
 `packages/api/src/modules/mcp/list-tools.ts`), defaulting to `summary`. Two deliberate divergences:
 
-- **No `"full"` tier.** A full descriptor is bounded at 128 KB at ingest, so a *page* of them
+- **No `"full"` tier.** A full descriptor is bounded at 128 KB at ingest, so a _page_ of them
   reinstates precisely the catalog dump clarification #5 exists to prevent. Full descriptors stay
   reachable one at a time via `remoteName`.
 - **Projection happens after filtering**, so `query` matches against the complete summary in every
@@ -116,7 +116,7 @@ scoped to one connection, and `toolCount` already carries the full match count n
 provoke the `401`, then reads `resource_metadata` and `scope` out of `WWW-Authenticate` via the SDK's
 `extractWWWAuthenticateParams`.
 
-The requirements doc already mandates parsing the 401 challenge; this is the concrete *probe-first*
+The requirements doc already mandates parsing the 401 challenge; this is the concrete _probe-first_
 shape, and it is what makes the connect-time UX honest — Alfred can show which scopes a server will
 demand **before** redirecting the user, instead of discovering them mid-flow. Note the shortcut in
 their version (appending `/mcp` when the URL does not end in it) is a guess Alfred should not copy:
@@ -162,7 +162,7 @@ shape, pagination, auth challenge) before admitting it, with no runtime coupling
   (`managers/server_manager.ts:183-205`) — the same instinct as Alfred's lazy tool surface
   (#411/#412), with less structure.
 - **LangChain adapters.** Wrong framework; Alfred is on the AI SDK.
-- **The `mcpServers` config file as a runtime source.** The *shape* is worth accepting as a
+- **The `mcpServers` config file as a runtime source.** The _shape_ is worth accepting as a
   paste-to-connect import in the connection-creation UI, since users already have one from Claude
   Desktop or Cursor — mapped into `mcp_connections` rows and filtered to HTTPS. It should not become
   a source of truth Alfred reads at runtime.

@@ -195,11 +195,7 @@ Keep transport details out of runtimes:
 interface McpTransportClient {
   connect(connection: McpConnection): Promise<McpNegotiatedConnection>;
   listAllTools(signal: AbortSignal): Promise<readonly McpToolDescriptor[]>;
-  callTool(input: {
-    name: string;
-    arguments: unknown;
-    signal: AbortSignal;
-  }): Promise<unknown>;
+  callTool(input: { name: string; arguments: unknown; signal: AbortSignal }): Promise<unknown>;
   disconnect(): Promise<void>;
 }
 

@@ -41,7 +41,7 @@ Three measured facts carry most of the argument:
 
 - **Process supervision buys the right path, not a better answer.**
   [Uesato 2022](https://arxiv.org/abs/2211.14275) found similar final-answer
-  error, but reasoning error among *already-correct* answers fell from 14.0% to
+  error, but reasoning error among _already-correct_ answers fell from 14.0% to
   3.4%. That is the lucky-correct case, and it is the only reason to grade
   process at all.
 - **Judge reliability is decided by the question shape, not the model.**
@@ -85,16 +85,16 @@ lives at
 The model does exactly one job: emit a per-occurrence verdict with citations.
 Code does everything else.
 
-| Concern | Who decides | Mechanism |
-| --- | --- | --- |
-| Which rules exist | Code | Regex over `^## ` headings; duplicates throw |
-| Per-occurrence verdict | **Model** | `true` / `false` / `na` |
-| Rule-level verdict | Code | `foldBehaviorVerdicts`: any `false` wins; all `na` gives `na`; else `true` |
-| File-level verdict | Code | Same fold. The prompt says "Do not calculate a file-level verdict" |
-| Citation validity | Code | Every `event_id` must exist in the trajectory, or throw |
-| Violation honesty | Code | A `false` must quote its violated clause **verbatim**; code checks the substring |
-| Score mapping | Code | `true`→1, `false`→0, `na`→**`null`** |
-| Malformed output | Code | One repair retry with the validation error fed back |
+| Concern                | Who decides | Mechanism                                                                        |
+| ---------------------- | ----------- | -------------------------------------------------------------------------------- |
+| Which rules exist      | Code        | Regex over `^## ` headings; duplicates throw                                     |
+| Per-occurrence verdict | **Model**   | `true` / `false` / `na`                                                          |
+| Rule-level verdict     | Code        | `foldBehaviorVerdicts`: any `false` wins; all `na` gives `na`; else `true`       |
+| File-level verdict     | Code        | Same fold. The prompt says "Do not calculate a file-level verdict"               |
+| Citation validity      | Code        | Every `event_id` must exist in the trajectory, or throw                          |
+| Violation honesty      | Code        | A `false` must quote its violated clause **verbatim**; code checks the substring |
+| Score mapping          | Code        | `true`→1, `false`→0, `na`→**`null`**                                             |
+| Malformed output       | Code        | One repair retry with the validation error fed back                              |
 
 Three details are worth copying regardless of whether Alfred adopts the format.
 
@@ -264,7 +264,7 @@ From [Judging LLM-as-a-Judge](https://arxiv.org/abs/2306.05685):
   rubric… it is a more scalable method." Alfred grades one trajectory against a
   rule, which is exactly this mode.
 - **Giving the judge a reference cut failures from 14/20 to 3/20.** Chain of
-  thought alone gave 6/20. A behavior spec *is* that reference. This is the
+  thought alone gave 6/20. A behavior spec _is_ that reference. This is the
   strongest single piece of evidence for the whole approach.
 - **Self-enhancement bias is +10 points for GPT-4 and +25 for Claude.** So the
   judge must not be the model under test. Alfred's boss runs on Sonnet or Opus,
@@ -272,7 +272,7 @@ From [Judging LLM-as-a-Judge](https://arxiv.org/abs/2306.05685):
   [`llm-judge.ts`](../../packages/assistant/evals/lib/llm-judge.ts) already applies
   this reasoning for the cheap classifier.
 - **Position bias does not apply.** GPT-4 flips on answer order about 35% of the
-  time, but that is a *pairwise comparison* artifact. Behavior grading is
+  time, but that is a _pairwise comparison_ artifact. Behavior grading is
   pointwise, so the design is not exposed to it.
 
 ### Binary decomposition is the strongest lever, and it is measured
@@ -281,10 +281,10 @@ From [Judging LLM-as-a-Judge](https://arxiv.org/abs/2306.05685):
 the same 2,593 criteria, the same judges, graded two ways. Macro F1 against nine
 expert annotators:
 
-| Scheme | GPT-5 | Claude-4.5 | Gemini-2.5-Pro |
-| --- | --- | --- | --- |
-| **Binary** | 0.717–0.732 | 0.718–0.742 | 0.721–0.760 |
-| **Ternary** | 0.538–0.553 | 0.527–0.532 | 0.557–0.567 |
+| Scheme      | GPT-5       | Claude-4.5  | Gemini-2.5-Pro |
+| ----------- | ----------- | ----------- | -------------- |
+| **Binary**  | 0.717–0.732 | 0.718–0.742 | 0.721–0.760    |
+| **Ternary** | 0.538–0.553 | 0.527–0.532 | 0.557–0.567    |
 
 Verbatim: "The shift from ternary to binary evaluation increases agreement by
 approximately 20 percentage points, confirming that partial credit introduces
@@ -293,10 +293,10 @@ ambiguity without improving discriminative power."
 Two corroborating results. [Autorubric](https://arxiv.org/html/2603.00077v2)
 reports **87.0% exact agreement (κ=0.642)** for binary criteria against
 **38–58%** for ordinal, and recommends "prefer binary criteria where possible".
-*(Caveat: two research passes disagreed about this paper. One read measured
+_(Caveat: two research passes disagreed about this paper. One read measured
 tables on CHARM-100; a second read §2.3 as an unmeasured assertion in a framework
 paper. Treat Autorubric as supporting, not load-bearing — ResearchRubrics and
-CheckEval are the measured comparisons.)*
+CheckEval are the measured comparisons.)_
 [HealthBench](https://arxiv.org/abs/2505.08775) grades 48,562 binary criteria and
 its GPT-4.1 grader reaches macro F1 **0.709**, inside the physician band of
 0.57–0.75.
@@ -314,10 +314,10 @@ The same ResearchRubrics ablation gives two direct authoring rules:
 requirements as binary satisfied / not satisfied, with the judge reading the
 **trajectory**. Alignment with human consensus:
 
-| Judge | MetaGPT | GPT-Pilot | OpenHands |
-| --- | --- | --- | --- |
-| Reads trajectory, binary per requirement | **92.1%** | 86.6% | 90.2% |
-| Flat LLM judge, same task | 68.9% | 71.9% | 70.8% |
+| Judge                                    | MetaGPT   | GPT-Pilot | OpenHands |
+| ---------------------------------------- | --------- | --------- | --------- |
+| Reads trajectory, binary per requirement | **92.1%** | 86.6%     | 90.2%     |
+| Flat LLM judge, same task                | 68.9%     | 71.9%     | 70.8%     |
 
 Human majority vote reaches 94.0–95.1%. So the two design choices this note
 recommends — **give the judge the trajectory** and **decide one binary
@@ -333,11 +333,11 @@ scored **11%**. A closed checklist works; open-ended trace critique does not.
 [CheckEval](https://arxiv.org/abs/2403.18771) (EMNLP 2025) replaces Likert
 scoring with decomposed yes/no questions on the same data:
 
-| Measure | Likert (G-Eval) | Binary (CheckEval) |
-| --- | --- | --- |
-| Spearman ρ with human, SummEval | 0.40 | 0.46 |
-| **Inter-evaluator Krippendorff α** | **0.05** | **0.67** |
-| Score variance | 0.0100 | 0.0019 |
+| Measure                            | Likert (G-Eval) | Binary (CheckEval) |
+| ---------------------------------- | --------------- | ------------------ |
+| Spearman ρ with human, SummEval    | 0.40            | 0.46               |
+| **Inter-evaluator Krippendorff α** | **0.05**        | **0.67**           |
+| Score variance                     | 0.0100          | 0.0019             |
 
 The accuracy gain is modest. The **agreement gain is an order of magnitude**, and
 variance drops 5x. So binary decomposition mostly buys **reproducibility, not
@@ -353,10 +353,10 @@ judgments across 21 judges and found that "judge validation in practice relies o
 exact-match agreement, a metric that does not correct for chance and
 systematically overstates discriminative ability".
 
-| Benchmark type | Exact match | Cohen's κ | Deflation |
-| --- | --- | --- | --- |
-| MT-Bench (**subjective preference**) | 0.849 | 0.511 | **33.8 pp** |
-| RewardBench (**objective correctness**) | 0.956 | 0.898 | 5.9 pp |
+| Benchmark type                          | Exact match | Cohen's κ | Deflation   |
+| --------------------------------------- | ----------- | --------- | ----------- |
+| MT-Bench (**subjective preference**)    | 0.849       | 0.511     | **33.8 pp** |
+| RewardBench (**objective correctness**) | 0.956       | 0.898     | 5.9 pp      |
 
 **This is the most decision-relevant number in the file.** On subjective
 judgments, chance-corrected agreement is roughly half the raw number. On
@@ -367,7 +367,7 @@ A behavior predicate — "did a call that could show X precede the claim about X
 is fact-shaped. That is the strongest single reason to expect this to work where
 generic quality judging does not. **Report Cohen's κ, not exact match.**
 
-Judges also disagree with *themselves*.
+Judges also disagree with _themselves_.
 [Rating Roulette](https://arxiv.org/abs/2510.27106) ran three passes per judge:
 Krippendorff α ranged 0.265 to 0.788, and even the best "much lower than the
 desired threshold of 0.8". Notably the highest α in their table was on the
@@ -428,11 +428,11 @@ grade 12 binary rules across 30 trajectories, you have **n = 30, not n = 360**.
 Rules within one run are correlated, so they are a cluster. Miller's Table 4
 shows real clustered standard errors up to **3.05x** the naive ones on DROP.
 Treating rule-items as independent would make the lane look three times more
-precise than it is. *(This specific application to rubric items is composed from
-two of Miller's sections, not stated in the paper.)*
+precise than it is. _(This specific application to rubric items is composed from
+two of Miller's sections, not stated in the paper.)_
 
 Two further points from the same paper. **Do not drop the judge temperature to
-kill variance** — Section 3.3 shows T=0 *tripled* minimum variance in his
+kill variance** — Section 3.3 shows T=0 _tripled_ minimum variance in his
 example, and it measures a different model than the one you ship. And repeated
 sampling helps only until judge noise falls below question-sampling noise, then
 stops.
@@ -442,7 +442,7 @@ there describes sampling noise and assumes the grader is correct. A judge with
 70% precision contributes a **bias** term no confidence interval captures. The
 fix is known: [plug-in bias correction](https://arxiv.org/abs/2511.21140) and
 [doubly robust estimation](https://arxiv.org/abs/2605.16354) treat the judge as
-*auxiliary* — judge everything, hand-label a subsample, and correct. At Alfred's
+_auxiliary_ — judge everything, hand-label a subsample, and correct. At Alfred's
 scale that is very reachable: label 20–30 runs yourself.
 
 **Consequence.** A headline adherence percentage is not a usable signal at
@@ -471,7 +471,7 @@ sampling variance.
   to a trace or a single observation; and each carries a `comment` for the
   rationale ([scores data model](https://langfuse.com/docs/scores/data-model)).
   Write with `langfuse.score.create({name, value, traceId, observationId,
-  dataType, comment, id})`, or `POST /api/public/scores`. Read back with
+dataType, comment, id})`, or `POST /api/public/scores`. Read back with
   `langfuse.api.observations.getMany()`. There is no packaged trajectory
   evaluator, but there is a first-class **Tool Calls** mapping that exposes each
   call's `id`, `name`, and `arguments`.
@@ -573,21 +573,21 @@ the eval lane**, never at runtime. Its header states the boundary this note
 argues for: it encodes "the machine-checkable slice" of the voice prompt, and
 leaves judgment calls out on purpose.
 
-**This is a real asymmetry with the standard.** Behavior specs only *observe*.
-Alfred's guards *intervene*. An observation lane should not replace them.
+**This is a real asymmetry with the standard.** Behavior specs only _observe_.
+Alfred's guards _intervene_. An observation lane should not replace them.
 
 ### An eval lane that already grades conduct
 
 Ten eval files. Their scorers are overwhelmingly procedural:
 
-| Eval | Conduct rule being graded |
-| --- | --- |
-| `boss-judgment` | "Does not conclude from a single lookup"; "Works >=2 distinct angles and drills a specific record"; "Does not over-search calendar requests" |
-| `sender-suppression-grounding` | "Searches Gmail before deciding"; "Did not punt — made a tool call instead of asking" |
-| `github-grounding` | "Starts with a github tool call (no give-up)"; "No invented or contradictory free-form qualifiers" |
-| `tool-selection-bloat` | "Expected tool is the FIRST call" |
-| `passthrough-honesty` | "Attempted the raw read (did not refuse the tool)" |
-| `calendar-grounding` | "No invented parameters" |
+| Eval                           | Conduct rule being graded                                                                                                                    |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `boss-judgment`                | "Does not conclude from a single lookup"; "Works >=2 distinct angles and drills a specific record"; "Does not over-search calendar requests" |
+| `sender-suppression-grounding` | "Searches Gmail before deciding"; "Did not punt — made a tool call instead of asking"                                                        |
+| `github-grounding`             | "Starts with a github tool call (no give-up)"; "No invented or contradictory free-form qualifiers"                                           |
+| `tool-selection-bloat`         | "Expected tool is the FIRST call"                                                                                                            |
+| `passthrough-honesty`          | "Attempted the raw read (did not refuse the tool)"                                                                                           |
+| `calendar-grounding`           | "No invented parameters"                                                                                                                     |
 
 Every one of these is a behavior spec. Every one is decided by code over tool
 calls. The lane's documented philosophy is already "deterministic-scorer-first,
@@ -615,7 +615,7 @@ the call in code".
    the tool span **name** survives (`tool:<toolName>`, plus `toolCallId`,
    `runId`, `stepId` in metadata), and the error `statusMessage` survives
    redacted. But **tool arguments do not** (`input: captureIo ? args.input :
-   undefined`), and the model's decided tool calls ride generation `output`,
+undefined`), and the model's decided tool calls ride generation `output`,
    which is also gated. So on a production trace `extractTrajectory` yields
    `toolName` and `status` with `input === undefined`, and `decidedNotExecuted`
    is **always empty**. Any argument-level predicate must read
@@ -670,7 +670,7 @@ Candidates that are decidable today, in full, by code:
 - **`grounding-call-precedes-answer`** — generalizes the four `*-grounding`
   evals.
 - **`no-invented-parameters`** — argument keys must exist in the tool schema.
-  This one is *purely* structural.
+  This one is _purely_ structural.
 
 The win: zero judge cost, zero judge variance, no self-preference risk, and it
 runs on every recorded run rather than on a curated set.
@@ -749,7 +749,7 @@ deliberately.** `llmJudgeScorer` grades on an A/B/C/D letter scale mapped to
 `{1, 0.66, 0.33, 0}`. Its docstring justifies letters on the grounds that models
 grade letters more consistently than 0–100, and the evidence agrees: a
 [scale comparison](https://arxiv.org/abs/2601.03444) puts 0–5 at ICC 0.853, 0–100
-at 0.840, and 0–10 worst at 0.805. A 4-point letter scale is a good *graded*
+at 0.840, and 0–10 worst at 0.805. A 4-point letter scale is a good _graded_
 scale. The problem is that graded is the wrong family: binary beats 3-way partial
 credit by about 20 points on the same criteria.
 
@@ -838,13 +838,13 @@ The standard's
 [calibration guide](https://github.com/braintrustdata/agentbehavior/blob/main/.agents/skills/writing-agent-behavior/references/calibrating-with-trajectories.md)
 names the fixture matrix, and one row is the whole point:
 
-| Case | What it proves |
-| --- | --- |
-| Positive | The trigger fires and the conduct is visible |
-| Negative | The trigger fires and the conduct is missing |
-| **Lucky-correct negative** | **The outcome is right, the process was not followed** |
-| Outside scope | The trigger never fires, so the result is `na`, not a pass |
-| Allowed boundary | A permitted alternative path is not penalized |
+| Case                       | What it proves                                             |
+| -------------------------- | ---------------------------------------------------------- |
+| Positive                   | The trigger fires and the conduct is visible               |
+| Negative                   | The trigger fires and the conduct is missing               |
+| **Lucky-correct negative** | **The outcome is right, the process was not followed**     |
+| Outside scope              | The trigger never fires, so the result is `na`, not a pass |
+| Allowed boundary           | A permitted alternative path is not penalized              |
 
 If the lucky-correct case does not come out negative, the rule is measuring
 outcome and should be deleted.

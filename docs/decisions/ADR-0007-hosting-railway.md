@@ -1,6 +1,5 @@
 # ADR-0007 — Hosting: Railway (one platform for everything)
 
-
 **Decision.** Railway hosts `apps/server`, `apps/web` (static build), Postgres, and Redis as managed services on private networking.
 
 **Why.**

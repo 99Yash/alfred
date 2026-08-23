@@ -31,7 +31,7 @@ near empty.
 contract between one phase and the next. **A phase that does not update both has not
 finished**, and the driver will mark the item stuck.
 
-There is deliberately no per-iteration handoff document. The item file *is* the
+There is deliberately no per-iteration handoff document. The item file _is_ the
 handoff, and a second parallel record would leave the next phase deciding which one
 is current. What the item file must carry — because a killed phase writes nothing at
 all — is incremental checkpoints and rejected approaches, not just conclusions. For
@@ -58,15 +58,15 @@ MAX_ITER=4 scripts/campaign.sh       # cap iterations
 
 ## The phase machine
 
-| Phase | Does | Ends by setting |
-| --- | --- | --- |
-| `intake` | Artifact → one item file per finding, `state.json` queue. Reconciles against `git log` **and merged/open PRs** to drop findings already landed. **The only phase that reads the whole artifact.** | every item to `design` or `cover` |
-| `cover` | Lands the tests a finding says must exist *before* the refactor. Own PR, merged first. | `design` |
-| `design` | Reads only the cited lines. Writes the invariant, the interface sketch, the edit list, the test plan. | `implement` |
-| `implement` | Worktree, branch, TDD at the agreed seam, `pnpm check && pnpm check-types`, commit, push, draft PR. | `review` |
-| `review` | Three parallel subagents over the PR diff — structural **up**, structural **down**, `code-style` sweep — synthesized into must-fix / follow-up / won't-fix. | `revise`, or `landed` if no must-fix |
-| `revise` | Must-fix only. Push. Round++. | `review` |
-| `land` | PR out of draft, item closed, follow-ups appended to the queue as **new items**. | `landed` |
+| Phase       | Does                                                                                                                                                                                              | Ends by setting                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `intake`    | Artifact → one item file per finding, `state.json` queue. Reconciles against `git log` **and merged/open PRs** to drop findings already landed. **The only phase that reads the whole artifact.** | every item to `design` or `cover`    |
+| `cover`     | Lands the tests a finding says must exist _before_ the refactor. Own PR, merged first.                                                                                                            | `design`                             |
+| `design`    | Reads only the cited lines. Writes the invariant, the interface sketch, the edit list, the test plan.                                                                                             | `implement`                          |
+| `implement` | Worktree, branch, TDD at the agreed seam, `pnpm check && pnpm check-types`, commit, push, draft PR.                                                                                               | `review`                             |
+| `review`    | Three parallel subagents over the PR diff — structural **up**, structural **down**, `code-style` sweep — synthesized into must-fix / follow-up / won't-fix.                                       | `revise`, or `landed` if no must-fix |
+| `revise`    | Must-fix only. Push. Round++.                                                                                                                                                                     | `review`                             |
+| `land`      | PR out of draft, item closed, follow-ups appended to the queue as **new items**.                                                                                                                  | `landed`                             |
 
 Terminal phases: `landed`, `needs-human`, `skipped`.
 

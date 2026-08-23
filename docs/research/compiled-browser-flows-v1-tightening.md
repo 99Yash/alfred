@@ -457,7 +457,7 @@ artifact store, schema validator, or evidence contract.
    typed URL/origin policy; action result/failure taxonomy; fixture covers frames, virtualization,
    drift, redirects, popup, and ambiguous submit.
 2. **Vercel parity:** same adapter and browser pin from an immutable base snapshot; `persistent:
-   false`; default-deny egress; no secrets; startup/resource benchmark.
+false`; default-deny egress; no secrets; startup/resource benchmark.
 3. **Recorder/compiler:** evidence-rich trajectory; strict compile rejection; versioned JSON artifact;
    deterministic DOM extraction only.
 4. **Durable replay:** revision-pinned run, program counter/loop state, logical effect IDs, unknown
@@ -469,17 +469,16 @@ artifact store, schema validator, or evidence contract.
 
 ## Decision summary
 
-| Area | Plan direction | Tightened verdict |
-|---|---|---|
-| Declarative DAG vs model-authored JS | Correct | Keep; add artifact/runtime versioning and graph validation |
-| Vercel Firecracker isolation | Correct substrate | Add default-deny egress, non-persistent runs, secret separation, limits |
-| `agent-browser` + Playwright | Ambiguous | Pick one API; Playwright-native is the cleanest match to named semantics |
-| Selector bundle | Under-specified and misattributed | Own a typed ordered locator plan; never persist session refs/node IDs |
-| Scoped partial ARIA assertions | Good supporting signal | Pair with targeted semantic pre/postconditions and failure taxonomy |
-| Durable retries | Incomplete | Effect identity, `unknown`, reconciliation, and no blind click retry |
-| Skill revisions | Useful concept | Pin run revision; dedicated executable revision storage is cleaner |
-| Self-heal | Valuable differentiator | Draft child revision + eval + atomic promotion, never silent auto-activation |
-| `browser_extract` | Contradictory | Split deterministic DOM and metered LLM extraction; JSON Schema, not Zod |
-| Zero-LLM cost | True only for a subset | Persist `costClass`; meter direct extraction calls |
-| First LinkedIn/Reddit flow | Poor acceptance target | Replace with owned fixture, then a permitted public target |
-
+| Area                                 | Plan direction                    | Tightened verdict                                                            |
+| ------------------------------------ | --------------------------------- | ---------------------------------------------------------------------------- |
+| Declarative DAG vs model-authored JS | Correct                           | Keep; add artifact/runtime versioning and graph validation                   |
+| Vercel Firecracker isolation         | Correct substrate                 | Add default-deny egress, non-persistent runs, secret separation, limits      |
+| `agent-browser` + Playwright         | Ambiguous                         | Pick one API; Playwright-native is the cleanest match to named semantics     |
+| Selector bundle                      | Under-specified and misattributed | Own a typed ordered locator plan; never persist session refs/node IDs        |
+| Scoped partial ARIA assertions       | Good supporting signal            | Pair with targeted semantic pre/postconditions and failure taxonomy          |
+| Durable retries                      | Incomplete                        | Effect identity, `unknown`, reconciliation, and no blind click retry         |
+| Skill revisions                      | Useful concept                    | Pin run revision; dedicated executable revision storage is cleaner           |
+| Self-heal                            | Valuable differentiator           | Draft child revision + eval + atomic promotion, never silent auto-activation |
+| `browser_extract`                    | Contradictory                     | Split deterministic DOM and metered LLM extraction; JSON Schema, not Zod     |
+| Zero-LLM cost                        | True only for a subset            | Persist `costClass`; meter direct extraction calls                           |
+| First LinkedIn/Reddit flow           | Poor acceptance target            | Replace with owned fixture, then a permitted public target                   |

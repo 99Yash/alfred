@@ -1,6 +1,5 @@
 # ADR-0028 — Composer voice dictation: Web Speech API, browser-native, no server round-trip
 
-
 **Decision.** When the composer mic button activates (post-m13), it uses the browser's `SpeechRecognition` API to stream interim transcripts directly into the textarea. No server-side STT, no audio bytes leave the device. Falls back to a disabled state with a tooltip on browsers without support (mainly Firefox desktop today).
 
 **Why.**

@@ -18,11 +18,11 @@ Give `document` the same `create` → `append` shape as `pages`: add `system.app
 
 ## The mechanism, stated honestly (read this before implementing)
 
-**The per-call cap is a backstop, not the forcing function.** A tool call's arguments stream out of the model, and the 180s ceiling is an `AbortSignal.timeout` on that stream (the Gap 1 mechanism). For a document big enough to actually time out, the abort fires **mid-argument-generation, before a complete tool call is emitted and Zod-validated** — so the cap never runs on the case it exists to fix. What the cap actually does: (1) hard-bounds any single stored write, and (2) forces a *non-compliant-but-sub-timeout* document (finishes under 180s but > 12K) to chunk, keeping behavior uniform.
+**The per-call cap is a backstop, not the forcing function.** A tool call's arguments stream out of the model, and the 180s ceiling is an `AbortSignal.timeout` on that stream (the Gap 1 mechanism). For a document big enough to actually time out, the abort fires **mid-argument-generation, before a complete tool call is emitted and Zod-validated** — so the cap never runs on the case it exists to fix. What the cap actually does: (1) hard-bounds any single stored write, and (2) forces a _non-compliant-but-sub-timeout_ document (finishes under 180s but > 12K) to chunk, keeping behavior uniform.
 
-**The tool description is the load-bearing mechanism.** It must induce the model to *proactively* author section-by-section so no single generation is oversized. This is why acceptance is gated on a live re-probe of a document **sized to time out as a one-shot** proving proactive chunking — not on a schema test of the cap. If the probe shows the model one-shotting past the description, the escalation lever is a mid-stream argument-size abort (ADR-0085 alt (d)), not a bigger cap.
+**The tool description is the load-bearing mechanism.** It must induce the model to _proactively_ author section-by-section so no single generation is oversized. This is why acceptance is gated on a live re-probe of a document **sized to time out as a one-shot** proving proactive chunking — not on a schema test of the cap. If the probe shows the model one-shotting past the description, the escalation lever is a mid-stream argument-size abort (ADR-0085 alt (d)), not a bigger cap.
 
-Why `pages` doesn't have this problem and `document` did: `pages`'s `create` structurally *cannot* carry page content (it seeds an empty list) and each page is a naturally bounded unit, so the model chunks by construction. A document section is a *discretionary* unit — the shape enables chunking, the description must induce it.
+Why `pages` doesn't have this problem and `document` did: `pages`'s `create` structurally _cannot_ carry page content (it seeds an empty list) and each page is a naturally bounded unit, so the model chunks by construction. A document section is a _discretionary_ unit — the shape enables chunking, the description must induce it.
 
 ---
 
@@ -73,7 +73,7 @@ export const appendArtifactSectionInput = z
 
 ### 3. Tool name + labels — `packages/contracts/src/tools.ts`
 
-- `INTEGRATION_ACTIONS.system`: add `"append_artifact_section"` (this auto-extends the derived `ToolName` union → TypeScript then *forces* the two entries below).
+- `INTEGRATION_ACTIONS.system`: add `"append_artifact_section"` (this auto-extends the derived `ToolName` union → TypeScript then _forces_ the two entries below).
 - `TOOL_LABELS`: add `"system.append_artifact_section": { running: "Writing a section", done: "Wrote a section", title: "write a document section" }` (mirror the `append_artifact_page` copy).
 
 ### 4. Tool declaration — `packages/api/src/modules/tools/system.ts`
@@ -102,7 +102,13 @@ export async function appendArtifactSection(
     const [row] = await tx
       .select({ kind: artifacts.kind, content: artifacts.content })
       .from(artifacts)
-      .where(and(eq(artifacts.id, input.artifactId), eq(artifacts.userId, ctx.userId), eq(artifacts.threadId, ctx.threadId)))
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      )
       .for("update");
 
     if (!row) return { status: "not_found" as const };
@@ -120,8 +126,17 @@ export async function appendArtifactSection(
 
     await tx
       .update(artifacts)
-      .set({ content: { kind: "document", markdown: next }, rowVersion: sql`${artifacts.rowVersion} + 1` })
-      .where(and(eq(artifacts.id, input.artifactId), eq(artifacts.userId, ctx.userId), eq(artifacts.threadId, ctx.threadId)));
+      .set({
+        content: { kind: "document", markdown: next },
+        rowVersion: sql`${artifacts.rowVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      );
     return { status: "ok" as const, contentChars: next.length };
   });
 
@@ -133,6 +148,7 @@ export async function appendArtifactSection(
 ```
 
 Notes:
+
 - **No `runId` guard** (matches `appendArtifactPage`): appending is additive and row-locked, so cross-turn "extend this document" is safe with no `baseContentHash`. Accept the same provenance latitude `append_artifact_page` already has — a cross-turn append leaves the artifact's `messageId`/`runId` on the original authoring turn and status stays `complete`. Acceptable for v1; do not reset status to `generating` on a cross-turn append.
 - Return `contentChars` (accumulated total) so the model has budget feedback across appends.
 - `document` `create` seeds `markdown ?? ""` today (`:78-79`) — unchanged; empty-create + all-append is a valid path.
@@ -140,6 +156,7 @@ Notes:
 ### 6. Registration completeness checklist
 
 Adding to `INTEGRATION_ACTIONS.system` makes the type checker demand the rest — but verify each:
+
 - [x] `INTEGRATION_ACTIONS.system` (drives `ToolName`)
 - [x] `TOOL_LABELS` entry (type-forced by `Record<ToolName>`)
 - [x] `TOOL_INPUT_SCHEMAS` entry (type-checked by `satisfies Partial<Record<ToolName>>`)
@@ -156,7 +173,7 @@ Adding to `INTEGRATION_ACTIONS.system` makes the type checker demand the rest �
 
 ## What this does NOT fix (scope honesty)
 
-- **Large-document EDITS.** `update_artifact` full-replacement keeps the 500K cap and stays a single re-emit that can still time out. `append_artifact_section` covers *additive* cross-turn extension; mid-document **surgical** edits remain deferred (v1 flows through full replacement).
+- **Large-document EDITS.** `update_artifact` full-replacement keeps the 500K cap and stays a single re-emit that can still time out. `append_artifact_section` covers _additive_ cross-turn extension; mid-document **surgical** edits remain deferred (v1 flows through full replacement).
 - **The single-dense-artifact / resume timeout.** That is thinking-overrun on one unit → per-turn effort sizing (#478) + Gap 1 retry, a different failure mode. This design will not claim to fix it.
 - **Truly huge documents** where even proactive per-section authoring is too many turns → server-side decomposition (ADR-0085 alt (e)), framed-future.
 
@@ -173,6 +190,7 @@ Adding to `INTEGRATION_ACTIONS.system` makes the type checker demand the rest �
 5. **Regression check** — the Silk Road-sized document still completes (no worse), and `pages` authoring is untouched.
 
 ### Probe recipe (dev stack + pg)
+
 - Runs link to threads via `agent_runs.metadata->>'threadId'` + `workflow_slug = '__chat-turn__'` (no `thread_id` column); `artifacts` carries `thread_id` + `run_id`; `agent_steps` cols: `step_id`/`attempt`/`status`/`started_at`/`ended_at` (count `chat-turn` rows = generations). `agent_runs.state.toolCallsLog` = ordered tool calls.
 - Run any `pg` script FROM `packages/db/` so ESM resolves `pg@8.20.0`; `DATABASE_URL` from `apps/server/.env`; delete the scratch script after (don't leave it in the tree).
 
@@ -194,7 +212,7 @@ Adding to `INTEGRATION_ACTIONS.system` makes the type checker demand the rest �
 
 Thread `ca2096df-…`, run `run_9486mcs34vyq`, prompt = "comprehensive Silk Road economic history, ≥6,000 words." This is Verification §3(b): a document sized to one-shot-timeout.
 
-**Proactive chunking (the thing the description had to induce).** The model decided *before generating* — its opening thought: _"I'll create this as a document artifact with multiple sections appended one by one."_ It then authored `create_artifact` (opening section) + **8 successful `append_artifact_section` calls**, body accreting 7,088 → 13,460 → 18,470 → 27,042 → 34,597 → 40,455 → 49,641 → **59,740 chars** (~9,000 words). Final artifact `status=complete`, run `status=completed`. That is ~2.9× the 3,300-word baseline that previously ran as one 118.1s generation.
+**Proactive chunking (the thing the description had to induce).** The model decided _before generating_ — its opening thought: _"I'll create this as a document artifact with multiple sections appended one by one."_ It then authored `create_artifact` (opening section) + **8 successful `append_artifact_section` calls**, body accreting 7,088 → 13,460 → 18,470 → 27,042 → 34,597 → 40,455 → 49,641 → **59,740 chars** (~9,000 words). Final artifact `status=complete`, run `status=completed`. That is ~2.9× the 3,300-word baseline that previously ran as one 118.1s generation.
 
 **No stream timeout.** Every successful `chat-turn` generation was well under the 180s ceiling: 52.3, 35.8, 26.8, 63.7, 47.8, 39.1, 32.3, 47.8, 72.8, 48.4, 10.7s. **Max = 72.8s (40% of ceiling).**
 

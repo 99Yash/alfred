@@ -22,36 +22,36 @@ you to remember:
    gate: the local benchmark puts hybrid recall around half at top-5, so an
    invariant must never depend on it surfacing.
 
-`pnpm dup` (jscpd) remains the *cure* layer for copy-pasted bodies after the
+`pnpm dup` (jscpd) remains the _cure_ layer for copy-pasted bodies after the
 fact. When a helper here has exactly one owner, a re-implementation of it is a
 candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 
 ## Smell map — when you're about to…, reach for
 
-| You're about to write… | Reach for | From | Don't hand-roll |
-|---|---|---|---|
-| a check that a *genuinely `unknown`* value at a boundary is a plain object before indexing it | `isRecord(x)` / `toRecord(x)` | `@alfred/contracts` | `typeof x === "object" && x !== null` |
-| coerce `unknown` into a `string[]` | `toStringArray(x)` | `@alfred/contracts` | `x as string[]` — **the drift check bans this** |
-| read a nested field off `unknown`/parsed JSON | `getPath` / `getStringPath` | `@alfred/contracts` | chained `?.` with casts |
-| check a value is a present, non-empty string | `isNonEmptyString(x)` | `@alfred/contracts` | `typeof x === "string" && x.length` |
-| turn a caught error into a display string | `toMessage(err)` | `@alfred/contracts` | `String(err)` / `err.message` |
-| redact secrets from an error/body before logging | `redactSecrets` / `summarizeBody` | `@alfred/contracts` | ad-hoc regex |
-| fail a request with an HTTP status | `Errors.NotFoundError(msg)` and its 11 siblings | `@alfred/contracts` | `new ApiError(...)` or a new `extends ApiError` subclass — **the drift check bans both** |
-| catch one of our own HTTP failures | `isApiError(err, "CONFLICT", …)` | `@alfred/contracts` | a chain of per-kind `instanceof` tests |
-| parse **and** validate a JSON string | `parseJsonWith(raw, schema, fallback?)` | `@alfred/contracts` | `JSON.parse(...)` then a cast |
-| parse JSON that might be malformed, no schema | `safeJsonParse(raw)` | `@alfred/contracts` | `try { JSON.parse } catch` |
-| normalize / extract an email address | `parseEmailAddress(value)` | `@alfred/contracts` | manual `<...>` / lowercase parsing |
-| fold a key to a canonical form | `canonicalParamKey(key)` | `@alfred/contracts` | `.toLowerCase().replace(/[_-]/g, "")` — **drift check bans the raw idiom** |
-| strip tool-result / error noise before it hits a model | `sanitizeToolResult` / `sanitizeErrorMessage` | `@alfred/contracts` | inline trimming |
-| enforce Alfred's prose voice (no em-dashes, plain words) | `sanitizeVoice` / `createVoiceStreamSanitizer` | `@alfred/ai/voice` | manual string replaces |
-| read an environment variable | `serverEnv()` | `@alfred/env/server` | `process.env.*` — **repo invariant** |
-| validate a timezone string | `isIanaTimezone(value)` | `@alfred/contracts` | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it** |
-| any calendar-day, wall-clock, or UTC-offset reading | `settings.resolveTimezone` for the zone, then the `@alfred/assistant/time` module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredassistanttime-packagesassistantsrctime)) | `@alfred/assistant/time` | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
-| get a language-model handle and reasoning policy | `route` | `@alfred/ai` | constructing a provider client |
-| run a query and read typed rows | `rowsFromExecute` + named Drizzle row types | `@alfred/db` | `(res as Row[])` |
-| restrict a query or partial index to live `agent_runs` | `runIsNotTerminal(t.status)` | `@alfred/db` schemas | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site |
-| merge Tailwind class names (web) | `cn(...)` | `apps/web/src/lib/utils.ts` | template-string concatenation |
-| capitalize / lower-first / relative-time a string (web) | `capitalize` / `lowerFirst` / `formatRelative` | `apps/web/src/lib/strings.ts` | inline `slice(0,1).toUpperCase()` |
+| You're about to write…                                                                        | Reach for                                                                                                                                                                                                                                                                                                          | From                          | Don't hand-roll                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a check that a _genuinely `unknown`_ value at a boundary is a plain object before indexing it | `isRecord(x)` / `toRecord(x)`                                                                                                                                                                                                                                                                                      | `@alfred/contracts`           | `typeof x === "object" && x !== null`                                                                                                                                       |
+| coerce `unknown` into a `string[]`                                                            | `toStringArray(x)`                                                                                                                                                                                                                                                                                                 | `@alfred/contracts`           | `x as string[]` — **the drift check bans this**                                                                                                                             |
+| read a nested field off `unknown`/parsed JSON                                                 | `getPath` / `getStringPath`                                                                                                                                                                                                                                                                                        | `@alfred/contracts`           | chained `?.` with casts                                                                                                                                                     |
+| check a value is a present, non-empty string                                                  | `isNonEmptyString(x)`                                                                                                                                                                                                                                                                                              | `@alfred/contracts`           | `typeof x === "string" && x.length`                                                                                                                                         |
+| turn a caught error into a display string                                                     | `toMessage(err)`                                                                                                                                                                                                                                                                                                   | `@alfred/contracts`           | `String(err)` / `err.message`                                                                                                                                               |
+| redact secrets from an error/body before logging                                              | `redactSecrets` / `summarizeBody`                                                                                                                                                                                                                                                                                  | `@alfred/contracts`           | ad-hoc regex                                                                                                                                                                |
+| fail a request with an HTTP status                                                            | `Errors.NotFoundError(msg)` and its 11 siblings                                                                                                                                                                                                                                                                    | `@alfred/contracts`           | `new ApiError(...)` or a new `extends ApiError` subclass — **the drift check bans both**                                                                                    |
+| catch one of our own HTTP failures                                                            | `isApiError(err, "CONFLICT", …)`                                                                                                                                                                                                                                                                                   | `@alfred/contracts`           | a chain of per-kind `instanceof` tests                                                                                                                                      |
+| parse **and** validate a JSON string                                                          | `parseJsonWith(raw, schema, fallback?)`                                                                                                                                                                                                                                                                            | `@alfred/contracts`           | `JSON.parse(...)` then a cast                                                                                                                                               |
+| parse JSON that might be malformed, no schema                                                 | `safeJsonParse(raw)`                                                                                                                                                                                                                                                                                               | `@alfred/contracts`           | `try { JSON.parse } catch`                                                                                                                                                  |
+| normalize / extract an email address                                                          | `parseEmailAddress(value)`                                                                                                                                                                                                                                                                                         | `@alfred/contracts`           | manual `<...>` / lowercase parsing                                                                                                                                          |
+| fold a key to a canonical form                                                                | `canonicalParamKey(key)`                                                                                                                                                                                                                                                                                           | `@alfred/contracts`           | `.toLowerCase().replace(/[_-]/g, "")` — **drift check bans the raw idiom**                                                                                                  |
+| strip tool-result / error noise before it hits a model                                        | `sanitizeToolResult` / `sanitizeErrorMessage`                                                                                                                                                                                                                                                                      | `@alfred/contracts`           | inline trimming                                                                                                                                                             |
+| enforce Alfred's prose voice (no em-dashes, plain words)                                      | `sanitizeVoice` / `createVoiceStreamSanitizer`                                                                                                                                                                                                                                                                     | `@alfred/ai/voice`            | manual string replaces                                                                                                                                                      |
+| read an environment variable                                                                  | `serverEnv()`                                                                                                                                                                                                                                                                                                      | `@alfred/env/server`          | `process.env.*` — **repo invariant**                                                                                                                                        |
+| validate a timezone string                                                                    | `isIanaTimezone(value)`                                                                                                                                                                                                                                                                                            | `@alfred/contracts`           | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it**                                                                                    |
+| any calendar-day, wall-clock, or UTC-offset reading                                           | `settings.resolveTimezone` for the zone, then the `@alfred/assistant/time` module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredassistanttime-packagesassistantsrctime)) | `@alfred/assistant/time`      | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
+| get a language-model handle and reasoning policy                                              | `route`                                                                                                                                                                                                                                                                                                            | `@alfred/ai`                  | constructing a provider client                                                                                                                                              |
+| run a query and read typed rows                                                               | `rowsFromExecute` + named Drizzle row types                                                                                                                                                                                                                                                                        | `@alfred/db`                  | `(res as Row[])`                                                                                                                                                            |
+| restrict a query or partial index to live `agent_runs`                                        | `runIsNotTerminal(t.status)`                                                                                                                                                                                                                                                                                       | `@alfred/db` schemas          | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site                                                                                                   |
+| merge Tailwind class names (web)                                                              | `cn(...)`                                                                                                                                                                                                                                                                                                          | `apps/web/src/lib/utils.ts`   | template-string concatenation                                                                                                                                               |
+| capitalize / lower-first / relative-time a string (web)                                       | `capitalize` / `lowerFirst` / `formatRelative`                                                                                                                                                                                                                                                                     | `apps/web/src/lib/strings.ts` | inline `slice(0,1).toUpperCase()`                                                                                                                                           |
 
 ## Catalog — canonical owners
 
@@ -59,7 +59,9 @@ The heavy hitters, by owner. Import counts are approximate (from a workspace gre
 and just signal how load-bearing each surface is.
 
 ### Value-shape guards — `@alfred/contracts` (`src/guards.ts`)
+
 Validate external / persisted / protocol data instead of asserting it.
+
 - `isRecord`, `isIndexable`, `isNonEmptyString`
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
 - `getPath`, `getStringPath` (safe nested read)
@@ -74,14 +76,17 @@ parse already proved. If the field you want is typed, index it directly — abse
 shows up as `undefined`.
 
 ### Errors — `@alfred/contracts` (`src/errors.ts`)
+
 - `toMessage` (~70 uses — the single most-imported helper)
 - `redactSecrets`, `summarizeBody`, `MAX_ERROR_BODY_CHARS`
 - `isHttpError`, `httpErrorFromResponse`
 - We deliberately do **not** use Effect here — see the shared-error-primitives decision.
 
 ### HTTP failures — `@alfred/contracts` (`src/api-errors.ts`)
-One class, one code table, one door. `HttpError` above is the *inbound* failure of a
-provider we called; `ApiError` is the *outbound* failure we answer a client with.
+
+One class, one code table, one door. `HttpError` above is the _inbound_ failure of a
+provider we called; `ApiError` is the _outbound_ failure we answer a client with.
+
 - `Errors` — the factory namespace. Type `Errors.` and the editor lists all twelve
   (`BadRequestError`, `NotFoundError`, `ConflictError`, …) with status and meaning. No
   `new`, and nothing to import per kind.
@@ -94,15 +99,19 @@ provider we called; `ApiError` is the *outbound* failure we answer a client with
   sets the status.
 
 ### JSON — `@alfred/contracts` (`src/json.ts`)
+
 - `safeJsonParse`, `parseJsonWith` (overloaded: with/without fallback), `toJsonValue`
 
 ### Sanitize — `@alfred/contracts` (`src/sanitize.ts`)
+
 - `sanitizeToolResult`, `sanitizeErrorMessage`
 
 ### Env — `@alfred/env/server`
+
 - `serverEnv()` — the only sanctioned reader of process env.
 
 ### Timezone — `@alfred/assistant/time` (`packages/assistant/src/time/`)
+
 Owns two concepts, and every `Intl` formatter, DST edge, and memo cache that
 serves them. Nothing else in the API constructs an `Intl.DateTimeFormat` for a
 date or a zone.
@@ -130,7 +139,7 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   `formatDay(key, "short" | "long" | "weekday")` renders it in a closed style
   set. None of the three takes a zone, and that is the point: a key is already a
   calendar day, so re-projecting it through a zone is how a UTC+14 user got the
-  wrong weekday. Never compare a *rendered* weekday name to `"Saturday"`; that
+  wrong weekday. Never compare a _rendered_ weekday name to `"Saturday"`; that
   made a formatter's locale choice load-bearing for a briefing decision in
   another file.
 - **Which zone** (`IanaTimezone`): `settings.resolveTimezone`, `firstValidTimezone`,
@@ -138,10 +147,11 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   `ianaTimezoneSchema` / `isIanaTimezone` (`@alfred/contracts`).
 - **A day key from outside** enters through `parseLocalDateKey` (throws) or
   `isLocalDateKey` (for a Zod `refine` or a filter). Both reject a truncated key
-  *and* a day that doesn't exist — a bare `/^\d{4}-\d{2}-\d{2}$/` accepts
+  _and_ a day that doesn't exist — a bare `/^\d{4}-\d{2}-\d{2}$/` accepts
   `"2026-02-30"`, which `Date.UTC` then rolls over in silence.
 
 ### DB — `@alfred/db`
+
 - `db`, the schema table objects (`user`, `documents`, `emailTriage`, `agentRuns`,
   `userFacts`, `integrationCredentials`, `apiCallLog`, …), `rowsFromExecute`
 - Lifecycle: `closeConnections`, `warmPool`, `closeRedis`; type `DbTransaction`
@@ -162,16 +172,18 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   local list of index names.
 
 ### Models — `@alfred/ai`
+
 - `route`
 
 ### Web-local — `apps/web/src/lib/`
+
 - `cn` (`utils.ts`), `capitalize`/`lowerFirst`/`formatRelative` (`strings.ts`),
   `formatCost`/`formatTokens` (`usage-format.ts`), `asRecord`/`parseJsonRecord`
   (`json-record.ts` — prefer the contracts guards for anything reusable)
 
 ## Where new helpers go (colocation rule)
 
-1. **Cross-boundary and browser-safe** (used by web *and* server, no Node deps) →
+1. **Cross-boundary and browser-safe** (used by web _and_ server, no Node deps) →
    `@alfred/contracts`, in the domain file that fits (`guards`, `json`, `errors`,
    `sanitize`, …). This is the reuse home.
 2. **Server-only but shared across features** → the owning `@alfred/*` package

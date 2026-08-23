@@ -1,6 +1,5 @@
 # ADR-0039 — Email attachment ingestion: dedicated `attachments` family, page-bounded typed chunks, separate extraction queue
 
-
 **Decision.** Attachments on ingested emails become first-class entities with their own ingestion path, distinct from the existing `documents`/`chunks` text flow. Three pieces:
 
 1. **Schema family** — new `attachments` and `attachment_pages` tables; `chunks` gains `attachment_page_id` (xor with `document_id`) plus segment-typing columns.
@@ -63,13 +62,13 @@ chunks  (gains columns; existing rows unaffected)
 
 Co-mingling extraction with `ingestion-runs` would let one Anthropic outage backlog Gmail polling, and a burst of attachments would starve `gmail.poll_recent` of worker slots. The queues have different latency, cost, retry, and concurrency profiles:
 
-| Property | `ingestion-runs` | `doc-extraction-runs` |
-|---|---|---|
-| Per-job latency | sub-second | multi-second per page |
-| Per-job dollar cost | ~$0 | real money |
-| Bottleneck | Gmail rate limits | Anthropic rate limits |
-| Concurrency default | 2 | 5 |
-| Retry shape | 5 attempts, 5s backoff | 3 attempts, 30s backoff |
+| Property            | `ingestion-runs`       | `doc-extraction-runs`   |
+| ------------------- | ---------------------- | ----------------------- |
+| Per-job latency     | sub-second             | multi-second per page   |
+| Per-job dollar cost | ~$0                    | real money              |
+| Bottleneck          | Gmail rate limits      | Anthropic rate limits   |
+| Concurrency default | 2                      | 5                       |
+| Retry shape         | 5 attempts, 5s backoff | 3 attempts, 30s backoff |
 
 Jobs on the new queue:
 

@@ -1,6 +1,5 @@
 # ADR-0029 — Composer model picker: opaque semantic tiers, never provider names
 
-
 **Decision.** The composer's model picker exposes two values only: `Default` (the boss model — `getBossModel()`) and `Pro` (a higher-tier opt-in for complex tasks — points at the same family today, room to upgrade later). Provider/vendor names (`Claude`, `GPT`, `Sonnet`, `Opus`, etc.) are never shown in the user-facing UI. The chip renders disabled until m13/m14 wire actual routing.
 
 **Why.**

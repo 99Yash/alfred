@@ -1,7 +1,6 @@
 # ADR-0057 — Passive memory capture + the significance-score primitive + chat→memory write path
 
-
-**Decision.** Memory **capture is fully passive**. The team graph + identity facts are inferred from integration signal (Gmail/Calendar) and **enriched/corroborated via web search**, written autonomously under ADR-0056, kept fresh by continuous extraction + Loop-1 supersession — **no active onboarding interrogation, no prompted confirmation card**. Web-search enrichment is gated by a new first-class **significance score** over `entities`, which is *also* the single source for todo personal-relevance (ADR-0050 **D1**), triage sender priority, and meeting-prep attendee prioritization. Direct user statements become durable memory through a two-path **chat→memory** write, with a durable-vs-run-scoped intent split. Companion to ADR-0056; the two together are the long-term-memory foundation. Build sequence + file detail in [docs/plans/long-term-memory-v1.md](../plans/long-term-memory-v1.md).
+**Decision.** Memory **capture is fully passive**. The team graph + identity facts are inferred from integration signal (Gmail/Calendar) and **enriched/corroborated via web search**, written autonomously under ADR-0056, kept fresh by continuous extraction + Loop-1 supersession — **no active onboarding interrogation, no prompted confirmation card**. Web-search enrichment is gated by a new first-class **significance score** over `entities`, which is _also_ the single source for todo personal-relevance (ADR-0050 **D1**), triage sender priority, and meeting-prep attendee prioritization. Direct user statements become durable memory through a two-path **chat→memory** write, with a durable-vs-run-scoped intent split. Companion to ADR-0056; the two together are the long-term-memory foundation. Build sequence + file detail in [docs/plans/long-term-memory-v1.md](../plans/long-term-memory-v1.md).
 
 **Micro-decisions.**
 
@@ -19,7 +18,7 @@
 
 - **ADR-0031** — supersedes "review before durable memory writes" for person dossiers (now autonomous + reversible per ADR-0056); keeps citation-grounding + the confidence-tier TTL cache.
 - **ADR-0042** — **builds** `person_profiles` (the dossier cache, currently unbuilt); the `identity_confidence`-tier TTL stays.
-- **ADR-0011 / ADR-0022** — extends cold-start web research from the user to the user's *significant people*, same tooling + budget posture.
+- **ADR-0011 / ADR-0022** — extends cold-start web research from the user to the user's _significant people_, same tooling + budget posture.
 - **ADR-0050 D1** — the significance score **is** the deferred personal-relevance primitive.
 - **ADR-0056** — every write rides that governance; web-corroboration feeds confidence→notification.
 - **ADR-0019 / ADR-0035** — chat→memory reuses end-of-thread extraction; the durable-vs-run-scoped directive split.
@@ -27,7 +26,7 @@
 **Alternatives.**
 
 - (a) **Active onboarding interrogation.** Rejected: friction on a sub-minute flow, half-filled forms, and teams change anyway (integrations re-capture).
-- (b) **Confirm-card hybrid.** Rejected: prompted confirmation is friction; ADR-0056 reversibility + the review surface make *unprompted* safe.
+- (b) **Confirm-card hybrid.** Rejected: prompted confirmation is friction; ADR-0056 reversibility + the review surface make _unprompted_ safe.
 - (c) **Web-enrich every contact.** Rejected: cost/latency; significance gate + budget cap instead.
 - (d) **Per-feature "who matters" heuristics.** Rejected: four drifting copies; one shared significance score.
 - (e) **Conservative chat capture (explicit "remember" only).** Rejected: under-capture is the worse failure for an assistant; reversibility makes proactive capture safe.

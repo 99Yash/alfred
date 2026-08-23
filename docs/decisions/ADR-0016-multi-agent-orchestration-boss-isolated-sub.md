@@ -1,6 +1,5 @@
 # ADR-0016 — Multi-agent orchestration: boss + isolated sub-agents + boss-only-writes run-context
 
-
 **Decision.** Boss/sub-agent topology with a **namespaced scratchpad**: sub-agents auto-write to their own `scratch.{sub_id}.*` zone (no extra LLM cost; runtime persists the return value), boss reads scratch and promotes selected entries to `shared.*` (canonical/validated). Concretely:
 
 - Boss agent plans, decomposes a task, spawns N sub-agents (parallel or serial), aggregates results, replies.
@@ -63,4 +62,4 @@ Per-run, TTL ~7 days (post-completion) for audit/replay. Lives in Postgres next 
 
 The "no Redis for this layer" line is superseded. Live scratchpad reads/writes now go to Redis during a run; the executor's terminal step writes a per-key snapshot to `agent_run_context` for durable audit/replay. The rest of this ADR's pattern (namespaced scratchpad, boss-promotes-to-shared, single-writer-per-zone, 1-level depth cap, sub-agents don't compact) is unchanged. See ADR-0036 for the durability composition and crash-resume story.
 
-**Amendment (2026-07-26) — a chat-spawned child is visible while it works.** Isolation is about *context and writes*, not about the user. A child spawned from a chat turn now carries a persisted chat origin in its run metadata and streams its own tool cards into the parent's turn, where they nest under the `spawn_sub_agent` card that started it. The child still has no live-chat interaction of its own — the chat address is a display channel, not tool access, so a child never gains conversation-reading or reply tools. See ADR-0073's 2026-07-26 amendment for the addressing rule and its declined alternative.
+**Amendment (2026-07-26) — a chat-spawned child is visible while it works.** Isolation is about _context and writes_, not about the user. A child spawned from a chat turn now carries a persisted chat origin in its run metadata and streams its own tool cards into the parent's turn, where they nest under the `spawn_sub_agent` card that started it. The child still has no live-chat interaction of its own — the chat address is a display channel, not tool access, so a child never gains conversation-reading or reply tools. See ADR-0073's 2026-07-26 amendment for the addressing rule and its declined alternative.

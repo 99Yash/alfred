@@ -22,7 +22,7 @@ Label management (`packages/integrations/src/google/labels.ts`):
 
 **Classifier rubric.** The per-category rules live in `SYSTEM_PROMPT` in `packages/assistant/src/triage/classify.ts`, the only source of truth the live pipeline reads. One stale copy survives: `DEEPEN_SYSTEM_PROMPT` (`packages/assistant/src/triage/deepen.ts`) restates the ten-category taxonomy and several per-category rules, but nothing calls `deepenTriageClassification`, so that module is dead code rather than a second live source. They are deliberately not restated here: the rubric is the behavior, so a prose copy competes with the prompt the model actually sees and the copy always loses. Read the prompt.
 
-Sender/observation flow — what each stage is *for*, since the call graph already says what it does:
+Sender/observation flow — what each stage is _for_, since the call graph already says what it does:
 
 - `extractSenderContext` emits typed sender context so the model never parses service envelopes out of prose. Envelope parsing in the prompt was the original misclassification source.
 - `assembleObservations` hands the cheap classifier deterministic context (sender priors, account persona, thread state, known-contact flag, Gmail-native signals, content flags). The design bet of triage v3: spend determinism, not model tier.

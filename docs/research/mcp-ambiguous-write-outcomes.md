@@ -136,11 +136,11 @@ unknown-outcome path for a lost creation response and for cancellation races.
 One overloaded `status='failed'` cannot honestly represent this situation. Keep
 two concepts distinct:
 
-| Concept | Example values | Meaning |
-|---|---|---|
-| Local attempt lifecycle | `staged`, `sent`, `response_received` | What Alfred knows it did |
-| Remote effect outcome | `succeeded`, `rejected`, `failed`, `unknown` | What Alfred can prove about the effect |
-| Retry disposition | `safe`, `blocked`, `reconcile`, `same_key_only` | What the broker may do next |
+| Concept                 | Example values                                  | Meaning                                |
+| ----------------------- | ----------------------------------------------- | -------------------------------------- |
+| Local attempt lifecycle | `staged`, `sent`, `response_received`           | What Alfred knows it did               |
+| Remote effect outcome   | `succeeded`, `rejected`, `failed`, `unknown`    | What Alfred can prove about the effect |
+| Retry disposition       | `safe`, `blocked`, `reconcile`, `same_key_only` | What the broker may do next            |
 
 The exact schema can remain smaller than this table. In Alfred's current model,
 recording the action staging as `executed` is semantically reasonable if that
@@ -222,15 +222,15 @@ remote contract.
 
 ## Practical policy matrix
 
-| Evidence after timeout | Automatic action |
-|---|---|
-| Broker proves request never reached application logic | Retry may be safe |
-| Reviewed natural idempotence of the operation | Retry under that scoped policy |
-| Persisted remote idempotency key within its TTL | Retry only with the same key and payload |
-| Known MCP task ID | Poll/retrieve; do not re-call the tool |
-| Reconciliation proves effect applied | Mark succeeded; do not retry |
+| Evidence after timeout                                      | Automatic action                          |
+| ----------------------------------------------------------- | ----------------------------------------- |
+| Broker proves request never reached application logic       | Retry may be safe                         |
+| Reviewed natural idempotence of the operation               | Retry under that scoped policy            |
+| Persisted remote idempotency key within its TTL             | Retry only with the same key and payload  |
+| Known MCP task ID                                           | Poll/retrieve; do not re-call the tool    |
+| Reconciliation proves effect applied                        | Mark succeeded; do not retry              |
 | Reconciliation proves effect absent under a strong contract | Mark not applied; retry as policy permits |
-| No conclusive evidence | Keep unknown and block automatic retry |
+| No conclusive evidence                                      | Keep unknown and block automatic retry    |
 
 ## Consequences for the current proposal
 

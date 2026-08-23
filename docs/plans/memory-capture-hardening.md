@@ -8,13 +8,13 @@ Dev evidence (2026-06-28, re-confirmed at grill time): `user_facts` = **921 rows
 
 1. **The prompt is defense-in-depth, never the safety floor.** Rules 1–8 in `extraction.ts` already say "don't harvest job-posting companies, don't store third-party attributes" and demonstrably failed on exactly those cases. The fix is **deterministic, code-enforced gates**; the prompt stays as recall guidance only.
 2. **`facts.ts` owns write invariants; the workflow owns document-context attribution.** `proposeFact` must never reach back into `documents` or infer sender identity. The only check that needs document context — "is this doc authored by the user?" — lives in the workflow, the one place with `doc.metadata` + the connected-account email.
-3. **Canonicalization ≠ rejection.** Alias-mapping (`current_company`/`company_name`→`employer`) prevents duplicate identities and runs for **all** sources. Unknown-key *rejection* is a trust/source policy and fires for `document` only. They are different policies and must not be conflated.
+3. **Canonicalization ≠ rejection.** Alias-mapping (`current_company`/`company_name`→`employer`) prevents duplicate identities and runs for **all** sources. Unknown-key _rejection_ is a trust/source policy and fires for `document` only. They are different policies and must not be conflated.
 4. **Plan the ontology once, and migrate the read side with it.** `read_user_context` may expose DTO fields named `currentCompany` / `currentRole` / `currentLocation`, but those are presentation fields. Storage keys should be durable fact concepts (`employer`, `job_title`, `location`, `full_name`) whose currentness is represented by `status` + `valid_from` / `valid_until`, not by baking `current_` into the key. #330 therefore includes updating the #332 read-side profile spine and canonicalizing live `current_*` rows; no temporary v1/v2 split.
 5. **Identity has better sources than inbound email.** Cold-start research (currently `name`/`home_city`/`home_country`/`company`/`personal_site`/`github_username`…), user edits, and explicit `system.remember` are the authoritative origins. Under-learning identity from documents is nearly free; over-learning is the bug. The attribution gate therefore defaults to **deny**.
 
 ## Three enforcement layers
 
-### 1. `@alfred/contracts` — *what keys exist* (pure, web-safe, no Node deps)
+### 1. `@alfred/contracts` — _what keys exist_ (pure, web-safe, no Node deps)
 
 - The canonical key registry must be **one source of truth**, not a second table next to `FACT_ONTOLOGY` in `user-model.ts`.
   - Extend/update `FACT_ONTOLOGY` into the #330 vocabulary and export `CANONICAL_FACT_KEYS` from that same underlying map. Do not leave two unconnected registries both claiming to be canonical.
@@ -38,10 +38,10 @@ Dev evidence (2026-06-28, re-confirmed at grill time): `user_facts` = **921 rows
   ```
   Also normalizes the open `relationship:<email>` shape (lowercased email); an unparseable suffix returns `ok:false`.
 
-### 2. `packages/api/src/modules/memory/fact-policy.ts` — *which sources write which keys*
+### 2. `packages/api/src/modules/memory/fact-policy.ts` — _which sources write which keys_
 
 - `classifyDocumentFactKey(canonicalKey) → "tierA" | "tierB" | "not_writable"`
-  - **Tier A (authorship-free):** `relationship:<email>` only — an inbound email legitimately establishes *the user's* social graph.
+  - **Tier A (authorship-free):** `relationship:<email>` only — an inbound email legitimately establishes _the user's_ social graph.
   - **Tier B (authorship-required):** `full_name`, `first_name`, `last_name`, `user_nickname`, `bio_summary`, `work_summary`, `employer`, `job_title`, `team`, `manager`, `location`, `home_city`, `home_country`, `timezone`, `birthday`, `marital_status`, `spouse_name`, `personal_site`, `github_username`, `twitter_handle`, `linkedin_url`, `family_summary`, `notable_relations`.
   - **`not_writable`:** `pref:*`, `standing_instruction`, `phone_number`, unknown keys, and everything else (the junk).
 - `validateFactValueForKey(canonicalKey, value)` — context-free structural checks (e.g. `relationship` value shape `{ role, since? }`). Source-agnostic invariant.
@@ -49,6 +49,7 @@ Dev evidence (2026-06-28, re-confirmed at grill time): `user_facts` = **921 rows
   - **Multi-valued (no conflict check):** `relationship:*`, `pref:*`, `phone_number` (work/personal/temporary numbers all legit).
   - `employer`/`job_title`/`location`/`home_city`/`home_country` are modeled as **current active profile facts**; historical values are represented by superseded rows and validity windows, not separate keys. `team`/`manager`/`personal_site` are **primary/current** for this slice; add `affiliation`/`additional_site` later only if plural is genuinely needed. Don't weaken the fix for edge cases.
 - `authoredByUser(doc, selfIdentity) → Authorship` — evidence-returning, conservative-default-`false`, and provider-discriminated rather than stringly-typed:
+
   ```ts
   type AuthorshipSource =
     | "gmail"
@@ -62,7 +63,12 @@ Dev evidence (2026-06-28, re-confirmed at grill time): `user_facts` = **921 rows
 
   type AuthorshipIdentity =
     | { kind: "email"; value: string; accountId?: string }
-    | { kind: "provider_user_id"; provider: "slack" | "github"; value: string; workspaceId?: string }
+    | {
+        kind: "provider_user_id";
+        provider: "slack" | "github";
+        value: string;
+        workspaceId?: string;
+      }
     | { kind: "provider_login"; provider: "github"; value: string };
 
   type AuthorshipProof =
@@ -110,6 +116,7 @@ Dev evidence (2026-06-28, re-confirmed at grill time): `user_facts` = **921 rows
         observed?: AuthorshipIdentity;
       };
   ```
+
   Decision traces should log `source`/`method`/`reason` and stable non-secret ids; mask or hash raw email addresses if emitted outside local debug output.
   - **gmail:** `true` if `metadata.isSent === true` **or** parsed `metadata.from` equals the **connected-account** email (prefer `documents.accountId` → `integration_credentials.accountLabel` over a global `user.email` — handles work/personal mailboxes).
     - The Gmail proof carries both the method and mailbox context: `accountId`, `accountEmail`, and parsed `fromEmail`. `sent_flag` is accepted even when `fromEmail` is absent because Gmail's sent-label signal comes from the connected mailbox; `from_connected_account` requires an email equality match.
@@ -137,10 +144,25 @@ A diagnostic wrapper, **not** the source of truth — `proposeFact` remains the 
 
 ```ts
 type DocumentFactGateResult =
-  | { ok: true; key: string; value: unknown; meta?: Record<string, unknown>; authorship?: Authorship }
-  | { ok: false;
-      reason: "unknown_key" | "not_document_writable" | "authorship_required" | "invalid_relationship_key" | "invalid_value";
-      originalKey: string; canonicalKey?: string; authorship?: Authorship };
+  | {
+      ok: true;
+      key: string;
+      value: unknown;
+      meta?: Record<string, unknown>;
+      authorship?: Authorship;
+    }
+  | {
+      ok: false;
+      reason:
+        | "unknown_key"
+        | "not_document_writable"
+        | "authorship_required"
+        | "invalid_relationship_key"
+        | "invalid_value";
+      originalKey: string;
+      canonicalKey?: string;
+      authorship?: Authorship;
+    };
 ```
 
 - Calls the **same** `canonicalizeFactKey` / `classifyDocumentFactKey` / `validateFactValueForKey` helpers (no logic duplication).
@@ -164,7 +186,7 @@ The capture gates are not done until new canonical writes surface through the id
 
 ## Data purge (#330 owns it; #331 folded in)
 
-The new gates stop *future* writes only; the 921 live rows keep `read_user_context` hallucinating. #331's purge tooling was built on the **old** narrow classifier and did commit **638 rejected document rows** on dev, but it intentionally kept identity-shaped keys that we now know are third-party leaks. Current dev still has **241 active document rows** (170 confirmed + 71 proposed), including `home_city`, `home_country`, `github_username`, `phone_number`, and `personal_website` pollution. Rebuild cleanup on the new classifier — one definition of "junk", no third drifting copy.
+The new gates stop _future_ writes only; the 921 live rows keep `read_user_context` hallucinating. #331's purge tooling was built on the **old** narrow classifier and did commit **638 rejected document rows** on dev, but it intentionally kept identity-shaped keys that we now know are third-party leaks. Current dev still has **241 active document rows** (170 confirmed + 71 proposed), including `home_city`, `home_country`, `github_username`, `phone_number`, and `personal_website` pollution. Rebuild cleanup on the new classifier — one definition of "junk", no third drifting copy.
 
 - **Shape (a) — canonicalization failures:** reject document rows whose key fails `canonicalizeFactKey`, including malformed `relationship:*` rows (`relationship:github.com`, display names, domains, bot labels). This must run before classification.
 - **Shape (b) — `not_writable` keys:** reject by canonical key alone (`classifyDocumentFactKey === "not_writable"`) — `evoting_*`, `*_insurance_*`, `programming_language`, `starbucks_*`, loyalty rows, `phone_number`, `pref:*`, etc.
