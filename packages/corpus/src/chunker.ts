@@ -21,7 +21,7 @@
  */
 
 import { isValidPage } from "@alfred/contracts";
-import { APPROXIMATE_APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
+import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 
 export interface ChunkerOptions {
   /** Target token count per chunk. Default 1000. */
