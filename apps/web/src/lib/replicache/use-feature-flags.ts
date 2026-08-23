@@ -26,8 +26,10 @@ function valueIsOn(value: unknown): boolean {
  * Live view of the background-agent feature toggles (Settings → Features).
  *
  * Preferences sync as `pref/{key}` rows; we scan the prefix once and keep a
- * `key → value` map. Absence of a row means the user never touched that
- * switch, so it resolves to its server default (ON) via `isOn`.
+ * `key → value` map via {@link usePreferenceMap}, which is built on the
+ * shared {@link useReplicacheSubscription} helper. Absence of a row means
+ * the user never touched that switch, so it resolves to its server default
+ * (ON) via `isOn`.
  */
 export function useFeatureFlags(): FeatureFlagsState {
   const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
