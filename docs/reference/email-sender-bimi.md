@@ -6,12 +6,12 @@ Alfred sends transactional email (briefings, approvals, OTP fallbacks) through
 
 ## Current state
 
-| Thing | Value |
-| --- | --- |
-| From address | `Alfred <hey@alfred.beauty>` (`RESEND_FROM_EMAIL`, set on Railway `server` + local `.env`) |
-| Resend domain | `alfred.beauty`, region `eu-west-1`, **verified** (id `cc812426-983d-4f25-abca-576512b07e5c`) |
-| DNS provider | Vercel (apex uses Vercel nameservers; manage with `vercel dns`) |
-| Apex hosting | Railway (`server: railway-hikari`) — `apps/web/public/*` is served at `https://alfred.beauty/...` |
+| Thing         | Value                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------- |
+| From address  | `Alfred <hey@alfred.beauty>` (`RESEND_FROM_EMAIL`, set on Railway `server` + local `.env`)        |
+| Resend domain | `alfred.beauty`, region `eu-west-1`, **verified** (id `cc812426-983d-4f25-abca-576512b07e5c`)     |
+| DNS provider  | Vercel (apex uses Vercel nameservers; manage with `vercel dns`)                                   |
+| Apex hosting  | Railway (`server: railway-hikari`) — `apps/web/public/*` is served at `https://alfred.beauty/...` |
 
 ### DNS records on alfred.beauty (added via `vercel dns add`)
 
@@ -50,7 +50,7 @@ are met:
      ~2024 for **non-trademarked** logos with prior use. Faster/cheaper, no
      trademark needed. **Recommended first step** unless a trademark already
      exists.
-   The logo submitted for the cert must be the **same SVG** referenced by `l=`.
+     The logo submitted for the cert must be the **same SVG** referenced by `l=`.
 
 3. **Publish the cert** — host the issued `.pem` (cert chain) at
    `https://alfred.beauty/bimi/alfred-vmc.pem` (drop it in
@@ -66,7 +66,7 @@ are met:
 
 - Test sends: **only** to an allowlisted personal Gmail (`yashgouravkar@gmail.com`).
   Never `dev.7@oliv.ai` — it forwards to many dev accounts.
-- The email *body* logo (the inline `<img>` in templates) is separate from the
+- The email _body_ logo (the inline `<img>` in templates) is separate from the
   BIMI avatar — it's the PNG at `{CORS_ORIGIN}/images/logo/alfred-logo-email.png`
   and is unaffected by any of the above.
 - `croisillies.xyz` remains verified in Resend but is no longer used by Alfred;

@@ -1,6 +1,5 @@
 # Suggested implementation order
 
-
 The decisions are now self-contained enough to start building. Proposed milestone order:
 
 1. **Scaffold** ✅ _done 2026-04-27_ — copied milkpod's pnpm + Turborepo + packages (`ai`, `api`, `auth`, `config`, `db`, `env`, `sync`) + `apps/server` + new `apps/web` (Vite + TanStack Router). `@alfred/*` namespacing throughout. Acceptance criteria from `docs/plans/scaffolding-plan.md` all green.

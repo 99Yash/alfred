@@ -17,7 +17,7 @@ This note separates what primary sources say, what prominent repositories factua
 
 Zod infers static types from schemas. `z.infer` extracts the output type; `z.input` and `z.output` handle schemas where transforms make input and output diverge. [Zod basic usage](https://zod.dev/basics#inferring-types)
 
-For checking a schema against a type that already exists, current Zod docs present `z.toZod<T>()`, which checks *exact* type equality — an extra key, an omitted key, or `z.any()` is a compile error. They contrast it with `satisfies z.ZodType<Player>`, which checks assignability only: extra keys and bare `z.any()` slip through. [Zod basic usage](https://zod.dev/basics#matching-an-existing-type)
+For checking a schema against a type that already exists, current Zod docs present `z.toZod<T>()`, which checks _exact_ type equality — an extra key, an omitted key, or `z.any()` is a compile error. They contrast it with `satisfies z.ZodType<Player>`, which checks assignability only: extra keys and bare `z.any()` slip through. [Zod basic usage](https://zod.dev/basics#matching-an-existing-type)
 
 Object schemas support structural derivation, deliberately mirroring TypeScript's own utility types:
 
@@ -35,7 +35,7 @@ Drizzle's official zod integration derives validation schemas from table definit
 - `createSelectSchema(users)` builds the shape of queried data and catches projection mismatches: parsing a row selected with `{ id, name }` errors because the schema demands `age`. [drizzle-zod select schema](https://orm.drizzle.team/docs/zod#select-schema)
 - `createInsertSchema(users)` builds the insert shape — identity columns omitted, defaults respected. Documented use case: validating API requests before `db.insert(...).values(parsed)`. [drizzle-zod insert schema](https://orm.drizzle.team/docs/zod#insert-schema)
 - `createUpdateSchema(users)` builds the all-fields-optional update shape. [drizzle-zod update schema](https://orm.drizzle.team/docs/zod#update-schema)
-- Refinements accept either a callback to *extend* a derived field schema (`name: (schema) => schema.max(20)`) or a full Zod schema to *overwrite* it. This is how provider-specific constraints layer onto the table-derived baseline. [drizzle-zod refinements](https://orm.drizzle.team/docs/zod#refinements)
+- Refinements accept either a callback to _extend_ a derived field schema (`name: (schema) => schema.max(20)`) or a full Zod schema to _overwrite_ it. This is how provider-specific constraints layer onto the table-derived baseline. [drizzle-zod refinements](https://orm.drizzle.team/docs/zod#refinements)
 - `createSchemaFactory` supports extended Zod instances and coercion options. [drizzle-zod factory functions](https://orm.drizzle.team/docs/zod#factory-functions)
 
 A data-type reference maps every column type to its Zod equivalent automatically (e.g. `pg.varchar({ length })` → `z.string().max(length)`), so constraints declared once on the table flow into every derived schema. [drizzle-zod data type reference](https://orm.drizzle.team/docs/zod#data-type-reference)
@@ -56,7 +56,7 @@ So `as const` gives a const table its two useful properties — exhaustive liter
 
 ### `satisfies`: constraint without widening
 
-TypeScript 4.9's `satisfies` validates that an expression matches a type while preserving the expression's most specific inferred type. The release notes demonstrate exactly the const-table idiom Alfred uses: `satisfies Record<Colors, unknown>` catches both a missing key ("ensure we have *all* the keys") and an extra key ("but no more"), while indexed reads keep their narrow value types instead of widening to the record's value union. [TypeScript 4.9, the satisfies operator](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator)
+TypeScript 4.9's `satisfies` validates that an expression matches a type while preserving the expression's most specific inferred type. The release notes demonstrate exactly the const-table idiom Alfred uses: `satisfies Record<Colors, unknown>` catches both a missing key ("ensure we have _all_ the keys") and an extra key ("but no more"), while indexed reads keep their narrow value types instead of widening to the record's value union. [TypeScript 4.9, the satisfies operator](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator)
 
 Together, `as const` + `satisfies Record<KeyUnion, Value>` gives: exhaustiveness checking, typo detection, literal-typed reads, and readonly properties. That combination is why the pattern works mechanically regardless of which file hosts the table.
 
@@ -86,20 +86,20 @@ I verified each repository's full file tree via the GitHub git-trees REST API (`
 
 ### Summary of observations
 
-| Repo | Per-package `constants` table file | Per-package `schemas/` dir | Actual pattern |
-| --- | --- | --- | --- |
-| trpc/trpc | none | none | feature colocation |
-| calcom/cal.com | scattered, beside features | none | feature colocation + codegen |
-| bluesky-social/atproto | several, beside owners | none | JSON source of truth + codegen |
+| Repo                   | Per-package `constants` table file | Per-package `schemas/` dir | Actual pattern                 |
+| ---------------------- | ---------------------------------- | -------------------------- | ------------------------------ |
+| trpc/trpc              | none                               | none                       | feature colocation             |
+| calcom/cal.com         | scattered, beside features         | none                       | feature colocation + codegen   |
+| bluesky-social/atproto | several, beside owners             | none                       | JSON source of truth + codegen |
 
 None of the three uses either convention currently under discussion. All three lean toward ownership-by-role and colocation, and two of three rely on generation or derivation over hand-maintained parallel declarations.
 
 ## Part C — Inference and opinion
 
-*(This section is inference grounded in the above, not something the sources state.)*
+_(This section is inference grounded in the above, not something the sources state.)_
 
 1. **Derive-don't-redeclare has full ecosystem backing.** Every relevant tool is built around it: drizzle-zod exists precisely so schemas are never re-declared from tables; Zod's `.extend`/`.pick`/`.omit`/`.partial` exist precisely so variants come from one base; atproto generates types from lexicons for the same reason. A hand-copied schema like the Google token-row shape in [`apps/web/src/lib/integrations/use-integration-status.ts:22`](../../../apps/web/src/lib/integrations/use-integration-status.ts) has no tooling protecting it from drift — though note that file documents itself as a deliberate UI projection with a normalization transform, which is the legitimate case for a local schema.
-2. **The friction point is boundary choice, not syntax.** When a web projection intentionally differs from the stored row (nulling `installationId`, keeping only consumed fields), re-deriving from the DB row type would be wrong anyway — the row type lives in `@alfred/db`, which browser code cannot import. The real fix for that class of drift is an owning browser-safe schema at the API boundary (contracts, or the route module exporting its row schema), with the web projection derived from *that* via `.pick()` or shape-spread — not derivation straight from Drizzle.
+2. **The friction point is boundary choice, not syntax.** When a web projection intentionally differs from the stored row (nulling `installationId`, keeping only consumed fields), re-deriving from the DB row type would be wrong anyway — the row type lives in `@alfred/db`, which browser code cannot import. The real fix for that class of drift is an owning browser-safe schema at the API boundary (contracts, or the route module exporting its row schema), with the web projection derived from _that_ via `.pick()` or shape-spread — not derivation straight from Drizzle.
 3. **"One const-table file per package" is an invention without external precedent**, but so was the current contracts-only rule. Nothing in TypeScript cares where a const table lives; `as const` + `satisfies` provides identical guarantees in any file. The evidence that bears on the question is organizational: all three surveyed repos keep constants beside their owners or scatter them by feature, and none centralizes per package.
 4. **Alfred's existing const files are domain-scoped within one package, not per-package tables.** `briefing-constants.ts` and `tool-constants.ts` both live in `@alfred/contracts` and are split by domain because browser and server must agree on those specific values. Extending that naming to other packages would change the rule from "cross-boundary values go here" to "this package keeps its constants in one file," which is a different — and weaker — invariant. The `pool.ts` model shows when a dedicated constants file earns its existence: when several derived values couple to one knob, so the file encodes a relationship, not just proximity.
 

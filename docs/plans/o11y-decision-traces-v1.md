@@ -9,24 +9,24 @@
 `#210`/`#211`/`#212` were each found by a **manual prod SQL audit**, not by any signal
 the system raised. Self-ingestion (#211) ran ~9 days before a human noticed. Two gaps:
 
-1. **No durable "why this tag" decision trace.** The full structured record *already
-   exists* — `senderExtractionEvent()` (`apps/server/src/builtins/workflows/email-triage.ts:811`, type at `:769`)
+1. **No durable "why this tag" decision trace.** The full structured record _already
+   exists_ — `senderExtractionEvent()` (`apps/server/src/builtins/workflows/email-triage.ts:811`, type at `:769`)
    assembles deterministic context (persona, sender prior, relationship prose, thread
    state, content flags) + audit (first pass, conflict kind, second pass, override floor)
-   + final category/confidence + todo outcome + standing-instruction suppression. But it's
-   `JSON.stringify`'d into `ctx.log()`, which publishes an untyped `agent.progress`
-   payload (`executor.ts:142`) — durable as an outbox event, but not a first-class
-   queryable decision record.
+   - final category/confidence + todo outcome + standing-instruction suppression. But it's
+     `JSON.stringify`'d into `ctx.log()`, which publishes an untyped `agent.progress`
+     payload (`executor.ts:142`) — durable as an outbox event, but not a first-class
+     queryable decision record.
 2. **No drift/invariant metrics.** Nothing pushes "self-ingestion regressed" or
    "urgent+action_needed is 26% of inbox." Drift is discovered by audit, not raised.
 
 ## Decisions (future ADR candidate)
 
-- **The two halves are complementary, not layered.** Drift metrics read the *source of
-  truth* (`documents` / `email_triage` / `todos`) and **raise the flag**; decision traces
+- **The two halves are complementary, not layered.** Drift metrics read the _source of
+  truth_ (`documents` / `email_triage` / `todos`) and **raise the flag**; decision traces
   **explain it** when an operator drills in after a breach. In v1 the drift queries do
   **not** read `agent_decision_traces` — the table is write-only forensic substrate, sized
-  for "why did *this* tag fire," not aggregate slicing. (Aggregating over traces is a
+  for "why did _this_ tag fire," not aggregate slicing. (Aggregating over traces is a
   v1.1 seam once volume/justification exists.)
 - **Decision traces live in the DB**, not Langfuse. The motivating incidents were all
   found by SQL prod audits; the trace must live where they're queried, with durable
@@ -51,19 +51,19 @@ the system raised. Self-ingestion (#211) ran ~9 days before a human noticed. Two
 
 Joins the `agent_*` family. One row per traced decision.
 
-| column | type | notes |
-|---|---|---|
-| `id` | bigserial PK | cheap, like `agent_steps`; nothing FKs to it |
-| `runId` | text → `agent_runs.id` CASCADE | dies with the run |
-| `userId` | text → `user.id` CASCADE | denormalized for user-scoped drift queries |
-| `workflowSlug` | text | denormalized filter-by-workflow |
-| `stepId` | text | |
-| `attempt` | integer | a retried attempt = distinct rows (forensics) |
-| `kind` | text | discriminator, e.g. `triage.classification` |
-| `decisionKey` | text | stable per-step discriminator; default `default` for one decision of a kind |
-| `trace` | jsonb | the structured record (precise per-kind type at the producer/reader) |
-| `decidedAt` | timestamp defaultNow | |
-| `...lifecycle_dates` | | |
+| column               | type                           | notes                                                                       |
+| -------------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| `id`                 | bigserial PK                   | cheap, like `agent_steps`; nothing FKs to it                                |
+| `runId`              | text → `agent_runs.id` CASCADE | dies with the run                                                           |
+| `userId`             | text → `user.id` CASCADE       | denormalized for user-scoped drift queries                                  |
+| `workflowSlug`       | text                           | denormalized filter-by-workflow                                             |
+| `stepId`             | text                           |                                                                             |
+| `attempt`            | integer                        | a retried attempt = distinct rows (forensics)                               |
+| `kind`               | text                           | discriminator, e.g. `triage.classification`                                 |
+| `decisionKey`        | text                           | stable per-step discriminator; default `default` for one decision of a kind |
+| `trace`              | jsonb                          | the structured record (precise per-kind type at the producer/reader)        |
+| `decidedAt`          | timestamp defaultNow           |                                                                             |
+| `...lifecycle_dates` |                                |                                                                             |
 
 - **Unique** `(run_id, step_id, attempt, kind, decision_key)` → re-running a trace slot is
   `onConflictDoNothing` (idempotent, mirrors `pending_actions`), while multiple same-kind
@@ -80,10 +80,10 @@ imports `@alfred/contracts` — but **contracts cannot import api**. `SenderExtr
 `ClassifyAudit` / `SenderContextResult` / `ContentFlags` / `ThreadState` / `TriageConflict`
 — **all of which already live in `packages/api/src/modules/triage/`**. So:
 
-- **Move `SenderExtractionEvent` + the `senderExtractionEvent()` assembler *down* into the
+- **Move `SenderExtractionEvent` + the `senderExtractionEvent()` assembler _down_ into the
   `@alfred/api` triage module** (its dependency types are already there — zero new cross-package
   refs), export both from the triage barrel. `email-triage.ts` imports them from `@alfred/api`.
-  *Not* contracts — moving it to contracts would force its whole leaf-type tree up with it.
+  _Not_ contracts — moving it to contracts would force its whole leaf-type tree up with it.
 - **Registry lives in `@alfred/api`** (`modules/agent/decision-traces.ts`): a discriminated
   map `kind → payload type`, with `triage.classification → SenderExtractionEvent`. This is
   the typed surface producers/readers share. Derive, don't hand-roll.
@@ -121,16 +121,16 @@ imports `@alfred/contracts` — but **contracts cannot import api**. `SenderExtr
 
 Snapshot rows so metrics trend over time (the measurability substrate #218 tunes against).
 
-| column | type | notes |
-|---|---|---|
-| `id` | bigserial PK | |
-| `userId` | text → `user.id` CASCADE | |
-| `metric` | text | `self_ingestion_count` \| `attention_share_7d` \| `todo_dismiss_done_ratio` |
-| `value` | real | the scalar |
-| `windowLabel` | text | e.g. `7d` (null for point counts). **Not `window`** — that's a SQL reserved word; spare the raw `railway ssh` drift queries the quoting. |
-| `detail` | jsonb | numerator/denominator, sample ids, threshold, breached:bool |
-| `capturedAt` | timestamp defaultNow | |
-| `...lifecycle_dates` | | |
+| column               | type                     | notes                                                                                                                                    |
+| -------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                 | bigserial PK             |                                                                                                                                          |
+| `userId`             | text → `user.id` CASCADE |                                                                                                                                          |
+| `metric`             | text                     | `self_ingestion_count` \| `attention_share_7d` \| `todo_dismiss_done_ratio`                                                              |
+| `value`              | real                     | the scalar                                                                                                                               |
+| `windowLabel`        | text                     | e.g. `7d` (null for point counts). **Not `window`** — that's a SQL reserved word; spare the raw `railway ssh` drift queries the quoting. |
+| `detail`             | jsonb                    | numerator/denominator, sample ids, threshold, breached:bool                                                                              |
+| `capturedAt`         | timestamp defaultNow     |                                                                                                                                          |
+| `...lifecycle_dates` |                          |                                                                                                                                          |
 
 - Index `(user_id, metric, captured_at)`.
 
@@ -149,26 +149,26 @@ than standing up a 9th worker:
 - **Memory queue, not a new one:** add a `memory.drift_health_check` kind to
   `MemoryJobData` (`memory/queue.ts:20`); `processMemoryJob` dispatches to
   `runDriftHealthCheck`. Add one `upsertJobScheduler("memory.drift_health_check",
-  { every: 24h })` to `scheduleRepeatableMemoryJobs()` (`memory/repeatable.ts`). **Zero new
+{ every: 24h })` to `scheduleRepeatableMemoryJobs()` (`memory/repeatable.ts`). **Zero new
   boot/shutdown lines in `apps/server/src/index.ts`.**
 
 ### v1 metrics
 
 1. **`self_ingestion_count`** (acceptance, required) — count `documents` where
    `metadata->>'from'` matches Alfred's own send identity, `source='gmail'`, recent window.
-   **Threshold: > 0 → breach** (#211 regression: the ingestor *drops* self-mail, so this is
+   **Threshold: > 0 → breach** (#211 regression: the ingestor _drops_ self-mail, so this is
    normally 0; any row = the drop regressed). The self-identity helper is currently
    duplicated (`integrations/.../ingestor.ts:225` + `backfill-retire-self-mail-committed.ts:71`) —
    **extract one shared `selfSenderEmail()`** and reuse it in all three sites rather than
    inlining a fourth copy.
 2. **`attention_share_7d`** (acceptance, required) — `count(category IN
-   (urgent, action_needed) in 7d) / count(all classified in 7d)`. Uses the existing
+(urgent, action_needed) in 7d) / count(all classified in 7d)`. Uses the existing
    `email_triage_user_category_idx`. **Threshold: total ≥ 10 and share > 0.20 → breach**
    (#210 cited 26%).
 3. **`todo_dismiss_done_ratio`** (cheap add) — Alfred-authored `dismissed:done` over 7d
    (`todos.created_by='agent'`, `todos.status` + `completed_at`). Issue cites 41:1.
    Informational; high threshold.
-4. **Briefing-loop resurface count** — *deferred to v1.1*: `previouslySurfaced` is a
+4. **Briefing-loop resurface count** — _deferred to v1.1_: `previouslySurfaced` is a
    computed gather flag, not a column, and tangled with #283 dedup. Log the deferral.
 
 ### Breach-push

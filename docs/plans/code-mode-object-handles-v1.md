@@ -8,39 +8,39 @@ Keep large tool results out of the transcript by **parking them as object handle
 
 ## Framing (what this is NOT)
 
-This is *not* the "do anything in the API" / composition / BYO-MCP tier the ADR-0074 title imagines. The grill established (with receipts) that those drivers are dead or unproven:
+This is _not_ the "do anything in the API" / composition / BYO-MCP tier the ADR-0074 title imagines. The grill established (with receipts) that those drivers are dead or unproven:
 
 - **Token cost of many tool defs** — already solved by the lazy tool surface (#405/#411/#412/#414; kernel = 8 tools, ratchet-guarded by `packages/assistant/test/tool-runtime/schema-budget.test.ts`).
-- **Multi-step composition latency** — unmeasured/speculative; the one profiled case (`docs/plans/chat-latency-and-github-tools.md`) was a DB-orchestration bug, and the real fan-out need was fixed by *curation* (`github.search`).
+- **Multi-step composition latency** — unmeasured/speculative; the one profiled case (`docs/plans/chat-latency-and-github-tools.md`) was a DB-orchestration bug, and the real fan-out need was fixed by _curation_ (`github.search`).
 - **BYO-MCP** — owner instinct, zero user demand at n=1.
 
 The **only** live justification is **context virtualization** (the L0 sketch in `docs/plans/context-working-set-considered.md`), and its evidence gate — the rung-(a) truncation thermometer — **has not fired**. So v1 is a deliberate **experiment built ahead of proven need**. If the isolate cost outruns the need, the honest off-ramp is a bounded `read_object(handle, jsonpath, page)` peek path with no isolate at all (rejected by the owner for v1, kept on record).
 
 ## Locked decisions (from the grill)
 
-| Axis | Decision |
-|---|---|
-| Driver | Context virtualization only |
-| Park trigger | **Auto** at the existing rung-(a) bound (>32 KiB / >50 items / >8 000-char string) |
-| Handle payload | `{ handle, preview, schema, rowCount, provenance }` in the transcript |
-| Storage | R2 blob + Postgres metadata row, **thread-scoped + TTL** |
-| Query interface | **`code.run(source)` only** (no DSL, no non-code peek) |
-| Language | JS/TS |
-| Substrate | ~~Self-hosted `isolated-vm` V8 isolate in a forked worker, IPC bridge to main process~~ → **`experimental_runCodeMode` from `@ai-sdk/code-mode`, over an embedded QuickJS WebAssembly module in a `node:worker_threads` worker** (2026-08-19) |
-| Network | **Sandbox has zero network** — now structural: the guest owns no network API at all |
-| Capabilities | **Host functions only**: `load(handle)` (paged cursor), `broker.read` (facade over rung-a), `broker.write`. This is `run`'s native `hostFunctions` model, and async host functions are supported. |
-| Credentials | Never in the isolate; main API process is the only holder |
-| Sandbox host | ~~Forked worker process~~ → **worker thread in the API process** (2026-08-19). Guest JS runs in QuickJS *inside* WebAssembly, so an escape needs a QuickJS bug **and** a WASM-sandbox escape. A `child_process.fork()` wrapper stays available as cheap hardening. |
-| Writes | **Plan-then-apply** (dry-run → approve → apply) |
-| Replay | ~~Hash code + inputs~~ → **`run` signed continuations with a replay ledger** (2026-08-19): replay verifies transformed source, host-function-name manifest, and the complete serialized argument list, and rejects divergence before a mismatched host function runs |
-| Write TOCTOU | **Drift-guard write targets** — re-read only mutated entities at apply, abort on drift |
-| Honesty | **Forced provenance** on returns (which reads fed it / errored / emptied); behavioral eval |
-| Return bound | Over-bound return **re-parks recursively** as a new handle |
-| Gating | **On-by-default** for the single user (data stays in-house); graduation gated on code-run telemetry + thermometer |
+| Axis            | Decision                                                                                                                                                                                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Driver          | Context virtualization only                                                                                                                                                                                                                                          |
+| Park trigger    | **Auto** at the existing rung-(a) bound (>32 KiB / >50 items / >8 000-char string)                                                                                                                                                                                   |
+| Handle payload  | `{ handle, preview, schema, rowCount, provenance }` in the transcript                                                                                                                                                                                                |
+| Storage         | R2 blob + Postgres metadata row, **thread-scoped + TTL**                                                                                                                                                                                                             |
+| Query interface | **`code.run(source)` only** (no DSL, no non-code peek)                                                                                                                                                                                                               |
+| Language        | JS/TS                                                                                                                                                                                                                                                                |
+| Substrate       | ~~Self-hosted `isolated-vm` V8 isolate in a forked worker, IPC bridge to main process~~ → **`experimental_runCodeMode` from `@ai-sdk/code-mode`, over an embedded QuickJS WebAssembly module in a `node:worker_threads` worker** (2026-08-19)                        |
+| Network         | **Sandbox has zero network** — now structural: the guest owns no network API at all                                                                                                                                                                                  |
+| Capabilities    | **Host functions only**: `load(handle)` (paged cursor), `broker.read` (facade over rung-a), `broker.write`. This is `run`'s native `hostFunctions` model, and async host functions are supported.                                                                    |
+| Credentials     | Never in the isolate; main API process is the only holder                                                                                                                                                                                                            |
+| Sandbox host    | ~~Forked worker process~~ → **worker thread in the API process** (2026-08-19). Guest JS runs in QuickJS _inside_ WebAssembly, so an escape needs a QuickJS bug **and** a WASM-sandbox escape. A `child_process.fork()` wrapper stays available as cheap hardening.   |
+| Writes          | **Plan-then-apply** (dry-run → approve → apply)                                                                                                                                                                                                                      |
+| Replay          | ~~Hash code + inputs~~ → **`run` signed continuations with a replay ledger** (2026-08-19): replay verifies transformed source, host-function-name manifest, and the complete serialized argument list, and rejects divergence before a mismatched host function runs |
+| Write TOCTOU    | **Drift-guard write targets** — re-read only mutated entities at apply, abort on drift                                                                                                                                                                               |
+| Honesty         | **Forced provenance** on returns (which reads fed it / errored / emptied); behavioral eval                                                                                                                                                                           |
+| Return bound    | Over-bound return **re-parks recursively** as a new handle                                                                                                                                                                                                           |
+| Gating          | **On-by-default** for the single user (data stays in-house); graduation gated on code-run telemetry + thermometer                                                                                                                                                    |
 
 ## Residual risk (accepted, not covered by the isolate)
 
-The no-network / no-credential isolate closes exfil **by the injected code itself** — it has nothing to send and nowhere to send it. It does **not** close the loop that code feeds: a `code.run` return re-enters the transcript, and the boss orchestrator retains egress through its **legitimate** tools (`gmail.send`, etc.). So `injection → broker.read private data → boss-steered send via a real tool` stays open. That is the **general agent-exfil problem**, unchanged by this rung — the isolate boundary is not what addresses it, and the forced-provenance return contract targets a *different* failure mode (laundering a structural confident-zero). Named here so "designed out rather than mitigated" is not misread as covering it.
+The no-network / no-credential isolate closes exfil **by the injected code itself** — it has nothing to send and nowhere to send it. It does **not** close the loop that code feeds: a `code.run` return re-enters the transcript, and the boss orchestrator retains egress through its **legitimate** tools (`gmail.send`, etc.). So `injection → broker.read private data → boss-steered send via a real tool` stays open. That is the **general agent-exfil problem**, unchanged by this rung — the isolate boundary is not what addresses it, and the forced-provenance return contract targets a _different_ failure mode (laundering a structural confident-zero). Named here so "designed out rather than mitigated" is not misread as covering it.
 
 ## Superseded during the grill (do not carry forward)
 
@@ -78,18 +78,18 @@ Do **not** use `experimental_codeModeTool()` with the SDK's `experimental_toolCa
 
 ### Limits (documented, overridable per run through `executionPolicy`)
 
-| Limit | Default |
-|---|---|
-| Timeout | 30 s |
-| QuickJS memory | 64 MiB |
-| QuickJS stack | 2 MiB |
-| Source | 256 KiB |
-| Result | 1 MiB |
-| Console output | 64 KiB |
-| Host-function arguments | 1 MiB |
-| Host-function output or interrupt payload | 4 MiB |
-| Bridge requests | 256 |
-| Concurrent bridge requests | 32 |
+| Limit                                     | Default |
+| ----------------------------------------- | ------- |
+| Timeout                                   | 30 s    |
+| QuickJS memory                            | 64 MiB  |
+| QuickJS stack                             | 2 MiB   |
+| Source                                    | 256 KiB |
+| Result                                    | 1 MiB   |
+| Console output                            | 64 KiB  |
+| Host-function arguments                   | 1 MiB   |
+| Host-function output or interrupt payload | 4 MiB   |
+| Bridge requests                           | 256     |
+| Concurrent bridge requests                | 32      |
 
 The worker pool cap is process-wide, shared with any other `run` user in the process, and set through `experimental_setMaxWorkers`; excess invocations reject with `RunConcurrencyError` rather than queue without bound. Every run gets a fresh QuickJS context, and a worker that cannot reach a verified clean state after an abort, a timeout, or a protocol failure is retired.
 

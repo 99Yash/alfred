@@ -24,7 +24,7 @@ It deliberately does **not**:
 - Demote on absence of data, or on a weak/`unknown` classification (a bare
   `engineering@`/`team@` alias with no list header stays `unknown` at 0.58 and
   never demotes — only an authoritative `List-Id`/`List-Unsubscribe`/`Precedence:
-  bulk|list` header promotes to confident `group` at 0.99).
+bulk|list` header promotes to confident `group` at 0.99).
 - Write significance, edges, co-occurrence, or reciprocity (deferred; kind-only
   slice).
 - Change any stable entity id (ids are content-addressed off `ENTITY_ID_NAMESPACE`
@@ -79,15 +79,15 @@ npx tsx --test \
 
 Gate coverage (from the PR G validation gates):
 
-| Gate | What it asserts | Where |
-|---|---|---|
-| 1 | Replay determinism — same input folds to the same checksum | `gmail-kind-projection-gates` (folds v1 vs v2, equal checksum) |
-| 4 | List aliases (`List-Id`) classify `group`, never person-scored | classifier + gates |
-| 5 | `noreply`/notification senders classify `service`, never person-scored | classifier + gates |
-| 6 | Top person-scored profiles exclude lists/services; self excluded | fold + gates |
-| 9 | Activation refuses a non-`completed` run | `user-model-writers` |
-| 10 | The active reader returns the activated rows | fold + gates |
-| — | Consumer bar: demote confident `group`/`service` only; weak alias never demotes | `sender-kind` + gates (`resolveSenderKind` end-to-end) |
+| Gate | What it asserts                                                                 | Where                                                          |
+| ---- | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 1    | Replay determinism — same input folds to the same checksum                      | `gmail-kind-projection-gates` (folds v1 vs v2, equal checksum) |
+| 4    | List aliases (`List-Id`) classify `group`, never person-scored                  | classifier + gates                                             |
+| 5    | `noreply`/notification senders classify `service`, never person-scored          | classifier + gates                                             |
+| 6    | Top person-scored profiles exclude lists/services; self excluded                | fold + gates                                                   |
+| 9    | Activation refuses a non-`completed` run                                        | `user-model-writers`                                           |
+| 10   | The active reader returns the activated rows                                    | fold + gates                                                   |
+| —    | Consumer bar: demote confident `group`/`service` only; weak alias never demotes | `sender-kind` + gates (`resolveSenderKind` end-to-end)         |
 
 Gates 2, 3 (observation count = eligible docs − skips; header-coverage
 diagnostics) are validated at **backfill** time — the backfill script reports
@@ -159,7 +159,7 @@ node apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committe
   user, the decision trace carries the sender-kind demotion breadcrumb
   (`senderKind`, `senderKindConfidence`, `senderKindDemotedPersonTreatment=true`,
   `knownContact=false`) — see `senderExtractionEvent`.
-- Confirm no *person* sender lost treatment (the demotion is subtractive and
+- Confirm no _person_ sender lost treatment (the demotion is subtractive and
   gated at `confidence >= 0.8`, so this should not happen; verify anyway).
 
 ## Rollback / de-activation

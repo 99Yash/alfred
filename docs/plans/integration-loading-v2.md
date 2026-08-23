@@ -19,17 +19,17 @@ Lazy catalog + two-step `load_integration` + auto-activation is deferred until s
 
 ## Key files
 
-| Concern | File |
-|---|---|
-| Tool name types, action lists | `packages/contracts/src/tools.ts` |
-| Registry (`getTool`, `listToolsForIntegration`) | `packages/assistant/src/tool-runtime/internal/registry.ts` |
-| `system.load_integration` execute | `packages/api/src/modules/tools/system.ts` |
-| Dispatcher (`dispatchToolCall`, `undeclaredToolMessage`, name resolution) | `packages/api/src/modules/dispatch/index.ts` |
-| Boss preamble, `resolveSdkTools`, workflow run seed | `packages/api/src/modules/agent/workflows/user-authored-brief.ts` |
-| Chat preamble, current `[]` seed | `packages/api/src/modules/agent/workflows/chat-turn.ts` |
-| `integrationCredentials.status` | `packages/db/src/schema/integrations.ts` |
-| Google scope mapping | `packages/integrations/src/google/oauth.ts` |
-| Existing Google scope filters | `packages/http/src/me.ts` |
+| Concern                                                                   | File                                                              |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Tool name types, action lists                                             | `packages/contracts/src/tools.ts`                                 |
+| Registry (`getTool`, `listToolsForIntegration`)                           | `packages/assistant/src/tool-runtime/internal/registry.ts`        |
+| `system.load_integration` execute                                         | `packages/api/src/modules/tools/system.ts`                        |
+| Dispatcher (`dispatchToolCall`, `undeclaredToolMessage`, name resolution) | `packages/api/src/modules/dispatch/index.ts`                      |
+| Boss preamble, `resolveSdkTools`, workflow run seed                       | `packages/api/src/modules/agent/workflows/user-authored-brief.ts` |
+| Chat preamble, current `[]` seed                                          | `packages/api/src/modules/agent/workflows/chat-turn.ts`           |
+| `integrationCredentials.status`                                           | `packages/db/src/schema/integrations.ts`                          |
+| Google scope mapping                                                      | `packages/integrations/src/google/oauth.ts`                       |
+| Existing Google scope filters                                             | `packages/http/src/me.ts`                                         |
 
 ---
 

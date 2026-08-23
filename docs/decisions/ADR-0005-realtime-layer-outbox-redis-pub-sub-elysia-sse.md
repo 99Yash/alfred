@@ -1,6 +1,5 @@
 # ADR-0005 — Realtime layer: outbox + Redis Pub/Sub + Elysia SSE
 
-
 **Decision.** Mutators write domain rows + an `events_outbox` row in one transaction. A relay worker (woken via Postgres LISTEN/NOTIFY internally) reads new outbox events and publishes to Redis Pub/Sub channels keyed `user:{id}`. Elysia exposes per-user SSE endpoints that subscribe to the relevant channel and push events to the client. Replicache pokes are one event type; agent progress, tool-call updates, and approval requests are others.
 
 **Why.**

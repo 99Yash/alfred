@@ -1,9 +1,8 @@
 # ADR-0036 — Redis as scratchpad primary; Postgres as terminal snapshot
 
-
 **Decision.** During a boss run, all scratchpad reads and writes go to Redis (`alfred:scratch:{runId}:{zone}.{path}` keys, 30-day TTL at insert). On terminal state — success, failure, or cancellation — the executor's terminal step copies the full Redis-side scratchpad into the `agent_run_context` table as per-key rows (one INSERT per key, idempotent via `ON CONFLICT (run_id, key) DO UPDATE`). Live writes pay Redis latency (~1ms on Railway's private network); audit/replay/cross-run queries hit Postgres. Mid-run Redis loss recovers via idempotent step re-execution per ADR-0014 — same shape as any other transient failure.
 
-**Supersedes part of ADR-0016.** ADR-0016 said *"no Redis for this layer: at single-user scale, Postgres handles per-run K/V trivially."* That was correct at decision time; m13's design pressure surfaced two issues: (a) sub-agent fan-out wants fast inter-agent reads for the boss's synthesis pass (Dimension's "sub-millisecond reads"), and (b) per-key Postgres writes cost a network round-trip per scratch op where Redis costs a fraction. ADR-0036 keeps ADR-0016's *pattern* unchanged (namespaced scratchpad, boss-promotes-to-shared, single-writer-per-zone, no sub-sub-agents, sub-agents don't compact) and changes only the *store layer*.
+**Supersedes part of ADR-0016.** ADR-0016 said _"no Redis for this layer: at single-user scale, Postgres handles per-run K/V trivially."_ That was correct at decision time; m13's design pressure surfaced two issues: (a) sub-agent fan-out wants fast inter-agent reads for the boss's synthesis pass (Dimension's "sub-millisecond reads"), and (b) per-key Postgres writes cost a network round-trip per scratch op where Redis costs a fraction. ADR-0036 keeps ADR-0016's _pattern_ unchanged (namespaced scratchpad, boss-promotes-to-shared, single-writer-per-zone, no sub-sub-agents, sub-agents don't compact) and changes only the _store layer_.
 
 **Why this composition.**
 
@@ -34,9 +33,9 @@ export const subAgentKey = (runId: string, subId: string, path: string) =>
 ```ts
 export type ScratchEntry<T = unknown> = {
   value: T;
-  zone: 'shared' | 'scratch';
-  writtenBy: string;        // 'boss' or `${subId}`
-  writtenAt: number;        // epoch ms
+  zone: "shared" | "scratch";
+  writtenBy: string; // 'boss' or `${subId}`
+  writtenAt: number; // epoch ms
 };
 ```
 
@@ -73,7 +72,7 @@ await db.transaction(async (tx) => {
     const raw = await redisClient.get(key);
     if (!raw) continue;
     const entry: ScratchEntry = JSON.parse(raw);
-    const subKey = key.replace(`alfred:scratch:${runId}:`, '');
+    const subKey = key.replace(`alfred:scratch:${runId}:`, "");
     await tx
       .insert(agentRunContext)
       .values({
@@ -86,7 +85,7 @@ await db.transaction(async (tx) => {
       })
       .onConflictDoUpdate({
         target: [agentRunContext.runId, agentRunContext.key],
-        set: { value: sql`excluded.value`, /* etc */ },
+        set: { value: sql`excluded.value` /* etc */ },
       });
   }
 });
@@ -118,7 +117,7 @@ No circuit breakers, no fallbacks. Redis is a hard dependency at the same level 
 **Alternatives.**
 
 - (a) **Pure ephemeral (Redis only, no Postgres mirror).** Rejected — post-completion audit becomes a 7-day TTL race. The single snapshot at terminal step is cheap and preserves the cross-run query surface.
-- (b) **Dual-write to both stores on every scratch op.** Rejected — doubles write cost on the hot path for marginal gain. Dual-write is correct when both stores are *concurrently* live; for per-run intermediate state with a clean terminal handoff, it's twice the work for no benefit.
+- (b) **Dual-write to both stores on every scratch op.** Rejected — doubles write cost on the hot path for marginal gain. Dual-write is correct when both stores are _concurrently_ live; for per-run intermediate state with a clean terminal handoff, it's twice the work for no benefit.
 - (c) **One jsonb blob per run** (single `data jsonb` column instead of per-key rows). Rejected — saves nothing material, gives up SQL ergonomics for cross-run queries.
 - (d) **Postgres unchanged from ADR-0016 (no Redis).** Rejected on empirical grounds — m13's sub-agent fan-out + boss-synthesis pattern wants sub-ms inter-agent reads; Postgres at 1-3ms per op multiplied across a boss read pass over N sub-agent findings adds material latency to the user-facing boss turn.
 - (e) **Keep Redis keys live indefinitely (no TTL).** Rejected — leak risk on abandoned runs; 30-day TTL gives natural eviction without orchestration-layer cleanup.

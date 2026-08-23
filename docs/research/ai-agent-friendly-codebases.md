@@ -17,7 +17,7 @@ The primary sources support five principles:
 
 ## 1. What “deep module” means
 
-The article defines a deep module as “lots of implementation controlled by a simple interface.” That formulation comes from John Ousterhout's *A Philosophy of Software Design*. Ousterhout's own [book page](https://web.stanford.edu/~ouster/cgi-bin/book.php) identifies “General-Purpose Modules are Deeper” as a central chapter and describes the larger aim as separating what matters from what does not.
+The article defines a deep module as “lots of implementation controlled by a simple interface.” That formulation comes from John Ousterhout's _A Philosophy of Software Design_. Ousterhout's own [book page](https://web.stanford.edu/~ouster/cgi-bin/book.php) identifies “General-Purpose Modules are Deeper” as a central chapter and describes the larger aim as separating what matters from what does not.
 
 The older primary source is David Parnas's 1972 paper, [“On the Criteria To Be Used in Decomposing Systems into Modules”](https://doi.org/10.1145/361598.361623). Parnas compares two decompositions of the same system and argues that each module should hide a design decision that is likely to change. His stated goals are flexibility, comprehensibility, and shorter development time. This is the foundation under the article's advice:
 
@@ -102,14 +102,14 @@ This is stronger than “write a good `AGENTS.md`.” Instructions help an agent
 
 ## Source assessment
 
-| Claim | Source quality | Conclusion |
-| --- | --- | --- |
-| Deep modules reduce exposed complexity | Primary design sources: Ousterhout and Parnas | Strong design principle; not an AI performance measurement |
-| Real repository work requires cross-file navigation and execution | Primary research: SWE-bench | Directly supported |
-| Repository-local knowledge, strict layers, and mechanical checks help Codex | First-party OpenAI production report | Strong practitioner evidence; explicitly repository-specific |
-| Tests give agents useful correctness feedback | Primary benchmark design and OpenAI product guidance | Supported, with specification and coverage limits |
-| Effect makes TypeScript modularization “simple” | Personal experience in the AI Hero article | Not established by the reviewed primary sources; Effect may be one implementation choice, not the principle |
-| The codebase matters more than the prompt or `AGENTS.md` | Thesis in the AI Hero article | Directionally consistent with first-party experience, but no reviewed source provides a controlled comparison |
+| Claim                                                                       | Source quality                                       | Conclusion                                                                                                    |
+| --------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Deep modules reduce exposed complexity                                      | Primary design sources: Ousterhout and Parnas        | Strong design principle; not an AI performance measurement                                                    |
+| Real repository work requires cross-file navigation and execution           | Primary research: SWE-bench                          | Directly supported                                                                                            |
+| Repository-local knowledge, strict layers, and mechanical checks help Codex | First-party OpenAI production report                 | Strong practitioner evidence; explicitly repository-specific                                                  |
+| Tests give agents useful correctness feedback                               | Primary benchmark design and OpenAI product guidance | Supported, with specification and coverage limits                                                             |
+| Effect makes TypeScript modularization “simple”                             | Personal experience in the AI Hero article           | Not established by the reviewed primary sources; Effect may be one implementation choice, not the principle   |
+| The codebase matters more than the prompt or `AGENTS.md`                    | Thesis in the AI Hero article                        | Directionally consistent with first-party experience, but no reviewed source provides a controlled comparison |
 
 ## Alfred retrospective
 
@@ -181,16 +181,16 @@ than they should be.
 
 ### What Alfred should have done from day one
 
-| Day-one rule | What it would have changed |
-| --- | --- |
-| Start each milestone with an owned decision, not a file list | `email triage`, `run execution`, `briefing composition`, and `integration access` would each have had one named module interface before implementation files multiplied. |
-| Build the first real behavior as a tracer-bullet module | The first Gmail-to-triage path would have fixed the interface, dependency direction, error modes, and observable result before adjacent features reused internals. |
-| Permit one public entry point per module | Callers would import a contract instead of arbitrary files. Package `exports`, lint, and structural tests would reject internal paths. |
-| State dependency direction before code exists | Cycles such as tools/workflows and memory/triage would either never form or would force an early decision about which module owns the shared protocol. |
-| Put a focused behavior test at every new seam | The compiler would verify shapes; the contract test would verify outcomes, retries, cancellation, authorization, and persistence rules through the same interface callers use. |
-| Keep the root guide as a map | The original `CLAUDE.md` was close to this ideal. Detailed rules should still move into owned reference docs or mechanical checks as they recur. |
-| Promote the second review correction into a mechanism | The second occurrence of a copied shape, stale token read, raw timezone operation, unsafe retry, or protocol switch should produce a type, schema, deep module, lint rule, or contract test. |
-| Avoid speculative seams | Empty package shells are acceptable deployment placeholders, but a port or adapter should not be added until production and test adapters, or two production variants, make the seam real. |
+| Day-one rule                                                 | What it would have changed                                                                                                                                                                   |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start each milestone with an owned decision, not a file list | `email triage`, `run execution`, `briefing composition`, and `integration access` would each have had one named module interface before implementation files multiplied.                     |
+| Build the first real behavior as a tracer-bullet module      | The first Gmail-to-triage path would have fixed the interface, dependency direction, error modes, and observable result before adjacent features reused internals.                           |
+| Permit one public entry point per module                     | Callers would import a contract instead of arbitrary files. Package `exports`, lint, and structural tests would reject internal paths.                                                       |
+| State dependency direction before code exists                | Cycles such as tools/workflows and memory/triage would either never form or would force an early decision about which module owns the shared protocol.                                       |
+| Put a focused behavior test at every new seam                | The compiler would verify shapes; the contract test would verify outcomes, retries, cancellation, authorization, and persistence rules through the same interface callers use.               |
+| Keep the root guide as a map                                 | The original `CLAUDE.md` was close to this ideal. Detailed rules should still move into owned reference docs or mechanical checks as they recur.                                             |
+| Promote the second review correction into a mechanism        | The second occurrence of a copied shape, stale token read, raw timezone operation, unsafe retry, or protocol switch should produce a type, schema, deep module, lint rule, or contract test. |
+| Avoid speculative seams                                      | Empty package shells are acceptable deployment placeholders, but a port or adapter should not be added until production and test adapters, or two production variants, make the seam real.   |
 
 The key change is in planning language. Every feature brief should have contained
 this small architecture block before its task list:
@@ -292,8 +292,8 @@ about the architecture they are changing.
 ## Sources
 
 - Matt Pocock, [“How To Make Codebases AI Agents Love”](https://www.aihero.dev/how-to-make-codebases-ai-agents-love).
-- John Ousterhout, [*A Philosophy of Software Design* book page](https://web.stanford.edu/~ouster/cgi-bin/book.php).
-- D. L. Parnas, [“On the Criteria To Be Used in Decomposing Systems into Modules”](https://doi.org/10.1145/361598.361623), *Communications of the ACM*, 1972.
+- John Ousterhout, [_A Philosophy of Software Design_ book page](https://web.stanford.edu/~ouster/cgi-bin/book.php).
+- D. L. Parnas, [“On the Criteria To Be Used in Decomposing Systems into Modules”](https://doi.org/10.1145/361598.361623), _Communications of the ACM_, 1972.
 - Carlos E. Jimenez et al., [“SWE-bench: Can Language Models Resolve Real-World GitHub Issues?”](https://arxiv.org/abs/2310.06770), ICLR 2024.
 - OpenAI, [“Harness engineering: leveraging Codex in an agent-first world”](https://openai.com/index/harness-engineering/), 2026.
 - OpenAI, [“Introducing SWE-bench Verified”](https://openai.com/index/introducing-swe-bench-verified/), 2024.

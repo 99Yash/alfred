@@ -17,17 +17,17 @@ turned out to be **one architectural family, not three**:
 
 All three are the same move: **keep the context small and stable; push the bulk out-of-band;
 reconcile on demand.** The unifying frame is the same one behind
-`/Users/yash/Developer/oss/self-syncing-agent`: *the agent authors code once; the code runs
-out-of-band; the LLM stays out of the hot path.*
+`/Users/yash/Developer/oss/self-syncing-agent`: _the agent authors code once; the code runs
+out-of-band; the LLM stays out of the hot path._
 
 ## The family, ordered by sandbox ambition
 
-| Level | What the boss can do | Sandbox needed | Cost / risk |
-|---|---|---|---|
-| **L0** | Park big tool results as objects; `read_object(handle, jsonpath, page)` to pull slices | **none** (structured query in our own code) | low / low |
-| **L1** | Write a TS snippet that filters/maps/reduces **parked data only** — no network, no tools | data-only isolate (e.g. isolated-vm) | med / low-med |
-| **L2** | Write code that calls tools/integrations as a typed API (real Code Mode) | isolate + capability injection + egress allowlist | high / high |
-| **L3** | Author schema + webhook handlers that run inference-free at steady state (self-syncing) | full CF-style: V8 isolates, `globalOutbound`, per-facet SQLite, Worker Loader | very high |
+| Level  | What the boss can do                                                                     | Sandbox needed                                                                | Cost / risk   |
+| ------ | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------- |
+| **L0** | Park big tool results as objects; `read_object(handle, jsonpath, page)` to pull slices   | **none** (structured query in our own code)                                   | low / low     |
+| **L1** | Write a TS snippet that filters/maps/reduces **parked data only** — no network, no tools | data-only isolate (e.g. isolated-vm)                                          | med / low-med |
+| **L2** | Write code that calls tools/integrations as a typed API (real Code Mode)                 | isolate + capability injection + egress allowlist                             | high / high   |
+| **L3** | Author schema + webhook handlers that run inference-free at steady state (self-syncing)  | full CF-style: V8 isolates, `globalOutbound`, per-facet SQLite, Worker Loader | very high     |
 
 The user's literal ask ("emit artifacts, write a script to look at them") is ~L1.
 
@@ -43,7 +43,7 @@ Every level above L0 requires **running agent-authored code safely out-of-band**
 **free on Cloudflare and hard on Alfred.**
 
 - self-syncing-agent gets V8 isolates per facet, `globalOutbound` egress control, per-facet
-  SQLite, and Worker Loader *natively* — it's Cloudflare-built (~8k LOC, 206 tests, already
+  SQLite, and Worker Loader _natively_ — it's Cloudflare-built (~8k LOC, 206 tests, already
   working).
 - Alfred is Node/Elysia on Railway. It has none of that. A sandbox there means isolated-vm /
   subprocess / microVM + capability injection + egress control = multi-week substrate project,
@@ -67,7 +67,7 @@ the sandbox tax twice by re-implementing isolation in a Node monorepo. Keep self
   batch — but it's **lossy** (LLM summary, irreversible). (`…/agent/compaction/compactor.ts`,
   trigger in `…/workflows/user-authored-brief.ts:238`.)
 - **Scratch tools:** read/write/promote JSON, no execution.
-- **Tool results → transcript:** full result enters the transcript; only the *client* event-bus
+- **Tool results → transcript:** full result enters the transcript; only the _client_ event-bus
   preview is capped (`chat-turn.ts` `preview()` / `dispatchResultToToolOutput`). **No per-result
   byte cap on the transcript path** — this is the seam L0 would use.
 - **Code execution / sandbox:** does **not** exist.
@@ -78,6 +78,7 @@ Trigger: a real workflow demonstrably hits the context wall (boss turns ballooni
 verbose tool result, pre-compaction, hurting latency/cost — verify in Langfuse, don't assume).
 
 Sketch:
+
 1. At the **dispatch boundary** (`packages/api/src/modules/dispatch/index.ts`), if a tool result
    exceeds a size threshold, persist the full result as an object and return a **preview +
    handle** into the transcript instead.

@@ -30,12 +30,12 @@ a provider or database graph. `system.corpus_search`
 
 ## The four players
 
-| Player                | Role                                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------- |
-| chat / agent          | proposes and runs tool calls; spawns sub-agents; reads chat history                       |
-| workflows             | reads tool facts to decide readiness, authoring, and revision                            |
-| tool-runtime          | owns definitions, dispatch, catalog, discovery, schema projection, and boot seams; imports no user surface directly |
-| runtime composition   | installs product adapters without adding reverse owner dependencies                       |
+| Player              | Role                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| chat / agent        | proposes and runs tool calls; spawns sub-agents; reads chat history                                                 |
+| workflows           | reads tool facts to decide readiness, authoring, and revision                                                       |
+| tool-runtime        | owns definitions, dispatch, catalog, discovery, schema projection, and boot seams; imports no user surface directly |
+| runtime composition | installs product adapters without adding reverse owner dependencies                                                 |
 
 ## The eight seams
 
@@ -43,15 +43,15 @@ Each seam is a `bootPort<T>` slot. The composition root installs one concrete
 value at boot, and a peer reads it. The `boot-port.ts` file defines the factory;
 it is not itself a seam.
 
-| Seam interface                 | Surface   | Install → read                                        |
-| ------------------------------ | --------- | ----------------------------------------------------- |
-| `ToolRuntimeAdapter`           | chat      | `surface-adapter.ts` installs → the runtime forwarders read |
-| `ToolCallRoundAdapter`         | chat      | dispatch installs → `executeToolCallRound` reads      |
-| `SystemToolAgentAdapter`       | chat      | agent installs → the system tools read                |
-| `SystemToolChatHistoryAdapter` | chat      | chat installs → the system tools read        |
-| `SystemToolWorkflowAdapter`    | chat      | workflows installs → the system tools read            |
-| `SystemToolKnowledgeAdapter`   | chat      | runtime composition installs → the system tools read   |
-| `SystemToolTaskAdapter`        | chat      | runtime composition installs → the system tools read   |
+| Seam interface                 | Surface   | Install → read                                                           |
+| ------------------------------ | --------- | ------------------------------------------------------------------------ |
+| `ToolRuntimeAdapter`           | chat      | `surface-adapter.ts` installs → the runtime forwarders read              |
+| `ToolCallRoundAdapter`         | chat      | dispatch installs → `executeToolCallRound` reads                         |
+| `SystemToolAgentAdapter`       | chat      | agent installs → the system tools read                                   |
+| `SystemToolChatHistoryAdapter` | chat      | chat installs → the system tools read                                    |
+| `SystemToolWorkflowAdapter`    | chat      | workflows installs → the system tools read                               |
+| `SystemToolKnowledgeAdapter`   | chat      | runtime composition installs → the system tools read                     |
+| `SystemToolTaskAdapter`        | chat      | runtime composition installs → the system tools read                     |
 | `WorkflowToolCatalogSource`    | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
 
 The first seven seams live in `tool-runtime/index.ts`. The eighth lives in

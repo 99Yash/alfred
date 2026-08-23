@@ -1,6 +1,5 @@
 # ADR-0014 — Deploy safety: durable-resume with idempotent steps
 
-
 **Decision.** Background agents and BullMQ workers use a durable-resume model. State persists to Postgres after each step. On graceful shutdown (SIGTERM), workers finish the current step (with timeout), mark inflight runs as `interrupted_at_checkpoint`, and exit. New version starts → polls for interrupted runs → resumes from last checkpoint. Every step is idempotent.
 
 **Mechanisms required.**

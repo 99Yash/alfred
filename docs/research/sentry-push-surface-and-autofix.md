@@ -18,19 +18,20 @@ write-ups are cited.
 
 ## Executive summary — verdicts
 
-| # | Topic | Verdict | Key citation |
-|---|-------|---------|--------------|
-| 1 | Internal Integration webhooks | **One unified mechanism.** Registered at Settings → Developer Settings; 8 subscribable resources (`installation`, `event_alert`, `issue`, `metric_alert`, `error`, `comment`, `seer`, `preprod_artifact`); 5 documented headers (`Content-Type`, `Request-ID`, `Sentry-Hook-Resource`, `Sentry-Hook-Timestamp`, `Sentry-Hook-Signature`); HMAC‑SHA256 over the exact body bytes with the Client Secret; **`error.created` is Business/Enterprise‑only**; no retry-count is documented, but Sentry's own task config retries `3× / 5 min apart / network-failures-only`, and a 2023 changelog auto‑unsubscribes a webhook after 1000 timeouts in 24h. | [webhooks.md](https://docs.sentry.io/organization/integrations/integration-platform/webhooks.md), [errors.md](https://docs.sentry.io/integrations/integration-platform/webhooks/errors/) |
-| 2 | Alert-rule "webhook" action vs Internal Integration subscription | **Not two mechanisms — one.** An alert rule's webhook action is `Send a notification via <your Internal/Public Integration>`; it fires **per alert-condition-match** (`event_alert`, action always `triggered`), distinct from `error` (**per individual error event**, paid-only) and `issue` (**per lifecycle transition**, and only for `OUTAGE`/`ERROR`/`FEEDBACK` categories). **There is NO retry-stable delivery ID.** The `Request-ID` header is `uuid4().hex` minted fresh inside each retried task, so a redelivery of the same event carries a *different* `Request-ID` — it is **unusable as an idempotency key**. Dedup must be a synthetic key on payload identity (`event_id`, or `issue.id`+`action`). | [app_platform_event.py](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/api/serializers/app_platform_event.py), [webhooks.md](https://docs.sentry.io/organization/integrations/integration-platform/webhooks.md) |
-| 3 | Seer / Autofix | **Already covers the full loop, with real gaps.** GA feature: automatic trigger (10+ events, <14 days old, ML fixability score), root cause → solution → code‑gen → **real PR opened on GitHub/GitLab.com**, configurable automation ceiling, and a `seer.pr_created` **webhook** carrying the PR URL/number on completion. Gaps: GitHub/GitLab.com-cloud only, no documented trigger API, custom-coding-agent handoff limited to 3 named integrations, billed per active contributor ($40/mo) on top of Team/Business. | [autofix.md](https://docs.sentry.io/product/ai-in-sentry/seer/autofix/), [seer webhook](https://docs.sentry.io/integrations/integration-platform/webhooks/seer/) |
-| 4 | Official MCP server | **Exists, GA, hosted + self-hostable.** `https://mcp.sentry.dev/mcp`, Streamable HTTP/SSE (Cloudflare remote-MCP) + WIP stdio; OAuth (remote) or User Auth Token (stdio); 48 tools across 5 "skills" (`inspect`, `seer`, `docs`, `triage`, `project-management`); source-available under FSL-1.1-Apache-2.0, self-hostable via `npx @sentry/mcp-server`. | [getsentry/sentry-mcp README](https://github.com/getsentry/sentry-mcp) |
-| 5 | REST API for issue detail | **All four resources exist and are documented, except suspect commits.** Issue: `GET /issues/{issue_id}/`. Latest event w/ stack trace + source context: `GET /issues/{issue_id}/events/{event_id}/` (`latest`\|`oldest`\|`recommended`), context lines included by default. Tags: `GET /issues/{issue_id}/tags/{key}/values/`. **Suspect commits: no public endpoint** — the real endpoint (`EventFileCommittersEndpoint`) is marked `ApiPublishStatus.PRIVATE` in source. Auth = one of Organization Tokens (CI-oriented, fixed scope), Internal Integration tokens (customizable), or Personal/User tokens. Rate limits are per-caller-per-endpoint, fixed-window + concurrent, exact numbers not published. | [retrieve-an-issue-event](https://docs.sentry.io/api/events/retrieve-an-issue-event/), [event_file_committers.py](https://github.com/getsentry/sentry/blob/master/src/sentry/api/endpoints/event_file_committers.py) |
+| #   | Topic                                                            | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Key citation                                                                                                                                                                                                                            |
+| --- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Internal Integration webhooks                                    | **One unified mechanism.** Registered at Settings → Developer Settings; 8 subscribable resources (`installation`, `event_alert`, `issue`, `metric_alert`, `error`, `comment`, `seer`, `preprod_artifact`); 5 documented headers (`Content-Type`, `Request-ID`, `Sentry-Hook-Resource`, `Sentry-Hook-Timestamp`, `Sentry-Hook-Signature`); HMAC‑SHA256 over the exact body bytes with the Client Secret; **`error.created` is Business/Enterprise‑only**; no retry-count is documented, but Sentry's own task config retries `3× / 5 min apart / network-failures-only`, and a 2023 changelog auto‑unsubscribes a webhook after 1000 timeouts in 24h.                                                                   | [webhooks.md](https://docs.sentry.io/organization/integrations/integration-platform/webhooks.md), [errors.md](https://docs.sentry.io/integrations/integration-platform/webhooks/errors/)                                                |
+| 2   | Alert-rule "webhook" action vs Internal Integration subscription | **Not two mechanisms — one.** An alert rule's webhook action is `Send a notification via <your Internal/Public Integration>`; it fires **per alert-condition-match** (`event_alert`, action always `triggered`), distinct from `error` (**per individual error event**, paid-only) and `issue` (**per lifecycle transition**, and only for `OUTAGE`/`ERROR`/`FEEDBACK` categories). **There is NO retry-stable delivery ID.** The `Request-ID` header is `uuid4().hex` minted fresh inside each retried task, so a redelivery of the same event carries a _different_ `Request-ID` — it is **unusable as an idempotency key**. Dedup must be a synthetic key on payload identity (`event_id`, or `issue.id`+`action`). | [app_platform_event.py](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/api/serializers/app_platform_event.py), [webhooks.md](https://docs.sentry.io/organization/integrations/integration-platform/webhooks.md) |
+| 3   | Seer / Autofix                                                   | **Already covers the full loop, with real gaps.** GA feature: automatic trigger (10+ events, <14 days old, ML fixability score), root cause → solution → code‑gen → **real PR opened on GitHub/GitLab.com**, configurable automation ceiling, and a `seer.pr_created` **webhook** carrying the PR URL/number on completion. Gaps: GitHub/GitLab.com-cloud only, no documented trigger API, custom-coding-agent handoff limited to 3 named integrations, billed per active contributor ($40/mo) on top of Team/Business.                                                                                                                                                                                                | [autofix.md](https://docs.sentry.io/product/ai-in-sentry/seer/autofix/), [seer webhook](https://docs.sentry.io/integrations/integration-platform/webhooks/seer/)                                                                        |
+| 4   | Official MCP server                                              | **Exists, GA, hosted + self-hostable.** `https://mcp.sentry.dev/mcp`, Streamable HTTP/SSE (Cloudflare remote-MCP) + WIP stdio; OAuth (remote) or User Auth Token (stdio); 48 tools across 5 "skills" (`inspect`, `seer`, `docs`, `triage`, `project-management`); source-available under FSL-1.1-Apache-2.0, self-hostable via `npx @sentry/mcp-server`.                                                                                                                                                                                                                                                                                                                                                               | [getsentry/sentry-mcp README](https://github.com/getsentry/sentry-mcp)                                                                                                                                                                  |
+| 5   | REST API for issue detail                                        | **All four resources exist and are documented, except suspect commits.** Issue: `GET /issues/{issue_id}/`. Latest event w/ stack trace + source context: `GET /issues/{issue_id}/events/{event_id}/` (`latest`\|`oldest`\|`recommended`), context lines included by default. Tags: `GET /issues/{issue_id}/tags/{key}/values/`. **Suspect commits: no public endpoint** — the real endpoint (`EventFileCommittersEndpoint`) is marked `ApiPublishStatus.PRIVATE` in source. Auth = one of Organization Tokens (CI-oriented, fixed scope), Internal Integration tokens (customizable), or Personal/User tokens. Rate limits are per-caller-per-endpoint, fixed-window + concurrent, exact numbers not published.        | [retrieve-an-issue-event](https://docs.sentry.io/api/events/retrieve-an-issue-event/), [event_file_committers.py](https://github.com/getsentry/sentry/blob/master/src/sentry/api/endpoints/event_file_committers.py)                    |
 
 ---
 
 ## 1. Sentry Internal Integrations (webhooks)
 
 ### Registration path
+
 Creating the integration that owns the webhook URL: "In [sentry.io], navigate to **Settings >
 Developer Settings**. From here, you can choose to create an internal or public integration.
 Internal integrations can only be used by your organization, whereas public integrations can be
@@ -40,6 +41,7 @@ integration. After you've specified the webhook URL, you'll be able to toggle on
 and create alerts that send notifications to your integration." (same page).
 
 ### Subscribable resources
+
 Per [Webhooks](https://docs.sentry.io/organization/integrations/integration-platform/webhooks.md),
 the `Sentry-Hook-Resource` header can be one of exactly: `installation`, `event_alert`, `issue`,
 `metric_alert`, `error`, `comment`, `seer`, `preprod_artifact`. Each has its own sub-page
@@ -50,7 +52,9 @@ documented restriction on `issue`: "The issue categories we currently support `i
 webhooks for are `OUTAGE`, `ERROR`, and `FEEDBACK`" — [Issues](https://docs.sentry.io/integrations/integration-platform/webhooks/issues/).
 
 ### Payload envelope
+
 Every webhook shares four top-level keys, per the same page:
+
 - `action` — "The action that corresponds with the resource in the header. For example, if the
   resource is `issue` the action could be `created`."
 - `installation` — "An object with the `uuid` of the installation so that you can map the webhook
@@ -61,6 +65,7 @@ Every webhook shares four top-level keys, per the same page:
   (`type: "application"`), or `"Sentry"` for automatic actions.
 
 Resource-specific shapes (verbatim example payloads):
+
 - `error` (action always `created`): full error object under `data.error` — `event_id`, `culprit`,
   `exception.values[].stacktrace.frames[]` (with `pre_context`/`post_context`/`context_line`),
   `tags[]`, `issue_id`, `issue_url`, `web_url`, `project` id. — [errors.md](https://docs.sentry.io/integrations/integration-platform/webhooks/errors/)
@@ -75,6 +80,7 @@ Resource-specific shapes (verbatim example payloads):
   `data.alert.settings` (Activity Alert) — [Alert Action](https://docs.sentry.io/integrations/integration-platform/ui-components/alert-action/).
 
 ### Request headers
+
 Five headers are documented on every webhook request, per
 [webhooks.md](https://docs.sentry.io/organization/integrations/integration-platform/webhooks.md):
 `Content-Type` ("identifies the media type of the payload as JSON format"), `Request-ID`
@@ -107,7 +113,7 @@ i.e. consistency is guaranteed only within a single send, not across retries. Se
 
 **Undocumented bonus capability (source-only):** a Sentry App may carry user-configured
 `webhook_headers` (parsed from `Name: Value` strings) that are merged into every request, with
-Sentry's own headers merged *last* so "a custom header can never override the signature and spoof
+Sentry's own headers merged _last_ so "a custom header can never override the signature and spoof
 payload integrity" — [app_platform_event.py](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/api/serializers/app_platform_event.py),
 [headers.py](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/utils/headers.py).
 This is **not documented on `docs.sentry.io`** (searched the webhooks and internal-integration
@@ -115,8 +121,9 @@ pages and `docs.sentry.io` generally for custom webhook headers — no hit), so 
 unsupported surface even though it exists.
 
 ### Signature
-"This header [`Sentry-Hook-Signature`] represents a cryptographic hash generated by your *Client
-Secret*. Its primary purpose is to make sure the request is authentic and comes from Sentry
+
+"This header [`Sentry-Hook-Signature`] represents a cryptographic hash generated by your _Client
+Secret_. Its primary purpose is to make sure the request is authentic and comes from Sentry
 servers." The documented verification snippet:
 
 ```javascript
@@ -128,10 +135,11 @@ function verifySignature(request, secret = "") {
   return digest === request.headers["sentry-hook-signature"];
 }
 ```
+
 — i.e. **HMAC-SHA256**, keyed with the internal integration's **Client Secret**. Source:
 [webhooks.md](https://docs.sentry.io/organization/integrations/integration-platform/webhooks.md).
 
-The docs' JS sample re-serializes the *parsed* body (`JSON.stringify(request.body)`), which is only
+The docs' JS sample re-serializes the _parsed_ body (`JSON.stringify(request.body)`), which is only
 correct by coincidence of matching serializers. Sentry's own implementation signs **the exact byte
 string it transmits**: `build_signature` is `hmac.new(key=client_secret.encode("utf-8"),
 msg=body.encode("utf-8"), digestmod=sha256).hexdigest()` over `AppPlatformEvent.body`, which is
@@ -144,10 +152,12 @@ msg=body.encode("utf-8"), digestmod=sha256).hexdigest()` over `AppPlatformEvent.
 key-order or whitespace divergence from Python's `json.dumps` breaks verification.
 
 ### Timeout
+
 "Webhooks should respond within 1 second. Otherwise, the response is considered a timeout." — same
 page.
 
 ### Retry/redelivery
+
 **Not documented as a retry policy on any `docs.sentry.io` product page checked** (`webhooks.md`,
 `errors.md`, `issues.md`, `comments.md`, `integration-platform.md` — none mention a retry count or
 backoff). Two separate primary sources fill this gap:
@@ -167,7 +177,7 @@ backoff). Two separate primary sources fill this gap:
    ```
    where `_SENTRY_APP_WEBHOOK_RETRY_ON = (RequestException, InnerTimeoutError)` and
    `_SENTRY_APP_WEBHOOK_RETRY_IGNORE = (ClientError, SentryAppSentryError, AssertionError,
-   ValueError, RestrictedIPAddress)`. So: **3 retries, 5 minutes apart, triggered only by
+ValueError, RestrictedIPAddress)`. So: **3 retries, 5 minutes apart, triggered only by
    network-level failures or timeouts — a 4xx application-level rejection (`ClientError`) is
    explicitly NOT retried.** Source: [sentry_apps.py](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/tasks/sentry_apps.py),
    [webhooks.py](https://github.com/getsentry/sentry/blob/master/src/sentry/utils/sentry_apps/webhooks.py)
@@ -180,6 +190,7 @@ backoff). Two separate primary sources fill this gap:
    integrations built by partners." — [2023-10-3 changelog](https://sentry.io/changelog/2023-10-3-change-to-integration-platform-webhook-handling/).
 
 ### Plan gating / volume limits
+
 "This feature is available only if your organization is on a Business or Enterprise plan." —
 [errors.md](https://docs.sentry.io/integrations/integration-platform/webhooks/errors/), i.e.
 **`error.created` (per-event, not per-issue) webhooks require Business or Enterprise.**
@@ -203,6 +214,7 @@ triggered alerts." There is no separate "paste a raw webhook URL into an alert r
 documented outside of selecting an installed integration.
 
 ### Per-individual-error vs per-alert-match vs per-lifecycle-transition
+
 - **`error` resource** (`Sentry-Hook-Resource: error`): fires **per individual error event** as it
   is created — "only option currently is `created`" — Business/Enterprise only (§1). [errors.md](https://docs.sentry.io/integrations/integration-platform/webhooks/errors/)
 - **`event_alert` resource** ("Issue Alerts", the alert-rule action): action "will always be
@@ -214,6 +226,7 @@ documented outside of selecting an installed integration.
   `OUTAGE`, `ERROR`, or `FEEDBACK` categories (§1). [issues.md](https://docs.sentry.io/integrations/integration-platform/webhooks/issues/)
 
 ### Identifiers/fields carried
+
 Both `error` and `event_alert` payloads carry the full event — but **under different parent keys**:
 `error` nests it at `data.error.*`, while `event_alert` nests it at `data.event.*` (verified field
 paths: `data['event']['issue_id']`, `data['event']['event_id']`, `data['event']['culprit']`,
@@ -242,7 +255,7 @@ GitHub documents `X-GitHub-Delivery`, and the source explains why that omission 
 1. **It is a fresh random UUID per send, not a function of the event.** `Request-ID` is
    `uuid4().hex` (§1) — nothing about the issue or event feeds it.
 2. **It is regenerated on every retry.** The `AppPlatformEvent` object that owns the
-   `@cached_property` is constructed *inside* the body of each retried Celery task —
+   `@cached_property` is constructed _inside_ the body of each retried Celery task —
    `send_alert_webhook_v2` builds its `AppPlatformEvent` at the point of send, and
    `send_resource_change_webhook` does the same, each under a `retry=Retry(times=3, delay=60 * 5)`
    decorator. Because the task body re-runs from the top on retry, the `cached_property` cache dies
@@ -251,7 +264,7 @@ GitHub documents `X-GitHub-Delivery`, and the source explains why that omission 
    [sentry_apps.py](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/tasks/sentry_apps.py),
    [app_platform_event.py](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/api/serializers/app_platform_event.py).
 
-**Consequence:** using `Request-ID` in a `webhook_events` unique constraint would dedup *nothing*.
+**Consequence:** using `Request-ID` in a `webhook_events` unique constraint would dedup _nothing_.
 The only scenario dedup exists to defend against — the same logical event arriving more than once
 because Sentry retried — is precisely the scenario in which `Request-ID` differs. It is a
 per-attempt trace id, the opposite of an idempotency key.
@@ -262,16 +275,16 @@ varies per attempt. A targeted search of `docs.sentry.io` for "delivery id"/"web
 of the `event_alert`/`issue`/`error`/`comment` resource pages surfaced no stable per-delivery
 identifier. **Conclusion: Sentry has no `X-GitHub-Delivery` equivalent.**
 
-**Proposed synthetic dedup key** (own reasoning, not a Sentry claim) — key on *payload identity*,
+**Proposed synthetic dedup key** (own reasoning, not a Sentry claim) — key on _payload identity_,
 which is invariant across retries, rather than on any header:
 
-| Resource | Proposed key | Why it is stable |
-|---|---|---|
-| `error` | `data.error.event_id` | Sentry event ids are unique per event; identical across all retries of that event |
+| Resource      | Proposed key                                  | Why it is stable                                                                                                       |
+| ------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `error`       | `data.error.event_id`                         | Sentry event ids are unique per event; identical across all retries of that event                                      |
 | `event_alert` | `data.event.event_id` + `data.triggered_rule` | Same event can legitimately match two different rules; the rule label disambiguates without collapsing distinct alerts |
-| `issue` | `data.issue.id` + `action` | No event id in lifecycle payloads; the (issue, transition) pair is the logical unit |
-| `comment` | `data.comment_id` + `action` | `comment_id` is stable; `action` separates create/update/delete |
-| `seer` | `data.run_id` + `action` | `run_id` identifies the Autofix run; `action` separates the 7 lifecycle events (§3) |
+| `issue`       | `data.issue.id` + `action`                    | No event id in lifecycle payloads; the (issue, transition) pair is the logical unit                                    |
+| `comment`     | `data.comment_id` + `action`                  | `comment_id` is stable; `action` separates create/update/delete                                                        |
+| `seer`        | `data.run_id` + `action`                      | `run_id` identifies the Autofix run; `action` separates the 7 lifecycle events (§3)                                    |
 
 Note the differing nesting between resources — `event_alert` nests the event one level deeper
 (`data.event.event_id`, `data.event.issue_id`, `data.event.culprit`) than `error` does
@@ -285,6 +298,7 @@ generic extractor over `data` will silently miss one of the two.
 ## 3. Sentry Seer / AI autofix
 
 ### What it does today
+
 "Seer is Sentry's AI debugging agent. It uses Sentry's rich context (issue details, tracing data,
 logs, and profiles) to help you troubleshoot and fix errors and performance issues faster." —
 [Seer](https://docs.sentry.io/product/ai-in-sentry/seer/). Autofix specifically: "a collaborative
@@ -294,6 +308,7 @@ The flow is three steps: **Root Cause Analysis → Solution Identification → C
 (same page).
 
 ### Does it open real PRs?
+
 Yes. "You can prompt Seer to generate PRs, or merge requests on GitLab, to fix your issue and push
 the changes to your repository... You must install the Seer Github or GitLab app to use this
 feature." — [Seer](https://docs.sentry.io/product/ai-in-sentry/seer/). Setup requires connecting
@@ -305,6 +320,7 @@ Organizations can disable it: "You can prevent Seer from creating PRs for your o
 disabling code generation" (same page).
 
 ### Trigger mechanisms
+
 - **Manual**: "You can always manually trigger the Autofix flow from the Issue Details page."
 - **Automatic**: "When automation is enabled in your project's Seer settings, Sentry can also
   trigger Autofix automatically on issues that meet the following criteria: 1. The issue has 10 or
@@ -318,6 +334,7 @@ disabling code generation" (same page).
   signed RPC between Sentry and the Seer service was found, not part of the public API.
 
 ### Pricing/quota
+
 "Seer is an add-on to your Sentry subscription. By enabling it, you are signing up for active
 contributor pricing... Any person who creates 2 or more PRs/MRs in a month in a Seer-Enabled
 repo/project will be billed." — [Seer](https://docs.sentry.io/product/ai-in-sentry/seer/). Current
@@ -332,6 +349,7 @@ $20/month per Sentry subscription, plus $25 worth of Seer event credits" ($1/fix
 scan) — [pricing.md#legacy-seer-pricing](https://docs.sentry.io/pricing.md#legacy-seer-pricing).
 
 ### Output consumable via webhook/API?
+
 **Via webhook: yes, documented, down to the field level.** A dedicated `seer` resource exists:
 "Sentry integrations that have subscribed to Seer webhooks can receive notifications about the
 Seer Autofix process... support seven different event types": `seer.root_cause_started`,
@@ -345,6 +363,7 @@ more than one pull request if there are multiple repos"): `data.pull_requests[]`
 **Via REST API: not documented** (see Trigger mechanisms above).
 
 ### External coding-agent handoff
+
 "Seer always performs root cause analysis and solution planning using its own internal tools and
 Sentry context. At the final code generation step, instead of having Seer generate the code fix
 directly, you can hand off to an external coding agent for implementation... **Coding agent handoff
@@ -352,6 +371,7 @@ only works with GitHub.** Supported coding agents for handoff: Claude Agent, Cur
 GitHub Copilot Cloud Agent." — [Autofix § Handoff to Coding Agents](https://docs.sentry.io/product/ai-in-sentry/seer/autofix/#handoff-to-coding-agents).
 
 ### The central build-vs-buy question
+
 **For a GitHub/GitLab.com repo on a Team or Business plan, Seer's built-in automation already is
 the "Sentry error → PR" loop end-to-end**, documented and GA: automatic trigger on qualifying
 issues → root cause → solution → code generation → PR opened, with a `seer.pr_created` webhook
@@ -377,6 +397,7 @@ documented gaps matters:
 ## 4. Sentry's official MCP server
 
 ### Existence and hosting
+
 Yes — `getsentry/sentry-mcp` on GitHub: "Sentry's MCP service is primarily designed for
 human-in-the-loop coding agents... This remote MCP server acts as middleware to the upstream
 Sentry API, optimized for coding assistants like Cursor, Claude Code, and similar development
@@ -388,12 +409,14 @@ Protocol implementation for interacting with Sentry."), confirming it as the doc
 surface.
 
 ### Transport
+
 The remote server "is based on [Cloudflare's work towards remote MCPs]" — i.e. Streamable
 HTTP/SSE, the Cloudflare remote-MCP pattern. A **stdio transport is also supported but explicitly
 flagged as in-progress**: "we also support a `stdio` transport. This is still a work in progress,
 but is the easiest way to adapt run the MCP against a self-hosted Sentry install." Source: [README](https://github.com/getsentry/sentry-mcp).
 
 ### Auth model
+
 - **Remote (hosted)**: OAuth — "Your client connects over Streamable HTTP with OAuth — there's
   nothing to install. Sentry uses OAuth: the first time you connect, your MCP client opens a
   browser window to sign in and authorize access." Local-dev setup instructions describe creating
@@ -405,20 +428,21 @@ but is the easiest way to adapt run the MCP against a self-hosted Sentry install
 - **Stdio**: a Sentry **User Auth Token** with scopes `org:read`, `project:read`, `project:write`,
   `team:read`, `team:write`, `event:write` ("As of writing this is:" — listed scopes), run via
   `npx @sentry/mcp-server@latest --access-token=sentry-user-token`.
-Source: [README](https://github.com/getsentry/sentry-mcp).
+  Source: [README](https://github.com/getsentry/sentry-mcp).
 
 ### Tool surface
+
 48 tools total, organized into 5 "skills" — per `packages/mcp-core/src/skillDefinitions.json` and
 `toolDefinitions.json` in [getsentry/sentry-mcp](https://github.com/getsentry/sentry-mcp/blob/main/packages/mcp-core/src/skillDefinitions.json)
 (fetched 2026-07-25):
 
-| Skill | Tools | Default | Description (verbatim) |
-|---|---|---|---|
-| `inspect` | 35 | on | "Read-only access to core Sentry data: issues, events, traces, replays, releases, monitors, profiles, documentation, and project metadata" |
-| `seer` | 11 | on | "Sentry's AI debugger that helps you analyze, root cause, and fix issues" (includes `analyze_issue_with_seer`, `get_issue_details`, `get_event_stacktrace`, `search_issues`) |
-| `docs` | 5 | **off** | "Deprecated legacy docs-only grant. Documentation tools are now available through Inspect Issues & Events." |
-| `triage` | 17 | off | "Resolve, assign, and update issues" |
-| `project-management` | 12 | off | "Create and modify projects, teams, and DSNs" |
+| Skill                | Tools | Default | Description (verbatim)                                                                                                                                                       |
+| -------------------- | ----- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inspect`            | 35    | on      | "Read-only access to core Sentry data: issues, events, traces, replays, releases, monitors, profiles, documentation, and project metadata"                                   |
+| `seer`               | 11    | on      | "Sentry's AI debugger that helps you analyze, root cause, and fix issues" (includes `analyze_issue_with_seer`, `get_issue_details`, `get_event_stacktrace`, `search_issues`) |
+| `docs`               | 5     | **off** | "Deprecated legacy docs-only grant. Documentation tools are now available through Inspect Issues & Events."                                                                  |
+| `triage`             | 17    | off     | "Resolve, assign, and update issues"                                                                                                                                         |
+| `project-management` | 12    | off     | "Create and modify projects, teams, and DSNs"                                                                                                                                |
 
 Individual tool names include `get_issue_details`, `get_event_stacktrace`, `get_issue_activity`,
 `search_issues`, `search_events`, `analyze_issue_with_seer`, `update_issue`, `add_issue_note`,
@@ -428,6 +452,7 @@ cases, rather than providing a general-purpose MCP server for all Sentry functio
 [README](https://github.com/getsentry/sentry-mcp).
 
 ### Self-hostable vs Sentry-hosted only
+
 **Both.** The default path is Sentry-hosted (`https://mcp.sentry.dev`), but the server is
 source-available and can be run against a self-hosted Sentry install: `npx
 @sentry/mcp-server@latest --access-token=TOKEN --host=sentry.example.com
@@ -438,6 +463,7 @@ License" — the same license family Sentry's core product uses). Source: [READM
 [LICENSE.md](https://github.com/getsentry/sentry-mcp/blob/main/LICENSE.md).
 
 ### Beta/early-access language
+
 No beta/GA-caveat language was found for the hosted server as a whole. The **stdio transport is
 explicitly called "still a work in progress"** in the README, with no date attached.
 
@@ -446,12 +472,14 @@ explicitly called "still a work in progress"** in the README, with no date attac
 ## 5. Sentry REST API for issue detail
 
 ### The issue itself
+
 `GET /api/0/organizations/{organization_id_or_slug}/issues/{issue_id}/` — "Return details on an
 individual issue, including its basic stats, comment and user-report counts, and a summary of the
 latest event." Requires bearer auth with scope `event:admin`, `event:read`, or `event:write`.
 Source: [Retrieve an Issue](https://docs.sentry.io/api/events/retrieve-an-issue/).
 
 ### Latest event with stack trace + source context
+
 `GET /api/0/organizations/{organization_id_or_slug}/issues/{issue_id}/events/{event_id}/` where
 `event_id` accepts a literal id or one of `latest`, `oldest`, `recommended` — "Retrieves the
 details of an issue event." Same scopes (`event:admin`/`event:read`/`event:write`). The
@@ -460,6 +488,7 @@ array of `[lineNo, sourceLine]` tuples — **in the default response**, i.e. sur
 lines are included without any extra query parameter. Source: [Retrieve an Issue Event](https://docs.sentry.io/api/events/retrieve-an-issue-event/).
 
 ### Suspect commits
+
 **No public, documented endpoint.** Sentry's own product documentation for the feature describes
 the algorithm but names no API: "Sentry will look at the stack trace of an issue and collect all
 in-app frames. For each in-app frame, Sentry checks the blame info for the exact file and line
@@ -483,6 +512,7 @@ we aren't expecting customers to rely on it." As of 2026-07-25 it remains **undo
 listed). Source: [getsentry/sentry#80771](https://github.com/getsentry/sentry/issues/80771).
 
 ### Tags
+
 `GET /api/0/organizations/{organization_id_or_slug}/issues/{issue_id}/tags/{key}/` (tag detail) and
 `GET /api/0/organizations/{organization_id_or_slug}/issues/{issue_id}/tags/{key}/values/` (tag
 values) — both documented as returning "at most 1000 values" when paginated. Sources:
@@ -490,6 +520,7 @@ values) — both documented as returning "at most 1000 values" when paginated. S
 [List a Tag's Values for an Issue](https://docs.sentry.io/api/events/list-a-tags-values-for-an-issue/).
 
 ### Auth model
+
 `docs.sentry.io` documents **three key types of auth tokens**, each mapped to the same
 [Permissions & Scopes](https://docs.sentry.io/api/permissions.md):
 
@@ -518,6 +549,7 @@ Scopes (from [Permissions & Scopes](https://docs.sentry.io/api/permissions/)): I
 `event:write`, `event:admin` per their own scope lists.
 
 ### Rate limits
+
 "Sentry rate limits every API request made to prevent abuse and resource overuse. The limit is
 applied to each unique combination of caller and endpoint... a fixed window approach... Each
 endpoint has its own maximum number of requests and window size," plus a separate concurrent-
@@ -539,7 +571,7 @@ using our webhooks, if possible." Source: [Rate Limits](https://docs.sentry.io/a
   than reusing the GitHub-shaped delivery-UUID column — a schema decision, not just a mapping detail.
 - **Write the payload extractor per-resource, not generically.** `error` puts the event at
   `data.error.*` and `event_alert` puts it at `data.event.*` (§2); a single `getPath(data, "event",
-  …)` helper silently yields `undefined` for half the traffic, which — combined with the point above
+…)` helper silently yields `undefined` for half the traffic, which — combined with the point above
   — would produce null dedup keys and thus unbounded duplicate processing rather than a loud failure.
 - Because Sentry's own retry policy only fires on network failures/timeouts and explicitly ignores
   a 4xx (`ClientError` is in the ignore list, per `sentry_apps.py`), the Elysia ingress must
@@ -566,7 +598,7 @@ using our webhooks, if possible." Source: [Rate Limits](https://docs.sentry.io/a
   Autofix is GA and already runs automatic-trigger → root cause → solution → real PR with a
   `seer.pr_created` webhook (§3). A custom loop is only defensible where Seer's documented limits
   bind: a coding agent other than the three supported handoffs (Claude Agent, Cursor Cloud Agent,
-  GitHub Copilot Cloud Agent), a non-GitHub/GitLab.com SCM, or programmatic control over *when* the
+  GitHub Copilot Cloud Agent), a non-GitHub/GitLab.com SCM, or programmatic control over _when_ the
   work runs. Alfred's actual differentiator is that third gap — Seer offers no trigger API and gates
   automation behind its own fixability score, so "Alfred decides which errors are worth fixing" is
   the only part of this loop that cannot be bought.

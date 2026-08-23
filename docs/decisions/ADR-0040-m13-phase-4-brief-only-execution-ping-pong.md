@@ -1,6 +1,5 @@
 # ADR-0040 — m13 Phase 4 brief-only execution: ping-pong steps, sentinel workflow, dedicated transcript column, system-tool autonomy override
 
-
 **Decision.** Phase 4 of m13 replaces the current registry-miss behavior for user-authored workflows with a real `AlfredAgent`-driven loop. Eight coordinated micro-decisions compose this:
 
 1. **Two named executor steps that ping-pong.** `boss-turn` runs exactly one `AlfredAgent.turn()`; `dispatch-tools` routes each returned tool call through `dispatchToolCall` (ADR-0034) and appends results to the transcript. Each cycle ends with `next: 'boss-turn'`, `done`, or `interrupt`.
@@ -22,9 +21,9 @@
 
 - **Strict-seed `@`-mentions.** Permissive seeding (all connected integrations) makes the same brief produce a different toolset on different days and breaks Anthropic's tool-definition cache stability across runs. Strict seeding makes authoring intent explicit, costs at most one extra round-trip per integration the boss needs to load mid-run, and is relaxable later without a migration. ADR-0026 amended above.
 
-- **Structural autonomy for `system.*`.** Seeding `user_action_policies.integration_rules.system = { mode: 'autonomy' }` at signup (Phase 1c) is the data answer. The belt-and-suspenders short-circuit (in the dispatcher as written here; in `resolvePolicyMode` since the 2026-08-13 amendment below) means the invariant *"`system.*` is structurally non-gateable"* survives a future user toggle, a missing default row, a botched migration, or a policy-editor bug. Six lines in `dispatchToolCall`; cost-free defense in depth.
+- **Structural autonomy for `system.*`.** Seeding `user_action_policies.integration_rules.system = { mode: 'autonomy' }` at signup (Phase 1c) is the data answer. The belt-and-suspenders short-circuit (in the dispatcher as written here; in `resolvePolicyMode` since the 2026-08-13 amendment below) means the invariant _"`system._`is structurally non-gateable"* survives a future user toggle, a missing default row, a botched migration, or a policy-editor bug. Six lines in`dispatchToolCall`; cost-free defense in depth.
 
-- **Pure `execute`; step body interprets state mutations.** The executor reads `state` at step start (`executor.ts:96`) and writes it at step commit (`executor.ts:288`). Side-channel writes during dispatch race the commit. Returning a structured result and applying it in the step body keeps all state writes in one transactional path — the executor's contract stays uniform, and the system-tool effect is *one* known place to read for "what does load_integration actually do" rather than spread across tool internals, dispatcher branches, and runtime context.
+- **Pure `execute`; step body interprets state mutations.** The executor reads `state` at step start (`executor.ts:96`) and writes it at step commit (`executor.ts:288`). Side-channel writes during dispatch race the commit. Returning a structured result and applying it in the step body keeps all state writes in one transactional path — the executor's contract stays uniform, and the system-tool effect is _one_ known place to read for "what does load_integration actually do" rather than spread across tool internals, dispatcher branches, and runtime context.
 
 - **System prompt cache stability.** ADR-0026's strict-pinning catches accidental system drift across turns within a single `AlfredAgent` instance. The executor instantiates a fresh `AlfredAgent` per step, so the protection is per-step only — useless across the run. The actual concern is byte-identical `system` across turns in a run (Anthropic prompt cache) and across runs of all user-authored briefs (cross-run prefix hits). Putting the brief in the first user message — not `system` — maximizes the shared prefix per user. Tool definitions flow through the SDK's `tools` field, so `load_integration` growing the active set never touches the system block.
 
@@ -94,26 +93,26 @@ dispatch-tools:
 ```ts
 // packages/api/src/modules/agent/workflows/user-authored-brief.ts
 export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
-  slug: '__user-authored-brief__',     // never collides — never registered into the registry
-  name: 'User-authored brief',
-  trigger: { kind: 'manual' },
-  initialStep: 'boss-turn',
+  slug: "__user-authored-brief__", // never collides — never registered into the registry
+  name: "User-authored brief",
+  trigger: { kind: "manual" },
+  initialStep: "boss-turn",
   initialState({ brief, metadata }) {
-    if (!brief) throw new Error('user-authored brief workflow requires a brief');
+    if (!brief) throw new Error("user-authored brief workflow requires a brief");
     const allowed = (metadata?.allowedIntegrations as readonly string[] | undefined) ?? [];
     return {
       activeIntegrations: parseIntegrationMentions(brief, allowed),
-      allowedIntegrations: allowed,     // empty = unrestricted
+      allowedIntegrations: allowed, // empty = unrestricted
       pendingToolCalls: [],
       inFlightTailStart: 0,
       turnCount: 0,
     };
   },
   initialTranscript({ brief }) {
-    if (!brief) throw new Error('user-authored brief workflow requires a brief');
-    return [{ role: 'user', content: brief }];
+    if (!brief) throw new Error("user-authored brief workflow requires a brief");
+    return [{ role: "user", content: brief }];
   },
-  steps: { 'boss-turn': bossTurnStep, 'dispatch-tools': dispatchToolsStep },
+  steps: { "boss-turn": bossTurnStep, "dispatch-tools": dispatchToolsStep },
 };
 
 // service.ts: `resolveWorkflowForRun` falls back here on registry miss
@@ -145,14 +144,15 @@ export function parseIntegrationMentions(
   brief: string,
   allowedIntegrations: readonly string[],
 ): IntegrationSlug[] {
-  const allowed = allowedIntegrations.length > 0
-    ? new Set<string>(allowedIntegrations)
-    : new Set<string>(INTEGRATION_SLUGS);              // empty = unrestricted (cap-side)
+  const allowed =
+    allowedIntegrations.length > 0
+      ? new Set<string>(allowedIntegrations)
+      : new Set<string>(INTEGRATION_SLUGS); // empty = unrestricted (cap-side)
   const seen = new Set<IntegrationSlug>();
   for (const m of brief.matchAll(MENTION_RE)) {
-    const slug = m[1]?.toLowerCase() ?? '';
+    const slug = m[1]?.toLowerCase() ?? "";
     if (!INTEGRATION_SLUGS.includes(slug as IntegrationSlug)) continue;
-    if (slug === 'system') continue;                   // never user-seedable
+    if (slug === "system") continue; // never user-seedable
     if (!allowed.has(slug)) continue;
     seen.add(slug as IntegrationSlug);
   }
@@ -168,8 +168,8 @@ export function parseIntegrationMentions(
 // dispatch/index.ts, inside dispatchToolCall, before resolvePolicyMode
 const integration: IntegrationSlug = integrationFromToolName(args.toolName);
 const policyMode: PolicyMode =
-  integration === 'system'
-    ? 'autonomy'                                      // structural; bypass user_action_policies
+  integration === "system"
+    ? "autonomy" // structural; bypass user_action_policies
     : await resolvePolicyMode(args.userId, args.toolName);
 ```
 
@@ -182,7 +182,8 @@ Audit row still lands for `system.load_integration` (and Phase 6's `system.spawn
 ```ts
 function resolveSdkTools(activeIntegrations: IntegrationSlug[]): ToolSet {
   const out: Record<ToolName, Tool> = {};
-  for (const slug of [...activeIntegrations, 'system']) {       // system tools always present
+  for (const slug of [...activeIntegrations, "system"]) {
+    // system tools always present
     for (const t of listToolsForIntegration(slug)) {
       out[t.name] = tool({
         description: t.description,

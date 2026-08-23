@@ -320,7 +320,7 @@ Goal: long boss runs maintain quality by compressing older transcript into a str
 
 After every `dispatch-tools` step, the executor calls `tokenCount(agent_runs.transcript)` (AI SDK tokenizer; `@anthropic-ai/tokenizer` for Anthropic models — within ~5% is fine). If the count exceeds `compactionThresholdTokens(Math.min(bossWindow, compactorWindow))`, schedule a `compact-transcript` step before the next `boss-turn`.
 
-Both windows read from the `model_prices.context_window` column — `bossWindow` from `getBossModel()`, `compactorWindow` from `COMPACTOR_MODEL`. The threshold uses the **smaller** of the two so the prior slice handed to the compactor never exceeds what the compactor can ingest (see the ADR-0035 amendment 2026-06-01 — this matters *now*: boss is `gemini-2.5-pro` 1M, compactor is Sonnet 200k). The same `min()` threshold is used at the post-compaction overflow guard, not the boss window alone.
+Both windows read from the `model_prices.context_window` column — `bossWindow` from `getBossModel()`, `compactorWindow` from `COMPACTOR_MODEL`. The threshold uses the **smaller** of the two so the prior slice handed to the compactor never exceeds what the compactor can ingest (see the ADR-0035 amendment 2026-06-01 — this matters _now_: boss is `gemini-2.5-pro` 1M, compactor is Sonnet 200k). The same `min()` threshold is used at the post-compaction overflow guard, not the boss window alone.
 
 ### 7b. In-flight tail identification
 
@@ -328,7 +328,7 @@ Use `state.inFlightTailStart`, captured by the last `boss-turn`, as the boundary
 
 ### 7c. Compactor invocation
 
-**Ownership boundary (so the primitive is safe to reuse).** `compactTranscript(...)` — the reusable primitive (CONTEXT.md "Transcript compaction") — **owns model selection and prior-window enforcement**: it resolves `compactorWindow`/`fallbackWindow` from the constants itself, picks primary-vs-fallback, and throws `compactor_input_too_large`. The caller (`userAuthoredBriefWorkflow`) **owns only the threshold trip-wire math** — when to *schedule* a `compact-transcript` step — and supplies `{ prior, inFlightTail, attribution }`. This keeps the guard out of the caller so the future chat surface can call the primitive without re-implementing (or forgetting) the policy. The trip-wire reads the compactor window via the exported `COMPACTOR_MODEL` constant; it does not duplicate the selection logic.
+**Ownership boundary (so the primitive is safe to reuse).** `compactTranscript(...)` — the reusable primitive (CONTEXT.md "Transcript compaction") — **owns model selection and prior-window enforcement**: it resolves `compactorWindow`/`fallbackWindow` from the constants itself, picks primary-vs-fallback, and throws `compactor_input_too_large`. The caller (`userAuthoredBriefWorkflow`) **owns only the threshold trip-wire math** — when to _schedule_ a `compact-transcript` step — and supplies `{ prior, inFlightTail, attribution }`. This keeps the guard out of the caller so the future chat surface can call the primitive without re-implementing (or forgetting) the policy. The trip-wire reads the compactor window via the exported `COMPACTOR_MODEL` constant; it does not duplicate the selection logic.
 
 The selection + guard live **inside** `compactTranscript`:
 
@@ -337,21 +337,22 @@ The selection + guard live **inside** `compactTranscript`:
 const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
 const fallbackWindow = await resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL);
 const priorTokens = tokenCount(prior);
-let model = COMPACTOR_MODEL;                        // Sonnet 4.6, thinking off
+let model = COMPACTOR_MODEL; // Sonnet 4.6, thinking off
 if (priorTokens > compactorWindow) {
-  if (priorTokens <= fallbackWindow) model = COMPACTOR_FALLBACK_MODEL; // Gemini 2.5 Flash, 1M
-  else throw new Error('compactor_input_too_large');
+  if (priorTokens <= fallbackWindow)
+    model = COMPACTOR_FALLBACK_MODEL; // Gemini 2.5 Flash, 1M
+  else throw new Error("compactor_input_too_large");
 }
 
 const result = await meteredGenerateText({
   model,
-  temperature: 0,                                  // extract, don't generate
-  attribution: { kind: 'llm', role: 'compactor' },
+  temperature: 0, // extract, don't generate
+  attribution: { kind: "llm", role: "compactor" },
   maxOutputTokens: 2000,
   system: COMPACTOR_SYSTEM_PROMPT,
   messages: prior,
 });
-return { transcript: [summaryMessage(result.text), ...inFlightTail], /* … */ };
+return { transcript: [summaryMessage(result.text), ...inFlightTail] /* … */ };
 ```
 
 `COMPACTOR_MODEL` / `COMPACTOR_FALLBACK_MODEL` are shared constants (not a `getCompactorModel()` tier dispatcher), imported by both this call and the threshold math in 7a (which needs `compactorWindow`). Sonnet runs with extended thinking **disabled** (`providerOptions.anthropic.thinking: { type: 'disabled' }`) — the compactor is a mechanical transform, not a reasoning task.
@@ -368,8 +369,8 @@ Place a third ephemeral `cacheControl` breakpoint immediately after the `<run_su
 
 Two distinct fault paths, do not conflate them:
 
-- **Compactor *call* failure** (model error / invalid envelope) → bounded in-step retry (3 attempts, 100ms then 200ms backoff) then the run fails with `reason='compactor_failed: <msg>'`. Running with overflowing context = hallucination / silent truncation, so explicit failure beats degraded output. (Already shipped.)
-- **Prior slice doesn't fit the compactor window** → *not* a failure first. Fall over to `COMPACTOR_FALLBACK_MODEL` (Gemini 2.5 Flash, 1M window); only if the slice exceeds even the fallback window does the run fail with `reason='compactor_input_too_large'`. This is the one place a degraded (lower-quality) compaction is accepted — surviving a pathological high-payload turn beats killing the run. See the ADR-0035 amendment.
+- **Compactor _call_ failure** (model error / invalid envelope) → bounded in-step retry (3 attempts, 100ms then 200ms backoff) then the run fails with `reason='compactor_failed: <msg>'`. Running with overflowing context = hallucination / silent truncation, so explicit failure beats degraded output. (Already shipped.)
+- **Prior slice doesn't fit the compactor window** → _not_ a failure first. Fall over to `COMPACTOR_FALLBACK_MODEL` (Gemini 2.5 Flash, 1M window); only if the slice exceeds even the fallback window does the run fail with `reason='compactor_input_too_large'`. This is the one place a degraded (lower-quality) compaction is accepted — surviving a pathological high-payload turn beats killing the run. See the ADR-0035 amendment.
 
 ### 7f. Prompt engineering pass
 
@@ -379,8 +380,8 @@ Budget real time. ADR-0035 marks the prompt as "sketched, not engineered" — ru
 
 - **Done-bar = strengthened fixture suite, staging is a final spot-check** (not the iteration loop — staging runs are ~35-40 min and compaction only fires past threshold, a terrible loop). "Consistently" = each fixture passes a flakiness gate (run N times, all green; N TBD in the next branch).
 - **Model decoupled to Sonnet 4.6 (thinking off), fallback Gemini 2.5 Flash, `min(boss,compactor)` threshold + prior-fits guard.** Full rationale in the **ADR-0035 amendment (2026-06-01)**. Tune the prompt against Sonnet, not flash-lite.
-- **Assertions: section-scoped with negatives.** Fixture schema moves from `mustContain: string[]` to `assertions: [{ section, contains | absent }]` — extract the named `<section>` block (tolerant regex, no XML-parser dep) and assert the needle is inside it; negatives assert it is *absent* from the wrong section.
-- **Fixtures: the existing three + three new (six total):** `directive-vs-decision-boundary` (both a directive and a fact present; each in its correct section, absent from the other), `superseded-directive` (both directives retained verbatim in chronological order; the later override appears in `<user_directives>` **without** a superseded marker, the earlier conflicting one appears **with** `superseded="true"` — assert both, plus a negative that the override is *not* marked superseded), `under-pressure-completeness` (transcript large enough that the 2000-token cap actually binds; all actions + directive still survive). Plus **fold ID-survival assertions into the completeness fixtures** (specific thread/message ids must reach `key_entities` or an action `key_output`) — no dedicated file.
+- **Assertions: section-scoped with negatives.** Fixture schema moves from `mustContain: string[]` to `assertions: [{ section, contains | absent }]` — extract the named `<section>` block (tolerant regex, no XML-parser dep) and assert the needle is inside it; negatives assert it is _absent_ from the wrong section.
+- **Fixtures: the existing three + three new (six total):** `directive-vs-decision-boundary` (both a directive and a fact present; each in its correct section, absent from the other), `superseded-directive` (both directives retained verbatim in chronological order; the later override appears in `<user_directives>` **without** a superseded marker, the earlier conflicting one appears **with** `superseded="true"` — assert both, plus a negative that the override is _not_ marked superseded), `under-pressure-completeness` (transcript large enough that the 2000-token cap actually binds; all actions + directive still survive). Plus **fold ID-survival assertions into the completeness fixtures** (specific thread/message ids must reach `key_entities` or an action `key_output`) — no dedicated file.
 - **Flakiness gate: compactor at temperature 0, N=5 runs per fixture, all-green bar.** Temp 0 because the compactor extracts, it doesn't generate — improves fidelity and shrinks eval variance. All-green (not majority): a 1-in-5 flake on a load-bearing assertion is the prompt-robustness signal 7f exists to surface, not test noise to tolerate. ~30 cheap calls/suite.
 - **CI split:** `smoke-compaction.ts` stays a **manual/periodic** smoke (real Sonnet calls — matches every other smoke; keeps live-model cost/keys/flake out of CI) and is the 7f sign-off gate. A **separate pure unit test in CI** (no model) guards the contract: `COMPACTOR_SYSTEM_PROMPT` contains all 9 schema section tags + the section-extraction helper scopes a recorded sample correctly. Catches the silent section-rename regression `prompt.ts` warns about, for free.
 - **Section-extraction helper has one home:** `extractHandoffSection(runSummaryXml, section): string | null` (+ a thin `assertHandoffSections` for the contract test) lives at `packages/api/src/modules/agent/compaction/handoff.ts` and is **imported by both** `smoke-compaction.ts` and the CI unit test — the regex is written once, never duplicated across script and test.
@@ -400,7 +401,7 @@ Budget real time. ADR-0035 marks the prompt as "sketched, not engineered" — ru
 - A run with a manually inflated transcript hits the threshold, runs `compact-transcript`, and continues with the new `agent_runs.transcript` shape `[<run_summary>, in-flight tail]`. The stable boss system prompt and tool definitions remain outside the transcript as `AlfredAgent.turn()` inputs.
 - `<user_directives>` content is preserved verbatim (not paraphrased) across a compaction.
 - One `api_call_log` row per compaction with `attribution.role='compactor'` — and the metered model is `COMPACTOR_MODEL` (or `COMPACTOR_FALLBACK_MODEL` on the overflow path), not `getCheapModel()`.
-- Compactor *call* failure surfaces as a real run failure (`compactor_failed`), not silent quality loss.
+- Compactor _call_ failure surfaces as a real run failure (`compactor_failed`), not silent quality loss.
 
 New acceptance for the amended (2026-06-01) design — these prove the risky parts, not just generic compaction:
 
@@ -486,11 +487,11 @@ Run on a dev account; capture the smoke output in the milestone PR description.
 
 Surfaced while grilling the Phase 5 approvals-UI polish (2026-05-31). Today `INTEGRATION_SLUGS`, `INTEGRATION_ACTIONS`, and the derived `ToolName` type already live in `@alfred/contracts` and are the single source the dispatcher, schemas, and the web card registry build from. **OAuth scope constants do not** — `GOOGLE_FEATURE_SCOPES` and the per-feature scope mappings live server-side in the integrations module (see ADR-0044's least-privilege scope tiers). The cleanup: make per-integration scope/feature metadata derive from the same contracts constants so scope types, action lists, and integration slugs can't drift, and so any surface (card registry, policy editor, integration detail page) reads one canonical map.
 
-**Why it's only a note, not yet scheduled work:** there's a real boundary tension to resolve first — `@alfred/contracts` is zero-dep and web-importable, but *which scopes we request per feature* is arguably server-side OAuth policy, not a web-safe constant. Deciding how much of the scope model belongs in contracts vs. stays server-only is a genuine trade-off with downstream consequences. **If/when tackled, this graduates to its own ADR** (it touches the ADR-0044 scope posture); until then it stays a flagged follow-up. Does not block any m13 phase — the approvals card registry is already type-safe via `ToolName`.
+**Why it's only a note, not yet scheduled work:** there's a real boundary tension to resolve first — `@alfred/contracts` is zero-dep and web-importable, but _which scopes we request per feature_ is arguably server-side OAuth policy, not a web-safe constant. Deciding how much of the scope model belongs in contracts vs. stays server-only is a genuine trade-off with downstream consequences. **If/when tackled, this graduates to its own ADR** (it touches the ADR-0044 scope posture); until then it stays a flagged follow-up. Does not block any m13 phase — the approvals card registry is already type-safe via `ToolName`.
 
 ### Surface "gated gates reads too" in onboarding / integration UX copy (Phase 8 grilling, 2026-05-31)
 
-Decided during the Phase 8 grill: under a `gated` integration policy there is **no read/write split and no trigger-doc carve-out** — even `gmail.read_message` (reading past the inline 4k `<trigger_event>` excerpt of the very email that fired a run) stages for approval (alt (a); the trigger-doc pre-authorization alt (c) was rejected as a bespoke policy concept that per-tool overrides will subsume). This is correct behavior but **mildly surprising**, so it must be communicated where the user opts into gating: **credential-consent copy during onboarding** and/or the **`/integrations/$provider` detail page** when the autonomy/gated radio (Phase 8c) lands. One line is enough — e.g. "Gated means Alfred pauses for your approval before *any* action on this integration, including reading messages beyond a short preview." Pairs naturally with the Phase 8d risk-tier copy on the same surface. Glossary updated (`Policy mode`). Not a code blocker; it's a copy obligation owed by whichever of {onboarding credential step, Phase 8c policy editor} ships first.
+Decided during the Phase 8 grill: under a `gated` integration policy there is **no read/write split and no trigger-doc carve-out** — even `gmail.read_message` (reading past the inline 4k `<trigger_event>` excerpt of the very email that fired a run) stages for approval (alt (a); the trigger-doc pre-authorization alt (c) was rejected as a bespoke policy concept that per-tool overrides will subsume). This is correct behavior but **mildly surprising**, so it must be communicated where the user opts into gating: **credential-consent copy during onboarding** and/or the **`/integrations/$provider` detail page** when the autonomy/gated radio (Phase 8c) lands. One line is enough — e.g. "Gated means Alfred pauses for your approval before _any_ action on this integration, including reading messages beyond a short preview." Pairs naturally with the Phase 8d risk-tier copy on the same surface. Glossary updated (`Policy mode`). Not a code blocker; it's a copy obligation owed by whichever of {onboarding credential step, Phase 8c policy editor} ships first.
 
 **RESOLVED 2026-06-01:** the Phase 8c policy editor shipped first carrying this line — `provider-policy.tsx:79` renders "Alfred pauses for your approval before any action on {provider}, including reading messages beyond a short preview." in the gated state. Obligation met; the onboarding credential step inherits the copy if/when it wants it but no longer owes it.
 

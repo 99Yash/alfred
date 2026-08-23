@@ -2,7 +2,7 @@
 
 - TypeScript is pinned through the workspace catalog and every workspace declaration must use `"typescript": "catalog:"`. Keeping one compiler version avoids duplicate peer-instantiated library types.
 - All packages use `"moduleResolution": "bundler"` and `"verbatimModuleSyntax": true`. Use `import type` for type-only imports.
-- `exactOptionalPropertyTypes` is on for **every workspace** (#552): `k?: T` accepts *absent or `T`*, never a present `undefined`. See [code style](./code-style.md) for which spelling to declare and how to satisfy third-party types that cannot be widened.
+- `exactOptionalPropertyTypes` is on for **every workspace** (#552): `k?: T` accepts _absent or `T`_, never a present `undefined`. See [code style](./code-style.md) for which spelling to declare and how to satisfy third-party types that cannot be widened.
 - The flag is set in `tsconfig.base.json`, so it applies to anything a `tsconfig` compiles — and that now includes test code. **Every package or app that holds a `test/` directory also holds a `tsconfig.test.json`**, and its `check-types` script runs that project as a second `tsc -p` pass after the composite `tsc -b`. The set is closed at **thirteen**: `ai`, `artifacts-design`, `assistant`, `auth`, `contracts`, `corpus`, `db`, `extraction`, `http`, `integrations`, `logging`, `sync`, and `apps/web`. Each such project sets `include: ["src", "test"]`, so a file added anywhere under `test/` joins the program with no edit. The second pass is a **separate project** rather than a widened `include` because each base `tsconfig.json` is `composite: true` with `rootDir: "src"`, so `test` cannot simply be appended. **Four** projects still carry debt: `packages/assistant/tsconfig.test.json`, `packages/db/tsconfig.test.json`, `packages/http/tsconfig.test.json` and `packages/integrations/tsconfig.test.json` each `exclude` a baseline of files that are not yet clean, and `pnpm check:test-typecheck-baseline` holds those lists to set equality so a baseline can only shrink. That script prints both counts on every run (`13 test projects, 37 baselined file(s): …`), so read its output rather than this sentence when they disagree.
 - `apps/web` uses `tsc --noEmit` for type-checking (not `tsc -b`) — it's a leaf node, not a composite project.
 - All other packages use `tsc -b` via composite project references.
@@ -16,11 +16,11 @@
 
 The program does **not** extend `packages/config/tsconfig.base.json`, and two strictness flags are deliberately off:
 
-| Flag | Why | Cost if turned on |
-| --- | --- | --- |
-| `moduleResolution` is `nodenext`, not the base's `bundler` | These files are run by `node`. `nodenext` turns a relative import missing its `.mjs` extension into `TS2835`, which is Node's own `ERR_MODULE_NOT_FOUND` reported before the script runs; `bundler` accepts a specifier Node rejects. | — |
-| `noImplicitAny: false` | Pure "annotate every parameter" work that buys none of the shapes this program exists to check. About 60% of it is in the five `*.selftest.mjs` files. | **472** errors |
-| `noUncheckedIndexedAccess: false` | Same. | a further **37** |
+| Flag                                                       | Why                                                                                                                                                                                                                                   | Cost if turned on |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `moduleResolution` is `nodenext`, not the base's `bundler` | These files are run by `node`. `nodenext` turns a relative import missing its `.mjs` extension into `TS2835`, which is Node's own `ERR_MODULE_NOT_FOUND` reported before the script runs; `bundler` accepts a specifier Node rejects. | —                 |
+| `noImplicitAny: false`                                     | Pure "annotate every parameter" work that buys none of the shapes this program exists to check. About 60% of it is in the five `*.selftest.mjs` files.                                                                                | **472** errors    |
+| `noUncheckedIndexedAccess: false`                          | Same.                                                                                                                                                                                                                                 | a further **37**  |
 
 Full `strict` over the tree is 529 errors; the shape above was 28 when the program landed and is 0 now. Both flags are real slices with measured costs, not oversights.
 

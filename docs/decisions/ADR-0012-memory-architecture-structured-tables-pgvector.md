@@ -1,6 +1,5 @@
 # ADR-0012 — Memory architecture: structured tables + pgvector
 
-
 **Decision.** Memory is a small set of opinionated tables in Postgres:
 
 - `user_facts` — typed key/value with `confidence`, `source`, `status` (proposed/confirmed/rejected/superseded), `valid_from`/`valid_until`, `supersedes_id`.

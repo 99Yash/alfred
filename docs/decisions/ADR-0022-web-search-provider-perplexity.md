@@ -1,6 +1,5 @@
 # ADR-0022 — Web search provider: Perplexity (Sonar Pro + Sonar Deep Research)
 
-
 **Decision.** Perplexity for both web-search use cases. Two SKUs split by use case:
 
 - **Cold-start research at signup** (ADR-0011) → **Sonar Deep Research**. Multi-step, multi-source synthesis with structured citations. Async via BullMQ; latency (30-90s) tolerable. ~$1-5/signup.

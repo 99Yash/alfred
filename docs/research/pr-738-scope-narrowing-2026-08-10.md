@@ -40,11 +40,11 @@ PostgreSQL guarantees that a `jsonb` value is valid JSON. It does not guarantee 
 
 This gives three distinct guarantees:
 
-| Shape | Guarantee | Runtime-safe claim |
-| --- | --- | --- |
-| `jsonb(...).$type<JsonValue>()` | Compile-time writes and reads use Alfred's JSON-value type | The database value is JSON, but Drizzle did not validate the inferred TypeScript type |
-| `jsonb(...).$type<JsonObject>()` | Compile-time writes and reads use an object type | The database can still contain a scalar or array unless a parser or database constraint proves an object |
-| `jsonValueSchema.parse(x)` / `jsonObjectSchema.parse(x)` | The value passed this runtime check | The returned value has the schema's runtime shape; `z.infer` can be derived from that schema [Zod parsing and inference](https://zod.dev/basics#inferring-types) |
+| Shape                                                    | Guarantee                                                  | Runtime-safe claim                                                                                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jsonb(...).$type<JsonValue>()`                          | Compile-time writes and reads use Alfred's JSON-value type | The database value is JSON, but Drizzle did not validate the inferred TypeScript type                                                                            |
+| `jsonb(...).$type<JsonObject>()`                         | Compile-time writes and reads use an object type           | The database can still contain a scalar or array unless a parser or database constraint proves an object                                                         |
+| `jsonValueSchema.parse(x)` / `jsonObjectSchema.parse(x)` | The value passed this runtime check                        | The returned value has the schema's runtime shape; `z.infer` can be derived from that schema [Zod parsing and inference](https://zod.dev/basics#inferring-types) |
 
 Therefore, the new `JsonValue` column types are useful compile-time pressure. The new `JsonObject` column types are only honest when every writer is typed and persisted reads are trusted by an explicit storage invariant, or when the owner parses reads. In particular, [`object-state/store.ts`](../../packages/assistant/src/connections/object-state/store.ts) must not remove `toRecord(existing.attributes)` only because [`integration-objects.ts`](../../packages/db/src/schema/integration-objects.ts) adds `.$type<JsonObject>()`. That replacement removes a runtime guard based on a compile-time annotation.
 

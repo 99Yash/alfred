@@ -1,6 +1,5 @@
 # ADR-0033 — Daily briefing fidelity is bounded by per-source OAuth: Google now, GitHub queued
 
-
 **Decision.** The LLM-composed daily briefing (built atop m10, scaffolded 2026-05-21) is explicitly scoped to whatever per-source data alfred has ingested. v1 ships against Gmail only (the existing `briefing` feature in `GOOGLE_FEATURE_SCOPES`); Google Calendar (`calendar.readonly`) is the next scope to land and is treated as a hard prerequisite for "what's on today" / "what's on tomorrow" content; GitHub OAuth is queued as the next integration boundary after that and is the prerequisite for accurate PR-state awareness. The briefing agent's tool surface (`list_calendar_events`, `list_action_items`, `list_meeting_preps` in the scaffold) is shaped now to consume those signals when they exist and returns `[]` until they do — no prompt rewrites needed when each lands.
 
 **Why this is its own ADR.** ADR-0025 #2 committed to a daily briefing but pinned v1 at "inbox-only, calendar deferred." The 2026-05-21 scaffold supersedes that compose step with an LLM agent — at which point fidelity stops being a UI question and starts being an integration question. A user-visible regression we hit on day one: the morning briefing re-surfaced PRs the user had already merged, because alfred has no GitHub read path and can't verify state. That's not a model failure; it's a scope failure. The decision deserves its own ADR so subsequent integration work doesn't reopen the question of whether briefings can "fake it" without the underlying signal.
@@ -18,7 +17,7 @@
 - The agent's tool surface is stable. `list_calendar_events`, `list_action_items`, `list_meeting_preps` already exist and return `[]`; the agent's prompt already names them. When each is wired, no agent code or prompt rewrite is required.
 - The briefing workflow shape (`gather → compose → persist → send`) doesn't change per integration; the watermark + prior-briefing memory layer is generic.
 - The OAuth refactor that landed alongside m10 (`GOOGLE_FEATURE_SCOPES` + `scopesForFeatures(features?)`) is the right shape for per-feature scope opt-in. The same `requireScopes()` guard pattern transplants to GitHub when it lands.
-- The "safety through architecture" rule from the background-agents recon: briefing agents have no `send_email`, no `draft_reply`, no general `web_search`. Adding integrations expands the *read* surface, never the *write* surface, regardless of OAuth scopes available on the underlying token.
+- The "safety through architecture" rule from the background-agents recon: briefing agents have no `send_email`, no `draft_reply`, no general `web_search`. Adding integrations expands the _read_ surface, never the _write_ surface, regardless of OAuth scopes available on the underlying token.
 
 **Alternatives.**
 
@@ -34,4 +33,4 @@ The "v1 ships against Gmail only" position is superseded by ADR-0041's five-sour
 
 **Amendment (2026-05-27) — the "never expand the write surface" rule is superseded by ADR-0043.**
 
-The blanket claim that integrations "expand the *read* surface, never the *write* surface, regardless of OAuth scopes" no longer holds product-wide. ADR-0043 makes write tools first-class, authorized by the composition of tool registry + active tool exposure bounded by `workflows.allowed_integrations` + `user action policy` (default `gated`). The specific guarantee that *the briefing* never writes is unchanged — but it now rests on ADR-0041's compose call being tool-free by construction, not on a global no-write rule. Read this ADR's "expands read, never write" line as scoped to the briefing/compose path; ADR-0043 governs everywhere else.
+The blanket claim that integrations "expand the _read_ surface, never the _write_ surface, regardless of OAuth scopes" no longer holds product-wide. ADR-0043 makes write tools first-class, authorized by the composition of tool registry + active tool exposure bounded by `workflows.allowed_integrations` + `user action policy` (default `gated`). The specific guarantee that _the briefing_ never writes is unchanged — but it now rests on ADR-0041's compose call being tool-free by construction, not on a global no-write rule. Read this ADR's "expands read, never write" line as scoped to the briefing/compose path; ADR-0043 governs everywhere else.

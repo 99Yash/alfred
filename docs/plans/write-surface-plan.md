@@ -19,6 +19,7 @@ new architecture.
 ## Phase 0 — Contracts + scopes (foundation, no runtime risk)
 
 **0a. `packages/contracts/src/tools.ts`**
+
 - Add `sheets`, `slides` to `LOADABLE_INTEGRATION_SLUGS`.
 - Populate the empty action lists and add the two new ones:
   - `DRIVE_ACTIONS = ['share']` (file creation lives under the per-app slugs).
@@ -28,6 +29,7 @@ new architecture.
   are deferred; `create` + populate-on-create covers "make me a deck/doc/sheet".)
 
 **0b. `packages/integrations/src/google/oauth.ts` — least-privilege scope set (ADR-0044 table)**
+
 - Scope constants: keep `GMAIL_MODIFY_SCOPE` (restricted concession, already present)
   and `GMAIL_SEND_SCOPE`; add `DRIVE_FILE_SCOPE` (`drive.file`),
   `CALENDAR_EVENTS_SCOPE` (`calendar.events`), `DOCUMENTS_SCOPE`,
@@ -42,10 +44,11 @@ new architecture.
   default connect path) — now a least-privilege union.
 
 **0c. `packages/integrations/src/google/scopes.ts` — scope-superset map**
+
 - `requireScopes` currently exact-matches strings, so a `gmail.modify` grant fails a
   `gmail.readonly` requirement. Add a `SCOPE_SUPERSETS` map and normalize `granted`
   before the `missing` filter: `gmail.modify ⊇ gmail.readonly`; `calendar ⊇
-  calendar.events ⊇ calendar.readonly`; `drive ⊇ drive.readonly ⊇ drive.file`;
+calendar.events ⊇ calendar.readonly`; `drive ⊇ drive.readonly ⊇ drive.file`;
   `documents ⊇ documents.readonly` (and sheets/slides equivalents).
 - This keeps existing read-path features (`briefing`/`triage`) satisfied by the new
   broader grants without rewriting their feature→scope rows.
@@ -53,6 +56,7 @@ new architecture.
   let a broad product scope satisfy `openid` / `userinfo.email`.
 
 **0d. Dispatcher override slot (no thread table assumption)**
+
 - `packages/assistant/src/action-policies/resolve.ts`: keep durable policy resolution
   as-is, but expose a helper/signature that accepts an optional run-scoped
   `PolicyMode` override.
@@ -63,6 +67,7 @@ new architecture.
   the server-authoritative thread auto-mode value onto the run before dispatch.
 
 **0e. Tool exposure boundary check**
+
 - Do not duplicate the active-integration gate in the dispatcher today. Current
   enforcement is: `resolveSdkTools(state.activeIntegrations)` exposes only loaded
   integration tools, and `system.load_integration` enforces `workflows.allowed_integrations`
@@ -79,6 +84,7 @@ a run override of `autonomy` executes a normally-gated tool without mutating
 ## Phase 1 — Google write drivers + tools
 
 **1a. Drivers — `packages/integrations/src/google/{drive,docs,sheets,slides}.ts`**
+
 - Thin REST clients mirroring the existing `calendar.ts`/`gmail.ts` shape, using
   `getFreshAccessToken(credentialId)`.
 - `drive.ts`: `createFile({ mimeType, name })` and `getFileMetadata({ fileId })`.
@@ -90,6 +96,7 @@ a run override of `autonomy` executes a normally-gated tool without mutating
   the editor APIs for app-created files, so no broad scope needed.
 
 **1b. Tools — `packages/api/src/modules/tools/{drive,docs,sheets,slides}.ts`**
+
 - Register `docs.create`, `sheets.create`, `slides.create` (`riskTier: 'low'`,
   return `{ fileId, webViewLink }`), `drive.share` (`riskTier: 'high'`).
 - Each `execute` calls `requireScopes(credentialId, [feature])` first → surfaces
@@ -109,6 +116,7 @@ approving it (via the API) creates a real deck and writes `webViewLink` to
 ## Phase 2 — Policy-mutation endpoint + settings editor (the real backend gap)
 
 **2a. `packages/http/src/me.ts` (new handlers on the existing `me` group)**
+
 - `GET /api/me/action-policy` → resolved policy (default_mode, integration_rules,
   approval_notify_delay_ms).
 - `PUT /api/me/action-policy` → upsert `user_action_policies`; **must call
@@ -116,6 +124,7 @@ approving it (via the API) creates a real deck and writes `webViewLink` to
   Redis. Mount the Elysia route group.
 
 **2b. Settings UI — `apps/web/src/routes/settings.tsx` (currently a fixture page)**
+
 - Per-integration card with the ADR-0034 radio: **Full autonomy / Gated** (no
   per-tool tier — deferred per ADR-0034). Read/write through the new endpoint.
 - Update `apps/web/src/lib/integrations.ts` copy for Drive/Docs/Sheets/Slides. It still
@@ -170,8 +179,8 @@ Google consent; an already-connected user re-consents in place (`include_granted
   refresh token outside Testing mode's 7-day expiry; the token is still revocable and
   subject to Google's normal token limits).
 - Add the "to go public" checklist alongside ADR-0044 (verify sensitive scopes
-  + restricted-scope security assessment for `gmail.modify` + remove ADR-0009
-  allowlist), per ADR-0044.
+  - restricted-scope security assessment for `gmail.modify` + remove ADR-0009
+    allowlist), per ADR-0044.
 
 ---
 
@@ -195,7 +204,7 @@ Phases 2 / 3 / 4 are independent of Phase 1 and of each other.
 Tracked here so it isn't lost; **not** part of this plan's scope.
 
 - **Dispatcher resolution order** already gains the slot now: `run-scoped auto-mode
-  override → per-tool → per-integration → default`. The dispatcher can accept the
+override → per-tool → per-integration → default`. The dispatcher can accept the
   run-scoped override parameter before any UI exists.
 - **Chat auto-mode wiring** — needs a **thread/conversation entity** (no such table
   today) to store the server-authoritative per-thread override. The composer's

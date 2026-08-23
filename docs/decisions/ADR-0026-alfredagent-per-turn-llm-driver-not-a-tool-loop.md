@@ -1,6 +1,5 @@
 # ADR-0026 — `AlfredAgent`: per-turn LLM driver, not a tool-loop wrapper
 
-
 **Decision.** Roll our own thin agent class (`packages/ai/src/agent.ts`) that exposes one `turn()` method per LLM round-trip, leaving the multi-step loop to the durable runtime (ADR-0006). Do **not** subclass or compose AI SDK's `ToolLoopAgent` (formerly `Experimental_Agent`).
 
 Concretely:
@@ -32,7 +31,7 @@ Concretely:
 
 - **Provider-aware cache annotation.** Today we apply `providerOptions.anthropic.cacheControl` even when the resolved model isn't Anthropic. Wasted bytes on the wire, no correctness issue. If perf becomes a concern, gate on `model.provider.startsWith('anthropic')`.
 - **`AlfredProviderOptions` type laundering.** The class types `providerOptions` as `Record<string, Record<string, unknown>>` and casts at the SDK boundary, to avoid a direct dep on `@ai-sdk/provider-utils` for one type alias. Tighten when the SDK re-exports `ProviderOptions` from the `ai` barrel.
-- **Cache breakpoint count.** Anthropic allows up to 4 ephemeral breakpoints per request. We use 2 (system, last tool). Adding a third on the last *static* user message (just before the recent-turns tail) is a future optimization once we have a compaction strategy in place.
+- **Cache breakpoint count.** Anthropic allows up to 4 ephemeral breakpoints per request. We use 2 (system, last tool). Adding a third on the last _static_ user message (just before the recent-turns tail) is a future optimization once we have a compaction strategy in place.
 - **Agent interface adapter.** Defer until SSE chat surface is wired (m13+). At that point either implement `Agent` directly or write a thin `toAgent(alfredAgent)` adapter.
 - **Bash sandbox.** `bash` as one of the alfred-primitive tools needs a per-run ephemeral container (Docker exec or Firecracker) — host shell access is too much blast radius. Not blocking the class itself, but blocking the eventual built-in toolset; punt to its own ADR when we get to m13.
 - **Read/write/edit scope.** Whether the `read`/`write`/`edit` primitives target a per-run scratchpad volume vs. user-owned notes/documents is not pinned. Default plan: per-run sandbox first (Claude-Code-shape, low stakes); user-data write paths surface as their own `notes_*` / `documents_*` tool groups loaded via `load_integration`.

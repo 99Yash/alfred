@@ -1,6 +1,5 @@
 # ADR-0008 — Database: Railway-managed Postgres with pgvector
 
-
 **Decision.** Single Postgres instance on Railway, pgvector extension enabled, holds domain data + Replicache state + memory + vector embeddings.
 
 **Why.**

@@ -58,7 +58,7 @@ Input is always a Node `Buffer` (bytes, not a path). Main functions:
   `pagesWithColumns`, `isComplexLayout`, `hasEncodingIssues`, `title?`.
 - `extractPagesMarkdown(buffer, pages?): PagesExtractionResult` — per-page
   markdown: `pages[]` of `{ page /* 0-indexed */, markdown, needsOcr,
-  ocrReason? }`, plus 1-indexed `pagesWithTables` / `pagesWithColumns` /
+ocrReason? }`, plus 1-indexed `pagesWithTables` / `pagesWithColumns` /
   `pagesNeedingOcr` aggregates.
 - Async variants `classifyPdfAsync` / `processPdfAsync` /
   `extractPagesMarkdownAsync` run on the libuv thread pool (the sync forms
@@ -73,10 +73,10 @@ Classification enum (exact):
 
 ```ts
 export declare const enum PdfType {
-  TextBased = 'TextBased',
-  Scanned = 'Scanned',
-  ImageBased = 'ImageBased',
-  Mixed = 'Mixed'
+  TextBased = "TextBased",
+  Scanned = "Scanned",
+  ImageBased = "ImageBased",
+  Mixed = "Mixed",
 }
 ```
 
@@ -95,14 +95,14 @@ NAPI-RS native binaries as per-platform **optionalDependencies** (standard
 napi-rs pattern; npm installs only the matching one). From the package
 manifest:
 
-| Target | Package |
-|---|---|
-| linux x64 glibc | `@firecrawl/pdf-inspector-linux-x64-gnu` |
-| linux x64 musl | `@firecrawl/pdf-inspector-linux-x64-musl` |
-| linux arm64 glibc | `@firecrawl/pdf-inspector-linux-arm64-gnu` |
-| linux arm64 musl | `@firecrawl/pdf-inspector-linux-arm64-musl` |
-| darwin arm64 | `@firecrawl/pdf-inspector-darwin-arm64` |
-| win32 x64 msvc | `@firecrawl/pdf-inspector-win32-x64-msvc` |
+| Target            | Package                                     |
+| ----------------- | ------------------------------------------- |
+| linux x64 glibc   | `@firecrawl/pdf-inspector-linux-x64-gnu`    |
+| linux x64 musl    | `@firecrawl/pdf-inspector-linux-x64-musl`   |
+| linux arm64 glibc | `@firecrawl/pdf-inspector-linux-arm64-gnu`  |
+| linux arm64 musl  | `@firecrawl/pdf-inspector-linux-arm64-musl` |
+| darwin arm64      | `@firecrawl/pdf-inspector-darwin-arm64`     |
+| win32 x64 msvc    | `@firecrawl/pdf-inspector-win32-x64-msvc`   |
 
 So linux x64/arm64 are covered for **both** gnu and musl. Note: no
 darwin-x64 (Intel Mac) build. Each platform package is ~11 MB unpacked
@@ -211,5 +211,5 @@ magnitude.
 - `@hyzyla/pdfium`: rendering-oriented PDFium bindings, no classification.
 - `opendataloader-pdf`: Java-core wrapper; heavier runtime, benchmarked
   below pdf-inspector on its own bench.
-None matches the classify-then-extract-with-quality-flags shape the issue
-needs; the proposed dependency is the right one.
+  None matches the classify-then-extract-with-quality-flags shape the issue
+  needs; the proposed dependency is the right one.

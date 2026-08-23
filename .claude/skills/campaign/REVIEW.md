@@ -6,7 +6,7 @@ back. That is what keeps round 3 as cheap as round 1.
 
 The governing document is [`docs/reference/structural-review.md`](../../../docs/reference/structural-review.md).
 It is not summarized here — each brief tells its agent to read it. What is here is
-the part that document leaves to the reviewer: how to run it *harshly*, and what
+the part that document leaves to the reviewer: how to run it _harshly_, and what
 counts as done.
 
 ## Setup
@@ -38,6 +38,7 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 > `<ledger>`.
 >
 > Produce, in this order:
+>
 > 1. The domain map — only the dimensions that can make or break the invariant.
 >    Say which you skipped and why.
 > 2. At least one up-observation from the six axes, or an explicit statement that
@@ -96,7 +97,7 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 >
 > Run the bounded surface sweep from `docs/reference/code-style.md` across the
 > **authored** changed files. Classify first: authored sources get the sweep;
-> generated artifacts (lockfiles, generated SQL, snapshots) get *reconciled* against
+> generated artifacts (lockfiles, generated SQL, snapshots) get _reconciled_ against
 > their source and the intended delta — did generation emit only what was intended,
 > is the resolution expected, is any operation destructive or reordered — and are
 > never style-reviewed.
@@ -121,7 +122,7 @@ Then adjudicate, because three harsh reviewers over-produce:
   de-risked change is aesthetics. A down-finding without a sequence is a worry.
   Both become `follow-up` at best.
 - **Demote anything out of scope.** A pre-existing problem the diff merely
-  *revealed* is a new queue item, not a must-fix on this PR. This is the rule that
+  _revealed_ is a new queue item, not a must-fix on this PR. This is the rule that
   decides whether the loop converges.
 - **Honor a dispute.** If a previous round's finding was argued against in the item
   file, rule on the argument explicitly rather than re-raising the finding.
@@ -139,12 +140,15 @@ Append to the item file's **Review** section:
 **Ledger:** <recomputed, and whether it is negative>
 
 **Must-fix**
+
 1. `<file:line>` — <finding, one paragraph, naming the tier or the sequence>
 
 **Follow-up** (queued as items <ids>, not fixed here)
+
 - …
 
 **Won't-fix**
+
 - <finding> — <the gate it fails>
 ```
 

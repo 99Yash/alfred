@@ -1,6 +1,5 @@
 # ADR-0010 — Data access pattern: hybrid (ingest + live)
 
-
 **Decision.** Per-integration policy split between background ingestion (writes into Postgres + pgvector, supports semantic search and morning-briefing reads) and live API calls (current state, low-staleness operations, posting actions).
 
 **Per-integration starting policy:**

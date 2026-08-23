@@ -1,6 +1,5 @@
 # ADR-0031 — People research dossiers: explicit, citation-grounded, review-before-memory
 
-
 **Decision.** Add a first-class people-research capability that produces comprehensive, citation-grounded dossiers for people the user asks Alfred to understand. This is **not** an extension of `user_facts`: it researches third parties, stores the profile separately, and only promotes relationship facts into durable memory after review.
 
 The implementation shape mirrors cold-start research (ADR-0011) but generalizes the subject:

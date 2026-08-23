@@ -62,7 +62,7 @@ target in the args.** Each passthrough tool is a real, closed `ToolName`:
 - The dynamic sub-target (HTTP method + namespace-relative path + query, or the
   GraphQL document) travels **inside the validated args**, never in the tool
   name.
-- The passthrough tool-name set is *derived from and re-validated against* the
+- The passthrough tool-name set is _derived from and re-validated against_ the
   closed union at module load (`packages/contracts/src/passthrough.ts:136-145`):
   it builds `<slug>.<action>` and throws if `!isToolName(name)`. The union stays
   the single source of truth; nothing is cast.
@@ -91,7 +91,7 @@ gains two entries, not arbitrary strings.
 **Why `mcp` and not `system.mcp_call`:** the dispatcher forces
 `policyMode = "autonomy"` for `integration === "system"`
 (`dispatch/index.ts:663-664`), which would strip the per-user policy gate and
-leave *only* the ADR-0069 high-tier floor to gate MCP writes. A dedicated `mcp`
+leave _only_ the ADR-0069 high-tier floor to gate MCP writes. A dedicated `mcp`
 slug keeps both levers: the user can set the `mcp` integration to `gated`
 globally **and** the high-tier floor still applies. (This is a genuine design
 choice — see Open Tension #1.)
@@ -99,7 +99,7 @@ choice — see Open Tension #1.)
 **Human-friendly names** like `mcp:<connection-slug>:<remote-name>` remain
 display/search aliases only, never authority keys (decision-map #4,
 `...decision-map.md:150`). They can populate the `mcp.call` tool's discovery
-metadata (`registry.ts:27-42`) so the lazy tool surface can *suggest* the call,
+metadata (`registry.ts:27-42`) so the lazy tool surface can _suggest_ the call,
 but the durable key is the `ExternalToolRef` in args.
 
 ---
@@ -125,7 +125,7 @@ vocabulary, so it would silently drop fields the MCP tool legitimately needs.
 **envelope** strictly (`method`, `path`, `query`) but keeps the opaque part
 opaque: `body: z.unknown().optional()`. The comment at `passthrough.ts:184-188`
 is explicit — `method`/`path` are kept permissive so a bad value reaches the
-*read gate* as a visible `rejected` envelope rather than dying as a hidden Zod
+_read gate_ as a visible `rejected` envelope rather than dying as a hidden Zod
 `invalid_input`.
 
 ### Recommendation
@@ -194,7 +194,7 @@ correct opaque carrier.
   `canonicalJson(input)` into an fnv1a64 digest
   (`packages/contracts/src/tools.ts:159-161`).
 - **Retry-suppression** matches on `(run_id, toolName, proposedInputHash,
-  status='rejected')` (`dispatch/index.ts:628-643`; partial index
+status='rejected')` (`dispatch/index.ts:628-643`; partial index
   `action_stagings_rejected_retry_idx` at `action-policies.ts:95-97`).
 
 ### The requirements doc's richer key
@@ -271,7 +271,16 @@ mutable blob as both history and current authority.** Below reconciles them.
 ```ts
 // packages/db/src/schema/mcp.ts
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import type { McpConnectionStatus, McpNegotiatedServer } from "@alfred/contracts"; // NEW literal union in contracts
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
@@ -285,8 +294,12 @@ import { integrationCredentials } from "./integrations";
 export const mcpConnections = pgTable(
   "mcp_connections",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId("mcpc")),
-    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcpc")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     /** Human label shown in the connection UI. */
     label: text("label").notNull(),
     /** Canonical MCP resource URI — the OAuth `resource` indicator (requirements:128). */
@@ -305,7 +318,9 @@ export const mcpConnections = pgTable(
       onDelete: "set null",
     }),
     /** Granted scopes parsed to an array (mirrors integration_credentials.scopes). */
-    grantedScopes: jsonb("granted_scopes").notNull().default(sql`'[]'::jsonb`),
+    grantedScopes: jsonb("granted_scopes")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /** disconnected | connecting | ready | stale | auth_required | failed (requirements:41-49). */
     status: text("status").$type<McpConnectionStatus>().notNull().default("disconnected"),
     /** Negotiated protocol version — v1 pins "2025-11-25" (client.ts:65). */
@@ -337,10 +352,14 @@ export const mcpConnections = pgTable(
 export const mcpCatalogRevisions = pgTable(
   "mcp_catalog_revisions",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId("mcpr")),
-    connectionId: text("connection_id").notNull().references(() => mcpConnections.id, {
-      onDelete: "cascade",
-    }),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcpr")),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, {
+        onDelete: "cascade",
+      }),
     /** Stable authority hash = McpCatalogSnapshot.revision ("sha256:...", client.ts:381-384). */
     revisionHash: text("revision_hash").notNull(),
     /** Raw, validated descriptors exactly as admitted (Tool[]); the audit source. */
@@ -372,7 +391,7 @@ in `protocol.ts:16-22`; a persisted `$type` needs a contracts-owned copy per
 Notes:
 
 - **History vs authority is now structural:** `mcp_connections` carries only a
-  *pointer* to the live revision; `mcp_catalog_revisions` is append-only. This
+  _pointer_ to the live revision; `mcp_catalog_revisions` is append-only. This
   is the direct reconciliation the requirements/decision-map asked for against
   ADR-0018's single mutable `capability_cache` blob.
 - **The circular pointer** (`currentCatalogRevisionId`) is a plain nullable
@@ -439,7 +458,9 @@ dynamically in dispatch from a new `mcp_tool_policy` table (default `high`).**
      integration === "mcp"
        ? await resolveMcpEffectiveRiskTier({
            userId: args.userId,
-           connectionId, remoteName, descriptorHash, // from args + resolved catalog
+           connectionId,
+           remoteName,
+           descriptorHash, // from args + resolved catalog
          })
        : tool.riskTier;
    ```
@@ -447,7 +468,7 @@ dynamically in dispatch from a new `mcp_tool_policy` table (default `high`).**
    `resolveMcpEffectiveRiskTier` reads `mcp_tool_policy` for a matching
    `(connectionId, remoteName, descriptorHash, policyRevision)` and returns the
    reviewed tier; **absent, or descriptor-hash mismatch → `"high"`.** The
-   annotations from the catalog descriptor feed only the review UI / a *suggested*
+   annotations from the catalog descriptor feed only the review UI / a _suggested_
    tier — never auto-applied.
 
 3. Store the downgrade policy in a **new `mcp_tool_policy` table**, not
@@ -466,9 +487,9 @@ dynamically in dispatch from a new `mcp_tool_policy` table (default `high`).**
    )
    ```
 
-   - Not `user_action_policies` (`action-policies.ts:24-44`): that is per-*integration*
-     user *autonomy* (gated/autonomy), a different axis from a reviewed
-     per-*remote-tool* security downgrade bound to a descriptor hash.
+   - Not `user_action_policies` (`action-policies.ts:24-44`): that is per-_integration_
+     user _autonomy_ (gated/autonomy), a different axis from a reviewed
+     per-_remote-tool_ security downgrade bound to a descriptor hash.
    - Not a column on `mcp_catalog_revisions`: revisions are immutable and
      append-only (Q4); a policy is edited independently and must survive across
      revisions when the descriptor hash is unchanged.
@@ -535,7 +556,7 @@ the policy-cache Map). Because rows persist **facts, not live SDK objects**
 
 ```ts
 async function hydrate(connectionId: string): Promise<McpRawClient> {
-  const row = await readConnection(connectionId);               // persistence.ts
+  const row = await readConnection(connectionId); // persistence.ts
   const client = new McpRawClient({
     connectionId: row.id,
     endpoint: new URL(row.endpointUrl),
@@ -543,8 +564,8 @@ async function hydrate(connectionId: string): Promise<McpRawClient> {
     authProvider: row.credentialId ? buildAuthProvider(row.credentialId) : undefined,
     // fetch: hardened fetch wrapper (deferred; see last section)
   });
-  await client.connect();                                        // client.ts:113 (pins protocol/tools)
-  await client.refreshCatalog();                                 // client.ts:157 (immutable revision)
+  await client.connect(); // client.ts:113 (pins protocol/tools)
+  await client.refreshCatalog(); // client.ts:157 (immutable revision)
   return client;
 }
 ```
@@ -598,13 +619,13 @@ the exact Redis PSUBSCRIBE pattern from `resolve.ts:191-229` — e.g.
   with an `executeError` (`dispatch/index.ts:1291-1304`).
 - A re-dispatch of the **same `tool_call_id`** onto a `failed` row
   short-circuits and returns the stored error without re-executing
-  (`dispatch/index.ts:905-910`). **But** the model can re-propose with a *new*
+  (`dispatch/index.ts:905-910`). **But** the model can re-propose with a _new_
   `tool_call_id` and identical args → a brand-new staging row → it re-executes,
   because `failed` rows are not in the rejected-retry index. **That is the silent
   retry the requirements forbid** (`...requirements.md:57`, `114`, `234`: a
   timed-out write has unknown outcome and must not be auto-retried).
 
-So `failed` is doubly wrong: it *implies the write did not happen* (untrue — the
+So `failed` is doubly wrong: it _implies the write did not happen_ (untrue — the
 outcome is unknown), and it does not stop a fresh-`tool_call_id` retry.
 
 ### Recommendation: no new `action_stagings` status; honest `executed` envelope + `mcp_invocation.outcome='unknown'` + broker-level cross-call suppression
@@ -619,7 +640,7 @@ outcome is unknown), and it does not stop a fresh-`tool_call_id` retry.
 2. **Store it as `status='executed'` with the unknown envelope as
    `executeResult`.** This is consistent with ADR-0070's rule that `status` means
    "execution happened," not "the payload is a success"
-   (`dispatch/index.ts:1319-1326`). The model then *sees* the unknown outcome
+   (`dispatch/index.ts:1319-1326`). The model then _sees_ the unknown outcome
    (result-honesty, ADR-0071 #6 / [ADR-0071](../decisions/ADR-0071-tools-tell-the-truth-about-their-capability-and.md)) rather than a hidden
    `failed`, and the same-`tool_call_id` replay serves the same unknown envelope
    from the `executed` short-circuit (`dispatch/index.ts:890-903`). **No new
@@ -644,9 +665,9 @@ outcome is unknown), and it does not stop a fresh-`tool_call_id` retry.
    `(connection_id, remote_name, args_hash)`. If found, it **refuses to
    auto-execute** and returns a visible envelope demanding either a reviewed
    remote-idempotency policy or a read-after-write reconciliation before retry
-   (`...requirements.md:114`). This extends the *concept* of retry-suppression
-   (currently rejected-only, run-scoped) to *unknown-outcome writes,
-   cross-run/cross-`tool_call_id`* — which the existing `action_stagings`
+   (`...requirements.md:114`). This extends the _concept_ of retry-suppression
+   (currently rejected-only, run-scoped) to _unknown-outcome writes,
+   cross-run/cross-`tool_call_id`_ — which the existing `action_stagings`
    suppression structurally cannot do.
 
 **Summary:** `failed` + a flag is insufficient (it lies about occurrence and
@@ -671,7 +692,7 @@ a permissive `McpEndpointAuthorization` (`client.ts:45-51`):
   (`client.ts:45-51`, `client.ts:58`); a test supplies a pass-through authorizer.
   Hard prerequisite before any real network egress.
 - **Code Mode host binding (ADR-0087) — deferrable.** A separate runtime adapter
-  that *consumes* the broker; the broker is fully exercised through the `mcp.call`
+  that _consumes_ the broker; the broker is fully exercised through the `mcp.call`
   projected tool without it (`...decision-map.md:60-63`).
 - **Object-handle parking (ADR-0087) — deferrable.** The raw client already
   bounds results via `boundPassthroughBody` (`client.ts:340`); large-result
@@ -724,7 +745,7 @@ that is really N independent connections, and `resolvePolicyMode`
 share one autonomy setting. `system.mcp_call` is conceptually cleaner (MCP is
 plumbing) but `integration === "system"` forces autonomy
 (`dispatch/index.ts:663-664`), collapsing the risk model to "high-floor-only"
-with no per-user gate knob. *Trade:* policy granularity + a slightly unnatural
+with no per-user gate knob. _Trade:_ policy granularity + a slightly unnatural
 slug vs. conceptual tidiness + losing the user policy lever entirely.
 
 **2. Dynamic effective-risk in dispatch vs. per-remote-tool `RegisteredTool`s.**
@@ -733,17 +754,17 @@ branch for a new tool class). The alternative — mint a real `RegisteredTool` p
 remote tool at connect time, each with its own static tier — would reuse the
 whole existing gate unchanged, but it **violates the write-once-frozen registry
 invariant** (`registry.ts:213-216`, `registerTool` throws on unknown actions
-`registry.ts:240-245`) and re-opens the closed-union problem. *Trade:* a
+`registry.ts:240-245`) and re-opens the closed-union problem. _Trade:_ a
 dispatch special-case (asymmetry with every other tool) vs. a mutable registry
 and a widened union. This is the sharpest structural fork.
 
 **3. Descriptor hash vs whole catalog revision as the approval/downgrade key.**
 The raw client today exposes only a whole-catalog `revision`
 (`client.ts:381-384`); binding approvals/downgrades to it is simple but churns
-every approval and every downgrade whenever *any* tool in the catalog changes.
+every approval and every downgrade whenever _any_ tool in the catalog changes.
 Per-descriptor hashing (the `descriptorHashes` column in Q4) is stable across
 unrelated changes but needs the client/loader to emit per-tool hashes and more
-comparison machinery. *Trade:* implementation simplicity + over-invalidation vs.
+comparison machinery. _Trade:_ implementation simplicity + over-invalidation vs.
 extra machinery + precise, low-churn invalidation.
 
 **4. Timed-out write as `status='executed'` (honest unknown envelope) vs a new
@@ -752,7 +773,7 @@ extra machinery + precise, low-churn invalidation.
 model an honest "unknown" result, but arguably lies about "executed" for a call
 whose outcome is genuinely unknown. A 7th status is semantically honest but
 ripples through result-routing, the approvals UI, Replicache read models, and
-every exhaustive `switch` on status. *Trade:* minimal blast radius + a slightly
+every exhaustive `switch` on status. _Trade:_ minimal blast radius + a slightly
 loaded word vs. semantic precision + broad churn.
 
 **5. Reuse `integration_credentials` (provider `"mcp"`) vs a dedicated
@@ -763,6 +784,6 @@ machinery (`integrations.ts:34-89`) with one FK, but blurs the
 `integration_credentials` row historically means "a downstream provider grant,"
 and an MCP-server bearer is a different audience. A dedicated store enforces the
 separation in the schema itself at the cost of duplicating rotation logic.
-*Trade:* less code + role blur vs. schema-enforced separation + duplication.
+_Trade:_ less code + role blur vs. schema-enforced separation + duplication.
 (Note: `integration_credentials` still stores tokens plaintext —
 `integrations.ts:24-33` — so either way the encryption deferral, #453, applies.)

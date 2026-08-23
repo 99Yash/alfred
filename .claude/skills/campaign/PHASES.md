@@ -66,17 +66,17 @@ Every phase sets at minimum `phase`; most also set one more field. The shape it 
       "slug": "dispatch-store-seam",
       "title": "Put a store seam under the dispatch gate",
       "strength": "Worth exploring",
-      "phase": "design",          // next phase to run; terminal: landed|needs-human|skipped
-      "round": 0,                 // review round, 1-based once review has run
-      "prereqs": [],              // item ids that must be `landed` first
-      "needsCoverage": false,     // routes through `cover` before `design`
+      "phase": "design", // next phase to run; terminal: landed|needs-human|skipped
+      "round": 0, // review round, 1-based once review has run
+      "prereqs": [], // item ids that must be `landed` first
+      "needsCoverage": false, // routes through `cover` before `design`
       "branch": null,
       "worktree": null,
       "pr": null,
-      "note": null,               // one line: why it's stuck / what's open
-      "updatedAt": "2026-07-27T13:33:49Z"
-    }
-  ]
+      "note": null, // one line: why it's stuck / what's open
+      "updatedAt": "2026-07-27T13:33:49Z",
+    },
+  ],
 }
 ```
 
@@ -120,7 +120,7 @@ campaign's shared scratchpad — facts one item learned that another item needs.
 Item 07 and item 08 both live in `use-chat-stream.ts`; without this, the second one
 rediscovers what the first already knew. Append to it — through
 `campaign-state.mjs note`, never with an editor — when you learn something an
-item *other than yours* would want:
+item _other than yours_ would want:
 
 ```markdown
 - [07 design] `apps/web/test/` has no jsdom; DOM-free leaves are testable under
@@ -150,6 +150,7 @@ item file is the cheapest thing the next phase can read, and its absence is why
 
 ```markdown
 ### Considered and rejected
+
 - Re-exporting the moved symbols from the old module — keeps the 18-export interface
   the change exists to shrink (see .lessons/extract-state-schema-before-protocol-modules.md).
 ```
@@ -174,7 +175,7 @@ Runs once per campaign. The only phase permitted to read the whole artifact.
    phase has to notice.
 5. **Reconcile against reality before queueing. Do not skim this step** — it is the
    one that has actually failed in practice. An architecture report is a snapshot of
-   a tree someone is *actively working*, and three of this campaign's first ten
+   a tree someone is _actively working_, and three of this campaign's first ten
    candidates were hand-landed in the seven hours between the report's timestamp and
    intake. Queueing merged work is the most expensive mistake this phase can make,
    because nothing downstream re-checks it.
@@ -189,7 +190,7 @@ Runs once per campaign. The only phase permitted to read the whole artifact.
    git for-each-ref --sort=-committerdate --format='%(refname:short) %(contents:subject)' refs/remotes/origin | head -20
    ```
 
-   Match on the *finding*, not the branch name — a PR titled differently can still
+   Match on the _finding_, not the branch name — a PR titled differently can still
    have done the work, and a report candidate can be partially landed. Then read the
    cited lines: if they no longer say what the report quoted, the finding moved or
    died.
@@ -197,10 +198,11 @@ Runs once per campaign. The only phase permitted to read the whole artifact.
    Record the verdict per item:
    - fully landed → `phase: "skipped"`, note naming the PR and merge time, and a
      banner at the top of the item file so a human reading it later is not misled
-   - partially landed → keep it queued, and write what *remains* into the item file
+   - partially landed → keep it queued, and write what _remains_ into the item file
    - merged work invalidated another item's premise → say so in that item's **Report
      gates**. Sequencing advice expires: "land #9 first so #1 and #2 are tested"
      means nothing once #1 and #2 have landed without it.
+
 6. Write `state.json` with the queue in the report's recommended order.
 
 Item file template:
@@ -213,24 +215,31 @@ Item file template:
 - **Files:** <verbatim from the report, with line numbers>
 
 ## Problem
+
 <verbatim>
 
 ## Solution
+
 <verbatim>
 
 ## Wins
+
 <verbatim>
 
 ## Deletion test
+
 <verbatim>
 
 ## Report gates
+
 <prerequisite tests, sequencing, ADR notes — verbatim. "None stated." if none.>
 
 ## Design
+
 _(design phase writes here)_
 
 ## Review
+
 _(each review round appends here)_
 ```
 
@@ -257,7 +266,7 @@ refactor untested behavior.
    `pnpm check` runs lint, format, and boundary checks but **no `tsc`** — typechecking
    is the separate `pnpm check-types`. Naming only the first lets type errors land.
 4. Commit, push, open a **non-draft** PR titled `test(<area>): pin <behavior> before
-   campaign NN`. This one is meant to merge immediately and independently.
+campaign NN`. This one is meant to merge immediately and independently.
 5. Append to the item file: what is now pinned, and what is still unpinned.
 
 **Close the phase:** `phase: "design"`, `note` = the coverage PR number. Do not wait
@@ -276,10 +285,9 @@ The cheapest phase, and the one whose output you should expect a human to skim.
    files under `docs/decisions/`). An item that contradicts a locked decision does
    not get implemented; it gets `needs-human` with the conflict written down.
 3. Write the **Design** section of the item file:
-
-   - **Invariant.** One sentence in the form `structural-review.md` demands: *given
+   - **Invariant.** One sentence in the form `structural-review.md` demands: _given
      preconditions, after any allowed sequence of events and failures, property
-     remains true.* "The refactor works" is not an invariant.
+     remains true._ "The refactor works" is not an invariant.
    - **Interface.** The exact signatures the deepened module exposes. Name the
      enforcement tier (1–5) each one buys, and be honest when it is 3 rather than 1.
    - **Edit list.** Every file, and what happens to it — including the deletions.
@@ -322,6 +330,7 @@ The cheapest phase, and the one whose output you should expect a human to skim.
 
    Record both `branch` and `worktree` in state **now**, before writing code — if
    this phase dies mid-way, the next invocation needs to find the tree.
+
 2. `cd` into the worktree, then **`pnpm install --frozen-lockfile` before any command
    that runs code** (~8 s). A new worktree is a fresh checkout of tracked files only, so
    it has no `node_modules` of its own. The repo root's copy does not cover it: a
@@ -337,10 +346,11 @@ The cheapest phase, and the one whose output you should expect a human to skim.
    supplies nothing and the DB-backed suites skip while printing `# skipped 0`. Point
    `--env-file` at the main checkout's absolute path and prove the run by the suite-name
    list, per step 5.
+
 3. Implement the Design section. **TDD at the seam the design named** — the test
    that fails for the right reason first. The repo's own guidance applies: derive
    source-of-truth shapes, validate `unknown` at the owning boundary, `db:generate`
-   + `db:migrate` (never `db:push`).
+   - `db:migrate` (never `db:push`).
 4. Deviations from the design are allowed and expected — record them in the item
    file under Design as `Deviation: <what> — <why>`. An undocumented deviation is
    what makes the review round misfire.
@@ -365,6 +375,7 @@ three subagents in parallel over `git diff <base>...HEAD`, a synthesis you do
 yourself, and a verdict.
 
 **Close the phase:**
+
 - must-fix findings exist and `round < maxReviewRounds` → `phase: "revise"`, `round: round + 1`
 - must-fix findings exist and `round >= maxReviewRounds` → `phase: "needs-human"`,
   `note` = the count and the sharpest one
@@ -398,7 +409,7 @@ yourself, and a verdict.
    is where scope discovered mid-item goes to live.
 4. **If this item produced a durable, repeatable lesson, run `/learn`.** Not a
    summary of the change — the repo's git history already holds that. The bar is a
-   non-obvious, costly, *recurring* trap: the ordering that has to happen first, the
+   non-obvious, costly, _recurring_ trap: the ordering that has to happen first, the
    check that lies, the shape that cycles if you build it the other way. `.lessons/`
    is the one continuity mechanism that outlives the campaign, and the recall hook
    surfaces it unprompted in later sessions. Prune anything campaign-local to

@@ -1,6 +1,5 @@
 # ADR-0061 — Replicache stays (maintenance-mode dependency accepted), Zero is the watched migration path
 
-
 **Decision.** Alfred's sync layer **stays on Replicache, pinned to `15.3.0`**, and we **deliberately accept that its upstream (Rocicorp) is in vendor-declared maintenance mode** and steers new users toward its successor, **Zero**. This is the decision record ADR-0001/0002 implied but never stated: ADR-0001 adopted Replicache for multi-device sync, ADR-0002 called it "the riskiest moving piece," but neither acknowledged the frozen-dependency lifecycle. This ADR converts that implicit risk into a tracked choice and names the revisit trigger.
 
 **Why accept the frozen dependency for now.**

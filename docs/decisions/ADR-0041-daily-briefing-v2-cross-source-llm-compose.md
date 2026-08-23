@@ -1,6 +1,5 @@
 # ADR-0041 — Daily briefing v2: cross-source LLM compose, split surface, `briefings` entity
 
-
 **Decision.** The daily briefing is rebuilt around six coordinated micro-decisions, superseding the m10 deterministic-render path and widening the inbox-only fidelity bound from ADR-0033:
 
 1. **Cross-source gather.** Five contributions feed each day's briefing: email triage rollup, Google Calendar (today's events), integration activity (GitHub first planned direct producer; other providers later only when their integrations exist), weather (Open-Meteo, location resolved from prefs/memory), day-of-week + holidays. Each source exposes `collectBriefingContribution(userId, date) → BriefingContribution` — same extensibility pattern as ADR-0011's cold-start signals. Future operational providers bolt on as activity producers without adding a new top-level briefing source.
@@ -41,7 +40,7 @@ briefings (
 
 **Why `briefing_date` + `timezone` as separate columns, not a `timestamptz`.**
 
-`briefing_date` is the *identity* of the briefing — the unique index, the query key for "yesterday's briefing", the idempotency key for `notify()`. Querying by calendar day must not require tz math at read time. A `timestamptz` encodes an instant + offset, not a calendar date in an IANA zone — Postgres stores the offset, not the IANA name, so "+05:30" identifies Asia/Kolkata *or* Asia/Colombo *or* a manual offset. The IANA name is the canonical zone identity (DST rules, historical offset changes); we need both pieces independently, captured at compose time. Cosmetic ergonomics via a `briefingDateAndTz` spread helper in `packages/db/src/helpers.ts`, same shape as the existing `lifecycle_dates` spread.
+`briefing_date` is the _identity_ of the briefing — the unique index, the query key for "yesterday's briefing", the idempotency key for `notify()`. Querying by calendar day must not require tz math at read time. A `timestamptz` encodes an instant + offset, not a calendar date in an IANA zone — Postgres stores the offset, not the IANA name, so "+05:30" identifies Asia/Kolkata _or_ Asia/Colombo _or_ a manual offset. The IANA name is the canonical zone identity (DST rules, historical offset changes); we need both pieces independently, captured at compose time. Cosmetic ergonomics via a `briefingDateAndTz` spread helper in `packages/db/src/helpers.ts`, same shape as the existing `lifecycle_dates` spread.
 
 **Composer output schema.**
 
@@ -51,13 +50,17 @@ export const briefingComposerSchema = z.object({
   breakingSummary: z.string().min(1).max(2000),
   fullBriefing: z.object({
     headline: z.string().min(1).max(200),
-    sections: z.array(z.object({
-      source: gatherSourceSlugSchema,             // 'email' | 'calendar' | 'integration_activity' | 'weather' | 'day_of_week'
-      label:  z.string().min(1).max(80),
-      body:   z.string().min(1).max(2000),
-      why:    z.string().min(1).max(500).optional(),
-      references: z.array(z.string().min(1)).max(12).optional(),
-    })).max(12),
+    sections: z
+      .array(
+        z.object({
+          source: gatherSourceSlugSchema, // 'email' | 'calendar' | 'integration_activity' | 'weather' | 'day_of_week'
+          label: z.string().min(1).max(80),
+          body: z.string().min(1).max(2000),
+          why: z.string().min(1).max(500).optional(),
+          references: z.array(z.string().min(1)).max(12).optional(),
+        }),
+      )
+      .max(12),
     auditSummary: z.string().min(1).max(2000).optional(),
   }),
 });
@@ -66,7 +69,7 @@ export const briefingComposerSchema = z.object({
 `briefingComposerSchema` is model-facing and deliberately excludes `sourcePanels`. The persisted `FullBriefing` type/schema extends the composer output with deterministic `sourcePanels` after reference resolution:
 
 ```ts
-type FullBriefing = BriefingComposerOutput['fullBriefing'] & {
+type FullBriefing = BriefingComposerOutput["fullBriefing"] & {
   sourcePanels?: BriefingSourcePanel[];
 };
 ```
@@ -89,10 +92,18 @@ Do NOT emit URLs. Do NOT emit markdown bold or links for entity references.
 ```ts
 // packages/api/src/modules/briefing/references.ts
 type Segment =
-  | { kind: 'text';    value: string }
-  | { kind: 'activity'; id: string; provider: IntegrationSlug; activityCategory: string; providerKind: string; title: string; url?: string }
-  | { kind: 'meeting'; eventId: string; title: string; start: string; calendarUrl: string }
-  | { kind: 'email';   threadId: string; subject: string; gmailUrl: string };
+  | { kind: "text"; value: string }
+  | {
+      kind: "activity";
+      id: string;
+      provider: IntegrationSlug;
+      activityCategory: string;
+      providerKind: string;
+      title: string;
+      url?: string;
+    }
+  | { kind: "meeting"; eventId: string; title: string; start: string; calendarUrl: string }
+  | { kind: "email"; threadId: string; subject: string; gmailUrl: string };
 
 export function resolveBriefingReferences(
   markdown: string,
@@ -137,22 +148,35 @@ Each contributor returns `null` if its integration isn't connected or the OAuth 
 type IntegrationActivityItem = {
   id: string;
   provider: IntegrationSlug;
-  source: 'direct_api' | 'email_triage';
-  activityCategory: 'work' | 'deploy' | 'incident' | 'account' | 'billing' | 'security' | 'usage' | 'other';
+  source: "direct_api" | "email_triage";
+  activityCategory:
+    | "work"
+    | "deploy"
+    | "incident"
+    | "account"
+    | "billing"
+    | "security"
+    | "usage"
+    | "other";
   providerKind: string; // provider-scoped, e.g. github.pr_review_requested, some_provider.deployment.failed
   title: string;
-  status?: 'open' | 'succeeded' | 'failed' | 'resolved' | 'needs_attention';
-  severity?: 'info' | 'warning' | 'critical';
+  status?: "open" | "succeeded" | "failed" | "resolved" | "needs_attention";
+  severity?: "info" | "warning" | "critical";
   occurredAt: string;
   url?: string;
   relatedRepo?: string;
-  rollup?: { eventCount: number; attemptCount?: number; durationMinutes?: number; suppressedEventIds?: string[] };
+  rollup?: {
+    eventCount: number;
+    attemptCount?: number;
+    durationMinutes?: number;
+    suppressedEventIds?: string[];
+  };
 };
 ```
 
 Resolved noise is suppressed by default. Example: a deployment from any connected deployment provider that failed once and then succeeded should not brief the user. It becomes brief-worthy when the cluster is still unresolved, has critical severity, required clear user attention, crossed a pain threshold (for example >=3 failed attempts or >30 minutes from first failure to recovery), or is a notable day-level accomplishment. This is intentionally "intelligent and intuitive": the briefing should say "the build finally recovered after a rough deploy loop" only when that is a meaningful event in the user's day.
 
-**Empty-state behavior.** A day with no meetings, no important email, and no meaningful integration activity does *not* skip — the empty state is itself the content. The composer prompt's tone rule: *"On a quiet day, acknowledge the quiet — name what didn't happen, recognize recent effort if memory carries it, leave the user feeling earned rest, not informational void."* The dimension worked example *"no PR activity. After shipping 11k lines of warden security yesterday, you've earned the quiet"* is baked into the prompt as a canonical example.
+**Empty-state behavior.** A day with no meetings, no important email, and no meaningful integration activity does _not_ skip — the empty state is itself the content. The composer prompt's tone rule: _"On a quiet day, acknowledge the quiet — name what didn't happen, recognize recent effort if memory carries it, leave the user feeling earned rest, not informational void."_ The dimension worked example _"no PR activity. After shipping 11k lines of warden security yesterday, you've earned the quiet"_ is baked into the prompt as a canonical example.
 
 **Failure modes.**
 
@@ -162,12 +186,12 @@ Resolved noise is suppressed by default. Example: a deployment from any connecte
 
 **Cost calculus (single user).**
 
-| Phase | Calls/day | Tier | $/day |
-| --- | --- | --- | --- |
-| Gather (no LLM) | 5 contributors | — | 0 |
-| Compose | 1 | boss | ~$0.02 |
-| Send | 1 | — | 0 |
-| **Total** | | | ~$0.02/day |
+| Phase           | Calls/day      | Tier | $/day      |
+| --------------- | -------------- | ---- | ---------- |
+| Gather (no LLM) | 5 contributors | —    | 0          |
+| Compose         | 1              | boss | ~$0.02     |
+| Send            | 1              | —    | 0          |
+| **Total**       |                |      | ~$0.02/day |
 
 vs the previous deterministic-render path (~$0/day, deterministic prose) — the delta is the cost of the warmth and judgment that the dimension example demonstrates is the actual product surface.
 

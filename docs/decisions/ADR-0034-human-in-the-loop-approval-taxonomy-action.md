@@ -1,7 +1,6 @@
 # ADR-0034 — Human-in-the-loop approval taxonomy + action staging
 
-
-**Decision.** A per-user **action policy** (`user_action_policies`) drives a per-tool-call gate check inside the dispatcher. The dispatcher classifies every tool call against the policy *before* invoking `execute`. Gated calls write an **action staging row** (`action_stagings`) and park the run with the existing HIL wake primitive, using the staging id as the wake approval id (`wakeCondition.kind='hil'`, `approvalId=stagingId`) plus an action-staging discriminator. The user decides in-app (approve / approve-with-edits / reject-with-reason); a debounced BullMQ delayed job emits an email notification only if the user hasn't decided within the threshold. On resume, the dispatcher invokes `execute` with the (possibly edited) input — or, on reject, synthesizes a structured rejection tool-result with retry-suppression enforced inside the dispatcher.
+**Decision.** A per-user **action policy** (`user_action_policies`) drives a per-tool-call gate check inside the dispatcher. The dispatcher classifies every tool call against the policy _before_ invoking `execute`. Gated calls write an **action staging row** (`action_stagings`) and park the run with the existing HIL wake primitive, using the staging id as the wake approval id (`wakeCondition.kind='hil'`, `approvalId=stagingId`) plus an action-staging discriminator. The user decides in-app (approve / approve-with-edits / reject-with-reason); a debounced BullMQ delayed job emits an email notification only if the user hasn't decided within the threshold. On resume, the dispatcher invokes `execute` with the (possibly edited) input — or, on reject, synthesizes a structured rejection tool-result with retry-suppression enforced inside the dispatcher.
 
 Three orthogonal pieces compose into this:
 
@@ -62,22 +61,22 @@ action_stagings
 **TypeScript shape** (canonical types live in `@alfred/contracts` — a new tiny package, zero Node deps, importable from `packages/db`, `packages/api`, `apps/web`; see CONTEXT.md):
 
 ```ts
-export const POLICY_MODES = ['autonomy', 'gated'] as const;
+export const POLICY_MODES = ["autonomy", "gated"] as const;
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
-export const INTEGRATION_SLUGS = ['system', 'gmail', 'calendar', 'drive', /* ... */] as const;
+export const INTEGRATION_SLUGS = ["system", "gmail", "calendar", "drive" /* ... */] as const;
 export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
 
 // Per-integration action lists feed a derived ToolName template-literal type:
 export const SYSTEM_ACTIONS = [
-  'load_integration',
-  'spawn_sub_agent',
-  'read_scratch',
-  'write_scratch',
-  'promote',
+  "load_integration",
+  "spawn_sub_agent",
+  "read_scratch",
+  "write_scratch",
+  "promote",
 ] as const;
-export const GMAIL_ACTIONS = ['send_draft', 'read_message', 'search', /* ... */] as const;
-export const CALENDAR_ACTIONS = ['create_event', 'list_events', /* ... */] as const;
+export const GMAIL_ACTIONS = ["send_draft", "read_message", "search" /* ... */] as const;
+export const CALENDAR_ACTIONS = ["create_event", "list_events" /* ... */] as const;
 export const INTEGRATION_ACTIONS = {
   system: SYSTEM_ACTIONS,
   gmail: GMAIL_ACTIONS,
@@ -89,7 +88,7 @@ export type ToolName = {
   [K in IntegrationSlug]: `${K}.${(typeof INTEGRATION_ACTIONS)[K][number]}`;
 }[IntegrationSlug];
 
-export const TOOL_RISK_TIERS = ['no_risk', 'low', 'medium', 'high'] as const;
+export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 
 export type IntegrationRule = {
@@ -168,7 +167,7 @@ case status:
 
 **Coexistence with `workflows.hil_gates`.**
 
-`workflows.hil_gates` (ADR-0017) gates entire *steps* in explicit-DAG workflows; this ADR gates per-*tool-call* across both brief-only and DAG workflows. They coexist:
+`workflows.hil_gates` (ADR-0017) gates entire _steps_ in explicit-DAG workflows; this ADR gates per-_tool-call_ across both brief-only and DAG workflows. They coexist:
 
 - A step listed in `workflows.hil_gates` parks via `wakeCondition.kind='hil'` referencing a step id. No staging row; the wake-payload marks this as a step-level approval.
 - A tool call gated by user policy parks via `wakeCondition.kind='hil'` with `approvalId=stagingId` and `approvalKind='action_staging'`.
@@ -216,4 +215,4 @@ Two refinements landed while planning the write-surface expansion (ADR-0043/0044
 
 **Amendment (2026-05-31) — approvals read models: pending queue is Replicache-synced + client-filtered; history is a deferred server-paginated read model.**
 
-The `/approvals` UI splits into two surfaces with deliberately different data paths. **(1) The live pending queue** is Replicache-synced (`status='pending' AND requires_approval`) and bounded (rows auto-expire at 24h), so pagination and filtering (integration + risk facets) run **client-side** over the synced collection — filter state in URL search params, "pagination" is windowing not server paging. No server query endpoint backs this surface; adding one would duplicate the Replicache model for a real-time queue. **(2) History** (resolved actions — approved/rejected/expired) is *not* synced and grows unbounded, so it is a separate **server-paginated + filterable** read model (`GET /approvals?status=&integration=&risk=&page=`), **deferred** until the History tab lands. The card also gains derived provenance on the synced row (`workflowName`, narrowed `trigger`, truncated `brief`); the per-`ToolName` card registry stays a web-only `Partial` map with a generic fallback, and the four decision actions remain uniform across tools. Full implementation slice in [`docs/plans/m13-plan.md §5f`](../plans/m13-plan.md).
+The `/approvals` UI splits into two surfaces with deliberately different data paths. **(1) The live pending queue** is Replicache-synced (`status='pending' AND requires_approval`) and bounded (rows auto-expire at 24h), so pagination and filtering (integration + risk facets) run **client-side** over the synced collection — filter state in URL search params, "pagination" is windowing not server paging. No server query endpoint backs this surface; adding one would duplicate the Replicache model for a real-time queue. **(2) History** (resolved actions — approved/rejected/expired) is _not_ synced and grows unbounded, so it is a separate **server-paginated + filterable** read model (`GET /approvals?status=&integration=&risk=&page=`), **deferred** until the History tab lands. The card also gains derived provenance on the synced row (`workflowName`, narrowed `trigger`, truncated `brief`); the per-`ToolName` card registry stays a web-only `Partial` map with a generic fallback, and the four decision actions remain uniform across tools. Full implementation slice in [`docs/plans/m13-plan.md §5f`](../plans/m13-plan.md).

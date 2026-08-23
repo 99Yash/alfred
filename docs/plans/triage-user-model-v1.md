@@ -1,12 +1,12 @@
 # Triage user-model — v1 (the significance-weighted category consumer)
 
-Fixes the root cause behind triage over-tagging (#210/#218): the classifier reasons about *what a mail says*, blind to **who the user is**, **whether the mail is even theirs to act on**, and **how much its sender/stakes matter**. Over-tagging is the symptom; the absent user-model is the disease. Designed in one grill (2026-06-23) as **ADR-0066** (amends ADR-0048/0059/0060), then re-scoped by **ADR-0067**: this plan now owns the **category semantics and consumer cutover**, while the entity cleanup, identities, "You" inputs, fact hygiene, and backfill substrate come from the multi-source observation-log foundation.
+Fixes the root cause behind triage over-tagging (#210/#218): the classifier reasons about _what a mail says_, blind to **who the user is**, **whether the mail is even theirs to act on**, and **how much its sender/stakes matter**. Over-tagging is the symptom; the absent user-model is the disease. Designed in one grill (2026-06-23) as **ADR-0066** (amends ADR-0048/0059/0060), then re-scoped by **ADR-0067**: this plan now owns the **category semantics and consumer cutover**, while the entity cleanup, identities, "You" inputs, fact hygiene, and backfill substrate come from the multi-source observation-log foundation.
 
 Supersedes the separate-axis posture of the shipped #210 attention-demotion (ADR-0064): significance no longer rides a parallel presentation layer — it is folded **into the category decision**.
 
 ## The pivot (the load-bearing reversal)
 
-**The category becomes significance-weighted.** ADR-0059 explicitly *rejected* letting significance demote the category ("a cold ask is still an honest `awaiting_reply`; significance only gates the todo") and #210 built priority as a separate dimmed-vs-bright axis. This rewrite reverses that: for a **personal** assistant at single-user scale, *useful* beats *taxonomically honest*. `urgent`/`action_needed` must be **trustworthy, high-signal labels** — when the user wakes and sees `action_needed`, it means something. Routine, low-stakes, or cold-sender actionable noise → `fyi`.
+**The category becomes significance-weighted.** ADR-0059 explicitly _rejected_ letting significance demote the category ("a cold ask is still an honest `awaiting_reply`; significance only gates the todo") and #210 built priority as a separate dimmed-vs-bright axis. This rewrite reverses that: for a **personal** assistant at single-user scale, _useful_ beats _taxonomically honest_. `urgent`/`action_needed` must be **trustworthy, high-signal labels** — when the user wakes and sees `action_needed`, it means something. Routine, low-stakes, or cold-sender actionable noise → `fyi`.
 
 This is a deliberate amendment, written as such — not pretended-consistent.
 
@@ -33,22 +33,22 @@ ADR-0067 provides:
 ## Invariants that still hold
 
 - **Same 10-label set, no new column.** `urgent, action_needed, follow_up, awaiting_reply, meeting, fyi, done, payment, newsletter, marketing`. No two-axis state machine (that mirrors dimension's full machinery; overkill at single-user scale). No directional `awaiting_reply` rewrite — see below.
-- **The security floor (ADR-0048/0060) is absolute.** An exposed secret stays `urgent` even under a user "mute this sender" instruction. Users can up-rank or down-rank everything *else*.
+- **The security floor (ADR-0048/0060) is absolute.** An exposed secret stays `urgent` even under a user "mute this sender" instruction. Users can up-rank or down-rank everything _else_.
 - **One immutable tag per thread, re-evaluated on reply (ADR-0051).** Significance is read at classify time; it does not silently re-stamp old rows (that's what the single backfill is for).
 
 ## The category model (redefined definitions)
 
-Significance + envelope + user-context weight the category. The discriminator is the **existing todo rubric 16b line**, promoted from gating the *todo* to gating the *category*:
+Significance + envelope + user-context weight the category. The discriminator is the **existing todo rubric 16b line**, promoted from gating the _todo_ to gating the _category_:
 
 - **Significance demotes person-driven demand.** A cold / weak / no-history sender's ask, reply-request, or connection request → `fyi`. A significant / two-way / role-relevant sender's ask → `awaiting_reply` / `action_needed`.
-- **`awaiting_reply` stays inbound + significance-gated** — "a sender who *deserves* a reply is waiting." Cold inbound ask → `fyi`. **Bare outbound sent-mail is not surfaced** as a demanding category (matches the dimension recon: it only tagged threads with an actual reply). No directional/outbound redefinition — that was a handoff misread, corrected.
-- **Real intrinsic stakes are UNGATED** — money owed (`payment`), a *genuine* deadline, loss of access, a security exposure (`urgent`), a commitment the user made. These hold regardless of sender significance: a cold sender's overdue invoice is still `payment`.
+- **`awaiting_reply` stays inbound + significance-gated** — "a sender who _deserves_ a reply is waiting." Cold inbound ask → `fyi`. **Bare outbound sent-mail is not surfaced** as a demanding category (matches the dimension recon: it only tagged threads with an actual reply). No directional/outbound redefinition — that was a handoff misread, corrected.
+- **Real intrinsic stakes are UNGATED** — money owed (`payment`), a _genuine_ deadline, loss of access, a security exposure (`urgent`), a commitment the user made. These hold regardless of sender significance: a cold sender's overdue invoice is still `payment`.
 - **Manufactured stakes do NOT shield.** A sender-imposed "respond by EOD," marketing scarcity, gamified/ceremonial urgency is not a real deadline (reuse rule 16b `manufactured:` / 11a). It does not protect a low-significance item from demotion.
 - **Everything is overridable** by a standing instruction (below).
 
 ## The three new deterministic signals (ADR-0051 "make the cheap model smart")
 
-All three are pure observations assembled pre-model, anchoring the rubric. The default stays LLM-judged (free-text email can't be pure-rules) but is *constrained* by deterministic signals — "good deterministic defaults, flexible user override."
+All three are pure observations assembled pre-model, anchoring the rubric. The default stays LLM-judged (free-text email can't be pure-rules) but is _constrained_ by deterministic signals — "good deterministic defaults, flexible user override."
 
 ### 1. Envelope / audience signal
 
@@ -58,15 +58,17 @@ Computed from `to`/`cc`/headers (all persisted: `to`/`cc` in `documents.metadata
 - `audienceSize` + `isDistributionList` (`List-Id` present, or To is a group address like `engineering@oliv.ai`)
 
 **Two consumers, treated differently:**
-- **Category (soft signal):** principle, not hard rule — *"an action on mail you're not directly addressed on (broadcast/forwarded/distribution) is rarely your personal `action_needed` → lean `fyi` unless a real intrinsic stake, a relevant user role, or a standing instruction says otherwise."* Soft because a forwarded mail *can* genuinely be yours.
+
+- **Category (soft signal):** principle, not hard rule — _"an action on mail you're not directly addressed on (broadcast/forwarded/distribution) is rarely your personal `action_needed` → lean `fyi` unless a real intrinsic stake, a relevant user role, or a standing instruction says otherwise."_ Soft because a forwarded mail _can_ genuinely be yours.
 - **Entity projection (HARD gate, delegated to ADR-0067):** a distribution alias / list sender (`engineering@...`, `'X' via Engineering`, `List-Id` present, no real personal address) must project as `group`/`service`, never `person`, and must never be person-significance-scored. This is the fix for the live `'Anthropic' via Engineering` bug — it is currently the **top-scored "person" on prod (0.72)**, silently corrupting every significance-weighted decision. Misjudging a forwarded mail's category is recoverable + overridable; personifying a distribution alias as the #1 contact is not.
 
 ### 2. User-context "You" block (the missing half)
 
 Triage reads **nothing** about the user today (ownership gate rule 16a has only name + email). Add a bounded **"You (the user)"** observation, assembled from ADR-0067 projections via `getUserContext()` (confirmed facts only) + `bio_summary` + subject-bound user/entity facts:
+
 - role / title, **ownership / responsibility domains** ("owns: baserow-middleware, autosched; backend lead"), same-org signal.
 
-Powers two things: (a) significance *relative to the user's role*, and (b) the **role-based escalation** — a broadcast "who can fix the baserow outage?" *is* `action_needed` if the user owns baserow, even though it went to `engineering@`. Kept terse (same discipline as the Sender-relationship line) — a role+ownership summary, not the full bio/dossier, given the cheap-model cost.
+Powers two things: (a) significance _relative to the user's role_, and (b) the **role-based escalation** — a broadcast "who can fix the baserow outage?" _is_ `action_needed` if the user owns baserow, even though it went to `engineering@`. Kept terse (same discipline as the Sender-relationship line) — a role+ownership summary, not the full bio/dossier, given the cheap-model cost.
 
 ### 3. Standing instructions (the override) — ADR-0060
 
@@ -74,13 +76,14 @@ The escape valve that makes a universal rubric's inevitable holes a non-problem:
 
 - **Capture:** user says it in chat ("engineering group sessions are `fyi` for me", "PR-merge asks on the alfred repo are `action_needed`"). The **boss recognizes** it and stores via a tool — structural conflict-check in the tool, semantic by the boss.
 - **Store:** authoritative capture is an ADR-0067 `source='user'|'alfred_chat'` observation; the ADR-0060 `user_facts` row (`key=standing_instruction`, optional `target`, optional `enforcement`) becomes the projection consumed by triage, not a parallel write path.
-- **Apply:** at classify, injected as an observation the rubric honors (prose-first), with a deterministic carve-out for `enforcement` ("ALWAYS `fyi`") hard guarantees. Resolved against the entity-graph + calendar (this is where the "graph backend" earns its place — it's the *context for interpreting* the directive).
+- **Apply:** at classify, injected as an observation the rubric honors (prose-first), with a deterministic carve-out for `enforcement` ("ALWAYS `fyi`") hard guarantees. Resolved against the entity-graph + calendar (this is where the "graph backend" earns its place — it's the _context for interpreting_ the directive).
 - **Precedence:** ADR-0067 resolves source conflicts by rank-then-recency (`user` beats integrations regardless of time); within the projected standing-instruction set, specificity-then-recency chooses among matching directives. Security floor remains un-down-rankable.
 - Manageable in `/settings`.
 
 ## The user-model stays current (the auto-update loop)
 
 User-context is useless if stale. ADR-0067 feeds it through the `observations` log and the existing `user_facts` confidence gate (`confidence`, `status` ∈ {proposed, confirmed}, `validUntil`):
+
 - **Extract/project** candidate user-facts (role, ownership) from integration observations and chat/user-correction observations — not a second triage-local pipeline.
 - **High confidence** (strong explicit signal / corroboration) → `confirmed` → immediately feeds the "You" block.
 - **Low confidence** → `proposed` → **not** consumed (`getUserContext` already filters to `confirmed`), so a shaky guess never silently moves tags.
@@ -92,13 +95,13 @@ User-context is useless if stale. ADR-0067 feeds it through the `observations` l
 
 - **Two-axis content×lifecycle state machine** — rejected (dimension-package mirroring; the 10-label set + significance-weighting carries the value at single-user scale).
 - **Directional / outbound `awaiting_reply`** — rejected (handoff misread; dimension didn't tag bare sent-mail either).
-- **Notification / quiet-hours gating** — out. The "2 AM" complaint was *category*, not timing ("I can be asleep"). Tagging is already real-time (`ingest→tag` ≈ 0 on prod); there is no latency bug.
+- **Notification / quiet-hours gating** — out. The "2 AM" complaint was _category_, not timing ("I can be asleep"). Tagging is already real-time (`ingest→tag` ≈ 0 on prod); there is no latency bug.
 - **Reading dimension's source** — explicitly off-limits (Yash's call; it's his build + a portfolio artifact). Recon from the labeled inbox only.
 - **Deep ownership mining from raw activity** — parked. v1 consumes explicit/confirmed subject-bound facts and ADR-0067 work-object/entity relations; it does not freely infer "you own X" from noisy activity alone.
 
 ## Build order (consumer cutover, single backfill)
 
-The backfill is sequenced, not one command — context must be populated *before* the re-classify, or the chicken-and-egg (good tags need user-context + clean graph) bites. The **tags are re-written once**.
+The backfill is sequenced, not one command — context must be populated _before_ the re-classify, or the chicken-and-egg (good tags need user-context + clean graph) bites. The **tags are re-written once**.
 
 0. **ADR-0066 written** (decisions.md) — the significance-weighted-category pivot; explicitly reversed ADR-0059/0064 for product semantics.
 1. **ADR-0067 foundation ships through shadow validation** — new observation log, identities, kind taxonomy, fact ontology, source-weighted significance, and consumer-ready "You" inputs. This replaces the old entity-cleanup and backfill steps that this plan originally owned.

@@ -1,6 +1,5 @@
 # ADR-0030 — Composer `+` menu and tab-autocomplete: deferred to post-m13
 
-
 **Decision.** The composer's `+` button (in place of the older paperclip) and tab-autocomplete suggestion both ship as decoration-only in m12, with real behavior deferred:
 
 - **`+` menu** — two items only at v1, mirroring dimension's recon (`chat-anatomy.md` §"Composer 'Add' menu"): `Add photos & files` and `@ Mention`. File upload pipeline depends on the ingestion stack post-m7; @-mention depends on the boss agent's awareness of skills/integrations (m13).

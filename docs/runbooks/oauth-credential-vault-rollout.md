@@ -11,10 +11,10 @@ you start.
 
 Five columns move from a plaintext token to an AES-256-GCM envelope:
 
-| Table | Columns |
-| --- | --- |
-| `account` | `access_token`, `refresh_token`, `id_token` |
-| `integration_credentials` | `access_token`, `refresh_token` |
+| Table                     | Columns                                     |
+| ------------------------- | ------------------------------------------- |
+| `account`                 | `access_token`, `refresh_token`, `id_token` |
+| `integration_credentials` | `access_token`, `refresh_token`             |
 
 The columns stay `text`, so **no migration is generated**. The change is in the
 value, not the schema.
@@ -148,7 +148,7 @@ envelope-shaped but do not open with the configured key. Before the first
 conversion the plaintext count is non-zero and the unopenable count is zero. The
 command exits `1` on either, so it can never pass silently inside a pipeline.
 
-The check *opens* every envelope it counts rather than pattern-matching its
+The check _opens_ every envelope it counts rather than pattern-matching its
 shape. Shape alone cannot tell a row this key can read from a row sealed under a
 different key, which is exactly the mistake the rotation procedure below would
 otherwise hide.
@@ -171,7 +171,7 @@ railway run \
 The whole pass is one transaction, so a malformed row rolls the run back rather
 than leaving the table half-converted. It skips rows that already open with the
 configured key, so running it twice is safe. It converts plaintext only: a row
-sealed under a *different* key aborts the run instead of being skipped as done,
+sealed under a _different_ key aborts the run instead of being skipped as done,
 because rewrapping needs both keys.
 
 Expect:
@@ -221,7 +221,7 @@ unset TUNNEL_DATABASE_URL
 **There is no reverse command, and "remove the key" is not a rollback.**
 `OAUTH_CREDENTIAL_KEK` is required in every environment (Step 2), so a process
 without it stops at env validation. The boot gate is the second half of the same
-rule: it refuses to start on a plaintext row *or* on a row it cannot open. So
+rule: it refuses to start on a plaintext row _or_ on a row it cannot open. So
 every rollback below ends in a table the configured key can read — there is no
 path back to a plaintext table that also boots.
 

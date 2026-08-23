@@ -1,6 +1,5 @@
 # ADR-0019 — Memory correction loop UX
 
-
 **Decision.**
 
 **Input channels (v1):** in-app cards + in-chat extraction. Email-reply parsing deferred (brittle; structured emails with deep links to in-app are cleaner). Slack/iMessage corrections fold into chat-extraction once those transports connect.

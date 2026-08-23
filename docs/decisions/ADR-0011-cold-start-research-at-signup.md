@@ -1,6 +1,5 @@
 # ADR-0011 — Cold-start research at signup
 
-
 **Decision.** On signup, kick off a `cold_start_research` BullMQ job. Inputs: email, optional GitHub username, work-email domain. Sources:
 
 - Web search (Exa.ai, Tavily, or Linkup — TBD; Tavily/Linkup stronger for entity-research).

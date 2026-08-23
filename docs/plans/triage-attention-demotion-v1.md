@@ -4,7 +4,7 @@ Fixes #210: triage over-tags attention (urgent + action_needed ≈ 26% of inbox;
 
 ## The load-bearing invariant (do not violate)
 
-**The stored `email_triage.category` is never written by this work.** Triage labels are immutable (ADR-0048); the model never bends the category (ADR-0059 alt-e rejected significance-demotion of the category; ADR-0060 m4 — only an explicit `force_category` user instruction may re-stamp, logged). A cold LinkedIn ask genuinely *is* `awaiting_reply`; that is the honest label.
+**The stored `email_triage.category` is never written by this work.** Triage labels are immutable (ADR-0048); the model never bends the category (ADR-0059 alt-e rejected significance-demotion of the category; ADR-0060 m4 — only an explicit `force_category` user instruction may re-stamp, logged). A cold LinkedIn ask genuinely _is_ `awaiting_reply`; that is the honest label.
 
 "Demanding-ness" is therefore a **presentation/ranking property** of the **briefing lane** and the **inbox-rail badge** — computed at the consumer, derived from signals we already have, leaving the category honest. This plan touches gather, compose, the rail render, and one additive synced field — never the classifier's category decision.
 
@@ -12,9 +12,9 @@ Fixes #210: triage over-tags attention (urgent + action_needed ≈ 26% of inbox;
 
 One pure function, `attentionScore(inputs) → { score: [0,1], band }`, living in `@alfred/contracts` (web-safe, zero Node deps — same home as the briefing contract). Three read-only inputs, all already derivable:
 
-1. **Category base demand** — intrinsic weight per honest category (`urgent` > `action_needed` > `awaiting_reply` > `follow_up`/`meeting`/`payment`). This is the floor; significance and recurrence only move an item *within* and *down* from it, never up past the security floor.
+1. **Category base demand** — intrinsic weight per honest category (`urgent` > `action_needed` > `awaiting_reply` > `follow_up`/`meeting`/`payment`). This is the floor; significance and recurrence only move an item _within_ and _down_ from it, never up past the security floor.
 2. **Sender significance** — the precomputed scalar on the sender's `person` entity (`meta.significance.score`, ADR-0057/0059), bucketed the same way the resolver buckets it (`STRONG_AT 0.66` / `MODERATE_AT 0.33`). **Degrades to neutral** when the sender is unscored / non-human / has no graph row — exactly today's intrinsic-only behavior, safe by construction. The graph is live (populated by the `memory-extraction` workflow's `runSignificancePass` + the P4a backfill).
-3. **Recurrence decay** — a recurring machine notification is *less* demanding each repeat (the CloudWatch `ALARM:` tagged urgent 10×). A windowed, cross-row property: group by `(sender, normalizedSubject)`; the Nth repeat decays. Subject normalization (strip `ALARM:`/`Re:`/digits/dates) is a shared contracts util. **Principle, not exemplar** — the rule is "recurring + bot-shaped sender decays," never a CloudWatch string match.
+3. **Recurrence decay** — a recurring machine notification is _less_ demanding each repeat (the CloudWatch `ALARM:` tagged urgent 10×). A windowed, cross-row property: group by `(sender, normalizedSubject)`; the Nth repeat decays. Subject normalization (strip `ALARM:`/`Re:`/digits/dates) is a shared contracts util. **Principle, not exemplar** — the rule is "recurring + bot-shaped sender decays," never a CloudWatch string match.
 
 Continuous score internally; projected to 3 bands `{ demanding | normal | muted }` for display (two cutoffs = the only tunable knobs, mirroring ADR-0059's word-bucketing precedent).
 
@@ -32,7 +32,7 @@ Continuous score internally; projected to 3 bands `{ demanding | normal | muted 
 - **No category mutation, no `force_category` work** — that's ADR-0060 standing-instructions, a separate slice.
 - **Behavioral priors** (dismiss:done 41:1, archive-without-reply — ADR-0055 Loop-2) as a 4th attention input — north star, deferred. v1 inputs are category + significance + recurrence only.
 - **Recurrence beyond the gather/synced window** (a persisted recurrence counter) — v1 is window-local; revisit if window-local under-counts.
-- **Significance-weighting of the *todo* mint** — already shipped via rubric 16b (ADR-0059); untouched here.
+- **Significance-weighting of the _todo_ mint** — already shipped via rubric 16b (ADR-0059); untouched here.
 - **Drift metrics dashboard** (#219) — out of scope, but this plan's success metric (below) is the first number it should track.
 
 ## Build order
@@ -46,16 +46,16 @@ Continuous score internally; projected to 3 bands `{ demanding | normal | muted 
 3. `getSenderSignificance` helper in `@alfred/api` memory. ✅
    - Shipped as `getSenderSignificance(userId, address) → { score, band, sameOrg } | null` in `memory/significance.ts`, over a new shared `findPersonMetadataByAddress` alias lookup. `resolveSenderRelationship` was refactored onto the same lookup (the plan's "factor out" intent — one alias→metadata read path for both the resolver prose and the significance read). Null on no-row / unscored / DB blip → neutral.
 4. **Phase B:** significance-weighting layered into the same scorer + prompt reframe. ✅
-   - **Same architecture-drift correction as Phase A:** landed in the *live* path, not dead `compose.ts`. `listEmailsSinceWatermark` now fetches each distinct sender's band via `getSenderSignificance` (deduped, one read per address) and threads `significanceBand` into `scoreAttentionForItems`, so a low-significance cold sender drops within its honest category. The prompt's "Trust the attentionBand" section was widened to explain the band now folds in *both* recurrence and significance (principle-based, no exemplars) and to treat the band as a lane (lead demanding, let muted fall away). No `BriefingGather` lane-split field added — nothing renders it (compose is dead); the band on `EmailListItem` is the lane.
+   - **Same architecture-drift correction as Phase A:** landed in the _live_ path, not dead `compose.ts`. `listEmailsSinceWatermark` now fetches each distinct sender's band via `getSenderSignificance` (deduped, one read per address) and threads `significanceBand` into `scoreAttentionForItems`, so a low-significance cold sender drops within its honest category. The prompt's "Trust the attentionBand" section was widened to explain the band now folds in _both_ recurrence and significance (principle-based, no exemplars) and to treat the band as a lane (lead demanding, let muted fall away). No `BriefingGather` lane-split field added — nothing renders it (compose is dead); the band on `EmailListItem` is the lane.
 5. **Phase C:** `senderSignificanceBand` synced field + rail ordering/de-emphasis. ✅
    - Migration `0044_petite_punisher.sql` (additive nullable column, db:generate → db:migrate locally — never push). Chain: db schema → `UpsertTriageArgs`/`rowToTriage`/insert+update in `store.ts` → workflow stashes `getSenderSignificance(...).band` at classify → sync `triageTagSharedSchema` (`.nullable().default(null)`, additive for already-synced clients) → server serializer `shared` → both override mutators preserve it (sender property, not classification). Rail: `InboxItem.attentionBand`, computed across the visible page in `overlayTriageTags` via the shared `scoreAttentionForItems` (band = category × tag.senderSignificanceBand × cross-row recurrence), then stable-sorted demanding→normal→muted; `InboxRow` dims `muted` rows (hover/focus restores). Honest category chip unchanged throughout.
    - **Rail-recurrence caveat:** recurrence is grouped over the **server page** the rail fetched, not the full inbox (server-paginated). v1 accepts page-local recurrence; revisit if a recurring blast spans pages.
-   - **Staleness caveat:** the synced band is stamped at the thread's last classify, not on every significance pass — a sender scored *after* their last classify shows neutral until the thread re-classifies. Accepted (the plan's "stash the scalar's band").
+   - **Staleness caveat:** the synced band is stamped at the thread's last classify, not on every significance pass — a sender scored _after_ their last classify shows neutral until the thread re-classifies. Accepted (the plan's "stash the scalar's band").
 6. **Verify against prod** (read-only recon, prod DB is source of truth): re-run the category/lane distribution; confirm the demanding-lane share drops while category counts stay honest. ⬜ pending deploy + backfill (new senders get a band only on next classify).
 
 ## Success metric (the #210 reframe)
 
-The metric is **NOT** "% of inbox tagged urgent/action_needed" — those category counts *should not move* (honest categories). It is **"% of inbox surfaced in the demanding lane / dimmed-vs-bright in the rail."** Target: demanding-lane share well below today's 26%, with the recurring-machine and cold-low-significance items landing in the ambient tail. Corroborate against suggested-todo acceptance over the following window.
+The metric is **NOT** "% of inbox tagged urgent/action_needed" — those category counts _should not move_ (honest categories). It is **"% of inbox surfaced in the demanding lane / dimmed-vs-bright in the rail."** Target: demanding-lane share well below today's 26%, with the recurring-machine and cold-low-significance items landing in the ambient tail. Corroborate against suggested-todo acceptance over the following window.
 
 ## Open (decide during build)
 

@@ -8,7 +8,7 @@ credential** (push a branch + open a PR on exactly one repo). Output is a PR a h
 
 **This is the opposite case from `code-mode-sandbox-feasibility.md`.** That doc researched a
 network-less, credential-less V8/WASM isolate for model-authored JS with no data-custody story. Here,
-network access and a real credential are the *requirement*, not the threat — the data shipped in (the
+network access and a real credential are the _requirement_, not the threat — the data shipped in (the
 user's own GitHub-hosted source + a stack trace) is not third-party custody-sensitive the way private
 Gmail/Drive reads were for ADR-0087. Do not re-derive that doc's conclusions; this one is about
 **containment of a credentialed, internet-facing job**, not about eliminating network entirely.
@@ -22,14 +22,14 @@ Version-sensitive facts are date-stamped.
 
 ## Executive summary — verdicts
 
-| # | Substrate | Verdict | One-line |
-|---|---|---|---|
-| 1 | GitHub Actions via `workflow_dispatch` + App token | **GO** | Cheapest to build — Alfred already mints installation tokens; but must use the App token (not the job's default `GITHUB_TOKEN`) for the push/PR so the repo's own CI actually fires on it, and must design completion notice around the webhook Alfred's App already receives. |
-| 2 | Vercel Sandbox | **GO, credentialed case only** | Triggerable from a plain Node/Railway process via a Vercel **access token** (not just Vercel-hosted OIDC); GA firewall supports domain allowlisting and can **broker credentials so they never enter the sandbox**; but completion is synchronous SDK polling only — no push callback — so a BullMQ worker must hold the connection or re-poll. |
-| 3 | E2B / Daytona / Modal | **CONDITIONAL GO (Daytona/E2B), WEAK (Modal)** | All three: Node-triggerable, API-key auth, env-var secret injection. Daytona and E2B both document a real sandbox-side outbound allow/deny-list; Modal's "egress control" is really *static-IP-for-allowlisting-by-the-destination*, not an outbound firewall. Daytona has state-change webhooks; E2B and Modal are poll/await only. |
-| 4 | Fly.io Machines API / Railway API (DIY) | **Fly: GO. Railway: NO-GO for one-off jobs** | Fly Machines API cleanly creates a one-off `auto_destroy` machine via REST + Bearer token — a real DIY option. Railway's public API has no documented one-off/ephemeral job-creation mutation; Railway "cron jobs" are dashboard/schedule-configured services, not API-triggered one-shot containers. |
-| 5 | Headless Claude Code CLI (`claude -p`) | **GO** | `claude -p --output-format json --permission-mode dontAsk --allowedTools "Bash(git *),Read,Edit,Write" --max-turns N --max-budget-usd N` is the documented non-interactive invocation; cost/turns are bounded and reported; the diff is retrieved by reading the working tree (`git diff`) after exit, or by giving Claude the `gh`/`git` bash tools to push + open the PR itself. |
-| 6 | **Claude Managed Agents (CMA)** — Anthropic-hosted agent loop + sandbox | **GO — closest purpose-built fit** | Anthropic runs the Claude Code-equivalent loop *and* hosts the container; a `github_repository` session resource clones one repo with a scoped PAT that **never enters the sandbox** (an Anthropic-side git proxy injects it); a `session.status_terminated` **webhook** is the completion signal (no polling needed); still beta (`managed-agents-2026-04-01`). |
+| #   | Substrate                                                               | Verdict                                        | One-line                                                                                                                                                                                                                                                                                                                                                                           |
+| --- | ----------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | GitHub Actions via `workflow_dispatch` + App token                      | **GO**                                         | Cheapest to build — Alfred already mints installation tokens; but must use the App token (not the job's default `GITHUB_TOKEN`) for the push/PR so the repo's own CI actually fires on it, and must design completion notice around the webhook Alfred's App already receives.                                                                                                     |
+| 2   | Vercel Sandbox                                                          | **GO, credentialed case only**                 | Triggerable from a plain Node/Railway process via a Vercel **access token** (not just Vercel-hosted OIDC); GA firewall supports domain allowlisting and can **broker credentials so they never enter the sandbox**; but completion is synchronous SDK polling only — no push callback — so a BullMQ worker must hold the connection or re-poll.                                    |
+| 3   | E2B / Daytona / Modal                                                   | **CONDITIONAL GO (Daytona/E2B), WEAK (Modal)** | All three: Node-triggerable, API-key auth, env-var secret injection. Daytona and E2B both document a real sandbox-side outbound allow/deny-list; Modal's "egress control" is really _static-IP-for-allowlisting-by-the-destination_, not an outbound firewall. Daytona has state-change webhooks; E2B and Modal are poll/await only.                                               |
+| 4   | Fly.io Machines API / Railway API (DIY)                                 | **Fly: GO. Railway: NO-GO for one-off jobs**   | Fly Machines API cleanly creates a one-off `auto_destroy` machine via REST + Bearer token — a real DIY option. Railway's public API has no documented one-off/ephemeral job-creation mutation; Railway "cron jobs" are dashboard/schedule-configured services, not API-triggered one-shot containers.                                                                              |
+| 5   | Headless Claude Code CLI (`claude -p`)                                  | **GO**                                         | `claude -p --output-format json --permission-mode dontAsk --allowedTools "Bash(git *),Read,Edit,Write" --max-turns N --max-budget-usd N` is the documented non-interactive invocation; cost/turns are bounded and reported; the diff is retrieved by reading the working tree (`git diff`) after exit, or by giving Claude the `gh`/`git` bash tools to push + open the PR itself. |
+| 6   | **Claude Managed Agents (CMA)** — Anthropic-hosted agent loop + sandbox | **GO — closest purpose-built fit**             | Anthropic runs the Claude Code-equivalent loop _and_ hosts the container; a `github_repository` session resource clones one repo with a scoped PAT that **never enters the sandbox** (an Anthropic-side git proxy injects it); a `session.status_terminated` **webhook** is the completion signal (no polling needed); still beta (`managed-agents-2026-04-01`).                   |
 
 **Bottom line:** three credible, complementary paths, not one winner — see **Recommendation for Alfred**.
 
@@ -54,10 +54,11 @@ call; Alfred's App manifest permission set should be checked/extended before rel
 ### Getting a token that can push a branch and open a PR
 
 Three options, in practice:
+
 - **The job's default `GITHUB_TOKEN`**, scoped by the workflow's `permissions:` block (e.g.
   `contents: write`, `pull-requests: write`) — simplest, but see the gotcha below.
 - **A GitHub App installation token**, minted inside the job (or handed to it) — Alfred already has
-  this machinery for its own App; the same App's installation token can be used *inside the Action*
+  this machinery for its own App; the same App's installation token can be used _inside the Action_
   instead of `GITHUB_TOKEN` if the workflow needs the App's identity/permissions rather than the
   Actions-scoped token.
 - **A classic PAT** stored as a secret — works but is a long-lived, broadly-scoped credential; avoid.
@@ -71,7 +72,7 @@ Three options, in practice:
 > (`https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow`)
 
 **This matters concretely for Alfred's design:** if the delegated job pushes its branch and opens the
-PR using the default `GITHUB_TOKEN`, the repo's *own* `pull_request`-triggered CI (lint/test workflows)
+PR using the default `GITHUB_TOKEN`, the repo's _own_ `pull_request`-triggered CI (lint/test workflows)
 will **not** fire on that PR — the human reviewer sees a PR with no CI status. The documented fix is to
 push/open the PR with a **PAT or GitHub App installation token** instead of `GITHUB_TOKEN`
 (same source). Since Alfred already mints App installation tokens for its own GitHub integration, the
@@ -125,21 +126,21 @@ the box). (`https://docs.github.com/en/billing/managing-billing-for-github-actio
 - **`pull_request` from a fork**: "With the exception of `GITHUB_TOKEN`, secrets are not passed to the
   runner when a workflow is triggered from a forked repository. The `GITHUB_TOKEN` has read-only
   permissions in pull requests from forked repositories."
-- **`pull_request` from a branch in the *same* repository** (not a fork): the workflow's normal
+- **`pull_request` from a branch in the _same_ repository** (not a fork): the workflow's normal
   `permissions:`-scoped `GITHUB_TOKEN` and secrets **are** available — GitHub's fork restriction is
-  specifically about *forked* PRs, not same-repo branches.
+  specifically about _forked_ PRs, not same-repo branches.
 - **`pull_request_target`**: "This event runs in the context of the default branch of the base
   repository, rather than in the context of the merge commit, as the `pull_request` event does" — it
-  gets the full-permission token and secrets *even for fork PRs*, which is exactly why GitHub warns:
+  gets the full-permission token and secrets _even for fork PRs_, which is exactly why GitHub warns:
   "Running untrusted code on the `pull_request_target` trigger may lead to security vulnerabilities."
   The escalation only materializes if a `pull_request_target` workflow **also checks out and executes
   the fork PR's own code** — that combination hands attacker-controlled code a token with write access
   and secrets.
   (`https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#pull_request`)
 
-**Relevance to Alfred's design:** the delegated-agent job operates on Alfred's *own* branches in its
-*own* repo (not a fork PR), so the classic `pull_request_target` + untrusted-fork-checkout escalation
-class doesn't apply here. The residual risk is different: the *agent's own generated code*, run inside
+**Relevance to Alfred's design:** the delegated-agent job operates on Alfred's _own_ branches in its
+_own_ repo (not a fork PR), so the classic `pull_request_target` + untrusted-fork-checkout escalation
+class doesn't apply here. The residual risk is different: the _agent's own generated code_, run inside
 the CI job with a real credential, is the "untrusted" element — containment has to come from scoping
 the token (branch push + PR only, no merge, no admin) and from human review before merge, not from the
 fork/same-repo distinction.
@@ -157,6 +158,7 @@ way to get egress control the GitHub-hosted runner doesn't offer (see §4 for th
 but it collapses into "operate your own ephemeral container," i.e. option 4.
 
 ### Single biggest risk
+
 **Silent CI-skip on the generated PR** if the push/PR-open uses the default `GITHUB_TOKEN` instead of
 the App installation token — the PR looks normal but has no check runs, and nothing errors to tell you
 why.
@@ -167,31 +169,32 @@ why.
 
 `code-mode-sandbox-feasibility.md` §5 covered Vercel Sandbox for the network-less isolate case and
 rejected it on **data custody** (private reads would leave Alfred's infra). That objection is exactly
-what the credentialed case *doesn't* have — the data here (the user's own GitHub repo + a stack trace)
+what the credentialed case _doesn't_ have — the data here (the user's own GitHub repo + a stack trace)
 is not the same custody class as private Gmail/Drive reads. Re-checking only what's new for this case:
 
 ### Triggerable from a non-Vercel Node process — yes, via access token
 
 > "Access tokens: Use access tokens when `VERCEL_OIDC_TOKEN` is unavailable, such as in external CI/CD
 > systems or non-Vercel environments."
-(`https://vercel.com/docs/sandbox/concepts/authentication`, referenced from
-`https://vercel.com/docs/sandbox`) — so Alfred's Railway-hosted Elysia process can call `@vercel/sandbox`
-directly with a Vercel access token; this is not restricted to Vercel-hosted callers, and OIDC is only
-the *recommended* mode when running on Vercel's own platform.
+> (`https://vercel.com/docs/sandbox/concepts/authentication`, referenced from
+> `https://vercel.com/docs/sandbox`) — so Alfred's Railway-hosted Elysia process can call `@vercel/sandbox`
+> directly with a Vercel access token; this is not restricted to Vercel-hosted callers, and OIDC is only
+> the _recommended_ mode when running on Vercel's own platform.
 
-### Duration / vCPU / pricing (checked 2026-07-25, last-updated stamp on pricing page 2026-06-16 — **no
-material change from the 2026-07-23 snapshot** in the sibling doc)
+### Duration / vCPU / pricing (checked 2026-07-25, last-updated stamp on pricing page 2026-06-16 — \*\*no
+
+material change from the 2026-07-23 snapshot\*\* in the sibling doc)
 
 - Default sandbox timeout **5 minutes**; extend with `sandbox.extendTimeout()`.
 - Max runtime: **45 min (Hobby) / 24 h (Pro, Enterprise)** — unchanged.
 - vCPU: 1 or even 2–32 depending on plan (Hobby max 4, Pro max 8, Enterprise max 32); default 2 vCPU,
   2 GB RAM per vCPU.
 - Pricing: Active CPU $0.128/vCPU-hr, Provisioned Memory $0.0212/GB-hr, Creations $0.60/1M, **Data
-  Transfer $0.15/GB** (downloads — npm/PyPI/git — are free; only egress you *send* + exposed-port
+  Transfer $0.15/GB** (downloads — npm/PyPI/git — are free; only egress you _send_ + exposed-port
   traffic is billed), Snapshot Storage $0.08/GB-month.
 - Concurrency: 10 (Hobby) / 2,000 (Pro, Enterprise).
 - Region: **`iad1` only** — unchanged.
-(`https://vercel.com/docs/sandbox/pricing`)
+  (`https://vercel.com/docs/sandbox/pricing`)
 
 ### Egress allowlist per sandbox — yes, GA, and it can hide the credential too
 
@@ -225,6 +228,7 @@ off the sandbox run must itself stay the "owner" of that job (hold the connectio
 — there's no equivalent of a GitHub Actions `workflow_run` webhook or CMA's session-webhook to lean on.
 
 ### Single biggest risk
+
 **No push-based completion signal.** A worker crash/restart mid-run loses the ability to `wait()` on
 the in-flight command; recovery requires `sandbox.get(name)` + `sandbox.getCommand(cmdId)` polling
 logic that must be built by hand, unlike GitHub Actions (webhook) or CMA (session webhook).
@@ -233,17 +237,18 @@ logic that must be built by hand, unlike GitHub Actions (webhook) or CMA (sessio
 
 ## 3. E2B, Daytona, Modal
 
-| Axis | E2B | Daytona | Modal |
-|---|---|---|---|
-| Auth from Node server | API key (`E2B_API_KEY` env var), `Sandbox.create()` in the JS/TS SDK | API key, `new Daytona({apiKey})` then `daytona.create()` | API-token auth (`modal setup`); first-class JS/TS **and** Go SDKs alongside Python for calling Functions/Sandboxes |
-| Per-sandbox lifetime | **Hobby: 1 h max session. Pro ($150/mo + usage): 24 h max**, up to 100 concurrent (1,100 purchasable) (`https://e2b.dev/pricing`) | Not found in a duration-limit page during this pass — billing is per-resource-reserved, active vs stopped states charged differently (`https://www.daytona.io/docs/en/billing`) — **treat max lifetime as unverified; check before relying on long-running jobs** | Default 5 min timeout, **configurable up to 24 h** via `timeout` on `Sandbox.create()`; separate `idle_timeout` for auto-termination on inactivity (`https://modal.com/docs/guide/sandbox`) |
-| Secret injection | Not confirmed in this pass beyond general SDK env-var support implied by quickstart examples — **not documented in the pages fetched; verify against E2B's env-vars page before relying** | `daytona.create()`; env var injection referenced in nav (`/docs/en/secrets`) but not independently confirmed in this pass | `modal.Secret.from_dict({...})` passed to `Sandbox.create()` — confirmed, documented |
-| Egress/network policy | **Allow-all by default** — "every sandbox has outbound access to the internet by default"; can be restricted to deny-all or scoped to domain/CIDR allow/deny lists via `network.denyOut`/`allowOut` (SNI-based domain matching), live-updatable via `updateNetwork()` (`https://e2b.dev/docs/sandbox/internet-access`) | **Most explicit of the three**: `networkAllowList` (CIDR blocks, max 10), `domainAllowList` (DNS domains incl. wildcard, max 20), `networkBlockAll` — mutually exclusive, settable per sandbox; lower account tiers (1–2) have org-level restrictions that override sandbox settings; tiers 3–4 default to full internet access and can further restrict (`https://www.daytona.io/docs/en/network-limits`) | **"Proxies" give the sandbox a static outbound IP so the *destination* can allowlist Modal** — this is the inverse of an egress firewall (nothing stops the sandbox reaching arbitrary hosts; it just gives you a stable IP to allowlist elsewhere) (`https://modal.com/docs/guide/proxy-ips`). No host-level egress-restriction found. |
-| Completion callback vs polling | Not documented — no webhook found in the pages fetched | **Webhooks exist**, confirmed: `sandbox.created` and `sandbox.state.updated` (previous/new state) events — usable to infer e.g. `started`→`stopped`, but there's no dedicated "job/command done" event distinct from sandbox state (`https://www.daytona.io/docs/en/webhooks`) | No webhook found; `https://modal.com/docs/guide/webhooks` documents only *inbound* web endpoints for triggering Functions, not completion callbacks — completion is poll-only via `Sandbox.poll()`/`.returncode` |
-| Pricing | Per-second, CPU $0.000014/s (1 vCPU) to $0.000112/s (8 vCPU); RAM $0.0000045/GiB/s; Hobby $100 one-time credit | Pay-as-you-go, per-resource-reserved (active vs stopped states billed differently); **$200 free credit on signup (no card required)**, startup program up to **$50k credits**; no published flat per-second Linux-sandbox rate found in this pass (`https://www.daytona.io/pricing`) | CPU $0.0000131/core/s (standard) or $0.00003942/core/s (Sandbox tier); RAM $0.00000222/GiB/s (standard) or $0.00000667/GiB/s (Sandbox tier); Starter $30/mo free credit, Team $100/mo free credit at $250/mo base |
-| Self-host / BYOC | **Not documented** — `https://e2b.dev/docs/self-hosting` 404s; no managed BYOC tier found | **Yes — "Bring Your Own Compute"**: customer-operated runner nodes + proxy/snapshot-manager/SSH-gateway services deployed via Daytona's Helm charts (`daytona-region` chart) into a customer's own Kubernetes cluster, forming a "custom region" with no imposed concurrency limits (`https://www.daytona.io/docs/en/bring-your-own-compute`). **Caveat:** Daytona's OSS repo was reported **made closed-source in June 2026**, with the open-source line archived/unmaintained — a vendor-durability signal for anyone relying on BYOC/self-host long-term (search-derived; re-verify against Daytona's own changelog before depending on it) | **Not documented** — no self-host/on-prem page found in this pass |
+| Axis                           | E2B                                                                                                                                                                                                                                                                                                                    | Daytona                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Modal                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth from Node server          | API key (`E2B_API_KEY` env var), `Sandbox.create()` in the JS/TS SDK                                                                                                                                                                                                                                                   | API key, `new Daytona({apiKey})` then `daytona.create()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | API-token auth (`modal setup`); first-class JS/TS **and** Go SDKs alongside Python for calling Functions/Sandboxes                                                                                                                                                                                                                      |
+| Per-sandbox lifetime           | **Hobby: 1 h max session. Pro ($150/mo + usage): 24 h max**, up to 100 concurrent (1,100 purchasable) (`https://e2b.dev/pricing`)                                                                                                                                                                                      | Not found in a duration-limit page during this pass — billing is per-resource-reserved, active vs stopped states charged differently (`https://www.daytona.io/docs/en/billing`) — **treat max lifetime as unverified; check before relying on long-running jobs**                                                                                                                                                                                                                                                                                                                                                                              | Default 5 min timeout, **configurable up to 24 h** via `timeout` on `Sandbox.create()`; separate `idle_timeout` for auto-termination on inactivity (`https://modal.com/docs/guide/sandbox`)                                                                                                                                             |
+| Secret injection               | Not confirmed in this pass beyond general SDK env-var support implied by quickstart examples — **not documented in the pages fetched; verify against E2B's env-vars page before relying**                                                                                                                              | `daytona.create()`; env var injection referenced in nav (`/docs/en/secrets`) but not independently confirmed in this pass                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | `modal.Secret.from_dict({...})` passed to `Sandbox.create()` — confirmed, documented                                                                                                                                                                                                                                                    |
+| Egress/network policy          | **Allow-all by default** — "every sandbox has outbound access to the internet by default"; can be restricted to deny-all or scoped to domain/CIDR allow/deny lists via `network.denyOut`/`allowOut` (SNI-based domain matching), live-updatable via `updateNetwork()` (`https://e2b.dev/docs/sandbox/internet-access`) | **Most explicit of the three**: `networkAllowList` (CIDR blocks, max 10), `domainAllowList` (DNS domains incl. wildcard, max 20), `networkBlockAll` — mutually exclusive, settable per sandbox; lower account tiers (1–2) have org-level restrictions that override sandbox settings; tiers 3–4 default to full internet access and can further restrict (`https://www.daytona.io/docs/en/network-limits`)                                                                                                                                                                                                                                     | **"Proxies" give the sandbox a static outbound IP so the _destination_ can allowlist Modal** — this is the inverse of an egress firewall (nothing stops the sandbox reaching arbitrary hosts; it just gives you a stable IP to allowlist elsewhere) (`https://modal.com/docs/guide/proxy-ips`). No host-level egress-restriction found. |
+| Completion callback vs polling | Not documented — no webhook found in the pages fetched                                                                                                                                                                                                                                                                 | **Webhooks exist**, confirmed: `sandbox.created` and `sandbox.state.updated` (previous/new state) events — usable to infer e.g. `started`→`stopped`, but there's no dedicated "job/command done" event distinct from sandbox state (`https://www.daytona.io/docs/en/webhooks`)                                                                                                                                                                                                                                                                                                                                                                 | No webhook found; `https://modal.com/docs/guide/webhooks` documents only _inbound_ web endpoints for triggering Functions, not completion callbacks — completion is poll-only via `Sandbox.poll()`/`.returncode`                                                                                                                        |
+| Pricing                        | Per-second, CPU $0.000014/s (1 vCPU) to $0.000112/s (8 vCPU); RAM $0.0000045/GiB/s; Hobby $100 one-time credit                                                                                                                                                                                                         | Pay-as-you-go, per-resource-reserved (active vs stopped states billed differently); **$200 free credit on signup (no card required)**, startup program up to **$50k credits**; no published flat per-second Linux-sandbox rate found in this pass (`https://www.daytona.io/pricing`)                                                                                                                                                                                                                                                                                                                                                           | CPU $0.0000131/core/s (standard) or $0.00003942/core/s (Sandbox tier); RAM $0.00000222/GiB/s (standard) or $0.00000667/GiB/s (Sandbox tier); Starter $30/mo free credit, Team $100/mo free credit at $250/mo base                                                                                                                       |
+| Self-host / BYOC               | **Not documented** — `https://e2b.dev/docs/self-hosting` 404s; no managed BYOC tier found                                                                                                                                                                                                                              | **Yes — "Bring Your Own Compute"**: customer-operated runner nodes + proxy/snapshot-manager/SSH-gateway services deployed via Daytona's Helm charts (`daytona-region` chart) into a customer's own Kubernetes cluster, forming a "custom region" with no imposed concurrency limits (`https://www.daytona.io/docs/en/bring-your-own-compute`). **Caveat:** Daytona's OSS repo was reported **made closed-source in June 2026**, with the open-source line archived/unmaintained — a vendor-durability signal for anyone relying on BYOC/self-host long-term (search-derived; re-verify against Daytona's own changelog before depending on it) | **Not documented** — no self-host/on-prem page found in this pass                                                                                                                                                                                                                                                                       |
 
 **Single biggest risk of each:**
+
 - **E2B:** egress control is now confirmed documented, but secrets injection and completion signaling
   are still thin (no dedicated secrets-API page, no webhook found) — before betting on it, those two
   gaps need direct SDK-repo or support-channel verification, not just doc-site fetches.
@@ -252,7 +257,7 @@ logic that must be built by hand, unlike GitHub Actions (webhook) or CMA (sessio
   Alfred gets depends on which tier it's provisioned into — verify tier before assuming
   `domainAllowList` is honored — and its reported June-2026 open-source-to-closed-source pivot is a
   durability signal worth re-verifying before leaning on BYOC/self-host long-term.
-- **Modal:** "Proxies" solve the *opposite* problem from what Alfred needs (giving Modal a stable IP for
+- **Modal:** "Proxies" solve the _opposite_ problem from what Alfred needs (giving Modal a stable IP for
   others to allowlist, not restricting what Modal's sandbox can reach) — there is no documented way to
   stop the sandbox from reaching arbitrary hosts, which matters if the delegated task's blast radius
   (a compromised or misbehaving agent run) needs to be network-bounded.
@@ -313,7 +318,7 @@ implementation.
   (`https://docs.railway.com/cron-jobs`, `https://docs.railway.com/guides/manage-deployments`).
 - Auth: Account / Workspace / Project tokens exist; rate limits are 100–10,000 requests/hour by plan —
   none of this changes the underlying gap. No per-service egress/network-policy control is documented;
-  Railway only offers **Static Outbound IPs** (Pro plan) so a *third-party* firewall can allowlist
+  Railway only offers **Static Outbound IPs** (Pro plan) so a _third-party_ firewall can allowlist
   Railway's IP — the reverse of restricting what the job itself can reach
   (`https://docs.railway.com/networking/static-outbound-ips`).
 
@@ -323,6 +328,7 @@ different shape than a one-off run. If Alfred wants to stay entirely on infrastr
 for, Fly.io (or a self-hosted GitHub Actions runner, per §1) is the better DIY target; Railway is not.
 
 ### Single biggest risk of each
+
 - **Fly.io Machines:** no completion webhook — purely poll-based (`/wait?state=...`) — and the
   egress-deny behavior only activates once Alfred explicitly attaches a network policy; forgetting that
   step leaves the machine on default-open egress.
@@ -345,6 +351,7 @@ version-gated in the docs, noted inline.)
 ```
 claude -p "Fix the bug described in this stack trace: ..." --output-format json
 ```
+
 `-p` / `--print` is the flag; **`--bare`** additionally skips auto-discovery of hooks/skills/plugins/
 MCP servers/auto-memory/CLAUDE.md for faster, more deterministic startup — "the recommended mode for
 scripted and SDK calls, and will become the default for `-p` in a future release." In `--bare` mode,
@@ -356,23 +363,25 @@ skips OAuth/keychain reads).
 
 Permission modes (`https://code.claude.com/docs/en/permission-modes`):
 
-| Mode | What runs unattended | Fit for this use case |
-|---|---|---|
-| `default` (aka `manual`) | Reads only | Too restrictive — nothing gets fixed |
-| `acceptEdits` | Reads, file edits, common filesystem commands (`mkdir`/`touch`/`mv`/`cp`/`sed`) | Auto-approves edits but not arbitrary Bash/git — still needs `--allowedTools` for git/gh |
-| `auto` | Everything, gated by a background classifier model | Reduces prompts but "in non-interactive mode ... repeated blocks abort the session since there is no user to prompt" — a real risk for a fully headless run |
-| **`dontAsk`** | **Only pre-approved tools** (`permissions.allow` rules + built-in read-only commands) | **The documented fit for "locked-down CI and scripts"** — the session never waits for input; anything not pre-approved is silently denied rather than prompted |
-| `bypassPermissions` | Everything, no checks | **"Only use this mode in isolated environments like containers, VMs, or dev containers without internet access"** — explicitly wrong for a network-enabled, credentialed run |
+| Mode                     | What runs unattended                                                                  | Fit for this use case                                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default` (aka `manual`) | Reads only                                                                            | Too restrictive — nothing gets fixed                                                                                                                                         |
+| `acceptEdits`            | Reads, file edits, common filesystem commands (`mkdir`/`touch`/`mv`/`cp`/`sed`)       | Auto-approves edits but not arbitrary Bash/git — still needs `--allowedTools` for git/gh                                                                                     |
+| `auto`                   | Everything, gated by a background classifier model                                    | Reduces prompts but "in non-interactive mode ... repeated blocks abort the session since there is no user to prompt" — a real risk for a fully headless run                  |
+| **`dontAsk`**            | **Only pre-approved tools** (`permissions.allow` rules + built-in read-only commands) | **The documented fit for "locked-down CI and scripts"** — the session never waits for input; anything not pre-approved is silently denied rather than prompted               |
+| `bypassPermissions`      | Everything, no checks                                                                 | **"Only use this mode in isolated environments like containers, VMs, or dev containers without internet access"** — explicitly wrong for a network-enabled, credentialed run |
 
 **Recommended combination for "edit files and run git/gh unattended in a throwaway container, nothing
 else":**
+
 ```
 --permission-mode dontAsk --allowedTools "Read,Edit,Write,Bash(git *),Bash(gh pr create *),Bash(npm *)"
 ```
+
 `dontAsk` denies the built-in `AskUserQuestion` tool and any org-`ask`-marked connector/MCP tool even if
 an allow rule matches — appropriate for a run with no human to answer a clarifying question.
 `bypassPermissions` is explicitly the wrong mode here: it's designed for network-isolated sandboxes, and
-Alfred's runner needs the opposite (network-open, but *tool*-scoped).
+Alfred's runner needs the opposite (network-open, but _tool_-scoped).
 
 Note the flags-only picture is incomplete for containers: Claude Code also refuses to start in
 `bypassPermissions` "when running as root or under `sudo`" unless inside "a recognized sandbox" — not
@@ -391,6 +400,7 @@ relevant to `dontAsk`, but worth knowing if a container image runs as root by de
 ### Retrieving the final diff / result
 
 Two complementary paths, both documented:
+
 1. **Read the working tree after exit** — the container's git checkout is mutated in place; the
    caller (or a subsequent step in the same job) runs `git diff` / `git status` against it. This is the
    implicit model behind every headless example GitHub's own docs show.
@@ -411,7 +421,7 @@ container/deployment (this is exactly the substrate question sections 1–4 answ
 GitHub Actions is explicitly "built on top of the Claude Agent SDK"** — so option 1 (§1, GitHub Actions)
 and this option are not actually alternatives; a real deployment likely composes them (`claude -p`
 invoked from inside a `workflow_dispatch`-triggered Action). The one thing that supplies **both** harness
-*and* managed deployment is **Managed Agents (CMA)** — covered as its own substrate in §6, since it
+_and_ managed deployment is **Managed Agents (CMA)** — covered as its own substrate in §6, since it
 changes the trust-surface analysis materially enough to warrant separate treatment.
 
 ### Auth for a headless run
@@ -424,11 +434,12 @@ changes the trust-surface analysis materially enough to warrant separate treatme
   (`https://code.claude.com/docs/en/cli-reference`)
 
 ### Single biggest risk
+
 **`--max-turns`/`--max-budget-usd` are advisory ceilings on one invocation, not a network/tool sandbox**
 — nothing in the CLI itself stops an over-broad `--allowedTools` grant from letting a misbehaving or
 prompt-injected run do more than intended. The permission-mode table is the actual control surface;
 picking `dontAsk` + a narrow `--allowedTools` list is what does the containment work, not the cost/turn
-flags (which only bound *how long* an already-scoped run can go wrong).
+flags (which only bound _how long_ an already-scoped run can go wrong).
 
 ---
 
@@ -441,6 +452,7 @@ webhook-driven completion signal.** (`managed-agents-2026-04-01` beta; per the b
 skill's live reference tables.)
 
 ### How Alfred triggers a run
+
 `agents.create()` once (persisted, versioned config: model, system prompt, tools, MCP servers) →
 `sessions.create({agent: AGENT_ID, environment_id: ENV_ID, resources: [...], initial_events: [...]})`
 per task, from any Node process holding an Anthropic API key — no different in principle from calling
@@ -449,10 +461,16 @@ the Messages API today.
 ### Injecting a scoped credential — and NOT into the sandbox
 
 A `github_repository` session resource clones exactly one repo into the container at session start:
+
 ```json
-{"type": "github_repository", "url": "https://github.com/owner/repo",
- "authorization_token": "<fine-grained PAT, Contents R/W>", "checkout": {"type": "branch", "name": "main"}}
+{
+  "type": "github_repository",
+  "url": "https://github.com/owner/repo",
+  "authorization_token": "<fine-grained PAT, Contents R/W>",
+  "checkout": { "type": "branch", "name": "main" }
+}
 ```
+
 Critically: **"`authorization_token` is never placed inside the container... `git pull`/`git push` and
 GitHub REST calls against the attached repository are routed through an Anthropic-side git proxy that
 injects the token after the request leaves the sandbox. Code running in the container — including
@@ -465,13 +483,16 @@ its OAuth credential stored in a **vault** and attached via `vault_ids` — the 
 resource alone is filesystem/git access only.
 
 ### Network
+
 The environment's `config.networking` is `"unrestricted"` (default — full egress except a legal
 blocklist) or `"limited"` (deny-by-default, with `allow_package_managers`/`allow_mcp_servers`/
 `allowed_hosts` opt-ins) — Alfred would run `unrestricted` (or `limited` + `allow_package_managers: true`
-+ `allow_mcp_servers: true`) to get npm/PyPI/git/Anthropic-API access, which is exactly this use case's
-stated requirement.
+
+- `allow_mcp_servers: true`) to get npm/PyPI/git/Anthropic-API access, which is exactly this use case's
+  stated requirement.
 
 ### Learning the run finished — webhook, not polling
+
 Console-registered webhooks fire `session.status_idled` and `session.status_terminated` (HMAC-signed,
 thin payload — event type + resource IDs; fetch the session for full state). This is the one substrate
 in this whole survey with a genuine push-based completion signal that doesn't require a worker to hold a
@@ -479,22 +500,25 @@ connection open or poll — closer to GitHub's `workflow_run` webhook than to Ve
 synchronous-await-only model.
 
 ### Cost
+
 Per-session usage accumulates in `span.model_request_end` events (`model_usage.input_tokens`/
 `output_tokens`/cache fields) and is queryable via `sessions.retrieve().usage` — normal Anthropic API
 billing, no separate compute meter (unlike Vercel/E2B/Daytona/Modal/Fly, which bill compute-seconds on
 top of whatever LLM cost the CLI running inside them incurs).
 
 ### New trust surface this introduces
+
 The task and its output now transit Anthropic's infrastructure as a first-class party (not just as the
 model provider, as in substrates 1–5 where Anthropic only ever sees prompts/completions, never the
 sandbox or the credential). The repo's source code is mounted into an Anthropic-operated container. For
-Alfred's stated case — the user's *own* GitHub-hosted code plus a stack trace, with the explicit premise
+Alfred's stated case — the user's _own_ GitHub-hosted code plus a stack trace, with the explicit premise
 that "third-party data custody is NOT the blocker here" — this is an acceptable trade given the
 containment win on the credential (never touches the sandbox) and the completion webhook. It is a
 **meaningfully different decision** than the isolate/Code-Mode case, where routing private Gmail/Drive
 reads through a third party was the disqualifying factor.
 
 ### Single biggest risk
+
 **Beta status** (`managed-agents-2026-04-01`) — the API surface (session resources, vault credential
 shapes, webhook event set) is still versioned as beta and could change; and it is a genuinely new
 operational dependency (Anthropic's session/environment uptime, not just Messages API uptime) that
@@ -510,7 +534,7 @@ Alfred doesn't currently have in its critical path.
    (`claude -p --permission-mode dontAsk`)** — the pragmatic default. Zero new infrastructure (Alfred
    already has the App + installation-token minting), zero new vendor dependency beyond Anthropic +
    GitHub (both already load-bearing), and GitHub's own container is the execution environment so there's
-   no additional "whose sandbox is this" trust question. The Actions runner *is* the throwaway container.
+   no additional "whose sandbox is this" trust question. The Actions runner _is_ the throwaway container.
 2. **Claude Managed Agents**, once out of beta (or sooner, if the team is comfortable with a beta
    dependency) — the strongest containment story for the credential specifically (token never enters the
    sandbox) and the only substrate with a genuine completion webhook. Worth prototyping in parallel to #1,
@@ -532,6 +556,7 @@ Alfred doesn't currently have in its critical path.
 
 **Containment invariants the winner (GitHub Actions, per #1) must be paired with, regardless of which
 substrate is chosen:**
+
 - **Branch-only push, never `main`/default branch directly** — enforce via the token's own scope
   (fine-grained PAT or App permission: Contents R/W is enough for a branch push + PR; do not grant
   Administration or the ability to push to protected branches) and via a repo branch-protection rule as
@@ -540,7 +565,7 @@ substrate is chosen:**
   the repository the task concerns; never a token valid across the whole GitHub App installation or
   organization.
 - **No Alfred DB/secret access from inside the runner** — the delegated job gets only the GitHub
-  credential + Anthropic API key it needs for *this* task; it must not inherit Alfred's Postgres
+  credential + Anthropic API key it needs for _this_ task; it must not inherit Alfred's Postgres
   connection string, other integration tokens, or `serverEnv()` wholesale. Build the env injection as an
   explicit allow-list, not by forwarding Alfred's process environment into the job.
 - **No auto-merge** — the job opens the PR and stops; merging is a human action. Do not grant the token
@@ -550,6 +575,7 @@ substrate is chosen:**
 ---
 
 ## Sources
+
 - GitHub REST — workflow dispatch: `https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event`
 - GitHub Actions — `workflow_dispatch`/`pull_request`/`workflow_run` events: `https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows`
 - GitHub Actions — `GITHUB_TOKEN` permissions & auto-token auth: `https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication`

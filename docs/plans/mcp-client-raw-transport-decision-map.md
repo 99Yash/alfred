@@ -100,10 +100,7 @@ Prototype an internal service interface, not a public inbound `/mcp` server:
 
 ```ts
 interface McpExecutionBroker {
-  listTools(input: {
-    connectionId: string;
-    catalogRevision?: string;
-  }): Promise<McpCatalogView>;
+  listTools(input: { connectionId: string; catalogRevision?: string }): Promise<McpCatalogView>;
 
   callTool(input: {
     connectionId: string;

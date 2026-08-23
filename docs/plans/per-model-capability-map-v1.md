@@ -37,9 +37,9 @@ This plan is the durable fix. It is **grounded in two pieces of research** (2026
 
 The issue proposed a flat per-model struct: `{ supportsAdaptiveThinking, supportsEffort, needsToolNameShim }`. The research says that struct is **too coarse and conflates two axes**. Three findings:
 
-1. **`supportsEffort: boolean` is insufficient — effort *vocabularies* differ per provider and a wrong value 400s.** models.dev carries 30 distinct effort value-sets across the catalog. Anthropic: `low/medium/high/xhigh/max`. Gemini 3: `minimal/low/medium/high`. OpenAI gpt-5.2: `none/low/medium/high/xhigh`. `effort:"xhigh"` is valid on Anthropic and a 400 on Gemini; `effort:"minimal"` is the reverse. A boolean walks into that the way `effort` walked onto Haiku in #224. **The field must carry the value set, not a flag.**
+1. **`supportsEffort: boolean` is insufficient — effort _vocabularies_ differ per provider and a wrong value 400s.** models.dev carries 30 distinct effort value-sets across the catalog. Anthropic: `low/medium/high/xhigh/max`. Gemini 3: `minimal/low/medium/high`. OpenAI gpt-5.2: `none/low/medium/high/xhigh`. `effort:"xhigh"` is valid on Anthropic and a 400 on Gemini; `effort:"minimal"` is the reverse. A boolean walks into that the way `effort` walked onto Haiku in #224. **The field must carry the value set, not a flag.**
 
-2. **The reasoning quirk and the tool-name quirk live on different axes with different sources of truth.** Reasoning/effort/temperature are **per-model** and **already in models.dev** (`reasoning_options`, `temperature` — and Alfred's six IDs all resolve there). Tool-name handling and the provider-options *shape* are **per-provider/per-SDK-adapter** and live **nowhere in models.dev** (confirmed: no catalog key touches tool names or option shapes). Flattening them into one per-model struct is the design error.
+2. **The reasoning quirk and the tool-name quirk live on different axes with different sources of truth.** Reasoning/effort/temperature are **per-model** and **already in models.dev** (`reasoning_options`, `temperature` — and Alfred's six IDs all resolve there). Tool-name handling and the provider-options _shape_ are **per-provider/per-SDK-adapter** and live **nowhere in models.dev** (confirmed: no catalog key touches tool names or option shapes). Flattening them into one per-model struct is the design error.
 
 3. **`needsToolNameShim` is mis-framed as "non-Anthropic-native".** The `.`↔`__` shim is needed by **Anthropic** (rejects `.`, pattern `^[a-zA-Z0-9_-]{1,128}$`) **and Google** (strips the prefix → emits bare `search` → `unknown_tool` punt; see `.lessons/swap-chat-model-live-browser-replay.md`) — and would be needed by **OpenAI** too (dots illegal, plus a 64-char cap vs Anthropic's 128). It is a **per-provider transform policy** (pattern + max length), currently true for all three. `googleModel` at `provider.ts:28` not wrapping it is a **latent bug** the moment Google is ever a primary, not just a fallback.
 
@@ -47,42 +47,42 @@ The issue proposed a flat per-model struct: `{ supportsAdaptiveThinking, support
 
 The universe of reasoning-control mechanisms across all 145 providers is a **closed 3-type set**: `effort`, `budget_tokens`, `toggle`. That closed set is the "satisfies all providers" guarantee. models.dev already derives the exact quirk #313 hand-codes:
 
-| Alfred model | models.dev `reasoning_options` | `temperature` |
-|---|---|---|
-| `claude-haiku-4-5-20251001` | `[{budget_tokens, min:1024}]` — **no effort** | `true` |
-| `claude-opus-4-8` | `[{effort:[low…max]}]` | **`false`** (matches the 4.7+ 400) |
-| `claude-sonnet-4-6` | `[{effort:[low…max]},{budget_tokens}]` | `true` |
-| `gemini-2.5-pro` | `[{budget_tokens,128–32768}]` | `true` |
-| `gemini-2.5-flash`/`-lite` | `[{toggle},{budget_tokens}]` | `true` |
+| Alfred model                | models.dev `reasoning_options`                | `temperature`                      |
+| --------------------------- | --------------------------------------------- | ---------------------------------- |
+| `claude-haiku-4-5-20251001` | `[{budget_tokens, min:1024}]` — **no effort** | `true`                             |
+| `claude-opus-4-8`           | `[{effort:[low…max]}]`                        | **`false`** (matches the 4.7+ 400) |
+| `claude-sonnet-4-6`         | `[{effort:[low…max]},{budget_tokens}]`        | `true`                             |
+| `gemini-2.5-pro`            | `[{budget_tokens,128–32768}]`                 | `true`                             |
+| `gemini-2.5-flash`/`-lite`  | `[{toggle},{budget_tokens}]`                  | `true`                             |
 
-Caveat — **models.dev has gaps**: `structured_output` is *absent* for every Anthropic model even though the API supports it. So models.dev is a good audit oracle, **not** a runtime source of truth.
+Caveat — **models.dev has gaps**: `structured_output` is _absent_ for every Anthropic model even though the API supports it. So models.dev is a good audit oracle, **not** a runtime source of truth.
 
 ### opencode validates the two-axis design — and says keep it in code
 
 opencode's `packages/opencode/src/provider/transform.ts` is the reference implementation. It separates exactly the layers this plan proposes:
 
-| This plan's layer | opencode equivalent |
-|---|---|
-| per-provider reasoning-block builder | `variants(model)` → `Record<effortLabel, block>`, a `switch (model.api.npm)` |
+| This plan's layer                     | opencode equivalent                                                                                   |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| per-provider reasoning-block builder  | `variants(model)` → `Record<effortLabel, block>`, a `switch (model.api.npm)`                          |
 | effort **vocabulary** (not a boolean) | hand-coded constants (`WIDELY_SUPPORTED_EFFORTS`, `OPENAI_GPT5_2_PLUS_EFFORTS`, …) selected per model |
-| tool-name transform policy | per-provider `toolCallId` scrub in `normalizeMessages` (`/[^a-zA-Z0-9_-]/g → _` for claude) |
-| provider-options namespace routing | `sdkKey(npm)` + `providerOptions(model, opts)` |
-| structured-output mechanism | `schema(model, …)` per-provider JSON-schema sanitization |
-| temperature handling | `temperature(model)` → value or `undefined` (claude → `undefined`) |
+| tool-name transform policy            | per-provider `toolCallId` scrub in `normalizeMessages` (`/[^a-zA-Z0-9_-]/g → _` for claude)           |
+| provider-options namespace routing    | `sdkKey(npm)` + `providerOptions(model, opts)`                                                        |
+| structured-output mechanism           | `schema(model, …)` per-provider JSON-schema sanitization                                              |
+| temperature handling                  | `temperature(model)` → value or `undefined` (claude → `undefined`)                                    |
 
 Three things opencode teaches that the issue missed:
 
-- **The reasoning block is an effort-label → block *map*** (`variants`), precomputed per model, indexed at request time by the chosen effort (`request.ts:81`). This is exactly the seam the #249 model-router wants — the router picks an effort label; the map yields the block.
+- **The reasoning block is an effort-label → block _map_** (`variants`), precomputed per model, indexed at request time by the chosen effort (`request.ts:81`). This is exactly the seam the #249 model-router wants — the router picks an effort label; the map yields the block.
 - **Key on the SDK adapter, not the logical provider.** The same Claude model has three different option shapes across `@ai-sdk/anthropic`, `@ai-sdk/amazon-bedrock`, `@ai-sdk/google-vertex/anthropic`. Alfred is 1:1 provider↔adapter today, so provider-keying is fine **now**, but the key is conceptually the adapter — note it so a future Bedrock/Vertex add doesn't break.
-- **They keep all of it in code and do *not* derive it from models.dev at runtime** — despite *building* models.dev. That settles the "code-resident vs DB-derived" question: code-resident, with models.dev as an audit oracle (which opencode skips and we add, cheaply, because our quirks are the silently-expensive ones).
+- **They keep all of it in code and do _not_ derive it from models.dev at runtime** — despite _building_ models.dev. That settles the "code-resident vs DB-derived" question: code-resident, with models.dev as an audit oracle (which opencode skips and we add, cheaply, because our quirks are the silently-expensive ones).
 
-What we deliberately **do not** borrow: opencode's `variants()` is ~600 lines of accreted `id.includes()` special-casing for ~hundreds of models (their own comment: *"fix this stupid inefficient dogshit function"*). Alfred has **6 models in a deliberately-closed registry**. We take the *architecture* (layered pure functions, effort-label map, per-provider keying) and leave the sprawl — this is ~40 lines, enumerated explicitly, not fuzzy-matched.
+What we deliberately **do not** borrow: opencode's `variants()` is ~600 lines of accreted `id.includes()` special-casing for ~hundreds of models (their own comment: _"fix this stupid inefficient dogshit function"_). Alfred has **6 models in a deliberately-closed registry**. We take the _architecture_ (layered pure functions, effort-label map, per-provider keying) and leave the sprawl — this is ~40 lines, enumerated explicitly, not fuzzy-matched.
 
 ## The load-bearing distinction (do not collapse)
 
 **Two axes, two homes:**
 
-- **Per-model facts** → `MODEL_REGISTRY` in `packages/ai/src/models.ts` (already the closed enumeration of the 6 models). Add only what the data proved matters: the **effort vocabulary** (`[]` encodes "no effort param" — which for Haiku 4.5 *is* ADR-0077's empty-block) and `temperature` support (future-proofing; not sent today).
+- **Per-model facts** → `MODEL_REGISTRY` in `packages/ai/src/models.ts` (already the closed enumeration of the 6 models). Add only what the data proved matters: the **effort vocabulary** (`[]` encodes "no effort param" — which for Haiku 4.5 _is_ ADR-0077's empty-block) and `temperature` support (future-proofing; not sent today).
 - **Per-provider mechanics** → a small `PROVIDER_DISPATCH` profile in `provider.ts`: the reasoning-block builder and the tool-name shim policy. It is keyed by `ModelProviderId` (providers that actually have language models in `MODEL_REGISTRY`), while `ProviderId` remains the broader metering enum that also includes OpenAI transcription.
 
 models.dev is neither home — it is the **audit oracle** that proves the code-resident effort vocabularies still match reality.
@@ -109,10 +109,13 @@ export interface ModelCapabilities {
 
 // Keyed by ModelId, `as const satisfies Record<ModelId, …>` so a missing model is a compile error
 export const MODEL_CAPABILITIES = {
-  "claude-opus-4-8": { effortValues: ["low", "medium", "high", "xhigh", "max"], temperature: false },
+  "claude-opus-4-8": {
+    effortValues: ["low", "medium", "high", "xhigh", "max"],
+    temperature: false,
+  },
   "claude-sonnet-4-6": { effortValues: ["low", "medium", "high", "max"], temperature: true },
   "claude-haiku-4-5-20251001": { effortValues: [], temperature: true }, // ADR-0077: empty block
-  "gemini-2.5-pro": { effortValues: [], temperature: true },             // budget-based; effort N/A
+  "gemini-2.5-pro": { effortValues: [], temperature: true }, // budget-based; effort N/A
   "gemini-2.5-flash": { effortValues: [], temperature: true },
   "gemini-2.5-flash-lite": { effortValues: [], temperature: true },
 } as const satisfies Record<ModelId, ModelCapabilities>;
@@ -141,7 +144,10 @@ const PROVIDER_DISPATCH = {
     reasoningOptions(modelId, effort) {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
       if (effortValues.length === 0) return {}; // Haiku 4.5 — empty block (ADR-0077)
-      return { thinking: { type: "adaptive", display: "summarized" }, effort: clamp(effort, effortValues) };
+      return {
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: clamp(effort, effortValues),
+      };
     },
   },
   google: {
@@ -154,7 +160,9 @@ const PROVIDER_DISPATCH = {
 } as const satisfies Record<ModelProviderId, ProviderDispatch>;
 
 /** Snap a desired effort to the nearest value the model actually accepts. Never emits an unsupported tier. */
-function clamp(desired: EffortLevel, allowed: readonly EffortLevel[]): EffortLevel { /* nearest by index */ }
+function clamp(desired: EffortLevel, allowed: readonly EffortLevel[]): EffortLevel {
+  /* nearest by index */
+}
 ```
 
 `getChatProviderOptions` then becomes a thin dispatcher that namespaces each provider's block (`{ anthropic: …, google: … }`) so the AI SDK passes only the matching one — preserving the existing fallback-safety. The `tier === "deep"` branch at `provider.ts:165-172` disappears: `deep` resolves to `opus-4-8` and asks for `effort:"high"`; `standard` resolves to `haiku-4-5` whose `effortValues:[]` yields `{}`. Identical wire output to today, but a future remap (e.g. `standard → sonnet-4-6`) produces the correct adaptive block automatically instead of a 400.
@@ -188,5 +196,8 @@ Rename `withAnthropicToolNames` → `withToolNameShim` (the encode/decode is alr
 
 ## ADR
 
-Recommend **ADR-0078** — "Per-model capability is code-resident (effort *vocabularies*, not booleans) on a per-provider dispatch profile; models.dev is the audit oracle, not a runtime dependency." Amends the ADR-0053 reference in #313 and supersedes the `getChatProviderOptions` tier-branch that ADR-0077 left as the #313 seam. Cross-ref ADR-0077 (the swap that motivated it), #224/#303 (the silent-fallback class it prevents), #249 (the router that consumes the effort-label map), and `.lessons/anthropic-rejects-dotted-tool-names` + `swap-chat-model-live-browser-replay` (the tool-name policy).
+Recommend **ADR-0078** — "Per-model capability is code-resident (effort _vocabularies_, not booleans) on a per-provider dispatch profile; models.dev is the audit oracle, not a runtime dependency." Amends the ADR-0053 reference in #313 and supersedes the `getChatProviderOptions` tier-branch that ADR-0077 left as the #313 seam. Cross-ref ADR-0077 (the swap that motivated it), #224/#303 (the silent-fallback class it prevents), #249 (the router that consumes the effort-label map), and `.lessons/anthropic-rejects-dotted-tool-names` + `swap-chat-model-live-browser-replay` (the tool-name policy).
+
+```
+
 ```

@@ -1,6 +1,6 @@
 # Structural review — looking above and below the diff
 
-[code-style.md](./code-style.md) is the **surface sweep**: a bounded catalog of recurring review rules to apply to present code. This doc covers the two open-ended directions that sweep cannot reach. Look **up** from the changed lines to ask whether the code has the right shape; drill **down** through them to ask whether the claimed behavior survives relevant paths, states, and failures. Read this when the diff may be correct line-by-line but either its *shape* or its *invariant* might still be wrong.
+[code-style.md](./code-style.md) is the **surface sweep**: a bounded catalog of recurring review rules to apply to present code. This doc covers the two open-ended directions that sweep cannot reach. Look **up** from the changed lines to ask whether the code has the right shape; drill **down** through them to ask whether the claimed behavior survives relevant paths, states, and failures. Read this when the diff may be correct line-by-line but either its _shape_ or its _invariant_ might still be wrong.
 
 ---
 
@@ -12,7 +12,7 @@ Treat the changed lines as a surface. The framework distinguishes three review m
 - **Up is structural search.** Infer a better domain shape that is not present yet, then measure the code against it. The target itself is unknown, so the work is generative and subjective. This is where "these twelve `localStorage` calls should be one registry" and "`isRecord` is really two guards" live.
 - **Down is invariant proof.** Start with a behavior the change claims, then trace it through callers, state transitions, persistence, consumers, time, and failure until either the relevant paths preserve it or a counterexample breaks it. The target is known but the proof path is not. This is where "the FK guard prevents a dangling reference but leaves the artifact stuck in `generating`" and "the happy path is correct but a retry duplicates the side effect" live.
 
-These motions need different tools. Tool verification with a list. Tool up with a heuristic — *what shape might be missing and how would we score it?* Tool down with a falsification strategy — *what exact invariant is claimed and what sequence would break it?* A list cannot generate the missing abstraction, and line inspection cannot prove an end-to-end behavior.
+These motions need different tools. Tool verification with a list. Tool up with a heuristic — _what shape might be missing and how would we score it?_ Tool down with a falsification strategy — _what exact invariant is claimed and what sequence would break it?_ A list cannot generate the missing abstraction, and line inspection cannot prove an end-to-end behavior.
 
 **Fund up first; earn down selectively.** Run structural discovery before the known-rule sweep so familiar local prompts do not anchor the whole review. Then spend expensive down-depth on risky claims and candidate structures. Down is selective because proving everything exhaustively is impossible, not because untraced code is assumed correct.
 
@@ -32,15 +32,15 @@ That essence is hard to measure directly, so use its sharpest **revealer** (a re
 
 > A structural defect reveals itself when one domain change requires multiple coordinated edits and nothing makes that coordination inevitable.
 
-Two things about this sentence do the work. "Multiple coordinated edits" is the most *objective* symptom of drift — it converts taste into a cost you can name. "Nothing makes that coordination inevitable" is a gradient, not a binary; see [the enforcement ladder](#the-enforcement-ladder) for how strongly "inevitable" is actually being enforced.
+Two things about this sentence do the work. "Multiple coordinated edits" is the most _objective_ symptom of drift — it converts taste into a cost you can name. "Nothing makes that coordination inevitable" is a gradient, not a binary; see [the enforcement ladder](#the-enforcement-ladder) for how strongly "inevitable" is actually being enforced.
 
 The multi-edit test is the sharpest revealer, not the only one. Drift can bite **before** it ever forces a second edit:
 
-1. **Multiple coordinated edits** — the change touches N places and consistency isn't enforced. *(most objective)*
-2. **Unsafe extension** — adding the next case is possible but unguided; the code lets you get it wrong (you *can* forget the default).
-3. **Comprehension obstruction** — a reader can't recover the domain's shape from the code's shape; the map lies. *(most subjective, earliest to bite)*
+1. **Multiple coordinated edits** — the change touches N places and consistency isn't enforced. _(most objective)_
+2. **Unsafe extension** — adding the next case is possible but unguided; the code lets you get it wrong (you _can_ forget the default).
+3. **Comprehension obstruction** — a reader can't recover the domain's shape from the code's shape; the map lies. _(most subjective, earliest to bite)_
 
-The storage registry improves all three — one edit to add a key, the type forbids a missing default, and one file shows the whole catalog. The multi-edit argument is just the most *legible* of its three benefits. Lead with whichever revealer is most objective for the case at hand.
+The storage registry improves all three — one edit to add a key, the type forbids a missing default, and one file shows the whole catalog. The multi-edit argument is just the most _legible_ of its three benefits. Lead with whichever revealer is most objective for the case at hand.
 
 Revealer 3 is the one this document used to leave as taste. [Required knowledge](#required-knowledge--measuring-comprehension-obstruction) gives it a countable measure, for the cases where drift never forces a second edit at all.
 
@@ -73,17 +73,17 @@ This is selective attention, not an ignore list. A generated file becomes eviden
 
 The six axes below classify **how** code structure disagrees with domain structure; they do not tell a reviewer **what domain structure to recover**. Start the up-pass with an obligation: what must always remain true (safety), eventually become true (liveness), or never occur? Then map the domain dimensions that can make or break it.
 
-| Dimension | What to recover from the domain |
-| --- | --- |
-| **Identity** | What persists through change? What counts as the same entity, attempt, message, value, or relationship? |
-| **Authority** | Who may decide, mutate, validate, and enforce each rule, and over what scope? |
-| **Lifecycle / state** | What states, events, guards, terminal outcomes, and recovery transitions are legal? |
-| **Consistency / coordination** | Which observations or changes must agree? What atomicity, isolation, ordering, locking, or compensation holds them together? |
-| **Time / order** | Which claims depend on causality, freshness, deadlines, leases, expiry, scheduling, or wall-clock time? |
-| **Effects / resources** | What is read, written, emitted, consumed, reserved, billed, retried, cancelled, acquired, or released? Which effects are irreversible? |
-| **Representation** | Which domain, wire, storage, and UI encodings exist? Which distinctions and invalid states do they preserve or erase, and where are values parsed or normalized? |
-| **Source / derivation** | Which state is canonical in this context, which is projected or cached, how stale may it be, and how is it rebuilt or reconciled? |
-| **Substrate contract** | Which guarantees and failure assumptions are delegated to the database, queue, runtime, browser, provider, clock, or operator? |
+| Dimension                      | What to recover from the domain                                                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Identity**                   | What persists through change? What counts as the same entity, attempt, message, value, or relationship?                                                          |
+| **Authority**                  | Who may decide, mutate, validate, and enforce each rule, and over what scope?                                                                                    |
+| **Lifecycle / state**          | What states, events, guards, terminal outcomes, and recovery transitions are legal?                                                                              |
+| **Consistency / coordination** | Which observations or changes must agree? What atomicity, isolation, ordering, locking, or compensation holds them together?                                     |
+| **Time / order**               | Which claims depend on causality, freshness, deadlines, leases, expiry, scheduling, or wall-clock time?                                                          |
+| **Effects / resources**        | What is read, written, emitted, consumed, reserved, billed, retried, cancelled, acquired, or released? Which effects are irreversible?                           |
+| **Representation**             | Which domain, wire, storage, and UI encodings exist? Which distinctions and invalid states do they preserve or erase, and where are values parsed or normalized? |
+| **Source / derivation**        | Which state is canonical in this context, which is projected or cached, how stale may it be, and how is it rebuilt or reconciled?                                |
+| **Substrate contract**         | Which guarantees and failure assumptions are delegated to the database, queue, runtime, browser, provider, clock, or operator?                                   |
 
 These are review vocabulary, not nine architecture components. Do not fill every row ritualistically. Begin with the obligation and map only the dimensions that can make or break it: a pure formatter may need representation alone; a retryable job with external effects may touch almost all nine. Record each boundary with the claim it constrains instead of treating "boundary" as one thing: semantic scope belongs with authority and source, a consistency boundary with coordination, a trust boundary with representation, and a deployment boundary with the substrate contract. None is automatically a transaction, service, or bounded context.
 
@@ -103,7 +103,7 @@ For each mapped claim, choose a nearby, credible domain change grounded in the d
 Then record:
 
 | Obligation | Dimension | Domain claim | Current code mechanism / owner / representation | Grounded change | Coordinated edits | Enforcement |
-| --- | --- | --- | --- | --- | --- | --- |
+| ---------- | --------- | ------------ | ----------------------------------------------- | --------------- | ----------------- | ----------- |
 
 For every relevant domain claim, locate the corresponding code mechanism, owner, or representation — or record that none exists. A mismatch in decomposition, ownership, placement, dependency direction, representation, or substrate use is a candidate up-finding; use the six axes to name its shape and the admission gates to decide whether changing it beats leaving it alone. If the maps align but an execution fails to preserve the claim, that is a down-finding instead. This is the up-pass's work product and stopping rule: every affected obligation has an explicit code map; every structural mismatch either clears the gates or is discarded.
 
@@ -115,39 +115,45 @@ The same map becomes the specification for drilling down. Up asks whether the ow
 
 These axes cover the recurring ways code structure drifts from domain structure. They organize the search; they do not enumerate the improvements a reviewer may discover. Treat them as lenses, not as a proof that every possible structural defect fits a closed taxonomy.
 
-Each axis carries a **tell** (a cheap trigger you can spot in the wide pass), a **pointer** (the generative question you run on the hit), and an **anti-pattern** (the over-application that makes drift *worse*).
+Each axis carries a **tell** (a cheap trigger you can spot in the wide pass), a **pointer** (the generative question you run on the hit), and an **anti-pattern** (the over-application that makes drift _worse_).
 
-**1. Repetition** — *elements: too many copies of one.*
+**1. Repetition** — _elements: too many copies of one._
+
 - Tell (greppable): the same literal / shape / try-catch appears 3+ times.
-- Pointer: *how many places change together if this one fact changes?*
-- Anti-pattern: DRYing *coincidental* duplication — things that look alike but change independently.
+- Pointer: _how many places change together if this one fact changes?_
+- Anti-pattern: DRYing _coincidental_ duplication — things that look alike but change independently.
 - Example: the localStorage **registry**; `parseEmailAddress` as the single source of self-mail matching.
 
-**2. Conflation** — *elements: one construct doing several jobs.*
+**2. Conflation** — _elements: one construct doing several jobs._
+
 - Tell: the true description contains "and"/"or"; a boolean parameter that switches behavior; a vague name (`handle`, `process`, `data`) broad enough to hide two concepts.
-- Pointer: *is this one concept or two? does the name make a single promise?*
+- Pointer: _is this one concept or two? does the name make a single promise?_
 - Anti-pattern: over-decomposition — splitting things that really are one, paying an indirection tax.
 - Example: the **`isRecord` / `isIndexable` split** — one name was answering "is this plain JSON?" and "can I read a field off this?", which a `Date` answers oppositely.
 
-**3. Misplacement** — *boundaries: seams not cut at the domain's joints.*
+**3. Misplacement** — _boundaries: seams not cut at the domain's joints._
+
 - Tell: a feature imports another feature's non-public file; a `utils` folder accreting unrelated things; a helper living far from its only caller.
-- Pointer: *is this cut where the domain actually joints? does this belong to the thing it lives in?*
+- Pointer: _is this cut where the domain actually joints? does this belong to the thing it lives in?_
 - Anti-pattern: moving code to a tidier taxonomy that's farther from use — colocation usually beats classification.
 
-**4. Wrong dependency direction** — *dependencies: stable follows volatile.*
+**4. Wrong dependency direction** — _dependencies: stable follows volatile._
+
 - Tell (partly automatable): an import cycle; a stable/shared module importing an app-specific one (`contracts` reaching into `api`; the `storage-schemas → domain → storage` cycle its header guards against).
-- Pointer: *does the more-stable thing depend on the more-volatile, or the reverse?*
+- Pointer: _does the more-stable thing depend on the more-volatile, or the reverse?_
 - Anti-pattern: a one-implementer interface added "for flexibility" — speculative generality.
 
-**5. Loose representation** — *encodings: illegal states allowed.*
-- Tell (greppable): nullable fields littered with `!`; several booleans never independently true (a disguised enum); an `as` cast — the cast is the code *confessing* its type is looser than reality.
-- Pointer: *does this encoding permit a state the domain forbids? can I tighten it until wrong won't compile?*
+**5. Loose representation** — _encodings: illegal states allowed._
+
+- Tell (greppable): nullable fields littered with `!`; several booleans never independently true (a disguised enum); an `as` cast — the cast is the code _confessing_ its type is looser than reality.
+- Pointer: _does this encoding permit a state the domain forbids? can I tighten it until wrong won't compile?_
 - Anti-pattern: freezing today's accident into tomorrow's constraint by over-tightening.
 - Example: `satisfies Record<string, z.ZodDefault>` makes "a registered key with no default" unrepresentable.
 
-**6. Reinvention** — *substrate: rebuilding what's provided.*
+**6. Reinvention** — _substrate: rebuilding what's provided._
+
 - Tell (greppable): a hand-rolled thing with a substrate primitive one import away — manual JSON try/catch where Zod exists; a hand-written insert type where `$inferInsert` exists.
-- Pointer: *what does the library already give me that this rebuilds?*
+- Pointer: _what does the library already give me that this rebuilds?_
 - Anti-pattern: coupling to a substrate detail that's actually more volatile than your own code.
 
 High-value moves often improve several axes at once — the registry is **1 + 5 + 6**, the guard split is **2 + 5**. That convergence strengthens a proposal, but it is supporting evidence rather than a scoring system: one clearly demonstrated axis is enough.
@@ -159,15 +165,15 @@ Some **tells** are cheap enough to collect during the bounded surface sweep:
 - **Repetition and loose representation** — candidate sites are often greppable (`as`, `!`, duplicated literals or shapes).
 - **Wrong direction** — cycle detection and boundary lint (`pnpm check:web-boundaries` is already a slice of this).
 
-But a tell is not a finding. Deciding whether duplication shares one truth, whether a type is looser than the domain, or whether library behavior really subsumes local code still requires judgment. **Conflation** (*is this one concept or two?*) and **misplacement** (*is this cut at the joint?*) have especially weak mechanical tells, so protect time for them — but do not pretend the other axes can be concluded by grep. The registry began with a repetition tell and required the global claim that all keys form one catalog; the guard split required perceiving two concepts behind one name.
+But a tell is not a finding. Deciding whether duplication shares one truth, whether a type is looser than the domain, or whether library behavior really subsumes local code still requires judgment. **Conflation** (_is this one concept or two?_) and **misplacement** (_is this cut at the joint?_) have especially weak mechanical tells, so protect time for them — but do not pretend the other axes can be concluded by grep. The registry began with a repetition tell and required the global claim that all keys form one catalog; the guard split required perceiving two concepts behind one name.
 
 ---
 
 ## Required knowledge — measuring comprehension obstruction
 
-The multi-edit revealer is blind to a whole class of drift. `AuthedJsonOptions.onError` — an open-ended "override the non-2xx branch" callback — had exactly **one** implementer, and changing Notion's error posture was a one-line edit in one file. No coordination, nothing to forget, no second home for any fact. By the sharpest revealer it was clean. It was still structural debt, because the *policy it encoded* ("this provider's error body must never ride the error") was discoverable only by having already read the Notion client. Replacing it with `bodyPolicy: "summarize" | "omit"` on the factory everyone already calls put the same decision in autocomplete.
+The multi-edit revealer is blind to a whole class of drift. `AuthedJsonOptions.onError` — an open-ended "override the non-2xx branch" callback — had exactly **one** implementer, and changing Notion's error posture was a one-line edit in one file. No coordination, nothing to forget, no second home for any fact. By the sharpest revealer it was clean. It was still structural debt, because the _policy it encoded_ ("this provider's error body must never ride the error") was discoverable only by having already read the Notion client. Replacing it with `bodyPolicy: "summarize" | "omit"` on the factory everyone already calls put the same decision in autocomplete.
 
-So the up-pass needs a second measure, for drift that bites at *read* time rather than at *change* time:
+So the up-pass needs a second measure, for drift that bites at _read_ time rather than at _change_ time:
 
 > **Required knowledge** is the set of facts a correct call site depends on that nothing at that call site supplies.
 
@@ -178,32 +184,36 @@ That is countable, which is what keeps revealer 3 from staying a matter of taste
 3. For each way, name where the correct knowledge lives today, using [the enforcement ladder](#the-enforcement-ladder).
 4. **Required knowledge is the tier 4–5 residue.** That count — not the edit count — is the finding's size.
 
-The tell is inverted from the rest of this document: **the naive call compiling and passing review is the failure, not the success.** If the persisted `accessToken` and the fresh one are both `string`, then "resolve Google tokens through `getFreshAccessToken`" is a tier-5 rule, and a reviewer is the only thing standing between it and a stale-token bug. A fifteen-row "reach for these" table in an agent instruction file is not a solution to that problem; it is an *inventory* of it.
+The tell is inverted from the rest of this document: **the naive call compiling and passing review is the failure, not the success.** If the persisted `accessToken` and the fresh one are both `string`, then "resolve Google tokens through `getFreshAccessToken`" is a tier-5 rule, and a reviewer is the only thing standing between it and a stale-token bug. A fifteen-row "reach for these" table in an agent instruction file is not a solution to that problem; it is an _inventory_ of it.
 
 ### Four shapes it takes
 
 **1. A name you must already know.** The right helper exists, and only prior knowledge or a lookup finds it.
+
 - Tell: the repo ships an index of them — every row of the [shared helpers](./shared-helpers.md) table is a capability whose discovery mechanism is documentation. A caller holding `unknown` cannot see `getPath`; a caller holding a `credentialId` cannot see `getFreshAccessToken`.
-- Pointer: *can the call site reach the right thing from what it already holds?*
+- Pointer: _can the call site reach the right thing from what it already holds?_
 - Fix: hang the capability off the value the caller already has, so no name has to be recalled — `integrations({ userId }).github.search({ q })` replaces "know that `getInstallationTokenForUser` exists, know it returns a token you must not log, then know `searchGithub` takes it."
-- Anti-pattern: adding the reachable door *beside* the old one and calling it progress. See the ledger below.
+- Anti-pattern: adding the reachable door _beside_ the old one and calling it progress. See the ledger below.
 
 **2. An escape-hatch parameter.** An open-ended hook sits where a closed set of policies belongs.
-- Tell: one implementer; its body is the same three lines every time; the hook's own docstring has to explain *when* you would use it.
-- Pointer: *is this a behavior the caller supplies, or a policy the caller selects?*
+
+- Tell: one implementer; its body is the same three lines every time; the hook's own docstring has to explain _when_ you would use it.
+- Pointer: _is this a behavior the caller supplies, or a policy the caller selects?_
 - Fix: policy as data. `onError: (res) => Promise<never>` → `bodyPolicy: "summarize" | "omit"`. Tier 5 → tier 1: the options are enumerable, an unhandled one is a type error, and the choice is visible on an object the caller is already constructing.
 
 **3. A leaky primitive.** A value travels as a bare `string` while the rules for handling it travel as prose.
+
 - Tell (greppable): count the signatures that name the type, then find the sentence that governs all of them. `grep -ro 'accessToken: string' packages/integrations/src | wc -l` returns **62** — down from 68 as GitHub and Vercel moved behind the user-bound integrations root, and it falls again with each provider that joins. Re-derive it rather than trusting the figure; the trend is the finding, not the constant. The rule that binds all of them — never log it, never persist it on an error, never read the stale one — lives in a CLAUDE.md bullet.
-- Pointer: *does this value's type carry its own handling rules, or does a human have to?*
-- Fix: give it a type whose behavior *is* the policy. `Redacted<T>` masks under `String()`, `JSON.stringify`, and `util.inspect`, keeps the plaintext in a `#private` field so a structured logger enumerating own properties finds nothing, and exposes exactly one greppable `unwrap()` — called at the wire, in the function that builds the headers.
+- Pointer: _does this value's type carry its own handling rules, or does a human have to?_
+- Fix: give it a type whose behavior _is_ the policy. `Redacted<T>` masks under `String()`, `JSON.stringify`, and `util.inspect`, keeps the plaintext in a `#private` field so a structured logger enumerating own properties finds nothing, and exposes exactly one greppable `unwrap()` — called at the wire, in the function that builds the headers.
 - The positive form is already in this tree, which is what makes the axis credible rather than aspirational: Google's public `CredentialRow` simply **has no `accessToken` field**, so "don't read the persisted token" is tier 1 for that path and needs no discipline from anyone. `getFreshAccessToken(): Promise<string>` then drops the result straight back into the tier-5 world. That contrast — the same invariant enforced statically on one side of a function and by prose on the other — is the up-finding.
 
 **4. A restated shape.** One context, retyped once per participant.
+
 - Tell: N functions whose parameter lists are permutations of a single context object; a result type that re-lists each participant's fields by hand.
-- Pointer: *is this shape declared once and derived, or agreed by convention N times?*
+- Pointer: _is this shape declared once and derived, or agreed by convention N times?_
 - Fix: declare once, derive the rest — `ProviderBindOptions` as the sole bind shape with the integrations root's public type mapped from `ReturnType` per registry entry; `FLOOR_SEQUENCE` as the ordered floor list with `FloorOutcome`'s audit keys mapped from it.
-- The prize is usually not the deduplication. Folding the triage floors made the *threading* structural: each floor now receives the previous floor's classification because the fold passes it, where before three hand-written calls each had to remember to pass `previous.classification` and passing the original instead would have silently disabled a floor.
+- The prize is usually not the deduplication. Folding the triage floors made the _threading_ structural: each floor now receives the previous floor's classification because the fold passes it, where before three hand-written calls each had to remember to pass `previous.classification` and passing the original instead would have silently disabled a floor.
 
 ### Call-site narrative
 
@@ -228,16 +238,16 @@ Run these checks:
 
 This is the gate that stops "make it read like poetry" from becoming a license to add abstractions. The move is only real if it is **net-negative in names a call site must know**:
 
-> Ledger = names required at the call site *after* − names required *before*. It must end negative, and a PR that leaves it positive owes the PR that closes it.
+> Ledger = names required at the call site _after_ − names required _before_. It must end negative, and a PR that leaves it positive owes the PR that closes it.
 
-`bodyPolicy` removed `notionError` and `onError` and added one field to an options object already being passed: negative, and finished. A replacement door shipped *alongside* the functions it replaces is positive — two doors where there was one — and stays a regression until the old door is gone. So:
+`bodyPolicy` removed `notionError` and `onError` and added one field to an options object already being passed: negative, and finished. A replacement door shipped _alongside_ the functions it replaces is positive — two doors where there was one — and stays a regression until the old door is gone. So:
 
 - **An incremental cutover starts a debt clock.** That is a legitimate way to land a large change, but the PR that opens the clock names the closing PR, and the superseded path is marked (internal, deprecated, or explicitly "callers are being migrated") so the next reader knows which door is the door. Closed example in this tree: **#551** moved tool modules behind `ctx.integrations`, removed the tool-layer Google credential resolver, and left credential primitives reachable only to the integration-owned and background paths that still own them. A cutover with no named closer is just two doors.
-- Two doors is worse than one bad door: the naive call site now has to *choose*, and a reviewer has to know which choice is current. Required knowledge went up.
+- Two doors is worse than one bad door: the naive call site now has to _choose_, and a reviewer has to know which choice is current. Required knowledge went up.
 
 ### The hazard rule
 
-A seam that reads as *just do the thing* is exactly where a hazard survives review, because the reviewer's eye now slides over the place the hazard used to be visible. So:
+A seam that reads as _just do the thing_ is exactly where a hazard survives review, because the reviewer's eye now slides over the place the hazard used to be visible. So:
 
 > When a shared seam absorbs a hazard — retry, redaction, auth, ordering, truncation — the hazard must be represented in the seam's **types**, not in its docstring.
 
@@ -245,12 +255,12 @@ Both halves of that were live in the transport seam and are worth keeping as the
 
 Two corollaries, both learned by getting them wrong first in the same transport seam:
 
-- **An absorbed hazard needs an OFF value, and the type has to hold it.** `retry?: RetryPolicy` read as "tune it if you like", but absence meant *retry with the built-in policy* — so every GitHub and Vercel read silently gained 3 attempts, "does this provider retry" became a property of which constructor a call site happened to use, and "no retry" was unrepresentable. `retry: RetryPolicy | "none"`, required at the bind, makes the choice visible where the client is built. The general form: when a seam's default answer to a hazard is *on*, an optional field is the wrong shape for it.
-- **Don't absorb a hazard the layer below already owns better.** A bind-scoped `once()` around a credential resolve looks like the same kind of win as memoizing client construction, but a memo with no expiry wrapped around a token that has one converts a cache into a *lifetime rule for the caller* — "a bind is request-scoped", stated in four docstrings and enforced by nothing, where holding one at module scope 401s forever. The provider's own expiry-aware cache already had the property; the seam's job was to not take it away.
+- **An absorbed hazard needs an OFF value, and the type has to hold it.** `retry?: RetryPolicy` read as "tune it if you like", but absence meant _retry with the built-in policy_ — so every GitHub and Vercel read silently gained 3 attempts, "does this provider retry" became a property of which constructor a call site happened to use, and "no retry" was unrepresentable. `retry: RetryPolicy | "none"`, required at the bind, makes the choice visible where the client is built. The general form: when a seam's default answer to a hazard is _on_, an optional field is the wrong shape for it.
+- **Don't absorb a hazard the layer below already owns better.** A bind-scoped `once()` around a credential resolve looks like the same kind of win as memoizing client construction, but a memo with no expiry wrapped around a token that has one converts a cache into a _lifetime rule for the caller_ — "a bind is request-scoped", stated in four docstrings and enforced by nothing, where holding one at module scope 401s forever. The provider's own expiry-aware cache already had the property; the seam's job was to not take it away.
 
 ### Not a seventh axis
 
-This is a different *measure*, not a new category. Each shape above lands on axes already listed: 1 is misplacement (the capability is far from its caller), 2 is conflation plus loose representation, 3 is loose representation, 4 is repetition. What is new is the metric — knowledge required to use the code correctly, rather than edits required to change it — and it is the metric that catches drift in code that is locally minimal, correct, and about to be copied a fifth time.
+This is a different _measure_, not a new category. Each shape above lands on axes already listed: 1 is misplacement (the capability is far from its caller), 2 is conflation plus loose representation, 3 is loose representation, 4 is repetition. What is new is the metric — knowledge required to use the code correctly, rather than edits required to change it — and it is the metric that catches drift in code that is locally minimal, correct, and about to be copied a fifth time.
 
 ---
 
@@ -289,13 +299,13 @@ Down ends with one of three conclusions: **closed within scope** (the explicitly
 
 "Nothing makes that coordination inevitable" is a gradient. When a restructure claims to hold N edits together, name **how**, because the mechanism decides whether the gap is actually closed:
 
-| Tier | Mechanism | Effect |
-| --- | --- | --- |
-| 1 | **Static enforcement** | Construction, types, lint, or boundary checks reject the wrong structure before runtime. |
-| 2 | **Runtime validation** | The wrong value can't enter or persist. |
-| 3 | **Centralized ownership** | One place owns the fact or operation — a source of truth. |
-| 4 | Tests | Divergence is *detected*, after it happens. |
-| 5 | Convention / documentation | Humans are *asked* not to diverge. |
+| Tier | Mechanism                  | Effect                                                                                   |
+| ---- | -------------------------- | ---------------------------------------------------------------------------------------- |
+| 1    | **Static enforcement**     | Construction, types, lint, or boundary checks reject the wrong structure before runtime. |
+| 2    | **Runtime validation**     | The wrong value can't enter or persist.                                                  |
+| 3    | **Centralized ownership**  | One place owns the fact or operation — a source of truth.                                |
+| 4    | Tests                      | Divergence is _detected_, after it happens.                                              |
+| 5    | Convention / documentation | Humans are _asked_ not to diverge.                                                       |
 
 **Only tiers 1–3 substantially close the structural gap.** Tests detect drift after the fact; convention merely requests that humans not introduce it. But the tiers are not interchangeable: static types cannot validate untrusted runtime data, and centralized ownership does not prevent bypass unless a boundary check also closes the other doors. Choose the earliest mechanism that can enforce the specific invariant, and compose mechanisms when the invariant crosses static, runtime, and ownership boundaries.
 
@@ -304,8 +314,8 @@ Grounded in this tree:
 - **Tier 1** — `satisfies Record<string, z.ZodDefault>` (a key without a default won't build); `LocalStorageValue<K>` derived from the schema so the type can't drift; the `const _exhaustive: never` switch guard; `check:web-boundaries` rejecting a forbidden import.
 - **Tier 2** — `setLocalStorageItem` `safeParse`-refuses an invalid value; boundary Zod parses on untrusted input.
 - **Tier 3** — the registry as the one catalog; `safeGet`/`safeSet`/`safeRemove` as the intended door to `window.localStorage`; `parseEmailAddress` as the single matcher.
-- **Tier 4** — `guards.test.ts` catches an `isRecord` regression, but doesn't *prevent* someone re-widening it.
-- **Tier 5** — "don't call `window.localStorage` outside `storage.ts`" is enforced by nothing but this sentence; it stays tier 5 until a check covers it. Contrast the sibling browser/server *import* rule, which was promoted out of tier 5 by `check:web-boundaries` (→ tier 1) — the upgrade move this whole ladder is asking for.
+- **Tier 4** — `guards.test.ts` catches an `isRecord` regression, but doesn't _prevent_ someone re-widening it.
+- **Tier 5** — "don't call `window.localStorage` outside `storage.ts`" is enforced by nothing but this sentence; it stays tier 5 until a check covers it. Contrast the sibling browser/server _import_ rule, which was promoted out of tier 5 by `check:web-boundaries` (→ tier 1) — the upgrade move this whole ladder is asking for.
 
 A cast (`as`) asks the compiler to trust a claim it did not prove. That makes it a useful axis-5 tell, though not automatically a defect: the review still has to find the owning boundary and determine whether validation or a derived type can replace the claim.
 
@@ -316,7 +326,7 @@ A cast (`as`) asks the compiler to trust a claim it did not prove. That makes it
 Subjective doesn't mean unrigorous. A structural proposal earns its place only if it clears three gates:
 
 - **A. Name the change it de-risks.** "This should be a registry" is taste. "Adding the 13th key touches 4 files and can silently forget a default; a registry makes it one file and the type forbids forgetting" is an argument. No named change → rejected as aesthetics.
-- **B. Clear the axis's anti-pattern.** State that the things genuinely share a *truth or invariant*, not merely syntax — name the domain changes under which they co-vary, or show that the seam is the domain's real joint. This is the guardrail that stops "find the hidden registry" from becoming its own checklist that manufactures speculative architecture.
+- **B. Clear the axis's anti-pattern.** State that the things genuinely share a _truth or invariant_, not merely syntax — name the domain changes under which they co-vary, or show that the seam is the domain's real joint. This is the guardrail that stops "find the hidden registry" from becoming its own checklist that manufactures speculative architecture.
 - **C. Name the enforcement mechanism and its remaining gap.** A registry held together by "please import from here" (tier 5) is weaker than one whose entries are statically checked (tier 1), but runtime input may still need validation (tier 2). Use the strongest applicable combination rather than assuming one tier replaces the others.
 - **D. Show the vocabulary ledger.** For a proposal justified by [required knowledge](#required-knowledge--measuring-comprehension-obstruction) rather than by coordinated edits, state which names a call site stops needing, which it starts needing, and — if the old path survives the PR — when it is deleted. A ledger that is not negative is an addition, not a simplification.
 
@@ -331,36 +341,41 @@ A down-finding has a parallel burden:
 
 ## Exemplars — structure so aligned the coordination is inevitable
 
-The rest of this document teaches drift *detection*: you find missing structure by measuring code against a better shape you infer. But the up-pass can only aim at a shape you have already internalized — you cannot recognize what's missing without a felt sense of present-and-right. This section reads one codebase widely held up as exemplary and extracts its transferable structural moves as the positive form of the six axes: not "where does structure drift" but "what does it look like when it doesn't."
+The rest of this document teaches drift _detection_: you find missing structure by measuring code against a better shape you infer. But the up-pass can only aim at a shape you have already internalized — you cannot recognize what's missing without a felt sense of present-and-right. This section reads one codebase widely held up as exemplary and extracts its transferable structural moves as the positive form of the six axes: not "where does structure drift" but "what does it look like when it doesn't."
 
-The codebase is Andre Weissflog's [`floooh/chips`](https://github.com/floooh/chips) — a collection of dependency-free 8-bit chip and computer emulators, each a single C header. Salvatore Sanfilippo (creator of Redis) named it as the kind of *"poetry-code that I would frame in my wall."* The language is C and the domain is silicon; every move below is language- and domain-agnostic. Each names the axes it nails, the enforcement tier that makes it hold, and a change a reviewer of *this* repo could actually ask for.
+The codebase is Andre Weissflog's [`floooh/chips`](https://github.com/floooh/chips) — a collection of dependency-free 8-bit chip and computer emulators, each a single C header. Salvatore Sanfilippo (creator of Redis) named it as the kind of _"poetry-code that I would frame in my wall."_ The language is C and the domain is silicon; every move below is language- and domain-agnostic. Each names the axes it nails, the enforcement tier that makes it hold, and a change a reviewer of _this_ repo could actually ask for.
 
-**1. One protocol, many implementations** — *cut the interface at the domain's real bus.*
+**1. One protocol, many implementations** — _cut the interface at the domain's real bus._
+
 - What it is: every chip — from a ~120-line beeper to the ~138 KB Z80 — exposes the identical shape: `<chip>_init`, `<chip>_reset`, and `<chip>_tick(state, pins) → pins`, where `pins` is a single `uint64_t` carrying the entire bus (address, data, and control lines packed into 40 bits). A whole computer is then "just wiring": the system tick threads one chip's output pins into the next chip's input, exactly as they'd be soldered on a board.
-- Why it holds: axes **3 + 1**. The seam is cut where the domain is already jointed — the physical bus — so there is no per-chip glue to keep consistent. Enforcement **tier 1**: the shared signature *is* the contract; a component that doesn't fit the tick shape can't be wired in at all.
+- Why it holds: axes **3 + 1**. The seam is cut where the domain is already jointed — the physical bus — so there is no per-chip glue to keep consistent. Enforcement **tier 1**: the shared signature _is_ the contract; a component that doesn't fit the tick shape can't be wired in at all.
 - Translate: measure each integration and tool against one dispatch contract — `(input) → result` — rather than N bespoke handler shapes. When the next integration needs its own calling convention, that is the tell the seam isn't at the joint. (Alfred already leans this way: tools are normalized to one dispatch shape at the boundary, with dotted names mapped `.`↔`__` so the surface stays uniform.)
 
-**2. State is a value; save, load, and replay fall out for free** — *represent the whole machine so nothing can escape serialization.*
+**2. State is a value; save, load, and replay fall out for free** — _represent the whole machine so nothing can escape serialization._
+
 - What it is: the entire emulator state is a plain struct with no owned heap graph. A snapshot is `*dst = *src` plus a few `_snapshot_onsave/onload` hooks that zero-and-repatch the handful of live pointers (callbacks), guarded by a single version integer that refuses a mismatched layout on load.
 - Why it holds: axes **5 + source/derivation**. The representation admits no un-snapshottable state, so "forgot to serialize field X" is unrepresentable rather than a bug you test for. Enforcement **tier 1** (plain-value-ness) composed with **tier 2** (the version guard rejects an incompatible load instead of corrupting).
 - Translate: this is the event-sourced observation log (ADR-0067) taken to its conclusion — the log is the value; facts are projections rebuilt from it. In review, flag any state that can only be reconstructed by re-running side effects, and any projection that cannot be replayed from its source. The version integer is the migration-version discipline.
 
-**3. Generate the co-varying bulk from a spec that reads like the domain** — *when N cases move together, make the table the artifact and the code its projection.*
-- What it is: the Z80's ~1,700-step instruction decoder — the most error-prone code in the project — is not hand-written. It is generated from `z80_desc.yml`, where each opcode is described in the domain's own vocabulary (machine cycles — `mread`/`mwrite`/`overlapped` — keyed by the standard opcode bit-field decomposition). The generated switch is injected back between `<% … %>` markers in the *same* header, so it regenerates idempotently and cannot be hand-edited into drift.
+**3. Generate the co-varying bulk from a spec that reads like the domain** — _when N cases move together, make the table the artifact and the code its projection._
+
+- What it is: the Z80's ~1,700-step instruction decoder — the most error-prone code in the project — is not hand-written. It is generated from `z80_desc.yml`, where each opcode is described in the domain's own vocabulary (machine cycles — `mread`/`mwrite`/`overlapped` — keyed by the standard opcode bit-field decomposition). The generated switch is injected back between `<% … %>` markers in the _same_ header, so it regenerates idempotently and cannot be hand-edited into drift.
 - Why it holds: axes **1 + 6**. Hundreds of near-identical branches collapse to one declarative table, and the decode structure the hardware already defines is reused rather than re-derived per opcode. Enforcement **tier 1/3**: the spec is the single source of truth and the generator owns the marker region.
 - Translate: this is the repo invariant "derive source-of-truth shapes" (`$inferInsert`, `z.infer`, contract-first generation) at full strength. The up-question for any table-shaped domain — tool catalog, per-model capability map, fact ontology — is whether one table generates the code, or whether the table lives implicitly and fragilely across N hand-written branches.
 
-**4. Stable primitives are ignorant of their compositions** — *volatile depends on stable, never the reverse.*
+**4. Stable primitives are ignorant of their compositions** — _volatile depends on stable, never the reverse._
+
 - What it is: a chip header knows nothing about any computer that uses it; the system header composes chips. Shared substrate helpers (`mem.h` page-mapping, `kbd.h` matrix, `clk.h`) sit at the bottom, depended on by both and depending on neither. Dependencies point one way: system → chip → substrate.
 - Why it holds: axis **4** in its positive form — the doc's negative example is the `contracts → api` cycle its boundary lint guards against; this is the same law satisfied rather than violated. Enforcement **tier 1** wherever a boundary check exists (`check:web-boundaries` is Alfred's slice of it).
 - Translate: `@alfred/contracts` and `@alfred/sync` are the stable primitives; feature code composes them and never the reverse. A stable or shared module importing an app-specific one is the reviewable violation — and a candidate for promoting the rule from convention (tier 5) to lint (tier 1).
 
-**5. The source carries its own schematic — and names its shortcuts** — *don't make the reviewer reverse-engineer the map you already hold.*
-- What it is: z80.h opens with an ASCII pin diagram and a progressive HOWTO (bare CPU → add memory → add I/O → add interrupts); the C64 tick annotates every port connection in prose; c64.h embeds the emulator's test-suite results and marks each known failure with why it's tolerable (`cia1ta: FAIL (OK, CIA sysclock not implemented)`). The README states up front where the emulation is deliberately impure (callbacks instead of pins, shortcut address decoding — "with one exception: the lc80 emulator"), and a large decoder refactor is logged as "no behaviour changes."
-- Why it holds: this is the antidote to the third, earliest-biting revealer — *comprehension obstruction*. The map doesn't lie because the author drew it, and the honest shortcut list tells the reviewer which boundaries are real and which are pragmatic. Enforcement **tier 5** (convention), but load-bearing: the up-pass's most expensive work is recovering the domain map, so a codebase that front-loads it is one a reviewer can actually look *up* from.
-- Translate: an ADR or header comment that states the invariant, the deliberate shortcut, and the *residual risk* has done the down-pass's bookkeeping in advance. `FAIL (OK, …)` is literally a down-conclusion of *unproven — here is the accepted residual risk*; decisions.md's rejected options (AI Gateway, Cloudflare) do the same job for architecture, pre-empting re-litigation.
+**5. The source carries its own schematic — and names its shortcuts** — _don't make the reviewer reverse-engineer the map you already hold._
 
-> The through-line: in every case the code's structure is a faithful image of the domain's structure — a chip is a struct, a bus is an integer, a computer is a wiring function, the opcode table is a table. When the map is that faithful, one domain change lands in one place *because there is nowhere else it could go*. That is the north star the up-pass triangulates toward, and the standard the forcing function below is measured against.
+- What it is: z80.h opens with an ASCII pin diagram and a progressive HOWTO (bare CPU → add memory → add I/O → add interrupts); the C64 tick annotates every port connection in prose; c64.h embeds the emulator's test-suite results and marks each known failure with why it's tolerable (`cia1ta: FAIL (OK, CIA sysclock not implemented)`). The README states up front where the emulation is deliberately impure (callbacks instead of pins, shortcut address decoding — "with one exception: the lc80 emulator"), and a large decoder refactor is logged as "no behaviour changes."
+- Why it holds: this is the antidote to the third, earliest-biting revealer — _comprehension obstruction_. The map doesn't lie because the author drew it, and the honest shortcut list tells the reviewer which boundaries are real and which are pragmatic. Enforcement **tier 5** (convention), but load-bearing: the up-pass's most expensive work is recovering the domain map, so a codebase that front-loads it is one a reviewer can actually look _up_ from.
+- Translate: an ADR or header comment that states the invariant, the deliberate shortcut, and the _residual risk_ has done the down-pass's bookkeeping in advance. `FAIL (OK, …)` is literally a down-conclusion of _unproven — here is the accepted residual risk_; decisions.md's rejected options (AI Gateway, Cloudflare) do the same job for architecture, pre-empting re-litigation.
+
+> The through-line: in every case the code's structure is a faithful image of the domain's structure — a chip is a struct, a bus is an integer, a computer is a wiring function, the opcode table is a table. When the map is that faithful, one domain change lands in one place _because there is nowhere else it could go_. That is the north star the up-pass triangulates toward, and the standard the forcing function below is measured against.
 
 ---
 
@@ -388,6 +403,6 @@ Silence is not evidence of clean structure or closed behavior; it is usually evi
 8. **Loop:** if several down-findings share a cause, look up for the missing mechanism; if an up-proposal emerges, prove it down again.
 9. **Report:** give the required up-observation and each selected claim's closed-within-scope / broken / unproven conclusion.
 
-> The bounded surface checklist is [code-style.md](./code-style.md). The incident that motivated invariant closure is captured in `.lessons/refresh-pr-head-before-final-review.md`. The *why* behind the architecture these methods protect is [decisions.md](../../decisions.md).
+> The bounded surface checklist is [code-style.md](./code-style.md). The incident that motivated invariant closure is captured in `.lessons/refresh-pr-head-before-final-review.md`. The _why_ behind the architecture these methods protect is [decisions.md](../../decisions.md).
 
 The vocabulary is grounded in the [DDD reference](https://www.domainlanguage.com/ddd/reference/) for identity, authority, aggregates, and bounded contexts; [Parnas's decomposition criterion](https://dl.acm.org/doi/10.1145/361598.361623) for change-oriented boundaries; [Parse, Don't Validate](https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/) for representation at trust boundaries; [safety and liveness](https://www.cs.cornell.edu/fbs/publications/DefLiveness.pdf), [Lamport's causal ordering](https://lamport.azurewebsites.net/pubs/time-clocks.pdf), and [transaction limits](https://www.vldb.org/conf/1981/P144.PDF) for down-proof; and [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#name-idempotent-methods) for precise retry semantics. These are sources for questions, not architectures to impose. A worked positive exemplar of these methods — code whose structure is a faithful image of its domain — is Andre Weissflog's [`floooh/chips`](https://github.com/floooh/chips), read in the [Exemplars](#exemplars--structure-so-aligned-the-coordination-is-inevitable) section above.

@@ -1,6 +1,5 @@
 # ADR-0015 — Cost / token metering
 
-
 **Decision.** Every billable external call (LLM, embedding, web search, transcription, tool-API) flows through a single `metered<T>(meta, () => Promise<T>): Promise<T>` helper. The helper writes a row to a flat `api_call_log` and computes `cost_usd` from a DB-backed `model_prices` table at write-time (snapshot, not recomputed retroactively). Aggregates (`cost_per_message`, `cost_per_run`, `cost_per_day`, `cost_per_skill`) come from materialized views or scheduled rollups, not pre-aggregated counters.
 
 **Schema sketch.**

@@ -1,6 +1,5 @@
 # ADR-0020 — Notifications: email only at v1
 
-
 **Decision.** External notifications go through email only (Resend). Morning briefing _is_ an email — the medium, not just an alert about it. Push, Slack DM, SMS, and other channels are deferred to a future ADR; the data shape leaves them open.
 
 **In-app realtime alerts** ("alfred learned X", "approval pending") are handled by the existing realtime stack (SSE + Replicache poke + ephemeral toast events) — these don't need email. External delivery only happens for things the user wants pushed _to_ them when not actively using alfred (briefings, urgent approvals, summary digests).

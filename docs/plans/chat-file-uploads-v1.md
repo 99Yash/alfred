@@ -33,14 +33,14 @@ Routing is unsound because **file-parts persist in a thread's transcript**: once
 
 Reuses what's already in the tree (`@alfred/ai` `transcribeAudio()` → OpenAI `gpt-4o-mini-transcribe`, `transcription.ts:25`) plus ffmpeg:
 
-| Upload kind                | Degrade                                                                                        |
-| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| Upload kind                | Degrade                                                                                                                            |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | image (jpeg/png/webp/heic) | **pass-through** → image part; background Gemini enrichment writes reusable OCR + visual description before long-thread compaction |
-| audio (mp3/wav/m4a/opus/…) | `transcribeAudio(bytes)` → transcript text                                                     |
-| video (mp4/webm/mov/…)     | ffmpeg audio transcript + keyframes as deterministic evidence; enrichment may also use a registry-confirmed video-capable model |
-| pdf                        | text extraction → text (page-image render **deferred**; scanned/OCR likely `reject` for v1)    |
-| docx / xlsx / code         | text extraction → text (dimension's `mammoth`/xlsx pattern)                                    |
-| anything else              | **reject** at the boundary with a clear message                                                |
+| audio (mp3/wav/m4a/opus/…) | `transcribeAudio(bytes)` → transcript text                                                                                         |
+| video (mp4/webm/mov/…)     | ffmpeg audio transcript + keyframes as deterministic evidence; enrichment may also use a registry-confirmed video-capable model    |
+| pdf                        | text extraction → text (page-image render **deferred**; scanned/OCR likely `reject` for v1)                                        |
+| docx / xlsx / code         | text extraction → text (dimension's `mammoth`/xlsx pattern)                                                                        |
+| anything else              | **reject** at the boundary with a clear message                                                                                    |
 
 ## Storage — files-sdk → Railway buckets, deletion by prefix
 

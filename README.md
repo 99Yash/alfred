@@ -9,21 +9,21 @@ Architecture decisions are documented exhaustively in [`decisions.md`](./decisio
 
 ## Stack
 
-| Layer         | Choice                                                         |
-| ------------- | -------------------------------------------------------------- |
-| Monorepo      | pnpm + Turborepo                                               |
-| Server        | Elysia (Node) + Eden typed client                              |
-| Web           | Vite + TanStack Router (SPA)                                   |
-| Database      | Postgres + pgvector (Railway)                                  |
-| Cache / Queue | Redis — BullMQ + Pub/Sub (Railway)                             |
-| Sync          | Replicache (multi-device)                                      |
-| Realtime      | Postgres outbox → Redis Pub/Sub → SSE                          |
-| Auth          | Better Auth — Google OAuth + one-email allowlist               |
-| AI            | Vercel AI SDK — Anthropic primary, Google fallback             |
-| Embeddings    | Voyage (`voyage-3.5`, 1024 dim, HNSW)                          |
-| Web search    | Grounded Gemini 2.5 Flash via Google Search grounding          |
-| Email         | Resend transactional email                                     |
-| Hosting       | Railway                                                        |
+| Layer         | Choice                                                |
+| ------------- | ----------------------------------------------------- |
+| Monorepo      | pnpm + Turborepo                                      |
+| Server        | Elysia (Node) + Eden typed client                     |
+| Web           | Vite + TanStack Router (SPA)                          |
+| Database      | Postgres + pgvector (Railway)                         |
+| Cache / Queue | Redis — BullMQ + Pub/Sub (Railway)                    |
+| Sync          | Replicache (multi-device)                             |
+| Realtime      | Postgres outbox → Redis Pub/Sub → SSE                 |
+| Auth          | Better Auth — Google OAuth + one-email allowlist      |
+| AI            | Vercel AI SDK — Anthropic primary, Google fallback    |
+| Embeddings    | Voyage (`voyage-3.5`, 1024 dim, HNSW)                 |
+| Web search    | Grounded Gemini 2.5 Flash via Google Search grounding |
+| Email         | Resend transactional email                            |
+| Hosting       | Railway                                               |
 
 ## Local setup
 
@@ -58,27 +58,27 @@ Server vars live in `apps/server/.env`; browser-safe Vite vars live in `apps/web
 
 Required server keys:
 
-| Var                              | Purpose                                      |
-| -------------------------------- | -------------------------------------------- |
-| `DATABASE_URL`                   | Postgres connection string                   |
-| `REDIS_URL`                      | Redis connection string                      |
-| `BETTER_AUTH_SECRET`             | >=32-char random string                      |
-| `BETTER_AUTH_URL`                | Server base URL                              |
-| `ALFRED_ALLOWED_EMAIL`           | Comma-separated emails allowed to sign up    |
-| `RESEND_API_KEY`                 | Transactional email                          |
-| `RESEND_FROM_EMAIL`              | Sender address                               |
-| `ANTHROPIC_API_KEY`              | Primary LLM                                  |
-| `GOOGLE_GENERATIVE_AI_API_KEY`   | Fallback/cheap LLM + live web search         |
-| `GOOGLE_OAUTH_CLIENT_ID`         | Google sign-in + Workspace integration OAuth |
-| `GOOGLE_OAUTH_CLIENT_SECRET`     | Google sign-in + Workspace integration OAuth |
-| `GOOGLE_OAUTH_REDIRECT_URI`      | Workspace integration callback URL           |
-| `GITHUB_APP_ID`                  | GitHub App installation-token flow           |
-| `GITHUB_APP_SLUG`                | GitHub App install URL                       |
-| `GITHUB_APP_CLIENT_ID`           | GitHub App user-to-server OAuth              |
-| `GITHUB_APP_CLIENT_SECRET`       | GitHub App user-to-server OAuth              |
-| `GITHUB_APP_PRIVATE_KEY`         | GitHub App JWT signing key                   |
-| `GITHUB_WEBHOOK_SECRET`          | GitHub webhook HMAC verification             |
-| `GITHUB_APP_REDIRECT_URI`        | GitHub App callback URL                      |
+| Var                            | Purpose                                      |
+| ------------------------------ | -------------------------------------------- |
+| `DATABASE_URL`                 | Postgres connection string                   |
+| `REDIS_URL`                    | Redis connection string                      |
+| `BETTER_AUTH_SECRET`           | >=32-char random string                      |
+| `BETTER_AUTH_URL`              | Server base URL                              |
+| `ALFRED_ALLOWED_EMAIL`         | Comma-separated emails allowed to sign up    |
+| `RESEND_API_KEY`               | Transactional email                          |
+| `RESEND_FROM_EMAIL`            | Sender address                               |
+| `ANTHROPIC_API_KEY`            | Primary LLM                                  |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Fallback/cheap LLM + live web search         |
+| `GOOGLE_OAUTH_CLIENT_ID`       | Google sign-in + Workspace integration OAuth |
+| `GOOGLE_OAUTH_CLIENT_SECRET`   | Google sign-in + Workspace integration OAuth |
+| `GOOGLE_OAUTH_REDIRECT_URI`    | Workspace integration callback URL           |
+| `GITHUB_APP_ID`                | GitHub App installation-token flow           |
+| `GITHUB_APP_SLUG`              | GitHub App install URL                       |
+| `GITHUB_APP_CLIENT_ID`         | GitHub App user-to-server OAuth              |
+| `GITHUB_APP_CLIENT_SECRET`     | GitHub App user-to-server OAuth              |
+| `GITHUB_APP_PRIVATE_KEY`       | GitHub App JWT signing key                   |
+| `GITHUB_WEBHOOK_SECRET`        | GitHub webhook HMAC verification             |
+| `GITHUB_APP_REDIRECT_URI`      | GitHub App callback URL                      |
 
 Feature-gated or optional locally: `OPENAI_API_KEY`, `VOYAGE_API_KEY` (embeddings), `PERPLEXITY_API_KEY` (legacy/research smokes), `GOOGLE_PUBSUB_*` (Gmail push), `NOTION_*`, `VERCEL_*`, `CHAT_S3_*`, `ENTITY_ID_NAMESPACE`, and observability keys (`SENTRY_DSN`, `LANGFUSE_*`, `POSTHOG_API_KEY`, `VITE_SENTRY_DSN`, `VITE_POSTHOG_*`).
 

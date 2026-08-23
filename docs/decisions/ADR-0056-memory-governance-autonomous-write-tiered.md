@@ -1,6 +1,5 @@
 # ADR-0056 — Memory governance: autonomous-write + tiered notification + always-reversible; supersedes ADR-0019's confidence-gated HIL
 
-
 **Decision.** Alfred mutates its own long-term memory **autonomously, via tool calls**, and stays trustworthy through **transparency + reversibility**, not pre-write gating. This replaces ADR-0019's posture (sub-0.85 facts blocked as `proposed` awaiting explicit accept). **Confidence stops gating the _write_ and starts gating the _notification cadence_ and the review _label_.** The boss/extractor writes; the user is **told** (tiered) and can **correct anytime**; the correction is simultaneously the authoritative contradiction signal (Loop 1) and a learning signal (Loop 2). The storage substrate (ADR-0019's `user_facts` status machine + `supersedes_id` chains + `rejected_inferences`, `entities`/`entity_relations`, `memory_chunks`, `style_profiles`) is **adopted as-is** — this ADR changes the _governance_, not the schema (modulo two additive columns).
 
 **Knowledge taxonomy (the organizing spine).** Memory is reasoned about by _knowledge-kind_, not by table; each kind has its own capture source and lifecycle:
