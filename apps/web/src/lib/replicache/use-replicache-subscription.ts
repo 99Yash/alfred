@@ -55,9 +55,9 @@ export function useReplicacheSubscription<T, U>(
       if (select) {
         setSnapshot({ rep, value: select(data) });
       } else {
-        // Overload 1 guarantees U = T when select is absent, so this
-        // narrowed write is sound; the cast stays isolated to this branch.
-        setSnapshot({ rep, value: data as unknown as U });
+        // Overload 1 guarantees U = T when select is absent, so writing T
+        // into T | U is sound with no cast.
+        setSnapshot({ rep, value: data });
       }
     });
 
