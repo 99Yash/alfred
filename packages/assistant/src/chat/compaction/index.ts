@@ -23,12 +23,12 @@ export {
   selectVerbatimTail,
   type ChatContextMessage,
 } from "./chat-context-assembly";
+export { assessChatRequestPressure, estimateChatRequestTokens } from "./chat-request-pressure";
 export {
-  assessChatRequestPressure,
-  estimateChatRequestTokens,
   CHAT_HYDRATED_IMAGE_TOKENS,
   CHAT_MAX_OUTPUT_TOKENS,
-} from "./chat-request-pressure";
+  CHAT_SYNC_COMPACTION_RATIO,
+} from "./constants";
 export {
   chooseConversationSummaryModel,
   eligibleConversationSummarySources,

@@ -22,7 +22,7 @@ import {
   persistConversationReplayEstimate,
   type ChatSummaryWatermark,
 } from "./chat-context-store";
-import { CHAT_MAX_OUTPUT_TOKENS } from "./chat-request-pressure";
+import { CHAT_MAX_OUTPUT_TOKENS } from "./constants";
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
 
 export const BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS = 200_000;

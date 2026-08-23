@@ -1,8 +1,7 @@
 import { getContentFormat, type ContentFormat } from "@alfred/contracts";
+import { DOOR_LIMITS, type ExtractionDoor } from "./constants";
 import {
-  DOOR_LIMITS,
   FORMAT_REGISTRY,
-  type ExtractionDoor,
   type MediaExtractionResult,
   type MediaExtractor,
 } from "./media-extraction";
