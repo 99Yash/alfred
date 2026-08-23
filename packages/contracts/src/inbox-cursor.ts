@@ -12,9 +12,10 @@
  * `cursor-pagination`. A future list that needs paging should add its own
  * codec that matches its own ORDER BY, not reuse this separator.
  *
- * The Drizzle `WHERE` that mirrors this cursor's ORDER BY lives in
- * `@alfred/http` (`src/inbox-cursor.ts`) because it imports
- * `drizzle-orm` and `@alfred/db/schemas` and is not browser-safe.
+ * The Drizzle `WHERE` that mirrors this cursor's ORDER BY lives inline
+ * in `packages/http/src/me.ts` (next to its `ORDER BY`) because it
+ * imports `drizzle-orm` and `@alfred/db/schemas` and is not browser-safe.
+ * It is inbox-specific and used once — no separate `pagination.ts`.
  */
 
 export const INBOX_CURSOR_SEPARATOR = "|";
