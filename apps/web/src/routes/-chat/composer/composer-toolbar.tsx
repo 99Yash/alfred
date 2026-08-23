@@ -2,7 +2,8 @@ import { ArrowUp, AtSign, Check, Loader2, Mic, Paperclip, Square, X } from "luci
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 import { ApprovalModePicker } from "../approval-mode-picker";
-import { ModelTierPicker, type ChatTier } from "../model-tier-picker";
+import { ModelTierPicker } from "../model-tier-picker";
+import type { ChatModelTier } from "@alfred/contracts";
 import { useMicRecording } from "../mic-recording";
 import { Tip } from "../tip";
 
@@ -42,8 +43,8 @@ export function ComposerToolbar({
   autoApprove?: boolean | undefined;
   autoApprovePending?: boolean | undefined;
   onToggleAutoApprove?: (() => void) | undefined;
-  tier: ChatTier;
-  onTierChange: (tier: ChatTier) => void;
+  tier: ChatModelTier;
+  onTierChange: (tier: ChatModelTier) => void;
 }) {
   const statusMessage = voiceError ?? mic.error;
   return (

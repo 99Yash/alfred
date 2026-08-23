@@ -1,6 +1,5 @@
+import type { ChatAttachmentDescriptor } from "@alfred/contracts";
 import type { ChatAttachment, NewChatAttachment } from "@alfred/db/schemas";
-
-import type { AttachmentInput } from "./attachments";
 
 /**
  * The pure half of turn admission: does the attachment set a client just resent
@@ -13,7 +12,6 @@ import type { AttachmentInput } from "./attachments";
  * without a service.
  */
 
-export type AttachmentInsertRow = NewChatAttachment;
 export type ExistingAttachmentSummary = Pick<
   ChatAttachment,
   "id" | "name" | "mime" | "size" | "position"
@@ -23,11 +21,13 @@ export type RetryAttachmentSource = Pick<
   "id" | "storageKey" | "name" | "mime" | "size" | "degradedText"
 >;
 /**
- * The turn path's view of a fresh attachment: `AttachmentInput`, but with
+ * The turn path's view of a fresh attachment: `ChatAttachmentDescriptor`, but with
  * `position` optional because this path derives it (`?? index`) rather than
  * writing the client's value straight to the row.
  */
-export type FreshAttachmentDescriptor = Omit<AttachmentInput, "position"> & { position?: number };
+export type FreshAttachmentDescriptor = Omit<ChatAttachmentDescriptor, "position"> & {
+  position?: number;
+};
 
 export function freshAttachmentRowsMatchSubset(
   inputs: readonly FreshAttachmentDescriptor[],
@@ -80,7 +80,7 @@ export function attachmentRequestMatchesExistingRows(args: {
 }
 
 export function sameInsertedAttachmentRows(
-  expected: readonly AttachmentInsertRow[],
+  expected: readonly NewChatAttachment[],
   rows: readonly ExistingAttachmentSummary[],
 ): boolean {
   if (expected.length !== rows.length) return false;

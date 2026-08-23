@@ -1,9 +1,10 @@
 import { notes } from "@alfred/db/schemas";
 import type { NoteCreateArgs } from "@alfred/sync";
-import type { DbTx, ServerMutatorCtx } from "./mutator";
+import type { DbTransaction } from "@alfred/db";
+import type { ServerMutatorCtx } from "./mutator";
 
 export async function noteCreate(
-  tx: DbTx,
+  tx: DbTransaction,
   args: NoteCreateArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {

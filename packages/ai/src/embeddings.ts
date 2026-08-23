@@ -1,6 +1,19 @@
 import { httpErrorFromResponse } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import {
+  BATCH_CHARS_PER_TOKEN,
+  EMBEDDING_DIMENSIONS,
+  VOYAGE_INPUT_PRICE_PER_MTOK_USD_DEFAULT,
+  VOYAGE_MAX_BATCH_INPUTS,
+  VOYAGE_MAX_BATCH_TOKENS,
+} from "./constants";
 import { metered } from "./metering/metered";
+
+export {
+  EMBEDDING_DIMENSIONS,
+  VOYAGE_MAX_BATCH_INPUTS,
+  VOYAGE_MAX_BATCH_TOKENS,
+} from "./constants";
 import type { CallAttribution } from "./metering/types";
 
 /**
@@ -18,37 +31,10 @@ import type { CallAttribution } from "./metering/types";
  * needs.
  */
 
-export const EMBEDDING_DIMENSIONS = 1024;
-
-/**
- * Voyage input price per million tokens — the fallback when
- * `VOYAGE_INPUT_PRICE_PER_MTOK_USD` is unset. Vendor pricing drifts; the env
- * var owns the live value and this default only seeds fresh deployments.
- */
-const VOYAGE_INPUT_PRICE_PER_MTOK_USD_DEFAULT = 0.06;
-
 /** Single owner for the price the embed cost-cap math derives its budget from. */
 export function voyageInputPricePerMtokUsd(): number {
   return serverEnv().VOYAGE_INPUT_PRICE_PER_MTOK_USD ?? VOYAGE_INPUT_PRICE_PER_MTOK_USD_DEFAULT;
 }
-
-/**
- * Voyage per-request batch limits: at most 1000 inputs and 120k total
- * tokens in one call. `embedMany` chunks callers above this into
- * multiple requests and merges the vectors.
- */
-export const VOYAGE_MAX_BATCH_INPUTS = 1000;
-export const VOYAGE_MAX_BATCH_TOKENS = 120_000;
-
-/**
- * Character-based token estimate for batch sizing — the same 4 chars/token
- * heuristic the corpus chunker uses. The chunker cannot be imported here
- * (`@alfred/corpus` depends on `@alfred/ai`, not the reverse), so the
- * constant is mirrored; a drift only shifts where batch boundaries land,
- * never correctness, because Voyage's usage response stays authoritative
- * for metering.
- */
-const BATCH_CHARS_PER_TOKEN = 4;
 
 const VOYAGE_API_BASE = "https://api.voyageai.com/v1/embeddings";
 const VOYAGE_DEFAULT_MODEL = "voyage-3.5";

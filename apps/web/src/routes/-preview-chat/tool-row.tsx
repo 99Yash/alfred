@@ -2,7 +2,7 @@ import { CheckCircle2, type LucideIcon } from "lucide-react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { APP_TINTS } from "~/lib/tints";
-import { type RailToolTone } from "~/routes/-chat/rail/models";
+import type { AppTint } from "~/lib/tints";
 
 /**
  * One step in a `RunGroup` — a tool/integration call, search, or write.
@@ -19,7 +19,7 @@ type ToolRowProps =
   | {
       integration: IntegrationBrand;
       icon?: LucideIcon | undefined;
-      tone?: RailToolTone | undefined;
+      tone?: AppTint | undefined;
       label: string;
       detail?: string | undefined;
       count?: string | undefined;
@@ -28,7 +28,7 @@ type ToolRowProps =
   | {
       integration?: undefined | undefined;
       icon: LucideIcon;
-      tone: RailToolTone;
+      tone: AppTint;
       label: string;
       detail?: string | undefined;
       count?: string | undefined;

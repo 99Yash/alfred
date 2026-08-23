@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { APP_TINTS } from "~/lib/tints";
-import { type RailToolTone } from "~/routes/-chat/rail/models";
+import type { AppTint } from "~/lib/tints";
 
 /**
  * `sources` footer under an assistant turn. Each pill is either an integration
@@ -15,12 +15,12 @@ type SourceItem =
       label: string;
       count: number;
       icon?: LucideIcon | undefined;
-      tone?: RailToolTone | undefined;
+      tone?: AppTint | undefined;
     }
   | {
       integration?: undefined | undefined;
       icon: LucideIcon;
-      tone: RailToolTone;
+      tone: AppTint;
       label: string;
       count: number;
     };

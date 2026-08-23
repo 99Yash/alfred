@@ -7,7 +7,7 @@ import {
 } from "@alfred/db/schemas";
 import { syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
-import { SerializationError, toEntityRow, type DbTx, type EntityFetcher } from "./entity-row";
+import { SerializationError, toEntityRow, type EntityFetcher } from "./entity-row";
 import { toIso, toRequiredIso } from "./iso-date";
 
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -79,7 +79,8 @@ interface RecentRejection {
 }
 
 async function loadRecentRejectionsByTool(
-  tx: DbTx,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: any,
   userId: string,
   pendingRows: Array<{ staging: ActionStaging }>,
 ): Promise<Map<string, RecentRejection>> {

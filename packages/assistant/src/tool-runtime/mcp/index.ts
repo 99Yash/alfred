@@ -41,5 +41,5 @@ export {
   type OwnedMcpConnectionRef,
   type ReconcileSummary,
 } from "./invocations";
-export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier, type McpCallRiskInput } from "./risk";
+export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "./risk";
 export { getMcpExecutionBroker } from "./runtime";

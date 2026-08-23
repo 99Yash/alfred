@@ -37,7 +37,8 @@ import {
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import { upsertEntity, upsertPersonByAlias, linkEntities, type DbExecutor } from "./entity-graph";
+import { upsertEntity, upsertPersonByAlias, linkEntities } from "./entity-graph";
+import type { DbTransaction } from "@alfred/db";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
 import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
 
@@ -196,7 +197,7 @@ async function persistContacts(
   userId: string,
   contacts: Map<string, ContactAggregate>,
   mode: "merge" | "overwrite",
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<ApplyIncrementsResult> {
   if (contacts.size === 0) return { contacts: 0, organizations: 0, relations: 0 };
 
@@ -279,7 +280,7 @@ async function persistContacts(
 export async function applyCorrespondenceIncrements(
   userId: string,
   contacts: Map<string, ContactAggregate>,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<ApplyIncrementsResult> {
   return persistContacts(userId, contacts, "merge", tx);
 }

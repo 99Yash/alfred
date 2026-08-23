@@ -9,7 +9,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, type EdenData } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
-import type { RailInboxItem, RailToolTone } from "~/routes/-chat/rail/models";
+import type { AppTint } from "~/lib/tints";
+import type { RailInboxItem } from "~/routes/-chat/rail/models";
 
 export interface InboxPage {
   items: ReadonlyArray<RailInboxItem>;
@@ -270,16 +271,9 @@ function initialFor(name: string): string {
   return first || "?";
 }
 
-const TONE_PALETTE: ReadonlyArray<RailToolTone> = [
-  "purple",
-  "sky",
-  "amber",
-  "green",
-  "pink",
-  "orange",
-];
+const TONE_PALETTE: ReadonlyArray<AppTint> = ["purple", "sky", "amber", "green", "pink", "orange"];
 
-function toneFor(name: string): RailToolTone {
+function toneFor(name: string): AppTint {
   if (!name) return "purple";
   let hash = 5381;
   for (let i = 0; i < name.length; i++) {

@@ -3,7 +3,8 @@ import type { IntegrationRules } from "@alfred/contracts";
 import { userActionPolicies } from "@alfred/db/schemas";
 import type { PolicySetDefaultModeArgs, PolicySetIntegrationModeArgs } from "@alfred/sync";
 import { sql } from "drizzle-orm";
-import type { DbTx, ServerMutatorCtx } from "./mutator";
+import type { DbTransaction } from "@alfred/db";
+import type { ServerMutatorCtx } from "./mutator";
 
 /**
  * Baseline rules for a row that doesn't exist yet (legacy user predating the
@@ -18,7 +19,7 @@ const DEFAULT_INTEGRATION_RULES: IntegrationRules = {
 };
 
 export async function policySetIntegrationMode(
-  tx: DbTx,
+  tx: DbTransaction,
   args: PolicySetIntegrationModeArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -65,7 +66,7 @@ export async function policySetIntegrationMode(
  * tool call without a restart.
  */
 export async function policySetDefaultMode(
-  tx: DbTx,
+  tx: DbTransaction,
   args: PolicySetDefaultModeArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {

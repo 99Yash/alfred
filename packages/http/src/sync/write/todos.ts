@@ -10,7 +10,8 @@ import type {
   TodoReopenArgs,
 } from "@alfred/sync";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { DbTx, ServerMutatorCtx } from "./mutator";
+import type { DbTransaction } from "@alfred/db";
+import type { ServerMutatorCtx } from "./mutator";
 
 // Todos (ADR-0050). User-authored creates + user-initiated lifecycle
 // transitions. Alfred's proposals enter server-side via the
@@ -20,7 +21,7 @@ import type { DbTx, ServerMutatorCtx } from "./mutator";
 
 /** Add a user-authored todo. Idempotent on id (client mints it before push). */
 export async function todoCreate(
-  tx: DbTx,
+  tx: DbTransaction,
   args: TodoCreateArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -40,7 +41,7 @@ export async function todoCreate(
 
 /** Check the box: `open → done`, stamp `completed_at`. */
 export async function todoComplete(
-  tx: DbTx,
+  tx: DbTransaction,
   args: TodoCompleteArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -60,7 +61,7 @@ export async function todoComplete(
  * completed row keeps the suggestion's context. Guarded on `suggested`.
  */
 export async function todoCompleteSuggestion(
-  tx: DbTx,
+  tx: DbTransaction,
   args: TodoCompleteSuggestionArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -76,7 +77,7 @@ export async function todoCompleteSuggestion(
 
 /** Uncheck the box: `done → open`, clear `completed_at`. */
 export async function todoReopen(
-  tx: DbTx,
+  tx: DbTransaction,
   args: TodoReopenArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -92,7 +93,7 @@ export async function todoReopen(
 
 /** Accept a suggestion: `suggested → open`. `created_by` is preserved. */
 export async function todoPromote(
-  tx: DbTx,
+  tx: DbTransaction,
   args: TodoPromoteArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -107,7 +108,7 @@ export async function todoPromote(
  * fetcher excludes `dismissed`, so the next pull deletes the client row.
  */
 export async function todoDismiss(
-  tx: DbTx,
+  tx: DbTransaction,
   args: TodoDismissArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -130,7 +131,7 @@ export async function todoDismiss(
  * separate `done → open` transition.
  */
 export async function todoClear(
-  tx: DbTx,
+  tx: DbTransaction,
   args: TodoClearArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -141,7 +142,11 @@ export async function todoClear(
 }
 
 /** Edit a todo's name and/or description. */
-export async function todoEdit(tx: DbTx, args: TodoEditArgs, ctx: ServerMutatorCtx): Promise<void> {
+export async function todoEdit(
+  tx: DbTransaction,
+  args: TodoEditArgs,
+  ctx: ServerMutatorCtx,
+): Promise<void> {
   await tx
     .update(todos)
     .set({

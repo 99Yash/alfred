@@ -46,7 +46,7 @@ import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { insertObservation } from "./observations";
-import { type DbExecutor } from "./executor";
+import { type DbTransaction } from "@alfred/db";
 
 /** The lifecycle status a connect/disconnect emits. */
 export type OrgAffiliationStatus = UserOrgAffiliationPayload["status"];
@@ -227,13 +227,13 @@ interface LoadedCredentialForAffiliation extends CredentialForAffiliation {
   createdAt: Date;
 }
 
-type ReadExecutor = DbExecutor | DbRoot;
+type ReadExecutor = DbTransaction | DbRoot;
 
 async function insertOrgAffiliationObservation(
   input: ObservationInsertInput,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<Awaited<ReturnType<typeof insertObservation>>> {
-  const runOnce = async (ex: DbExecutor) => {
+  const runOnce = async (ex: DbTransaction) => {
     const [head] = await ex
       .select({ headObservationId: observationFamilyHeads.headObservationId })
       .from(observationFamilyHeads)
@@ -283,7 +283,7 @@ async function loadGoogleCredentialForAffiliation(
 async function recordOrgAffiliationConnectEvent(
   cred: CredentialForAffiliation,
   occurredAt: Date,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<RecordOrgAffiliationResult> {
   const built = buildOrgAffiliationObservationInput(cred, { status: "connected", occurredAt });
   if (!built.ok) return { status: "skipped", reason: built.reason };
@@ -300,7 +300,7 @@ async function recordOrgAffiliationConnectEvent(
  */
 export async function recordOrgAffiliationOnConnect(
   credentialId: string,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<RecordOrgAffiliationResult> {
   const ex = tx ?? db();
   const cred = await loadGoogleCredentialForAffiliation(credentialId, ex);
@@ -323,9 +323,9 @@ export async function recordOrgAffiliationOnCredentialUpsert(
     previousCredential?: CredentialForAffiliation | null;
     changedAt: Date;
   },
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<RecordOrgAffiliationOnCredentialUpsertResult> {
-  const run = async (ex: DbExecutor): Promise<RecordOrgAffiliationOnCredentialUpsertResult> => {
+  const run = async (ex: DbTransaction): Promise<RecordOrgAffiliationOnCredentialUpsertResult> => {
     const current = await loadGoogleCredentialForAffiliation(args.credentialId, ex);
     if (!current) {
       return { connectedCurrent: { status: "skipped", reason: "missing_account_id" } };
@@ -385,7 +385,7 @@ export async function recordOrgAffiliationOnCredentialUpsert(
 export async function recordOrgAffiliationOnDisconnect(
   cred: CredentialForAffiliation,
   occurredAt: Date,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<RecordOrgAffiliationResult> {
   const built = buildOrgAffiliationObservationInput(cred, { status: "disconnected", occurredAt });
   if (!built.ok) return { status: "skipped", reason: built.reason };

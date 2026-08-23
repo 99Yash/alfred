@@ -3,7 +3,7 @@ import { observationFamilyHeads, observations, type Observation } from "@alfred/
 import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
-import { type DbExecutor } from "./executor";
+import { type DbTransaction } from "@alfred/db";
 
 /**
  * Join predicate keeping only the observation that is the live head of its
@@ -66,7 +66,7 @@ export function isObservationAppendConflict(err: unknown): boolean {
 }
 
 async function lockObservationFamily(
-  tx: DbExecutor,
+  tx: DbTransaction,
   userId: string,
   familyKey: string,
 ): Promise<void> {
@@ -102,11 +102,11 @@ async function lockObservationFamily(
  */
 export async function insertObservation(
   input: ObservationInsertInput,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<InsertObservationResult> {
   const parsed = observationInsertSchema.parse(input);
 
-  const run = async (ex: DbExecutor): Promise<InsertObservationResult> => {
+  const run = async (ex: DbTransaction): Promise<InsertObservationResult> => {
     const [inserted] = await ex
       .insert(observations)
       .values({
