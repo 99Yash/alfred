@@ -4,10 +4,12 @@ import {
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
   USAGE_ACTIVITY_DEFAULT_PAGE_SIZE,
   USAGE_ACTIVITY_MAX_PAGE_SIZE,
+  encodeInboxCursor,
   Errors,
   getPath,
   isUsageRunCategory,
   parseGmailDocumentMetadata,
+  parseInboxCursor,
   toStringArray,
   type BriefingSlot,
   type UsageRunCategory,
@@ -36,11 +38,11 @@ import {
   eq,
   inArray,
   isNull,
-  lt,
   notInArray,
   or,
   sql as drizzleSql,
 } from "drizzle-orm";
+import { inboxCursorWhere } from "./inbox-cursor";
 import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
@@ -207,29 +209,6 @@ export interface MeMeetingItem {
   hangoutLink: string | null;
   /** Public web view of the event in Google Calendar. */
   htmlLink: string | null;
-}
-
-/**
- * Decode an inbox cursor. The shape is `<authoredAtISO>|<documentId>`;
- * a missing `|` means a legacy timestamp-only cursor and we treat it as
- * invalid rather than silently advancing (clients pick up the new shape
- * on the next page, never mid-pagination).
- *
- * Returns `null` for no cursor, `"invalid"` for parse failure, or the
- * decoded pair for a valid cursor.
- */
-function parseInboxCursor(
-  raw: string | undefined,
-): { authoredAt: Date; documentId: string } | null | "invalid" {
-  if (!raw) return null;
-  const sep = raw.indexOf("|");
-  if (sep < 0) return "invalid";
-  const iso = raw.slice(0, sep);
-  const documentId = raw.slice(sep + 1);
-  if (!iso || !documentId) return "invalid";
-  const authoredAt = new Date(iso);
-  if (Number.isNaN(authoredAt.getTime())) return "invalid";
-  return { authoredAt, documentId };
 }
 
 /**
@@ -409,11 +388,6 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         "/inbox",
         async ({ user: u, query }) => {
           const limit = Math.min(INBOX_MAX_LIMIT, Math.max(1, query.limit ?? INBOX_DEFAULT_LIMIT));
-          // Composite cursor `<authoredAtISO>|<documentId>` — the id
-          // tie-breaker avoids skipping rows with identical authoredAt
-          // values (Gmail batch notifications routinely share an
-          // `internalDate` to the millisecond; a plain timestamp cursor
-          // with `lt` would leak the tied row off the next page).
           const parsedCursor = parseInboxCursor(query.cursor);
           if (parsedCursor === "invalid") {
             throw Errors.BadRequestError("Invalid cursor");
@@ -447,6 +421,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .where(baseWhere);
           const total = totalRow[0]?.value ?? 0;
 
+          const cursorFilter = inboxCursorWhere(parsedCursor);
+          const where = cursorFilter ? and(baseWhere, cursorFilter) : baseWhere;
+
           const rows = await db()
             .select({
               documentId: documents.id,
@@ -464,29 +441,25 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
                 eq(emailTriage.sourceThreadId, documents.sourceThreadId),
               ),
             )
-            .where(
-              parsedCursor
-                ? and(
-                    baseWhere,
-                    or(
-                      lt(documents.authoredAt, parsedCursor.authoredAt),
-                      and(
-                        eq(documents.authoredAt, parsedCursor.authoredAt),
-                        lt(documents.id, parsedCursor.documentId),
-                      ),
-                    ),
-                  )
-                : baseWhere,
-            )
+            .where(where)
             // `id` tie-breaks rows sharing an `authoredAt` so the cursor
-            // WHERE clause stays consistent with the ORDER BY.
+            // WHERE stays consistent with the ORDER BY.
             .orderBy(desc(documents.authoredAt), desc(documents.id))
-            // Over-fetch by one so we can tell if there's a next page without
-            // a second query — drop the extra row before returning.
+            // Over-fetch by one so we can tell if there is a next page without
+            // a second query — drop the extra row before return.
             .limit(limit + 1);
 
           const hasMore = rows.length > limit;
           const pageRows = hasMore ? rows.slice(0, limit) : rows;
+          // `authoredAt` is `Date | null` (documents.authoredAt is nullable per
+          // schema/documents.ts:50). Gmail ingest always sets it, so last row
+          // has a date in practice. If it were null, nextCursor stays null and
+          // pagination stops — residual liveness gap accepted for single-user inbox.
+          const last = pageRows[pageRows.length - 1];
+          const nextCursor =
+            hasMore && last?.authoredAt
+              ? encodeInboxCursor(last.authoredAt, last.documentId)
+              : null;
 
           const items: MeInboxItem[] = pageRows.map((r) => {
             const meta = parseGmailDocumentMetadata(r.metadata);
@@ -502,12 +475,6 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               category: r.category ?? null,
             };
           });
-
-          const last = pageRows[pageRows.length - 1];
-          const nextCursor =
-            hasMore && last?.authoredAt
-              ? `${last.authoredAt.toISOString()}|${last.documentId}`
-              : null;
 
           return { items, nextCursor, total };
         },
