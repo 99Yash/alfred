@@ -345,6 +345,54 @@ export const RULES = [
     severity: "gate",
     fix: 'Use dbBackedSkip("database") from ./support/db-backed in this test tree — it skips on a laptop with no Postgres and THROWS when CI is set, so a job that reached no service cannot exit 0. Do not hand-roll a `{ skip }` on a service variable. If this line is not a skip guard, append `// drift-ok: <reason>`.',
   },
+  {
+    id: "no-constants-re-export",
+    // The single-owner rule for module constants. `constants.ts` owns the fact,
+    // `index.ts` (the barrel) is the only sanctioned re-exporter. A logic file
+    // that does `import { X } from "./constants"; export { X }` creates a second
+    // door — two places answer the same fact and nothing makes them agree.
+    // The chain form catches the two-line shim; the barrel is allowlisted.
+    re: /import\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["'][^;]*;[^;]*export\s*\{[^}]*\}/,
+    scope: "chain",
+    severity: "gate",
+    owners: [
+      "packages/extraction/src/index.ts",
+      "packages/assistant/src/chat/compaction/index.ts",
+      "packages/assistant/src/chat/index.ts",
+      "packages/http/src/sync/model.ts",
+    ],
+    fix: "Do not re-export a constant through a logic file. Import from ./constants where you use it, or export from the barrel (index.ts) if it is a public contract. A logic file that imports then exports the same name is a second door.",
+  },
+  {
+    id: "no-type-re-export-shim",
+    // `import type { Foo } from "./constants"; export type { Foo }` — same
+    // second-door problem for types. Also catches `export type { Foo } from "./constants"`
+    // outside the barrel.
+    re: /export\s+type\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["']/,
+    severity: "gate",
+    owners: ["packages/extraction/src/index.ts", "packages/assistant/src/chat/compaction/index.ts"],
+    fix: "Do not re-export a type through a logic file. Import it from ./constants where you use it. Only the barrel (index.ts) may re-export a constants type.",
+  },
+  {
+    id: "no-type-alias-shim",
+    // `import type { Foo } from "./constants"; export type Bar = Foo` — a shim
+    // that adds a name without adding a fact. Only the constants seam is gated
+    // here; generic `Pick<>` / `Exclude<>` / `z.infer` aliases are not.
+    re: /import\s+type\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["'][^;]*;[^;]*export\s+type\s+\w+\s*=\s*\w+\s*;/,
+    scope: "chain",
+    severity: "gate",
+    owners: ["packages/extraction/src/index.ts", "packages/assistant/src/chat/compaction/index.ts"],
+    fix: "Do not alias an imported constants type with `export type X = Y`. Import Y directly where you need it, or define X in its owning module. An alias that only renames is a second door.",
+  },
+  {
+    id: "no-function-wrapper-shim",
+    // `export function foo(){ return bar }` where bar is an import — a
+    // function that only forwards to a constant. Prefer the constant itself.
+    // This is intentionally narrow: single return, no args handling, no logic.
+    re: /export\s+function\s+\w+\s*\([^)]*\)\s*\{\s*return\s+\w+\s*;?\s*\}/,
+    severity: "gate",
+    fix: "Do not wrap a constant in a function that only returns it. Export the constant or import it directly. A forwarding function is a second door.",
+  },
 ];
 
 /**

@@ -9,6 +9,9 @@
 
 import { APPROXIMATE_CHARS_PER_TOKEN } from "./token-estimate";
 
+// Re-export from canonical owner `@alfred/contracts/pricing` for
+// server-side convenience. New code that needs pricing should import
+// from `@alfred/contracts/pricing` directly.
 export { VOYAGE_INPUT_PRICE_PER_MTOK_USD_DEFAULT } from "@alfred/contracts/pricing";
 
 /** Batch sizing mirrors the corpus chunker — same heuristic, separate name for intent. */

@@ -10,11 +10,7 @@ import {
   serializePdfExtractionChildRequest,
   truncateExtractedForLimit,
 } from "./extract-pdf-protocol";
-import { REALTIME_PDF_EXTRACTION_LIMITS } from "./constants";
 import type { PdfExtractionLimits } from "./constants";
-
-export type { PdfExtractionLimits } from "./constants";
-export { REALTIME_PDF_EXTRACTION_LIMITS };
 
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
 export type InvalidPdfCause = "not_a_pdf" | "damaged";

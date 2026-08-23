@@ -1,12 +1,14 @@
 import { t } from "elysia";
 import {
-  HARD_MUTATION_LIMIT as _HARD_MUTATION_LIMIT,
-  MAX_MUTATIONS as _MAX_MUTATIONS,
+  HARD_MUTATION_LIMIT as SYNC_HARD_LIMIT,
+  MAX_MUTATIONS as SYNC_MAX_MUTATIONS,
 } from "./constants";
 
 export namespace ReplicacheModel {
-  export const MAX_MUTATIONS = _MAX_MUTATIONS;
-  export const HARD_MUTATION_LIMIT = _HARD_MUTATION_LIMIT;
+  // Re-export from canonical owner `./constants` for backward compat.
+  // New code should import from `./constants` directly.
+  export const MAX_MUTATIONS = SYNC_MAX_MUTATIONS;
+  export const HARD_MUTATION_LIMIT = SYNC_HARD_LIMIT;
 
   /**
    * Cookie identifies the client's previous CVR snapshot. Embeds
