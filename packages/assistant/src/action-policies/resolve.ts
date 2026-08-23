@@ -32,14 +32,9 @@ import { userActionPolicies } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../constants";
 
-/**
- * Default delay between staging a gated action and sending the user a
- * fallback approval email (5 min). Lives here — alongside the resolver
- * that consults it — so `index.ts`'s signup-seed helper can pull it via
- * a one-way import without forming a circular module dependency.
- */
-export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
+export { DEFAULT_APPROVAL_NOTIFY_DELAY_MS };
 
 export interface ResolvedPolicy {
   userId: string;

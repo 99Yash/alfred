@@ -20,23 +20,8 @@ import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-/**
- * Max raw passthrough calls that may execute within one agent run before the
- * ceiling fires. Sized well above a legitimate multi-page read (a handful of
- * pages) but below a runaway loop. Cumulative across the run's turns/steps,
- * which is what actually catches a cross-turn pagination loop — a per-batch cap
- * would reset every turn and never bound the loop.
- *
- * This is a per-RUN bound, not a per-turn one, and the distinction is load-
- * bearing: a single dispatch batch fans out its autonomy calls in parallel, so
- * N passthrough calls issued in *one* turn all observe the same prior-executed
- * count and can slip past together. The cap holds across subsequent turns (each
- * executed call raises the count), which is exactly the threat it targets — a
- * sequential pagination loop that needs each prior result before issuing the
- * next. A single parallel batch is bounded only by the model's max-tool-calls-
- * per-batch and provider rate limits, not by this ceiling.
- */
-export const PASSTHROUGH_PER_RUN_CEILING = 15;
+import { PASSTHROUGH_PER_RUN_CEILING } from "../../../../constants";
+export { PASSTHROUGH_PER_RUN_CEILING };
 
 /**
  * The honest "budget exhausted" envelope handed back to the boss as a normal
