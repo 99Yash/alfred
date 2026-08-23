@@ -4,12 +4,12 @@ import {
   CornerDownRight,
   Inbox,
   MessagesSquare,
-  Smartphone,
   Sun,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FadeInOnScroll } from "~/components/landing/fade-in-on-scroll";
+import { LandingSection } from "~/components/landing/landing-section";
 import { cn } from "~/lib/utils";
 
 type CardTone = "indigo" | "peach" | "rose" | "emerald";
@@ -22,6 +22,12 @@ interface FeatureCard {
   body: string;
   bullets: ReadonlyArray<string>;
   mockup: ReactNode;
+  /**
+   * Set on a capability that is designed but not shipped. The card renders a
+   * "Soon" tag next to its eyebrow. Delete the flag when the feature lands —
+   * that is the whole removal, one line per card.
+   */
+  soon?: boolean | undefined;
 }
 
 /**
@@ -31,41 +37,32 @@ interface FeatureCard {
  *   • a big bold title
  *   • a one-line body
  *   • three bullet checkmarks
- *   • a stylized mockup at the bottom (45% of the card height)
+ *   • a stylized mockup at the bottom
  *
- * Sits between BenefitsRow and the closing CTA so the page tells a
- * narrative: who owns Alfred → what Alfred does → start.
+ * Each card also carries its tone into its own *surface*, not just its icon.
+ * Four cards with identical neutral backgrounds read as one undifferentiated
+ * block of boxes; a whisper of the accent in the fill and the border makes the
+ * four capabilities distinguishable at a glance, before any reading happens.
+ * The tint is deliberately near-threshold — enough to separate, never enough
+ * to compete with the copy.
  */
 export function FeatureGrid({ className }: { className?: string }) {
   return (
-    <section className={cn("relative mx-auto w-full", className)} id="features">
-      <FadeInOnScroll>
-        <div className="text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-900/60 px-2.5 py-1 text-[12px] font-medium tracking-tight text-neutral-300">
-            Features
-          </span>
-          <h2
-            className={cn(
-              "mx-auto mt-5 max-w-2xl leading-[1.06] font-semibold tracking-[-0.045em] text-balance text-white",
-              "text-[32px] sm:text-[40px] lg:text-[44px]",
-            )}
-          >
-            Everything Alfred handles for you.
-          </h2>
-          <p className="mx-auto mt-4 max-w-xl text-[15px] leading-[1.5] font-medium tracking-[-0.018em] text-balance text-neutral-400 sm:text-[17px]">
-            One assistant, across every tool you already use. Nothing important slips by.
-          </p>
-        </div>
-      </FadeInOnScroll>
-
-      <div className="mt-14 grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2">
+    <LandingSection
+      id="features"
+      eyebrow="Features"
+      title="What Alfred does while you sleep."
+      lead="It works the tools you already work in. Two of these run today; the rest are on the way."
+      className={className}
+    >
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2">
         {FEATURES.map((card, idx) => (
           <FadeInOnScroll key={card.title} delay={idx * 80}>
             <FeatureCardView card={card} />
           </FadeInOnScroll>
         ))}
       </div>
-    </section>
+    </LandingSection>
   );
 }
 
@@ -73,17 +70,26 @@ export function FeatureGrid({ className }: { className?: string }) {
  * Card content
  * ------------------------------------------------------------------- */
 
+/**
+ * Card copy is held to what the code does. Two cards describe shipped
+ * behavior; two carry `soon` and describe designed behavior. When you edit a
+ * bullet here, the bar is a file you can point at:
+ *   • triage        → packages/assistant/src/triage/email-triage.ts
+ *   • briefing      → packages/assistant/src/briefings/daily-briefing.ts
+ *   • the 7am/6pm   → packages/contracts/src/briefing-constants.ts
+ *   • chat + tools  → packages/assistant/src/chat/, tool-runtime/
+ */
 const FEATURES: ReadonlyArray<FeatureCard> = [
   {
     tone: "indigo",
     icon: Inbox,
     eyebrow: "Inbox triage",
-    title: "Drafts replies in your tone.",
-    body: "Triages every overnight thread, archives the noise, and drafts replies only for the threads that actually want one.",
+    title: "Sorts the night's mail before you open it.",
+    body: "Every thread that arrived overnight is read, judged, and labelled in Gmail. What is left in front of you is the mail that actually wants you.",
     bullets: [
-      "Learns your tone from your sent mail",
-      "Archives newsletters + receipts on its own",
-      "Marks the four threads worth your morning",
+      "Labels each thread: action needed, FYI, marketing, done",
+      "Gives its reason, so you can overrule it",
+      "Turns the threads that imply work into todos",
     ],
     mockup: <InboxRowMockup />,
   },
@@ -91,12 +97,12 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
     tone: "peach",
     icon: Sun,
     eyebrow: "Morning briefing",
-    title: "One paragraph at 6 AM.",
-    body: "Collates overnight updates from your calendar, inbox, and chat into a thirty-second readout you can scan over coffee.",
+    title: "One readout at 7 in the morning.",
+    body: "Alfred gathers the night — your calendar, your inbox, the tools it can reach — and writes you a single thing to read over coffee.",
     bullets: [
-      "Built from your calendar + inbox + chat",
-      "Synced before you wake, in your timezone",
-      "Skips low-signal updates",
+      "Lands at 7am in your timezone, recap at 6pm",
+      "Says nothing on a quiet day, instead of filler",
+      "Read it in the app or in your inbox",
     ],
     mockup: <BriefingPillMockup />,
   },
@@ -104,25 +110,26 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
     tone: "rose",
     icon: CalendarDays,
     eyebrow: "Meeting prep",
+    soon: true,
     title: "Walks you in informed.",
-    body: "Eight minutes before a meeting, Alfred surfaces what your guest's been working on, what they're stuck on, and what's worth raising.",
+    body: "Before a meeting, Alfred pulls together what your guest has been working on, what they are stuck on, and what is worth raising.",
     bullets: [
-      "Pulls from email, Slack, and Linear",
+      "Built from the mail and tickets you both touch",
       "Three takeaways, never more",
-      "Surfaces what they Slacked at midnight",
+      "Recomputed if the meeting changes",
     ],
     mockup: <MeetingPrepMockupCard />,
   },
   {
     tone: "emerald",
-    icon: Smartphone,
-    eyebrow: "Anywhere",
-    title: "Talk to it from any tool.",
-    body: "Chat with Alfred from the web, your phone, the terminal, or any iMessage thread. Same memory, same context, every time.",
+    icon: MessagesSquare,
+    eyebrow: "Chat",
+    title: "Ask it, and it acts.",
+    body: "One thread where you can ask Alfred anything and watch it work — reading your mail, moving your calendar, writing the document.",
     bullets: [
-      "iMessage, Slack, browser, and CLI",
-      "Persistent memory across sessions",
-      "Knows what you asked yesterday",
+      "You see every tool call as it runs",
+      "Destructive actions wait for your approval",
+      "Phone and terminal are on the way",
     ],
     mockup: <ChatBubbleMockup />,
   },
@@ -132,30 +139,51 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
  * Card chrome
  * ------------------------------------------------------------------- */
 
-const TONE_ACCENT: Record<CardTone, { text: string; bg: string; ring: string; glow: string }> = {
+interface ToneAccent {
+  text: string;
+  /** Icon tile fill. */
+  bg: string;
+  ring: string;
+  /** Hover glow at the card's top edge. */
+  glow: string;
+  /** The card's own surface tint — near-threshold, see FeatureGrid. */
+  surface: string;
+  /** The card's border, tinted to match the surface. */
+  border: string;
+}
+
+const TONE_ACCENT: Record<CardTone, ToneAccent> = {
   indigo: {
     text: "text-indigo-300",
     bg: "bg-indigo-400/[0.08]",
     ring: "ring-indigo-400/20",
     glow: "rgb(129 140 248 / 0.16)",
+    surface: "rgb(129 140 248 / 0.045)",
+    border: "border-indigo-400/[0.14]",
   },
   peach: {
     text: "text-orange-300",
     bg: "bg-orange-400/[0.08]",
     ring: "ring-orange-400/20",
     glow: "rgb(251 146 60 / 0.16)",
+    surface: "rgb(251 146 60 / 0.04)",
+    border: "border-orange-400/[0.14]",
   },
   rose: {
     text: "text-rose-300",
     bg: "bg-rose-400/[0.08]",
     ring: "ring-rose-400/20",
     glow: "rgb(251 113 133 / 0.16)",
+    surface: "rgb(251 113 133 / 0.04)",
+    border: "border-rose-400/[0.13]",
   },
   emerald: {
     text: "text-emerald-300",
     bg: "bg-emerald-400/[0.08]",
     ring: "ring-emerald-400/20",
     glow: "rgb(52 211 153 / 0.16)",
+    surface: "rgb(52 211 153 / 0.038)",
+    border: "border-emerald-400/[0.13]",
   },
 };
 
@@ -166,15 +194,25 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
     <article
       className={cn(
         "group relative isolate flex h-full flex-col overflow-hidden rounded-[20px]",
-        "border border-neutral-800/80 bg-neutral-950/60",
-        "transition-[border-color,translate] duration-200 hover:border-neutral-700/80",
+        "border bg-neutral-950/40",
+        tone.border,
+        "transition-[border-color,translate] duration-200",
         // A whisper of lift on hover so the card feels liftable, not just tinted.
         "hover:-translate-y-0.5 motion-reduce:hover:translate-y-0",
         // Subtle inner highlight so the card edge catches a hint of light,
         // matching the frosted-bezel rhythm used elsewhere on the page.
-        "shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
       )}
     >
+      {/* The card's own tone, laid on the surface as a top-down wash. Strongest
+          where the eye lands first and gone by the mockup, so the illustration
+          keeps a neutral ground to sit on. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10"
+        style={{ background: `linear-gradient(180deg, ${tone.surface}, transparent 62%)` }}
+      />
+
       {/* Tone-matched glow that warms the top edge on hover — the card's
           accent bleeding up through the frosted surface. */}
       <div
@@ -194,7 +232,12 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
         >
           <Icon className={cn("size-4", tone.text)} strokeWidth={2} />
         </span>
-        <p className={cn("text-[13px] font-semibold tracking-tight", tone.text)}>{card.eyebrow}</p>
+        <div className="flex items-center gap-2">
+          <p className={cn("text-[13px] font-semibold tracking-tight", tone.text)}>
+            {card.eyebrow}
+          </p>
+          {card.soon ? <SoonTag /> : null}
+        </div>
         <h3 className="max-w-[22ch] text-[22px] leading-[1.18] font-semibold tracking-[-0.035em] text-balance text-white sm:text-[24px]">
           {card.title}
         </h3>
@@ -219,6 +262,24 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
         <div className="w-full">{card.mockup}</div>
       </div>
     </article>
+  );
+}
+
+/**
+ * Marks a capability that is designed but not shipped. Amber, because that is
+ * the colour this page already uses for "read this before you assume" — the
+ * same register as the access notice, not the register of a feature badge.
+ */
+function SoonTag() {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-1.5 py-px text-[10px] font-semibold tracking-[0.09em] uppercase",
+        "bg-amber-400/10 text-amber-300/90 ring-1 ring-amber-400/20 ring-inset",
+      )}
+    >
+      Soon
+    </span>
   );
 }
 

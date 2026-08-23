@@ -70,21 +70,23 @@ interface FooterLink {
 }
 
 const PRODUCT_ITEMS: ReadonlyArray<FooterLink> = [
-  { label: "Home", href: "/" },
-  { label: "Why Alfred", href: "#benefits" },
-  { label: "Get Started", href: "/login" },
+  { label: "How it works", href: "#how-it-works" },
+  { label: "Why trust it", href: "#why" },
+  { label: "Access", href: "#access" },
+  { label: "Sign in", href: "/login" },
 ];
 
 const FEATURE_ITEMS: ReadonlyArray<FooterLink> = [
   { label: "Inbox triage", href: "#features" },
   { label: "Morning briefing", href: "#features" },
-  { label: "Meeting prep", href: "#features" },
-  { label: "Talk to it anywhere", href: "#features" },
+  { label: "Chat that acts", href: "#features" },
+  { label: "Meeting prep — soon", href: "#features" },
 ];
 
+// A bare `https://x.com` used to sit here. A nav item that lands on a site's
+// front page instead of the thing it names is a dead link with a label.
 const MADE_BY_ITEMS: ReadonlyArray<FooterLink> = [
   { label: "GitHub", href: "https://github.com/99Yash/alfred", external: true },
-  { label: "X", href: "https://x.com", external: true },
 ];
 
 const LEGAL_ITEMS: ReadonlyArray<FooterLink> = [

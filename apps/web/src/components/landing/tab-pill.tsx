@@ -17,11 +17,14 @@ import { cn } from "~/lib/utils";
  * panel id via `tabPanelId(idBase, value)`. Callers render the panels
  * themselves and must use `tabPanelId` so the relationship is consistent.
  */
+export type TabPillVariant = "glass" | "bare";
+
 export function TabPill<T extends string>({
   options,
   value,
   onChange,
   idBase: idBaseProp,
+  variant = "glass",
   className,
 }: {
   options: ReadonlyArray<TabPillOption<T>>;
@@ -33,6 +36,18 @@ export function TabPill<T extends string>({
    * `useId`-generated string when omitted.
    */
   idBase?: string | undefined;
+  /**
+   * `glass` — self-contained frosted pill with its own border and aurora
+   * halo. Use when the row floats over a busy surface and has to hold its
+   * own shape.
+   *
+   * `bare` — no outer chrome at all. Use when the row already sits inside a
+   * container that supplies the shape, e.g. the hero band's notch, where a
+   * bordered pill inside a notch would read as two nested containers. Never
+   * stack a light translucent surface on another translucent surface —
+   * legibility collapses and the shapes fight.
+   */
+  variant?: TabPillVariant | undefined;
   className?: string | undefined;
 }) {
   const generatedId = useId();
@@ -126,25 +141,42 @@ export function TabPill<T extends string>({
       tabIndex={-1}
       onKeyDown={handleKeyDown}
       className={cn(
-        "relative inline-flex items-center rounded-full",
-        // Tinted glass — dark enough to give the pill body against the
-        // aurora, glassy enough to still feel lit by it.
-        "border border-white/[0.12] bg-black/40 p-1 backdrop-blur-xl",
-        "shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.4),0_12px_36px_-12px_rgba(99,102,241,0.45)]",
+        "relative inline-flex items-center rounded-full p-1",
+        variant === "glass" &&
+          cn(
+            // Tinted glass — dark enough to give the pill body against the
+            // aurora, glassy enough to still feel lit by it.
+            "border border-white/[0.12] bg-black/40 backdrop-blur-xl",
+            "shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.4),0_12px_36px_-12px_rgba(99,102,241,0.45)]",
+          ),
         className,
       )}
     >
-      {/* Sliding active indicator — picks up the indigo/violet aurora behind
-       * the pill, with a soft outer halo so it feels lit rather than painted. */}
+      {/* Sliding active indicator. The glass variant picks up the indigo aurora
+       * behind the pill so it reads as lit rather than painted; the bare
+       * variant only needs to mark position, so it stays a quiet neutral fill
+       * and lets the label carry the state.
+       *
+       * `cubic-bezier(0.32,0.72,0,1)` is a critically-damped curve: it leaves
+       * fast, arrives without overshoot, and settles. Overshoot would be wrong
+       * here — no gesture carried momentum into this move, the tab simply
+       * changed. */}
       {indicator ? (
         <span
           aria-hidden
           className={cn(
-            "pointer-events-none absolute top-1 bottom-1 left-0 rounded-full",
-            "bg-linear-to-br from-indigo-500/80 via-violet-500/70 to-fuchsia-500/55",
-            "ring-1 ring-white/30 ring-inset",
-            "shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_0_28px_-4px_rgba(139,92,246,0.7)]",
-            "transition-[transform,width] duration-300 ease-out",
+            "pointer-events-none absolute inset-y-1 left-0 rounded-full",
+            variant === "glass"
+              ? cn(
+                  "bg-linear-to-br from-indigo-500/80 via-violet-500/70 to-fuchsia-500/55",
+                  "ring-1 ring-white/30 ring-inset",
+                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_0_28px_-4px_rgba(139,92,246,0.7)]",
+                )
+              : cn(
+                  "bg-white/[0.08] ring-1 ring-white/10 ring-inset",
+                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+                ),
+            "transition-[transform,width] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
             "motion-reduce:transition-none",
           )}
           style={{
@@ -169,8 +201,8 @@ export function TabPill<T extends string>({
             tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "relative z-10 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5",
-              "text-[13px] leading-none font-medium transition-colors duration-200",
+              "relative z-10 inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 sm:px-3.5",
+              "text-[13px] leading-none font-medium whitespace-nowrap transition-colors duration-200",
               "focus-visible:ring-2 focus-visible:ring-violet-300/60 focus-visible:outline-none",
               isActive ? "text-white" : "text-neutral-400 hover:text-neutral-100",
             )}
@@ -187,6 +219,16 @@ export function TabPill<T extends string>({
               </span>
             ) : null}
             <span>{opt.label}</span>
+            {opt.badge ? (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-px text-[9.5px] font-semibold tracking-[0.08em] uppercase",
+                  "bg-amber-400/12 text-amber-300/90 ring-1 ring-amber-400/20 ring-inset",
+                )}
+              >
+                {opt.badge}
+              </span>
+            ) : null}
           </button>
         );
       })}

@@ -1,7 +1,7 @@
 import { CalendarDays, Inbox as InboxIcon, Sun } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AuroraGlow } from "~/components/landing/aurora-glow";
 import { DeviceBezel } from "~/components/landing/device-bezel";
+import { HeroBand } from "~/components/landing/hero-band";
 import { InboxMockup } from "~/components/landing/inbox-mockup";
 import { MeetingPrepMockup } from "~/components/landing/meeting-prep-mockup";
 import { MorningBriefingPanel } from "~/components/landing/morning-briefing-panel";
@@ -26,6 +26,10 @@ const TABS: ReadonlyArray<TabPillOption<ShowcaseTab>> = [
     value: "meetings",
     label: "Meeting Prep",
     icon: <CalendarDays className="size-3.5" strokeWidth={2.2} />,
+    // Meeting prep is designed and specified (ADR-0054) but has no module,
+    // table, or tool yet. The clip shows the intended surface, so the tab
+    // says so rather than letting the panel imply it ships today.
+    badge: "Soon",
   },
 ];
 
@@ -38,16 +42,21 @@ const TAB_VALUES: ReadonlyArray<ShowcaseTab> = TABS.map((t) => t.value);
 // its auto-tagging sequence to actually play. The meeting-prep still just
 // needs a comfortable reading beat.
 const TAB_DURATION_MS: Record<ShowcaseTab, number> = {
-  briefing: 3000,
+  briefing: 4200,
   inbox: 5000,
   meetings: 5000,
 };
 
 /**
- * Hero product showcase — three Alfred views (briefing / inbox / meeting prep)
- * that auto-loop with a soft crossfade + lift. Inspired by visitors.now's
- * tab-pill-above-product pattern, plus auto-cycling so the page feels alive
- * without the user clicking.
+ * Hero product showcase — the page's one full-bleed moment.
+ *
+ * Composition (see HeroBand for why the band is edge-to-edge): an indigo
+ * aurora band spans the viewport, the tab row hangs off its top edge in a
+ * page-colored notch, and the device bezel sits inside the band on the normal
+ * `max-w-5xl` column. The control is on the page side of the boundary, the
+ * thing it controls is inside the band — so which one drives which needs no
+ * explaining. Grammar borrowed from visitors.now, re-registered for a dark
+ * canvas.
  *
  * Behavior:
  *   • Auto-advances after each tab's own dwell time (TAB_DURATION_MS), so a
@@ -119,36 +128,42 @@ export function HeroShowcase({ className }: { className?: string }) {
         hoverRef.current = false;
       }}
     >
-      <AuroraGlow />
-
-      <div className="relative flex flex-col items-center">
-        <TabPill options={TABS} value={tab} onChange={setTab} idBase={idBase} />
-
-        <div className="relative mt-6 w-full">
-          <DeviceBezel>
-            {/* Fixed aspect so every tab is the same device size — the two
-             * video tabs and the DOM meeting-prep tab all fill one box, so
-             * the bezel never resizes (and the crossfade never jumps) when
-             * the tab auto-advances. 1.29:1 matches the inbox clip's native
-             * aspect exactly (full width, nothing cropped); the briefing clip
-             * is slightly taller so `object-top` trims only its empty tail. */}
-            <div className="relative grid aspect-[1.29/1]">
-              {TAB_VALUES.map((value) => (
-                <Slot
-                  key={value}
-                  active={tab === value}
-                  id={tabPanelId(idBase, value)}
-                  labelledBy={tabButtonId(idBase, value)}
-                >
-                  {value === "briefing" && <MorningBriefingPanel active={tab === value} />}
-                  {value === "inbox" && <InboxMockup active={tab === value} />}
-                  {value === "meetings" && <MeetingPrepMockup active={tab === value} />}
-                </Slot>
-              ))}
-            </div>
-          </DeviceBezel>
-        </div>
-      </div>
+      <HeroBand
+        notch={
+          <TabPill
+            options={TABS}
+            value={tab}
+            onChange={setTab}
+            idBase={idBase}
+            // The notch already supplies the container shape. A bordered
+            // glass pill inside it would read as two nested containers.
+            variant="bare"
+          />
+        }
+      >
+        <DeviceBezel>
+          {/* Fixed aspect so every tab is the same device size — the three
+           * clips all fill one box, so the bezel never resizes (and the
+           * crossfade never jumps) when the tab auto-advances. 1.29:1 matches
+           * the inbox and meeting clips' native aspect exactly; the briefing
+           * clip is slightly taller, so `object-top` plus its bottom edge fade
+           * resolves the overflow instead of guillotining it. */}
+          <div className="relative grid aspect-[1.29/1]">
+            {TAB_VALUES.map((value) => (
+              <Slot
+                key={value}
+                active={tab === value}
+                id={tabPanelId(idBase, value)}
+                labelledBy={tabButtonId(idBase, value)}
+              >
+                {value === "briefing" && <MorningBriefingPanel active={tab === value} />}
+                {value === "inbox" && <InboxMockup active={tab === value} />}
+                {value === "meetings" && <MeetingPrepMockup active={tab === value} />}
+              </Slot>
+            ))}
+          </div>
+        </DeviceBezel>
+      </HeroBand>
     </div>
   );
 }
@@ -159,6 +174,11 @@ export function HeroShowcase({ className }: { className?: string }) {
  * children — the visible mockup is always fully shown, the inactive ones
  * fade out behind. Inactive slots also get `pointer-events-none` so they
  * never intercept clicks meant for the visible mockup beneath/above.
+ *
+ * The outgoing panel loses a little scale and gains a little blur while the
+ * incoming one arrives at rest. That is the material arriving and departing
+ * rather than two opacities crossing, and it reads as depth: the old panel
+ * moves back, the new one is here.
  */
 function Slot({
   active,
@@ -171,8 +191,11 @@ function Slot({
   labelledBy: string;
   children: ReactNode;
 }) {
-  const baseClassName =
-    "[grid-area:1/1] h-full overflow-hidden transition-[opacity,transform,filter] duration-500 ease-out";
+  const baseClassName = cn(
+    "h-full overflow-hidden [grid-area:1/1]",
+    "transition-[opacity,transform,filter] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+    "motion-reduce:transition-none",
+  );
   // Split the active/inactive cases into two render paths so a static
   // a11y checker can see that `aria-hidden` is never paired with a
   // focusable `tabIndex` on the same element — a focusable subtree that's
@@ -197,7 +220,7 @@ function Slot({
       role="tabpanel"
       aria-labelledby={labelledBy}
       aria-hidden
-      className={cn(baseClassName, "pointer-events-none opacity-0 blur-[2px]")}
+      className={cn(baseClassName, "pointer-events-none opacity-0 blur-[3px]")}
       style={{ transform: "translateY(10px) scale(0.985)" }}
     >
       {children}

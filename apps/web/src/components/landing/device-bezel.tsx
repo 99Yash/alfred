@@ -29,8 +29,20 @@ export function DeviceBezel({ children, className }: { children: ReactNode; clas
           "bg-linear-to-b from-neutral-900 to-neutral-900/50",
         )}
       >
-        <div className="overflow-hidden rounded-[2rem] border border-neutral-800/80">
+        <div className="relative overflow-hidden rounded-[2rem] border border-neutral-800/80">
           {children}
+          {/* Screen glass. Two jobs, both about the bright light-mode product
+           * clips: an inset vignette stops a white panel from meeting the dark
+           * bezel on a razor edge, and a faint diagonal sheen reads as glass
+           * over the content rather than content painted on the frame. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 rounded-[inherit]"
+            style={{
+              boxShadow:
+                "inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 2px 24px rgba(0,0,0,0.28), inset 0 -18px 40px -20px rgba(0,0,0,0.45)",
+            }}
+          />
         </div>
       </div>
     </div>

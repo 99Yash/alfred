@@ -12,19 +12,36 @@ import { BenefitsRow } from "~/components/landing/benefits-row";
 import { EyebrowChip } from "~/components/landing/eyebrow-chip";
 import { FeatureGrid } from "~/components/landing/feature-grid";
 import { HeroShowcase } from "~/components/landing/hero-showcase";
+import { HowItWorks } from "~/components/landing/how-it-works";
 import { LandingBackground } from "~/components/landing/landing-background";
-import { LandingSpine } from "~/components/landing/landing-spine";
 import { cn } from "~/lib/utils";
 
 /**
- * Marketing landing — synthesis of three sources:
- *   • dimension.dev — the sophisticated inbox/briefing hero panel
- *   • firstquadrant.ai — vertical spine line, dark canvas, max-w-5xl column
- *   • visitors.now — tabbed hero showcase + indigo aurora + 3-up benefits
+ * Marketing landing.
  *
- * Structure (top → bottom): announcement bar → hero (eyebrows + headline +
- * sub + CTAs + tabbed product showcase with aurora behind it) → 3-up
- * benefits row → closing CTA → footer. Floating bottom nav over the top.
+ * The page is one continuous document, read top to bottom:
+ *
+ *   hero copy → the product, full-bleed → why you'd trust it → what happens
+ *   when you sign up → what it does → why it matters → the honest caveat →
+ *   the ask
+ *
+ * Two rules hold that shape together, and breaking either one is what made
+ * the previous version read as a stack of unrelated screens on a black void:
+ *
+ * 1. **One rhythm, owned in one place.** Every band is `py-16 sm:py-20` over a
+ *    `max-w-5xl px-5` column — see `LandingSection`. Sections do not carry
+ *    their own margins. The two deliberate exceptions announce themselves:
+ *    `LandingStatement` takes extra air because it is the crescendo, and
+ *    `BenefitsRow` takes less because it is the caption on the product shot.
+ *
+ * 2. **Exactly one full-bleed moment.** `HeroShowcase` breaks the column,
+ *    once, at the moment the reader first sees the product. Everything before
+ *    and after it stays in the column, which is what makes the break read as
+ *    emphasis instead of noise.
+ *
+ * Sources: the section grammar and the notch-over-band hero are visitors.now
+ * (re-registered for a dark canvas); the device bezel is firstquadrant.ai; the
+ * product clips are dimension's, pending Alfred-branded replacements.
  */
 function goToLogin() {
   window.location.assign("/login");
@@ -35,7 +52,7 @@ function goToLogin() {
 // LandingPage re-render.
 const NAV_CTA = (
   <FrostButton tone="light" size="sm" onClick={goToLogin}>
-    Get Started
+    Sign in
   </FrostButton>
 );
 
@@ -43,25 +60,27 @@ export function LandingPage() {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
       {/* `<main>` gives the page its required primary landmark (the footer and
-       * floating nav below are siblings, not part of the main content) — keeps
+       * nav below are siblings, not part of the main content) — keeps
        * screen-reader "skip to main" working and clears Lighthouse's
        * landmark-one-main audit. */}
-      <main className="relative mx-auto w-full max-w-5xl px-5 pb-16 sm:px-10 lg:px-0">
-        <LandingSpine />
-
+      <main className="relative w-full">
         <Hero onGetStarted={goToLogin} />
 
-        <FadeInOnScroll className="mt-32 sm:mt-44">
-          <div id="benefits">
-            <BenefitsRow />
-          </div>
-        </FadeInOnScroll>
+        <HeroShowcase />
 
-        <FeatureGrid className="mt-28 sm:mt-36" />
+        {/* The trust strip is the product shot's caption, so it sits tight
+         * against the band rather than a section away. */}
+        <div id="why" className="scroll-mt-24 pt-12 sm:pt-14">
+          <BenefitsRow />
+        </div>
 
-        <LandingStatement className="mt-32 sm:mt-44" />
+        <HowItWorks />
 
-        <AccessNotice className="mt-24 sm:mt-32" />
+        <FeatureGrid />
+
+        <LandingStatement />
+
+        <AccessNotice />
 
         <LandingCtaSection onGetStarted={goToLogin} />
       </main>
@@ -77,19 +96,27 @@ export function LandingPage() {
         }
         cta={NAV_CTA}
       >
-        <a href="#benefits" className={NAV_LINK}>
-          Why Alfred
+        {/* Each label names what is actually there. "Home" and "Pricing" are
+         * the kind of safe generic labels that tell a visitor nothing — and
+         * this product has no pricing page to send them to. */}
+        <a href="#features" className={NAV_LINK}>
+          Features
         </a>
-        <a href="#cta" className={NAV_LINK}>
-          Pricing
+        <a href="#how-it-works" className={NAV_LINK}>
+          How it works
+        </a>
+        <a href="#access" className={NAV_LINK}>
+          Access
         </a>
       </FloatingPillNav>
     </LandingBackground>
   );
 }
 
-const NAV_LINK =
-  "rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white";
+const NAV_LINK = cn(
+  "rounded-full px-3 py-1.5 text-[13.5px] leading-[100%] font-medium text-neutral-300",
+  "transition-colors duration-150 hover:bg-white/[0.07] hover:text-white",
+);
 
 /* ------------------------------------------------------------------ */
 /* Hero                                                                */
@@ -97,63 +124,68 @@ const NAV_LINK =
 
 function Hero({ onGetStarted }: { onGetStarted: () => void }) {
   return (
-    <section className="relative space-y-5 pt-32 text-center lg:pt-44">
-      <FadeInOnScroll>
-        <div className="flex flex-wrap items-center justify-center gap-2">
+    <section className="relative w-full pt-28 pb-14 sm:pt-36 sm:pb-16">
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-5 px-5 text-center sm:px-6">
+        <FadeInOnScroll>
           <EyebrowChip icon={<Sparkles className="size-3.5" strokeWidth={2} />} accent="indigo">
             Personal AI assistant
           </EyebrowChip>
-        </div>
-      </FadeInOnScroll>
+        </FadeInOnScroll>
 
-      <FadeInOnScroll delay={80}>
-        <h1
-          className={cn(
-            "mx-auto max-w-3xl font-semibold text-balance text-white",
-            "text-[44px] leading-[1.05] tracking-[-0.045em] sm:text-5xl lg:text-6xl",
-          )}
-        >
-          The AI coworker that never sleeps.
-        </h1>
-      </FadeInOnScroll>
-
-      <FadeInOnScroll delay={140}>
-        <p className="mx-auto max-w-2xl text-[16px] leading-[1.5] font-medium tracking-[-0.018em] text-balance text-neutral-400 sm:text-[18px]">
-          Alfred connects to your email
-          <a
-            href="#access"
-            aria-label="A note on Gmail access and app verification"
-            className="footnote-glow align-super text-[0.7em] font-semibold text-amber-300/90 transition-colors hover:text-amber-200"
-          >
-            *
-          </a>
-          , calendar, GitHub, and the tools you work in. It triages your inbox, briefs you each
-          morning, and preps you for every meeting. Quietly. In the background.
-        </p>
-      </FadeInOnScroll>
-
-      <FadeInOnScroll delay={200}>
-        <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
-          <FrostButton tone="light" size="lg" onClick={onGetStarted}>
-            Get Started
-            <ArrowRight className="size-4" />
-          </FrostButton>
-          <a
-            href="#benefits"
+        <FadeInOnScroll delay={80}>
+          {/* The largest type on the page, so the tightest tracking on the
+           * page: letters read too far apart as they grow, and a single
+           * letter-spacing value across a scale is wrong somewhere. */}
+          <h1
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-2",
-              "text-sm font-medium text-neutral-400 transition-colors hover:text-white",
+              "font-semibold text-balance text-white",
+              "text-[40px] leading-[1.04] tracking-[-0.05em] sm:text-[54px] lg:text-[64px]",
             )}
           >
-            Why Alfred
-            <span aria-hidden>→</span>
-          </a>
-        </div>
-      </FadeInOnScroll>
+            The AI coworker that never sleeps.
+          </h1>
+        </FadeInOnScroll>
 
-      <FadeInOnScroll delay={280} className="pt-12 sm:pt-16">
-        <HeroShowcase />
-      </FadeInOnScroll>
+        <FadeInOnScroll delay={140}>
+          <p className="mx-auto max-w-xl text-[16px] leading-[1.4] font-medium tracking-[-0.018em] text-balance text-neutral-400 sm:text-[18px]">
+            Alfred connects to your Gmail
+            <a
+              href="#access"
+              aria-label="A note on Gmail access and app verification"
+              className="footnote-glow align-super text-[0.7em] font-semibold text-amber-300/90 transition-colors hover:text-amber-200"
+            >
+              *
+            </a>
+            , your calendar, and the tools you work in. Overnight it sorts the mail that arrived and
+            writes your morning briefing. You wake up with one thing to read.
+          </p>
+        </FadeInOnScroll>
+
+        <FadeInOnScroll delay={200}>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <FrostButton tone="light" size="lg" onClick={onGetStarted}>
+              Get started
+              <ArrowRight className="size-4" />
+            </FrostButton>
+            <a
+              href="#how-it-works"
+              className={cn(
+                "group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2.5",
+                "text-[15px] font-medium text-neutral-400",
+                "transition-colors duration-150 hover:bg-white/[0.05] hover:text-white",
+              )}
+            >
+              See how it works
+              <span
+                aria-hidden
+                className="transition-transform duration-200 group-hover:translate-x-0.5"
+              >
+                →
+              </span>
+            </a>
+          </div>
+        </FadeInOnScroll>
+      </div>
     </section>
   );
 }
