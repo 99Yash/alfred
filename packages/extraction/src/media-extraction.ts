@@ -1,17 +1,10 @@
 import type { ContentFormat } from "@alfred/contracts";
-import {
-  createPdfExtractor,
-  REALTIME_PDF_EXTRACTION_LIMITS,
-  type ExtractedPdf,
-  type PdfExtractionLimits,
-} from "./extract-pdf";
+import { createPdfExtractor, type ExtractedPdf } from "./extract-pdf";
 import { parsePdfExtractionLimits, truncateTextToFit } from "./extract-pdf-protocol";
+import { DOOR_LIMITS, type ExtractionDoor, type ExtractionLimits } from "./constants";
 
-// Reuse the PDF limits shape for all formats — byte / char / time + optional truncation.
-// Alias keeps the matrix typed without a second identical interface.
-export type ExtractionLimits = PdfExtractionLimits;
-
-export type ExtractionDoor = "chatUpload" | "fetchUrl" | "gmailAttachment";
+export type { ExtractionDoor, ExtractionLimits };
+export { DOOR_LIMITS };
 
 /**
  * Normalized extraction result for any `ContentFormat`. PDF keeps page offsets;
@@ -39,60 +32,6 @@ export type MediaExtractionResult =
     };
 
 export type MediaExtractor = (bytes: Uint8Array) => Promise<MediaExtractionResult>;
-
-/**
- * Shared office preset (docx/xlsx). Deltas other formats take are visible
- * against these three literals.
- */
-const OFFICE_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = {
-  chatUpload: {
-    maxBytes: 10 * 1024 * 1024,
-    maxCharacters: 1_000_000,
-    maxParseMilliseconds: 30_000,
-    truncateOnOutputExceed: false,
-  },
-  fetchUrl: {
-    maxBytes: 8_000_000,
-    maxCharacters: 200_000,
-    maxParseMilliseconds: 30_000,
-    truncateOnOutputExceed: false,
-  },
-  gmailAttachment: {
-    maxBytes: 10 * 1024 * 1024,
-    maxCharacters: 1_000_000,
-    maxParseMilliseconds: 30_000,
-    truncateOnOutputExceed: true,
-  },
-};
-
-/** Text decodes cheaply — short parse budget, smaller fetchUrl output budget. */
-const TEXT_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = {
-  chatUpload: { ...OFFICE_LIMITS_BY_DOOR.chatUpload, maxParseMilliseconds: 5_000 },
-  fetchUrl: {
-    ...OFFICE_LIMITS_BY_DOOR.fetchUrl,
-    maxCharacters: 100_000,
-    maxParseMilliseconds: 5_000,
-  },
-  gmailAttachment: { ...OFFICE_LIMITS_BY_DOOR.gmailAttachment, maxParseMilliseconds: 5_000 },
-};
-
-/**
- * The one door-policy table. Every format × door extraction limit lives here,
- * so "what does the fetchUrl door allow?" is one read. The pdf row IS
- * `REALTIME_PDF_EXTRACTION_LIMITS` — the PDF child-process presets stay the
- * single source for their direct consumers (`fetch-url`, chat enrichment).
- * Office formats share one preset; text states only its deltas from it
- * (cheap 5s parse, smaller fetchUrl output). The `satisfies` pin makes a
- * format or door missing here a type error.
- */
-export const DOOR_LIMITS = {
-  pdf: REALTIME_PDF_EXTRACTION_LIMITS,
-  document: OFFICE_LIMITS_BY_DOOR,
-  spreadsheet: OFFICE_LIMITS_BY_DOOR,
-  text: TEXT_LIMITS_BY_DOOR,
-} as const satisfies Readonly<
-  Record<ContentFormat, Readonly<Record<ExtractionDoor, ExtractionLimits>>>
->;
 
 /**
  * The one format table. Each entry owns the one fact extraction needs for a
