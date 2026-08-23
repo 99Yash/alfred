@@ -8,7 +8,8 @@ import { workflows } from "@alfred/db/schemas";
 import type { WorkflowUpdateArgs } from "@alfred/sync";
 import { and, eq } from "drizzle-orm";
 import { MutatorForbiddenError } from "../authz";
-import type { DbTx, ServerMutatorCtx } from "./mutator";
+import type { DbTransaction } from "@alfred/db";
+import type { ServerMutatorCtx } from "./mutator";
 
 /**
  * Turn a revision-service failure into the one error `push.ts` understands.
@@ -58,7 +59,7 @@ function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbidden
  * high-risk exact-contract approval owned by `system.activate_workflow`.
  */
 export async function workflowUpdate(
-  tx: DbTx,
+  tx: DbTransaction,
   args: WorkflowUpdateArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {

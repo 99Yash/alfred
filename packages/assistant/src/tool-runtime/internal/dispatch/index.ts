@@ -115,7 +115,6 @@ import {
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone } from "@alfred/assistant/settings";
 
-export type DispatchArgs = ToolCallDispatchArgs;
 type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
 export type ToolCallDispatchResult = Awaited<ReturnType<DispatchToolCallRoundAdapter["dispatch"]>>;
 type DispatchResult = ToolCallDispatchResult;
@@ -206,7 +205,7 @@ export function _setIntegrationAvailabilityReaderForTests(
 }
 
 export function buildDispatchRejectionTraceInput(args: {
-  dispatch: DispatchArgs;
+  dispatch: ToolCallDispatchArgs;
   outcome: DispatchRejectionOutcome;
   reason: string;
   issues?: readonly RejectionIssue[] | undefined;
@@ -241,12 +240,12 @@ export function buildDispatchRejectionTraceInput(args: {
 
 /**
  * Emit a trace node for a dispatch attempt that short-circuited before execute
- * (#345). Pulls the common identity off `DispatchArgs` so each early-return
+ * (#345). Pulls the common identity off `ToolCallDispatchArgs` so each early-return
  * branch is a one-liner. Fire-and-forget — `recordDispatchRejection` swallows
  * everything, so this can never affect the dispatch result.
  */
 function recordRejection(args: {
-  dispatch: DispatchArgs;
+  dispatch: ToolCallDispatchArgs;
   outcome: DispatchRejectionOutcome;
   reason: string;
   issues?: readonly RejectionIssue[] | undefined;
@@ -299,7 +298,7 @@ function unavailableToolResult(args: {
   };
 }
 
-export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
+export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<DispatchResult> {
   const caller = args.caller;
   if (!isToolName(args.toolName)) {
     const message = undeclaredToolMessage(args.toolName, args.allowedIntegrations);

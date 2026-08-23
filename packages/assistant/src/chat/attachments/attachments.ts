@@ -21,9 +21,6 @@ import { buildAttachmentKey, headObject } from "./storage";
  * where its bytes live.
  */
 
-/** A client-supplied attachment descriptor (the bytes are already uploaded). */
-export type AttachmentInput = ChatAttachmentDescriptor;
-
 /**
  * The model-readable state produced at the ingest boundary. The discriminator
  * prevents image rows from carrying PDF's explicit `null` (needs OCR) state.
@@ -163,7 +160,7 @@ export function assertUploadAllowed(mime: string, size: number): IngestPolicyEnt
 }
 
 export function assertAttachmentBatchAllowed(
-  attachments: readonly Pick<AttachmentInput, "size">[],
+  attachments: readonly Pick<ChatAttachmentDescriptor, "size">[],
 ): void {
   if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
     throw Errors.BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
@@ -185,7 +182,7 @@ export function toAttachmentRow(opts: {
   userId: string;
   threadId: string;
   messageId: string;
-  attachment: AttachmentInput;
+  attachment: ChatAttachmentDescriptor;
   degradation: AttachmentDegradation;
 }): NewChatAttachment {
   const { userId, threadId, messageId, attachment, degradation } = opts;

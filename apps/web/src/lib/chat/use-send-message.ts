@@ -5,7 +5,8 @@ import { authClient } from "~/lib/auth/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
-import { uploadAttachment, type UploadedAttachment } from "./upload-attachments";
+import { uploadAttachment } from "./upload-attachments";
+import type { ChatAttachmentDescriptor } from "@alfred/contracts";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -78,10 +79,10 @@ export function useSendMessage(): SendMessage {
       // those keys when a model step starts, so the object must exist before the
       // run is kicked. A per-file failure drops just that file (toast); the rest
       // of the turn still goes through. (ADR-0065)
-      let uploaded: UploadedAttachment[] = [];
+      let uploaded: ChatAttachmentDescriptor[] = [];
       if (pickedFiles.length > 0) {
         const uploadResults = await Promise.all(
-          pickedFiles.map(async (file): Promise<UploadedAttachment | null> => {
+          pickedFiles.map(async (file): Promise<ChatAttachmentDescriptor | null> => {
             try {
               return await uploadAttachment({
                 threadId: tid,
@@ -96,7 +97,7 @@ export function useSendMessage(): SendMessage {
             }
           }),
         );
-        uploaded = uploadResults.filter((a): a is UploadedAttachment => a !== null);
+        uploaded = uploadResults.filter((a): a is ChatAttachmentDescriptor => a !== null);
         uploaded = uploaded.map((a, position) => ({ ...a, position }));
         // Every file failed and there's no text or re-attached file — nothing to send.
         if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0) return false;

@@ -8,7 +8,8 @@ import type {
   ChatThreadSetPinnedArgs,
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
-import type { DbTx, ServerMutatorCtx } from "./mutator";
+import type { DbTransaction } from "@alfred/db";
+import type { ServerMutatorCtx } from "./mutator";
 
 // Chat (streaming-chat plan). Only the user side mutates via Replicache:
 // opening a thread and appending the user's message. The assistant reply is
@@ -17,7 +18,7 @@ import type { DbTx, ServerMutatorCtx } from "./mutator";
 
 /** Open a new chat thread. Idempotent on id (client mints it before push). */
 export async function chatThreadCreate(
-  tx: DbTx,
+  tx: DbTransaction,
   args: ChatThreadCreateArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -34,7 +35,7 @@ export async function chatThreadCreate(
 
 /** Append the user's message and float its thread to the top of the list. */
 export async function chatMessageCreate(
-  tx: DbTx,
+  tx: DbTransaction,
   args: ChatMessageCreateArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -70,7 +71,7 @@ export async function chatMessageCreate(
  * inserting `chat_attachments`.
  */
 export async function chatAttachmentCreate(
-  _tx: DbTx,
+  _tx: DbTransaction,
   _args: ChatAttachmentCreateArgs,
   _ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -79,7 +80,7 @@ export async function chatAttachmentCreate(
 
 /** Rename a thread. No-op on a thread this user doesn't own. */
 export async function chatThreadRename(
-  tx: DbTx,
+  tx: DbTransaction,
   args: ChatThreadRenameArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -91,7 +92,7 @@ export async function chatThreadRename(
 
 /** Pin / unpin a thread. No-op on a thread this user doesn't own. */
 export async function chatThreadSetPinned(
-  tx: DbTx,
+  tx: DbTransaction,
   args: ChatThreadSetPinnedArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -107,7 +108,7 @@ export async function chatThreadSetPinned(
  * thread this user doesn't own.
  */
 export async function chatThreadDelete(
-  tx: DbTx,
+  tx: DbTransaction,
   args: ChatThreadDeleteArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {

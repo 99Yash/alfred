@@ -12,7 +12,8 @@ import {
 import { isRecord, toMessage } from "@alfred/contracts";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
-import { serverMutators, type DbTx, type MutatorFollowUp, type ServerMutatorCtx } from "./write";
+import { serverMutators, type MutatorFollowUp, type ServerMutatorCtx } from "./write";
+import type { DbTransaction } from "@alfred/db";
 
 export type PushRequestBody = ReplicacheModel.Push;
 export type PushResponse =
@@ -43,7 +44,7 @@ function didMutatorApply(result: unknown): boolean {
  * typed follow-up descriptors harvested by the entry itself.
  */
 async function applyMutation<K extends MutatorName>(
-  tx: DbTx,
+  tx: DbTransaction,
   mutatorName: K,
   rawArgs: unknown,
   ctx: ServerMutatorCtx,
@@ -60,7 +61,7 @@ async function applyMutation<K extends MutatorName>(
   try {
     // Savepoint isolates mutator failures so one bad mutation doesn't
     // poison the whole batch.
-    await runAtomic(tx, async (subTx: DbTx) => {
+    await runAtomic(tx, async (subTx: DbTransaction) => {
       mutatorResult = await entry.run(subTx, parsed.data, ctx);
     });
   } catch (err) {
@@ -80,7 +81,7 @@ async function applyMutation<K extends MutatorName>(
 }
 
 async function advanceLMID(
-  tx: DbTx,
+  tx: DbTransaction,
   clientGroupID: string,
   clientID: string,
   newId: number,
@@ -100,7 +101,7 @@ async function advanceLMID(
     });
 }
 
-async function getLMID(tx: DbTx, clientID: string): Promise<number> {
+async function getLMID(tx: DbTransaction, clientID: string): Promise<number> {
   const [row] = await tx
     .select({ lmid: replicacheClient.lastMutationId })
     .from(replicacheClient)
