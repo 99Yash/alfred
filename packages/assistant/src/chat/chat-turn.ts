@@ -44,12 +44,12 @@ import {
 } from "@alfred/assistant/execution";
 import {
   assembleChatContext,
-  CHAT_MAX_OUTPUT_TOKENS,
   estimateChatRequestTokens,
   guardTurnContext,
   loadChatThreadContext,
   withEphemeralReference,
 } from "./compaction";
+import { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
 import {
   buildStoredContentParts,
   hydrateTranscriptForModel,

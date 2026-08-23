@@ -20,9 +20,8 @@
  * preserve the unit of thought, which embedding quality cares about.
  */
 
-const CHARS_PER_TOKEN = 4;
-
 import { isValidPage } from "@alfred/contracts";
+import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 
 export interface ChunkerOptions {
   /** Target token count per chunk. Default 1000. */
@@ -59,9 +58,9 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
   const maxTokens = opts.maxTokens ?? 1500;
   const overlapTokens = opts.overlapTokens ?? 80;
 
-  const target = targetTokens * CHARS_PER_TOKEN;
-  const max = maxTokens * CHARS_PER_TOKEN;
-  const overlap = overlapTokens * CHARS_PER_TOKEN;
+  const target = targetTokens * APPROXIMATE_CHARS_PER_TOKEN;
+  const max = maxTokens * APPROXIMATE_CHARS_PER_TOKEN;
+  const overlap = overlapTokens * APPROXIMATE_CHARS_PER_TOKEN;
 
   const trimmed = text.trim();
   if (!trimmed) return [];
@@ -179,5 +178,5 @@ export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {
 
 export function estimateTokens(text: string): number {
   // Rounded up so very short strings still return >=1.
-  return Math.max(1, Math.ceil(text.length / CHARS_PER_TOKEN));
+  return Math.max(1, Math.ceil(text.length / APPROXIMATE_CHARS_PER_TOKEN));
 }

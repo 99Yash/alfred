@@ -18,12 +18,12 @@ export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachm
 
 export {
   backgroundCompactionThresholdTokens,
-  CHAT_MAX_OUTPUT_TOKENS,
   closeConversationCompactionQueue,
   scheduleConversationCompactionIfNeeded,
   startConversationCompactionWorker,
   stopConversationCompactionWorker,
 } from "./compaction";
+export { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
 
 export {
   CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,

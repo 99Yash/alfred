@@ -2,8 +2,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
-import { FETCH_URL_MAX_TEXT_CHARS } from "@alfred/contracts";
-
 import {
   createPdfExtractionLimitResult,
   parsePdfExtractionChildReply,
@@ -12,6 +10,7 @@ import {
   serializePdfExtractionChildRequest,
   truncateExtractedForLimit,
 } from "./extract-pdf-protocol";
+import type { PdfExtractionLimits } from "./constants";
 
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
 export type InvalidPdfCause = "not_a_pdf" | "damaged";
@@ -25,60 +24,6 @@ export interface ExtractedPdfPage {
 }
 
 export type PdfExtractionLimitKind = "input_bytes" | "output_characters" | "parse_milliseconds";
-
-export interface PdfExtractionLimits {
-  readonly maxBytes: number;
-  readonly maxCharacters: number;
-  readonly maxParseMilliseconds: number;
-  /**
-   * When true, output over `maxCharacters` truncates instead of returning
-   * `limit_exceeded`. Absent means `false` — the flag is optional for
-   * backward compat, but canonical door presets declare it explicitly.
-   */
-  readonly truncateOnOutputExceed?: boolean | undefined;
-}
-
-const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
-// `fetch_url` returns at most FETCH_URL_MAX_TEXT_CHARS characters, but
-// its PDF parser may read farther so the caller can truncate an otherwise valid
-// document instead of treating the output limit as an extraction failure.
-// Derived from the shared tool cap so the two sides cannot drift.
-const FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT = FETCH_URL_MAX_TEXT_CHARS * 2;
-// Long but valuable docs: keep as much as the 10 MB input allows, truncate
-// at the limit instead of skipping the attachment.
-const GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT = 1_000_000;
-
-/**
- * Required child-process limits for each realtime PDF door.
- *
- * The byte limits differ by transport on purpose. Keeping the complete table
- * here makes a new door choose all three limits next to the extraction seam
- * instead of copying a partial policy into a leaf caller. This object is also
- * the `pdf` row of `DOOR_LIMITS` (`media-extraction.ts`) — the format-generic
- * facade reads its pdf limits from here, so a change lands once.
- */
-export const REALTIME_PDF_EXTRACTION_LIMITS = {
-  chatUpload: {
-    maxBytes: 10 * 1024 * 1024,
-    maxCharacters: CHAT_PDF_EXTRACTION_CHARACTER_LIMIT,
-    maxParseMilliseconds: 30_000,
-    truncateOnOutputExceed: false,
-  },
-  fetchUrl: {
-    maxBytes: 8_000_000,
-    maxCharacters: FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT,
-    maxParseMilliseconds: 30_000,
-    truncateOnOutputExceed: false,
-  },
-  gmailAttachment: {
-    maxBytes: 10 * 1024 * 1024,
-    maxCharacters: GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT,
-    maxParseMilliseconds: 30_000,
-    truncateOnOutputExceed: true,
-  },
-} as const satisfies Readonly<
-  Record<"chatUpload" | "fetchUrl" | "gmailAttachment", PdfExtractionLimits>
->;
 
 export type ExtractedPdf =
   | {
