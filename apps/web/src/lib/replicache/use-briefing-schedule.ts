@@ -1,8 +1,10 @@
 import {
+  briefingHourSchema,
   DEFAULT_BRIEFING_DELIVERY_HOUR,
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
+import { isIanaTimezone } from "@alfred/contracts";
 import { useMemo } from "react";
 import { usePreferenceMap } from "./use-preferences";
 
@@ -37,20 +39,21 @@ export interface BriefingScheduleState {
 }
 
 function parseHour(value: unknown): number | null {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isInteger(n) || n < 0 || n > 23) return null;
-  return n;
+  const result = briefingHourSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 function parseTimezone(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
+  return isIanaTimezone(value) ? value : null;
 }
 
 /**
  * Live view of the briefing delivery schedule (Settings → Features →
  * Briefing schedule). Reads the three `briefing.*` preference rows from the
- * same `pref/{key}` prefix the feature flags use; an absent row resolves to
- * the documented server default. Writes are optimistic `prefSet` mutations
+ * same `pref/{key}` prefix the feature flags use via
+ * {@link usePreferenceMap}, which is built on the shared
+ * {@link useReplicacheSubscription} helper. An absent row resolves to the
+ * documented server default. Writes are optimistic `prefSet` mutations
  * that the next pull rebases — identical idiom to {@link useFeatureFlags}.
  */
 export function useBriefingSchedule(): BriefingScheduleState {

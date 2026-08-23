@@ -1,9 +1,10 @@
 import { createContext, use, useCallback, useEffect, useMemo, useReducer } from "react";
+import type { Replicache } from "replicache";
+import type { ClientMutators } from "@alfred/sync";
 import { authClient } from "~/lib/auth/auth-client";
-import type { AlfredReplicache } from "./client";
 
 interface ReplicacheContextValue {
-  rep: AlfredReplicache | null;
+  rep: Replicache<ClientMutators> | null;
   loadError: string | null;
   pullError: string | null;
   initialPullPending: boolean;
@@ -30,7 +31,7 @@ function syncErrorMessage(error: unknown): string {
 }
 
 interface SyncLifecycle {
-  rep: AlfredReplicache | null;
+  rep: Replicache<ClientMutators> | null;
   loadError: string | null;
   pullError: string | null;
   initialPullPending: boolean;
@@ -42,14 +43,14 @@ type SyncLifecycleAction =
   | { type: "start"; lifecycle: object }
   | { type: "stop"; lifecycle: object }
   | { type: "signedOut" }
-  | { type: "ready"; lifecycle: object; rep: AlfredReplicache }
+  | { type: "ready"; lifecycle: object; rep: Replicache<ClientMutators> }
   | { type: "authError"; lifecycle: object }
   | { type: "pullRecovered"; lifecycle: object }
   | { type: "pullReportedError"; lifecycle: object; message: string }
-  | { type: "pullSucceeded"; lifecycle: object; rep: AlfredReplicache }
-  | { type: "pullFailed"; lifecycle: object; rep: AlfredReplicache; message: string }
+  | { type: "pullSucceeded"; lifecycle: object; rep: Replicache<ClientMutators> }
+  | { type: "pullFailed"; lifecycle: object; rep: Replicache<ClientMutators>; message: string }
   | { type: "loadFailed"; lifecycle: object; message: string }
-  | { type: "retryPull"; rep: AlfredReplicache }
+  | { type: "retryPull"; rep: Replicache<ClientMutators> }
   | { type: "retryLoad" };
 
 const initialSyncLifecycle: SyncLifecycle = {
@@ -242,7 +243,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
  * The live Replicache instance, or `null` before sign-in / while the client
  * is (re)initializing. Subscription hooks must treat `null` as "not ready".
  */
-export function useReplicache(): AlfredReplicache | null {
+export function useReplicache(): Replicache<ClientMutators> | null {
   return use(ReplicacheContext).rep;
 }
 
