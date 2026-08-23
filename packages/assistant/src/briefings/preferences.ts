@@ -1,5 +1,6 @@
 import { type IanaTimezone } from "@alfred/contracts";
 import {
+  briefingHourSchema,
   DEFAULT_BRIEFING_DELIVERY_HOUR,
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
@@ -85,9 +86,6 @@ export function resolveBriefingPreferenceValues(
 }
 
 function parseDeliveryHour(value: unknown): number | null {
-  // Tolerate stringified ints — Replicache mutators may serialize.
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isInteger(n)) return null;
-  if (n < 0 || n > 23) return null;
-  return n;
+  const result = briefingHourSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

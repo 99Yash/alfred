@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Cross-boundary briefing constants. Keep values here only when the server
  * (`@alfred/assistant`) and client (`apps/web`) must agree — `@alfred/assistant` is
@@ -24,3 +26,12 @@ export const DEFAULT_BRIEFING_DELIVERY_HOUR = 7;
 
 /** Default evening delivery hour (0–23, in the resolved timezone). */
 export const DEFAULT_BRIEFING_EVENING_HOUR = 18;
+
+/**
+ * Valid briefing hour (0–23, in the resolved timezone). Coerces stringified
+ * ints so Replicache-serialized values and legacy string prefs both parse.
+ * This is the single owner for the 0–23 check that both
+ * `@alfred/assistant` and `apps/web` previously restated.
+ */
+export const briefingHourSchema = z.coerce.number().int().min(0).max(23);
+export type BriefingHour = z.infer<typeof briefingHourSchema>;
