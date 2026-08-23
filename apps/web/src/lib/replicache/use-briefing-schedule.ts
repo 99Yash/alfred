@@ -4,6 +4,7 @@ import {
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
 import { useMemo } from "react";
+import { z } from "zod";
 import { usePreferenceMap } from "./use-preferences";
 
 const BRIEFING_PREF_KEYS = {
@@ -36,14 +37,17 @@ export interface BriefingScheduleState {
   retry: () => void;
 }
 
+const hourSchema = z.coerce.number().int().min(0).max(23);
+const timezoneSchema = z.string().min(1);
+
 function parseHour(value: unknown): number | null {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isInteger(n) || n < 0 || n > 23) return null;
-  return n;
+  const result = hourSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 function parseTimezone(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
+  const result = timezoneSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 /**

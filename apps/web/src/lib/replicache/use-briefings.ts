@@ -1,11 +1,15 @@
 import { IDB_KEY, type SyncedBriefing, syncedBriefingSchema } from "@alfred/sync";
+import type { BriefingSlot } from "@alfred/contracts";
 import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
-/** morning reads above evening within a day (orientation → close, ADR-0049). */
-const SLOT_ORDER: Record<string, number> = { morning: 0, evening: 1 };
+/** Rank for sort: morning (0) before evening (1); unknown slots sort last. */
+const SLOT_ORDER = {
+  morning: 0,
+  evening: 1,
+} as const satisfies Record<BriefingSlot, number>;
 
 function compareSlots(a: SyncedBriefing, b: SyncedBriefing): number {
   return (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9);
