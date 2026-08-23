@@ -1,7 +1,8 @@
 import { IDB_KEY, type PreferenceValue, syncedPreferenceSchema } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 export interface PreferenceMap {
   /** Live `key → value` map of the synced `pref/{key}` rows; absent keys are unset. */
@@ -14,6 +15,8 @@ export interface PreferenceMap {
   retry: () => void;
 }
 
+const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
+
 /**
  * Live view of the synced preference table (`pref/{key}` rows, ADR-0012).
  *
@@ -24,29 +27,27 @@ export interface PreferenceMap {
  */
 export function usePreferenceMap(): PreferenceMap {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const [values, setValues] = useState<Record<string, PreferenceValue>>({});
-  const [loaded, setLoaded] = useState(false);
+  const prefix = IDB_KEY.PREFERENCE({});
+  const query = useCallback(
+    (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+    [prefix],
+  );
+  const rows = useReplicacheSubscription<unknown[], Record<string, PreferenceValue>>(
+    query,
+    useCallback((raw: unknown[]) => {
+      const next: Record<string, PreferenceValue> = {};
+      for (const row of raw) {
+        const parsed = syncedPreferenceSchema.safeParse(row);
+        if (parsed.success) next[parsed.data.key] = parsed.data.value;
+      }
+      return next;
+    }, []),
+  );
 
-  useEffect(() => {
-    if (!rep) {
-      setValues({});
-      setLoaded(false);
-      return;
-    }
-    const prefix = IDB_KEY.PREFERENCE({});
-    return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (rows) => {
-        const next: Record<string, PreferenceValue> = {};
-        for (const row of rows) {
-          const parsed = syncedPreferenceSchema.safeParse(row);
-          if (parsed.success) next[parsed.data.key] = parsed.data.value;
-        }
-        setValues(next);
-        setLoaded(true);
-      },
-    );
-  }, [rep]);
+  const { values, loaded } = useMemo(() => {
+    if (rows === null) return { values: EMPTY_PREFERENCE_VALUES, loaded: false };
+    return { values: rows, loaded: true };
+  }, [rows]);
 
   const setPref = useCallback(
     async (key: string, value: PreferenceValue): Promise<void> => {
