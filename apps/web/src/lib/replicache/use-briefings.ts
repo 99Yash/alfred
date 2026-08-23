@@ -1,14 +1,23 @@
 import { IDB_KEY, type SyncedBriefing, syncedBriefingSchema } from "@alfred/sync";
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache, ReplicacheSnapshot } from "./client";
 import { useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 /** morning reads above evening within a day (orientation → close, ADR-0049). */
 const SLOT_ORDER: Record<string, number> = { morning: 0, evening: 1 };
 
 function compareSlots(a: SyncedBriefing, b: SyncedBriefing): number {
   return (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9);
+}
+
+function parseBriefingRows(values: unknown[]): SyncedBriefing[] {
+  const parsed: SyncedBriefing[] = [];
+  for (const value of values) {
+    const result = syncedBriefingSchema.safeParse(value);
+    if (result.success) parsed.push(result.data);
+  }
+  return parsed;
 }
 
 export interface BriefingsState {
@@ -26,31 +35,24 @@ export interface BriefingsState {
  * validation are dropped rather than crashing the page.
  */
 export function useBriefings(): BriefingsState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-  const [snapshot, setSnapshot] = useState<ReplicacheSnapshot<SyncedBriefing[]> | null>(null);
+  const { loadError, retry } = useReplicacheStatus();
+  const prefix = IDB_KEY.BRIEFING({});
+  const query = useCallback(
+    (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+    [prefix],
+  );
+  const briefings = useReplicacheSubscription<unknown[], SyncedBriefing[]>(
+    query,
+    useCallback((values: unknown[]) => {
+      const parsed = parseBriefingRows(values);
+      parsed.sort((a, b) => {
+        if (a.briefingDate !== b.briefingDate) return b.briefingDate.localeCompare(a.briefingDate);
+        return compareSlots(a, b);
+      });
+      return parsed;
+    }, []),
+  );
 
-  useEffect(() => {
-    if (!rep) return;
-    const prefix = IDB_KEY.BRIEFING({});
-    return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (values) => {
-        const parsed: SyncedBriefing[] = [];
-        for (const value of values) {
-          const result = syncedBriefingSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => {
-          if (a.briefingDate !== b.briefingDate)
-            return b.briefingDate.localeCompare(a.briefingDate);
-          return compareSlots(a, b);
-        });
-        setSnapshot({ rep, value: parsed });
-      },
-    );
-  }, [rep]);
-
-  const briefings = snapshot?.rep === rep ? snapshot.value : null;
   return {
     briefings: briefings ?? [],
     loading: briefings === null && !loadError,
@@ -73,31 +75,21 @@ export interface BriefingDayState {
  * and render stacked (ADR-0049). Read-only.
  */
 export function useBriefing(date: string): BriefingDayState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-  const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
-    date: string;
-    slots: SyncedBriefing[];
-  } | null>(null);
+  const { loadError, retry } = useReplicacheStatus();
+  const prefix = IDB_KEY.BRIEFING({ id: `${date}/` });
+  const query = useCallback(
+    (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+    [prefix],
+  );
+  const slots = useReplicacheSubscription<unknown[], SyncedBriefing[]>(
+    query,
+    useCallback((values: unknown[]) => {
+      const parsed = parseBriefingRows(values);
+      parsed.sort(compareSlots);
+      return parsed;
+    }, []),
+  );
 
-  useEffect(() => {
-    if (!rep) return;
-    const prefix = IDB_KEY.BRIEFING({ id: `${date}/` });
-    return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (values) => {
-        const parsed: SyncedBriefing[] = [];
-        for (const value of values) {
-          const result = syncedBriefingSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort(compareSlots);
-        setSnapshot({ rep, date, slots: parsed });
-      },
-    );
-  }, [rep, date]);
-
-  const slots = snapshot?.rep === rep && snapshot.date === date ? snapshot.slots : null;
   return {
     slots: slots ?? [],
     loading: slots === null && !loadError,

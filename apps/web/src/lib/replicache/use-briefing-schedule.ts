@@ -49,8 +49,10 @@ function parseTimezone(value: unknown): string | null {
 /**
  * Live view of the briefing delivery schedule (Settings → Features →
  * Briefing schedule). Reads the three `briefing.*` preference rows from the
- * same `pref/{key}` prefix the feature flags use; an absent row resolves to
- * the documented server default. Writes are optimistic `prefSet` mutations
+ * same `pref/{key}` prefix the feature flags use via
+ * {@link usePreferenceMap}, which is built on the shared
+ * {@link useReplicacheSubscription} helper. An absent row resolves to the
+ * documented server default. Writes are optimistic `prefSet` mutations
  * that the next pull rebases — identical idiom to {@link useFeatureFlags}.
  */
 export function useBriefingSchedule(): BriefingScheduleState {
