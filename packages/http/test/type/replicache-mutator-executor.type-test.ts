@@ -1,14 +1,14 @@
 // Tier-1 negative-type fixture guarding the Replicache push-mutator executor
 // (campaign knowledge-settings-phase4 item 14). Every server mutator runs inside
 // the push handler's outer transaction's savepoint, so its executor is a
-// `DbTransaction`, never a pooled `db()` handle (`DbRoot`). `server-mutators`'
-// `type DbTx` is what enforces that: it flows into `ServerMutator` and every
-// `tx: DbTx` mutator method, so `Parameters<typeof serverMutators.prefSet>[0]`
-// exposes exactly the executor a caller must supply. The one way that guarantee
-// silently erodes: someone widens `DbTx` back to `any` (its pre-#688 state) to
-// "make an error go away", which would re-accept a pooled `db()` handle and let a
-// future mutator re-fork the push transaction, breaking its atomicity — with no
-// compile error.
+// `DbTransaction`, never a pooled `db()` handle (`DbRoot`). The registry entry's
+// `MutatorRun<A>` fixes that parameter for every mutator: it flows into each
+// `tx: DbTx` mutator method, so
+// `Parameters<typeof serverMutators.prefSet["run"]>[0]` exposes exactly the
+// executor a caller must supply. The one way that guarantee silently erodes:
+// someone widens `DbTx` back to `any` (its pre-#688 state) to "make an error go
+// away", which would re-accept a pooled `db()` handle and let a future mutator
+// re-fork the push transaction, breaking its atomicity — with no compile error.
 //
 // This file is that guarantee's machine detector. It is compile-only: the
 // node:test glob is `test/**/*.test.ts`, so a `.type-test.ts` never runs; it is
@@ -21,8 +21,8 @@ import type { DbRoot, DbTransaction } from "@alfred/db";
 import type { serverMutators } from "../../src/sync/write";
 
 // The executor every server mutator receives — the type the narrowed `DbTx`
-// alias resolves to at the `prefSet` call surface.
-type MutatorExecutor = Parameters<typeof serverMutators.prefSet>[0];
+// alias resolves to at the `prefSet` run surface.
+type MutatorExecutor = Parameters<(typeof serverMutators.prefSet)["run"]>[0];
 
 // `declare const` is ambient, so `noUnusedLocals`/`noUnusedParameters` never fire
 // on these; the `export const` fixtures below are exported for the same reason

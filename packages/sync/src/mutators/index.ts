@@ -1,3 +1,4 @@
+import type { ZodType } from "zod";
 import { noteCreateArgsSchema, noteCreateClient } from "./notes";
 import {
   factConfirmArgsSchema,
@@ -99,6 +100,12 @@ export type MutatorName = keyof ClientMutators;
 /**
  * Arg schemas indexed by mutator name. The server validates push payloads
  * against these before dispatching.
+ *
+ * `satisfies` pins this map to `clientMutators` in both directions: a client
+ * mutator with no registered schema, an orphaned schema, and a schema whose
+ * output does not match the client mutator's declared args are compile errors.
+ * The server registry (`packages/http/src/sync/write/index.ts`) keys off the
+ * same map, so one key set governs the whole push protocol surface.
  */
 export const mutatorArgsSchemas = {
   noteCreate: noteCreateArgsSchema,
@@ -126,4 +133,6 @@ export const mutatorArgsSchemas = {
   chatThreadSetPinned: chatThreadSetPinnedArgsSchema,
   chatThreadDelete: chatThreadDeleteArgsSchema,
   triageTagOverride: triageTagOverrideArgsSchema,
+} satisfies {
+  [N in MutatorName]: ZodType<Parameters<ClientMutators[N]>[1]>;
 };

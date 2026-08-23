@@ -1,7 +1,7 @@
-import { db, type DbTransaction } from "@alfred/db";
+import { db } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
-import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
+import type { MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "@alfred/assistant/action-policies";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
@@ -9,10 +9,10 @@ import {
   enqueueChatStorageCleanup,
   enqueueTriageRelabel,
 } from "@alfred/assistant/connections/ingestion";
+import { isRecord, toMessage } from "@alfred/contracts";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
-import { serverMutators } from "./write";
-import { getStringPath, isRecord, toMessage } from "@alfred/contracts";
+import { serverMutators, type DbTx, type MutatorFollowUp, type ServerMutatorCtx } from "./write";
 
 export type PushRequestBody = ReplicacheModel.Push;
 export type PushResponse =
@@ -20,46 +20,63 @@ export type PushResponse =
   | { error: "ClientStateNotFound" | "VersionNotSupported" };
 
 function isKnownMutator(name: string): name is MutatorName {
-  return Object.prototype.hasOwnProperty.call(mutatorArgsSchemas, name);
+  return Object.prototype.hasOwnProperty.call(serverMutators, name);
 }
-
-/**
- * Mutators whose successful application must also bust the dispatcher's
- * in-process policy cache (ADR-0034 amendment). `row_version` bump alone only
- * reaches browsers via Replicache pull; the gate runs server-side, so the
- * cache must drop too — fired after commit alongside the poke.
- */
-const POLICY_BUST_MUTATORS: ReadonlySet<MutatorName> = new Set([
-  "policySetIntegrationMode",
-  "policySetDefaultMode",
-]);
-
-/**
- * Mutators whose successful application must reconcile a Gmail label after
- * commit (rfc-triage-tags.md). The DB tag is committed in-transaction; the
- * external Gmail write can't be, so we enqueue a `triage.relabel` job per
- * affected thread once the transaction lands. Mirrors `POLICY_BUST_MUTATORS`.
- */
-const RELABEL_MUTATORS: ReadonlySet<MutatorName> = new Set(["triageTagOverride"]);
-
-/**
- * Mutators whose successful application must reap object-storage bytes after
- * commit (ADR-0065). Deleting a chat thread cascades its rows, but the attachment
- * objects in the bucket aren't reachable by FK — we drop their key prefix with a
- * `media.cleanup` job once the delete lands. Mirrors `RELABEL_MUTATORS`.
- */
-const STORAGE_CLEANUP_MUTATORS: ReadonlySet<MutatorName> = new Set(["chatThreadDelete"]);
 
 // The push handler owns the outer transaction; `advanceLMID`/`getLMID` and the
 // per-mutation savepoint (`subTx`) all run against a `DbTransaction`, never a
-// pooled `db()` handle. Typing the alias as such keeps the mutator runner call
-// site (below) from being handed a pool.
-type DbTx = DbTransaction;
-type ServerMutatorResult = void | { applied?: boolean };
+// pooled `db()` handle.
+type MutationOutcome = { applied: boolean; followUps: MutatorFollowUp[] };
 
-function didMutatorApply(result: ServerMutatorResult | undefined): boolean {
+function didMutatorApply(result: unknown): boolean {
   if (!isRecord(result)) return true;
-  return result.applied ?? true;
+  return typeof result.applied === "boolean" ? result.applied : true;
+}
+
+/**
+ * Validate and apply one mutation against its registry entry.
+ *
+ * `K` flows through a single lookup into `serverMutators` (a mapped template
+ * over `MutatorName`), so the entry's arg schema and runner share one args
+ * type: `parsed.data` is exactly what `entry.run` declares — no cast, and no
+ * runtime path reads to recover fields later. Post-commit work comes back as
+ * typed follow-up descriptors harvested by the entry itself.
+ */
+async function applyMutation<K extends MutatorName>(
+  tx: DbTx,
+  mutatorName: K,
+  rawArgs: unknown,
+  ctx: ServerMutatorCtx,
+): Promise<MutationOutcome> {
+  const outcome: MutationOutcome = { applied: false, followUps: [] };
+  const entry = serverMutators[mutatorName];
+  const parsed = entry.args.safeParse(rawArgs);
+  if (!parsed.success) {
+    console.warn("[replicache:push] invalid args for", mutatorName, parsed.error.issues);
+    return outcome;
+  }
+
+  let mutatorResult: unknown;
+  try {
+    // Savepoint isolates mutator failures so one bad mutation doesn't
+    // poison the whole batch.
+    await runAtomic(tx, async (subTx: DbTx) => {
+      mutatorResult = await entry.run(subTx, parsed.data, ctx);
+    });
+  } catch (err) {
+    if (err instanceof MutatorForbiddenError) {
+      console.warn("[replicache:push] ACL rejected", mutatorName, err.message);
+    } else {
+      console.error("[replicache:push] mutator crashed", mutatorName, toMessage(err));
+    }
+    return outcome;
+  }
+
+  if (!didMutatorApply(mutatorResult)) return outcome;
+
+  outcome.applied = true;
+  if (entry.followUp) outcome.followUps = entry.followUp(ctx.userId, parsed.data);
+  return outcome;
 }
 
 async function advanceLMID(
@@ -100,14 +117,7 @@ export async function handlePush(
   // Entire push runs inside one transaction: clientGroup bind + all mutation
   // writes + LMID advances. Per-mutation failures are isolated via savepoints.
   const outcome = await db().transaction<
-    | { forbidden: true }
-    | {
-        forbidden: false;
-        needsPoke: boolean;
-        needsPolicyBust: boolean;
-        relabelThreads: string[];
-        cleanupThreads: string[];
-      }
+    { forbidden: true } | { forbidden: false; needsPoke: boolean; followUps: MutatorFollowUp[] }
   >(async (tx) => {
     const [group] = await tx
       .select()
@@ -134,9 +144,8 @@ export async function handlePush(
     }
 
     let needsPoke = false;
-    let needsPolicyBust = false;
-    const relabelThreads: string[] = [];
-    const cleanupThreads: string[] = [];
+    let followUps: MutatorFollowUp[] = [];
+    const ctx: ServerMutatorCtx = { userId };
 
     for (const mutation of mutations) {
       if (!isKnownMutator(mutation.name)) {
@@ -149,63 +158,24 @@ export async function handlePush(
         continue;
       }
 
-      const mutatorName: MutatorName = mutation.name;
-      const schema = mutatorArgsSchemas[mutatorName];
-      const parsed = schema.safeParse(mutation.args);
-      if (!parsed.success) {
-        await advanceLMID(tx, clientGroupID, mutation.clientID, mutation.id);
-        console.warn("[replicache:push] invalid args for", mutatorName, parsed.error.issues);
-        continue;
-      }
-
       const lastMutationId = await getLMID(tx, mutation.clientID);
       if (mutation.id <= lastMutationId) {
         // Already applied — Replicache retries produce duplicates by design.
         continue;
       }
 
-      let applied = false;
-      let mutatorResult: ServerMutatorResult | undefined;
-      try {
-        // Savepoint isolates mutator failures so one bad mutation doesn't
-        // poison the whole batch.
-        await runAtomic(tx, async (subTx: DbTx) => {
-          const runner = serverMutators[mutatorName] as (
-            tx: DbTx,
-            args: unknown,
-            ctx: { userId: string },
-          ) => Promise<ServerMutatorResult>;
-          mutatorResult = await runner(subTx, parsed.data, { userId });
-        });
-        applied = didMutatorApply(mutatorResult);
-      } catch (err) {
-        if (err instanceof MutatorForbiddenError) {
-          console.warn("[replicache:push] ACL rejected", mutatorName, err.message);
-        } else {
-          console.error("[replicache:push] mutator crashed", mutatorName, toMessage(err));
-        }
-      }
+      const result = await applyMutation(tx, mutation.name, mutation.args, ctx);
 
       // Advance LMID regardless of success so the client doesn't re-queue forever.
       await advanceLMID(tx, clientGroupID, mutation.clientID, mutation.id);
 
-      if (applied) {
+      if (result.applied) {
         needsPoke = true;
-        if (POLICY_BUST_MUTATORS.has(mutatorName)) needsPolicyBust = true;
-        if (RELABEL_MUTATORS.has(mutatorName)) {
-          // `parsed.data` is the override schema's output — carries `threadId`.
-          const threadId = getStringPath(parsed.data, "threadId");
-          if (threadId !== undefined) relabelThreads.push(threadId);
-        }
-        if (STORAGE_CLEANUP_MUTATORS.has(mutatorName)) {
-          // `chatThreadDelete` args carry the deleted thread's `id`.
-          const id = getStringPath(parsed.data, "id");
-          if (id !== undefined) cleanupThreads.push(id);
-        }
+        followUps = followUps.concat(result.followUps);
       }
     }
 
-    return { forbidden: false, needsPoke, needsPolicyBust, relabelThreads, cleanupThreads };
+    return { forbidden: false, needsPoke, followUps };
   });
 
   if (outcome.forbidden) return { forbidden: true };
@@ -222,34 +192,38 @@ export async function handlePush(
   // Bust the dispatcher's in-process policy cache across all instances AFTER
   // commit, so a gated→autonomy flip takes effect on the next dispatched tool
   // call. Best-effort (publishPolicyBust swallows Redis blips internally).
-  if (outcome.needsPolicyBust) {
+  // Once per push, however many policy flips the batch carried.
+  if (outcome.followUps.some((f) => f.kind === "bustPolicyCache")) {
     await publishPolicyBust(userId);
   }
 
-  // Reconcile each overridden thread's Gmail label. The DB tag is already
-  // committed; the relabel JOB converges Gmail and is idempotent, so a failed
-  // enqueue self-heals on the next override/classify.
-  //
-  // The job runs off the request path. The ENQUEUE does not, and it is not
-  // bounded: BullMQ shares the connection it is handed, so this `add` is an
-  // ordinary command on a `"queue"`-kind handle, which `@alfred/db/redis`
-  // documents as unbounded in every case. During a Redis outage this `await`
-  // waits indefinitely and the `catch` below is unreachable.
-  for (const sourceThreadId of outcome.relabelThreads) {
+  // Everything below runs off the request path's critical data path, but the
+  // ENQUEUE calls do not, and they are not bounded: BullMQ shares the
+  // connection it is handed, so an `add` is an ordinary command on a
+  // `"queue"`-kind handle, which `@alfred/db/redis` documents as unbounded in
+  // every case. During a Redis outage each `await` below waits indefinitely and
+  // its `catch` is unreachable. Every job is idempotent, so a lost enqueue
+  // self-heals on the next override/classify/account sweep.
+
+  // Reconcile overridden threads' Gmail labels: the DB tag committed above; the
+  // relabel JOB converges Gmail.
+  for (const f of outcome.followUps) {
+    if (f.kind !== "relabelThread") continue;
     try {
-      await enqueueTriageRelabel(userId, sourceThreadId);
+      await enqueueTriageRelabel(userId, f.sourceThreadId);
     } catch (err) {
       console.warn("[replicache:push] triage relabel enqueue failed:", toMessage(err));
     }
   }
 
-  // Reap each deleted thread's attachment objects from the bucket (ADR-0065).
-  // The rows already cascaded in-transaction; this drops the bytes by prefix.
-  // Best-effort — a failed enqueue leaves orphaned objects (single-user,
-  // near-zero cost) that the account-delete prefix sweep eventually reaps.
-  for (const threadId of outcome.cleanupThreads) {
+  // Reap deleted threads' attachment objects from the bucket (ADR-0065). The
+  // rows cascaded in-transaction; this drops the bytes by prefix. Best-effort —
+  // a failed enqueue leaves orphaned objects (single-user, near-zero cost) that
+  // the account-delete prefix sweep eventually reaps.
+  for (const f of outcome.followUps) {
+    if (f.kind !== "cleanChatStorage") continue;
     try {
-      await enqueueChatStorageCleanup(userId, `chat/${userId}/${threadId}/`);
+      await enqueueChatStorageCleanup(userId, `chat/${userId}/${f.threadId}/`);
     } catch (err) {
       console.warn("[replicache:push] chat storage cleanup enqueue failed:", toMessage(err));
     }
