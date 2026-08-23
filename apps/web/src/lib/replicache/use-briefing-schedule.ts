@@ -1,10 +1,11 @@
 import {
+  briefingHourSchema,
   DEFAULT_BRIEFING_DELIVERY_HOUR,
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
+import { isIanaTimezone } from "@alfred/contracts";
 import { useMemo } from "react";
-import { z } from "zod";
 import { usePreferenceMap } from "./use-preferences";
 
 const BRIEFING_PREF_KEYS = {
@@ -37,17 +38,13 @@ export interface BriefingScheduleState {
   retry: () => void;
 }
 
-const hourSchema = z.coerce.number().int().min(0).max(23);
-const timezoneSchema = z.string().min(1);
-
 function parseHour(value: unknown): number | null {
-  const result = hourSchema.safeParse(value);
+  const result = briefingHourSchema.safeParse(value);
   return result.success ? result.data : null;
 }
 
 function parseTimezone(value: unknown): string | null {
-  const result = timezoneSchema.safeParse(value);
-  return result.success ? result.data : null;
+  return isIanaTimezone(value) ? value : null;
 }
 
 /**

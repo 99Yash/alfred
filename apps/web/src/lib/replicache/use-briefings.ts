@@ -16,12 +16,10 @@ function compareSlots(a: SyncedBriefing, b: SyncedBriefing): number {
 }
 
 function parseBriefingRows(values: unknown[]): SyncedBriefing[] {
-  const parsed: SyncedBriefing[] = [];
-  for (const value of values) {
+  return values.flatMap((value) => {
     const result = syncedBriefingSchema.safeParse(value);
-    if (result.success) parsed.push(result.data);
-  }
-  return parsed;
+    return result.success ? [result.data] : [];
+  });
 }
 
 export interface BriefingsState {
