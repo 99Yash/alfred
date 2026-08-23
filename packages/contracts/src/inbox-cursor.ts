@@ -34,8 +34,8 @@ export interface ParsedInboxCursor {
  * `indexOf("|")` on decode is unambiguous. Do not reuse this codec for an
  * id alphabet that may contain `|`.
  */
-export function encodeInboxCursor(authoredAt: Date, documentId: string): string {
-  return `${authoredAt.toISOString()}${INBOX_CURSOR_SEPARATOR}${documentId}`;
+export function encodeInboxCursor(parsed: ParsedInboxCursor): string {
+  return `${parsed.authoredAt.toISOString()}${INBOX_CURSOR_SEPARATOR}${parsed.documentId}`;
 }
 
 /**
