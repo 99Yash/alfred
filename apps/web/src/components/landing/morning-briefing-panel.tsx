@@ -23,6 +23,10 @@ export function MorningBriefingPanel({
       label="Alfred's morning briefing: overnight updates across Gmail, Calendar, Slack, Linear and GitHub collated into one digest with the day's meetings and key events."
       className={className}
       active={active}
+      // This clip is 1440x1260 in a 1.29 box, so `object-cover object-top`
+      // trims its last bullet — which the source itself already cut mid-line.
+      // Fade the bottom so the ledger reads as continuing past the frame.
+      fadeEdges={["bottom"]}
     />
   );
 }

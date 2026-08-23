@@ -16,6 +16,10 @@ export function MeetingPrepMockup({ className, active }: { className?: string; a
       label="Alfred's pre-meeting brief for a 1:1 with Anika: the meeting agenda with her brief sliding in. What's on her mind, what's worth bringing up, and what to watch out for."
       className={className}
       active={active}
+      // Same crop story as the inbox clip, on both sides: the source framing
+      // cuts the brief panel mid-word on the left and the day column on the
+      // right.
+      fadeEdges={["left", "right"]}
     />
   );
 }

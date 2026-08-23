@@ -5,13 +5,33 @@ import { cn } from "~/lib/utils";
  * Media helper for the hero showcase tabs. Each tab's content is a
  * self-contained, full-bleed clip that fills the device bezel — the bezel's
  * fixed aspect (`aspect-[1.29/1]` in HeroShowcase) keeps every tab the same
- * size so the crossfade never jumps. `object-top` anchors the meaningful
- * content at the top and crops only any empty/overflow tail.
+ * size so the crossfade never jumps.
  *
  * (These clips are brand-stopgaps sourced from dimension's site; the plan is
- * to replace them with Alfred-branded clips rendered in Open Runde — see the
- * Remotion video package.)
+ * to replace them with Alfred-branded clips rendered in Open Runde.)
  */
+
+/**
+ * Which edges of the clip fade out instead of ending on a hard cut.
+ *
+ * Two of the three source clips are crops of a wider recording, so their own
+ * pixels stop mid-content: the inbox clip cuts subject lines mid-word at the
+ * right edge, and the briefing clip cuts its last bullet mid-line at the
+ * bottom. A hard edge on truncated content reads as a broken crop. The same
+ * content behind a soft fade reads as "this continues past the frame", which
+ * is both true and the convention every scrolling surface already uses.
+ *
+ * The mask is applied to the video element, and the element's box is exactly
+ * the painted region (the bezel's aspect matches the clip's, and `object-cover`
+ * fills it), so the fade always lands on the real content edge.
+ */
+export type ShowcaseFadeEdge = "left" | "right" | "bottom";
+
+const EDGE_MASK: Record<ShowcaseFadeEdge, string> = {
+  left: "linear-gradient(to right, transparent 0%, #000 12%, #000 100%)",
+  right: "linear-gradient(to right, #000 0%, #000 88%, transparent 100%)",
+  bottom: "linear-gradient(to bottom, #000 0%, #000 86%, transparent 100%)",
+};
 
 /** Full-bleed looping product clip. Muted + autoPlay + loop + playsInline is
  * the standard recipe for a silent ambient hero clip that also satisfies
@@ -21,6 +41,7 @@ export function ShowcaseVideo({
   label,
   className,
   objectPosition = "top",
+  fadeEdges,
   active = true,
 }: {
   src: string;
@@ -28,6 +49,8 @@ export function ShowcaseVideo({
   label: string;
   className?: string | undefined;
   objectPosition?: "top" | "center" | undefined;
+  /** Edges where this clip's own framing truncates content. See ShowcaseFadeEdge. */
+  fadeEdges?: ReadonlyArray<ShowcaseFadeEdge> | undefined;
   /** When this tab becomes active, restart the clip from the top so the
    * animation always plays from frame 0 rather than wherever the loop was. */
   active?: boolean | undefined;
@@ -44,11 +67,25 @@ export function ShowcaseVideo({
     });
   }, [active]);
 
+  // Several edges compose by intersecting their masks, which is what
+  // `mask-composite: intersect` does — each listed edge fades independently.
+  const mask = fadeEdges?.length ? fadeEdges.map((edge) => EDGE_MASK[edge]).join(", ") : undefined;
+
   return (
     <video
       ref={ref}
       className={cn("size-full object-cover", className)}
-      style={{ objectPosition }}
+      style={{
+        objectPosition,
+        ...(mask
+          ? {
+              maskImage: mask,
+              WebkitMaskImage: mask,
+              maskComposite: "intersect",
+              WebkitMaskComposite: "source-in",
+            }
+          : {}),
+      }}
       src={src}
       autoPlay
       loop

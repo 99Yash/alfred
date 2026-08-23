@@ -16,6 +16,9 @@ export function InboxMockup({ className, active }: { className?: string; active?
       label="Alfred auto-labelling an inbox: every inbound email tagged as action needed, fyi, marketing, or done, with replies pre-drafted on the ones that need a response."
       className={className}
       active={active}
+      // The source clip is a crop of a wider Gmail window: subject lines run
+      // off the right edge mid-word. Fade that edge rather than guillotine it.
+      fadeEdges={["right"]}
     />
   );
 }
