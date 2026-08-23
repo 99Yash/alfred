@@ -1,14 +1,8 @@
 import { t } from "elysia";
+import { HARD_MUTATION_LIMIT, MAX_MUTATIONS } from "./constants";
 
 export namespace ReplicacheModel {
-  /** Per-request mutation cap. Batches over this are rejected with 413. */
-  export const MAX_MUTATIONS = 100;
-
-  /**
-   * TypeBox cap — returns 422 before the handler runs. Sized well above
-   * the soft cap so legitimate clients never hit it.
-   */
-  const HARD_MUTATION_LIMIT = 1000;
+  export { HARD_MUTATION_LIMIT, MAX_MUTATIONS };
 
   /**
    * Cookie identifies the client's previous CVR snapshot. Embeds

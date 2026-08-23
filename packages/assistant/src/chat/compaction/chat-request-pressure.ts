@@ -3,18 +3,13 @@ import { asSchema, type ModelMessage, type ToolSet } from "ai";
 import { effectiveInputWindowTokens } from "@alfred/ai";
 
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
+import {
+  CHAT_HYDRATED_IMAGE_TOKENS,
+  CHAT_MAX_OUTPUT_TOKENS,
+  CHAT_SYNC_COMPACTION_RATIO,
+} from "./constants";
 
-/** Synchronous chat compaction is the safety backstop, not the normal trigger. */
-const CHAT_SYNC_COMPACTION_RATIO = 0.85;
-export const CHAT_MAX_OUTPUT_TOKENS = 16_000;
-
-/**
- * Provider image accounting is dimension-dependent and unavailable after the
- * SDK content part has been hydrated to base64. Use a conservative fixed
- * allowance instead of treating base64 transport bytes as text tokens, which
- * would over-count a normal image by orders of magnitude.
- */
-export const CHAT_HYDRATED_IMAGE_TOKENS = 2_000;
+export { CHAT_HYDRATED_IMAGE_TOKENS, CHAT_MAX_OUTPUT_TOKENS };
 
 export interface ChatRequestTokenEstimate {
   systemTokens: number;
