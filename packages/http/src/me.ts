@@ -38,11 +38,12 @@ import {
   eq,
   inArray,
   isNull,
+  lt,
   notInArray,
   or,
   sql as drizzleSql,
 } from "drizzle-orm";
-import { inboxCursorWhere } from "./inbox-cursor";
+import type { ParsedInboxCursor } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
@@ -104,6 +105,21 @@ async function claimBriefingRunRetry(args: {
     console.warn("[me:briefings] run throttle unavailable:", toMessage(err));
     return true;
   }
+}
+
+/**
+ * Drizzle `WHERE` for the inbox cursor. It must mirror
+ * `orderBy(desc(authoredAt), desc(id))` below — `id` tie-breaks rows that
+ * share an `authoredAt` (Gmail batch). Keep it next to the ORDER BY so drift
+ * is visible. It is inbox-specific and used once, so it lives here, not in
+ * a shared pagination file.
+ */
+function inboxCursorWhere(cursor: ParsedInboxCursor | null) {
+  if (!cursor) return undefined;
+  return or(
+    lt(documents.authoredAt, cursor.authoredAt),
+    and(eq(documents.authoredAt, cursor.authoredAt), lt(documents.id, cursor.documentId)),
+  );
 }
 
 export interface MeInboxItem {
@@ -458,7 +474,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const last = pageRows[pageRows.length - 1];
           const nextCursor =
             hasMore && last?.authoredAt
-              ? encodeInboxCursor(last.authoredAt, last.documentId)
+              ? encodeInboxCursor({ authoredAt: last.authoredAt, documentId: last.documentId })
               : null;
 
           const items: MeInboxItem[] = pageRows.map((r) => {
