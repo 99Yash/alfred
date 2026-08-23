@@ -13,7 +13,6 @@ export {
   sniffPassThroughImageMime,
   toAttachmentRow,
   type AttachmentDegradation,
-  type AttachmentInput,
 } from "./attachments";
 export {
   attachmentObjectKeys,

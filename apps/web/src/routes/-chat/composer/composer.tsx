@@ -15,7 +15,7 @@ import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
 import { MicWaveform } from "../mic-recording";
-import type { ChatTier } from "../model-tier-picker";
+import type { ChatModelTier } from "@alfred/contracts";
 import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
@@ -71,8 +71,8 @@ export function Composer({
   autoApprovePending?: boolean | undefined;
   onToggleAutoApprove?: (() => void) | undefined;
   /** Model-tier picker (Auto vs Deep) state + setter. */
-  tier: ChatTier;
-  onTierChange: (tier: ChatTier) => void;
+  tier: ChatModelTier;
+  onTierChange: (tier: ChatModelTier) => void;
 }) {
   const editorRef = useRef<TiptapComposerHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);

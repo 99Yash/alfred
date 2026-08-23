@@ -18,7 +18,7 @@ import {
   type ProjectionRun,
 } from "@alfred/db/schemas";
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
-import { type DbExecutor } from "./executor";
+import { type DbTransaction } from "@alfred/db";
 import { projectGmailKindProfiles } from "./gmail-kind-fold";
 import { requireEntityIdNamespace } from "./namespace";
 import { liveObservationHeadJoin } from "./observations";
@@ -297,7 +297,7 @@ async function gmailProjectionHighWatermark(
   });
 }
 
-async function dbNow(tx: DbExecutor): Promise<Date> {
+async function dbNow(tx: DbTransaction): Promise<Date> {
   const result = await tx.execute(sql`select now() as "capturedAt"`);
   const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(result)[0]?.capturedAt;
   const capturedAt = rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");

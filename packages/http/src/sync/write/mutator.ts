@@ -5,16 +5,8 @@ export interface ServerMutatorCtx {
   userId: string;
 }
 
-// The push handler runs every mutator inside its outer transaction's savepoint,
-// so a mutator's executor is always a `DbTransaction`, never a pooled `db()`
-// handle. Typing it as such makes handing a pool to a mutator (re-forking the
-// transaction, breaking atomicity) a compile error at the call site. A body that
-// re-imports `db()` itself stays a code-review concern — the type only guards the
-// executor that is passed in.
-export type DbTx = DbTransaction;
-
 /** Signature of one server mutator's executor, generic over its validated args. */
-export type MutatorRun<A> = (tx: DbTx, args: A, ctx: ServerMutatorCtx) => Promise<unknown>;
+export type MutatorRun<A> = (tx: DbTransaction, args: A, ctx: ServerMutatorCtx) => Promise<unknown>;
 
 /**
  * Post-commit work a mutator hands back to the push handler. The DB write

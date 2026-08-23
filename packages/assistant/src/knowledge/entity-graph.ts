@@ -77,8 +77,6 @@ function rowToEntity(r: Entity): EntityRow {
  * 2026-06-16), so a failed apply rolls back the marker too and the next run
  * retries cleanly. Omit it and each helper opens its own transaction as before.
  */
-export type DbExecutor = DbTransaction;
-
 /**
  * Upsert by `(user_id, kind, canonical_name)`. Aliases merge — never
  * shrink — so re-extracting "Alice Doe" with a new alias preserves prior
@@ -88,7 +86,7 @@ export type DbExecutor = DbTransaction;
  * collides with a *different* existing person merges onto that row. For people,
  * whose stable identity is the email, prefer {@link upsertPersonByAlias}.
  */
-export async function upsertEntity(args: UpsertEntityArgs, tx?: DbExecutor): Promise<EntityRow> {
+export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): Promise<EntityRow> {
   const parsed = upsertEntityArgsSchema.parse(args);
   const aliases = parsed.aliases ?? [];
   const metadata = parsed.metadata ?? {};
@@ -96,7 +94,7 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbExecutor): Pro
   // Two-step: try insert; if the unique key collides, merge by hand.
   // Simpler than expressing alias-merge in a single onConflictDoUpdate
   // (jsonb array union with dedup is awkward in Drizzle).
-  const run = async (ex: DbExecutor): Promise<EntityRow> => {
+  const run = async (ex: DbTransaction): Promise<EntityRow> => {
     const [existing] = await ex
       .select()
       .from(entities)
@@ -173,14 +171,14 @@ export interface UpsertPersonByAliasArgs {
  */
 export async function upsertPersonByAlias(
   args: UpsertPersonByAliasArgs,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<EntityRow> {
   const address = args.address.trim().toLowerCase();
   if (!address) {
     throw new Error("[memory.entities] upsertPersonByAlias requires a non-empty address");
   }
 
-  const run = async (ex: DbExecutor): Promise<EntityRow> => {
+  const run = async (ex: DbTransaction): Promise<EntityRow> => {
     const [existing] = await ex
       .select()
       .from(entities)
@@ -233,7 +231,7 @@ export async function upsertPersonByAlias(
 }
 
 /** Add a relation. Idempotent — duplicate `(from, to, relation)` is a no-op. */
-export async function linkEntities(args: LinkEntitiesArgs, tx?: DbExecutor): Promise<void> {
+export async function linkEntities(args: LinkEntitiesArgs, tx?: DbTransaction): Promise<void> {
   const parsed = linkEntitiesArgsSchema.parse(args);
   await (tx ?? db())
     .insert(entityRelations)

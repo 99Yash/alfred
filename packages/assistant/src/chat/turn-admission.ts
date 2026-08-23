@@ -41,11 +41,11 @@ import { requestChatStop } from "./stop-signal";
 import {
   attachmentRequestMatchesExistingRows,
   sameInsertedAttachmentRows,
-  type AttachmentInsertRow,
   type ExistingAttachmentSummary,
   type FreshAttachmentDescriptor,
   type RetryAttachmentSource,
 } from "./turn-attachment-reconciliation";
+import type { NewChatAttachment } from "@alfred/db/schemas";
 
 /**
  * Turn admission: the decisions a chat send takes that outlive the response.
@@ -394,7 +394,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
   // Build the fresh attachment rows before any durable chat writes.
   // Storage verification runs inside the transaction after taking the
   // same per-key lock as orphan cleanup.
-  const freshAttachmentRows: AttachmentInsertRow[] = [];
+  const freshAttachmentRows: NewChatAttachment[] = [];
   if (!reuseExistingAttachmentRows) {
     for (const [position, attachment] of attachments.entries()) {
       const degradation = await resolveAttachmentDegradation({
@@ -425,7 +425,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
   // exist, so nothing is re-uploaded — the client sent only source ids.
   // Ownership-scoped to this user. Honors the combined per-message cap,
   // and rejects instead of silently dropping requested attachments.
-  const retryAttachmentRows: AttachmentInsertRow[] = [];
+  const retryAttachmentRows: NewChatAttachment[] = [];
   if (retrySources.length > 0 && !reuseExistingAttachmentRows) {
     for (const src of retrySources) {
       const newAttachmentId = createId("att");

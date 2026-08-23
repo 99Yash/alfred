@@ -13,7 +13,7 @@ import {
   type ObservationSource,
 } from "@alfred/contracts";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { type DbExecutor } from "./executor";
+import type { DbTransaction } from "@alfred/db";
 import { requireEntityIdNamespace } from "./namespace";
 
 /**
@@ -39,12 +39,12 @@ import { requireEntityIdNamespace } from "./namespace";
  */
 export async function ensureEntityNode(
   args: { userId: string; identity: IdentityRef; firstSeenAt: Date },
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<EntityNode> {
   const secret = requireEntityIdNamespace();
   const row = makeEntityNodeInsert(secret, args.userId, args.identity, args.firstSeenAt);
 
-  const run = async (ex: DbExecutor): Promise<EntityNode> => {
+  const run = async (ex: DbTransaction): Promise<EntityNode> => {
     await ex
       .insert(entityNodes)
       .values(row)
@@ -136,11 +136,11 @@ export interface RecordEntityIdentityArgs {
  */
 export async function recordEntityIdentity(
   args: RecordEntityIdentityArgs,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<EntityIdentity> {
   const identity = identityRefSchema.parse(args.identity);
 
-  const run = async (ex: DbExecutor): Promise<EntityIdentity> => {
+  const run = async (ex: DbTransaction): Promise<EntityIdentity> => {
     await ex
       .insert(entityIdentities)
       .values({

@@ -54,7 +54,7 @@ import {
 import { triageTagOverride } from "./triage-tags";
 import { workflowUpdate } from "./workflows";
 
-export type { DbTx, MutatorFollowUp, RegisteredServerMutator, ServerMutatorCtx } from "./mutator";
+export type { MutatorFollowUp, RegisteredServerMutator, ServerMutatorCtx } from "./mutator";
 
 /**
  * The push registry, one domain file per executor.

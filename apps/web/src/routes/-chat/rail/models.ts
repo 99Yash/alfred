@@ -25,7 +25,7 @@ export interface RailInboxItem {
   authoredAtMs?: number | null | undefined;
   unread?: boolean | undefined;
   initial: string;
-  tone: RailToolTone;
+  tone: AppTint;
   threadId?: string | null | undefined;
   category?: TriageCategory | null | undefined;
   categorySource?: TriageTagSource | null | undefined;
@@ -42,5 +42,3 @@ export interface RailMeetingItem {
   with: string;
   status?: "now" | "next" | "later" | undefined;
 }
-
-export type RailToolTone = AppTint;

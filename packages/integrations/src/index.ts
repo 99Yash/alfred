@@ -12,4 +12,5 @@ export * as credentials from "./shared/credentials";
 // `integrations({ userId }).github.search({ q })`. This is the intended door for
 // provider access inside a tool dispatch. Prefer it to credential functions:
 // tool code should never resolve or carry provider tokens.
-export { integrations, type Integrations, type IntegrationsOptions } from "./integrations";
+export { integrations, type Integrations } from "./integrations";
+export type { ProviderBindOptions } from "./shared/provider";

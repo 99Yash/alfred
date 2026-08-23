@@ -10,20 +10,20 @@ import {
   _setDispatchTraceSinksForTests,
   buildDispatchRejectionTraceInput,
   dispatchToolCall,
-  type DispatchArgs,
 } from "../../../src/tool-runtime/internal/dispatch";
 import {
   clearToolRegistryForTests,
   liveTool,
   registerTool,
   type RegisteredTool,
+  type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
 import { closeRedis } from "@alfred/db/redis";
 
 const startedAt = new Date("2026-06-29T00:00:00.000Z");
 const UTC = parseIanaTimezone("UTC");
 
-const baseDispatch: DispatchArgs = {
+const baseDispatch: ToolCallDispatchArgs = {
   runId: "run_1",
   stepId: "dispatch-tools",
   toolCallId: "tc_1",

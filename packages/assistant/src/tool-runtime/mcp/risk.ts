@@ -34,14 +34,14 @@ import { resolveMcpToolIdentity, type ResolveMcpToolIdentityInput } from "./invo
 /** The conservative floor an `mcp.call` falls back to when no reviewed downgrade applies. */
 export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
 
-export type McpCallRiskInput = ResolveMcpToolIdentityInput;
-
 /**
  * Resolve the effective risk tier for one `mcp.call`, applying a reviewed
  * per-descriptor downgrade when — and only when — it binds to the exact tool the
  * model is about to call on the connection's current catalog.
  */
-export async function resolveMcpCallRiskTier(input: McpCallRiskInput): Promise<ToolRiskTier> {
+export async function resolveMcpCallRiskTier(
+  input: ResolveMcpToolIdentityInput,
+): Promise<ToolRiskTier> {
   const identity = await resolveMcpToolIdentity(input);
   if (identity.status !== "resolved") return MCP_CALL_RISK_FLOOR;
 

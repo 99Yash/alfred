@@ -47,9 +47,6 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
  * background/non-tool work, but tool code never resolves or carries a token.
  */
 
-/** The root bind options — the one shared shape, surfaced under a call-site name. */
-export type IntegrationsOptions = ProviderBindOptions;
-
 /**
  * The single source of truth for which providers the root exposes. Add a
  * provider here and its client type flows into {@link Integrations} automatically
@@ -80,7 +77,7 @@ export type Integrations = {
  * {@link providerRegistry}, so the chain is fully typed for every registered
  * provider without per-provider glue.
  */
-export function integrations(options: IntegrationsOptions): Integrations {
+export function integrations(options: ProviderBindOptions): Integrations {
   const bound = {} as { [K in keyof ProviderRegistry]: ReturnType<ProviderRegistry[K]> };
   for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {
     // Localized cast: iterating string keys collapses the registry to a union of
