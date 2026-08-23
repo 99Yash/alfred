@@ -119,7 +119,7 @@ describe("serverMutators.triageTagOverride", () => {
   test("sets the row to a user-authored tag and bumps the CVR version", async () => {
     const { tx, calls } = makeUpdateTx();
 
-    const result = await serverMutators.triageTagOverride(
+    const result = await serverMutators.triageTagOverride.run(
       tx,
       { threadId: baseTag.threadId, category: "action_needed" },
       { userId: baseTag.userId },
@@ -148,7 +148,7 @@ describe("serverMutators.triageTagOverride", () => {
   test("reports no-op when the override update matched no triage row", async () => {
     const { tx, calls } = makeUpdateTx([]);
 
-    const result = await serverMutators.triageTagOverride(
+    const result = await serverMutators.triageTagOverride.run(
       tx,
       { threadId: "missing_thread", category: "urgent" },
       { userId: baseTag.userId },

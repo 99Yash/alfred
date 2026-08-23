@@ -183,7 +183,7 @@ describe("existing todo transitions still behave (no regression)", () => {
 describe("server mutators", () => {
   test("todoClear sets status=cleared and bumps the CVR version", async () => {
     const { tx, calls } = makeUpdateTx();
-    await serverMutators.todoClear(tx, { id: "todo_1" }, { userId: "user_1" });
+    await serverMutators.todoClear.run(tx, { id: "todo_1" }, { userId: "user_1" });
     const { setValue, whereCalled } = calls();
     assert.equal(setValue?.status, "cleared");
     assert.ok(setValue?.rowVersion);
@@ -192,7 +192,7 @@ describe("server mutators", () => {
 
   test("todoCompleteSuggestion sets status=done with completedAt and bumps the version", async () => {
     const { tx, calls } = makeUpdateTx();
-    await serverMutators.todoCompleteSuggestion(tx, { id: "todo_1" }, { userId: "user_1" });
+    await serverMutators.todoCompleteSuggestion.run(tx, { id: "todo_1" }, { userId: "user_1" });
     const { setValue, whereCalled } = calls();
     assert.equal(setValue?.status, "done");
     assert.ok(setValue?.completedAt instanceof Date);
@@ -202,13 +202,13 @@ describe("server mutators", () => {
 
   test("todoDismiss sets status=dismissed (regression)", async () => {
     const { tx, calls } = makeUpdateTx();
-    await serverMutators.todoDismiss(tx, { id: "todo_1" }, { userId: "user_1" });
+    await serverMutators.todoDismiss.run(tx, { id: "todo_1" }, { userId: "user_1" });
     assert.equal(calls().setValue?.status, "dismissed");
   });
 
   test("todoComplete sets status=done (regression)", async () => {
     const { tx, calls } = makeUpdateTx();
-    await serverMutators.todoComplete(tx, { id: "todo_1" }, { userId: "user_1" });
+    await serverMutators.todoComplete.run(tx, { id: "todo_1" }, { userId: "user_1" });
     assert.equal(calls().setValue?.status, "done");
     assert.ok(calls().setValue?.completedAt instanceof Date);
   });
