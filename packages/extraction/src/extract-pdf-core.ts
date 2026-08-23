@@ -6,8 +6,8 @@ import {
   type ExtractedPdfPage,
   type InvalidPdfCause,
   type PdfDocumentType,
-  type PdfExtractionLimits,
 } from "./extract-pdf";
+import type { PdfExtractionLimits } from "./constants";
 import {
   createPdfExtractionLimitResult,
   pdfExtractionContentCharacterCount,
@@ -104,7 +104,8 @@ function toExtractedPdfPage(page: PageMarkdownResult): ExtractedPdfPage {
  */
 export async function extractPdfCore(
   bytes: Uint8Array,
-  limits: Pick<PdfExtractionLimits, "maxCharacters" | "truncateOnOutputExceed">,
+  limits: Pick<PdfExtractionLimits, "maxCharacters"> &
+    Partial<Pick<PdfExtractionLimits, "truncateOnOutputExceed">>,
   load: LoadPdfInspector = loadInspector,
 ): Promise<ExtractedPdf> {
   const { maxCharacters } = limits;

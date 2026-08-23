@@ -1,8 +1,7 @@
 import type { ContentFormat } from "@alfred/contracts";
 import { createPdfExtractor, type ExtractedPdf } from "./extract-pdf";
 import { parsePdfExtractionLimits, truncateTextToFit } from "./extract-pdf-protocol";
-import { DOOR_LIMITS } from "./constants";
-import type { ExtractionDoor, ExtractionLimits } from "./constants";
+import type { ExtractionLimits } from "./constants";
 
 /**
  * Normalized extraction result for any `ContentFormat`. PDF keeps page offsets;
