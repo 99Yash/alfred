@@ -8,8 +8,8 @@ import {
   syncedSkillSchema,
 } from "@alfred/sync";
 import { useEffect, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache } from "~/lib/replicache/client";
+import type { ReadTransaction, Replicache } from "replicache";
+import type { ClientMutators } from "@alfred/sync";
 import { useReplicacheStatus } from "~/lib/replicache/context";
 
 export interface SkillsState {
@@ -23,7 +23,7 @@ export interface SkillsState {
 export function useSkills(): SkillsState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     skills: SyncedSkill[];
   } | null>(null);
 
@@ -60,7 +60,7 @@ export function useSkills(): SkillsState {
 }
 
 interface SkillDetailSnapshot {
-  rep: AlfredReplicache;
+  rep: Replicache<ClientMutators>;
   slug: string;
   skill: SyncedSkill | null;
   revision: SyncedSkillRevision | null;

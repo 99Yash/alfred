@@ -32,15 +32,13 @@ const REPLICACHE_SCHEMA_VERSION = "1";
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
-export type AlfredReplicache = Replicache<ClientMutators>;
-
 /**
  * A Replicache handle paired with the last value read for it. The subscription
  * hooks (`use-briefings`, `use-workflows`, `use-chat`) store this so a client
  * swap and its stale snapshot are discarded together.
  */
 export interface ReplicacheSnapshot<T> {
-  rep: AlfredReplicache;
+  rep: Replicache<ClientMutators>;
   value: T;
 }
 
@@ -79,7 +77,7 @@ export function createReplicache(
   userId: string,
   options: CreateReplicacheOptions = {},
 ): {
-  rep: AlfredReplicache;
+  rep: Replicache<ClientMutators>;
   close: () => void;
 } {
   // One place for "this pull/push failed": a 401 means the session cookie

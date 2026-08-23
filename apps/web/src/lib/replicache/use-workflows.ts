@@ -5,8 +5,9 @@ import {
   type WorkflowUpdateArgs,
 } from "@alfred/sync";
 import { useCallback, useEffect, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache, ReplicacheSnapshot } from "./client";
+import type { ReadTransaction, Replicache } from "replicache";
+import type { ClientMutators } from "@alfred/sync";
+import type { ReplicacheSnapshot } from "./client";
 import { useReplicacheStatus } from "./context";
 
 export interface WorkflowsState {
@@ -66,7 +67,7 @@ export interface WorkflowState {
 export function useWorkflow(slug: string): WorkflowState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     slug: string;
     workflow: SyncedWorkflow | null;
   } | null>(null);

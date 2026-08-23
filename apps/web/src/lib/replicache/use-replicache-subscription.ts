@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache } from "./client";
+import type { ReadTransaction, Replicache } from "replicache";
+import type { ClientMutators } from "@alfred/sync";
 import { useReplicacheStatus } from "./context";
-
-const identity = <T>(value: T): T => value;
 
 /**
  * Shared Replicache subscription helper.
@@ -25,19 +23,22 @@ const identity = <T>(value: T): T => value;
  * `useCallback` at the call site) — a new reference correctly resubscribes,
  * but a per-render recreation would resubscribe on every render.
  */
-export function useReplicacheSubscription<T, U = T>(
+export function useReplicacheSubscription<T>(
+  query: ((tx: ReadTransaction) => Promise<T>) | null,
+): T | null;
+export function useReplicacheSubscription<T, U>(
+  query: ((tx: ReadTransaction) => Promise<T>) | null,
+  select: (data: T) => U,
+): U | null;
+export function useReplicacheSubscription<T, U>(
   query: ((tx: ReadTransaction) => Promise<T>) | null,
   select?: (data: T) => U,
-): U | null {
+): (T | U) | null {
   const { rep } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
-    value: U;
+    rep: Replicache<ClientMutators>;
+    value: T | U;
   } | null>(null);
-
-  // When `select` is absent the identity is stable and never forces a
-  // resubscribe; when it is present the caller must stabilize it.
-  const mapper = (select ?? identity) as (data: T) => U;
 
   useEffect(() => {
     if (!rep || !query) {
@@ -51,14 +52,20 @@ export function useReplicacheSubscription<T, U = T>(
     let cancelled = false;
     const unsubscribe = rep.subscribe(query, (data: T) => {
       if (cancelled) return;
-      setSnapshot({ rep, value: mapper(data) });
+      if (select) {
+        setSnapshot({ rep, value: select(data) });
+      } else {
+        // Overload 1 guarantees U = T when select is absent, so this
+        // narrowed write is sound; the cast stays isolated to this branch.
+        setSnapshot({ rep, value: data as unknown as U });
+      }
     });
 
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [rep, query, mapper]);
+  }, [rep, query, select]);
 
   return snapshot?.rep === rep ? snapshot.value : null;
 }
