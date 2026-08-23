@@ -15,6 +15,8 @@ export interface PreferenceMap {
   retry: () => void;
 }
 
+const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
+
 /**
  * Live view of the synced preference table (`pref/{key}` rows, ADR-0012).
  *
@@ -43,7 +45,7 @@ export function usePreferenceMap(): PreferenceMap {
   );
 
   const { values, loaded } = useMemo(() => {
-    if (rows === null) return { values: {} as Record<string, PreferenceValue>, loaded: false };
+    if (rows === null) return { values: EMPTY_PREFERENCE_VALUES, loaded: false };
     return { values: rows, loaded: true };
   }, [rows]);
 

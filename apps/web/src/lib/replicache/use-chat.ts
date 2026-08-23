@@ -8,8 +8,9 @@ import {
   type SyncedChatThread,
 } from "@alfred/sync";
 import { useEffect, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache, ReplicacheSnapshot } from "./client";
+import type { ReadTransaction, Replicache } from "replicache";
+import type { ClientMutators } from "@alfred/sync";
+import type { ReplicacheSnapshot } from "./client";
 import { useReplicache, useReplicacheStatus } from "./context";
 
 /**
@@ -49,7 +50,7 @@ export interface ChatThreadState {
 export function useChatThread(threadId: string | undefined): ChatThreadState {
   const { rep, loadError, pullError, initialPullPending } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     threadId: string;
     thread: SyncedChatThread | null;
   } | null>(null);
@@ -88,7 +89,7 @@ export interface ChatMessagesState {
 export function useChatMessages(threadId: string | undefined): ChatMessagesState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     threadId: string;
     rows: SyncedChatMessage[];
   } | null>(null);
@@ -134,7 +135,7 @@ export function useChatAttachmentsByMessage(
 ): Record<string, SyncedChatAttachment[]> {
   const rep = useReplicache();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     threadId: string;
     byMessage: Record<string, SyncedChatAttachment[]>;
   } | null>(null);

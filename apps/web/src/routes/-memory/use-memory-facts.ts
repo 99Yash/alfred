@@ -1,7 +1,7 @@
 import { IDB_KEY, type SyncedFact, syncedFactSchema } from "@alfred/sync";
+import type { ClientMutators } from "@alfred/sync";
 import { useCallback, useEffect, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache } from "~/lib/replicache/client";
+import type { ReadTransaction, Replicache } from "replicache";
 import { useReplicacheStatus } from "~/lib/replicache/context";
 
 interface MemoryFactsState {
@@ -22,7 +22,7 @@ function sortFacts(a: SyncedFact, b: SyncedFact): number {
 export function useMemoryFacts(): MemoryFactsState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     facts: SyncedFact[];
   } | null>(null);
 

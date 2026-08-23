@@ -1,7 +1,7 @@
 import { IDB_KEY, syncedArtifactSchema, type SyncedArtifact } from "@alfred/sync";
 import { useEffect, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache } from "./client";
+import type { ReadTransaction, Replicache } from "replicache";
+import type { ClientMutators } from "@alfred/sync";
 import { useReplicache, useReplicacheStatus } from "./context";
 
 export interface RecentArtifactsState {
@@ -20,7 +20,7 @@ export interface RecentArtifactsState {
 export function useRecentArtifacts(): RecentArtifactsState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     rows: SyncedArtifact[];
   } | null>(null);
 
@@ -64,7 +64,7 @@ export function useRecentArtifacts(): RecentArtifactsState {
 export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact[] {
   const rep = useReplicache();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     threadId: string;
     rows: SyncedArtifact[];
   } | null>(null);
@@ -96,7 +96,7 @@ export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact
 export function useArtifact(artifactId: string | undefined): SyncedArtifact | null {
   const rep = useReplicache();
   const [snapshot, setSnapshot] = useState<{
-    rep: AlfredReplicache;
+    rep: Replicache<ClientMutators>;
     artifactId: string;
     artifact: SyncedArtifact | null;
   } | null>(null);
