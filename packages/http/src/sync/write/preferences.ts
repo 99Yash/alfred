@@ -1,6 +1,7 @@
 import { deletePreferenceRow, upsertPreference } from "@alfred/assistant/settings";
 import type { PrefDeleteArgs, PrefSetArgs } from "@alfred/sync";
-import type { DbTx, ServerMutatorCtx } from "./mutator";
+import type { DbTransaction } from "@alfred/db";
+import type { ServerMutatorCtx } from "./mutator";
 
 /**
  * Upsert a preference. Last-write-wins per `(user_id, key)`; bumps
@@ -11,7 +12,11 @@ import type { DbTx, ServerMutatorCtx } from "./mutator";
  * commits inside the push handler's outer transaction. Awaited bare — no
  * `RETURNING` — so the emitted SQL is identical to the former inline.
  */
-export async function prefSet(tx: DbTx, args: PrefSetArgs, ctx: ServerMutatorCtx): Promise<void> {
+export async function prefSet(
+  tx: DbTransaction,
+  args: PrefSetArgs,
+  ctx: ServerMutatorCtx,
+): Promise<void> {
   await upsertPreference(tx, {
     userId: ctx.userId,
     key: args.key,
@@ -22,7 +27,7 @@ export async function prefSet(tx: DbTx, args: PrefSetArgs, ctx: ServerMutatorCtx
 
 /** Delete a preference. No-op if missing. */
 export async function prefDelete(
-  tx: DbTx,
+  tx: DbTransaction,
   args: PrefDeleteArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {

@@ -13,7 +13,7 @@ import {
   type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
 import { and, eq, inArray, ne } from "drizzle-orm";
-import { type DbExecutor } from "./executor";
+import type { DbTransaction } from "@alfred/db";
 
 export interface StartProjectionRunArgs {
   userId: string;
@@ -43,9 +43,9 @@ export interface StartProjectionRunResult {
  */
 export async function startProjectionRun(
   args: StartProjectionRunArgs,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<StartProjectionRunResult> {
-  const run = async (ex: DbExecutor): Promise<StartProjectionRunResult> => {
+  const run = async (ex: DbTransaction): Promise<StartProjectionRunResult> => {
     const [inserted] = await ex
       .insert(projectionRuns)
       .values({
@@ -123,7 +123,7 @@ export interface CompleteProjectionRunArgs {
  */
 export async function completeProjectionRun(
   args: CompleteProjectionRunArgs,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<ProjectionRun> {
   if (!args.checksum.trim()) {
     throw new Error(
@@ -181,7 +181,7 @@ export async function completeProjectionRun(
  */
 export async function failProjectionRun(
   args: { runId: string; userId: string; completedAt?: Date },
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<ProjectionRun> {
   const ex = tx ?? db();
   const [row] = await ex
@@ -236,9 +236,9 @@ export interface WriteProjectionCursorArgs {
  */
 export async function writeProjectionCursor(
   args: WriteProjectionCursorArgs,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<void> {
-  const run = async (ex: DbExecutor): Promise<void> => {
+  const run = async (ex: DbTransaction): Promise<void> => {
     const [target] = await ex
       .select({ status: projectionRuns.status })
       .from(projectionRuns)
@@ -296,9 +296,9 @@ export async function writeProjectionCursor(
  */
 export async function activateProjectionVersion(
   args: { userId: string; projectionName: string; runId: string },
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<ActiveProjectionVersion> {
-  const run = async (ex: DbExecutor): Promise<ActiveProjectionVersion> => {
+  const run = async (ex: DbTransaction): Promise<ActiveProjectionVersion> => {
     const [target] = await ex
       .select()
       .from(projectionRuns)

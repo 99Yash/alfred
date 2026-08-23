@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
-import type { ChatTier } from "../model-tier-picker";
+import type { ChatModelTier } from "@alfred/contracts";
 
 /**
  * Model-tier selection (Auto vs Deep) persisted to localStorage, so the choice
@@ -9,9 +9,11 @@ import type { ChatTier } from "../model-tier-picker";
  * Backed by the typed `alfred.chat.tier` key in the storage registry, so the
  * value is schema-validated on read/write and can't drift from the tier union.
  */
-export function useModelTier(): [ChatTier, (tier: ChatTier) => void] {
-  const [tier, setTierState] = useState<ChatTier>(() => getLocalStorageItem("alfred.chat.tier"));
-  const setTier = useCallback((next: ChatTier) => {
+export function useModelTier(): [ChatModelTier, (tier: ChatModelTier) => void] {
+  const [tier, setTierState] = useState<ChatModelTier>(() =>
+    getLocalStorageItem("alfred.chat.tier"),
+  );
+  const setTier = useCallback((next: ChatModelTier) => {
     setTierState(next);
     setLocalStorageItem("alfred.chat.tier", next);
   }, []);

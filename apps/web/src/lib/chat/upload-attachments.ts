@@ -25,9 +25,6 @@ export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
 
 const ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
 
-/** A descriptor for a file that uploaded successfully — handed to the turn. */
-export type UploadedAttachment = ChatAttachmentDescriptor;
-
 /**
  * Validate a picked file against the ingest policy. Returns an error message to
  * show the user, or `null` when the file is accepted. Phase 1 accepts only
@@ -65,7 +62,7 @@ export async function uploadAttachment(opts: {
   messageId: string;
   id: string;
   file: File;
-}): Promise<UploadedAttachment> {
+}): Promise<ChatAttachmentDescriptor> {
   const { threadId, messageId, id, file } = opts;
   const form = new FormData();
   form.append("threadId", threadId);

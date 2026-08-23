@@ -9,7 +9,8 @@ import type {
   MemorySource,
 } from "@alfred/sync";
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
-import type { DbTx, ServerMutatorCtx } from "./mutator";
+import type { DbTransaction } from "@alfred/db";
+import type { ServerMutatorCtx } from "./mutator";
 
 /**
  * Server-side mutators run inside the push handler's outer transaction
@@ -23,7 +24,7 @@ import type { DbTx, ServerMutatorCtx } from "./mutator";
  * fact mutators below re-implement the same logic inline against the
  * supplied `tx` so atomicity is preserved.
  */
-async function lockFactKey(tx: DbTx, userId: string, key: string): Promise<void> {
+async function lockFactKey(tx: DbTransaction, userId: string, key: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
 }
 
@@ -38,7 +39,11 @@ function canonicalSource(rawKey: string, source: MemorySource): MemorySource {
   return { ...source, meta: { ...source.meta, originalKey: canon.originalKey } };
 }
 
-async function activeFactsForKey(tx: DbTx, userId: string, key: string): Promise<UserFact[]> {
+async function activeFactsForKey(
+  tx: DbTransaction,
+  userId: string,
+  key: string,
+): Promise<UserFact[]> {
   return tx
     .select()
     .from(userFacts)
@@ -55,7 +60,7 @@ async function activeFactsForKey(tx: DbTx, userId: string, key: string): Promise
 }
 
 async function supersedeConflictingConfirmedFacts(
-  tx: DbTx,
+  tx: DbTransaction,
   userId: string,
   key: string,
   incomingValue: unknown,
@@ -99,7 +104,7 @@ async function supersedeConflictingConfirmedFacts(
  * leaving two confirmed `employer`/`job_title`/etc. rows.
  */
 export async function factConfirm(
-  tx: DbTx,
+  tx: DbTransaction,
   args: FactConfirmArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -157,7 +162,7 @@ export async function factConfirm(
  * writes cannot fork `company` from `employer` or leave two active truths.
  */
 export async function factCreate(
-  tx: DbTx,
+  tx: DbTransaction,
   args: FactCreateArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -194,7 +199,7 @@ export async function factCreate(
  * the extraction sub-agent doesn't re-propose it (ADR-0019).
  */
 export async function factReject(
-  tx: DbTx,
+  tx: DbTransaction,
   args: FactRejectArgs,
   ctx: ServerMutatorCtx,
 ): Promise<void> {
@@ -231,7 +236,11 @@ export async function factReject(
  * with `supersedes_id` linking back. Idempotent on `newFactId` —
  * the client mints it before pushing so a retry is a no-op.
  */
-export async function factEdit(tx: DbTx, args: FactEditArgs, ctx: ServerMutatorCtx): Promise<void> {
+export async function factEdit(
+  tx: DbTransaction,
+  args: FactEditArgs,
+  ctx: ServerMutatorCtx,
+): Promise<void> {
   const [old] = await tx
     .select()
     .from(userFacts)

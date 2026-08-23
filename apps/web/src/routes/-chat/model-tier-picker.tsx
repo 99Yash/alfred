@@ -6,12 +6,10 @@
  * `tier`, which the server maps through `route` (standard → the fast
  * everyday model, deep → the deeper-reasoning escalation).
  *
- * `ChatTier` aliases the canonical `ChatModelTier` from `@alfred/contracts`.
- * (Server-side the runtime mapping lives in `@alfred/ai` (`route`), a
- * server-only package that must never enter the web runtime bundle — see
- * `pnpm check:web-boundaries` — so the shared source of truth is the tier
- * literal in `@alfred/contracts`, importable from both sides, which keeps the
- * two from drifting.)
+ * The tier literal lives in `@alfred/contracts` (`ChatModelTier`), importable from
+ * both browser and server. Server-side the runtime mapping lives in `@alfred/ai`
+ * (`route`), a server-only package that must never enter the web runtime bundle
+ * — see `pnpm check:web-boundaries`.
  */
 import type { ChatModelTier } from "@alfred/contracts";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -21,15 +19,13 @@ import { AppThemeContext, type AppResolvedTheme } from "~/components/ui/v2/theme
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
 
-export type ChatTier = ChatModelTier;
-
 // Per-tier, theme-tuned Alfred marks. Like dimension's agent-mode picker, each
 // tier carries its OWN glyph — Standard is the calm single-capsule mark, Pro
 // nests a second capsule inside and lifts the gradient — so the two read as
 // distinct at a glance, not just by their label. Each tier then has a light/dark
 // variant (vivid + dark rim on light surfaces, calmer + light rim on dark). See
 // public/images/logo/alfred-logo{,-pro}-{light,dark}.svg.
-const TIER_MARK: Record<ChatTier, Record<AppResolvedTheme, string>> = {
+const TIER_MARK: Record<ChatModelTier, Record<AppResolvedTheme, string>> = {
   standard: {
     light: "/images/logo/alfred-logo-light.svg",
     dark: "/images/logo/alfred-logo-dark.svg",
@@ -41,7 +37,7 @@ const TIER_MARK: Record<ChatTier, Record<AppResolvedTheme, string>> = {
 };
 
 interface TierOption {
-  value: ChatTier;
+  value: ChatModelTier;
   label: string;
   description: string;
 }
@@ -63,8 +59,8 @@ export function ModelTierPicker({
   onChange,
   disabled,
 }: {
-  value: ChatTier;
-  onChange: (value: ChatTier) => void;
+  value: ChatModelTier;
+  onChange: (value: ChatModelTier) => void;
   disabled?: boolean | undefined;
 }) {
   const listboxId = useId();

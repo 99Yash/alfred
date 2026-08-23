@@ -5,11 +5,11 @@ import {
   attachmentRequestMatchesExistingRows,
   freshAttachmentRowsMatchSubset,
   sameInsertedAttachmentRows,
-  type AttachmentInsertRow,
   type ExistingAttachmentSummary,
   type FreshAttachmentDescriptor,
   type RetryAttachmentSource,
 } from "@alfred/assistant/chat/turn-attachment-reconciliation";
+import type { NewChatAttachment } from "@alfred/db/schemas";
 
 /**
  * The three predicates that decide whether a resent chat turn is the SAME turn.
@@ -52,7 +52,7 @@ function retrySource(
   };
 }
 
-function insertRow(id: string, overrides: Partial<AttachmentInsertRow> = {}): AttachmentInsertRow {
+function insertRow(id: string, overrides: Partial<NewChatAttachment> = {}): NewChatAttachment {
   return {
     id,
     userId: "u1",

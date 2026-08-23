@@ -17,7 +17,7 @@ import {
   type Observation,
 } from "@alfred/db/schemas";
 import { and, asc, eq, lte, or, sql, type SQL } from "drizzle-orm";
-import { type DbExecutor } from "./executor";
+import { type DbTransaction } from "@alfred/db";
 import { liveObservationHeadJoin } from "./observations";
 import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-classifier";
 import { ensureEntityNode, recordEntityIdentity } from "./entities";
@@ -65,9 +65,9 @@ interface ProfileChecksumRow {
 
 export async function projectGmailKindProfiles(
   args: ProjectGmailKindProfilesArgs,
-  tx?: DbExecutor,
+  tx?: DbTransaction,
 ): Promise<ProjectGmailKindProfilesResult> {
-  const run = async (ex: DbExecutor): Promise<ProjectGmailKindProfilesResult> => {
+  const run = async (ex: DbTransaction): Promise<ProjectGmailKindProfilesResult> => {
     const conds: SQL[] = [
       eq(observations.userId, args.userId),
       eq(observations.source, "gmail"),

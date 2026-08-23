@@ -12,11 +12,8 @@ export interface EntityRow {
   serialized: SyncedEntity;
 }
 
-// Typed loosely so this accepts either the pool or a Drizzle tx handle.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type DbTx = any;
-
-export type EntityFetcher = (tx: DbTx, userId: string) => Promise<EntityRow[]>;
+export type EntityFetcher = (tx: any, userId: string) => Promise<EntityRow[]>;
 
 /**
  * THE RECOVERABLE-SERIALIZATION PATH. Read this before editing any file in

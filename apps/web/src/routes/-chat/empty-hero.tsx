@@ -1,7 +1,7 @@
 import { authClient } from "~/lib/auth/auth-client";
 import { firstName, greeting } from "~/lib/user-display";
 import { Composer } from "./composer/composer";
-import type { ChatTier } from "./model-tier-picker";
+import type { ChatModelTier } from "@alfred/contracts";
 import { ConnectToolsBar } from "./connect-tools-bar";
 
 export function EmptyHero({
@@ -22,8 +22,8 @@ export function EmptyHero({
   autoApprove?: boolean | undefined;
   autoApprovePending?: boolean | undefined;
   onToggleAutoApprove?: (() => void) | undefined;
-  tier: ChatTier;
-  onTierChange: (tier: ChatTier) => void;
+  tier: ChatModelTier;
+  onTierChange: (tier: ChatModelTier) => void;
 }) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
