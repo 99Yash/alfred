@@ -70,10 +70,14 @@ export function MentionPalette({
         "absolute inset-x-0 bottom-full z-20 mb-2",
         "app-elevated rounded-2xl bg-app-bg-1 p-1.5",
         "max-h-72 overflow-y-auto",
-        // Subtle entry — slide up + fade. Tailwind's `animate-in` keyframes
-        // ship with the project (used elsewhere as `app-card-in`); fall back
-        // to a plain fade so it never appears static.
-        "transition-opacity duration-150 ease-out",
+        // Materialize from the composer edge rather than fading in place:
+        // scale + blur + fade anchored at origin-bottom, the palette's edge
+        // nearest its trigger. Same popover language as the model tier
+        // picker; `motion-safe:` degrades to an instant appear under
+        // reduced motion (the global reduce block doesn't cover arbitrary
+        // animations).
+        "origin-bottom",
+        "motion-safe:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
       )}
     >
       <p
@@ -96,7 +100,10 @@ export function MentionPalette({
          * no-noninteractive-element-to-interactive-role. Semantically the
          * palette is a popup the user picks one item from — `menu` /
          * `menuitem` cover that and don't conflict with either rule. */
-        <div role="menu" aria-labelledby={labelId}>
+        // The fade replays whenever this subtree remounts — i.e. on return
+        // from the connect panel — so both directions of the list ↔ panel
+        // swap move, not just the way in.
+        <div role="menu" aria-labelledby={labelId} className="app-fade-in">
           {options.map((opt, i) => (
             <MentionRow
               key={opt.value}
@@ -209,7 +216,10 @@ function MentionRow({
       onClick={() => onPick(option)}
       className={cn(
         "app-press flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
-        "transition-colors",
+        // Background and transform together so the app-press scale
+        // interpolates instead of snapping — same row recipe as the model
+        // tier picker.
+        "transition-[background-color,transform]",
         isActive ? "bg-app-bg-a2" : "hover:bg-app-bg-a2",
         "outline-none",
       )}
@@ -236,7 +246,11 @@ function MentionRow({
       {presentation.tag ? (
         <>
           <span className="sr-only">{presentation.tag.srText}</span>
-          <span className={presentation.tag.className}>{presentation.tag.label}</span>
+          {/* Fades in rather than popping so a tag arriving when credential
+           * queries settle mid-session doesn't jolt the row layout. */}
+          <span className={cn("app-fade-in", presentation.tag.className)}>
+            {presentation.tag.label}
+          </span>
         </>
       ) : null}
       {isActive ? (
