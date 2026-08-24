@@ -64,3 +64,15 @@ export interface DecisionTraceOptions {
 export type DecisionTraceRecord = {
   [K in DecisionTraceKind]: { kind: K; decisionKey: string; record: DecisionTraceFor<K> };
 }[DecisionTraceKind];
+
+/**
+ * The kind-agnostic shape every trace carries regardless of its registry
+ * entry. The executor collects and persists traces without importing any
+ * producer's payload type, so it holds them at this shape;
+ * {@link DecisionTraceRecord} is the producer-facing view of the same rows.
+ */
+export interface DecisionTraceBase {
+  kind: string;
+  decisionKey: string;
+  record: unknown;
+}
