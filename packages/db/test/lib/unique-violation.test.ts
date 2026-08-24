@@ -40,7 +40,8 @@ describe("isUniqueViolation", () => {
   });
 
   test("terminates on a self-referential cause chain (no infinite loop)", () => {
-    const cyclic = { code: "23505" };
+    // No SQLSTATE: the walk must terminate on the cycle and report false.
+    const cyclic = { name: "DatabaseError" };
     Object.assign(cyclic, { cause: cyclic });
     assert.equal(isUniqueViolation(cyclic), false);
   });
