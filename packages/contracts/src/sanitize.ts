@@ -73,7 +73,10 @@ export interface SanitizeResult<T = unknown> {
 export function sanitizeToolResult<T>(value: T): SanitizeResult<T> {
   // SAFETY: the pass returns the input by reference when clean, or a rebuild
   // with identical structure — only string contents and keys change — so the
-  // result keeps the input's static shape.
+  // result keeps the input's static shape. This holds only while `isRecord`
+  // rejects non-plain prototypes (Date, Map, class instances): those fall to
+  // the passthrough below instead of being rebuilt as bare objects. Pinned by
+  // the exotic-input test in test/sanitize.test.ts.
   return sanitizeUnknown(value) as SanitizeResult<T>;
 }
 

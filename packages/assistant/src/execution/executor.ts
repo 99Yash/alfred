@@ -18,7 +18,7 @@ import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
+import { normalizeDecisionTraceKey, type DecisionTraceBase } from "./decision-traces";
 import { resolveWorkflowForRun } from "./resolve-workflow";
 import { rejectLateCancelledRunStagings, resolveStaleAfterMs } from "./service";
 import { finalizeFailedRun } from "./terminal-closure";
@@ -453,7 +453,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   // 4) Run the step body outside the commit transaction. Side effects are
   //    deferred via `stageAction` and committed atomically below.
   const staged: StagedAction[] = [];
-  const traces: DecisionTraceRecord[] = [];
+  const traces: DecisionTraceBase[] = [];
   const seenTraceKeys = new Set<string>();
   const ctx: StepContext<unknown> = {
     runId: run.id,
@@ -483,9 +483,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
         );
       }
       seenTraceKeys.add(slot);
-      // SAFETY: kind/decisionKey/record is exactly the base shape
-      // DecisionTraceRegistry keys every package-specific trace by.
-      traces.push({ kind, decisionKey, record } as DecisionTraceRecord);
+      traces.push({ kind, decisionKey, record });
     },
   };
 
@@ -772,7 +770,7 @@ export async function commitStepSuccess(
   attempt: number,
   result: StepResult<unknown>,
   staged: StagedAction[],
-  traces: DecisionTraceRecord[],
+  traces: DecisionTraceBase[],
 ): Promise<RunOutcome> {
   // ADR-0070 §1.1/1.3: every jsonb sink this commit writes — `agent_runs.state`,
   // `agent_runs.transcript`, the step/run `output`, each staged action payload,
@@ -828,7 +826,7 @@ async function commitStepSuccessTx(
   attempt: number,
   result: StepResult<unknown>,
   staged: StagedAction[],
-  traces: DecisionTraceRecord[],
+  traces: DecisionTraceBase[],
   cleanState: unknown,
   cleanTranscript: AgentTranscriptMessage[] | undefined,
   cleanOutput: unknown,
@@ -885,25 +883,16 @@ async function commitStepSuccessTx(
       await tx
         .insert(agentDecisionTraces)
         .values(
-          traces.map((t) => {
-            // The executor persists traces kind-agnostically. Inside
-            // @alfred/assistant the `DecisionTraceRegistry` is empty (each
-            // producer augments it from its own package — triage et al.), so
-            // `DecisionTraceRecord` collapses to `never` here; read the base
-            // shape every trace carries at runtime rather than the registry type.
-            // SAFETY: every persisted trace carries this base shape at runtime.
-            const trace = t as { kind: string; decisionKey: string; record: unknown };
-            return {
-              runId: run.id,
-              userId: run.userId,
-              workflowSlug: run.workflowSlug,
-              stepId,
-              attempt,
-              kind: trace.kind,
-              decisionKey: trace.decisionKey,
-              trace: sanitizeToolResult(trace.record).value,
-            };
-          }),
+          traces.map((t) => ({
+            runId: run.id,
+            userId: run.userId,
+            workflowSlug: run.workflowSlug,
+            stepId,
+            attempt,
+            kind: t.kind,
+            decisionKey: t.decisionKey,
+            trace: sanitizeToolResult(t.record).value,
+          })),
         )
         .onConflictDoNothing();
     }
