@@ -171,31 +171,51 @@ export function useConnectedAccountLabel(backend: IntegrationBackend): string | 
   return active?.accountLabel ?? active?.accountId ?? null;
 }
 
+export interface ResolvedIntegrationsResult {
+  integrations: ReadonlyArray<ResolvedIntegration>;
+  /**
+   * False until every backend credential query has settled at least once.
+   * Surfaces that *gate* on connection state (the mention palette's connect
+   * nudges) need this to avoid flashing "not connected" for everything while
+   * the five queries are still in flight; surfaces that merely decorate
+   * (tiles, bars) can ignore it and let rows settle in place.
+   */
+  ready: boolean;
+}
+
 /**
  * Resolve every catalog provider against the user's real credentials.
  * Each catalog entry consults the credential set for its declared
  * backend (per `PROVIDER_BACKEND`) and flips to `"connected"` iff an
  * active row carries every required scope.
  */
-export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
-  const { data: googleCreds } = useGoogleCredentials();
-  const { data: githubCreds } = useGithubCredentials();
-  const { data: notionCreds } = useNotionCredentials();
-  const { data: railwayCreds } = useRailwayCredentials();
-  const { data: vercelCreds } = useVercelCredentials();
-  return useMemo(() => {
+export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
+  const google = useGoogleCredentials();
+  const github = useGithubCredentials();
+  const notion = useNotionCredentials();
+  const railway = useRailwayCredentials();
+  const vercel = useVercelCredentials();
+  // A settled query always has defined data: the fetchers return `[]` on any
+  // error, so `undefined` means exactly "still in flight".
+  const ready = [google, github, notion, railway, vercel].every((q) => q.data !== undefined);
+  const integrations = useMemo(() => {
     const byBackend = new Map<IntegrationBackend, ReadonlyArray<CredentialRow> | undefined>([
-      ["google", googleCreds],
-      ["github", githubCreds],
-      ["notion", notionCreds],
-      ["railway", railwayCreds],
-      ["vercel", vercelCreds],
+      ["google", google.data],
+      ["github", github.data],
+      ["notion", notion.data],
+      ["railway", railway.data],
+      ["vercel", vercel.data],
     ]);
     return INTEGRATION_PROVIDERS.map((p) => {
       const backend = PROVIDER_BACKEND.get(p.id);
       return resolveOne(p, backend === undefined ? undefined : byBackend.get(backend));
     });
-  }, [googleCreds, githubCreds, notionCreds, railwayCreds, vercelCreds]);
+  }, [google.data, github.data, notion.data, railway.data, vercel.data]);
+  return useMemo(() => ({ integrations, ready }), [integrations, ready]);
+}
+
+export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
+  return useResolvedIntegrationsWithReady().integrations;
 }
 
 export function useResolvedIntegration(providerId: string): ResolvedIntegration | undefined {

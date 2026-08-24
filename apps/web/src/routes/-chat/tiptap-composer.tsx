@@ -11,6 +11,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
+import { useMentionConnections } from "./mention-connection";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
 
 /**
@@ -360,16 +361,24 @@ export function TiptapComposer({
  * the layout shift the textarea+mirror version couldn't tolerate is fine here
  * because Tiptap manages the caret inside a contenteditable, not a parallel
  * native input.
+ *
+ * A chip can outlive its integration's connection (disconnect after insert,
+ * or a draft synced before a revoke). The palette refuses to mint such chips,
+ * so any that exist get the quiet dimmed treatment plus a native tooltip —
+ * honest signal without turning the composer into a wall of warnings.
  */
 function MentionChipNodeView({ node }: NodeViewProps) {
   const id: string = node.attrs.id ?? "";
   const label: string = node.attrs.label ?? id;
   const option = getMentionOption(id);
   const Icon = option?.icon;
+  const { connections } = useMentionConnections();
+  const disconnected = connections.get(id) === "connectable";
   return (
     <NodeViewWrapper
       as="span"
       data-mention={id}
+      title={disconnected ? `@${label} is not connected` : undefined}
       className={cn(
         // Pristine pill: neutral subtle lift, brand identity carried by the
         // glyph rather than a saturated bg. Hairline inset ring defines the
@@ -386,10 +395,15 @@ function MentionChipNodeView({ node }: NodeViewProps) {
         {option?.brand ? (
           <IntegrationGlyph brand={option.brand} size={11} />
         ) : Icon ? (
-          <Icon size={11} strokeWidth={2} className="text-app-fg-3" />
+          <Icon
+            size={11}
+            strokeWidth={2}
+            className={cn("text-app-fg-3", disconnected && "opacity-50")}
+          />
         ) : null}
       </span>
-      <span>@{label}</span>
+      <span className={cn(disconnected && "opacity-60")}>@{label}</span>
+      {disconnected ? <span className="sr-only">Not connected</span> : null}
     </NodeViewWrapper>
   );
 }
