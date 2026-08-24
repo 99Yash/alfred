@@ -1,9 +1,7 @@
 import { EVENT_KINDS } from "@alfred/contracts/events";
 import { parseEventFrame, type EventStreamFrame } from "./frame";
 import { getReplaySince, noteReplayFrame } from "./replay-anchor";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+import { API_URL } from "~/lib/eden";
 
 export interface OpenEventStreamOptions {
   onFrame: (frame: EventStreamFrame) => void;

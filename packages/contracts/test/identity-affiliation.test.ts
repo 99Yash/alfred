@@ -269,13 +269,15 @@ describe("affiliationGroundingTier — the 'no grounding, no row' contract (§4a
     // Work account → corporate_domain → corporate_affiliation → grounds employer.
     const work = classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "oliv.ai" });
     assert.equal(work, "corporate_domain");
-    const workTier = affiliationGroundingTier(work as DomainClass);
+    assert.ok(work);
+    const workTier = affiliationGroundingTier(work);
     assert.ok(workTier && canGroundIdentityKey(workTier, "employer"));
 
     // Personal Gmail → consumer_email → no tier → no employer row materializes.
     const personal = classifyEmailDomain({ email: "yashgouravkar@gmail.com" });
     assert.equal(personal, "consumer_email");
-    assert.equal(affiliationGroundingTier(personal as DomainClass), null);
+    assert.ok(personal);
+    assert.equal(affiliationGroundingTier(personal), null);
   });
 });
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
-import { observationInsertSchema } from "@alfred/contracts";
+import { getPath, getStringPath, observationInsertSchema } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
 import {
@@ -137,11 +137,8 @@ describe("buildOrgAffiliationObservationInput", () => {
     assert.equal(res.ok, true);
     if (!res.ok) return;
     assert.equal(res.domainClass, "consumer_email");
-    assert.equal(
-      (res.input.payload as { verifiedHostedDomain: unknown }).verifiedHostedDomain,
-      null,
-    );
-    assert.equal((res.input.payload as { orgDomain: string }).orgDomain, "gmail.com");
+    assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
+    assert.equal(getStringPath(res.input.payload, "orgDomain"), "gmail.com");
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
 
@@ -153,10 +150,7 @@ describe("buildOrgAffiliationObservationInput", () => {
     assert.equal(res.ok, true);
     if (!res.ok) return;
     assert.equal(res.domainClass, "ambiguous_domain");
-    assert.equal(
-      (res.input.payload as { verifiedHostedDomain: unknown }).verifiedHostedDomain,
-      null,
-    );
+    assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
 
@@ -170,11 +164,8 @@ describe("buildOrgAffiliationObservationInput", () => {
     assert.equal(res.ok, true);
     if (!res.ok) return;
     assert.equal(res.domainClass, "corporate_domain");
-    assert.equal(
-      (res.input.payload as { verifiedHostedDomain: unknown }).verifiedHostedDomain,
-      "oliv.ai",
-    );
-    assert.equal((res.input.payload as { orgDomain: string }).orgDomain, "oliv.ai");
+    assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), "oliv.ai");
+    assert.equal(getStringPath(res.input.payload, "orgDomain"), "oliv.ai");
     assert.equal(res.input.familyKey, "org_affiliation:108412341234123412341:oliv.ai");
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
@@ -197,8 +188,8 @@ describe("buildOrgAffiliationObservationInput", () => {
     });
     assert.equal(res.ok, true);
     if (!res.ok) return;
-    assert.equal((res.input.payload as { accountEmail: string }).accountEmail, "yash.k@oliv.ai");
-    assert.equal((res.input.payload as { orgDomain: string }).orgDomain, "oliv.ai");
+    assert.equal(getStringPath(res.input.payload, "accountEmail"), "yash.k@oliv.ai");
+    assert.equal(getStringPath(res.input.payload, "orgDomain"), "oliv.ai");
   });
 
   for (const [label, over, reason] of [
@@ -323,11 +314,11 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       .orderBy(asc(observations.occurredAt));
 
     assert.equal(rows.length, 3);
-    assert.equal((rows[0]?.payload as { status?: string } | undefined)?.status, "connected");
+    assert.equal(getStringPath(rows[0]?.payload, "status"), "connected");
     assert.equal(rows[0]?.supersedesObservationId, null);
-    assert.equal((rows[1]?.payload as { status?: string } | undefined)?.status, "disconnected");
+    assert.equal(getStringPath(rows[1]?.payload, "status"), "disconnected");
     assert.equal(rows[1]?.supersedesObservationId, rows[0]?.id);
-    assert.equal((rows[2]?.payload as { status?: string } | undefined)?.status, "connected");
+    assert.equal(getStringPath(rows[2]?.payload, "status"), "connected");
     assert.equal(rows[2]?.supersedesObservationId, rows[1]?.id);
 
     const [head] = await db()
@@ -396,8 +387,8 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       .orderBy(asc(observations.occurredAt));
 
     assert.equal(oldRows.length, 2);
-    assert.equal((oldRows[0]?.payload as { status?: string } | undefined)?.status, "connected");
-    assert.equal((oldRows[1]?.payload as { status?: string } | undefined)?.status, "disconnected");
+    assert.equal(getStringPath(oldRows[0]?.payload, "status"), "connected");
+    assert.equal(getStringPath(oldRows[1]?.payload, "status"), "disconnected");
     assert.equal(oldRows[1]?.occurredAt.getTime(), changedAt.getTime());
 
     const newRows = await db()
@@ -414,7 +405,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       );
 
     assert.equal(newRows.length, 1);
-    assert.equal((newRows[0]?.payload as { status?: string } | undefined)?.status, "connected");
+    assert.equal(getStringPath(newRows[0]?.payload, "status"), "connected");
     assert.equal(newRows[0]?.occurredAt.getTime(), changedAt.getTime());
   });
 
@@ -469,15 +460,9 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       .orderBy(asc(observations.occurredAt));
 
     assert.equal(rows.length, 2);
-    assert.equal(
-      (rows[0]?.payload as { domainClass?: string } | undefined)?.domainClass,
-      "ambiguous_domain",
-    );
+    assert.equal(getStringPath(rows[0]?.payload, "domainClass"), "ambiguous_domain");
     assert.equal(rows[0]?.occurredAt.getTime(), connectAt.getTime());
-    assert.equal(
-      (rows[1]?.payload as { domainClass?: string } | undefined)?.domainClass,
-      "corporate_domain",
-    );
+    assert.equal(getStringPath(rows[1]?.payload, "domainClass"), "corporate_domain");
     assert.equal(rows[1]?.occurredAt.getTime(), changedAt.getTime());
     assert.equal(rows[1]?.supersedesObservationId !== null, true);
   });

@@ -1,12 +1,10 @@
+import { API_URL } from "~/lib/eden";
 import {
   classifyUpload,
   type ChatAttachmentDescriptor,
   isChatUploadAllowed,
   SUPPORTED_FILE_TYPES,
 } from "@alfred/contracts";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 /**
  * Chat attachment upload (ADR-0065). Phase 1 is images only: the composer

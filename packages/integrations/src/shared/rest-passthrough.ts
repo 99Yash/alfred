@@ -200,7 +200,7 @@ function parseBody(text: string, contentType: string | null): unknown {
   const looksJson = type.includes("json") || type === "";
   if (looksJson) {
     try {
-      return JSON.parse(text) as unknown;
+      return JSON.parse(text);
     } catch {
       // A JSON-labeled body that won't parse (e.g. an HTML 5xx page): keep a
       // bounded, redacted marker instead of dumping raw markup into the transcript.

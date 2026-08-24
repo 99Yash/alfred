@@ -57,7 +57,7 @@ before(async () => {
     if (req.url === "/legacy-mcp" && req.method === "POST") {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
-      const message = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+      const message = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       assert.ok(isRecord(message));
       const id = message.id;
       if (typeof message.method === "string") observedLegacyMethods.push(message.method);

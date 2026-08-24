@@ -16,6 +16,7 @@ import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 import { WorkflowRecoveryCta } from "./workflow-recovery-cta";
 import { UsageLine } from "./usage-line";
+import { API_URL } from "~/lib/eden";
 
 const MARKDOWN_CLASSES = cn(
   // Match the blog body rhythm: 24px between blocks, tight tracking, relaxed leading.
@@ -203,9 +204,6 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
     </div>
   );
 }
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 /**
  * Image attachments on a user message (ADR-0065). The bytes load from the

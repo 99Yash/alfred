@@ -2,10 +2,9 @@ import {
   ACCOUNT_SECRET_FIELDS,
   credentialVault,
   CredentialVaultError,
-  type AccountSecretField,
   type CredentialVault,
 } from "@alfred/db/credential-vault";
-import { isRecord } from "@alfred/contracts";
+import { enumGuard, isRecord } from "@alfred/contracts";
 import type { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 /**
@@ -47,9 +46,7 @@ const ACCOUNT_MODEL = "account";
  * The Better Auth field names match the Drizzle schema keys, which is why one
  * tuple can serve both.
  */
-function isSealedField(field: string): field is AccountSecretField {
-  return (ACCOUNT_SECRET_FIELDS as readonly string[]).includes(field);
-}
+const isSealedField = enumGuard(ACCOUNT_SECRET_FIELDS);
 
 /**
  * Seal the token fields of an outbound write payload. Values are plaintext by

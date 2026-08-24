@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { authClient } from "~/lib/auth/auth-client";
 import { useEventStream } from "~/lib/events/use-event-stream";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+import { API_URL } from "~/lib/eden";
 
 export function DebugEventsPage() {
   const { data: session } = authClient.useSession();
