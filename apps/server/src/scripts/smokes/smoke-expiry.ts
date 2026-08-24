@@ -23,6 +23,7 @@
  *      expiry job (so a human decision cancels the fallback timer).
  */
 
+import { getStringPath } from "@alfred/contracts";
 import {
   approvalExpiryJobId,
   getApprovalExpiryQueue,
@@ -227,7 +228,7 @@ async function main(): Promise<void> {
     `re-dispatch of expired row expected 'rejected', got '${reDispatched.kind}'`,
   );
   assert(
-    (reDispatched as { result: { reason: string } }).result.reason === "auto-expired",
+    getStringPath(reDispatched, "result", "reason") === "auto-expired",
     "re-dispatch must synthesize reason='auto-expired'",
   );
   assert(draftExec === 0, "re-dispatch of expired row must not execute the tool");

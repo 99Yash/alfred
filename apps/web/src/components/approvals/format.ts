@@ -37,7 +37,7 @@ export function triggerLabel(trigger: {
 
 export function parseJson(value: string): JsonParseResult {
   try {
-    return { ok: true, value: JSON.parse(value) as unknown };
+    return { ok: true, value: JSON.parse(value) };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : "Invalid JSON" };
   }

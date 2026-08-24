@@ -2,13 +2,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
 import { AppButton, AppInput } from "~/components/ui/v2";
-import { client } from "~/lib/eden";
+import { client, API_URL } from "~/lib/eden";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { PROVIDER_BACKEND, type IntegrationProvider } from "~/lib/integrations/integrations";
 import { toast } from "~/lib/toast";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 /**
  * Provider id → API path that initiates the OAuth flow (with optional

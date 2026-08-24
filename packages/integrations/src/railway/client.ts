@@ -134,7 +134,7 @@ export async function railwayGraphqlRaw(
   );
   if (text.length === 0) return { status, body: null };
   try {
-    return { status, body: JSON.parse(text) as unknown };
+    return { status, body: JSON.parse(text) };
   } catch {
     // Non-JSON upstream (e.g. an HTML 5xx page). Keep a bounded, redacted marker
     // so the honest envelope carries something without dumping raw markup.

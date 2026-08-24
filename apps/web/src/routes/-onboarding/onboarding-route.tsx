@@ -4,13 +4,10 @@ import { useEffect, useState } from "react";
 import { OnboardingFlow, type OnboardingStep } from "~/components/onboarding/onboarding-flow";
 import { useConnectedAccountLabel } from "~/lib/integrations/use-integration-status";
 import { authClient } from "~/lib/auth/auth-client";
-import { client } from "~/lib/eden";
+import { client, API_URL } from "~/lib/eden";
 import { toast } from "~/lib/toast";
 
 export type { OnboardingStep };
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 export function OnboardingRoute() {
   const { step, google_connected, github_connected } = useSearch({ from: "/onboarding" });

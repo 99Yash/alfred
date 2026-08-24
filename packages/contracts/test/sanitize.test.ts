@@ -52,7 +52,7 @@ test("sanitizeToolResult preserves both values on a key collision (no silent ove
   const input = { ab: 1, [`a${NUL}b`]: 2 };
   const r = sanitizeToolResult(input);
   assert.equal(r.collisions, 1);
-  const out = r.value as Record<string, unknown>;
+  const out: Record<string, unknown> = r.value;
   assert.equal(out.ab, 1, "the original clean key keeps its value");
   // The colliding entry is preserved under a disambiguated key, not dropped.
   const values = Object.values(out);
@@ -70,6 +70,33 @@ test("sanitizeToolResult passes non-string scalars through and allocates nothing
   const r = sanitizeToolResult(clean);
   assert.equal(r.value, clean); // same reference — no rebuild on the clean path
   assert.equal(r.removed, 0);
+});
+
+test("sanitizeToolResult leaves exotic objects intact by reference", () => {
+  // The <T> generic's soundness claim ("rebuild keeps the input's static
+  // shape") depends on `isRecord` rejecting non-plain prototypes so they take
+  // the passthrough instead of being flattened into bare objects. Pin it
+  // directly here — a loosened `isRecord` must fail this test, not silently
+  // start lying about the returned type.
+  class Instance {
+    constructor(readonly note: string) {}
+    method(): string {
+      return this.note;
+    }
+  }
+  const date = new Date("2026-08-24T00:00:00Z");
+  const map = new Map([["k", `poison${NUL}`]]);
+  const instance = new Instance(`keep${NUL}`);
+  const nested = { when: date, who: instance };
+
+  const r = sanitizeToolResult(nested);
+  assert.equal(r.value.when, date, "Date passes through by reference");
+  assert.equal(r.value.who, instance, "class instance passes through by reference");
+  assert.ok(r.value.who instanceof Instance, "prototype is preserved");
+  assert.equal(map.get("k"), `poison${NUL}`, "unwalked Map is untouched");
+
+  const direct = sanitizeToolResult(instance);
+  assert.equal(direct.value, instance);
 });
 
 test("sanitizeErrorMessage strips poison from a message string", () => {

@@ -1,6 +1,8 @@
 import { treaty } from "@elysiajs/eden";
 import type { App } from "@alfred/http";
 
+// SAFETY: Vite injects VITE_API_URL at build time; the optional read keeps
+// non-Vite contexts (unit tests) working via the dev-server fallback.
 export const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 

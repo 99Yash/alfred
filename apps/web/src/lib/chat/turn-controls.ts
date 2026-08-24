@@ -6,10 +6,8 @@
  * truth for everything durable).
  */
 
-import { apiErrorMessage } from "@alfred/contracts";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+import { apiErrorMessage, getStringPath } from "@alfred/contracts";
+import { API_URL } from "~/lib/eden";
 
 /**
  * Send recorded composer audio for transcription; resolves with the
@@ -30,8 +28,7 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
     const body = await res.json().catch(() => null);
     throw new Error(apiErrorMessage(body, `Transcription failed (${res.status})`));
   }
-  const payload = (await res.json()) as { text?: string };
-  return typeof payload.text === "string" ? payload.text : "";
+  return getStringPath(await res.json(), "text") ?? "";
 }
 
 /**

@@ -7,9 +7,7 @@ import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
 import { uploadAttachment } from "./upload-attachments";
 import type { ChatAttachmentDescriptor } from "@alfred/contracts";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+import { API_URL } from "~/lib/eden";
 
 export type SendMessage = (
   threadId: string | undefined,

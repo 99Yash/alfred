@@ -195,10 +195,7 @@ describe("preloadToolCatalog against the real registry", () => {
       activeTools: kernelNames,
       access,
     });
-    assert.ok(
-      !selected.includes("system.read_user_context" as ToolName),
-      `[${selected.join(", ")}]`,
-    );
+    assert.ok(!selected.includes("system.read_user_context"), `[${selected.join(", ")}]`);
   });
 });
 

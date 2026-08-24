@@ -1,12 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Plug, Plus } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
-import { client, type EdenData } from "~/lib/eden";
+import { client, type EdenData, API_URL } from "~/lib/eden";
 import { MCP_SECTION } from "./helpers";
 import { mcpConnectionStatusText } from "./mcp-server-status";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
 type McpConnection = McpConnectionsResponse["connections"][number];
