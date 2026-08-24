@@ -19,6 +19,7 @@ import type { ChatModelTier } from "@alfred/contracts";
 import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
+import { useMentionConnections } from "../mention-connection";
 import { MentionPalette } from "./mention-palette";
 import { useComposerAttachments } from "./use-composer-attachments";
 import { useComposerDraft } from "./use-composer-draft";
@@ -78,7 +79,8 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { initialJSON, text, isEmpty, onEditorChange, resetDraft } = useComposerDraft(threadId);
   const voice = useComposerVoice(editorRef);
-  const mention = useMentionController();
+  const { connections } = useMentionConnections();
+  const mention = useMentionController(connections);
   const attachments = useComposerAttachments();
   const { mic, transcribing, voiceError, onVoiceStart, onVoiceConfirm } = voice;
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
@@ -225,8 +227,11 @@ export function Composer({
         <MentionPalette
           options={mentionCandidates}
           activeIdx={visibleMentionIdx}
+          connections={connections}
+          connectPrompt={mention.connectPrompt}
           onHover={mention.setMentionIdx}
-          onPick={mention.insertMention}
+          onPick={mention.pickMention}
+          onBackFromConnect={mention.backFromConnect}
           onClose={() => suggestion.dismiss()}
         />
       ) : null}
