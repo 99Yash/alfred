@@ -1,5 +1,9 @@
 import { useMemo } from "react";
-import { getIntegrationProvider, PROVIDER_BACKEND } from "~/lib/integrations/integrations";
+import {
+  getIntegrationProvider,
+  PROVIDER_BACKEND,
+  type IntegrationStatus,
+} from "~/lib/integrations/integrations";
 import { useResolvedIntegrationsWithReady } from "~/lib/integrations/use-integration-status";
 import { MENTION_OPTIONS } from "./mention-options";
 
@@ -21,12 +25,14 @@ export type MentionConnection =
   /** Credential queries are still in flight — render rows stateless. */
   | "loading";
 
-export type MentionConnectionMap = ReadonlyMap<string, MentionConnection>;
-
-/** What {@link useMentionConnections} hands the composer and palette. */
-export interface MentionConnections {
-  connections: MentionConnectionMap;
-}
+/**
+ * Answers "how does this mention value stand relative to the user's real
+ * connections?" for any mention value, including ids outside `MENTION_OPTIONS`
+ * (a stale chip's id). Produced by {@link useMentionConnections} and consumed
+ * by the palette rows, the pick handler, and stale-chip rendering so all three
+ * answer through one rule.
+ */
+export type MentionConnectionLookup = (value: string) => MentionConnection;
 
 /**
  * Classify one mention value against resolved provider statuses. Pure so the
@@ -35,7 +41,7 @@ export interface MentionConnections {
  */
 export function classifyMentionValue(
   value: string,
-  statusByProviderId: ReadonlyMap<string, string>,
+  statusByProviderId: ReadonlyMap<string, IntegrationStatus>,
 ): MentionConnection {
   const provider = getIntegrationProvider(value);
   if (!provider) return "internal";
@@ -47,7 +53,7 @@ export function classifyMentionValue(
 }
 
 /** Connection state for every mention option, plus whether state is settled. */
-export function useMentionConnections(): MentionConnections {
+export function useMentionConnections(): MentionConnectionLookup {
   const { integrations, ready } = useResolvedIntegrationsWithReady();
   return useMemo(() => {
     const statusByProviderId = new Map(integrations.map((p) => [p.id, p.status]));
@@ -57,6 +63,8 @@ export function useMentionConnections(): MentionConnections {
         ready ? classifyMentionValue(option.value, statusByProviderId) : "loading",
       ]),
     );
-    return { connections: map };
+    // The lookup owns the unknown-value rule ("an unknown id is internal, not
+    // a phantom nudge") so no call site re-defaults with its own fallback.
+    return (value: string) => map.get(value) ?? "internal";
   }, [integrations, ready]);
 }

@@ -372,8 +372,8 @@ function MentionChipNodeView({ node }: NodeViewProps) {
   const label: string = node.attrs.label ?? id;
   const option = getMentionOption(id);
   const Icon = option?.icon;
-  const { connections } = useMentionConnections();
-  const disconnected = connections.get(id) === "connectable";
+  const connections = useMentionConnections();
+  const disconnected = connections(id) === "connectable";
   return (
     <NodeViewWrapper
       as="span"

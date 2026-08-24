@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import type { MentionConnectionMap } from "../mention-connection";
+import { useNavigate } from "@tanstack/react-router";
+import { getIntegrationProvider } from "~/lib/integrations/integrations";
+import type { MentionConnectionLookup } from "../mention-connection";
 import { filterMentionOptions, type MentionOption } from "../mention-options";
 import type { SuggestionRenderState } from "../tiptap-composer";
 
@@ -14,11 +16,15 @@ interface MentionController {
   pickMention: (option: MentionOption) => void;
   /** The unconnected integration awaiting its connect CTA, if any. */
   connectPrompt: MentionOption | null;
+  /** Commit the open prompt's primary action: dismiss the palette and hand
+   * off to the provider's connect flow. Shared by the panel button (pointer)
+   * and Enter (keyboard) so both paths stay one implementation. */
+  connectFromPrompt: () => void;
   backFromConnect: () => void;
   suggestionKeyDownRef: MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
 }
 
-export function useMentionController(connections: MentionConnectionMap): MentionController {
+export function useMentionController(connections: MentionConnectionLookup): MentionController {
   // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
   // the palette UI reads from it.
   const [suggestion, setSuggestion] = useState<SuggestionRenderState | null>(null);
@@ -59,7 +65,7 @@ export function useMentionController(connections: MentionConnectionMap): Mention
     (option: MentionOption) => {
       // Unconnected-but-connectable: offer the fix, don't insert a chip the
       // dispatch floor would only refuse. Everything else inserts as before.
-      if (connections.get(option.value) === "connectable") {
+      if (connections(option.value) === "connectable") {
         setConnectPrompt(option);
         return;
       }
@@ -67,6 +73,17 @@ export function useMentionController(connections: MentionConnectionMap): Mention
     },
     [connections, suggestion],
   );
+
+  const navigate = useNavigate();
+  const connectFromPrompt = useCallback(() => {
+    if (!connectPrompt) return;
+    const provider = getIntegrationProvider(connectPrompt.value);
+    setConnectPrompt(null);
+    suggestion?.dismiss();
+    if (provider) {
+      void navigate({ to: "/integrations/$provider", params: { provider: provider.id } });
+    }
+  }, [connectPrompt, suggestion, navigate]);
 
   const backFromConnect = useCallback(() => setConnectPrompt(null), []);
 
@@ -80,21 +97,24 @@ export function useMentionController(connections: MentionConnectionMap): Mention
     suggestionKeyDownRef.current = (event) => {
       if (!suggestion || mentionCandidates.length === 0) return false;
       // While the connect drill-in is up, list nav keys have nothing to move
-      // to — hold them (and Enter/Tab) so they can't pick or submit through
-      // the overlay. Typing falls through so editing the query drops the
-      // user back onto the filtered list via the query-change reset above.
+      // to. Enter commits the panel's primary action — without this a
+      // keyboard user could read "Connect Gmail" but never activate it, since
+      // Tab is held and focus stays in the editor. Arrows/Tab are held so
+      // they can't navigate or submit through the overlay; Escape dismisses;
+      // typing (or Backspace) edits the query and drops the user back onto
+      // the filtered list via the query-change reset above.
       if (connectPrompt) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          connectFromPrompt();
+          return true;
+        }
         if (event.key === "Escape") {
           event.preventDefault();
           suggestion.dismiss();
           return true;
         }
-        if (
-          event.key === "ArrowDown" ||
-          event.key === "ArrowUp" ||
-          event.key === "Enter" ||
-          event.key === "Tab"
-        ) {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Tab") {
           event.preventDefault();
           return true;
         }
@@ -125,7 +145,15 @@ export function useMentionController(connections: MentionConnectionMap): Mention
       }
       return false;
     };
-  }, [suggestion, mentionCandidates, visibleMentionIdx, setMentionIdx, connectPrompt, pickMention]);
+  }, [
+    suggestion,
+    mentionCandidates,
+    visibleMentionIdx,
+    setMentionIdx,
+    connectPrompt,
+    pickMention,
+    connectFromPrompt,
+  ]);
 
   return {
     suggestion,
@@ -135,6 +163,7 @@ export function useMentionController(connections: MentionConnectionMap): Mention
     setMentionIdx,
     pickMention,
     connectPrompt,
+    connectFromPrompt,
     backFromConnect,
     suggestionKeyDownRef,
   };

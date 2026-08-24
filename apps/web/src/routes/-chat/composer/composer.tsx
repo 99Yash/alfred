@@ -79,7 +79,7 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { initialJSON, text, isEmpty, onEditorChange, resetDraft } = useComposerDraft(threadId);
   const voice = useComposerVoice(editorRef);
-  const { connections } = useMentionConnections();
+  const connections = useMentionConnections();
   const mention = useMentionController(connections);
   const attachments = useComposerAttachments();
   const { mic, transcribing, voiceError, onVoiceStart, onVoiceConfirm } = voice;
@@ -231,6 +231,7 @@ export function Composer({
           connectPrompt={mention.connectPrompt}
           onHover={mention.setMentionIdx}
           onPick={mention.pickMention}
+          onConnect={mention.connectFromPrompt}
           onBackFromConnect={mention.backFromConnect}
           onClose={() => suggestion.dismiss()}
         />
