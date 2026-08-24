@@ -171,31 +171,56 @@ export function useConnectedAccountLabel(backend: IntegrationBackend): string | 
   return active?.accountLabel ?? active?.accountId ?? null;
 }
 
+export interface ResolvedIntegrationsResult {
+  integrations: ReadonlyArray<ResolvedIntegration>;
+  /**
+   * False until every backend credential query has *succeeded* once — not
+   * merely settled. The fetchers collapse any request failure to `[]`, which
+   * is indistinguishable from "nothing connected", so gating on settlement
+   * alone would fade a connected provider to "Connect" during an API
+   * failure. Surfaces that *gate* on connection state (the mention palette's
+   * connect nudges) hold stateless rows through failures; surfaces that
+   * merely decorate (tiles, bars) can ignore this flag and settle in place.
+   */
+  ready: boolean;
+}
+
 /**
  * Resolve every catalog provider against the user's real credentials.
  * Each catalog entry consults the credential set for its declared
  * backend (per `PROVIDER_BACKEND`) and flips to `"connected"` iff an
  * active row carries every required scope.
  */
-export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
-  const { data: googleCreds } = useGoogleCredentials();
-  const { data: githubCreds } = useGithubCredentials();
-  const { data: notionCreds } = useNotionCredentials();
-  const { data: railwayCreds } = useRailwayCredentials();
-  const { data: vercelCreds } = useVercelCredentials();
-  return useMemo(() => {
+export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
+  const google = useGoogleCredentials();
+  const github = useGithubCredentials();
+  const notion = useNotionCredentials();
+  const railway = useRailwayCredentials();
+  const vercel = useVercelCredentials();
+  // Success, not mere settlement: the fetchers turn any request failure into
+  // `[]`, so a settled-but-failed query is indistinguishable from "nothing
+  // connected". Gating on `isSuccess` keeps a connected provider honest (no
+  // phantom "Connect" nudge during an API failure); failed queries fall back
+  // to stateless rows and self-heal via retry + focus refetch.
+  const ready = [google, github, notion, railway, vercel].every((q) => q.isSuccess);
+  const integrations = useMemo(() => {
     const byBackend = new Map<IntegrationBackend, ReadonlyArray<CredentialRow> | undefined>([
-      ["google", googleCreds],
-      ["github", githubCreds],
-      ["notion", notionCreds],
-      ["railway", railwayCreds],
-      ["vercel", vercelCreds],
+      ["google", google.data],
+      ["github", github.data],
+      ["notion", notion.data],
+      ["railway", railway.data],
+      ["vercel", vercel.data],
     ]);
     return INTEGRATION_PROVIDERS.map((p) => {
       const backend = PROVIDER_BACKEND.get(p.id);
       return resolveOne(p, backend === undefined ? undefined : byBackend.get(backend));
     });
-  }, [googleCreds, githubCreds, notionCreds, railwayCreds, vercelCreds]);
+  }, [google.data, github.data, notion.data, railway.data, vercel.data]);
+  return useMemo(() => ({ integrations, ready }), [integrations, ready]);
+}
+
+export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
+  return useResolvedIntegrationsWithReady().integrations;
 }
 
 export function useResolvedIntegration(providerId: string): ResolvedIntegration | undefined {
