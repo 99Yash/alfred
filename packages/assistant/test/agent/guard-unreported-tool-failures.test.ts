@@ -367,6 +367,34 @@ describe("guardUnreportedToolFailures", () => {
     );
   });
 
+  test("keeps a connection-health bounce — it carries the repair offer (#378 item 3)", () => {
+    const fields = sanitizeChatMessageFields(
+      baseState({
+        toolCallsLog: [
+          {
+            toolCallId: "tc_connect",
+            toolName: "gmail.search",
+            status: "failed",
+            nonExecution: true,
+            connectNudge: { integration: "gmail", action: "connect" },
+            segmentIndex: 0,
+          },
+        ],
+      }),
+    );
+
+    assert.deepEqual(fields.toolCalls, [
+      {
+        toolCallId: "tc_connect",
+        toolName: "gmail.search",
+        status: "failed",
+        nonExecution: true,
+        connectNudge: { integration: "gmail", action: "connect" },
+        segmentIndex: 0,
+      },
+    ]);
+  });
+
   test("publishes optimistic cards only for active tools", () => {
     assert.equal(shouldPublishToolStarted(["gmail.search"], "gmail.search"), true);
     assert.equal(shouldPublishToolStarted([], "gmail.search"), false);

@@ -36,6 +36,7 @@ import { ChatApprovalTray } from "./approval-tray";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
+import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 
@@ -624,6 +625,12 @@ function FeedFooter() {
             <div ref={streamTimingRefs.thinking}>
               <ThinkingIndicator />
             </div>
+          ) : null}
+
+          {/* A connection-health bounce can land mid-turn (#378 item 3); the
+           * repair offer shows the moment it does, not when the turn lands. */}
+          {stream.connectNudges.length > 0 ? (
+            <ConnectNudgeRows nudges={stream.connectNudges} />
           ) : null}
 
           {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}

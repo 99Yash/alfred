@@ -61,6 +61,26 @@ export type ChatErrorKind = (typeof chatErrorKindValues)[number];
 export const chatErrorKindSchema = z.enum(chatErrorKindValues);
 
 /**
+ * The fix for a tool call the dispatch health floor refused on connection
+ * health (#378 item 3). The floor's `{status:"not_allowed"}` envelope already
+ * tells the *model* what happened and it narrates it; this payload rides the
+ * same refusal to the *client* so the chat can offer the repair instead of
+ * leaving an opaque narration. The integration slug is the tool-runtime slug
+ * (short Google aliases like `"calendar"` included) — exactly what
+ * `getIntegrationProvider` resolves on the web.
+ *
+ *   - `connect`   — no usable credential exists (`not_connected`).
+ *   - `reconnect` — a credential exists but is unusable as-is:
+ *                   `needs_reauth` or `missing_scope`; both are repaired by
+ *                     re-running the provider's connect flow.
+ */
+export const chatConnectNudgeSchema = z.object({
+  integration: z.string().min(1).max(64),
+  action: z.enum(["connect", "reconnect"]),
+});
+export type ChatConnectNudge = z.infer<typeof chatConnectNudgeSchema>;
+
+/**
  * One agent's slice of a turn's spend: the boss run, or one sub-agent the boss
  * spawned. `subId` is `null` for the boss and the child's own `subId` for a
  * worker (`spawnSubAgent` stamps it on the child run's metadata).

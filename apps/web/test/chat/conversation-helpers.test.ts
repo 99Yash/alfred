@@ -13,6 +13,7 @@ const BLANK: StreamingMessage = {
   reasoningActive: false,
   reasoningMs: null,
   tools: [],
+  connectNudges: [],
   subAgents: [],
   awaitingApproval: false,
   compacting: false,

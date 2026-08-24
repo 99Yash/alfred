@@ -3,6 +3,8 @@ import {
   isRecord,
   toJsonValue,
   type AgentTranscriptMessage,
+  type ChatConnectNudge,
+  type ToolUnavailabilityCode,
 } from "@alfred/contracts";
 
 import type { CompletedToolCall, ProposedToolCall } from "../index";
@@ -203,5 +205,35 @@ export function completedToolCall<Call extends ProposedToolCall>(
           : "not_reached",
     sanitized: result.kind === "executed" && result.sanitized === true,
     nonExecution: status === "failed" && isNonExecutionFailure(result),
+    connectNudge: connectNudgeFromDispatch(result),
   };
+}
+
+/**
+ * The connection-health refusals a connect nudge can repair, mapped to what
+ * the repair is called (#378 item 3). Everything else the floor can refuse is
+ * policy or caller shape — there is no connection to fix — so those produce no
+ * nudge and stay invisible plumbing.
+ */
+function connectNudgeFromDispatch(
+  result: TerminalToolCallDispatchResult,
+): ChatConnectNudge | undefined {
+  if (result.kind !== "not_allowed" || result.unavailability === undefined) return undefined;
+  const action = connectActionFor(result.unavailability);
+  if (action === undefined) return undefined;
+  return { integration: result.result.integration, action };
+}
+
+function connectActionFor(code: ToolUnavailabilityCode): ChatConnectNudge["action"] | undefined {
+  switch (code) {
+    case "not_connected":
+      return "connect";
+    case "needs_reauth":
+    case "missing_scope":
+      // Both mean "a credential exists but cannot act" — the provider's
+      // connect flow repairs either one, so the honest verb is reconnect.
+      return "reconnect";
+    default:
+      return undefined;
+  }
 }
