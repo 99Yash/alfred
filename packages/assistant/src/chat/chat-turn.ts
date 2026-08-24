@@ -754,7 +754,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           // failed side effect. Both are derived by the shared helper, which a
           // spawned sub-agent's nested cards also publish through.
           const outcome = toolEventOutcome(completion);
-          const { status, resultPreview, sanitized, nonExecution } = outcome;
+          const { status, resultPreview, sanitized, nonExecution, connectNudge } = outcome;
           // Bind an executed artifact tool's toolCallId to its row id, so a live
           // artifact stream (keyed by toolCallId — all create_artifact has before
           // it runs) can adopt the durable synced row once it lands.
@@ -775,6 +775,10 @@ const dispatchToolsStep: Step<ChatRunState> = {
             resultPreview,
             ...(sanitized ? { sanitized } : {}),
             ...(nonExecution ? { nonExecution } : {}),
+            // A connection-health bounce carries the repair (#378 item 3) so
+            // it survives into the durable row's trail; every other
+            // non-execution stays filtered out at persistence time.
+            ...(connectNudge ? { connectNudge } : {}),
             segmentIndex: call.segmentIndex,
           });
 

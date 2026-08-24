@@ -1,3 +1,4 @@
+import type { ChatConnectNudge } from "@alfred/contracts";
 import type { EventPayload } from "@alfred/contracts/events";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
@@ -93,6 +94,12 @@ export interface StreamingMessage {
   reasoningMs: number | null;
   tools: StreamingToolCall[];
   /**
+   * Repair offers from connection-health bounces this turn (#378 item 3),
+   * deduped by integration. Separate from `tools` because the bounced call
+   * itself is retracted — the offer is what survives on screen.
+   */
+  connectNudges: ChatConnectNudge[];
+  /**
    * Live trails for sub-agents spawned this turn, keyed for the client by the
    * `spawn_sub_agent` call they nest under. Separate from `tools` so a child's
    * steps never flatten into the boss's own trail.
@@ -141,6 +148,8 @@ interface StreamRef {
   /** Last appended server seq for reasoning text; guards against replay duplicates. */
   reasoningSeq: number;
   tools: Map<string, StreamingToolCall>;
+  /** Repair offers from connection-health bounces, keyed by integration slug. */
+  connectNudges: Map<string, ChatConnectNudge>;
   /** Keyed by the parent's `spawn_sub_agent` toolCallId — one trail per child. */
   subAgents: Map<string, SubAgentTrailRef>;
   /**
@@ -288,6 +297,7 @@ function ensureStreamRef(
     deltaSeq: 0,
     reasoningSeq: 0,
     tools: new Map(),
+    connectNudges: new Map(),
     subAgents: new Map(),
     subAgentRuns: new Map(),
     awaitingApproval: false,
@@ -461,11 +471,21 @@ export function applyChatFrame(
     if (p.subAgent) {
       const current = cell.current;
       if (!subAgentEventAddressesStream(current, p)) return false;
+      // A connection-health bounce carries the repair (#378 item 3). It
+      // belongs to the turn, not to one trail, and records even when there is
+      // no card left to attach it to — a child whose only event is the bounce
+      // has no trail, and dropping the repair with the retracted card would
+      // hide it forever.
+      let nudged = false;
+      if (p.connectNudge) {
+        current.connectNudges.set(p.connectNudge.integration, p.connectNudge);
+        nudged = true;
+      }
       const { parentToolCallId, subId, childRunId } = p.subAgent;
       const existing = current.subAgents.get(parentToolCallId);
       // A bounce retracts a card; with no trail there is nothing to retract,
       // and drawing an empty container for it would be worse than silence.
-      if (!existing && p.nonExecution) return false;
+      if (!existing && p.nonExecution) return nudged;
       const trail = existing ?? {
         parentToolCallId,
         subId,
@@ -484,6 +504,13 @@ export function applyChatFrame(
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
     if (r === null || r.stopped) return false;
     applyStreamingToolEvent(r.tools, p, now);
+    if (p.connectNudge) {
+      // The bounced call is retracted above; the repair is what the user sees
+      // instead (#378 item 3). Set, never cleared: connection state cannot
+      // heal mid-turn, and a replayed frame re-set is a no-op.
+      r.connectNudges.set(p.connectNudge.integration, p.connectNudge);
+      return true;
+    }
     // A retraction changed the trail, so the view still has to re-project —
     // it just has no timing mark to record.
     if (p.nonExecution) return true;
@@ -670,6 +697,7 @@ export function tickDrip(
       reasoningActive: ref.reasoning.length > 0 && !ref.replyStarted && !ref.done,
       reasoningMs: ref.reasoningMs,
       tools: [...ref.tools.values()],
+      connectNudges: [...ref.connectNudges.values()],
       subAgents: [...ref.subAgents.values()].map((trail) => ({
         ...trail,
         tools: [...trail.tools.values()],
@@ -705,10 +733,16 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     a.compacting !== b.compacting ||
     a.done !== b.done ||
     a.tools.length !== b.tools.length ||
+    a.connectNudges.length !== b.connectNudges.length ||
     a.subAgents.length !== b.subAgents.length ||
     a.narration.length !== b.narration.length
   ) {
     return false;
+  }
+  for (let i = 0; i < a.connectNudges.length; i += 1) {
+    const left = a.connectNudges[i]!;
+    const right = b.connectNudges[i]!;
+    if (left.integration !== right.integration || left.action !== right.action) return false;
   }
   for (let i = 0; i < a.subAgents.length; i += 1) {
     const left = a.subAgents[i]!;

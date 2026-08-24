@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chatConnectNudgeSchema } from "./chat";
 import { sanitizeErrorMessage } from "./sanitize";
 
 export const CHAT_DELTA_MAX = 16_000;
@@ -221,6 +222,14 @@ export const chatToolSchema = z.object({
    * the model transcript for self-correction.
    */
   nonExecution: z.boolean().optional(),
+  /**
+   * Set together with `nonExecution` when the bounce was connection health
+   * (`not_connected` / `needs_reauth` / `missing_scope`): the user-meaningful
+   * repair, so the chat can offer a connect nudge for this envelope instead of
+   * only narrating it. Absent on every other rejection — dispatcher plumbing
+   * stays hidden.
+   */
+  connectNudge: chatConnectNudgeSchema.optional(),
   /**
    * The narration segment this call follows (see `chatDeltaSchema.segmentIndex`)
    * so the client can order the card relative to the model's interleaved

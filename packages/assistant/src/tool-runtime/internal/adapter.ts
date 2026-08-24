@@ -2,6 +2,7 @@ import type {
   CancellationEnvelope,
   IntegrationSlug,
   ToolName,
+  ToolUnavailabilityCode,
   UnknownEffectEnvelope,
   WakeCondition,
 } from "@alfred/contracts";
@@ -81,7 +82,19 @@ export type ToolCallDispatchResult =
   | { kind: "invalid_input"; result: InvalidInputToolResult }
   | { kind: "unknown_tool"; result: UnknownToolResult }
   | { kind: "inactive_tool"; result: InactiveToolResult }
-  | { kind: "not_allowed"; result: NotAllowedToolResult }
+  | {
+      kind: "not_allowed";
+      result: NotAllowedToolResult;
+      /**
+       * The availability evaluator's own code when the floor refused on
+       * connection health — the fact the `{status:"not_allowed"}` envelope
+       * collapses away. Carried beside (never inside) `result`, so the
+       * model-facing transcript envelope is unchanged; only the client-facing
+       * connect nudge (#378 item 3) derives from it. Absent on workflow-cap
+       * and resource-scope refusals, which are policy, not connection health.
+       */
+      unavailability?: ToolUnavailabilityCode;
+    }
   | { kind: "feature_disabled"; result: FeatureDisabledToolResult };
 
 export interface ToolCallRoundAdapter {

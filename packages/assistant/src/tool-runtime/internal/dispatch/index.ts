@@ -295,6 +295,11 @@ function unavailableToolResult(args: {
       integration: args.integration,
       message: args.reason,
     },
+    // The floor is the only producer of this fact. Workflow-cap and
+    // resource-scope refusals below construct their results inline and carry
+    // no `unavailability` — they are policy, not connection health, so no
+    // connect nudge may derive from them.
+    unavailability: args.code,
   };
 }
 

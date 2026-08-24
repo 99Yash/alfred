@@ -92,6 +92,7 @@ const tool = (
     segmentIndex?: number;
     nonExecution?: boolean | undefined;
     resultPreview?: string | undefined;
+    connectNudge?: EventPayload<"chat.tool">["connectNudge"];
     subAgent?: EventPayload<"chat.tool">["subAgent"];
     turn?: Turn;
   } = {},
@@ -104,6 +105,7 @@ const tool = (
     segmentIndex: args.segmentIndex ?? 0,
     nonExecution: args.nonExecution,
     resultPreview: args.resultPreview,
+    connectNudge: args.connectNudge,
     subAgent: args.subAgent,
   });
 
@@ -917,5 +919,104 @@ describe("streamSnapshotsEqual", () => {
   test("no previous snapshot is never equal", () => {
     const cell = streamingTurn();
     assert.equal(streamSnapshotsEqual(null, drain(cell).snapshot), false);
+  });
+});
+
+describe("connection-health nudges (#378 item 3)", () => {
+  const bounced = (args: Parameters<typeof tool>[0] & { status?: "failed" } = {}) =>
+    tool({
+      status: "failed",
+      nonExecution: true,
+      connectNudge: { integration: "gmail", action: "connect" },
+      ...args,
+    });
+
+  test("a boss bounce retracts its card but records the repair", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, tool({ toolCallId: "t1" }), 2_000);
+    applyChatFrame(cell, bounced({ toolCallId: "t1", toolName: "gmail.search" }), 3_000);
+    const { snapshot } = drain(cell);
+    assert.equal(
+      snapshot.tools.some((t) => t.toolCallId === "t1"),
+      false,
+    );
+    assert.deepEqual(snapshot.connectNudges, [{ integration: "gmail", action: "connect" }]);
+  });
+
+  test("a plain non-execution bounce records no repair", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(
+      cell,
+      tool({
+        toolCallId: "t2",
+        status: "failed",
+        nonExecution: true,
+        toolName: "system.spawn_sub_agent",
+      }),
+      2_000,
+    );
+    const { snapshot } = drain(cell);
+    assert.deepEqual(snapshot.connectNudges, []);
+  });
+
+  test("repeated bounces for one integration stay a single offer", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, bounced({ toolCallId: "t3", toolName: "gmail.search" }), 2_000);
+    applyChatFrame(
+      cell,
+      bounced({
+        toolCallId: "t4",
+        toolName: "gmail.send_draft",
+        connectNudge: { integration: "gmail", action: "connect" },
+      }),
+      3_000,
+    );
+    const { snapshot } = drain(cell);
+    assert.equal(snapshot.connectNudges.length, 1);
+  });
+
+  test("a child whose only event is the bounce still offers the repair", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(
+      cell,
+      tool({ subAgent: SUB, status: "failed", nonExecution: true }), // spawn card never drew
+      2_000,
+    );
+    const applied = applyChatFrame(
+      cell,
+      tool({
+        turn: TURN,
+        subAgent: SUB,
+        toolCallId: "child_t1",
+        toolName: "notion.search",
+        status: "failed",
+        nonExecution: true,
+        connectNudge: { integration: "notion", action: "connect" },
+      }),
+      3_000,
+    );
+    assert.equal(applied, true, "the repair must re-project even with no trail to retract");
+    const { snapshot } = drain(cell);
+    assert.deepEqual(snapshot.connectNudges, [{ integration: "notion", action: "connect" }]);
+    assert.equal(snapshot.subAgents.length, 0, "no trail is drawn for a child that never ran");
+  });
+
+  test("differing offers are not equal", () => {
+    const build = (action: "connect" | "reconnect") => {
+      const cell = cellOf();
+      applyChatFrame(cell, started(), 1_000);
+      applyChatFrame(
+        cell,
+        bounced({ toolCallId: "t5", connectNudge: { integration: "gmail", action } }),
+        2_000,
+      );
+      return drain(cell).snapshot;
+    };
+    assert.equal(streamSnapshotsEqual(build("connect"), build("connect")), true);
+    assert.equal(streamSnapshotsEqual(build("connect"), build("reconnect")), false);
   });
 });
