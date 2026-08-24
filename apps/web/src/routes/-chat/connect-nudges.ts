@@ -20,7 +20,7 @@ import {
 export interface ConnectNudgeView {
   /** Stable identity — one offer per integration even after several bounces. */
   integration: string;
-  action: "connect" | "reconnect";
+  action: ChatConnectNudge["action"];
   /** Catalog provider id (`google_gmail`), the connect route's param. */
   providerId: string;
   /** Display name (`Gmail`). */
@@ -34,7 +34,9 @@ export interface ConnectNudgeView {
 
 /**
  * Pull the repair offers out of a persisted turn's tool-call log, deduped by
- * integration in first-appearance order. Everything else in the log is a
+ * integration under the same rule as the live stream state's map:
+ * first-appearance order, last offer wins — so a reload renders exactly what
+ * the turn streamed. Everything else in the log is a
  * drawable card and passes through untouched, so callers feed `cards` to the
  * trail exactly as they fed the raw list before — a bounced entry must never
  * draw as a failed step, inflate the run summary, or leak into source
@@ -45,19 +47,15 @@ export function splitPersistedToolCalls(toolCalls: readonly SyncedChatToolCall[]
   nudges: ChatConnectNudge[];
 } {
   const cards: SyncedChatToolCall[] = [];
-  const seen = new Set<string>();
-  const nudges: ChatConnectNudge[] = [];
+  const offers = new Map<string, ChatConnectNudge>();
   for (const call of toolCalls) {
     if (call.connectNudge === undefined) {
       cards.push(call);
       continue;
     }
-    if (!seen.has(call.connectNudge.integration)) {
-      seen.add(call.connectNudge.integration);
-      nudges.push(call.connectNudge);
-    }
+    offers.set(call.connectNudge.integration, call.connectNudge);
   }
-  return { cards, nudges };
+  return { cards, nudges: [...offers.values()] };
 }
 
 /**

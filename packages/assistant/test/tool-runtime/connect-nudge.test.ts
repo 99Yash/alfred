@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { ToolName } from "@alfred/contracts";
+import type { ToolName, ToolUnavailabilityCode } from "@alfred/contracts";
 import { toolEventOutcome } from "../../src/execution/workflows/tool-event-outcome";
 import {
   completedToolCall,
@@ -17,7 +17,7 @@ import {
 const GMAIL_SEARCH: ToolName = "gmail.search";
 const call = { toolCallId: "call_1", toolName: GMAIL_SEARCH, input: {} };
 
-const floorRefusal = (code: string): TerminalToolCallDispatchResult => ({
+const floorRefusal = (code: ToolUnavailabilityCode): TerminalToolCallDispatchResult => ({
   kind: "not_allowed",
   result: {
     status: "not_allowed",
@@ -25,9 +25,7 @@ const floorRefusal = (code: string): TerminalToolCallDispatchResult => ({
     integration: "gmail",
     message: `${code}: Gmail is not usable right now.`,
   },
-  // `code` is typed as the closed union at the seam; this test builds it from
-  // data so every member can be table-driven.
-  unavailability: code as never,
+  unavailability: code,
 });
 
 const completedOf = (result: TerminalToolCallDispatchResult) => completedToolCall(call, result);
@@ -41,7 +39,7 @@ describe("completedToolCall → connectNudge", () => {
   });
 
   test("needs_reauth and missing_scope offer Reconnect", () => {
-    for (const code of ["needs_reauth", "missing_scope"]) {
+    for (const code of ["needs_reauth", "missing_scope"] as const) {
       assert.deepEqual(completedOf(floorRefusal(code)).connectNudge, {
         integration: "gmail",
         action: "reconnect",
@@ -50,7 +48,7 @@ describe("completedToolCall → connectNudge", () => {
   });
 
   test("non-connection floor codes stay invisible plumbing", () => {
-    for (const code of ["not_allowed", "wrong_caller", "requires_thread"]) {
+    for (const code of ["not_allowed", "wrong_caller", "requires_thread"] as const) {
       const completed = completedOf(floorRefusal(code));
       assert.equal(completed.connectNudge, undefined, code);
       assert.equal(completed.nonExecution, true);
