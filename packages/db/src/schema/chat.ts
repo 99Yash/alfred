@@ -1,4 +1,9 @@
-import type { ChatAttachmentStatus, ChatErrorKind, ChatMessageUsage } from "@alfred/contracts";
+import type {
+  ChatAttachmentStatus,
+  ChatConnectNudge,
+  ChatErrorKind,
+  ChatMessageUsage,
+} from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -52,6 +57,12 @@ export interface ChatMessageToolCall {
    * before interleaved narration shipped (read back as 0).
    */
   segmentIndex?: number | undefined;
+  /**
+   * Present only on a connection-health bounce (#378 item 3): this entry is
+   * deliberately persisted (despite being a non-execution) so a reload
+   * re-offers the repair. Shape is the cross-boundary contract.
+   */
+  connectNudge?: ChatConnectNudge | undefined;
 }
 
 /**

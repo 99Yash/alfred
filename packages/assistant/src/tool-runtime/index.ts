@@ -5,6 +5,7 @@ import {
   readChatHistoryInput,
   type AgentTranscriptMessage,
   type CancellationFence,
+  type ChatConnectNudge,
   type IanaTimezone,
   type IntegrationAvailabilitySnapshot,
   type TOOL_INPUT_SCHEMAS,
@@ -177,6 +178,12 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
   execution: "completed" | "failed" | "not_reached";
   sanitized: boolean;
   nonExecution: boolean;
+  /**
+   * Set only when the floor refused this call on connection health (#378 item
+   * 3): the user-meaningful repair the chat surfaces as a connect nudge, live
+   * and on the durable row. Absent on every other refusal.
+   */
+  connectNudge?: ChatConnectNudge | undefined;
 }
 
 export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCall> =

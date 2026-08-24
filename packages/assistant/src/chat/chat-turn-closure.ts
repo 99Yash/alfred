@@ -520,7 +520,12 @@ interface SanitizedChatMessageFields {
  * transform, so the reconciled bubble is identical to what streamed.
  */
 export function sanitizeChatMessageFields(state: ChatRunState): SanitizedChatMessageFields {
-  const visibleToolCalls = state.toolCallsLog.filter((toolCall) => !toolCall.nonExecution);
+  // Non-execution bounces are internal plumbing the client retracts — except
+  // a connection-health bounce (#378 item 3), which carries the user-meaningful
+  // repair and is kept precisely so a reload can re-offer it.
+  const visibleToolCalls = state.toolCallsLog.filter(
+    (toolCall) => !toolCall.nonExecution || toolCall.connectNudge !== undefined,
+  );
   const raw = {
     content: sanitizeVoice(state.assistantText),
     reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,

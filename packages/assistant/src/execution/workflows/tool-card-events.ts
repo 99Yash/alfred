@@ -167,7 +167,8 @@ export function toolCardStarted(
 /**
  * The card's resolution. `nonExecution` rides along so the client retracts an
  * optimistic card for a dispatcher bounce instead of showing internal plumbing
- * as a failed step; `artifactId` binds a live artifact stream to its durable row.
+ * as a failed step; `artifactId` binds a live artifact stream to its durable
+ * row; `connectNudge` turns a connection-health bounce into a repair offer.
  */
 export function toolCardTerminal(
   target: ToolCardTarget,
@@ -184,6 +185,7 @@ export function toolCardTerminal(
     resultPreview: outcome.resultPreview,
     ...(outcome.sanitized ? { sanitized: outcome.sanitized } : {}),
     ...(outcome.nonExecution ? { nonExecution: outcome.nonExecution } : {}),
+    ...(outcome.connectNudge ? { connectNudge: outcome.connectNudge } : {}),
     ...(opts.artifactId ? { artifactId: opts.artifactId } : {}),
     segmentIndex: opts.segmentIndex,
     ...(target.subAgent ? { subAgent: target.subAgent } : {}),
