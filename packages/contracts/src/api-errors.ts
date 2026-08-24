@@ -31,7 +31,7 @@ export interface ApiErrorResponse {
  * HTTP status, so a thrown error never carries a status that disagrees with its
  * code, and the error handler never hard-codes a number.
  */
-export const API_ERROR_STATUS: Record<ApiErrorCode, number> = {
+export const API_ERROR_STATUS = {
   BAD_REQUEST: 400,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
@@ -44,7 +44,7 @@ export const API_ERROR_STATUS: Record<ApiErrorCode, number> = {
   VALIDATION_ERROR: 400,
   PARSE_ERROR: 400,
   INTERNAL_SERVER_ERROR: 500,
-};
+} satisfies Record<ApiErrorCode, number>;
 
 /**
  * A failure the HTTP surface knows how to answer with. One class for every

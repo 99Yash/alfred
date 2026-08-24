@@ -8,7 +8,12 @@ import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
  * `<provider>.` prefix is stripped off the kind (e.g. `github.pr_review` →
  * `pr review`). Returns the provider slug plus the human remainder.
  */
-export function parseActivitySubtitle(subtitle: string): { provider: string; detail: string } {
+interface ParsedActivitySubtitle {
+  provider: string;
+  detail: string;
+}
+
+export function parseActivitySubtitle(subtitle: string): ParsedActivitySubtitle {
   const [provider = "", ...rest] = subtitle.split(" · ");
   const detail = rest
     .map((part) => (part.startsWith(`${provider}.`) ? part.slice(provider.length + 1) : part))
@@ -17,7 +22,7 @@ export function parseActivitySubtitle(subtitle: string): { provider: string; det
 }
 
 /** Map a connected-integration slug to a brand glyph, where one exists. */
-export const PROVIDER_BRAND: Partial<Record<IntegrationSlug, IntegrationBrand>> = {
+export const PROVIDER_BRAND = {
   gmail: "gmail",
   calendar: "google_calendar",
   drive: "google_drive",
@@ -27,12 +32,12 @@ export const PROVIDER_BRAND: Partial<Record<IntegrationSlug, IntegrationBrand>> 
   slack: "slack",
   linear: "linear",
   github: "github",
-};
+} satisfies Partial<Record<IntegrationSlug, IntegrationBrand>>;
 
 /** Monochrome brand marks need a visible color on the white panel. */
-export const PROVIDER_COLOR: Partial<Record<IntegrationSlug, string>> = {
+export const PROVIDER_COLOR = {
   github: "#181925",
-};
+} satisfies Partial<Record<IntegrationSlug, string>>;
 
 /**
  * Format a calendar panel subtitle (`<startISO> - <endISO>`) into a human time

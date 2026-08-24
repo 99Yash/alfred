@@ -33,12 +33,12 @@ const JUDGE_PREAMBLE =
  * middle so a "mostly right, one flaw" case doesn't read as a total failure.
  * Tune the boundaries in the rubric, not here.
  */
-const GRADE_TO_SCORE: Record<"A" | "B" | "C" | "D", number> = {
+const GRADE_TO_SCORE = {
   A: 1,
   B: 0.66,
   C: 0.33,
   D: 0,
-};
+} satisfies Record<"A" | "B" | "C" | "D", number>;
 
 const judgeOutputSchema = z.object({
   feedback: z.string().min(1).describe("One or two concrete sentences justifying the grade."),

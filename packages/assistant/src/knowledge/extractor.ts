@@ -63,10 +63,10 @@ export type GenerateObject = (args: {
   prompt: string;
 }) => Promise<ChatMemoryExtractionResult>;
 
-const ROLE_LABELS: Record<ChatMessageRole, string> = {
+const ROLE_LABELS = {
   user: "User",
   assistant: "Alfred",
-};
+} satisfies Record<ChatMessageRole, string>;
 
 /**
  * Render the turns into a `Role: content` transcript, newest-preserving. Joins

@@ -16,19 +16,19 @@ import { brandForIntegration } from "~/components/approvals/tool-icon";
  * (24h-expiring) synced queue, not server pagination (ADR-0034 amendment). */
 const WINDOW = 20;
 
-const RISK_LABEL: Record<ToolRiskTier, string> = {
+const RISK_LABEL = {
   high: "high",
   medium: "medium",
   low: "low",
   no_risk: "no risk",
-};
+} satisfies Record<ToolRiskTier, string>;
 
-const RISK_DOT: Record<ToolRiskTier, string> = {
+const RISK_DOT = {
   high: "bg-app-red-4",
   medium: "bg-app-amber-4",
   low: "bg-app-green-4",
   no_risk: "bg-app-fg-2",
-};
+} satisfies Record<ToolRiskTier, string>;
 
 const CLEAR_FILTERS_LEADING = <X size={14} />;
 

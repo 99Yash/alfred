@@ -119,7 +119,12 @@ function callQuery(input: unknown): string | null {
  * followed by a fetch_url drill, or delegating the whole investigation to a
  * sub-agent (which runs its own loop). Anything less is one-and-done.
  */
-function bossDepthVerdict(calls: ToolCall[]): { ok: boolean; detail: string } {
+interface DepthVerdict {
+  ok: boolean;
+  detail: string;
+}
+
+function bossDepthVerdict(calls: ToolCall[]): DepthVerdict {
   const webQueries = new Set<string>();
   let usedWeb = false;
   let usedFetch = false;
@@ -149,10 +154,7 @@ function bossDepthVerdict(calls: ToolCall[]): { ok: boolean; detail: string } {
  * the web, a PR on GitHub, a task in Gmail. This is what makes depth a
  * *capability*, not a web-only behavior.
  */
-function investigationDepthVerdict(
-  calls: ToolCall[],
-  kind: "web" | "github",
-): { ok: boolean; detail: string } {
+function investigationDepthVerdict(calls: ToolCall[], kind: "web" | "github"): DepthVerdict {
   const allowed = kind === "web" ? WEB_INVESTIGATION_TOOLS : GITHUB_INVESTIGATION_TOOLS;
   const relevant = calls.filter((c) => allowed.has(c.name) && c.name !== READ_CONTEXT_TOOL);
   const offDomain = calls.filter((c) => !allowed.has(c.name));
@@ -191,7 +193,8 @@ const SOURCE_CASES: SourceCase[] = [
 ];
 
 function toolSurface(): Record<string, Tool> {
-  return {
+  // The AI SDK owns the `Record<string, Tool>` shape; hand it a plain record.
+  const surface = {
     [READ_CONTEXT_TOOL]: tool({
       description:
         "Read Alfred's stored context about the user's profile, preferences, relationships, people, projects, and recent memory.",
@@ -225,6 +228,7 @@ function toolSurface(): Record<string, Tool> {
       inputSchema: calendarListEventsInput,
     }),
   };
+  return Object.assign<Record<string, Tool>, object>({}, surface);
 }
 
 async function runSourceChoice(input: string): Promise<TaskOutput> {

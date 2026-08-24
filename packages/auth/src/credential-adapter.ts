@@ -106,7 +106,7 @@ function openJoined(row: unknown, join: unknown, vault: CredentialVault): unknow
   const resolved = Array.isArray(joined)
     ? joined.map((entry) => openRow(entry, vault))
     : openRow(joined, vault);
-  return { ...source, [ACCOUNT_MODEL]: resolved };
+  return Object.assign({}, source, { [ACCOUNT_MODEL]: resolved });
 }
 
 /**

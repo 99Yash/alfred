@@ -443,11 +443,13 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
  * `demandingEmailCount` signal is unavailable — the gate leads from demand, not
  * raw volume (#259).
  */
-function gatherCounts(gather: BriefingGather): {
+interface GatheredCounts {
   email: number;
   activity: number;
   meetings: number;
-} {
+}
+
+function gatherCounts(gather: BriefingGather): GatheredCounts {
   return {
     email: Object.values(gather.email.categories).reduce(
       (sum, items) => sum + (items?.length ?? 0),

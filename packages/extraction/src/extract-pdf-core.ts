@@ -25,12 +25,12 @@ interface PdfInspector {
 }
 type LoadPdfInspector = () => Promise<PdfInspector>;
 
-const PDF_DOCUMENT_TYPES: Readonly<Record<`${PdfType}`, PdfDocumentType>> = {
+const PDF_DOCUMENT_TYPES = {
   TextBased: "text_based",
   Scanned: "scanned",
   ImageBased: "image_based",
   Mixed: "mixed",
-};
+} satisfies Readonly<Record<`${PdfType}`, PdfDocumentType>>;
 const VENDOR_FAILURE_CODE = "GenericFailure";
 const ENCRYPTED_MESSAGE = "PDF is encrypted";
 const NOT_A_PDF_PREFIX = "Not a PDF: ";

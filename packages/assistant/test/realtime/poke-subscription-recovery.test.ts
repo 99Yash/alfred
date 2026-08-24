@@ -39,7 +39,7 @@ import { after, before, describe, test } from "node:test";
  * test would pass while measuring nothing. `??=`, so the `assistant-unit-tests`
  * CI job's own `env:` block wins where it has an opinion.
  */
-const ENV_DUMMIES: Readonly<Record<string, string>> = {
+const ENV_DUMMIES = {
   DATABASE_URL: "postgresql://ci:ci@localhost:5432/alfred_ci",
   BETTER_AUTH_SECRET: "ci-dummy-better-auth-secret-32chars-min",
   OAUTH_CREDENTIAL_KEK: "Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ",
@@ -59,7 +59,7 @@ const ENV_DUMMIES: Readonly<Record<string, string>> = {
   GITHUB_APP_PRIVATE_KEY: "ci-dummy",
   GITHUB_WEBHOOK_SECRET: "ci-dummy",
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
-};
+} satisfies Readonly<Record<string, string>>;
 
 /** One user per subtest: the bus is a module singleton and keeps its refcounts. */
 const LATER_LISTENER_USER = "poke-recovery-user";

@@ -142,6 +142,10 @@ test("withDefaults ignores present-undefined overrides that a spread would honor
   assert.equal(withDefaults(deps, { fetchRow: () => "stub" }).fetchRow(), "stub");
 
   // Faithful to spread semantics for a key the defaults object doesn't enumerate.
-  const sparse: { a: number; b?: number } = { a: 1 };
+  interface SparseDefaultable {
+    a: number;
+    b?: number;
+  }
+  const sparse: SparseDefaultable = { a: 1 };
   assert.deepEqual(withDefaults(sparse, { b: 2 }), { a: 1, b: 2 });
 });

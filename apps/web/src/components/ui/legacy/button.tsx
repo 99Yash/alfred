@@ -33,16 +33,16 @@ interface LegacyButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /* Sizes — heights and horizontal padding pulled from the recon doc. */
-const SIZE: Record<LegacyButtonSize, string> = {
+const SIZE = {
   sm: "h-7 px-3 text-[13px] gap-1.5",
   md: "h-8 px-3.5 text-sm gap-1.5",
   mdPlus: "h-9 px-4 text-sm gap-2",
   lg: "h-10 px-4 text-sm gap-2",
-};
+} satisfies Record<LegacyButtonSize, string>;
 
 /* Variants. Each row is a complete recipe: fill, text, glow, hover, active.
  * The `frost-border` class is added via the wrapper (variants opt in below). */
-const VARIANT: Record<LegacyButtonVariant, string> = {
+const VARIANT = {
   primary: cn(
     /* fill */
     "bg-linear-to-b from-[#5d44df] to-[#4f37cb]",
@@ -88,7 +88,7 @@ const VARIANT: Record<LegacyButtonVariant, string> = {
     "disabled:opacity-50",
     "frost-border [--frost-strength:0.6]",
   ),
-};
+} satisfies Record<LegacyButtonVariant, string>;
 
 export function LegacyButton({
   className,

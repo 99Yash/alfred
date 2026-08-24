@@ -259,7 +259,11 @@ export function useRailData(): RailData {
 }
 
 /** Demanding leads, muted sinks; preserves server order within a band (stable). */
-const ATTENTION_BAND_ORDER: Record<AttentionBand, number> = { demanding: 0, normal: 1, muted: 2 };
+const ATTENTION_BAND_ORDER = {
+  demanding: 0,
+  normal: 1,
+  muted: 2,
+} satisfies Record<AttentionBand, number>;
 
 /**
  * Overlay each thread's synced triage tag onto its inbox row and compute the
@@ -357,13 +361,15 @@ const SUGGESTION_UNDO_MS = 5000;
  * server-side row to restore once committed.) A still-pending dismissal is
  * committed on unmount so navigating away doesn't silently lose it.
  */
+interface SuggestionDismissal {
+  hiddenSuggestionIds: ReadonlySet<string>;
+  onDismissSuggestion: (id: string) => void;
+}
+
 function useSuggestionDismissal(
   suggestions: ReadonlyArray<SyncedTodo>,
   dismissTodo: (id: string) => Promise<void>,
-): {
-  hiddenSuggestionIds: ReadonlySet<string>;
-  onDismissSuggestion: (id: string) => void;
-} {
+): SuggestionDismissal {
   const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );

@@ -30,7 +30,7 @@ export interface TodosState {
   editTodo: (id: string, patch: { name?: string; description?: string | null }) => Promise<void>;
 }
 
-const STATUS_RANK: Record<SyncedTodo["status"], number> = {
+const STATUS_RANK = {
   open: 0,
   done: 1,
   suggested: 2,
@@ -38,7 +38,7 @@ const STATUS_RANK: Record<SyncedTodo["status"], number> = {
   // `cleared` rows never sync to the client, so this rank is never exercised in
   // practice — it exists only to satisfy the exhaustive status map.
   cleared: 4,
-};
+} satisfies Record<SyncedTodo["status"], number>;
 
 function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
   if (STATUS_RANK[a.status] !== STATUS_RANK[b.status]) {

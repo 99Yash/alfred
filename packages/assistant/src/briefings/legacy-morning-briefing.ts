@@ -476,11 +476,13 @@ function formatDateLabel(briefingDate: string, timezone: IanaTimezone): string {
   }).format(noonUtc);
 }
 
-function gatherCounts(gather: BriefingGather): {
+interface GatheredCounts {
   email: number;
   activity: number;
   meetings: number;
-} {
+}
+
+function gatherCounts(gather: BriefingGather): GatheredCounts {
   return {
     email: Object.values(gather.email.categories).reduce(
       (sum, items) => sum + (items?.length ?? 0),

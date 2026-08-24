@@ -3,10 +3,12 @@ import { user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { listPublicWorkflows, listResumeOnlyWorkflows } from "@alfred/assistant/execution";
 
-export function getBuiltinWorkflowSeedPlan(): {
+export interface BuiltinWorkflowSeedPlan {
   seed: ReturnType<typeof listPublicWorkflows>;
   retireSlugs: string[];
-} {
+}
+
+export function getBuiltinWorkflowSeedPlan(): BuiltinWorkflowSeedPlan {
   return {
     seed: listPublicWorkflows(),
     retireSlugs: listResumeOnlyWorkflows().map((workflow) => workflow.slug),

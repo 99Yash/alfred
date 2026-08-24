@@ -48,7 +48,7 @@ export function isStorageConfigured(): boolean {
   );
 }
 
-function storageEnv(): {
+type ChatStorageEnv = {
   bucket: string;
   region: string;
   accessKeyId: string;
@@ -56,7 +56,9 @@ function storageEnv(): {
   endpoint: string | undefined;
   forcePathStyle: boolean;
   publicBaseUrl: string | undefined;
-} {
+};
+
+function storageEnv(): ChatStorageEnv {
   const env = serverEnv();
   if (
     !env.CHAT_S3_BUCKET ||

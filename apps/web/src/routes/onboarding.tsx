@@ -6,15 +6,15 @@ import { OnboardingRoute, type OnboardingStep } from "./-onboarding/onboarding-r
 /* `?step=N` is the source of truth for which step renders. Defaulting to 1
  * keeps a bare `/onboarding` visit landing on Unlock; the Google callback
  * redirects with `step=2` to advance the funnel. */
+interface OnboardingSearch {
+  step: OnboardingStep;
+  google_connected?: string | undefined;
+  github_connected?: string | undefined;
+}
+
 export const Route = createFileRoute("/onboarding")({
   head: () => pageMeta({ title: "Get started", path: "/onboarding" }),
-  validateSearch: (
-    search,
-  ): {
-    step: OnboardingStep;
-    google_connected?: string | undefined;
-    github_connected?: string | undefined;
-  } => {
+  validateSearch: (search): OnboardingSearch => {
     const params = toRecord(search);
     const raw = Number(params.step);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;

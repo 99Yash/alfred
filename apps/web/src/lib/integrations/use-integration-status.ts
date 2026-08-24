@@ -184,16 +184,16 @@ export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
   const { data: railwayCreds } = useRailwayCredentials();
   const { data: vercelCreds } = useVercelCredentials();
   return useMemo(() => {
-    const byBackend: Record<IntegrationBackend, ReadonlyArray<CredentialRow> | undefined> = {
-      google: googleCreds,
-      github: githubCreds,
-      notion: notionCreds,
-      railway: railwayCreds,
-      vercel: vercelCreds,
-    };
+    const byBackend = new Map<IntegrationBackend, ReadonlyArray<CredentialRow> | undefined>([
+      ["google", googleCreds],
+      ["github", githubCreds],
+      ["notion", notionCreds],
+      ["railway", railwayCreds],
+      ["vercel", vercelCreds],
+    ]);
     return INTEGRATION_PROVIDERS.map((p) => {
-      const backend = PROVIDER_BACKEND[p.id];
-      return resolveOne(p, backend ? byBackend[backend] : undefined);
+      const backend = PROVIDER_BACKEND.get(p.id);
+      return resolveOne(p, backend === undefined ? undefined : byBackend.get(backend));
     });
   }, [googleCreds, githubCreds, notionCreds, railwayCreds, vercelCreds]);
 }
@@ -261,8 +261,8 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
       return { connected: false, accountLabel: null, missing: [] };
     }
     const missing = INTEGRATION_PROVIDERS.flatMap((p) => {
-      if (PROVIDER_BACKEND[p.id] !== "google") return [];
-      const required = PROVIDER_REQUIRED_SCOPES[p.id];
+      if (PROVIDER_BACKEND.get(p.id) !== "google") return [];
+      const required = PROVIDER_REQUIRED_SCOPES.get(p.id);
       if (!required) return [];
       // Missing iff no active credential carries every required scope. The
       // WeakMap-backed helper builds one Set per credential object, shared by
@@ -364,7 +364,7 @@ function matchByScopes(
   provider: IntegrationProvider,
   creds: ReadonlyArray<CredentialRow>,
 ): ReadonlyArray<CredentialRow> {
-  const required = PROVIDER_REQUIRED_SCOPES[provider.id];
+  const required = PROVIDER_REQUIRED_SCOPES.get(provider.id);
   if (!required) return [];
   return creds.filter((c) => {
     if (c.status !== "active") return false;

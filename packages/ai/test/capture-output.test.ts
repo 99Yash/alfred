@@ -49,20 +49,17 @@ describe("captureOutput", () => {
   });
 
   test("projects only name/id/input — drops any extra SDK fields off the call", () => {
-    const out = captureOutput({
-      text: "",
-      toolCalls: [
-        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
-        {
-          toolName: "calendar.list_events",
-          toolCallId: "c9",
-          input: { range: "next_7_days" },
-          // extra fields the SDK may carry (type, providerMetadata, dynamic) must not leak
-          type: "tool-call",
-          providerMetadata: { anthropic: {} },
-        } as unknown as { toolName: string; toolCallId: string; input: unknown },
-      ],
-    });
+    // Extra fields the SDK may carry (type, providerMetadata, dynamic) ride along
+    // exactly as fetch would deliver them.
+    const sdkCall = Object.assign(
+      {
+        toolName: "calendar.list_events",
+        toolCallId: "c9",
+        input: { range: "next_7_days" },
+      },
+      { type: "tool-call", providerMetadata: { anthropic: {} } },
+    );
+    const out = captureOutput({ text: "", toolCalls: [sdkCall] });
     assert.deepEqual(out, {
       toolCalls: [
         { toolName: "calendar.list_events", toolCallId: "c9", input: { range: "next_7_days" } },

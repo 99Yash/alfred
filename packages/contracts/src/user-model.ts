@@ -59,7 +59,7 @@ export type ObservationSource = (typeof OBSERVATION_SOURCES)[number];
  * *propose* facts from integrations, but must never overwrite a
  * user-authoritative correction.
  */
-export const OBSERVATION_SOURCE_RANK: Readonly<Record<ObservationSource, number>> = {
+export const OBSERVATION_SOURCE_RANK = {
   user: 0,
   alfred_chat: 1,
   // First-party integrations share rank 2 — recency breaks ties between them.
@@ -77,7 +77,7 @@ export const OBSERVATION_SOURCE_RANK: Readonly<Record<ObservationSource, number>
   railway: 2,
   vercel: 2,
   enrichment: 3,
-} as const;
+} satisfies Readonly<Record<ObservationSource, number>>;
 
 /**
  * Relationship-evidence kinds (D4/D15). A provider event can produce several
@@ -320,7 +320,7 @@ const GITHUB_HANDLE = "[a-z\\d](?:[a-z\\d]|-(?=[a-z\\d])){0,38}";
  * already canonical for their kind (lowercased where case-folded), so the
  * case-folded patterns are written lowercase-only.
  */
-const IDENTITY_VALUE_FORMATS: Partial<Record<IdentityKind, RegExp>> = {
+const IDENTITY_VALUE_FORMATS = {
   // Pragmatic, not full RFC 5322, but the DOMAIN is validated for real (shared
   // `HOSTNAME`): a local part with no whitespace / `@` / control chars (C0 +
   // DEL — so `a\x00b@x.com` can't anchor), then `@`, then a true dotted hostname.
@@ -343,7 +343,7 @@ const IDENTITY_VALUE_FORMATS: Partial<Record<IdentityKind, RegExp>> = {
   // project node (and semantically collide with a person handle). The P2/P3
   // reducer mints keys in this shape; `externalId` may itself contain colons.
   integration_object_key: /^[a-z0-9_-]+:[a-z0-9_-]+:.+$/,
-};
+} satisfies Partial<Record<IdentityKind, RegExp>>;
 
 /**
  * True iff `value` is a legal format for `kind` — or `kind` has no registered
@@ -352,7 +352,7 @@ const IDENTITY_VALUE_FORMATS: Partial<Record<IdentityKind, RegExp>> = {
  * first). The mint chokepoint and the contract boundary both gate on this.
  */
 export function identityValueMatchesKind(kind: IdentityKind, value: string): boolean {
-  const format = IDENTITY_VALUE_FORMATS[kind];
+  const format = Object.entries(IDENTITY_VALUE_FORMATS).find(([k]) => k === kind)?.[1];
   return format ? format.test(value) : true;
 }
 

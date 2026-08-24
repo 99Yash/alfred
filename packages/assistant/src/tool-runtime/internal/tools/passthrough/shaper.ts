@@ -75,12 +75,12 @@ export function passthroughBinaryResult(args: {
 }
 
 /** timeout/connection-reset are transient; dns/tls won't fix on an in-turn retry. */
-const RETRYABLE_TRANSPORT: Record<TransportErrorKind, boolean> = {
+const RETRYABLE_TRANSPORT = {
   timeout: true,
   connection_reset: true,
   dns: false,
   tls: false,
-};
+} satisfies Record<TransportErrorKind, boolean>;
 
 /** Shape a transport failure (request left Alfred, no HTTP response arrived). */
 export function passthroughTransportError(

@@ -27,7 +27,7 @@ import { createLabel, getThreadMessageLabels, listLabels, modifyMessageLabels } 
 
 export { TRIAGE_CATEGORIES, type TriageCategory };
 
-const LABEL_NAMES: Record<TriageCategory, string> = {
+const LABEL_NAMES = {
   urgent: "1: urgent",
   action_needed: "2: action needed",
   follow_up: "3: follow up",
@@ -38,7 +38,7 @@ const LABEL_NAMES: Record<TriageCategory, string> = {
   payment: "8: payment",
   newsletter: "9: newsletter",
   marketing: "10: marketing",
-};
+} satisfies Record<TriageCategory, string>;
 
 export function labelNameFor(category: TriageCategory): string {
   return LABEL_NAMES[category];

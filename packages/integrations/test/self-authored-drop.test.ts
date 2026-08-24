@@ -8,7 +8,7 @@ import { parseEmailAddress } from "@alfred/contracts";
 // loaded .env win — this test does NOT pin RESEND_FROM_EMAIL to a fixed value;
 // it derives the self address from `selfSenderEmail()` itself and asserts the
 // envelope-form matching AROUND it, so it holds whatever the address is.
-const SERVER_ENV_FIXTURES: Record<string, string> = {
+const SERVER_ENV_FIXTURES = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/test",
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
@@ -31,7 +31,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
   ENTITY_ID_NAMESPACE: "stable namespace secret for tests",
-};
+} satisfies Record<string, string>;
 for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }

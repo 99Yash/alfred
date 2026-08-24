@@ -8,11 +8,13 @@ import {
   type PdfExtractionChildReply,
 } from "./extract-pdf-protocol";
 
-function describeError(error: unknown): {
+type DescribedError = {
   readonly name: string;
   readonly message: string;
   readonly code?: string;
-} {
+};
+
+function describeError(error: unknown): DescribedError {
   const name = error instanceof Error ? error.name : "Error";
   const message = error instanceof Error ? error.message : String(error); // drift-ok: protocol boundary
   const code = error instanceof Error && "code" in error ? String(error.code) : undefined;

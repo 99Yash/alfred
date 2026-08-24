@@ -50,11 +50,16 @@ const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-mcpseam-";
 const createdUserIds: string[] = [];
 
+/** The stubbed broker result; every test treats it as an `{ ok: ... }` record. */
+interface BrokerStubResult {
+  ok: boolean;
+}
+
 /** A capturing broker double: records what the seam handed it, returns `completed`. */
 class CapturingBroker {
   lastInput: McpBrokerCallInput | null = null;
   calls = 0;
-  result: unknown = { ok: true };
+  result: BrokerStubResult = { ok: true };
 
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
     this.calls += 1;

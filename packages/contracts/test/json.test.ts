@@ -26,8 +26,8 @@ describe("toJsonValue", () => {
   });
 
   test("degrades BigInt and cycles to a JSON marker", () => {
-    const circular: { self?: unknown } = {};
-    circular.self = circular;
+    const circular: Record<string, unknown> = {};
+    Object.assign(circular, { self: circular });
 
     assert.deepEqual(toJsonValue(1n), { unserializable: "1" });
     assert.deepEqual(toJsonValue(circular), { unserializable: "[object Object]" });

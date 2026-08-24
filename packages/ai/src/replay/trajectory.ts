@@ -68,16 +68,17 @@ const TOOL_SPAN_PREFIX = "tool:";
 export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (isRecord(value)) {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort()) {
-      const v = value[key];
-      // Drop undefined explicitly so an absent key and an explicit `undefined`
-      // canonicalize identically, rather than relying on JSON.stringify's quirk
-      // of silently omitting them (a deep-equal compare would diverge).
-      if (v === undefined) continue;
-      out[key] = canonicalize(v);
-    }
-    return out;
+    return Object.keys(value)
+      .sort()
+      .reduce<Record<string, unknown>>((out, key) => {
+        const v = value[key];
+        // Drop undefined explicitly so an absent key and an explicit `undefined`
+        // canonicalize identically, rather than relying on JSON.stringify's quirk
+        // of silently omitting them (a deep-equal compare would diverge).
+        if (v === undefined) return out;
+        out[key] = canonicalize(v);
+        return out;
+      }, {});
   }
   return value;
 }
@@ -193,7 +194,7 @@ export interface TrajectoryDiff {
 }
 
 /** Longest common subsequence of two key arrays → indices kept on each side. */
-function lcsKept(a: string[], b: string[]): { aKept: Set<number>; bKept: Set<number> } {
+function lcsKept(a: string[], b: string[]) {
   const n = a.length;
   const m = b.length;
   const dp: number[][] = Array.from({ length: n + 1 }, () =>

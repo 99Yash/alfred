@@ -24,36 +24,39 @@ const ID_TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.sig";
 type Call = { op: string; model: string; payload: unknown };
 
 /**
- * A recording adapter standing in for drizzle. `stored` is what "Postgres"
+ * A recording adapter standing in for drizzle. `store.row` is what "Postgres"
  * holds, so a test can read it back the way a real query would.
  */
 function recordingAdapter() {
   const calls: Call[] = [];
-  let stored: Record<string, unknown> = {};
+  interface RowStore {
+    row: Record<string, unknown>;
+  }
+  const store: RowStore = { row: {} };
 
   const fake = {
     id: "recording",
     create: async (data: { model: string; data: Record<string, unknown> }) => {
       calls.push({ op: "create", model: data.model, payload: data.data });
-      stored = { id: "acc_1", ...data.data };
-      return stored;
+      store.row = { id: "acc_1", ...data.data };
+      return store.row;
     },
     findOne: async (data: { model: string }) => {
       calls.push({ op: "findOne", model: data.model, payload: null });
-      return stored;
+      return store.row;
     },
     findMany: async (data: { model: string }) => {
       calls.push({ op: "findMany", model: data.model, payload: null });
-      return [stored];
+      return [store.row];
     },
     update: async (data: { model: string; update: Record<string, unknown> }) => {
       calls.push({ op: "update", model: data.model, payload: data.update });
-      stored = { ...stored, ...data.update };
-      return stored;
+      store.row = { ...store.row, ...data.update };
+      return store.row;
     },
     updateMany: async (data: { model: string; update: Record<string, unknown> }) => {
       calls.push({ op: "updateMany", model: data.model, payload: data.update });
-      stored = { ...stored, ...data.update };
+      store.row = { ...store.row, ...data.update };
       return 1;
     },
     count: async (data: { model: string }) => {
@@ -71,7 +74,7 @@ function recordingAdapter() {
     // so they sit on the same side of this boundary as `findOne` and `update`.
     consumeOne: async (data: { model: string }) => {
       calls.push({ op: "consumeOne", model: data.model, payload: null });
-      return stored;
+      return store.row;
     },
     incrementOne: async (data: {
       model: string;
@@ -79,8 +82,8 @@ function recordingAdapter() {
       set?: Record<string, unknown> | undefined;
     }) => {
       calls.push({ op: "incrementOne", model: data.model, payload: data.set ?? null });
-      stored = { ...stored, ...data.set };
-      return stored;
+      store.row = { ...store.row, ...data.set };
+      return store.row;
     },
     transaction: async <R>(callback: (trx: unknown) => Promise<R>) => {
       calls.push({ op: "transaction", model: "-", payload: null });
@@ -94,9 +97,9 @@ function recordingAdapter() {
   return {
     calls,
     setStored: (row: Record<string, unknown>) => {
-      stored = row;
+      store.row = row;
     },
-    getStored: () => stored,
+    getStored: () => store.row,
     // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     adapter: fake as unknown as AuthAdapter,
   };

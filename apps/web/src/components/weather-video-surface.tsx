@@ -13,7 +13,7 @@ import { cn } from "~/lib/utils";
  * Night wins over condition: at night we always play the night loop,
  * matching dimension's `weatherCondition === "night"` branch.
  */
-const VIDEO_FOR_CONDITION: Record<WeatherCondition, string> = {
+const VIDEO_FOR_CONDITION = {
   clear: "/videos/sunny.mp4",
   partly_cloudy: "/videos/partly_cloudy.mp4",
   cloudy: "/videos/cloudy.mp4",
@@ -22,7 +22,7 @@ const VIDEO_FOR_CONDITION: Record<WeatherCondition, string> = {
   snow: "/videos/cloudy.mp4",
   storm: "/videos/thunderstorm.mp4",
   unknown: "/videos/partly_cloudy.mp4",
-};
+} satisfies Record<WeatherCondition, string>;
 
 const NIGHT_VIDEO = "/videos/night.mp4";
 const DEFAULT_VIDEO = "/videos/partly_cloudy.mp4";

@@ -31,12 +31,12 @@ function isTimerOrConnection(kind: string): boolean {
 
 /** Counts each watched resource type so a delta reads as "how many more of each kind". */
 function timerAndConnectionCounts(): Record<string, number> {
-  const counts: Record<string, number> = {};
+  const counts = new Map<string, number>();
   for (const kind of process.getActiveResourcesInfo()) {
     if (!isTimerOrConnection(kind)) continue;
-    counts[kind] = (counts[kind] ?? 0) + 1;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
-  return counts;
+  return Object.fromEntries(counts);
 }
 
 const target = process.argv[2];

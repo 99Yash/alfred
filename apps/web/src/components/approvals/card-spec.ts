@@ -13,30 +13,39 @@ import { stringArray, stringValue } from "./format";
  * The four decision actions are NOT customized; they stay uniform across every
  * tool (grilled 2026-05-31, ADR-0034).
  */
-const TITLE_OVERRIDES: Partial<Record<ToolName, (input: Record<string, unknown>) => string>> = {
-  "gmail.send_draft": (input) => {
-    const to = stringArray(input.to);
-    if (to.length === 0) return "Send a Gmail draft";
-    const rest = to.length > 1 ? ` +${to.length - 1}` : "";
-    return `Email ${to[0]}${rest}`;
-  },
-  "calendar.create_event": (input) => {
-    const summary = stringValue(input.summary);
-    return summary ? `Schedule “${summary}”` : "Create a calendar event";
-  },
-  "railway.redeploy": (input) => {
-    // redeploy is the one irreversible Railway action; surface WHAT is being
-    // redeployed (service · environment — project) so the email / standalone
-    // approval card isn't just two opaque cuids. Names are display context the
-    // boss resolved from list_projects (see railwayRedeployInput).
-    const service = stringValue(input.serviceName);
-    if (!service) return "Redeploy a Railway service";
-    const env = stringValue(input.environmentName);
-    const project = stringValue(input.projectName);
-    const scope = env ? `${service} · ${env}` : service;
-    return project ? `Redeploy ${scope} — ${project}` : `Redeploy ${scope}`;
-  },
-};
+const TITLE_OVERRIDES = new Map<ToolName, (input: Record<string, unknown>) => string>([
+  [
+    "gmail.send_draft",
+    (input) => {
+      const to = stringArray(input.to);
+      if (to.length === 0) return "Send a Gmail draft";
+      const rest = to.length > 1 ? ` +${to.length - 1}` : "";
+      return `Email ${to[0]}${rest}`;
+    },
+  ],
+  [
+    "calendar.create_event",
+    (input) => {
+      const summary = stringValue(input.summary);
+      return summary ? `Schedule “${summary}”` : "Create a calendar event";
+    },
+  ],
+  [
+    "railway.redeploy",
+    (input) => {
+      // redeploy is the one irreversible Railway action; surface WHAT is being
+      // redeployed (service · environment — project) so the email / standalone
+      // approval card isn't just two opaque cuids. Names are display context the
+      // boss resolved from list_projects (see railwayRedeployInput).
+      const service = stringValue(input.serviceName);
+      if (!service) return "Redeploy a Railway service";
+      const env = stringValue(input.environmentName);
+      const project = stringValue(input.projectName);
+      const scope = env ? `${service} · ${env}` : service;
+      return project ? `Redeploy ${scope} — ${project}` : `Redeploy ${scope}`;
+    },
+  ],
+]);
 
 /**
  * Human card title: the tool's input-aware override when present, else the
@@ -44,7 +53,7 @@ const TITLE_OVERRIDES: Partial<Record<ToolName, (input: Record<string, unknown>)
  */
 export function cardTitle(toolName: ToolName, input: unknown): string {
   const record = asRecord(input);
-  const override = TITLE_OVERRIDES[toolName];
+  const override = TITLE_OVERRIDES.get(toolName);
   if (override && record) return override(record);
   return capitalize(humanizeToolName(toolName));
 }

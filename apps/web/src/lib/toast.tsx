@@ -49,17 +49,20 @@ interface VariantSpec {
 
 const ICON_SIZE = 14;
 
-const VARIANTS: Record<ToastVariant, VariantSpec> = {
-  default: { iconClass: "", icon: null },
+const VARIANTS = {
+  default: { cardClass: undefined, iconClass: "", icon: null },
   success: {
+    cardClass: undefined,
     iconClass: "app-toast-icon--success",
     icon: <Check size={ICON_SIZE} strokeWidth={2.5} />,
   },
   info: {
+    cardClass: undefined,
     iconClass: "app-toast-icon--info",
     icon: <Info size={ICON_SIZE} strokeWidth={2.25} />,
   },
   warning: {
+    cardClass: undefined,
     iconClass: "app-toast-icon--warning",
     icon: <TriangleAlert size={ICON_SIZE} strokeWidth={2.25} />,
   },
@@ -68,7 +71,7 @@ const VARIANTS: Record<ToastVariant, VariantSpec> = {
     iconClass: "app-toast-icon--danger",
     icon: <X size={ICON_SIZE} strokeWidth={2.5} />,
   },
-};
+} satisfies Record<ToastVariant, VariantSpec>;
 
 function normalizeVariant(variant?: ToastVariant, legacy?: LegacyVariant): ToastVariant {
   if (variant) return variant;

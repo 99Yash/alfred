@@ -1534,12 +1534,12 @@ function FeatureCardSection() {
 
 type FeatureCardTone = "indigo" | "peach" | "rose" | "emerald";
 
-const FEATURE_CARD_TONE: Record<FeatureCardTone, { text: string; bg: string; ring: string }> = {
+const FEATURE_CARD_TONE = {
   indigo: { text: "text-indigo-300", bg: "bg-indigo-400/[0.08]", ring: "ring-indigo-400/20" },
   peach: { text: "text-orange-300", bg: "bg-orange-400/[0.08]", ring: "ring-orange-400/20" },
   rose: { text: "text-rose-300", bg: "bg-rose-400/[0.08]", ring: "ring-rose-400/20" },
   emerald: { text: "text-emerald-300", bg: "bg-emerald-400/[0.08]", ring: "ring-emerald-400/20" },
-};
+} satisfies Record<FeatureCardTone, { text: string; bg: string; ring: string }>;
 
 function FeatureCardDemo({
   tone,

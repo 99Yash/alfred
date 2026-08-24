@@ -12,7 +12,11 @@ import {
 import { systemToolKernel, toolRuntimeForRun } from "@alfred/assistant/execution/tool-surface";
 import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 
-function capture(run: () => void): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {
+interface CapturedSpans {
+  opened: RuntimeSpanInput[];
+  ended: RuntimeSpanEndArgs[];
+}
+function capture(run: () => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
   const restore = _setRuntimeSpanStarterForTests((input) => {

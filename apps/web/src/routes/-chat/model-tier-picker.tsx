@@ -25,7 +25,7 @@ import { Tip } from "./tip";
 // distinct at a glance, not just by their label. Each tier then has a light/dark
 // variant (vivid + dark rim on light surfaces, calmer + light rim on dark). See
 // public/images/logo/alfred-logo{,-pro}-{light,dark}.svg.
-const TIER_MARK: Record<ChatModelTier, Record<AppResolvedTheme, string>> = {
+const TIER_MARK = {
   standard: {
     light: "/images/logo/alfred-logo-light.svg",
     dark: "/images/logo/alfred-logo-dark.svg",
@@ -34,7 +34,7 @@ const TIER_MARK: Record<ChatModelTier, Record<AppResolvedTheme, string>> = {
     light: "/images/logo/alfred-logo-pro-light.svg",
     dark: "/images/logo/alfred-logo-pro-dark.svg",
   },
-};
+} satisfies Record<ChatModelTier, Record<AppResolvedTheme, string>>;
 
 interface TierOption {
   value: ChatModelTier;

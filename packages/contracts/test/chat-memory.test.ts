@@ -52,8 +52,8 @@ describe("chatPropositionSchema", () => {
   });
 
   test("rejects an entity proposition without subjectRef", () => {
-    const withoutSubjectRef: Record<string, unknown> = { ...validEntityProposition };
-    delete withoutSubjectRef.subjectRef;
+    const { subjectRef: _omitted, ...withoutSubjectRef } = validEntityProposition;
+    assert.equal(_omitted, "dvd@oliv.ai");
     assert.throws(
       () => chatPropositionSchema.parse(withoutSubjectRef),
       /entity propositions require subjectRef|subjectRef/i,

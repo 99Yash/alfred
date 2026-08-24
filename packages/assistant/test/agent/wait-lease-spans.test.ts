@@ -19,9 +19,11 @@ import {
 // Capture what a wait/lease closer forwards to the underlying runtime span, so
 // the tests exercise the real emission path (built input + folded end metadata
 // + level) without a live Langfuse client. Mirrors dispatch-batch-span.test.ts.
-function capture(
-  fn: (recorded: { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] }) => void,
-): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {
+interface CapturedSpans {
+  opened: RuntimeSpanInput[];
+  ended: RuntimeSpanEndArgs[];
+}
+function capture(fn: (recorded: CapturedSpans) => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
   const restore = _setRuntimeSpanStarterForTests((input) => {

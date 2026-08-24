@@ -375,7 +375,7 @@ const USAGE_DEFAULT_WINDOW_DAYS = 30;
  * string; a malformed one is a 400 rather than a silent NaN window that would
  * scan the whole table. `end` is exclusive (matches the service's `lt`).
  */
-function resolveUsageRange(query: { start?: string; end?: string }): { start: Date; end: Date } {
+function resolveUsageRange(query: { start?: string; end?: string }) {
   const end = query.end ? new Date(query.end) : new Date();
   if (Number.isNaN(end.getTime())) throw Errors.BadRequestError("Invalid `end` timestamp");
   const start = query.start

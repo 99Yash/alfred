@@ -81,13 +81,14 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
     // outside it: an assertion that throws in there would unwind the
     // transaction and be reported as the outer rejection, hiding which fact
     // actually failed.
-    const seen: {
+    interface Seen {
       outerTxid?: string;
       innerTxid?: string;
       innerRejection?: string;
       /** The row count after the inner failure, or the SQLSTATE the read raised. */
       rowsAfterFailure?: number | string;
-    } = {};
+    }
+    const seen: Seen = {};
 
     await assert.rejects(
       db().transaction(async (outer) => {
@@ -150,13 +151,14 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
     // the aborted state, and only `ROLLBACK TO SAVEPOINT` un-aborts it — the
     // exact property `persistChatTurnRunInTx` depends on when it recovers from
     // a unique violation inside the chat-turn transaction.
-    const seen: {
+    interface Seen {
       outerTxid?: string;
       innerTxid?: string;
       innerRejection?: string;
       rowsAfterFailure?: number | string;
       callerWriteAccepted?: boolean;
-    } = {};
+    }
+    const seen: Seen = {};
 
     await assert.rejects(
       db().transaction(async (outer) => {
@@ -250,13 +252,14 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
     // drizzle upgrade that changed savepoint naming or nesting behavior at
     // depth >= 2 (a name that collides across siblings, or a nested commit)
     // would go green today without this arm.
-    const seen: {
+    interface Seen {
       outerTxid?: string;
       depth1Txid?: string;
       depth2Txid?: string;
       innerRejection?: string;
       rowsAfterFailure?: number | string;
-    } = {};
+    }
+    const seen: Seen = {};
 
     await assert.rejects(
       db().transaction(async (outer) => {
@@ -325,13 +328,14 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
     // other's live writes while both are in flight. The guard refuses the second
     // call before it can send any statement, so the outer transaction stays
     // usable and keeps both surviving writes.
-    const seen: {
+    interface Seen {
       outerTxid?: string;
       /** The guard's message when the second call is refused, or null if it ran. */
       secondRefused?: string | null;
       firstResolved?: boolean;
       rowsAfterSecond?: number | string;
-    } = {};
+    }
+    const seen: Seen = {};
 
     await assert.rejects(
       db().transaction(async (outer) => {

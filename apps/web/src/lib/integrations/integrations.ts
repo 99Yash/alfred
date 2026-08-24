@@ -300,17 +300,17 @@ export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
   "Your Integrations",
 ];
 
-const SHORT_SLUG_ALIASES: Readonly<Record<string, string>> = {
-  gmail: "google_gmail",
-  calendar: "google_calendar",
-  drive: "google_drive",
-  docs: "google_docs",
-  sheets: "google_sheets",
-  slides: "google_slides",
-};
+const SHORT_SLUG_ALIASES = new Map<string, string>([
+  ["gmail", "google_gmail"],
+  ["calendar", "google_calendar"],
+  ["drive", "google_drive"],
+  ["docs", "google_docs"],
+  ["sheets", "google_sheets"],
+  ["slides", "google_slides"],
+]);
 
 export function getIntegrationProvider(id: string): IntegrationProvider | undefined {
-  const canonical = SHORT_SLUG_ALIASES[id] ?? id;
+  const canonical = SHORT_SLUG_ALIASES.get(id) ?? id;
   return INTEGRATION_PROVIDERS.find((provider) => provider.id === canonical);
 }
 
@@ -322,7 +322,7 @@ export function getIntegrationProvider(id: string): IntegrationProvider | undefi
  * unknown ids so callers can skip the registry lookup.
  */
 const PROVIDER_ID_TO_SLUG: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(SHORT_SLUG_ALIASES).map(([slug, id]) => [id, slug]),
+  [...SHORT_SLUG_ALIASES].map(([slug, id]) => [id, slug]),
 );
 
 export function integrationSlugForProvider(providerId: string): string {
@@ -352,25 +352,26 @@ export function matchesIntegration(provider: IntegrationProvider, query: string)
  */
 export type ProviderScopeRequirement = string | ReadonlyArray<string>;
 
-export const PROVIDER_REQUIRED_SCOPES: Readonly<
-  Record<string, ReadonlyArray<ProviderScopeRequirement>>
-> = {
-  google_gmail: ["https://www.googleapis.com/auth/gmail.readonly"],
-  google_calendar: [
+export const PROVIDER_REQUIRED_SCOPES = new Map<string, ReadonlyArray<ProviderScopeRequirement>>([
+  ["google_gmail", ["https://www.googleapis.com/auth/gmail.readonly"]],
+  [
+    "google_calendar",
     [
-      "https://www.googleapis.com/auth/calendar.readonly",
-      "https://www.googleapis.com/auth/calendar.events",
+      [
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+      ],
     ],
   ],
-  google_drive: ["https://www.googleapis.com/auth/drive"],
-  google_docs: ["https://www.googleapis.com/auth/documents"],
-  google_sheets: ["https://www.googleapis.com/auth/spreadsheets"],
-  google_slides: ["https://www.googleapis.com/auth/presentations"],
+  ["google_drive", ["https://www.googleapis.com/auth/drive"]],
+  ["google_docs", ["https://www.googleapis.com/auth/documents"]],
+  ["google_sheets", ["https://www.googleapis.com/auth/spreadsheets"]],
+  ["google_slides", ["https://www.googleapis.com/auth/presentations"]],
   // GitHub is intentionally absent: post-ADR-0052 the App install carries no
   // OAuth scopes, so its connection is probed by an active credential with an
   // `installation_id` (see `resolveOne` in use-integration-status.ts), not by
   // scopes.
-};
+]);
 
 /**
  * Provider id → the upstream provider key in the `integration_credentials`
@@ -389,15 +390,15 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<
  */
 export type IntegrationBackend = "google" | "github" | "notion" | "railway" | "vercel";
 
-export const PROVIDER_BACKEND: Readonly<Record<string, IntegrationBackend>> = {
-  google_gmail: "google",
-  google_calendar: "google",
-  google_drive: "google",
-  google_docs: "google",
-  google_sheets: "google",
-  google_slides: "google",
-  github: "github",
-  notion: "notion",
-  railway: "railway",
-  vercel: "vercel",
-};
+export const PROVIDER_BACKEND = new Map<string, IntegrationBackend>([
+  ["google_gmail", "google"],
+  ["google_calendar", "google"],
+  ["google_drive", "google"],
+  ["google_docs", "google"],
+  ["google_sheets", "google"],
+  ["google_slides", "google"],
+  ["github", "github"],
+  ["notion", "notion"],
+  ["railway", "railway"],
+  ["vercel", "vercel"],
+]);

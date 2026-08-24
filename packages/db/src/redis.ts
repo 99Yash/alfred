@@ -110,7 +110,7 @@ export type RedisConnectionKind = "queue" | "command" | "subscriber" | "fail-fas
  * `enableReadyCheck: false` is shared: Alfred's Redis is never a replica
  * loading a dataset, and the ready check only delays `ready`.
  */
-const CONNECTION_PROFILES: Record<RedisConnectionKind, RedisOptions> = {
+const CONNECTION_PROFILES = {
   queue: {
     maxRetriesPerRequest: null,
     enableOfflineQueue: true,
@@ -141,7 +141,7 @@ const CONNECTION_PROFILES: Record<RedisConnectionKind, RedisOptions> = {
     commandTimeout: 500,
     enableReadyCheck: false,
   },
-};
+} satisfies Record<RedisConnectionKind, RedisOptions>;
 
 /**
  * An ioredis client with the subscribe verbs taken away.

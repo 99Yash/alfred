@@ -21,11 +21,11 @@ export interface EntityChipProps {
   href?: string | undefined;
 }
 
-const TONE: Record<BriefingReferenceKind, string> = {
+const TONE = {
   activity: "text-app-blue-4",
   meeting: "text-app-purple-4",
   email: "text-app-fg-4",
-};
+} satisfies Record<BriefingReferenceKind, string>;
 
 const BASE =
   "inline-flex items-baseline gap-1 rounded font-medium align-baseline whitespace-normal";

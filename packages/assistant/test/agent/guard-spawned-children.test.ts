@@ -536,11 +536,13 @@ describe("crossFinalizeBoundary", () => {
    * their first line and no guard I/O (children lookup, event publish) is
    * reached: what's under test is the boundary, not the guards.
    */
-  function releaseRecorder(): {
+  interface ReleaseRecorder {
     releaseWithheldReply: () => Promise<void>;
     calls: Array<{ flagAtCallTime: boolean }>;
     state: ChatRunState;
-  } {
+  }
+
+  function releaseRecorder(): ReleaseRecorder {
     const state = baseState({ toolCallsLog: [] });
     const calls: Array<{ flagAtCallTime: boolean }> = [];
     return {

@@ -125,11 +125,7 @@ export function captureOutput(args: {
  * the `prompt` string, folding in `instructions` when present. Attached to every
  * call's meta but only emitted when `LANGFUSE_CAPTURE_IO=true`.
  */
-function captureInput(args: {
-  instructions?: unknown;
-  prompt?: unknown;
-  messages?: unknown;
-}): unknown {
+function captureInput(args: { instructions?: unknown; prompt?: unknown; messages?: unknown }) {
   const { instructions, prompt, messages } = args;
   if (Array.isArray(messages)) {
     if (typeof instructions === "string") {

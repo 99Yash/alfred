@@ -21,7 +21,7 @@ export function ConnectToolsBar() {
   // a check. Catalog order is preserved within each group.
   const ordered = useMemo(() => {
     const visible = integrations.filter(
-      (p) => p.status === "connected" || PROVIDER_BACKEND[p.id] !== undefined,
+      (p) => p.status === "connected" || PROVIDER_BACKEND.get(p.id) !== undefined,
     );
     const unconnected = visible.filter((p) => p.status !== "connected");
     const connected = visible.filter((p) => p.status === "connected");

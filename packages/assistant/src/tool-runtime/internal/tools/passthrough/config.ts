@@ -47,7 +47,7 @@ const NO_AUTH_SCOPE_DENIALS: readonly { pattern: RegExp; detail: string }[] = []
  * SupportedRestSlug, …>` forces an entry per provider — the coverage registry
  * and this config can never disagree.
  */
-export const REST_GATE_CONFIG: Record<SupportedRestSlug, RestProviderGateConfig> = {
+export const REST_GATE_CONFIG = {
   github: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
@@ -107,4 +107,4 @@ export const REST_GATE_CONFIG: Record<SupportedRestSlug, RestProviderGateConfig>
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
     authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
-};
+} satisfies Record<SupportedRestSlug, RestProviderGateConfig>;

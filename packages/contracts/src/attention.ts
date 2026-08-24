@@ -79,11 +79,11 @@ export const CATEGORY_BASE_DEMAND = {
  * construction. Only a *real* low score (`weak`) demotes hard; significance
  * never pushes *above* the category floor (`strong` = 1.0, not >1).
  */
-const SIGNIFICANCE_MULTIPLIER: Record<SignificanceBand, number> = {
+const SIGNIFICANCE_MULTIPLIER = {
   strong: 1.0,
   moderate: 0.7,
   weak: 0.4,
-};
+} satisfies Record<SignificanceBand, number>;
 
 /**
  * Per-repeat recurrence decay. The Nth repeat of a `(sender, normalizedSubject)`

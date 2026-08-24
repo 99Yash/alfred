@@ -17,14 +17,14 @@ import type { GoogleService } from "./http";
  * connected user's own mailbox (labels, messages, threads, settings), never
  * another user id.
  */
-export const GOOGLE_PASSTHROUGH_BASE_URLS: Record<GoogleService, string> = {
+export const GOOGLE_PASSTHROUGH_BASE_URLS = {
   gmail: "https://gmail.googleapis.com/gmail/v1/users/me",
   calendar: "https://www.googleapis.com/calendar/v3",
   drive: "https://www.googleapis.com/drive/v3",
   docs: "https://docs.googleapis.com/v1",
   sheets: "https://sheets.googleapis.com/v4",
   slides: "https://slides.googleapis.com/v1",
-};
+} satisfies Record<GoogleService, string>;
 
 /**
  * Build the private transport profile behind a Google passthrough capability:

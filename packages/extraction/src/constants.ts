@@ -75,7 +75,7 @@ export const REALTIME_PDF_EXTRACTION_LIMITS = {
  * Shared office preset (docx/xlsx). Deltas other formats take are visible
  * against these three literals.
  */
-export const OFFICE_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = {
+export const OFFICE_LIMITS_BY_DOOR = {
   chatUpload: {
     maxBytes: 10 * 1024 * 1024,
     maxCharacters: 1_000_000,
@@ -94,10 +94,10 @@ export const OFFICE_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLi
     maxParseMilliseconds: 30_000,
     truncateOnOutputExceed: true,
   },
-};
+} satisfies Readonly<Record<ExtractionDoor, ExtractionLimits>>;
 
 /** Text decodes cheaply — short parse budget, smaller fetchUrl output budget. */
-export const TEXT_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimits>> = {
+export const TEXT_LIMITS_BY_DOOR = {
   chatUpload: { ...OFFICE_LIMITS_BY_DOOR.chatUpload, maxParseMilliseconds: 5_000 },
   fetchUrl: {
     ...OFFICE_LIMITS_BY_DOOR.fetchUrl,
@@ -105,7 +105,7 @@ export const TEXT_LIMITS_BY_DOOR: Readonly<Record<ExtractionDoor, ExtractionLimi
     maxParseMilliseconds: 5_000,
   },
   gmailAttachment: { ...OFFICE_LIMITS_BY_DOOR.gmailAttachment, maxParseMilliseconds: 5_000 },
-};
+} satisfies Readonly<Record<ExtractionDoor, ExtractionLimits>>;
 
 /**
  * The one door-policy table. Every format × door extraction limit lives here,
