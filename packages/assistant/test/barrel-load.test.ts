@@ -106,7 +106,7 @@ const SUBTEST_TIMEOUT_MS = 120_000;
  * the door to the realtime module: anything wider hands a caller the relay, the reaper or
  * the `PeriodicTask` primitive, which are module-internal.
  */
-const EXPECTED_EXPORTS: Readonly<Record<string, readonly string[]>> = {
+const EXPECTED_EXPORTS = {
   "./realtime": [
     "closeEventBridge",
     "closeReplicachePokeBridge",
@@ -120,7 +120,7 @@ const EXPECTED_EXPORTS: Readonly<Record<string, readonly string[]>> = {
     "subscribeUserPokes",
     "unregisterReplicachePokeAdapter",
   ],
-};
+} satisfies Readonly<Record<string, readonly string[]>>;
 
 interface ProbedSubpath {
   readonly subpath: string;
@@ -142,7 +142,7 @@ interface ProbedSubpath {
  * different question — does the target exist in git — which `pnpm check:exports` already
  * owns and this suite therefore does not re-check.
  */
-function classifySubpaths(exportsMap: unknown): {
+interface ClassifiedSubpaths {
   probed: readonly ProbedSubpath[];
   wildcards: readonly string[];
   /**
@@ -151,7 +151,9 @@ function classifySubpaths(exportsMap: unknown): {
    * the floor goes red instead of shrinking the covered set silently.
    */
   advertised: number;
-} {
+}
+
+function classifySubpaths(exportsMap: unknown): ClassifiedSubpaths {
   if (typeof exportsMap !== "object" || exportsMap === null || Array.isArray(exportsMap)) {
     throw new Error(
       `package.json "exports" is not an object of subpaths: ${JSON.stringify(exportsMap)}`,
@@ -269,7 +271,7 @@ describe("every advertised subpath imports inertly", { concurrency: 8 }, () => {
           `connection belongs inside a lifecycle function`,
       );
 
-      const expected = EXPECTED_EXPORTS[subpath];
+      const expected = Object.entries(EXPECTED_EXPORTS).find(([p]) => p === subpath)?.[1];
       if (expected !== undefined) assert.deepEqual(report.names, expected);
     });
   }

@@ -139,10 +139,7 @@ export function shouldPublishToolStarted(
 export const NESTED_SEGMENT_INDEX = 0;
 
 /** Clamp the provider-supplied identity to what the wire schema accepts (note 2). */
-function boundToolIdentity(call: { toolCallId: string; toolName: string }): {
-  toolCallId: string;
-  toolName: string;
-} {
+function boundToolIdentity(call: { toolCallId: string; toolName: string }) {
   return {
     toolCallId: call.toolCallId.slice(0, CHAT_TOOL_CALL_ID_MAX),
     toolName: call.toolName.slice(0, CHAT_TOOL_NAME_MAX),

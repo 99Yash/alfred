@@ -8,37 +8,37 @@ import { cn } from "~/lib/utils";
  * (internal `system` tools, `imessage`) fall back to a neutral glyph tile so
  * every staged tool still renders an icon.
  */
-const SLUG_TO_BRAND: Partial<Record<IntegrationSlug, IntegrationBrand>> = {
-  gmail: "gmail",
-  calendar: "google_calendar",
-  drive: "google_drive",
-  docs: "google_docs",
-  sheets: "google_sheets",
-  slides: "google_slides",
-  slack: "slack",
-  linear: "linear",
-  github: "github",
-};
+const SLUG_TO_BRAND = new Map<IntegrationSlug, IntegrationBrand>([
+  ["gmail", "gmail"],
+  ["calendar", "google_calendar"],
+  ["drive", "google_drive"],
+  ["docs", "google_docs"],
+  ["sheets", "google_sheets"],
+  ["slides", "google_slides"],
+  ["slack", "slack"],
+  ["linear", "linear"],
+  ["github", "github"],
+]);
 
 /** Brand mark for an integration slug, or `undefined` for brandless slugs. */
 export function brandForIntegration(integration: IntegrationSlug): IntegrationBrand | undefined {
-  return SLUG_TO_BRAND[integration];
+  return SLUG_TO_BRAND.get(integration);
 }
 
-const GLYPH_FALLBACK: Partial<Record<IntegrationSlug, LucideIcon>> = {
-  system: Settings2,
-  imessage: MessageSquare,
-};
+const GLYPH_FALLBACK = new Map<IntegrationSlug, LucideIcon>([
+  ["system", Settings2],
+  ["imessage", MessageSquare],
+]);
 
 export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
-  const brand = SLUG_TO_BRAND[integration];
+  const brand = SLUG_TO_BRAND.get(integration);
   if (brand) {
     return <IntegrationIcon brand={brand} size="md" title={integration} />;
   }
 
   // No brand artwork — render the Lucide mark on a theme-aware neutral coin so
   // it sits in the same family as the full-bleed app-icon coins beside it.
-  const Glyph = GLYPH_FALLBACK[integration] ?? Settings2;
+  const Glyph = GLYPH_FALLBACK.get(integration) ?? Settings2;
   return (
     <span
       aria-hidden

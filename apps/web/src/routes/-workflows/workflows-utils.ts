@@ -29,12 +29,12 @@ export type WorkflowDefinition = {
   integrations: ReadonlyArray<string>;
 };
 
-const KNOWN_PRESENTATION: Readonly<Record<string, { icon: LucideIcon; tint: WorkflowTint }>> = {
-  "morning-briefing": { icon: Mail, tint: "violet" },
-  "daily-briefing": { icon: Mail, tint: "violet" },
-  "email-triage": { icon: CheckCircle2, tint: "emerald" },
-  "cold-start-research": { icon: CalendarClock, tint: "amber" },
-};
+const KNOWN_PRESENTATION = new Map<string, { icon: LucideIcon; tint: WorkflowTint }>([
+  ["morning-briefing", { icon: Mail, tint: "violet" }],
+  ["daily-briefing", { icon: Mail, tint: "violet" }],
+  ["email-triage", { icon: CheckCircle2, tint: "emerald" }],
+  ["cold-start-research", { icon: CalendarClock, tint: "amber" }],
+]);
 
 function hashSlug(slug: string): number {
   let h = 0;
@@ -42,11 +42,8 @@ function hashSlug(slug: string): number {
   return h;
 }
 
-function presentationFor(w: SyncedWorkflow): {
-  icon: LucideIcon;
-  tint: WorkflowTint;
-} {
-  const known = KNOWN_PRESENTATION[w.slug];
+function presentationFor(w: SyncedWorkflow) {
+  const known = KNOWN_PRESENTATION.get(w.slug);
   if (known) return known;
   const tint = FALLBACK_TINTS[hashSlug(w.slug) % FALLBACK_TINTS.length] ?? "violet";
   const icon =

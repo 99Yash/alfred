@@ -20,11 +20,11 @@ interface AvatarProps extends HTMLAttributes<HTMLSpanElement> {
   ref?: Ref<HTMLSpanElement> | undefined;
 }
 
-const SIZE: Record<AvatarSize, string> = {
+const SIZE = {
   sm: "size-4 text-[8px]",
   md: "size-7 text-[12px]",
   lg: "size-9 text-sm",
-};
+} satisfies Record<AvatarSize, string>;
 
 export function Avatar({ className, initial, size = "md", ref, ...rest }: AvatarProps) {
   return (

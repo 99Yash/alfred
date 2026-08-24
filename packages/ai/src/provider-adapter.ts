@@ -252,10 +252,12 @@ export function attachProviderTurnPolicy(
   } as ProviderOptions;
 }
 
-function consumeTurnEnvelope(providerOptions: CallOptions["providerOptions"]): {
+interface TurnEnvelopeConsume {
   cacheTtl: CacheTtl | undefined;
   providerOptions: CallOptions["providerOptions"];
-} {
+}
+
+function consumeTurnEnvelope(providerOptions: CallOptions["providerOptions"]): TurnEnvelopeConsume {
   const existing = toRecord(providerOptions);
   const { [INTERNAL_PROVIDER_NAMESPACE]: envelope, ...rest } = existing;
   const parsed = turnEnvelopeSchema.safeParse(envelope);
@@ -340,10 +342,12 @@ function decorateAnthropicTools(
   return out;
 }
 
-function cleanProviderRequest(params: CallOptions): {
+interface CleanProviderRequest {
   clean: CallOptions;
   cacheTtl: CacheTtl | undefined;
-} {
+}
+
+function cleanProviderRequest(params: CallOptions): CleanProviderRequest {
   const { cacheTtl, providerOptions } = consumeTurnEnvelope(params.providerOptions);
   const { providerOptions: _internalOptions, ...rest } = params;
   const clean = {

@@ -6,10 +6,7 @@ import { BriefingHero } from "./briefing-hero";
 import { TriageHero } from "./triage-hero";
 import { ResearchHero } from "./research-hero";
 
-const TINT: Record<
-  WorkflowDefinition["tint"],
-  { bg: string; chip: string; ring: string; accent: string }
-> = {
+const TINT = {
   violet: {
     bg: "bg-app-purple-1",
     chip: "bg-app-purple-2 text-app-purple-4",
@@ -28,7 +25,10 @@ const TINT: Record<
     ring: "ring-app-amber-2",
     accent: "text-app-amber-4",
   },
-};
+} satisfies Record<
+  WorkflowDefinition["tint"],
+  { bg: string; chip: string; ring: string; accent: string }
+>;
 
 export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition; index: number }) {
   const Icon: LucideIcon = workflow.icon;

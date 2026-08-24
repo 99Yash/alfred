@@ -441,7 +441,7 @@ describe("McpRawClient catalog", () => {
     );
     assert.equal(result.provenance.outputSchemaValidated, true);
 
-    let overDeep: Record<string, unknown> = { $ref: "#/$defs/result" };
+    let overDeep = JSON.parse('{ "$ref": "#/$defs/result" }') as Record<string, unknown>;
     for (let depth = 0; depth < 40; depth += 1) {
       overDeep = { allOf: [overDeep] };
     }

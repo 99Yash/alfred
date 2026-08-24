@@ -66,7 +66,7 @@ let restoreTraceSinks: (() => void) | null = null;
 let restoreAvailabilityReader: (() => void) | null = null;
 let unregisterPokeAdapter: (() => void) | null = null;
 let executeCount = 0;
-let lastExecutedInput: unknown = null;
+let lastExecutedInput: unknown;
 
 function requireCalendarCreateEventTool() {
   const tool = calendarTools.find((candidate) => candidate.name === "calendar.create_event");
@@ -210,7 +210,7 @@ function installMachineFixture(): void {
     emitReplicachePokes: () => {},
   });
   executeCount = 0;
-  lastExecutedInput = null;
+  lastExecutedInput = undefined;
   registerDoubles();
   clearPolicyCacheForTests();
   _primePolicyCacheForTests({

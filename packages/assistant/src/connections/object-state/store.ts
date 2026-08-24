@@ -110,9 +110,9 @@ type ReduceFn = (
 ) => ObjectStateDelta | null;
 
 /** Per-provider reducers. The only per-provider code; everything else is generic. */
-const REDUCERS: Record<ObjectStateProvider, ReduceFn> = {
+const REDUCERS = {
   github: reduceGithubEvent,
-};
+} satisfies Record<ObjectStateProvider, ReduceFn>;
 
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
 const MAX_OBJECT_LIST_LIMIT = 250;

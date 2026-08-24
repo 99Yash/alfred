@@ -149,10 +149,12 @@ const gmailPushNotificationSchema = z.object({
  * nothing regressed here; campaign item 210 owns whether to close the arm with
  * a `parse: ({ request }) => request.text()` hook, as `github-webhook.ts` does.
  */
-export function parseGmailPushEnvelope(body: unknown): {
+export interface GmailPushEnvelope {
   messageId: string | undefined;
   notification: z.infer<typeof gmailPushNotificationSchema> | null;
-} {
+}
+
+export function parseGmailPushEnvelope(body: unknown): GmailPushEnvelope {
   // `getStringPath` walks a body of any shape and accepts only a string leaf, so
   // a non-object root, a wrong-typed `message` and a wrong-typed `messageId` all
   // read as absent instead of failing the whole envelope. Fields nothing reads —

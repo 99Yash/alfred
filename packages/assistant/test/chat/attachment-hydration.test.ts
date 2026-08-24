@@ -34,7 +34,14 @@ function pngBytes(totalBytes: number): Uint8Array {
 }
 
 /** The stored (pre-hydration) shape `buildStoredContentParts` emits for an image. */
-function storedImage(storageKey: string, byteSize?: number): Record<string, unknown> {
+interface StoredImageRecord {
+  type: "chat_attachment_image";
+  storageKey: string;
+  mediaType: string;
+  byteSize?: number;
+}
+
+function storedImage(storageKey: string, byteSize?: number): StoredImageRecord {
   return {
     type: "chat_attachment_image",
     storageKey,

@@ -32,7 +32,7 @@ interface PassthroughMeta {
 // Presentation only. The row LIST is driven by SUPPORTED_PASSTHROUGH_SLUGS
 // (contracts) so a newly-supported integration can't ship without a toggle;
 // this exhaustive Record forces it to also declare how it renders.
-const PASSTHROUGH_META: Record<SupportedIntegrationSlug, PassthroughMeta> = {
+const PASSTHROUGH_META = {
   gmail: {
     label: "Gmail",
     helper:
@@ -96,7 +96,7 @@ const PASSTHROUGH_META: Record<SupportedIntegrationSlug, PassthroughMeta> = {
     icon: Triangle,
     tint: "amber",
   },
-};
+} satisfies Record<SupportedIntegrationSlug, PassthroughMeta>;
 
 /**
  * General read-only API access toggles (ADR-0074 rung-a). One switch per

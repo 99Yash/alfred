@@ -18,11 +18,19 @@ const DELTA_FLUSH_CHARS = 100;
  * a new section rendered after the existing synced content. `append_artifact_page`
  * is absent — `pages`/HTML artifacts already appear at page granularity.
  */
-const ARTIFACT_STREAM_MODES: Readonly<Record<string, "replace" | "append">> = {
-  "system.create_artifact": "replace",
-  "system.update_artifact": "replace",
-  "system.append_artifact_section": "append",
-};
+type ArtifactStreamMode = "replace" | "append";
+
+function artifactStreamMode(toolName: string): ArtifactStreamMode | undefined {
+  switch (toolName) {
+    case "system.create_artifact":
+    case "system.update_artifact":
+      return "replace";
+    case "system.append_artifact_section":
+      return "append";
+    default:
+      return undefined;
+  }
+}
 
 function splitEventText(text: string): string[] {
   const chunks: string[] = [];
@@ -250,7 +258,7 @@ export async function streamModelTurn(args: {
       if (part.type === "tool-input-start") {
         // At the fullStream level, `part.id` is the toolCallId (it matches the
         // later `tool-call` part's `toolCallId`).
-        const mode = ARTIFACT_STREAM_MODES[part.toolName];
+        const mode = artifactStreamMode(part.toolName);
         if (mode) {
           artifactInputs.set(part.id, {
             mode,

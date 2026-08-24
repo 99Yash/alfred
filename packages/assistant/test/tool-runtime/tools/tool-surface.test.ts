@@ -144,8 +144,13 @@ describe("preloadToolCatalog against the real registry", () => {
   // against the REAL github discovery metadata, where the nuance bites:
   // `github.search`'s entity phrase is the singular "pull request", so a
   // word-boundary match on the plural "pull requests" misses it and the ask
+  interface GitHubAccess {
+    access: ToolCatalogAccess;
+    kernelNames: ToolName[];
+  }
+
   // falls through to the ladder rather than preloading.
-  const githubAccess = (): { access: ToolCatalogAccess; kernelNames: ToolName[] } => {
+  const githubAccess = (): GitHubAccess => {
     const kernelNames = listKernelTools().map((t) => t.name);
     const githubNames = listToolsForIntegration("github").map((t) => t.name);
     return {

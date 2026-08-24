@@ -28,7 +28,7 @@ interface AppPillProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   ref?: Ref<HTMLButtonElement> | undefined;
 }
 
-const TONE: Record<NonNullable<AppPillProps["tone"]>, string> = {
+const TONE = {
   green: "bg-app-green-1 text-app-green-4",
   red: "bg-app-red-1 text-app-red-4",
   amber: "bg-app-amber-1 text-app-amber-4",
@@ -36,7 +36,7 @@ const TONE: Record<NonNullable<AppPillProps["tone"]>, string> = {
   sky: "bg-app-sky-1 text-app-sky-4",
   blue: "bg-app-blue-1 text-app-blue-4",
   pink: "bg-app-pink-1 text-app-pink-4",
-};
+} satisfies Record<NonNullable<AppPillProps["tone"]>, string>;
 
 export function AppPill({
   className,

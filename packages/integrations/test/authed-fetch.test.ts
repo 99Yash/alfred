@@ -16,15 +16,14 @@ import {
  * the global `fetch` and captures the `RequestInit`, so it runs offline.
  */
 
+interface RecordedFetchCalls {
+  calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }>;
+}
+
 const realFetch = globalThis.fetch;
 
 /** Swap in a fetch stub that records the (input, init) it was called with. */
-function stubFetch(response: Response = new Response(null, { status: 200 })): {
-  // `init` is recorded exactly as `fetch` received it, so a call made without
-  // one records a present `undefined` — the declaration says so rather than
-  // claiming the key is absent.
-  calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }>;
-} {
+function stubFetch(response: Response = new Response(null, { status: 200 })): RecordedFetchCalls {
   const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     calls.push({ input, init });

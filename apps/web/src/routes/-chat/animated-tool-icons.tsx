@@ -10,20 +10,20 @@ interface AnimatedToolIconDefinition {
 // Keyed by full tool name. Tools absent here fall back to their static Lucide
 // glyph. spawn/load tools only reach this map when no target brand resolved -
 // otherwise the card shows the target integration's logo instead.
-const ANIMATED_TOOL_ICONS: Record<string, AnimatedToolIconDefinition> = {
-  "system.web_search": { key: "globe", Icon: Globe },
-  "system.fetch_url": { key: "globe", Icon: Globe },
-  [SPAWN_SUB_AGENT_TOOL]: { key: "fan", Icon: Fan },
-  [AWAIT_SUB_AGENT_TOOL]: { key: "cctv", Icon: Cctv },
-  "system.remember": { key: "scan-text", Icon: ScanText },
-  "system.read_user_context": { key: "scan-text", Icon: ScanText },
-  "system.suggest_todo": { key: "square-pen", Icon: SquarePen },
-  "system.resolve_todo": { key: "check", Icon: Check },
-};
+const ANIMATED_TOOL_ICONS = new Map<string, AnimatedToolIconDefinition>([
+  ["system.web_search", { key: "globe", Icon: Globe }],
+  ["system.fetch_url", { key: "globe", Icon: Globe }],
+  [SPAWN_SUB_AGENT_TOOL, { key: "fan", Icon: Fan }],
+  [AWAIT_SUB_AGENT_TOOL, { key: "cctv", Icon: Cctv }],
+  ["system.remember", { key: "scan-text", Icon: ScanText }],
+  ["system.read_user_context", { key: "scan-text", Icon: ScanText }],
+  ["system.suggest_todo", { key: "square-pen", Icon: SquarePen }],
+  ["system.resolve_todo", { key: "check", Icon: Check }],
+]);
 
 /** The animated icon for a tool, or `undefined` to keep the static fallback. */
 export function animatedToolIcon(toolName: string): AnimatedToolIconDefinition | undefined {
-  return ANIMATED_TOOL_ICONS[toolName];
+  return ANIMATED_TOOL_ICONS.get(toolName);
 }
 
 /**

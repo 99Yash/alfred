@@ -40,8 +40,8 @@ describe("isUniqueViolation", () => {
   });
 
   test("terminates on a self-referential cause chain (no infinite loop)", () => {
-    const cyclic: { code?: string; cause?: unknown } = {};
-    cyclic.cause = cyclic;
+    const cyclic = { code: "23505" };
+    Object.assign(cyclic, { cause: cyclic });
     assert.equal(isUniqueViolation(cyclic), false);
   });
 });

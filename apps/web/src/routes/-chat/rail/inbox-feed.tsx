@@ -616,7 +616,7 @@ function CategoryChip({
   );
 }
 
-const CATEGORY_CHIP: Record<TriageCategory, string> = {
+const CATEGORY_CHIP = {
   urgent: "bg-app-red-1 text-app-red-4",
   action_needed: "bg-app-amber-1 text-app-amber-4",
   awaiting_reply: "bg-app-amber-1 text-app-amber-4",
@@ -631,9 +631,9 @@ const CATEGORY_CHIP: Record<TriageCategory, string> = {
   done: "bg-app-green-1 text-app-green-4",
   newsletter: "bg-white/10 text-white/75",
   marketing: "bg-white/10 text-white/75",
-};
+} satisfies Record<TriageCategory, string>;
 
-const CATEGORY_SWATCH: Record<TriageCategory, string> = {
+const CATEGORY_SWATCH = {
   urgent: "bg-app-red-4",
   action_needed: "bg-app-amber-4",
   awaiting_reply: "bg-app-amber-4",
@@ -644,7 +644,7 @@ const CATEGORY_SWATCH: Record<TriageCategory, string> = {
   done: "bg-app-green-4",
   newsletter: "bg-app-fg-2",
   marketing: "bg-app-fg-2",
-};
+} satisfies Record<TriageCategory, string>;
 
 /**
  * Thread reader. Replaces the list view when a row is selected; renders
@@ -1210,10 +1210,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
  * to the filename extension when the mime is the generic
  * `application/octet-stream` (common from forwarded mails).
  */
-function attachmentVisual(
-  mimeType: string,
-  filename: string,
-): { tone: string; icon: typeof FileIcon } {
+function attachmentVisual(mimeType: string, filename: string) {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const mime = mimeType.toLowerCase();
   if (mime.startsWith("image/")) {

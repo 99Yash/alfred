@@ -41,10 +41,10 @@ const BASE = cn(
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
-const VARIANT: Record<LegacyInputVariant, string> = {
+const VARIANT = {
   default: "rounded-lg px-3 py-2",
   search: "rounded-full px-4 py-2",
-};
+} satisfies Record<LegacyInputVariant, string>;
 
 export function LegacyInput({
   className,

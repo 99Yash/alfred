@@ -30,6 +30,7 @@
  * Pure string logic — no Date, no server imports — so it lives in the web-safe
  * contracts package and is unit-testable in isolation.
  */
+import { enumGuard } from "./guards";
 
 /**
  * Real GitHub issue/PR search qualifiers the boss may append verbatim to the
@@ -151,11 +152,10 @@ function isValidDateQualifierValue(value: string): boolean {
 export type GithubSearchType = "issue" | "pr" | "both";
 export type GithubSearchState = "open" | "closed" | "merged" | "all";
 
-const STATE_FROM_IS: Record<string, GithubSearchState> = {
-  open: "open",
-  closed: "closed",
-  merged: "merged",
-};
+const IS_STATE_VALUES = ["open", "closed", "merged"] as const;
+
+/** True when an `is:`/`state:` qualifier value names a structured state. */
+const isRecognizedIsState = enumGuard(IS_STATE_VALUES);
 
 /**
  * Qualifiers that already scope a search to a place or a person. When the boss
@@ -264,7 +264,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
   const badStateValues = [
     ...new Set(
       qualifiers
-        .filter((q) => q.key === "state" && !STATE_FROM_IS[normalizeQualifierValue(q.value)])
+        .filter((q) => q.key === "state" && !isRecognizedIsState(normalizeQualifierValue(q.value)))
         .map((q) => `${q.raw}:${q.value}`),
     ),
   ];
@@ -372,11 +372,13 @@ export function sanitizeGithubSearchQuery(
   // Tokens (qualifier:value, as written) to remove from the free-form query.
   const toRemove: ParsedQualifier[] = [];
 
-  const windowFieldSet: Record<string, boolean> = {
-    closed: input.closedWithinDays !== undefined,
-    created: input.createdWithinDays !== undefined,
-    merged: input.mergedWithinDays !== undefined,
-  };
+  // Does the structured context already carry a window for this date qualifier?
+  const hasStructuredWindow = (key: string): boolean =>
+    key === "closed"
+      ? input.closedWithinDays !== undefined
+      : key === "created"
+        ? input.createdWithinDays !== undefined
+        : key === "merged" && input.mergedWithinDays !== undefined;
 
   for (const q of qualifiers) {
     // A negated qualifier is an exclusion (`-author:octocat`, `-label:wontfix`)
@@ -391,8 +393,8 @@ export function sanitizeGithubSearchQuery(
     }
     if (q.key === "state") {
       const v = normalizeQualifierValue(q.value);
-      if (STATE_FROM_IS[v]) {
-        sanitized.state = STATE_FROM_IS[v];
+      if (isRecognizedIsState(v)) {
+        sanitized.state = v;
         toRemove.push(q);
       }
       // An unrecognized value (`state:done`) is NOT folded and NOT stripped:
@@ -409,8 +411,8 @@ export function sanitizeGithubSearchQuery(
       } else if (v === "issue") {
         sanitized.type = sanitized.type === "pr" ? "both" : "issue";
         toRemove.push(q);
-      } else if (STATE_FROM_IS[v]) {
-        sanitized.state = STATE_FROM_IS[v];
+      } else if (isRecognizedIsState(v)) {
+        sanitized.state = v;
         toRemove.push(q);
       }
       // Other `is:` values (is:draft, is:queued, …) are valid extra filters; keep.
@@ -434,7 +436,11 @@ export function sanitizeGithubSearchQuery(
       // Other `type:` values aren't ones the structured field expresses; keep.
       continue;
     }
-    if (DATE_QUALIFIERS.has(q.key) && windowFieldSet[q.key] && isValidDateQualifierValue(q.value)) {
+    if (
+      DATE_QUALIFIERS.has(q.key) &&
+      hasStructuredWindow(q.key) &&
+      isValidDateQualifierValue(q.value)
+    ) {
       // Duplicates a structured window — the field wins; drop the free-form one.
       toRemove.push(q);
       continue;

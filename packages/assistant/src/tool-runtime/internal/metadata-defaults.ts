@@ -44,7 +44,7 @@ type ProviderLabel = string;
  * not depend on the author guessing every phrasing. Only the leading token is
  * expanded — unknown leads (`recent`, `batch`) simply contribute no synonyms.
  */
-const VERB_SYNONYMS: Record<string, readonly string[]> = {
+const VERB_SYNONYMS = {
   search: ["find", "look up", "query"],
   list: ["show", "view", "browse"],
   get: ["read", "fetch", "open", "view"],
@@ -67,7 +67,7 @@ const VERB_SYNONYMS: Record<string, readonly string[]> = {
   suggest: ["propose", "recommend"],
   promote: ["publish", "apply"],
   spawn: ["start", "launch", "delegate"],
-};
+} satisfies Record<string, readonly string[]>;
 
 /**
  * Input-schema property names that carry no capability signal — pagination,
@@ -133,7 +133,9 @@ export function deriveToolDiscovery(input: DeriveToolDiscoveryInput): ResolvedDi
   const tokens = actionTokens(input.action);
   const [lead, ...rest] = tokens;
 
-  const derivedVerbs = lead ? [lead, ...(VERB_SYNONYMS[lead] ?? [])] : [];
+  const derivedVerbs = lead
+    ? [lead, ...(Object.entries(VERB_SYNONYMS).find(([verb]) => verb === lead)?.[1] ?? [])]
+    : [];
   const derivedEntities = [...entitiesFromTokens(rest), ...schemaFieldEntities(input.inputSchema)];
   const humanizedAction = humanizeSlug(input.action).toLowerCase();
   const qualifiedAlias = `${input.integration} ${humanizedAction}`;

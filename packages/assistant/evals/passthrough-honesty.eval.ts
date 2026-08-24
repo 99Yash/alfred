@@ -64,10 +64,12 @@ const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECT
  * Pull a registered tool's real description + inputSchema so the eval grades the
  * actual prompt surface the boss sees in production, not a copy that can drift.
  */
-function registeredGithubTool(name: string): {
+interface RegisteredGithubTool {
   description: string;
   inputSchema: Tool["inputSchema"];
-} {
+}
+
+function registeredGithubTool(name: string): RegisteredGithubTool {
   const reg = builtinTools.listForIntegration("github").find((t) => t.name === name);
   if (!reg) throw new Error(`github tool not registered: ${name} (did registerBuiltinTools run?)`);
   return { description: reg.description, inputSchema: reg.inputSchema };

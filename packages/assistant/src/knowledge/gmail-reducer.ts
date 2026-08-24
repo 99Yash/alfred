@@ -203,10 +203,13 @@ function isSentMessage(raw: unknown, metadata: GmailDocumentMetadata): boolean {
   return metadata.labelIds?.some((label) => label === SENT_LABEL) === true;
 }
 
-function parseAddressList(
-  raw: string | null,
-  role: Extract<ObservationParticipantRole, "to" | "cc" | "bcc">,
-): { parsed: ParsedAddress[]; role: typeof role; dropped: number } {
+interface ParsedAddressList {
+  parsed: ParsedAddress[];
+  role: Extract<ObservationParticipantRole, "to" | "cc" | "bcc">;
+  dropped: number;
+}
+
+function parseAddressList(raw: string | null, role: ParsedAddressList["role"]): ParsedAddressList {
   if (!raw) return { parsed: [], role, dropped: 0 };
   let dropped = 0;
   const parsed: ParsedAddress[] = [];
@@ -280,17 +283,19 @@ function splitAddressList(raw: string): string[] {
   return parts;
 }
 
+interface BuiltParticipants {
+  readonly items: ObservationParticipant[];
+  readonly recipientCount: number;
+  readonly droppedAddressCount: number;
+}
+
 function buildParticipants(args: {
   readonly from: ParsedAddress;
   readonly to: ReturnType<typeof parseAddressList>;
   readonly cc: ReturnType<typeof parseAddressList>;
   readonly bcc: ReturnType<typeof parseAddressList>;
   readonly listId: string | null;
-}): {
-  readonly items: ObservationParticipant[];
-  readonly recipientCount: number;
-  readonly droppedAddressCount: number;
-} {
+}): BuiltParticipants {
   const items: ObservationParticipant[] = [toParticipant(args.from, "from")];
   const recipientIdentities = new Set<string>();
   let droppedAddressCount = 0;

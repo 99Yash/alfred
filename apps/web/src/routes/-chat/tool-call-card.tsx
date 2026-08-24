@@ -376,13 +376,13 @@ function WebSearchDetail({ view, spaced }: { view: WebSearchView; spaced: boolea
   );
 }
 
-const BADGE_TONES: Record<EvidenceBadge["tone"], string> = {
+const BADGE_TONES = {
   neutral: "bg-app-bg-2 text-app-fg-3",
   green: "bg-app-green-2 text-app-green-4",
   red: "bg-app-red-2 text-app-red-4",
   amber: "bg-app-amber-2 text-app-amber-4",
   purple: "bg-app-purple-2 text-app-purple-4",
-};
+} satisfies Record<EvidenceBadge["tone"], string>;
 
 /** A small colored status pill (PR state, deployment status). */
 function BadgePill({ badge }: { badge: EvidenceBadge }) {

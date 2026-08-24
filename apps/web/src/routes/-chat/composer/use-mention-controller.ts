@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { filterMentionOptions, type MentionOption } from "../mention-options";
 import type { SuggestionRenderState } from "../tiptap-composer";
 
-export function useMentionController(): {
+interface MentionController {
   suggestion: SuggestionRenderState | null;
   setSuggestion: (state: SuggestionRenderState | null) => void;
   mentionCandidates: ReadonlyArray<MentionOption>;
@@ -10,7 +10,9 @@ export function useMentionController(): {
   setMentionIdx: (idx: number) => void;
   insertMention: (option: MentionOption) => void;
   suggestionKeyDownRef: MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
-} {
+}
+
+export function useMentionController(): MentionController {
   // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
   // the palette UI reads from it.
   const [suggestion, setSuggestion] = useState<SuggestionRenderState | null>(null);

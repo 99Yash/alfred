@@ -23,7 +23,12 @@ import { isRetrySafeMethod } from "../src/shared/retry";
 
 const realFetch = globalThis.fetch;
 
-function stubFetch(respond: (n: number) => Response): { urls: string[]; methods: string[] } {
+interface RecordedStubFetch {
+  urls: string[];
+  methods: string[];
+}
+
+function stubFetch(respond: (n: number) => Response): RecordedStubFetch {
   const urls: string[] = [];
   const methods: string[] = [];
   let n = 0;

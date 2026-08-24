@@ -148,7 +148,8 @@ export async function spawnSubAgent(
   // parent below and refuses. Reading the parent on its own connection would
   // reopen exactly the window the cascade closes: a child born after the
   // cascade listed the children, running on behalf of a cancelled boss.
-  let spawn: { status: "spawned" | "already_spawned"; childRunId: string };
+  type SubAgentSpawn = { status: "spawned" | "already_spawned"; childRunId: string };
+  let spawn: SubAgentSpawn;
   try {
     spawn = await db().transaction(async (tx) => {
       const parentRows = await tx

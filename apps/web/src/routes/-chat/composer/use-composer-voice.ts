@@ -27,13 +27,15 @@ function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState {
   }
 }
 
-export function useComposerVoice(editorRef: RefObject<TiptapComposerHandle | null>): {
+interface ComposerVoice {
   mic: ReturnType<typeof useMicRecording>;
   transcribing: boolean;
   voiceError: string | null;
   onVoiceStart: () => void;
   onVoiceConfirm: () => Promise<void>;
-} {
+}
+
+export function useComposerVoice(editorRef: RefObject<TiptapComposerHandle | null>): ComposerVoice {
   const mic = useMicRecording();
   const [voice, dispatchVoice] = useReducer(voiceReducer, {
     transcribing: false,

@@ -134,10 +134,7 @@ export function resolveWorkflowApprovalDisplay(
   definition: WorkflowRevisionDefinition,
   availability: IntegrationAvailabilitySnapshot,
   toolCatalog: WorkflowToolCatalog,
-): {
-  resolvedAccounts: WorkflowAccountDisplay[];
-  resolvedCapabilities: WorkflowCapabilityDisplay[];
-} {
+): WorkflowApprovalDisplay {
   const resolvedAccounts = new Map<string, WorkflowAccountDisplay>();
   const displayAccount = (provider: string, accountRef: string) => {
     const row = (availability.providers.get(provider) ?? []).find(
@@ -462,11 +459,20 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
   };
 }
 
+interface WorkflowApprovalDisplay {
+  resolvedAccounts: WorkflowAccountDisplay[];
+  resolvedCapabilities: WorkflowCapabilityDisplay[];
+}
+
+interface WorkflowRecovery {
+  recoveryAction?: WorkflowRecoveryAction;
+}
+
 function recoveryForToolProblem(
   code: ToolUnavailabilityCode,
   tool: WorkflowToolFacts,
   accountRef: string | undefined,
-): { recoveryAction?: WorkflowRecoveryAction } {
+): WorkflowRecovery {
   if (code === "not_connected") {
     return { recoveryAction: { kind: "connect", integration: tool.integration } };
   }

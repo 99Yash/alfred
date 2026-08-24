@@ -43,7 +43,7 @@ const systemBlock =
   FILLER;
 const model = withProviderAdapter("claude-sonnet-4-6", anthropic("claude-sonnet-4-6"));
 
-function cacheStats(meta: unknown): { read: number; created: number } {
+function cacheStats(meta: unknown) {
   // Anthropic reports cache accounting under providerMetadata.anthropic.usage
   // (snake_case). Standardized cache usage lives on `res.usage.inputTokenDetails`.
   const usage = toRecord(getPath(meta, "anthropic", "usage"));

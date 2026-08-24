@@ -60,10 +60,10 @@
 export type ServiceRequirement = "database" | "database+redis";
 
 /** The variables each requirement needs present. */
-const REQUIRED_VARIABLES: Record<ServiceRequirement, readonly string[]> = {
+const REQUIRED_VARIABLES = {
   database: ["DATABASE_URL"],
   "database+redis": ["DATABASE_URL", "REDIS_URL"],
-};
+} satisfies Record<ServiceRequirement, readonly string[]>;
 
 /**
  * The pure decision. Total over three arms, reads no environment, and is the

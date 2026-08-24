@@ -294,11 +294,12 @@ describe("verifyPubSubOidcForGmailWebhook", () => {
  * body. It records the two side effects a malformed body must never reach.
  */
 function gmailWebhookHarness() {
-  const seen: {
+  interface SeenWebhookEffects {
     credentialLookups: string[];
     enqueued: unknown[][];
     receipts: unknown[];
-  } = {
+  }
+  const seen: SeenWebhookEffects = {
     credentialLookups: [],
     enqueued: [],
     receipts: [],

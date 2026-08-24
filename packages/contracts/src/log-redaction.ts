@@ -39,12 +39,11 @@ function matches(pattern: readonly string[], path: readonly string[]): boolean {
 function walk(value: unknown, path: readonly string[]): unknown {
   if (Array.isArray(value)) return value.map((item) => walk(item, path));
   if (!isRecord(value)) return value;
-  const out: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
+  return Object.entries(value).reduce<Record<string, unknown>>((out, [key, child]) => {
     const next = [...path, key];
     out[key] = PATTERNS.some((pattern) => matches(pattern, next)) ? CENSOR : walk(child, next);
-  }
-  return out;
+    return out;
+  }, {});
 }
 
 /**

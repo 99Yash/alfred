@@ -152,7 +152,7 @@ interface ToneAccent {
   border: string;
 }
 
-const TONE_ACCENT: Record<CardTone, ToneAccent> = {
+const TONE_ACCENT = {
   indigo: {
     text: "text-indigo-300",
     bg: "bg-indigo-400/[0.08]",
@@ -185,7 +185,7 @@ const TONE_ACCENT: Record<CardTone, ToneAccent> = {
     surface: "rgb(52 211 153 / 0.038)",
     border: "border-emerald-400/[0.13]",
   },
-};
+} satisfies Record<CardTone, ToneAccent>;
 
 function FeatureCardView({ card }: { card: FeatureCard }) {
   const tone = TONE_ACCENT[card.tone];
@@ -485,13 +485,13 @@ function ChatBubbleMockup() {
 
 type MiniAvatarTone = "indigo" | "violet" | "peach" | "rose" | "emerald";
 
-const MINI_AVATAR_BG: Record<MiniAvatarTone, string> = {
+const MINI_AVATAR_BG = {
   indigo: "bg-indigo-400/30 text-indigo-200 ring-indigo-400/30",
   violet: "bg-violet-400/30 text-violet-200 ring-violet-400/30",
   peach: "bg-orange-400/30 text-orange-200 ring-orange-400/30",
   rose: "bg-rose-400/30 text-rose-200 ring-rose-400/30",
   emerald: "bg-emerald-400/30 text-emerald-200 ring-emerald-400/30",
-};
+} satisfies Record<MiniAvatarTone, string>;
 
 function MiniAvatar({ initial, tone }: { initial: string; tone: MiniAvatarTone }) {
   return (
@@ -507,12 +507,12 @@ function MiniAvatar({ initial, tone }: { initial: string; tone: MiniAvatarTone }
   );
 }
 
-const MINI_CHIP_STYLES: Record<"drafted" | "archived" | "hint" | "warn", string> = {
+const MINI_CHIP_STYLES = {
   drafted: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
   archived: "bg-neutral-800 text-neutral-400 ring-neutral-700",
   hint: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
   warn: "bg-amber-400/10 text-amber-300 ring-amber-400/20",
-};
+} satisfies Record<"drafted" | "archived" | "hint" | "warn", string>;
 
 function MiniChip({
   children,
@@ -538,11 +538,11 @@ function MiniChip({
   );
 }
 
-const MINI_PILL_TONES: Record<"indigo" | "peach" | "violet", string> = {
+const MINI_PILL_TONES = {
   indigo: "bg-indigo-400/15 text-indigo-200 ring-indigo-400/25",
   peach: "bg-orange-400/15 text-orange-200 ring-orange-400/25",
   violet: "bg-violet-400/15 text-violet-200 ring-violet-400/25",
-};
+} satisfies Record<"indigo" | "peach" | "violet", string>;
 
 function MiniPill({
   children,

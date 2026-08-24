@@ -48,11 +48,12 @@ describe("system-tool workflow seam without a registered adapter", () => {
 
 describe("system-tool workflow seam with a registered adapter", () => {
   test("forwards each op's args verbatim and returns its result unchanged", async () => {
-    const seen: {
+    interface SeenOps {
       author?: typeof authorArgs;
       recover?: typeof recoverArgs;
       activate?: typeof activateArgs;
-    } = {};
+    }
+    const seen: SeenOps = {};
     const authorResult = { ok: true, status: "ready_to_activate" };
     const recoverResult = { ok: true, status: "blocked" };
     const activateResult = { ok: true, status: "activated" };

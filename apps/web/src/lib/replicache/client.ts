@@ -73,13 +73,15 @@ function describePullError(error: unknown): string {
   return error instanceof Error ? `Sync failed: ${error.message}` : "Sync failed.";
 }
 
+interface CreatedReplicache {
+  rep: Replicache<ClientMutators>;
+  close: () => void;
+}
+
 export function createReplicache(
   userId: string,
   options: CreateReplicacheOptions = {},
-): {
-  rep: Replicache<ClientMutators>;
-  close: () => void;
-} {
+): CreatedReplicache {
   // One place for "this pull/push failed": a 401 means the session cookie
   // expired (notify the caller), and a bounded body makes any failure
   // diagnosable instead of a blank errorMessage. Keeps puller/pusher in step.

@@ -92,10 +92,12 @@ export async function assessChatRequestPressure(args: {
   };
 }
 
-function normalizeTranscript(messages: readonly ModelMessage[]): {
+interface NormalizedTranscript {
   messages: unknown[];
   hydratedImages: number;
-} {
+}
+
+function normalizeTranscript(messages: readonly ModelMessage[]): NormalizedTranscript {
   let hydratedImages = 0;
   const normalized = JSON.parse(
     JSON.stringify(messages, (_key, value: unknown) => {

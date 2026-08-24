@@ -21,7 +21,7 @@ import { Elysia } from "elysia";
  * only be sent over HTTPS (production) — a stale `max-age` on a local http
  * origin would wedge the browser onto https for a port that serves plain http.
  */
-const STATIC_SECURITY_HEADERS: Readonly<Record<string, string>> = {
+const STATIC_SECURITY_HEADERS = {
   // A JSON API renders nothing; deny every resource class so a mis-typed or
   // injected HTML response can neither load scripts nor be embedded.
   "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
@@ -33,7 +33,7 @@ const STATIC_SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
   // The API needs none of these powerful features.
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), browsing-topics=()",
-};
+} satisfies Readonly<Record<string, string>>;
 
 /** Two years, subdomains, preload-eligible — the standard strong HSTS value. */
 const HSTS_VALUE = "max-age=63072000; includeSubDomains; preload";
@@ -47,8 +47,9 @@ export interface SecurityHeadersOptions {
 }
 
 export function securityHeaders(options: SecurityHeadersOptions = {}): Elysia {
-  const headers: Record<string, string> = { ...STATIC_SECURITY_HEADERS };
-  if (options.hsts) headers["Strict-Transport-Security"] = HSTS_VALUE;
+  const headers = options.hsts
+    ? { ...STATIC_SECURITY_HEADERS, "Strict-Transport-Security": HSTS_VALUE }
+    : { ...STATIC_SECURITY_HEADERS };
 
   return new Elysia({ name: "security-headers" }).onRequest(({ set }) => {
     Object.assign(set.headers, headers);

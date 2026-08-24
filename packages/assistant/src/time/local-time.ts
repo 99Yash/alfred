@@ -256,14 +256,14 @@ export function weekdayIndex(key: LocalDateKey): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
  */
 export type LocalDayStyle = "short" | "long" | "weekday";
 
-const DAY_STYLE_RECIPES: Record<LocalDayStyle, FormatRecipe> = {
+const DAY_STYLE_RECIPES = {
   short: { locale: "en-US", options: { month: "short", day: "numeric" } },
   long: {
     locale: "en-GB",
     options: { weekday: "long", day: "numeric", month: "long", year: "numeric" },
   },
   weekday: { locale: "en-GB", options: { weekday: "long" } },
-};
+} satisfies Record<LocalDayStyle, FormatRecipe>;
 
 /**
  * Render a local date key as prose in the given style.
@@ -426,7 +426,7 @@ function bindZone(timezone: IanaTimezone): ZoneClock {
       };
     },
 
-    dayBounds: (at: Date = new Date()): { start: Date; end: Date } => {
+    dayBounds: (at: Date = new Date()) => {
       const today = day(at);
       return { start: startOf(today), end: startOf(addDays(today, 1)) };
     },

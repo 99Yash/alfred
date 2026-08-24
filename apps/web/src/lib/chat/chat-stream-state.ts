@@ -616,7 +616,13 @@ function ease(shown: number, full: number): number {
  * the new segment eases in from the start, the prior one having moved into the
  * narration trail.
  */
-function anchorEasedSegment(ref: StreamRef): { segment: number; text: string; shown: number } {
+interface EasedSegment {
+  segment: number;
+  text: string;
+  shown: number;
+}
+
+function anchorEasedSegment(ref: StreamRef): EasedSegment {
   if (ref.shownSegment !== ref.currentSegment) {
     ref.shownSegment = ref.currentSegment;
     ref.shown = 0;
