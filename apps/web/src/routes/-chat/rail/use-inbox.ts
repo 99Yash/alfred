@@ -163,7 +163,7 @@ export function useInboxDetail(documentId: string | null) {
       return {
         threadId: data.threadId,
         subject: data.subject,
-        category: isTriageCategory(data.category) ? (data.category as TriageCategory) : null,
+        category: isTriageCategory(data.category) ? data.category : null,
         selectedDocumentId: data.selectedDocumentId,
         messages,
       };
@@ -208,7 +208,7 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
     unread: row.unread,
     initial: initialFor(display),
     tone: toneFor(display),
-    category: isTriageCategory(row.category) ? (row.category as TriageCategory) : null,
+    category: isTriageCategory(row.category) ? row.category : null,
     senderBrand: brand,
     senderDomain: brand === null && !isPersonalDomain(domain) && domain ? domain : null,
   };

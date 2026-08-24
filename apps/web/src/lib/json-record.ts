@@ -19,7 +19,7 @@ export function asString(value: unknown): string | undefined {
 export function parseJsonRecord(value: string | undefined): JsonRecord | null {
   if (!value) return null;
   try {
-    return asRecord(JSON.parse(value) as unknown);
+    return asRecord(JSON.parse(value));
   } catch {
     return null;
   }

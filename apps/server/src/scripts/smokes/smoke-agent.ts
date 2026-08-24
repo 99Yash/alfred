@@ -8,6 +8,7 @@
  * progress, signals the HIL approval, and asserts the final output.
  */
 import { randomUUID } from "node:crypto";
+import { getStringPath } from "@alfred/contracts";
 import { redeliverRun, signalRun, startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -90,8 +91,8 @@ async function main() {
   if (done.status !== "completed") {
     throw new Error(`expected completed, got ${done.status}`);
   }
-  const output = done.output as { echoed?: string };
-  if (output?.echoed !== "HELLO DURABLE RUNTIME") {
+  const output = done.output;
+  if (getStringPath(output, "echoed") !== "HELLO DURABLE RUNTIME") {
     throw new Error(`unexpected output: ${JSON.stringify(output)}`);
   }
   console.log(`[smoke] completed; output=${JSON.stringify(output)}`);

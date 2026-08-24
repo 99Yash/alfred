@@ -318,7 +318,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
           attempt: args.decisionTrace.attempt,
           kind: args.decisionTrace.kind,
           decisionKey: normalizeDecisionTraceKey(args.decisionTrace.decisionKey),
-          trace: sanitizeToolResult(args.decisionTrace.trace).value as object,
+          trace: sanitizeToolResult(args.decisionTrace.trace).value,
         })
         .onConflictDoNothing();
     }

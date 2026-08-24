@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
 import { useGoogleScopeGaps } from "~/lib/integrations/use-integration-status";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+import { API_URL } from "~/lib/eden";
 
 /**
  * Slim nag bar shown when a Google account is connected but some scopes were

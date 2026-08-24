@@ -18,7 +18,7 @@ import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
+import { normalizeDecisionTraceKey, type DecisionTraceBase } from "./decision-traces";
 import { resolveWorkflowForRun } from "./resolve-workflow";
 import { rejectLateCancelledRunStagings, resolveStaleAfterMs } from "./service";
 import { finalizeFailedRun } from "./terminal-closure";
@@ -453,7 +453,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   // 4) Run the step body outside the commit transaction. Side effects are
   //    deferred via `stageAction` and committed atomically below.
   const staged: StagedAction[] = [];
-  const traces: DecisionTraceRecord[] = [];
+  const traces: DecisionTraceBase[] = [];
   const seenTraceKeys = new Set<string>();
   const ctx: StepContext<unknown> = {
     runId: run.id,
@@ -483,7 +483,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
         );
       }
       seenTraceKeys.add(slot);
-      traces.push({ kind, decisionKey, record } as DecisionTraceRecord);
+      traces.push({ kind, decisionKey, record });
     },
   };
 
@@ -707,7 +707,8 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       });
     }
 
-    // `status` is narrowed to pending | runnable | running | deferred here.
+    // SAFETY: the branches above leave `status` as pending | runnable |
+    // running | deferred, which is exactly QueueLeaseFromStatus.
     const queue: LeaseQueueInfo = {
       staleMs,
       fromStatus: status as QueueLeaseFromStatus,
@@ -745,6 +746,8 @@ async function tryInsertStepRow(
         stepId,
         attempt,
         status: "running",
+        // SAFETY: workflow state is a JSON tree persisted to the jsonb
+        // `input` column verbatim.
         input: state as object,
       });
     return true;
@@ -767,7 +770,7 @@ export async function commitStepSuccess(
   attempt: number,
   result: StepResult<unknown>,
   staged: StagedAction[],
-  traces: DecisionTraceRecord[],
+  traces: DecisionTraceBase[],
 ): Promise<RunOutcome> {
   // ADR-0070 §1.1/1.3: every jsonb sink this commit writes — `agent_runs.state`,
   // `agent_runs.transcript`, the step/run `output`, each staged action payload,
@@ -782,17 +785,12 @@ export async function commitStepSuccess(
   // workflows. Clean values pass through by reference (no extra allocation).
   const cleanState = sanitizeToolResult(result.state).value;
   const cleanTranscript =
-    result.transcript === undefined
-      ? undefined
-      : (sanitizeToolResult(result.transcript).value as AgentTranscriptMessage[]);
+    result.transcript === undefined ? undefined : sanitizeToolResult(result.transcript).value;
   const cleanOutput =
     result.kind === "done" || result.kind === "blocked" || result.kind === "defer"
-      ? (sanitizeToolResult(result.output ?? null).value as object | null)
+      ? sanitizeToolResult(result.output ?? null).value
       : null;
-  const cleanWake =
-    result.kind === "interrupt"
-      ? (sanitizeToolResult(result.wake).value as WakeCondition)
-      : undefined;
+  const cleanWake = result.kind === "interrupt" ? sanitizeToolResult(result.wake).value : undefined;
 
   try {
     return await commitStepSuccessTx(
@@ -828,7 +826,7 @@ async function commitStepSuccessTx(
   attempt: number,
   result: StepResult<unknown>,
   staged: StagedAction[],
-  traces: DecisionTraceRecord[],
+  traces: DecisionTraceBase[],
   cleanState: unknown,
   cleanTranscript: AgentTranscriptMessage[] | undefined,
   cleanOutput: unknown,
@@ -870,7 +868,7 @@ async function commitStepSuccessTx(
           stepId,
           attempt,
           kind: action.kind,
-          payload: sanitizeToolResult(action.payload).value as object,
+          payload: sanitizeToolResult(action.payload).value,
           idempotencyKey: key,
         });
       } catch (err) {
@@ -885,30 +883,23 @@ async function commitStepSuccessTx(
       await tx
         .insert(agentDecisionTraces)
         .values(
-          traces.map((t) => {
-            // The executor persists traces kind-agnostically. Inside
-            // @alfred/assistant the `DecisionTraceRegistry` is empty (each
-            // producer augments it from its own package — triage et al.), so
-            // `DecisionTraceRecord` collapses to `never` here; read the base
-            // shape every trace carries at runtime rather than the registry type.
-            const trace = t as { kind: string; decisionKey: string; record: unknown };
-            return {
-              runId: run.id,
-              userId: run.userId,
-              workflowSlug: run.workflowSlug,
-              stepId,
-              attempt,
-              kind: trace.kind,
-              decisionKey: trace.decisionKey,
-              trace: sanitizeToolResult(trace.record).value as object,
-            };
-          }),
+          traces.map((t) => ({
+            runId: run.id,
+            userId: run.userId,
+            workflowSlug: run.workflowSlug,
+            stepId,
+            attempt,
+            kind: t.kind,
+            decisionKey: t.decisionKey,
+            trace: sanitizeToolResult(t.record).value,
+          })),
         )
         .onConflictDoNothing();
     }
 
     if (result.kind === "next") {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         currentStep: result.nextStep,
         // Monotonic per-run execution counter, NOT reset to 0. The
@@ -943,6 +934,7 @@ async function commitStepSuccessTx(
       // under a stale attempt while the reclaimer is mid-step, or over a
       // terminal status a cancel just wrote.
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "completed",
         output: cleanOutput,
@@ -963,6 +955,7 @@ async function commitStepSuccessTx(
 
     if (result.kind === "blocked") {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "blocked",
         output: cleanOutput,
@@ -989,6 +982,7 @@ async function commitStepSuccessTx(
 
     if (result.kind === "defer") {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "deferred",
         output: cleanOutput,
@@ -1020,6 +1014,7 @@ async function commitStepSuccessTx(
     // owns, or on a run a cancel just took terminal and whose stagings it
     // already rejected.
     await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+      // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
       state: cleanState as object,
       status: "waiting",
       wakeCondition: wake,
