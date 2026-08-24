@@ -174,11 +174,13 @@ export function useConnectedAccountLabel(backend: IntegrationBackend): string | 
 export interface ResolvedIntegrationsResult {
   integrations: ReadonlyArray<ResolvedIntegration>;
   /**
-   * False until every backend credential query has settled at least once.
-   * Surfaces that *gate* on connection state (the mention palette's connect
-   * nudges) need this to avoid flashing "not connected" for everything while
-   * the five queries are still in flight; surfaces that merely decorate
-   * (tiles, bars) can ignore it and let rows settle in place.
+   * False until every backend credential query has *succeeded* once — not
+   * merely settled. The fetchers collapse any request failure to `[]`, which
+   * is indistinguishable from "nothing connected", so gating on settlement
+   * alone would fade a connected provider to "Connect" during an API
+   * failure. Surfaces that *gate* on connection state (the mention palette's
+   * connect nudges) hold stateless rows through failures; surfaces that
+   * merely decorate (tiles, bars) can ignore this flag and settle in place.
    */
   ready: boolean;
 }
@@ -195,9 +197,12 @@ export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
   const notion = useNotionCredentials();
   const railway = useRailwayCredentials();
   const vercel = useVercelCredentials();
-  // A settled query always has defined data: the fetchers return `[]` on any
-  // error, so `undefined` means exactly "still in flight".
-  const ready = [google, github, notion, railway, vercel].every((q) => q.data !== undefined);
+  // Success, not mere settlement: the fetchers turn any request failure into
+  // `[]`, so a settled-but-failed query is indistinguishable from "nothing
+  // connected". Gating on `isSuccess` keeps a connected provider honest (no
+  // phantom "Connect" nudge during an API failure); failed queries fall back
+  // to stateless rows and self-heal via retry + focus refetch.
+  const ready = [google, github, notion, railway, vercel].every((q) => q.isSuccess);
   const integrations = useMemo(() => {
     const byBackend = new Map<IntegrationBackend, ReadonlyArray<CredentialRow> | undefined>([
       ["google", google.data],

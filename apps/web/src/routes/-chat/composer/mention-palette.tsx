@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
-import { getIntegrationProvider } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
-import { type MentionConnection, type MentionConnectionMap } from "../mention-connection";
+import { type MentionConnection, type MentionConnectionLookup } from "../mention-connection";
 import type { MentionOption } from "../mention-options";
 
 export function MentionPalette({
@@ -15,17 +13,21 @@ export function MentionPalette({
   connectPrompt,
   onHover,
   onPick,
+  onConnect,
   onBackFromConnect,
   onClose,
 }: {
   options: ReadonlyArray<MentionOption>;
   activeIdx: number;
-  connections: MentionConnectionMap;
+  connections: MentionConnectionLookup;
   /** Unconnected-but-connectable option picked from the list — swaps the
    * rows for an inline connect CTA instead of inserting a dead chip. */
   connectPrompt: MentionOption | null;
   onHover: (i: number) => void;
   onPick: (option: MentionOption) => void;
+  /** Commit the drill-in's primary action (dismiss + provider connect flow).
+   * Owned by the controller so Enter and this button share one path. */
+  onConnect: () => void;
   onBackFromConnect: () => void;
   onClose: () => void;
 }) {
@@ -84,7 +86,7 @@ export function MentionPalette({
         <ConnectPanel
           option={connectPrompt}
           onBack={onBackFromConnect}
-          onClose={onClose}
+          onConnect={onConnect}
           labelledById={labelId}
         />
       ) : (
@@ -101,7 +103,7 @@ export function MentionPalette({
               option={opt}
               index={i}
               isActive={i === activeIdx}
-              connection={connections.get(opt.value) ?? "internal"}
+              connection={connections(opt.value)}
               scrollRef={i === activeIdx ? scrollActiveIntoView : null}
               onHover={onHover}
               onPick={onPick}
@@ -110,6 +112,72 @@ export function MentionPalette({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Per-state row presentation, keyed exhaustively over `MentionConnection` so
+ * a new state cannot ship unstyled — adding one is a compile error here, not
+ * a silently healthy-looking row. `loading` renders like a plain usable row
+ * on purpose: rows stay stateless during load and never flash "Connect".
+ * An integration you can't use yet sits visually behind the ones you can —
+ * quiet dimming, not removal, so the catalog stays discoverable.
+ */
+const ROW_PRESENTATION: Record<
+  MentionConnection,
+  {
+    icon?: string;
+    label?: string;
+    subtitle?: string;
+    tag?: { srText: string; label: string; className: string };
+  }
+> = {
+  internal: {},
+  connected: {},
+  loading: {},
+  connectable: {
+    icon: "opacity-60",
+    label: "opacity-70",
+    tag: {
+      srText: "Not connected",
+      label: "Connect",
+      className:
+        "shrink-0 rounded-md bg-app-bg-2 px-1.5 py-0.5 text-[10px] font-medium text-app-fg-3",
+    },
+  },
+  unavailable: {
+    icon: "opacity-40",
+    label: "opacity-50",
+    subtitle: "opacity-50",
+    tag: {
+      srText: "Not set up yet",
+      label: "Soon",
+      className: "shrink-0 px-1 py-0.5 text-[10px] font-medium text-app-fg-3 opacity-60",
+    },
+  },
+};
+
+/** The brand glyph (or fallback icon) for a mention option. */
+function OptionAvatar({
+  option,
+  className,
+  brandSize,
+  iconSize,
+}: {
+  option: MentionOption;
+  className?: string;
+  brandSize: number;
+  iconSize: number;
+}) {
+  const Icon = option.icon;
+  return (
+    <span className={className}>
+      {option.brand ? (
+        <IntegrationGlyph brand={option.brand} size={brandSize} />
+      ) : Icon ? (
+        <Icon size={iconSize} className="text-app-fg-3" />
+      ) : null}
+    </span>
   );
 }
 
@@ -130,9 +198,7 @@ function MentionRow({
   onHover: (i: number) => void;
   onPick: (option: MentionOption) => void;
 }) {
-  const Icon = option.icon;
-  const connectable = connection === "connectable";
-  const unavailable = connection === "unavailable";
+  const presentation = ROW_PRESENTATION[connection];
   return (
     <button
       ref={scrollRef ?? undefined}
@@ -148,52 +214,29 @@ function MentionRow({
         "outline-none",
       )}
     >
-      <span
+      <OptionAvatar
+        option={option}
         className={cn(
           "grid size-6 shrink-0 place-items-center rounded-full bg-app-bg-2",
-          // An integration you can't use yet sits visually behind the ones
-          // you can — quiet dimming, not removal, so the catalog stays
-          // discoverable and the fix stays one keystroke away.
-          connectable && "opacity-60",
-          unavailable && "opacity-40",
+          presentation.icon,
         )}
-      >
-        {option.brand ? (
-          <IntegrationGlyph brand={option.brand} size={14} />
-        ) : Icon ? (
-          <Icon size={13} className="text-app-fg-3" />
-        ) : null}
-      </span>
+        brandSize={14}
+        iconSize={13}
+      />
       <span className="min-w-0 flex-1">
         <span
-          className={cn(
-            "block truncate text-[13px] font-medium text-app-fg-4",
-            connectable && "opacity-70",
-            unavailable && "opacity-50",
-          )}
+          className={cn("block truncate text-[13px] font-medium text-app-fg-4", presentation.label)}
         >
           {option.label}
         </span>
-        <span
-          className={cn("block truncate text-[11px] text-app-fg-2", unavailable && "opacity-50")}
-        >
+        <span className={cn("block truncate text-[11px] text-app-fg-2", presentation.subtitle)}>
           {option.subtitle}
         </span>
       </span>
-      {connectable ? (
+      {presentation.tag ? (
         <>
-          <span className="sr-only">Not connected</span>
-          <span className="shrink-0 rounded-md bg-app-bg-2 px-1.5 py-0.5 text-[10px] font-medium text-app-fg-3">
-            Connect
-          </span>
-        </>
-      ) : null}
-      {unavailable ? (
-        <>
-          <span className="sr-only">Not set up yet</span>
-          <span className="shrink-0 px-1 py-0.5 text-[10px] font-medium text-app-fg-3 opacity-60">
-            Soon
-          </span>
+          <span className="sr-only">{presentation.tag.srText}</span>
+          <span className={presentation.tag.className}>{presentation.tag.label}</span>
         </>
       ) : null}
       {isActive ? (
@@ -214,34 +257,23 @@ function MentionRow({
 function ConnectPanel({
   option,
   onBack,
-  onClose,
+  onConnect,
   labelledById,
 }: {
   option: MentionOption;
   onBack: () => void;
-  onClose: () => void;
+  onConnect: () => void;
   labelledById: string;
 }) {
-  const navigate = useNavigate();
-  const provider = getIntegrationProvider(option.value);
-  const Icon = option.icon;
-
-  const connect = () => {
-    onClose();
-    if (!provider) return;
-    void navigate({ to: "/integrations/$provider", params: { provider: provider.id } });
-  };
-
   return (
     <section aria-labelledby={labelledById} className="app-fade-in px-1 pb-0.5">
       <div className="flex items-center gap-2.5 rounded-xl bg-app-bg-a2 p-2">
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-app-bg-1 opacity-80">
-          {option.brand ? (
-            <IntegrationGlyph brand={option.brand} size={16} />
-          ) : Icon ? (
-            <Icon size={15} className="text-app-fg-3" />
-          ) : null}
-        </span>
+        <OptionAvatar
+          option={option}
+          className="grid size-7 shrink-0 place-items-center rounded-full bg-app-bg-1 opacity-80"
+          brandSize={16}
+          iconSize={15}
+        />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-app-fg-4">
             {option.label}
@@ -253,11 +285,9 @@ function ConnectPanel({
         Connect {option.label} so Alfred can use this source.
       </p>
       <div className="flex items-center gap-1.5 px-1 pb-0.5">
-        {provider ? (
-          <AppButton variant="primary" size="sm" onClick={connect}>
-            Connect {option.label}
-          </AppButton>
-        ) : null}
+        <AppButton variant="primary" size="sm" onClick={onConnect}>
+          Connect {option.label}
+        </AppButton>
         <AppButton variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="size-3.5 shrink-0" strokeWidth={2} />
           All sources
