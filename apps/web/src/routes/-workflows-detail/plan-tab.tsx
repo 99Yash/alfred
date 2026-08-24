@@ -1,4 +1,5 @@
 import {
+  enumGuard,
   EVENT_TYPES_BY_SOURCE,
   humanizeSlug,
   isIanaTimezone,
@@ -40,9 +41,7 @@ const AUTHORABLE_EVENT_SOURCE_OPTIONS: ReadonlyArray<{
   label: string;
 }> = [{ value: "gmail", label: "Gmail" }];
 
-function isAuthorableEventSource(value: string): value is AuthorableEventSource {
-  return (AUTHORABLE_EVENT_SOURCE_VALUES as readonly string[]).includes(value);
-}
+const isAuthorableEventSource = enumGuard(AUTHORABLE_EVENT_SOURCE_VALUES);
 
 function eventTypeLabel(type: string): string {
   return type.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

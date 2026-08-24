@@ -1,4 +1,4 @@
-import { isIndexable, isNonEmptyString, isRecord } from "./guards";
+import { enumGuard, isIndexable, isNonEmptyString, isRecord } from "./guards";
 
 export const API_ERROR_CODES = [
   "BAD_REQUEST",
@@ -174,6 +174,4 @@ export function apiErrorMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
-function isApiErrorCode(value: unknown): value is ApiErrorCode {
-  return typeof value === "string" && API_ERROR_CODES.includes(value as ApiErrorCode);
-}
+const isApiErrorCode = enumGuard(API_ERROR_CODES);

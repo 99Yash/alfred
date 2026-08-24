@@ -21,6 +21,7 @@
 
 import { z } from "zod";
 import { HOSTNAME } from "./hostname";
+import { enumGuard } from "./guards";
 import { type FactKey } from "./user-model";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -403,9 +404,7 @@ export const PROJECTION_IDENTITY_KEYS = [
 ] as const satisfies readonly FactKey[];
 export type ProjectionIdentityKey = (typeof PROJECTION_IDENTITY_KEYS)[number];
 
-export function isProjectionIdentityKey(key: string): key is ProjectionIdentityKey {
-  return (PROJECTION_IDENTITY_KEYS as readonly string[]).includes(key);
-}
+export const isProjectionIdentityKey = enumGuard(PROJECTION_IDENTITY_KEYS);
 
 /**
  * Keys a `corporate_affiliation` tier ALONE may ground (ADR-0080 §5). A corporate

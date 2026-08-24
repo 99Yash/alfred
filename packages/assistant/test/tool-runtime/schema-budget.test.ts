@@ -75,19 +75,10 @@ describe("tool-schema budget", () => {
   test("kernel, preloaded, and subsequently loaded surfaces grow predictably", () => {
     const kernel = estimateToolSurfaceBudget(toolsByName(systemToolKernel()));
     const preloaded = estimateToolSurfaceBudget(
-      toolsByName([
-        ...systemToolKernel(),
-        "calendar.list_events" as ToolName,
-        "gmail.search" as ToolName,
-      ]),
+      toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search"]),
     );
     const loaded = estimateToolSurfaceBudget(
-      toolsByName([
-        ...systemToolKernel(),
-        "calendar.list_events" as ToolName,
-        "gmail.search" as ToolName,
-        "github.search" as ToolName,
-      ]),
+      toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search", "github.search"]),
     );
     const full = estimateToolSurfaceBudget([...listRegisteredTools()]);
 
@@ -118,7 +109,7 @@ describe("tool-schema budget", () => {
   });
 
   test("per-tool sizes are deterministic and memoized to a stable value", () => {
-    const tool = getTool("system.web_search" as ToolName);
+    const tool = getTool("system.web_search");
     assert.ok(tool, "system.web_search should be registered");
     if (!tool) return;
     const first = toolSchemaSize(tool);

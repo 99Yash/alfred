@@ -483,6 +483,8 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
         );
       }
       seenTraceKeys.add(slot);
+      // SAFETY: kind/decisionKey/record is exactly the base shape
+      // DecisionTraceRegistry keys every package-specific trace by.
       traces.push({ kind, decisionKey, record } as DecisionTraceRecord);
     },
   };
@@ -707,7 +709,8 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       });
     }
 
-    // `status` is narrowed to pending | runnable | running | deferred here.
+    // SAFETY: the branches above leave `status` as pending | runnable |
+    // running | deferred, which is exactly QueueLeaseFromStatus.
     const queue: LeaseQueueInfo = {
       staleMs,
       fromStatus: status as QueueLeaseFromStatus,
@@ -745,6 +748,8 @@ async function tryInsertStepRow(
         stepId,
         attempt,
         status: "running",
+        // SAFETY: workflow state is a JSON tree persisted to the jsonb
+        // `input` column verbatim.
         input: state as object,
       });
     return true;
@@ -782,17 +787,12 @@ export async function commitStepSuccess(
   // workflows. Clean values pass through by reference (no extra allocation).
   const cleanState = sanitizeToolResult(result.state).value;
   const cleanTranscript =
-    result.transcript === undefined
-      ? undefined
-      : (sanitizeToolResult(result.transcript).value as AgentTranscriptMessage[]);
+    result.transcript === undefined ? undefined : sanitizeToolResult(result.transcript).value;
   const cleanOutput =
     result.kind === "done" || result.kind === "blocked" || result.kind === "defer"
-      ? (sanitizeToolResult(result.output ?? null).value as object | null)
+      ? sanitizeToolResult(result.output ?? null).value
       : null;
-  const cleanWake =
-    result.kind === "interrupt"
-      ? (sanitizeToolResult(result.wake).value as WakeCondition)
-      : undefined;
+  const cleanWake = result.kind === "interrupt" ? sanitizeToolResult(result.wake).value : undefined;
 
   try {
     return await commitStepSuccessTx(
@@ -870,7 +870,7 @@ async function commitStepSuccessTx(
           stepId,
           attempt,
           kind: action.kind,
-          payload: sanitizeToolResult(action.payload).value as object,
+          payload: sanitizeToolResult(action.payload).value,
           idempotencyKey: key,
         });
       } catch (err) {
@@ -891,6 +891,7 @@ async function commitStepSuccessTx(
             // producer augments it from its own package — triage et al.), so
             // `DecisionTraceRecord` collapses to `never` here; read the base
             // shape every trace carries at runtime rather than the registry type.
+            // SAFETY: every persisted trace carries this base shape at runtime.
             const trace = t as { kind: string; decisionKey: string; record: unknown };
             return {
               runId: run.id,
@@ -900,7 +901,7 @@ async function commitStepSuccessTx(
               attempt,
               kind: trace.kind,
               decisionKey: trace.decisionKey,
-              trace: sanitizeToolResult(trace.record).value as object,
+              trace: sanitizeToolResult(trace.record).value,
             };
           }),
         )
@@ -909,6 +910,7 @@ async function commitStepSuccessTx(
 
     if (result.kind === "next") {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         currentStep: result.nextStep,
         // Monotonic per-run execution counter, NOT reset to 0. The
@@ -943,6 +945,7 @@ async function commitStepSuccessTx(
       // under a stale attempt while the reclaimer is mid-step, or over a
       // terminal status a cancel just wrote.
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "completed",
         output: cleanOutput,
@@ -963,6 +966,7 @@ async function commitStepSuccessTx(
 
     if (result.kind === "blocked") {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "blocked",
         output: cleanOutput,
@@ -989,6 +993,7 @@ async function commitStepSuccessTx(
 
     if (result.kind === "defer") {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "deferred",
         output: cleanOutput,
@@ -1020,6 +1025,7 @@ async function commitStepSuccessTx(
     // owns, or on a run a cancel just took terminal and whose stagings it
     // already rejected.
     await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+      // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
       state: cleanState as object,
       status: "waiting",
       wakeCondition: wake,

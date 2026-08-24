@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { ToolName } from "@alfred/contracts";
-
 import type { publishEvent } from "@alfred/assistant/triggers";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { streamModelTurn, type StreamTurnState } from "@alfred/assistant/chat/stream-model-turn";
@@ -139,7 +137,7 @@ describe("streamModelTurn", () => {
   });
 
   test("surfaces a started tool card only for an active tool", async () => {
-    const toolName = "system.fetch_url" as ToolName;
+    const toolName = "system.fetch_url";
     const { events, publish } = capture();
     await streamModelTurn({
       stream: makeStream([
@@ -166,7 +164,7 @@ describe("streamModelTurn", () => {
         {
           type: "tool-call",
           toolCallId: "call-1",
-          toolName: "system.fetch_url" as ToolName,
+          toolName: "system.fetch_url",
           input: {},
         },
       ]),
@@ -191,7 +189,7 @@ describe("streamModelTurn", () => {
         {
           type: "tool-call",
           toolCallId: "art-1",
-          toolName: "system.create_artifact" as ToolName,
+          toolName: "system.create_artifact",
           input: { title: "Plan", markdown: "hello body" },
         },
       ]),
@@ -225,7 +223,7 @@ describe("streamModelTurn", () => {
         {
           type: "tool-call",
           toolCallId: "art-1",
-          toolName: "system.update_artifact" as ToolName,
+          toolName: "system.update_artifact",
           input: { markdown: bigBody },
         },
       ]),

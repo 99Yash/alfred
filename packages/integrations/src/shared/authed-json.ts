@@ -75,5 +75,5 @@ export async function authedJson(
     });
   }
   const text = await res.text();
-  return text ? (JSON.parse(text) as unknown) : {};
+  return text ? JSON.parse(text) : {};
 }

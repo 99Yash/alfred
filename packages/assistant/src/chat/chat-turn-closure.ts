@@ -530,5 +530,5 @@ export function sanitizeChatMessageFields(state: ChatRunState): SanitizedChatMes
         ? state.narration.map((segment) => ({ ...segment, text: sanitizeVoice(segment.text) }))
         : null,
   };
-  return sanitizeToolResult(raw).value as typeof raw;
+  return sanitizeToolResult(raw).value;
 }

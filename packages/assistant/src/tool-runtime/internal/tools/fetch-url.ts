@@ -527,7 +527,7 @@ function asHttpRequester(fn: typeof undiciRequest): HttpRequester {
       headers: opts.headers,
       ...(opts.dispatcher != null && { dispatcher: opts.dispatcher }),
       signal: opts.signal,
-    }) as Promise<UndiciResponseLike>;
+    });
 }
 
 /** Carries a {@link FetchUrlError} reason out of the transport layer. */
@@ -573,13 +573,15 @@ export function pinningLookup(
     address?: string | dns.LookupAddress[],
     family?: number,
   ) => void,
+  // SAFETY: `dns.lookup`'s declared overloads don't include an `all`-first
+  // signature, but the runtime callback delivers the full address array.
   resolve: DnsLookupAll = dns.lookup as DnsLookupAll,
 ): void {
   resolve(
     hostname,
     {
       all: true,
-      family: (options as dns.LookupOneOptions).family ?? 0,
+      family: options.family ?? 0,
       hints: options.hints,
       verbatim: true,
     },
@@ -606,6 +608,8 @@ export function pinningLookup(
         callback(e);
         return;
       }
+      // SAFETY: undici passes LookupAllOptions here (it requests `all`);
+      // `.all` exists on that half of the union.
       if ((options as dns.LookupAllOptions).all) {
         callback(null, list);
       } else {
@@ -835,6 +839,8 @@ function contentCharset(header: string | null | undefined): string | null {
 }
 
 async function disposeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
+  // SAFETY: undici's body carries optional dump/once/destroy lifecycle
+  // methods that its published type omits.
   const disposable = body as {
     destroy?: (err?: Error) => void;
     dump?: (opts?: { limit: number; signal?: AbortSignal }) => Promise<void>;
@@ -910,12 +916,15 @@ export function decodeResponseBody(
 
   const decodedBody: AsyncIterable<Uint8Array> & { destroy: (err?: Error) => void } = {
     [Symbol.asyncIterator]() {
+      // SAFETY: Node streams are runtime AsyncIterables; the DOM type omits it.
       return stream[Symbol.asyncIterator]() as AsyncIterator<Uint8Array>;
     },
     destroy(err?: Error) {
       stream.destroy(err);
       source.destroy(err);
       for (const decoder of decoders) decoder.destroy(err);
+      // SAFETY: callers pass bodies whose declared type omits `destroy`;
+      // presence is probed before the call.
       const destroySource = (body as { destroy?: (err?: Error) => void }).destroy;
       if (typeof destroySource === "function") destroySource.call(body, err);
     },
@@ -967,6 +976,8 @@ export async function safeRequest(
       });
     } catch (err) {
       const chain = redirectChain.length > 0 ? [...redirectChain] : undefined;
+      // SAFETY: the throw site above tags the blocked-host error with this
+      // exact `code` via ErrnoException.
       if ((err as NodeJS.ErrnoException)?.code === "EBLOCKEDHOST") {
         const e = new FetchError("blocked_host", (err as Error).message, parsed.toString());
         e.redirects = chain;
@@ -1046,6 +1057,7 @@ async function readBounded(
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buf.length;
     if (total > maxBytes) {
+      // SAFETY: undici's body exposes an optional `destroy` its type omits.
       const destroy = (body as { destroy?: () => void }).destroy;
       if (typeof destroy === "function") destroy.call(body);
       // The caller discards the bytes on overflow (returns `too_large`), so

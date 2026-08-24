@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
 import { useGithubNeedsReconnect } from "~/lib/integrations/use-integration-status";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+import { API_URL } from "~/lib/eden";
 
 /**
  * Slim nag bar for accounts connected to GitHub before the GitHub App

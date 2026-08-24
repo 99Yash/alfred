@@ -2,6 +2,7 @@ import { Replicache } from "replicache";
 import { summarizeBody } from "@alfred/contracts";
 import type { ClientMutators } from "@alfred/sync";
 import { clientMutators } from "@alfred/sync";
+import { API_URL } from "~/lib/eden";
 
 /**
  * Abort a pull/push that hasn't resolved in this window. Without it a
@@ -28,9 +29,6 @@ const SYNC_FETCH_TIMEOUT_MS = 30_000;
  * code-reviewed decision tied to a deploy.
  */
 const REPLICACHE_SCHEMA_VERSION = "1";
-
-const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 /**
  * A Replicache handle paired with the last value read for it. The subscription
