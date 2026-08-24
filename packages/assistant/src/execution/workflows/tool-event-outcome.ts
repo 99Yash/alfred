@@ -1,7 +1,9 @@
 /**
- * The four fields a terminal dispatch result contributes to a `chat.tool`
+ * The five fields a terminal dispatch result contributes to a `chat.tool`
  * event (and to the durable tool-call log): status, result preview, the
- * ADR-0070 sanitizer verdict, and the non-execution flag.
+ * ADR-0070 sanitizer verdict, the non-execution flag, and — on a
+ * connection-health bounce only — the client-facing connect nudge (#378 item
+ * 3).
  *
  * Extracted because two surfaces now publish `chat.tool` — the chat turn for
  * the boss's own calls, and the brief workflow for a spawned sub-agent's calls
@@ -12,6 +14,7 @@
  */
 
 import type { CompletedToolCall } from "@alfred/assistant/tool-runtime";
+import type { ChatConnectNudge } from "@alfred/contracts";
 import { preview } from "./tool-preview";
 
 export interface ToolEventOutcome {
@@ -21,6 +24,12 @@ export interface ToolEventOutcome {
   sanitized?: true | undefined;
   /** Rejected before execution — the client retracts the card entirely. */
   nonExecution?: true | undefined;
+  /**
+   * Set together with `nonExecution` when the bounce was connection health:
+   * the one rejection that is deliberately user-visible (as a repair offer),
+   * live and on the durable row.
+   */
+  connectNudge?: ChatConnectNudge | undefined;
 }
 
 export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcome {
@@ -31,5 +40,6 @@ export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcom
     // Only a `failed` status can be a non-execution bounce; an executed call
     // reached the side-effect path by definition.
     nonExecution: completion.nonExecution ? true : undefined,
+    connectNudge: completion.connectNudge,
   };
 }

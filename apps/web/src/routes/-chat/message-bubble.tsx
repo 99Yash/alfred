@@ -10,6 +10,8 @@ import remarkGfm from "remark-gfm";
 import { MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
+import { ConnectNudgeRows } from "./connect-nudge-rows";
+import { splitPersistedToolCalls } from "./connect-nudges";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
 import { collectSources } from "./sources";
@@ -313,7 +315,10 @@ export function MessageBubble({
       </div>
     );
   }
-  const tools = message.toolCalls ?? [];
+  // Connection-health bounces ride the log as repair offers, not drawable
+  // cards (#378 item 3): split them out so the trail, run summary and source
+  // extraction see exactly the calls that executed or failed on their own.
+  const { cards: tools, nudges } = splitPersistedToolCalls(message.toolCalls ?? []);
   const sources = collectSources(tools);
   const failed = message.status === "failed";
   const failure = failed
@@ -344,6 +349,7 @@ export function MessageBubble({
           <AssistantMarkdown text={message.content} />
         </div>
       ) : null}
+      <ConnectNudgeRows nudges={nudges} />
       {sources.length > 0 ? <SourcesStrip sources={sources} /> : null}
       {failure ? (
         <div

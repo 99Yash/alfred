@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   artifactFormatSchema,
+  chatConnectNudgeSchema,
   chatModelTierSchema,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
@@ -41,6 +42,10 @@ const toolCallLogSchema = z.object({
   // or disallowed. The honesty guard excludes recovered entries so an internal
   // first attempt cannot make it claim a later, successful call failed.
   nonExecution: z.boolean().optional(),
+  // Set only when that rejection was connection health (#378 item 3): the one
+  // non-execution that persists to the message row, so a reload re-offers the
+  // repair. Optional so checkpoints written before this field still parse.
+  connectNudge: chatConnectNudgeSchema.optional(),
   segmentIndex: z.number().int().nonnegative().default(0),
 });
 

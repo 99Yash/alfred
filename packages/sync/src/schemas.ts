@@ -28,6 +28,7 @@ import {
   toolNameSchema,
   triageCategorySchema,
   workflowBlockedSchema,
+  chatConnectNudgeSchema,
   type IntegrationRule,
   type IntegrationRules,
   type MemorySource,
@@ -264,7 +265,15 @@ export const syncedChatToolCallSchema = z.object({
    * still parse (they read back at segment 0).
    */
   segmentIndex: z.number().default(0),
+  /**
+   * Present only on a connection-health bounce (#378 item 3): the entry is
+   * kept on the durable row precisely so a reload can re-offer the repair.
+   * Absent on every other non-execution bounce, which stays filtered out of
+   * the persisted trail entirely.
+   */
+  connectNudge: chatConnectNudgeSchema.optional(),
 });
+export type SyncedChatToolCall = z.infer<typeof syncedChatToolCallSchema>;
 
 /** A closed narration segment captured on a finished assistant turn. */
 export const syncedChatNarrationSchema = z.object({
