@@ -823,11 +823,12 @@ async function buildTriggerEventMessage(input: {
 }
 
 function pickTriggerMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const key of ["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"]) {
+  return (["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"] as const).reduce<
+    Record<string, unknown>
+  >((out, key) => {
     if (metadata[key] !== undefined) out[key] = metadata[key];
-  }
-  return out;
+    return out;
+  }, {});
 }
 
 function xmlTag(name: string, value: string): string {

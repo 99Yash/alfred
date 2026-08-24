@@ -66,10 +66,12 @@ function isEffortLevel(value: string): value is EffortLevel {
  * never filtered out, because dropping `minimal`/`none` would green-light the
  * exact vocabulary mismatch this audit exists to catch.
  */
-function expectedEffortValues(options: ReasoningOption[] | null | undefined): {
+interface ExpectedEffortValues {
   values: EffortLevel[];
   unknown: string[];
-} {
+}
+
+function expectedEffortValues(options: ReasoningOption[] | null | undefined): ExpectedEffortValues {
   const effort = (options ?? []).find((o) => o.type === "effort");
   if (!effort?.values) return { values: [], unknown: [] };
   const values: EffortLevel[] = [];

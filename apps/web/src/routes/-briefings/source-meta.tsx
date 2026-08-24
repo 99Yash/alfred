@@ -17,22 +17,22 @@ import { PROVIDER_BRAND, PROVIDER_COLOR } from "./source-meta-utils";
  * by a single vendor render that vendor's brand mark; the rest fall back to a
  * toned lucide glyph.
  */
-const SOURCE_BRAND: Partial<Record<GatherSourceSlug, IntegrationBrand>> = {
-  email: "gmail",
-  calendar: "google_calendar",
-};
+const SOURCE_BRAND = new Map<GatherSourceSlug, IntegrationBrand>([
+  ["email", "gmail"],
+  ["calendar", "google_calendar"],
+]);
 
-const SOURCE_LUCIDE: Record<GatherSourceSlug, LucideIcon> = {
+const SOURCE_LUCIDE = {
   email: Mail,
   calendar: CalendarDays,
   integration_activity: Activity,
   weather: CloudSun,
   day_of_week: CalendarClock,
-};
+} satisfies Record<GatherSourceSlug, LucideIcon>;
 
 /** Vendor brand mark where the source maps to one, else a toned lucide glyph. */
 export function SourceIcon({ source }: { source: GatherSourceSlug }) {
-  const brand = SOURCE_BRAND[source];
+  const brand = SOURCE_BRAND.get(source);
   if (brand) return <IntegrationGlyph brand={brand} size={13} />;
   const Icon = SOURCE_LUCIDE[source] ?? Activity;
   return <Icon size={12} aria-hidden />;

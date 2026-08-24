@@ -52,10 +52,9 @@ function sealPending<Field extends string>(
   fields: readonly Field[],
   vault: CredentialVault,
 ): Partial<Record<Field, SealedCredentialSecret>> {
-  const pending: Partial<Record<Field, SealedCredentialSecret>> = {};
-  for (const field of fields) {
+  return fields.reduce<Partial<Record<Field, SealedCredentialSecret>>>((pending, field) => {
     const classified = classifyPersisted(row[field], vault);
-    if (classified.state === "absent" || classified.state === "openable") continue;
+    if (classified.state === "absent" || classified.state === "openable") return pending;
     if (classified.state === "unopenable") {
       throw new CredentialVaultError(
         "unopenable_remaining",
@@ -63,8 +62,8 @@ function sealPending<Field extends string>(
       );
     }
     pending[field] = vault.seal(classified.plaintext);
-  }
-  return pending;
+    return pending;
+  }, {});
 }
 
 /**
@@ -83,7 +82,7 @@ function countUnsealed<Field extends string>(
   row: Readonly<Record<Field, unknown>>,
   fields: readonly Field[],
   vault: CredentialVault,
-): { plaintext: number; unopenable: number } {
+) {
   let plaintext = 0;
   let unopenable = 0;
   for (const field of fields) {

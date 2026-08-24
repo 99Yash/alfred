@@ -162,7 +162,7 @@ function attachmentEvidence(row: AttachmentRow) {
   };
 }
 
-function excerpt(value: string): { text: string; truncated: boolean; originalChars: number } {
+function excerpt(value: string) {
   const clean = value.replaceAll("\u0000", "");
   return {
     text: clean.slice(0, CHAT_HISTORY_EXCERPT_CHARS),

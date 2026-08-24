@@ -54,10 +54,7 @@ const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
  * Retry button where there is no useful automatic recovery (for example, a
  * conversation past the length cap).
  */
-const FAILURE_PRESENTATION: Record<
-  ChatErrorKind,
-  { message: string; retry: "same" | "without_attachments" | "none" }
-> = {
+const FAILURE_PRESENTATION = {
   attachment: {
     message: "I couldn't read one of the attached files. I can try again with just your message.",
     retry: "without_attachments",
@@ -81,7 +78,10 @@ const FAILURE_PRESENTATION: Record<
     retry: "none",
   },
   generic: { message: "Something interrupted this reply.", retry: "same" },
-};
+} satisfies Record<
+  ChatErrorKind,
+  { message: string; retry: "same" | "without_attachments" | "none" }
+>;
 
 /** Fallback for legacy failed rows persisted before `errorKind` existed. */
 const LEGACY_FAILURE = { message: "This reply didn't finish.", retry: "same" } as const;

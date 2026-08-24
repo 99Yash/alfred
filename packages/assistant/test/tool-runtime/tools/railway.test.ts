@@ -57,15 +57,14 @@ async function withMockedRailwayFetch<T>(
   }
 }
 
-function projectNode(
-  id: string,
-  name: string,
-): {
+interface ProjectNode {
   id: string;
   name: string;
   services: { edges: Array<{ node: { id: string; name: string } }> };
   environments: { edges: Array<{ node: { id: string; name: string } }> };
-} {
+}
+
+function projectNode(id: string, name: string): ProjectNode {
   return {
     id,
     name,
@@ -362,13 +361,13 @@ describe("Railway credential fan-out", () => {
   });
 
   test("de-dupes projects across credentials (first wins) and tags provenance", async () => {
-    const byCredential: Record<string, RailwayProject[]> = {
-      a: [proj("p1", "from-a")],
-      b: [proj("p1", "from-b"), proj("p2")],
-    };
+    const byCredential = new Map<string, RailwayProject[]>([
+      ["a", [proj("p1", "from-a")]],
+      ["b", [proj("p1", "from-b"), proj("p2")]],
+    ]);
     const { projects, failures } = await listProjectsForCredentials(
       [cred("a", "A"), cred("b", "B")],
-      async (credentialId) => ({ projects: byCredential[credentialId] ?? [] }),
+      async (credentialId) => ({ projects: byCredential.get(credentialId) ?? [] }),
     );
     assert.deepEqual(
       projects.map((p) => p.id),
@@ -482,21 +481,21 @@ function projSvc(
 
 describe("Railway recent-deployment fan-out", () => {
   test("merges deployments across projects and credentials, newest first, tagged with project/service/credential", async () => {
-    const projectsByCredential: Record<string, RailwayProject[]> = {
-      a: [projSvc("p1", "alfred", [{ id: "svc1", name: "server" }])],
-      b: [projSvc("p2", "milkpod", [{ id: "svc2", name: "web" }])],
-    };
-    const depsByProject: Record<string, RailwayDeployment[]> = {
-      p1: [dep("d_a1", "2026-07-14T03:00:00Z", "svc1")],
-      p2: [
-        dep("d_b1", "2026-07-14T05:00:00Z", "svc2"),
-        dep("d_b2", "2026-07-14T01:00:00Z", "svc2"),
+    const projectsByCredential = new Map<string, RailwayProject[]>([
+      ["a", [projSvc("p1", "alfred", [{ id: "svc1", name: "server" }])]],
+      ["b", [projSvc("p2", "milkpod", [{ id: "svc2", name: "web" }])]],
+    ]);
+    const depsByProject = new Map<string, RailwayDeployment[]>([
+      ["p1", [dep("d_a1", "2026-07-14T03:00:00Z", "svc1")]],
+      [
+        "p2",
+        [dep("d_b1", "2026-07-14T05:00:00Z", "svc2"), dep("d_b2", "2026-07-14T01:00:00Z", "svc2")],
       ],
-    };
+    ]);
     const { deployments, failures } = await listRecentDeploymentsForCredentials(
       [cred("a", "A"), cred("b", "B")],
-      async (credentialId) => ({ projects: projectsByCredential[credentialId] ?? [] }),
-      async ({ projectId }) => ({ deployments: depsByProject[projectId] ?? [] }),
+      async (credentialId) => ({ projects: projectsByCredential.get(credentialId) ?? [] }),
+      async ({ projectId }) => ({ deployments: depsByProject.get(projectId) ?? [] }),
     );
     assert.deepEqual(
       deployments.map((d) => d.id),

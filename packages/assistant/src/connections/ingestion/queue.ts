@@ -683,14 +683,13 @@ export async function enqueueGmailKindRefold(userId: string): Promise<void> {
   );
 }
 
-function prepareTriageRelabelJob(
-  userId: string,
-  sourceThreadId: string,
-): {
+interface TriageRelabelJob {
   jobName: string;
   jobData: { kind: "triage.relabel"; userId: string; sourceThreadId: string };
   dedupId: string;
-} {
+}
+
+function prepareTriageRelabelJob(userId: string, sourceThreadId: string): TriageRelabelJob {
   return {
     jobName: "triage.relabel",
     jobData: { kind: "triage.relabel", userId, sourceThreadId },

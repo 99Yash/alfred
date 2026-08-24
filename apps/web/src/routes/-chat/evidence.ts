@@ -210,15 +210,15 @@ function githubStateBadge(item: JsonRecord): EvidenceBadge | undefined {
   return undefined;
 }
 
-const RAILWAY_TONES: Record<string, EvidenceBadge["tone"]> = {
-  SUCCESS: "green",
-  FAILED: "red",
-  CRASHED: "red",
-  BUILDING: "amber",
-  DEPLOYING: "amber",
-  INITIALIZING: "amber",
-  QUEUED: "amber",
-};
+const RAILWAY_TONES = new Map<string, EvidenceBadge["tone"]>([
+  ["SUCCESS", "green"],
+  ["FAILED", "red"],
+  ["CRASHED", "red"],
+  ["BUILDING", "amber"],
+  ["DEPLOYING", "amber"],
+  ["INITIALIZING", "amber"],
+  ["QUEUED", "amber"],
+]);
 
 /** Turn a Drive MIME type into a short human kind ("PDF", "Doc", "Folder"). */
 function driveKind(mimeType: string | undefined): string | undefined {
@@ -286,104 +286,119 @@ const RAILWAY_DEPLOYMENTS: ListSpec = {
       title: url ?? "Deployment",
       meta: joinMeta(asString(item.serviceName), ago(item.createdAt)),
       badge: status
-        ? { label: status.toLowerCase(), tone: RAILWAY_TONES[status] ?? "neutral" }
+        ? { label: status.toLowerCase(), tone: RAILWAY_TONES.get(status) ?? "neutral" }
         : undefined,
     };
   },
 };
 
-const LIST_SPECS: Partial<Record<ToolName, ListSpec>> = {
-  "github.search": {
-    arrayKey: "items",
-    faviconDomain: "github.com",
-    query: (result) => asString(result.query),
-    remaining: (result, shown) => {
-      const total = asNumber(result.totalCount);
-      return total && total > shown ? total - shown : undefined;
+const LIST_SPECS = new Map<ToolName, ListSpec>([
+  [
+    "github.search",
+    {
+      arrayKey: "items",
+      faviconDomain: "github.com",
+      query: (result) => asString(result.query),
+      remaining: (result, shown) => {
+        const total = asNumber(result.totalCount);
+        return total && total > shown ? total - shown : undefined;
+      },
+      row: (item) => {
+        const title = asString(item.title);
+        if (!title) return null;
+        const number = asNumber(item.number);
+        const url = asString(item.url);
+        return {
+          key: url ?? String(number ?? title),
+          title: number ? `#${number} ${title}` : title,
+          href: url,
+          meta: asString(item.repository),
+          badge: githubStateBadge(item),
+        };
+      },
     },
-    row: (item) => {
-      const title = asString(item.title);
-      if (!title) return null;
-      const number = asNumber(item.number);
-      const url = asString(item.url);
-      return {
-        key: url ?? String(number ?? title),
-        title: number ? `#${number} ${title}` : title,
-        href: url,
-        meta: asString(item.repository),
-        badge: githubStateBadge(item),
-      };
+  ],
+  [
+    "calendar.list_events",
+    {
+      arrayKey: "events",
+      faviconDomain: "calendar.google.com",
+      row: (item) => {
+        const title = asString(item.title);
+        if (!title) return null;
+        const start = asString(item.start);
+        // Google serializes an absent location as the literal string "null".
+        const location = asString(item.location);
+        return {
+          key: asString(item.id) ?? title,
+          title,
+          href: asString(item.htmlLink) ?? asString(item.hangoutLink),
+          meta: joinMeta(
+            start ? formatEventWindow(start, asString(item.end)) : undefined,
+            location && location !== "null" ? location : undefined,
+          ),
+        };
+      },
     },
-  },
-  "calendar.list_events": {
-    arrayKey: "events",
-    faviconDomain: "calendar.google.com",
-    row: (item) => {
-      const title = asString(item.title);
-      if (!title) return null;
-      const start = asString(item.start);
-      // Google serializes an absent location as the literal string "null".
-      const location = asString(item.location);
-      return {
-        key: asString(item.id) ?? title,
-        title,
-        href: asString(item.htmlLink) ?? asString(item.hangoutLink),
-        meta: joinMeta(
-          start ? formatEventWindow(start, asString(item.end)) : undefined,
-          location && location !== "null" ? location : undefined,
-        ),
-      };
+  ],
+  [
+    "notion.search",
+    {
+      arrayKey: "hits",
+      faviconDomain: "notion.so",
+      query: (_result, args) => asString(args?.query),
+      hasMore: (result) => result.hasMore === true,
+      row: (item) => {
+        const title = asString(item.title);
+        if (!title) return null;
+        return {
+          key: asString(item.id) ?? title,
+          title,
+          href: asString(item.url),
+          meta: ago(item.lastEditedTime),
+        };
+      },
     },
-  },
-  "notion.search": {
-    arrayKey: "hits",
-    faviconDomain: "notion.so",
-    query: (_result, args) => asString(args?.query),
-    hasMore: (result) => result.hasMore === true,
-    row: (item) => {
-      const title = asString(item.title);
-      if (!title) return null;
-      return {
-        key: asString(item.id) ?? title,
-        title,
-        href: asString(item.url),
-        meta: ago(item.lastEditedTime),
-      };
+  ],
+  [
+    "drive.search_files",
+    {
+      arrayKey: "files",
+      faviconDomain: "drive.google.com",
+      query: (_result, args) => asString(args?.query),
+      row: (item) => {
+        const name = asString(item.name);
+        if (!name) return null;
+        return {
+          key: asString(item.id) ?? name,
+          title: name,
+          href: asString(item.webViewLink),
+          meta: joinMeta(driveKind(asString(item.mimeType)), ago(item.modifiedTime)),
+        };
+      },
     },
-  },
-  "drive.search_files": {
-    arrayKey: "files",
-    faviconDomain: "drive.google.com",
-    query: (_result, args) => asString(args?.query),
-    row: (item) => {
-      const name = asString(item.name);
-      if (!name) return null;
-      return {
-        key: asString(item.id) ?? name,
-        title: name,
-        href: asString(item.webViewLink),
-        meta: joinMeta(driveKind(asString(item.mimeType)), ago(item.modifiedTime)),
-      };
+  ],
+  ["railway.list_deployments", RAILWAY_DEPLOYMENTS],
+  ["railway.recent_deployments", RAILWAY_DEPLOYMENTS],
+  [
+    "railway.list_projects",
+    {
+      arrayKey: "projects",
+      faviconDomain: "railway.com",
+      row: (item) => {
+        const name = asString(item.name);
+        if (!name) return null;
+        const services = Array.isArray(item.services) ? item.services.length : undefined;
+        return {
+          key: asString(item.id) ?? name,
+          title: name,
+          meta:
+            services !== undefined ? `${services} service${services === 1 ? "" : "s"}` : undefined,
+        };
+      },
     },
-  },
-  "railway.list_deployments": RAILWAY_DEPLOYMENTS,
-  "railway.recent_deployments": RAILWAY_DEPLOYMENTS,
-  "railway.list_projects": {
-    arrayKey: "projects",
-    faviconDomain: "railway.com",
-    row: (item) => {
-      const name = asString(item.name);
-      if (!name) return null;
-      const services = Array.isArray(item.services) ? item.services.length : undefined;
-      return {
-        key: asString(item.id) ?? name,
-        title: name,
-        meta:
-          services !== undefined ? `${services} service${services === 1 ? "" : "s"}` : undefined,
-      };
-    },
-  },
-};
+  ],
+]);
 
 /** GitHub PR/issue reads share a shape: title + state pill + a few facts. */
 function githubEntity(result: JsonRecord): EntityView | null {
@@ -418,36 +433,39 @@ function githubEntity(result: JsonRecord): EntityView | null {
   };
 }
 
-const ENTITY_BUILDERS: Partial<Record<ToolName, (result: JsonRecord) => EntityView | null>> = {
-  "github.get_pull_request": githubEntity,
-  "github.get_issue": githubEntity,
-  "gmail.read_message": (result) => {
-    const subject = asString(result.subject);
-    // Two shapes are persisted: newer reads put `from`/`to`/`snippet` at the
-    // top level; older ones nest them under `metadata`. Read both.
-    const metadata = asRecord(result.metadata);
-    const from = asString(result.from) ?? (metadata ? asString(metadata.from) : undefined);
-    const to = asString(result.to) ?? (metadata ? asString(metadata.to) : undefined);
-    if (!subject && !from) return null;
-    const facts: EntityFact[] = [];
-    if (from) facts.push({ label: "From", value: from });
-    if (to) facts.push({ label: "To", value: to });
-    const date = ago(result.authoredAt);
-    if (date) facts.push({ label: "Date", value: date });
-    const snippet = metadata ? asString(metadata.snippet) : undefined;
-    return {
-      kind: "entity",
-      faviconDomain: "mail.google.com",
-      title: subject ?? "(no subject)",
-      // `url` is frequently null for Gmail reads — render as a link-less card.
-      href: asString(result.url),
-      facts,
-      // The nested shape carries a ready snippet; the flat shape only has the
-      // raw RFC822 `content`, so peel the header block off for a body peek.
-      excerpt: snippet ?? emailBody(asString(result.content)),
-    };
-  },
-};
+const ENTITY_BUILDERS = new Map<ToolName, (result: JsonRecord) => EntityView | null>([
+  ["github.get_pull_request", githubEntity],
+  ["github.get_issue", githubEntity],
+  [
+    "gmail.read_message",
+    (result) => {
+      const subject = asString(result.subject);
+      // Two shapes are persisted: newer reads put `from`/`to`/`snippet` at the
+      // top level; older ones nest them under `metadata`. Read both.
+      const metadata = asRecord(result.metadata);
+      const from = asString(result.from) ?? (metadata ? asString(metadata.from) : undefined);
+      const to = asString(result.to) ?? (metadata ? asString(metadata.to) : undefined);
+      if (!subject && !from) return null;
+      const facts: EntityFact[] = [];
+      if (from) facts.push({ label: "From", value: from });
+      if (to) facts.push({ label: "To", value: to });
+      const date = ago(result.authoredAt);
+      if (date) facts.push({ label: "Date", value: date });
+      const snippet = metadata ? asString(metadata.snippet) : undefined;
+      return {
+        kind: "entity",
+        faviconDomain: "mail.google.com",
+        title: subject ?? "(no subject)",
+        // `url` is frequently null for Gmail reads — render as a link-less card.
+        href: asString(result.url),
+        facts,
+        // The nested shape carries a ready snippet; the flat shape only has the
+        // raw RFC822 `content`, so peel the header block off for a body peek.
+        excerpt: snippet ?? emailBody(asString(result.content)),
+      };
+    },
+  ],
+]);
 
 /**
  * The panel shape for a non-browsing read tool: a list of records or a single
@@ -459,7 +477,7 @@ export function presentEvidence(tool: ToolCallView): RecordListView | EntityView
   const result = parseJsonRecord(tool.resultPreview);
   if (!result || !isToolName(tool.toolName)) return null;
 
-  const listSpec = LIST_SPECS[tool.toolName];
+  const listSpec = LIST_SPECS.get(tool.toolName);
   if (listSpec) {
     const raw = result[listSpec.arrayKey];
     if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -482,7 +500,7 @@ export function presentEvidence(tool: ToolCallView): RecordListView | EntityView
     };
   }
 
-  const entityBuilder = ENTITY_BUILDERS[tool.toolName];
+  const entityBuilder = ENTITY_BUILDERS.get(tool.toolName);
   if (entityBuilder) return entityBuilder(result);
 
   return null;

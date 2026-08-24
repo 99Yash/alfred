@@ -73,15 +73,20 @@ async function readStoredTokens(
   return { accessToken: row?.accessToken ?? null, refreshToken: row?.refreshToken ?? null };
 }
 
+interface TokenRefreshStub {
+  restore: () => void;
+  requests: () => number;
+}
+
 /**
  * Stub the provider token exchange for one refresh. `refreshToken` present ⇒ the
  * response carries a new refresh_token (rotation); omitted ⇒ Google's usual case
  * where the caller must carry the prior refresh token forward.
  */
-function stubRefreshResponse(body: { access_token: string; refresh_token?: string }): {
-  restore: () => void;
-  requests: () => number;
-} {
+function stubRefreshResponse(body: {
+  access_token: string;
+  refresh_token?: string;
+}): TokenRefreshStub {
   const originalFetch = globalThis.fetch;
   let requests = 0;
   globalThis.fetch = async () => {

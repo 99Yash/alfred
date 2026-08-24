@@ -148,6 +148,8 @@ export const INGEST_POLICY = {
   "text/csv": { kind: "degrade-text", maxBytes: 10 * MB, contentFormat: "text" },
 } as const satisfies Readonly<Record<string, IngestPolicyEntry>>;
 
+// MIME lookups are open-ended by nature; the widened view keeps the literal
+// table above as the single source of truth.
 const ingestPolicyByMime: Readonly<Record<string, IngestPolicyEntry>> = INGEST_POLICY;
 
 /** Formats whose complete chat ingest path is available today. */

@@ -507,8 +507,8 @@ export interface ExtractedMessage {
   date: Date | null;
   /** Best-effort plain-text body. Falls back to the snippet if we can't find one. */
   body: string;
-  /** Headers as a flat record for downstream metadata queries. */
-  headers: Record<string, string>;
+  /** Headers keyed by lowercased header name, for downstream metadata queries. */
+  headers: ReadonlyMap<string, string>;
 }
 
 /**
@@ -523,7 +523,7 @@ export interface ExtractedMessage {
  * when ingestion gets a richer object model.
  */
 export function extractMessageContent(message: GmailMessage): ExtractedMessage {
-  const headers = headersToRecord(message.payload?.headers ?? []);
+  const headers = headersToMap(message.payload?.headers ?? []);
   const text = collectText(message.payload, "text/plain");
   let body = text;
   if (!body) {
@@ -532,17 +532,17 @@ export function extractMessageContent(message: GmailMessage): ExtractedMessage {
   }
   if (!body) body = message.snippet ?? "";
 
-  // `headersToRecord` lowercases all keys so we can do single lookups
+  // `headersToMap` lowercases all keys so we can do single lookups
   // here without juggling the (legal) header-name casing variations.
-  const dateHeader = headers["date"];
+  const dateHeader = headers.get("date");
   const dateValue = dateHeader ? new Date(dateHeader) : null;
 
   return {
-    subject: headers["subject"] ?? null,
-    from: headers["from"] ?? null,
-    to: headers["to"] ?? null,
-    cc: headers["cc"] ?? null,
-    bcc: headers["bcc"] ?? null,
+    subject: headers.get("subject") ?? null,
+    from: headers.get("from") ?? null,
+    to: headers.get("to") ?? null,
+    cc: headers.get("cc") ?? null,
+    bcc: headers.get("bcc") ?? null,
     date: dateValue && !isNaN(dateValue.getTime()) ? dateValue : null,
     body,
     headers,
@@ -639,9 +639,9 @@ export function extractMessageHtml(message: GmailMessage): string | null {
   return html || null;
 }
 
-function headersToRecord(headers: { name: string; value: string }[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const h of headers) out[h.name.toLowerCase()] = h.value;
+function headersToMap(headers: { name: string; value: string }[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const h of headers) out.set(h.name.toLowerCase(), h.value);
   return out;
 }
 

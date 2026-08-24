@@ -36,15 +36,15 @@ import { INTEGRATION_SLUGS } from "@alfred/contracts";
 // the Deep tier faithfully emits reasoning tokens BEFORE tool calls — the exact
 // "5-7s thinking before tool calls" symptom this probe exists to isolate.
 type ChatProviderOptions = ReturnType<ModelRouteHandle["providerOptions"]>;
-const MODELS: Record<string, () => ModelRouteHandle> = {
-  haiku: () => route("standard"),
-  sonnet: () => route("boss"),
-  opus: () => route("deep"),
-};
+const MODELS = new Map<string, () => ModelRouteHandle>([
+  ["haiku", () => route("standard")],
+  ["sonnet", () => route("boss")],
+  ["opus", () => route("deep")],
+]);
 const SELECTED = (process.env.PROBE_MODELS ?? "haiku,sonnet,opus")
   .split(",")
   .map((s) => s.trim())
-  .filter((m) => MODELS[m]);
+  .filter((m) => MODELS.get(m));
 const RUNS = Number(process.env.PROBE_RUNS ?? "3");
 const MAX_OUT = Number(process.env.PROBE_MAX_OUT ?? "400");
 
@@ -70,7 +70,7 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 /** Build the full real tool menu (system + every loadable integration). */
-function buildAllTools(): { tools: ToolSet; count: number } {
+function buildAllTools() {
   const registry = registerBuiltinTools(); // the registry is populated at server boot; do it here too.
   const out: Record<string, Tool> = {};
   for (const slug of INTEGRATION_SLUGS) {
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
       `# prompt: "${USER_PROMPT}"\n`,
   );
   for (const m of SELECTED) {
-    const make = MODELS[m];
+    const make = MODELS.get(m);
     if (!make) continue;
     const modelRoute = make();
     await condition(`${m} · no tools`, modelRoute.model(), undefined, modelRoute.providerOptions());

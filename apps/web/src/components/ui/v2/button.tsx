@@ -33,11 +33,11 @@ interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 /* Radius scales with height: 12px on a 28px-tall `sm` button reads almost
  * pill-shaped, so small buttons step down to keep corners proportional. */
-const SIZE: Record<AppButtonSize, string> = {
+const SIZE = {
   sm: "h-7 px-2.5 text-[13px] gap-1.5 rounded-[9px]",
   md: "h-8 px-2.5 text-sm gap-2 rounded-[10px]",
   lg: "h-9 px-3 text-sm gap-2 rounded-xl",
-};
+} satisfies Record<AppButtonSize, string>;
 
 /* Recipes
  * - primary: gradient on the brand accent token, white text, a 1px white
@@ -50,7 +50,7 @@ const SIZE: Record<AppButtonSize, string> = {
  * - ghost: invisible at rest.
  * - destructive: same recipe as primary on the red-4 token.
  */
-const VARIANT: Record<AppButtonVariant, string> = {
+const VARIANT = {
   primary: cn(
     "text-[var(--app-accent-fg)]",
     /* fill resolves through --app-cta-bg which is theme-aware:
@@ -86,7 +86,7 @@ const VARIANT: Record<AppButtonVariant, string> = {
     "active:brightness-[0.96]",
     "disabled:cursor-not-allowed disabled:opacity-50",
   ),
-};
+} satisfies Record<AppButtonVariant, string>;
 
 export function AppButton({
   className,

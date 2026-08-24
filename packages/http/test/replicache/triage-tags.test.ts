@@ -7,10 +7,12 @@ import { serverMutators } from "../../src/sync/write";
 
 type ClientTriageTagTx = Parameters<typeof triageTagOverrideClient>[0];
 
-function makeClientTx(initial: Record<string, unknown> = {}): {
+interface MadeClientTx {
   tx: ClientTriageTagTx;
   store: Map<string, unknown>;
-} {
+}
+
+function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
   // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   const tx = {
@@ -30,10 +32,12 @@ function makeClientTx(initial: Record<string, unknown> = {}): {
   return { tx, store };
 }
 
-function makeUpdateTx(returnRows: unknown[] = [{ sourceThreadId: "thread_1" }]): {
+interface UpdateTxCalls {
   tx: unknown;
   calls: () => { setValue: unknown; whereCalled: boolean; returningCalled: boolean };
-} {
+}
+
+function makeUpdateTx(returnRows: unknown[] = [{ sourceThreadId: "thread_1" }]): UpdateTxCalls {
   let setValue: unknown;
   let whereCalled = false;
   let returningCalled = false;

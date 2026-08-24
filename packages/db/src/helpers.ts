@@ -207,12 +207,19 @@ export function computeStableEntityId(
  * LOUD rather than silently recording wall-clock time — which no P1+ writer is
  * allowed to do.)
  */
+export interface EntityNodeInsert {
+  id: string;
+  userId: string;
+  canonicalIdentity: IdentityRef;
+  firstSeenAt: Date;
+}
+
 export function makeEntityNodeInsert(
   secret: string,
   userId: string,
   identity: IdentityRef,
   firstSeenAt: Date,
-): { id: string; userId: string; canonicalIdentity: IdentityRef; firstSeenAt: Date } {
+): EntityNodeInsert {
   const parsed = identityRefSchema.parse(identity);
   const id = computeStableEntityId(secret, {
     userId,

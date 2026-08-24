@@ -319,7 +319,9 @@ const calendarListEventsObject = z
 // validation, surfacing the enriched "valid parameters: …" dispatcher message.
 function promoteWindowSynonym(value: unknown): unknown {
   if (!isRecord(value)) return value;
-  const obj = { ...value };
+  // The preprocessor deliberately hands back an untyped record for the schema
+  // to validate, so build it as a plain record rather than a literal.
+  const obj = Object.assign({}, value);
   if (obj.window !== undefined) return obj;
   const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
   for (const [key, val] of Object.entries(obj)) {
@@ -414,7 +416,7 @@ function promoteDriveBareQuery(value: unknown): unknown {
   if (typeof q !== "string") return value;
   const trimmed = q.trim();
   if (trimmed === "*") {
-    const next = { ...value };
+    const next = Object.assign({}, value);
     delete next.q;
     return next;
   }
@@ -422,7 +424,9 @@ function promoteDriveBareQuery(value: unknown): unknown {
     // The regex admits only word chars / `.` / `-`, so `trimmed` can never carry
     // a quote or backslash — it's safe to interpolate into the single-quoted
     // Drive query value without escaping.
-    return { ...value, q: `name contains '${trimmed}' or fullText contains '${trimmed}'` };
+    return Object.assign({}, value, {
+      q: `name contains '${trimmed}' or fullText contains '${trimmed}'`,
+    });
   }
   return value;
 }

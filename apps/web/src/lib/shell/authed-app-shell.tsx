@@ -13,7 +13,6 @@ import type {
   RecentThread,
   ShellThreadViewModel,
   ThreadEntry,
-  ThreadGroup,
 } from "~/lib/shell/thread-view-model";
 import { cn } from "~/lib/utils";
 
@@ -124,14 +123,13 @@ export default function AuthedAppShell({
  * nothing (the group block skips itself), so a user with no threads gets a
  * clean sidebar.
  */
-function groupChatThreads(
-  threads: ReadonlyArray<SyncedChatThread>,
-): Record<ThreadGroup, ThreadEntry[]> {
-  const groups: Record<ThreadGroup, ThreadEntry[]> = {
-    pinned: [],
-    today: [],
-    yesterday: [],
-    earlier: [],
+function groupChatThreads(threads: ReadonlyArray<SyncedChatThread>) {
+  const newEntries = (): ThreadEntry[] => [];
+  const groups = {
+    pinned: newEntries(),
+    today: newEntries(),
+    yesterday: newEntries(),
+    earlier: newEntries(),
   };
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);

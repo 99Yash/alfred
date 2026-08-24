@@ -79,7 +79,7 @@ export type GoogleAuthority =
   | "sheets"
   | "slides";
 
-const AUTHORITY_SCOPES: Record<GoogleAuthority, readonly string[]> = {
+const AUTHORITY_SCOPES = {
   gmail_read: [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE],
   gmail_send: [GMAIL_SEND_SCOPE],
   calendar_read: [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE],
@@ -88,7 +88,7 @@ const AUTHORITY_SCOPES: Record<GoogleAuthority, readonly string[]> = {
   drive: [DRIVE_SCOPE],
   sheets: [SHEETS_SCOPE],
   slides: [SLIDES_SCOPE],
-};
+} satisfies Record<GoogleAuthority, readonly string[]>;
 
 export type GoogleCredential = Pick<CredentialRow, "id" | "accountId" | "accountLabel">;
 

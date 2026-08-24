@@ -570,7 +570,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   ): Promise<void> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
     if (!credential) return;
-    const patches: Record<typeof scope, OAuthCredentialPatch> = {
+    const patches = {
       all: {
         accessToken: null,
         refreshToken: null,
@@ -583,7 +583,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
       tokens: { accessToken: null, refreshToken: null, idToken: null },
       verifier: {},
       discovery: { discoveryState: null },
-    };
+    } satisfies Record<typeof scope, OAuthCredentialPatch>;
     await this.#store.update(credential.id, this.#userId, patches[scope]);
     if ((scope === "all" || scope === "verifier") && this.#attemptStateHash) {
       await this.#store.deleteAttempt(this.#attemptStateHash, this.#userId);
@@ -622,11 +622,13 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 }
 
-export function mcpOAuthClientConfiguration(): {
+export interface McpOAuthClientConfiguration {
   redirectUrl: URL;
   clientMetadataUrl?: string;
   clientMetadata: OAuthClientMetadata;
-} {
+}
+
+export function mcpOAuthClientConfiguration(): McpOAuthClientConfiguration {
   const env = serverEnv();
   const apiBase = new URL(env.BETTER_AUTH_URL);
   const redirectUrl = new URL("/api/integrations/mcp/callback", apiBase);

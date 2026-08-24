@@ -44,13 +44,10 @@ test("non-plain values pass through untouched and the input is never mutated", (
 test("every declared path censors its own sample payload shape", () => {
   for (const path of SENSITIVE_LOG_PATHS) {
     const segments = path.split(".");
-    let node: Record<string, unknown> = {};
-    for (let index = segments.length - 1; index >= 0; index -= 1) {
-      const key = segments[index] === "*" ? "anyTopLevelKey" : segments[index]!;
-      const parent: Record<string, unknown> = {};
-      parent[key] = node;
-      node = parent;
-    }
+    const node = segments.reduceRight<Record<string, unknown>>((child, segment) => {
+      const key = segment === "*" ? "anyTopLevelKey" : segment;
+      return { [key]: child };
+    }, {});
     const censored = JSON.stringify(redactSensitiveLogPaths(node));
     assert.ok(censored.includes("[redacted]"), `path ${path} should censor its sample payload`);
   }

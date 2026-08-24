@@ -321,7 +321,7 @@ export interface ToolLabel {
  * `system.spawn_sub_agent` carries a static fallback here; its chat row refines
  * it with the live target at the call site when one is available.
  */
-export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
+export const TOOL_LABELS = {
   "system.search_tools": {
     running: "Searching available tools",
     done: "Searched available tools",
@@ -682,7 +682,7 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     done: "Queried the Vercel API",
     title: "run a read-only Vercel API request",
   },
-};
+} satisfies Record<ToolName, ToolLabel>;
 
 /** The co-located label for a tool, or `null` for an unregistered name. */
 export function toolLabel(toolName: string): ToolLabel | null {
@@ -701,7 +701,7 @@ export function toolLabel(toolName: string): ToolLabel | null {
  */
 export type ToolCategory = "source" | "action" | "system";
 
-export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
+export const TOOL_CATEGORIES = {
   "system.search_tools": "system",
   "system.load_tool": "system",
   "system.current_time": "system",
@@ -786,7 +786,7 @@ export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
   "vercel.list_deployments": "source",
   "vercel.redeploy": "action",
   "vercel.request": "source",
-};
+} satisfies Record<ToolName, ToolCategory>;
 
 /** The declared category for a tool, or `null` for an unregistered name. */
 export function toolCategoryOf(toolName: string): ToolCategory | null {

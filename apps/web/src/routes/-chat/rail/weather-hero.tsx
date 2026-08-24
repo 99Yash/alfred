@@ -54,7 +54,7 @@ export function WeatherHero() {
   );
 }
 
-const LABEL_FOR_CONDITION: Record<WeatherCondition, string | null> = {
+const LABEL_FOR_CONDITION = {
   clear: "Sunny",
   partly_cloudy: "Partly cloudy",
   cloudy: "Cloudy",
@@ -63,4 +63,4 @@ const LABEL_FOR_CONDITION: Record<WeatherCondition, string | null> = {
   snow: "Snowy",
   storm: "Thunderstorm",
   unknown: null,
-};
+} satisfies Record<WeatherCondition, string | null>;

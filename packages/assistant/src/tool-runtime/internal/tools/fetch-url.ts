@@ -301,7 +301,7 @@ export function isBlockedHost(hostname: string): boolean {
 
 /* ── HTML → text ──────────────────────────────────────────────────────── */
 
-const NAMED_ENTITIES: Record<string, string> = {
+const NAMED_ENTITIES = {
   amp: "&",
   lt: "<",
   gt: ">",
@@ -320,7 +320,7 @@ const NAMED_ENTITIES: Record<string, string> = {
   rdquo: "”",
   middot: "·",
   bull: "•",
-};
+} satisfies Record<string, string>;
 
 /** Decode the HTML entities a text reader actually encounters. */
 export function decodeEntities(input: string): string {
@@ -347,7 +347,9 @@ export function decodeEntities(input: string): string {
       }
       return whole;
     }
-    const named = NAMED_ENTITIES[body.toLowerCase()];
+    const named = Object.entries(NAMED_ENTITIES).find(
+      ([entity]) => entity === body.toLowerCase(),
+    )?.[1];
     return named ?? whole;
   });
 }
@@ -869,11 +871,16 @@ function decoderForEncoding(encoding: string): Transform | null {
   }
 }
 
+interface DecodedBody {
+  body: AsyncIterable<Uint8Array>;
+  decoded: boolean;
+}
+
 export function decodeResponseBody(
   body: AsyncIterable<Uint8Array>,
   contentEncoding: string | undefined,
   finalUrl: string,
-): { body: AsyncIterable<Uint8Array>; decoded: boolean } {
+): DecodedBody {
   const encodings = (contentEncoding ?? "")
     .split(",")
     .map((encoding) => encoding.trim().toLowerCase())

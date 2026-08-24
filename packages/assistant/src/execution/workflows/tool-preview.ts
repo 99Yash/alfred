@@ -36,11 +36,12 @@ function pruneForPreview(
     return value.slice(0, maxArray).map((v) => pruneForPreview(v, maxArray, maxString, maxKeys));
   }
   if (isRecord(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value).slice(0, maxKeys)) {
-      out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
-    }
-    return out;
+    return Object.entries(value)
+      .slice(0, maxKeys)
+      .reduce<Record<string, unknown>>((out, [k, v]) => {
+        out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
+        return out;
+      }, {});
   }
   return value;
 }

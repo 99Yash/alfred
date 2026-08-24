@@ -31,7 +31,7 @@ export const TRIAGE_RAIL_SUPPRESSED_CATEGORIES = [
 ] as const satisfies readonly TriageCategory[];
 
 /** Short display label for the rail chip. */
-export const TRIAGE_DISPLAY: Record<TriageCategory, string> = {
+export const TRIAGE_DISPLAY = {
   urgent: "Urgent",
   action_needed: "Action",
   follow_up: "Follow-up",
@@ -42,7 +42,7 @@ export const TRIAGE_DISPLAY: Record<TriageCategory, string> = {
   payment: "Payment",
   newsletter: "Newsletter",
   marketing: "Marketing",
-};
+} satisfies Record<TriageCategory, string>;
 
 export const isTriageCategory = enumGuard(TRIAGE_CATEGORIES);
 

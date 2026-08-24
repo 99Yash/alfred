@@ -72,10 +72,12 @@ function absoluteUrl(path: string): string {
  *     component: SettingsRoute,
  *   });
  */
-export function pageMeta({ title, description, path }: PageMetaInput = {}): {
+interface PageMeta {
   meta: MetaTag[];
   links: LinkTag[];
-} {
+}
+
+export function pageMeta({ title, description, path }: PageMetaInput = {}): PageMeta {
   const fullTitle = formatPageTitle(title);
   const desc = description ?? SITE_DESCRIPTION;
   const url = path ? absoluteUrl(path) : null;
@@ -97,7 +99,7 @@ export function pageMeta({ title, description, path }: PageMetaInput = {}): {
  * Site-wide defaults for the root route — the page-level tags from `pageMeta`
  * plus the static social-card scaffolding that every page shares.
  */
-export function siteMeta(): { meta: MetaTag[]; links: LinkTag[] } {
+export function siteMeta(): PageMeta {
   const base = pageMeta();
   return {
     meta: [

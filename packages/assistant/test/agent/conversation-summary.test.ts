@@ -14,7 +14,7 @@ const eligible: EligibleConversationSummarySources = {
   attachmentIds: new Set(["att_1"]),
 };
 
-function validSummary(): unknown {
+function validSummary() {
   return {
     schemaVersion: 1,
     overview: {

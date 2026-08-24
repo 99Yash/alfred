@@ -62,12 +62,17 @@ interface Recorder {
  * re-resolution step (`findNewestLiveInbound`) returns; null means "no live
  * inbound message in the thread".
  */
+interface MadeDeps {
+  deps: Partial<ReconcileThreadLabelDeps>;
+  rec: Recorder;
+}
+
 function makeDeps(opts: {
   row: TriageRow | null;
   docs: Record<string, string>; // documentId -> Gmail message id
   apply: (messageId: string) => { appliedLabelId: string };
   liveDoc: string | null;
-}): { deps: Partial<ReconcileThreadLabelDeps>; rec: Recorder } {
+}): MadeDeps {
   const rec: Recorder = { applyCalls: [], setAppliedLabelCalls: [], setReconciledCalls: [] };
   const deps: Partial<ReconcileThreadLabelDeps> = {
     // These tests exercise the label-write path, so force the #278 gate on —

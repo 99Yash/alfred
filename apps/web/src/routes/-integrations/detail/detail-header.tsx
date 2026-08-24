@@ -28,13 +28,13 @@ const API_URL =
  *    Google's `include_granted_scopes=true` merges this into their
  *    existing grant.
  */
-const CONNECT_PATHS: Readonly<Record<string, string>> = {
-  google_gmail: "/api/integrations/google/connect?features=briefing,triage,reply_draft",
-  google_calendar: "/api/integrations/google/connect?features=calendar",
-  github: "/api/integrations/github/connect",
-  notion: "/api/integrations/notion/connect",
-  vercel: "/api/integrations/vercel/connect",
-};
+const CONNECT_PATHS = new Map<string, string>([
+  ["google_gmail", "/api/integrations/google/connect?features=briefing,triage,reply_draft"],
+  ["google_calendar", "/api/integrations/google/connect?features=calendar"],
+  ["github", "/api/integrations/github/connect"],
+  ["notion", "/api/integrations/notion/connect"],
+  ["vercel", "/api/integrations/vercel/connect"],
+]);
 
 export function DetailHeader({
   provider,
@@ -80,9 +80,9 @@ function RedirectConnect({
   // that the dialog pre-explains. Other OAuth providers carry no such gotcha,
   // so they redirect straight through. Mirrors the onboarding flow.
   const [consentOpen, setConsentOpen] = useState(false);
-  const path = CONNECT_PATHS[provider.id];
+  const path = CONNECT_PATHS.get(provider.id);
   const wired = Boolean(path);
-  const isGoogle = PROVIDER_BACKEND[provider.id] === "google";
+  const isGoogle = PROVIDER_BACKEND.get(provider.id) === "google";
   const label = connected ? "Add Account" : wired ? "Connect" : "Coming Soon";
 
   const redirect = () => {

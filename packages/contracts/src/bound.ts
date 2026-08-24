@@ -56,7 +56,7 @@ export interface BoundResult {
 }
 
 /** Clip one string to `max` chars, appending a notice reporting the omitted count. */
-function clipString(s: string, max: number): { value: string; clipped: number } {
+function clipString(s: string, max: number) {
   if (s.length <= max) return { value: s, clipped: 0 };
   const clipped = s.length - max;
   return {

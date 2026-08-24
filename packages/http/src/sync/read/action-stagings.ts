@@ -124,11 +124,13 @@ async function loadRecentRejectionsByTool(
  * Project the run trigger down to the display-only fields the card needs.
  * Never forwards `eventId`/`payload`/document ids (ADR-0034 amendment).
  */
-function narrowTrigger(trigger: AgentRunTrigger | null): {
+interface NarrowedTrigger {
   kind: string;
   source?: string;
   type?: string;
-} {
+}
+
+function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   if (!trigger) return { kind: "manual" };
   const source = "source" in trigger ? trigger.source : undefined;
   const type = "type" in trigger ? trigger.type : undefined;

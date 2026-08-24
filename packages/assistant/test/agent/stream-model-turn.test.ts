@@ -28,7 +28,12 @@ interface CapturedEvent {
   payload: Record<string, unknown>;
 }
 
-function capture(): { events: CapturedEvent[]; publish: typeof publishEvent } {
+interface CapturedPublish {
+  events: CapturedEvent[];
+  publish: typeof publishEvent;
+}
+
+function capture(): CapturedPublish {
   const events: CapturedEvent[] = [];
   const publish = (async (args: { kind: string; payload: Record<string, unknown> }) => {
     events.push({ kind: args.kind, payload: args.payload });

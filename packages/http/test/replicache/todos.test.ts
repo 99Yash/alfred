@@ -23,10 +23,12 @@ import { serverMutators } from "../../src/sync/write";
 
 type ClientTx = Parameters<typeof todoCompleteClient>[0];
 
-function makeClientTx(initial: Record<string, unknown> = {}): {
+interface MadeClientTx {
   tx: ClientTx;
   store: Map<string, unknown>;
-} {
+}
+
+function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
   // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   const tx = {
@@ -47,10 +49,12 @@ function makeClientTx(initial: Record<string, unknown> = {}): {
 }
 
 /** Server `update().set().where()` mock — todo mutators don't call `.returning()`. */
-function makeUpdateTx(): {
+interface UpdateTxCalls {
   tx: unknown;
   calls: () => { setValue: Record<string, unknown> | undefined; whereCalled: boolean };
-} {
+}
+
+function makeUpdateTx(): UpdateTxCalls {
   let setValue: Record<string, unknown> | undefined;
   let whereCalled = false;
   return {
