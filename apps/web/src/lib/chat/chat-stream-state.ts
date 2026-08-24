@@ -507,7 +507,9 @@ export function applyChatFrame(
     if (p.connectNudge) {
       // The bounced call is retracted above; the repair is what the user sees
       // instead (#378 item 3). Set, never cleared: connection state cannot
-      // heal mid-turn, and a replayed frame re-set is a no-op.
+      // heal mid-turn, and a replayed frame re-set is a no-op. Last write
+      // wins — the rule splitPersistedToolCalls applies on reload, so the
+      // two dedupe homes cannot disagree.
       r.connectNudges.set(p.connectNudge.integration, p.connectNudge);
       return true;
     }

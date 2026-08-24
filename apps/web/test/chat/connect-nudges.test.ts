@@ -38,8 +38,8 @@ describe("splitPersistedToolCalls", () => {
     assert.deepEqual(nudges, [{ integration: "gmail", action: "connect" }]);
   });
 
-  test("repeated bounces for one integration dedupe to the first offer", () => {
-    const { nudges } = splitPersistedToolCalls([
+  test("repeated bounces for one integration keep position but take the last offer", () => {
+    const { cards, nudges } = splitPersistedToolCalls([
       {
         toolCallId: "a",
         toolName: "gmail.search",
@@ -62,10 +62,14 @@ describe("splitPersistedToolCalls", () => {
         connectNudge: { integration: "gmail", action: "reconnect" },
       },
     ]);
+    // Same rule as the live stream state's map: gmail stays in first position
+    // and its last offer wins, so a reload matches what the turn streamed.
     assert.deepEqual(nudges, [
-      { integration: "gmail", action: "connect" },
+      { integration: "gmail", action: "reconnect" },
       { integration: "notion", action: "connect" },
     ]);
+    // Every bounced entry stays out of the drawable trail.
+    assert.deepEqual(cards, []);
   });
 });
 
