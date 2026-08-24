@@ -10,7 +10,11 @@ import {
   startToolPreloadSpan,
 } from "@alfred/assistant/execution/runtime-spans";
 
-function capture(run: () => void): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {
+interface CapturedSpans {
+  opened: RuntimeSpanInput[];
+  ended: RuntimeSpanEndArgs[];
+}
+function capture(run: () => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
   const restore = _setRuntimeSpanStarterForTests((input) => {

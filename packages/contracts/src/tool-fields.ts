@@ -79,7 +79,7 @@ export type FieldSpec =
 type JsonSchema = Record<string, unknown>;
 
 /** Labels for keys whose humanized form reads poorly (abbreviations, ids). */
-const LABEL_ALIASES: Record<string, string> = {
+const LABEL_ALIASES = {
   q: "Query",
   cc: "Cc",
   bcc: "Bcc",
@@ -101,10 +101,11 @@ const LABEL_ALIASES: Record<string, string> = {
   timeMin: "Starts after",
   timeMax: "Ends before",
   valueInputOption: "Value handling",
-};
+} satisfies Record<string, string>;
 
 function humanizeKey(key: string): string {
-  if (LABEL_ALIASES[key]) return LABEL_ALIASES[key];
+  const alias = Object.entries(LABEL_ALIASES).find(([k]) => k === key)?.[1];
+  if (alias) return alias;
   return key
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")

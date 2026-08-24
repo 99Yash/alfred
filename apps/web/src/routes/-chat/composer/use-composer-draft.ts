@@ -3,13 +3,15 @@ import type { JSONContent } from "@tiptap/react";
 import { useCallback, useMemo, useState } from "react";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
 
-export function useComposerDraft(threadId: string | undefined): {
+interface ComposerDraft {
   initialJSON: JSONContent | undefined;
   text: string;
   isEmpty: boolean;
   onEditorChange: (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => void;
   resetDraft: () => void;
-} {
+}
+
+export function useComposerDraft(threadId: string | undefined): ComposerDraft {
   // Persist drafts per thread (and a shared "new chat" bucket for the empty
   // /chat hero). Survives refresh; cleared on submit.
   const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;

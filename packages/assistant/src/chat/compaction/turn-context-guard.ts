@@ -47,11 +47,16 @@ export function withEphemeralReference(
  * provider-only hydration (notably base64 image bytes). Both tails have the
  * same message boundaries; only their content representation differs.
  */
+export interface CompactedChatTranscriptPair {
+  modelTranscript: AgentTranscriptMessage[];
+  continuationTranscript: AgentTranscriptMessage[];
+}
+
 export function buildCompactedChatTranscriptPair(
   summary: AgentTranscriptMessage,
   storedTail: readonly AgentTranscriptMessage[],
   hydratedTail: readonly AgentTranscriptMessage[],
-): { modelTranscript: AgentTranscriptMessage[]; continuationTranscript: AgentTranscriptMessage[] } {
+): CompactedChatTranscriptPair {
   return {
     modelTranscript: [summary, ...hydratedTail],
     continuationTranscript: [summary, ...storedTail],

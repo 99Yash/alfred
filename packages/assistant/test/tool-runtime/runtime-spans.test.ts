@@ -22,7 +22,11 @@ import {
 const result = (kind: ToolCallDispatchResult["kind"]): ToolCallDispatchResult =>
   ({ kind }) as ToolCallDispatchResult;
 
-function capture(run: () => void): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {
+interface CapturedSpans {
+  opened: RuntimeSpanInput[];
+  ended: RuntimeSpanEndArgs[];
+}
+function capture(run: () => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
   const restore = _setToolRuntimeSpanStarterForTests((input) => {

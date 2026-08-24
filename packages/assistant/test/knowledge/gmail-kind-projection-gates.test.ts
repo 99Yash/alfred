@@ -42,7 +42,7 @@ const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
 const SELF_EMAIL = "yash@example.com";
 const createdUserIds: string[] = [];
 
-const SERVER_ENV_FIXTURES: Record<string, string> = {
+const SERVER_ENV_FIXTURES = {
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
   // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
@@ -64,7 +64,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
   ENTITY_ID_NAMESPACE: TEST_ENTITY_ID_SECRET,
-};
+} satisfies Record<string, string>;
 
 const SKIP_DB = dbBackedSkip("database");
 

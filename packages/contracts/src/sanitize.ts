@@ -32,7 +32,7 @@ import { isRecord } from "./guards";
 const POISON_RE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
 /** Strip poison code units from a single string, reporting how many were removed. */
-function stripString(s: string): { value: string; removed: number } {
+function stripString(s: string) {
   let removed = 0;
   const value = s.replace(POISON_RE, () => {
     removed += 1;

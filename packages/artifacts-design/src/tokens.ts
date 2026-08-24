@@ -291,13 +291,10 @@ export const darkShadow = {
  * in `apps/web/src/components/artifact-page-frame.tsx` (which sizes the iframe):
  * `slides` is a 1280x720 16:9 deck page, `pdf` is portrait US-Letter at 96dpi.
  */
-export const pageGeometry: Record<
-  ArtifactFormat,
-  { readonly width: number; readonly height: number }
-> = {
+export const pageGeometry = {
   slides: { width: 1280, height: 720 },
   pdf: { width: 816, height: 1056 },
-};
+} satisfies Record<ArtifactFormat, { readonly width: number; readonly height: number }>;
 
 /**
  * The themeable design roles — every `--art-*` custom property whose value

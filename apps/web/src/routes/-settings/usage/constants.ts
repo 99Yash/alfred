@@ -2,7 +2,7 @@ import type { UsageRunCategory } from "@alfred/contracts";
 import { APP_TINTS } from "~/lib/tints";
 
 /** Human labels for the coarse run categories (finer per-run labels come from the server). */
-export const CATEGORY_LABELS: Record<UsageRunCategory, string> = {
+export const CATEGORY_LABELS = {
   chat: "Chat",
   briefing: "Briefings",
   triage: "Email triage",
@@ -12,7 +12,7 @@ export const CATEGORY_LABELS: Record<UsageRunCategory, string> = {
   sub_agent: "Sub-agents",
   workflow: "Workflows",
   uncategorized: "Other",
-};
+} satisfies Record<UsageRunCategory, string>;
 
 /**
  * Per-category tint tile (`bg-app-{tone}-1 text-app-{tone}-4`). Reuses the six
@@ -20,7 +20,7 @@ export const CATEGORY_LABELS: Record<UsageRunCategory, string> = {
  * the palette only has six tones. Same class shape as the settings tiles so the
  * usage pills never drift from the rest of the app.
  */
-export const CATEGORY_TILE: Record<UsageRunCategory, string> = {
+export const CATEGORY_TILE = {
   chat: APP_TINTS.purple,
   briefing: APP_TINTS.amber,
   triage: APP_TINTS.green,
@@ -30,24 +30,21 @@ export const CATEGORY_TILE: Record<UsageRunCategory, string> = {
   sub_agent: APP_TINTS.sky,
   workflow: "bg-app-bg-2 text-app-fg-3",
   uncategorized: "bg-app-bg-2 text-app-fg-3",
-};
+} satisfies Record<UsageRunCategory, string>;
 
 /** Date-range presets for the overview control. `all` reaches before Alfred existed. */
 export const USAGE_RANGE_PRESETS = ["7d", "30d", "month", "all"] as const;
 export type UsageRangePreset = (typeof USAGE_RANGE_PRESETS)[number];
 
-export const USAGE_RANGE_LABELS: Record<UsageRangePreset, string> = {
+export const USAGE_RANGE_LABELS = {
   "7d": "7 days",
   "30d": "30 days",
   month: "This month",
   all: "All time",
-};
+} satisfies Record<UsageRangePreset, string>;
 
 /** Resolve a preset to a concrete [start, end) window (end = now). */
-export function resolveRangePreset(
-  preset: UsageRangePreset,
-  now: Date,
-): { start: Date; end: Date } {
+export function resolveRangePreset(preset: UsageRangePreset, now: Date) {
   const end = now;
   const day = 24 * 60 * 60 * 1000;
   switch (preset) {

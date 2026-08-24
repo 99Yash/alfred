@@ -5,17 +5,17 @@ import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
 import { SectionHeading } from "./section-heading";
 
-const PROVIDER_TO_SLUG: Readonly<Record<string, LoadableIntegrationSlug>> = {
-  google_gmail: "gmail",
-  google_calendar: "calendar",
-  google_drive: "drive",
-  google_docs: "docs",
-  google_sheets: "sheets",
-  google_slides: "slides",
-  github: "github",
-  slack: "slack",
-  linear: "linear",
-};
+const PROVIDER_TO_SLUG = new Map<string, LoadableIntegrationSlug>([
+  ["google_gmail", "gmail"],
+  ["google_calendar", "calendar"],
+  ["google_drive", "drive"],
+  ["google_docs", "docs"],
+  ["google_sheets", "sheets"],
+  ["google_slides", "slides"],
+  ["github", "github"],
+  ["slack", "slack"],
+  ["linear", "linear"],
+]);
 
 const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
   { value: "autonomy", label: "Full autonomy", icon: <Zap size={13} aria-hidden /> },
@@ -25,7 +25,7 @@ const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
 export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) {
-  const slug = PROVIDER_TO_SLUG[provider.id];
+  const slug = PROVIDER_TO_SLUG.get(provider.id);
   const { modeFor, setIntegrationMode, loading, error, retry } = useActionPolicy();
 
   if (!slug) return null;

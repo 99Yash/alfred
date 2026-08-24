@@ -25,12 +25,12 @@ import { spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
  * integration.
  */
 
-const MODEL_FACING_TOOL_INPUT_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
+const MODEL_FACING_TOOL_INPUT_SCHEMAS = {
   ...TOOL_INPUT_SCHEMAS,
   // Server-only because the schema references sub-agent internals, but still
   // boss-visible and model-facing in chat turns.
   "system.spawn_sub_agent": spawnSubAgentInputSchema,
-};
+} satisfies Partial<Record<ToolName, z.ZodType>>;
 
 /**
  * One valid input per tool that has an array-typed field, plus the names of the
@@ -38,129 +38,133 @@ const MODEL_FACING_TOOL_INPUT_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
  * re-tested in its JSON-stringified form. Keep this in lockstep with the array
  * fields discovered by `discoverArrayFields` — the coverage test enforces it.
  */
-const FIXTURES: Record<string, { base: Record<string, unknown>; arrayFields: readonly string[] }> =
-  {
-    "calendar.create_event": {
-      base: {
-        summary: "Weekly sync",
-        start: "2026-07-01T10:00:00Z",
-        end: "2026-07-01T11:00:00Z",
-        attendees: ["a@example.com", "b@example.com"],
-      },
-      arrayFields: ["attendees"],
+interface ArrayCoercionFixture {
+  base: Record<string, unknown>;
+  arrayFields: readonly string[];
+}
+
+const FIXTURES = {
+  "calendar.create_event": {
+    base: {
+      summary: "Weekly sync",
+      start: "2026-07-01T10:00:00Z",
+      end: "2026-07-01T11:00:00Z",
+      attendees: ["a@example.com", "b@example.com"],
     },
-    "gmail.send_draft": {
-      base: {
-        to: ["a@example.com"],
-        cc: ["c@example.com"],
-        bcc: ["d@example.com"],
-        subject: "Hello",
-        bodyText: "Body text.",
-      },
-      arrayFields: ["to", "cc", "bcc"],
+    arrayFields: ["attendees"],
+  },
+  "gmail.send_draft": {
+    base: {
+      to: ["a@example.com"],
+      cc: ["c@example.com"],
+      bcc: ["d@example.com"],
+      subject: "Hello",
+      bodyText: "Body text.",
     },
-    "sheets.update_values": {
-      base: {
-        spreadsheetId: "sid",
-        range: "Sheet1!A1:B1",
-        values: [["a", "b"]],
-      },
-      arrayFields: ["values"],
+    arrayFields: ["to", "cc", "bcc"],
+  },
+  "sheets.update_values": {
+    base: {
+      spreadsheetId: "sid",
+      range: "Sheet1!A1:B1",
+      values: [["a", "b"]],
     },
-    "sheets.append_values": {
-      base: {
-        spreadsheetId: "sid",
-        range: "Sheet1!A1",
-        values: [["a", "b"]],
-      },
-      arrayFields: ["values"],
+    arrayFields: ["values"],
+  },
+  "sheets.append_values": {
+    base: {
+      spreadsheetId: "sid",
+      range: "Sheet1!A1",
+      values: [["a", "b"]],
     },
-    "sheets.batch_update": {
-      base: {
-        spreadsheetId: "sid",
-        requests: [{ addSheet: { properties: { title: "Tab" } } }],
-      },
-      arrayFields: ["requests"],
+    arrayFields: ["values"],
+  },
+  "sheets.batch_update": {
+    base: {
+      spreadsheetId: "sid",
+      requests: [{ addSheet: { properties: { title: "Tab" } } }],
     },
-    "slides.batch_update": {
-      base: {
-        presentationId: "pid",
-        requests: [{ createSlide: {} }],
-      },
-      arrayFields: ["requests"],
+    arrayFields: ["requests"],
+  },
+  "slides.batch_update": {
+    base: {
+      presentationId: "pid",
+      requests: [{ createSlide: {} }],
     },
-    "system.read_user_context": {
-      base: {
-        include: ["profile", "facts"],
-      },
-      arrayFields: ["include"],
+    arrayFields: ["requests"],
+  },
+  "system.read_user_context": {
+    base: {
+      include: ["profile", "facts"],
     },
-    "system.spawn_sub_agent": {
-      base: {
-        subId: "research",
-        brief: "Find relevant activity across connected tools.",
-        allowedIntegrations: ["gmail", "calendar"],
-      },
-      arrayFields: ["allowedIntegrations"],
+    arrayFields: ["include"],
+  },
+  "system.spawn_sub_agent": {
+    base: {
+      subId: "research",
+      brief: "Find relevant activity across connected tools.",
+      allowedIntegrations: ["gmail", "calendar"],
     },
-    "system.author_workflow": {
-      base: {
-        name: "Weekday brief",
-        brief: "Summarize the current time every weekday.",
-        trigger: { kind: "cron", schedule: "0 8 * * 1-5", timezone: "Asia/Kolkata" },
-        capabilities: [{ tool: "system.current_time" }],
-        intent: "Run a weekday brief.",
+    arrayFields: ["allowedIntegrations"],
+  },
+  "system.author_workflow": {
+    base: {
+      name: "Weekday brief",
+      brief: "Summarize the current time every weekday.",
+      trigger: { kind: "cron", schedule: "0 8 * * 1-5", timezone: "Asia/Kolkata" },
+      capabilities: [{ tool: "system.current_time" }],
+      intent: "Run a weekday brief.",
+      assumptions: [],
+      externalEffects: [],
+    },
+    arrayFields: ["capabilities", "assumptions", "externalEffects"],
+  },
+  "system.activate_workflow": {
+    base: {
+      workflowId: "wf",
+      baseRevisionId: "rev",
+      baseContentHash: "hash",
+      baseRowVersion: 1,
+      definition: {
+        name: "Manual brief",
+        description: null,
+        brief: "Report the current time.",
+        trigger: { kind: "manual" },
+        allowedIntegrations: ["system"],
+        allowedTools: ["system.current_time"],
+        requiredCapabilities: [{ tool: "system.current_time" }],
+      },
+      schedule: {
+        summary: "Run manually",
+        timezone: "UTC",
+        previewedAt: "2026-07-31T00:00:00.000Z",
+      },
+      resolvedAccounts: [],
+      resolvedCapabilities: [{ tool: "system.current_time", title: "check the current time" }],
+      authoringProposal: {
+        intent: "Report the current time.",
         assumptions: [],
         externalEffects: [],
+        requestedCapabilities: [{ tool: "system.current_time" }],
       },
-      arrayFields: ["capabilities", "assumptions", "externalEffects"],
     },
-    "system.activate_workflow": {
-      base: {
-        workflowId: "wf",
-        baseRevisionId: "rev",
-        baseContentHash: "hash",
-        baseRowVersion: 1,
-        definition: {
-          name: "Manual brief",
-          description: null,
-          brief: "Report the current time.",
-          trigger: { kind: "manual" },
-          allowedIntegrations: ["system"],
-          allowedTools: ["system.current_time"],
-          requiredCapabilities: [{ tool: "system.current_time" }],
-        },
-        schedule: {
-          summary: "Run manually",
-          timezone: "UTC",
-          previewedAt: "2026-07-31T00:00:00.000Z",
-        },
-        resolvedAccounts: [],
-        resolvedCapabilities: [{ tool: "system.current_time", title: "check the current time" }],
-        authoringProposal: {
-          intent: "Report the current time.",
-          assumptions: [],
-          externalEffects: [],
-          requestedCapabilities: [{ tool: "system.current_time" }],
-        },
-      },
-      arrayFields: ["resolvedAccounts", "resolvedCapabilities"],
+    arrayFields: ["resolvedAccounts", "resolvedCapabilities"],
+  },
+  "system.suggest_todo": {
+    base: {
+      name: "Reply to the vendor contract",
+      sources: [{ provider: "github", kind: "pull_request", id: "123" }],
     },
-    "system.suggest_todo": {
-      base: {
-        name: "Reply to the vendor contract",
-        sources: [{ provider: "github", kind: "pull_request", id: "123" }],
-      },
-      arrayFields: ["sources"],
+    arrayFields: ["sources"],
+  },
+  "system.update_artifact": {
+    base: {
+      artifactId: "aid",
+      pages: [{ title: "Page 1", html: "<p>x</p>" }],
     },
-    "system.update_artifact": {
-      base: {
-        artifactId: "aid",
-        pages: [{ title: "Page 1", html: "<p>x</p>" }],
-      },
-      arrayFields: ["pages"],
-    },
-  };
+    arrayFields: ["pages"],
+  },
+} satisfies Record<string, ArrayCoercionFixture>;
 
 /** Every array-typed top-level field, read from the model-facing JSON schema. */
 function discoverArrayFields(schema: z.ZodType): string[] {
@@ -184,7 +188,8 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
     const uncovered: string[] = [];
     for (const [name, schema] of Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS)) {
       for (const field of discoverArrayFields(schema as z.ZodType)) {
-        if (!FIXTURES[name]?.arrayFields.includes(field)) {
+        const fixture = Object.entries(FIXTURES).find(([k]) => k === name)?.[1];
+        if (!fixture?.arrayFields.includes(field)) {
           uncovered.push(`${name}.${field}`);
         }
       }
@@ -196,8 +201,9 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
     );
   });
 
-  for (const [name, { base, arrayFields }] of Object.entries(FIXTURES)) {
-    const schema = MODEL_FACING_TOOL_INPUT_SCHEMAS[name as ToolName] as z.ZodType | undefined;
+  for (const [name, fixture] of Object.entries(FIXTURES)) {
+    const { base, arrayFields } = fixture as ArrayCoercionFixture;
+    const schema = Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS).find(([n]) => n === name)?.[1];
 
     test(`${name}: base fixture parses and lists the right array fields`, () => {
       assert.ok(schema, `${name} is missing from TOOL_INPUT_SCHEMAS`);

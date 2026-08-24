@@ -261,13 +261,19 @@ function rankAvailability(candidate: RankedCandidate): number {
   return candidate.availability === "available" ? 1 : 0;
 }
 
+interface ToolScore {
+  score: number;
+  reason: string;
+  preloadEligible: boolean;
+}
+
 function scoreTool(
   tool: RegisteredTool,
   query: string,
   matchText: string,
   queryTokens: ReadonlySet<string>,
   queryHasReadIntent: boolean,
-): { score: number; reason: string; preloadEligible: boolean } {
+): ToolScore {
   const name = normalize(tool.name);
   if (query === name) return { score: 1_000, reason: "exact tool name", preloadEligible: true };
 

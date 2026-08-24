@@ -6,7 +6,7 @@ import type { LabelSelfMailDeps } from "../src/google/index";
 // serverEnv() validates the whole schema on first read; seed the required slots
 // before importing `@alfred/integrations/google` (its module graph reads env
 // lazily, but be defensive). Mirrors `self-authored-drop.test.ts`.
-const SERVER_ENV_FIXTURES: Record<string, string> = {
+const SERVER_ENV_FIXTURES = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/test",
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
@@ -29,7 +29,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
   ENTITY_ID_NAMESPACE: "stable namespace secret for tests",
-};
+} satisfies Record<string, string>;
 for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }
@@ -37,6 +37,12 @@ for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
 const { labelSelfAuthoredMail } = await import("../src/google/index");
 
 const LABEL_ID = "Label_alfred_1";
+
+interface MadeDeps {
+  deps: LabelSelfMailDeps;
+  ensureCalls: Array<{ force?: boolean | undefined }>;
+  addCalls: Array<{ messageId: string; labelId: string }>;
+}
 
 /** Recording fake deps so the DI seam exercises skip / retry without a mailbox. */
 function makeDeps(
@@ -47,11 +53,7 @@ function makeDeps(
     failAddCalls?: number;
     failStatus?: number;
   } = {},
-): {
-  deps: LabelSelfMailDeps;
-  ensureCalls: Array<{ force?: boolean | undefined }>;
-  addCalls: Array<{ messageId: string; labelId: string }>;
-} {
+): MadeDeps {
   const ensureCalls: Array<{ force?: boolean | undefined }> = [];
   const addCalls: Array<{ messageId: string; labelId: string }> = [];
   const ensureIds = overrides.ensureIds ?? [LABEL_ID, LABEL_ID];

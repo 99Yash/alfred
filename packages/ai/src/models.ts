@@ -162,10 +162,9 @@ type ModelCapabilityRegistry = {
   readonly [D in RegisteredModel as D["id"]]: D["capabilities"];
 };
 
-function indexModelDefinitions(definitions: typeof MODEL_DEFINITIONS): {
-  providers: ModelRegistry;
-  capabilities: ModelCapabilityRegistry;
-} {
+type ModelIndex = { providers: ModelRegistry; capabilities: ModelCapabilityRegistry };
+
+function indexModelDefinitions(definitions: typeof MODEL_DEFINITIONS) {
   const providers: Record<string, ProviderId> = {};
   const capabilities: Record<string, ModelCapabilities> = {};
   for (const definition of definitions) {
@@ -173,10 +172,7 @@ function indexModelDefinitions(definitions: typeof MODEL_DEFINITIONS): {
     capabilities[definition.id] = definition.capabilities;
   }
   // SAFETY: both records are populated in one exhaustive pass over the canonical tuple.
-  return { providers, capabilities } as {
-    providers: ModelRegistry;
-    capabilities: ModelCapabilityRegistry;
-  };
+  return { providers, capabilities } as ModelIndex;
 }
 
 const indexedModels = indexModelDefinitions(MODEL_DEFINITIONS);

@@ -10,13 +10,13 @@ import { Elysia } from "elysia";
 import { errorHandler, securityHeaders } from "@alfred/http";
 
 /** Headers every API response must carry, regardless of HSTS. */
-const EXPECTED: Readonly<Record<string, string>> = {
+const EXPECTED = {
   "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
   "x-frame-options": "DENY",
   "x-content-type-options": "nosniff",
   "referrer-policy": "strict-origin-when-cross-origin",
   "permissions-policy": "camera=(), microphone=(), geolocation=(), browsing-topics=()",
-};
+} satisfies Readonly<Record<string, string>>;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 

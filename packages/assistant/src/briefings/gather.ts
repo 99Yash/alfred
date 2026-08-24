@@ -225,15 +225,16 @@ export async function gatherBriefingDigest(
     listActiveSuppressionInstructions(args.userId, "exclude_briefing_priority"),
   ]);
 
-  const buckets: Record<PriorityCategory, BriefingItem[]> = {
-    urgent: [],
-    action_needed: [],
-    follow_up: [],
-    awaiting_reply: [],
-    meeting: [],
-    payment: [],
+  const newPriorityBucket = (): BriefingItem[] => [];
+  const buckets = {
+    urgent: newPriorityBucket(),
+    action_needed: newPriorityBucket(),
+    follow_up: newPriorityBucket(),
+    awaiting_reply: newPriorityBucket(),
+    meeting: newPriorityBucket(),
+    payment: newPriorityBucket(),
   };
-  const suppressedCounts: Record<SuppressedCategory, number> = {
+  const suppressedCounts = {
     fyi: 0,
     done: 0,
     newsletter: 0,
@@ -541,16 +542,18 @@ interface GithubWebhookPayload {
  * defensively from the retained payload — any field can be absent on an older
  * or partial delivery, so everything degrades to a sensible generic line.
  */
+interface GithubActivitySummary {
+  title: string;
+  status?: IntegrationActivityItem["status"] | undefined;
+  url?: string | undefined;
+}
+
 function describeGithubActivity(
   eventType: string,
   action: string | null,
   repo: string | null,
   payload: GithubWebhookPayload,
-): {
-  title: string;
-  status?: IntegrationActivityItem["status"] | undefined;
-  url?: string | undefined;
-} {
+): GithubActivitySummary {
   const where = repo ? ` in ${repo}` : "";
   switch (eventType) {
     case "pull_request": {
@@ -697,11 +700,7 @@ export async function gatherCalendarContribution(
   return { events: events.slice(0, MAX_CALENDAR_EVENTS) };
 }
 
-function calendarWindow(
-  briefingDate: LocalDateKey,
-  timezone: IanaTimezone,
-  slot: BriefingSlot,
-): { timeMin: Date; timeMax: Date } {
+function calendarWindow(briefingDate: LocalDateKey, timezone: IanaTimezone, slot: BriefingSlot) {
   const zone = inZone(timezone);
   const dayStart = zone.startOf(briefingDate);
   const windowEnd = zone.startOf(addDays(briefingDate, 2));

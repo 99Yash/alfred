@@ -14,7 +14,7 @@
  * parse succeed. Each one is assigned with `??=`, so a real value from
  * `pnpm --filter @alfred/db test:db`, which loads `apps/server/.env`, wins.
  */
-const DUMMIES: Readonly<Record<string, string>> = {
+const DUMMIES = {
   DATABASE_URL: "postgresql://ci:ci@localhost:5432/alfred_ci",
   BETTER_AUTH_SECRET: "ci-dummy-better-auth-secret-32chars-min",
   OAUTH_CREDENTIAL_KEK: "Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ",
@@ -34,7 +34,7 @@ const DUMMIES: Readonly<Record<string, string>> = {
   GITHUB_APP_PRIVATE_KEY: "ci-dummy",
   GITHUB_WEBHOOK_SECRET: "ci-dummy",
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
-};
+} satisfies Readonly<Record<string, string>>;
 
 /**
  * Point the process at `redisUrl` and fill in whatever else `serverEnv()`

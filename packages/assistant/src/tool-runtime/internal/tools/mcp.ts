@@ -30,7 +30,16 @@ import {
 } from "@alfred/assistant/tool-runtime/mcp";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
-function brokerResult(outcome: McpBrokerOutcome): unknown {
+/** Model-safe projection of a broker outcome. `unknown`-free by construction. */
+interface McpBrokerToolResult {
+  status: string;
+  result?: unknown;
+  retry?: "blocked";
+  reason?: string;
+  message?: string;
+}
+
+function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
   switch (outcome.status) {
     case "completed":
       return withTruncation(
@@ -63,10 +72,7 @@ function brokerResult(outcome: McpBrokerOutcome): unknown {
   }
 }
 
-function withTruncation(
-  result: Record<string, unknown>,
-  envelope: McpCallEnvelope,
-): Record<string, unknown> {
+function withTruncation<T extends object>(result: T, envelope: McpCallEnvelope): T {
   return envelope.truncation ? { ...result, truncation: envelope.truncation } : result;
 }
 

@@ -37,7 +37,7 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 const SKIP = dbBackedSkip("database+redis");
 
-const SERVER_ENV_FIXTURES: Record<string, string> = {
+const SERVER_ENV_FIXTURES = {
   BETTER_AUTH_SECRET: "test better auth secret with length",
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
@@ -56,7 +56,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   GITHUB_APP_PRIVATE_KEY: "test-private-key",
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
-};
+} satisfies Record<string, string>;
 
 const SLUG = "__test-start-run-in-tx";
 const ID_PREFIX = "test-start-run-in-tx-";

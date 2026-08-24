@@ -166,7 +166,12 @@ function tick(cell: ChatStreamCell): { snapshot: StreamingMessage; caughtUp: boo
  * through this: one `tickDrip` advances only a couple of chars, so asserting
  * full text after a single call would read as a reducer bug.
  */
-function drain(cell: ChatStreamCell, bound = 500): { snapshot: StreamingMessage; ticks: number } {
+interface DrainedTick {
+  snapshot: StreamingMessage;
+  ticks: number;
+}
+
+function drain(cell: ChatStreamCell, bound = 500): DrainedTick {
   for (let i = 0; i < bound; i += 1) {
     const { snapshot, caughtUp } = tick(cell);
     if (caughtUp) return { snapshot, ticks: i + 1 };

@@ -24,13 +24,15 @@ async function seedUser(): Promise<string> {
 }
 
 /** A counting fake Resend client, so a test can assert at-most-once delivery. */
-function fakeSentClient(): {
+interface SentClientCalls {
   client: Parameters<typeof _setResendClientForTests>[0];
   calls: Array<{
     payload: { headers?: Record<string, string> | undefined };
     options?: { idempotencyKey?: string } | undefined;
   }>;
-} {
+}
+
+function fakeSentClient(): SentClientCalls {
   const calls: Array<{
     payload: { headers?: Record<string, string> | undefined };
     options?: { idempotencyKey?: string } | undefined;

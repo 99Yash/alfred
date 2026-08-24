@@ -283,6 +283,37 @@
           }
         ]
       }
+    },
+    {
+      // Five files where no-known-value-widening is off ON PURPOSE — each holds a
+      // widened type that is the honest contract, not discarded evidence:
+      // - packages/contracts/src/json.ts: safeJsonParse erases to `unknown` by design;
+      //   its catch arm returns a literal, which the rule rejects against any
+      //   unknown-returning signature.
+      // - packages/contracts/src/passthrough-bounds.ts: pruneToBudget is mutually
+      //   recursive with fitChild, so the `unknown` annotation is mandatory, and its
+      //   primitive overflow arm returns a template literal.
+      // - packages/integrations/src/shared/rest-passthrough.ts: parseBody contains
+      //   JSON.parse's `any` behind an explicit `unknown`; its arms return literals
+      //   (null, the non-JSON marker) that the rule rejects at an unknown seam.
+      // - packages/integrations/../attachments.ts (contracts): ingestPolicyByMime is
+      //   the deliberately widened VIEW of the literal INGEST_POLICY table for
+      //   open-ended MIME-type lookups; the literal stays the single source of truth.
+      // - packages/assistant/src/connections/mcp/hash.ts: computeDescriptorHashes
+      //   builds a `{ [remoteName]: hash }` record that is PERSISTED to a jsonb
+      //   column; a Map would not serialize and the record type is the storage shape.
+      // The bar for removing a file from this list is a change that keeps the
+      // contract AND satisfies the rule — not a reworded cast.
+      "files": [
+        "packages/contracts/src/json.ts",
+        "packages/contracts/src/passthrough-bounds.ts",
+        "packages/contracts/src/attachments.ts",
+        "packages/integrations/src/shared/rest-passthrough.ts",
+        "packages/assistant/src/connections/mcp/hash.ts"
+      ],
+      "rules": {
+        "anti-slop/no-known-value-widening": "off"
+      }
     }
   ]
 }

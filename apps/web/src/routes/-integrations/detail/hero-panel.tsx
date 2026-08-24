@@ -47,7 +47,7 @@ const SATELLITES: ReadonlyArray<{
 export function HeroPanel({ provider }: { provider: IntegrationProvider }) {
   // Colored brands light their hero in their own hue; monochrome marks fall
   // back to the house purple. Low-alpha mix keeps it ambient in both themes.
-  const accent = BRAND_ACCENT[provider.brand];
+  const accent = BRAND_ACCENT.get(provider.brand);
   const glow = accent ? `color-mix(in srgb, ${accent} 24%, transparent)` : "var(--app-purple-2)";
   return (
     <div

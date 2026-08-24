@@ -80,14 +80,15 @@ describe("system-tool agent seam without a registered adapter", () => {
 
 describe("system-tool agent seam with a registered adapter", () => {
   test("forwards each op's args verbatim and returns its result unchanged", async () => {
-    const seen: {
+    interface SeenOps {
       spawn?: SpawnSubAgentRequest;
       child?: typeof childArgs;
       join?: typeof childArgs;
       scratchRead?: SystemToolScratchRead;
       scratchWrite?: SystemToolScratchWrite;
       scratchPromote?: typeof scratchPromoteArgs;
-    } = {};
+    }
+    const seen: SeenOps = {};
     const spawnResult = { ok: true, status: "spawned" };
     const childResult = { ok: true, done: true, status: "completed" };
     const joinResult = {

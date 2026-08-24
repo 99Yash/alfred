@@ -12,7 +12,7 @@ export interface PreviewThreadEntry extends ShellThreadEntry {
   preview: string;
 }
 
-const THREADS: Record<ThreadGroup, PreviewThreadEntry[]> = {
+const THREADS = {
   today: [
     {
       id: "morning-brief",
@@ -61,7 +61,7 @@ const THREADS: Record<ThreadGroup, PreviewThreadEntry[]> = {
       preview: "Remove stale auth-flow notes.",
     },
   ],
-};
+} satisfies Record<ThreadGroup, PreviewThreadEntry[]>;
 
 export const TODOS: RailTodoItem[] = [
   {

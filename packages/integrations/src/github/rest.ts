@@ -28,6 +28,6 @@ export const GITHUB_REST_HEADERS = {
  * caller cannot reach the plaintext without writing `.unwrap()`, and this is the
  * only file that does.
  */
-export function githubHeaders(token: Redacted<string>): Record<string, string> {
+export function githubHeaders(token: Redacted<string>) {
   return { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${token.unwrap()}` };
 }

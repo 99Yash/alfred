@@ -243,18 +243,18 @@ export function _setToolRuntimeSpanStarterForTests(
 function summarize(
   results: readonly (ToolCallDispatchResult | undefined)[],
 ): Record<string, number> {
-  const counts: Record<string, number> = {
-    executed: 0,
-    staged: 0,
-    parked: 0,
-    rejected: 0,
-    invalidInput: 0,
-    unknownTool: 0,
-    inactiveTool: 0,
-    notAllowed: 0,
-    featureDisabled: 0,
-    failed: 0,
-  };
+  const counts = new Map<string, number>([
+    ["executed", 0],
+    ["staged", 0],
+    ["parked", 0],
+    ["rejected", 0],
+    ["invalidInput", 0],
+    ["unknownTool", 0],
+    ["inactiveTool", 0],
+    ["notAllowed", 0],
+    ["featureDisabled", 0],
+    ["failed", 0],
+  ]);
   for (const result of results) {
     if (!result) continue;
     const key =
@@ -269,7 +269,7 @@ function summarize(
               : result.kind === "feature_disabled"
                 ? "featureDisabled"
                 : result.kind;
-    counts[key] = (counts[key] ?? 0) + 1;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  return counts;
+  return Object.fromEntries(counts);
 }

@@ -37,7 +37,7 @@ import type { SQL } from "drizzle-orm";
  * importing ten heavy workflow modules into this lightweight read service.
  * Changing a slug is already a migration-class event, so the coupling is safe.
  */
-export const SLUG_CATEGORY: Record<string, UsageRunCategory> = {
+export const SLUG_CATEGORY = {
   "__chat-turn__": "chat",
   "daily-briefing": "briefing",
   "morning-briefing": "briefing",
@@ -48,7 +48,7 @@ export const SLUG_CATEGORY: Record<string, UsageRunCategory> = {
   "memory-extraction": "memory",
   "__chat-memory-capture__": "memory",
   "__user-authored-brief__": "sub_agent",
-};
+} satisfies Record<string, UsageRunCategory>;
 
 /** Every slug the map above recognizes — the complement is a user workflow. */
 const KNOWN_SLUGS = Object.keys(SLUG_CATEGORY);
@@ -73,7 +73,7 @@ function toIso(value: unknown): string {
 /** A run's category: mapped slug, user-workflow, or uncategorized (no run row). */
 function categoryOf(workflowSlug: string | null): UsageRunCategory {
   if (workflowSlug === null) return "uncategorized";
-  return SLUG_CATEGORY[workflowSlug] ?? "workflow";
+  return Object.entries(SLUG_CATEGORY).find(([slug]) => slug === workflowSlug)?.[1] ?? "workflow";
 }
 
 /**

@@ -67,12 +67,16 @@ const CANCEL_REASON = "cancelled_by_user";
  * validation every real cancel goes through — closure parses `agent_runs.state`,
  * and a seed the schema rejects must fail this test, not bypass it.
  */
+interface CommittedState {
+  [key: string]: unknown;
+}
+
 function committedState(args: {
   threadId: string;
   messageId: string;
   assistantText: string;
   narration?: { index: number; text: string }[];
-}): Record<string, unknown> {
+}): CommittedState {
   return {
     threadId: args.threadId,
     messageId: args.messageId,

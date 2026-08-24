@@ -284,10 +284,12 @@ export function serializePdfExtractionChildRequest(
   return Buffer.concat([header, body]);
 }
 
-function parseRequestHeader(value: unknown): {
+type ParsedRequestHeader = {
   readonly limits: PdfExtractionLimits;
   readonly byteLength: number;
-} {
+};
+
+function parseRequestHeader(value: unknown): ParsedRequestHeader {
   if (!isRecord(value) || !hasOnlyKeys(value, ["limits", "byteLength"])) {
     throw new Error("Invalid PDF extraction child request header");
   }

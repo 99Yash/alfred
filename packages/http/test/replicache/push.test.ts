@@ -50,13 +50,20 @@ async function seedUser(): Promise<string> {
 }
 
 /** The mutation shape the push body carries, with the fields a test varies. */
-function mutation(args: { id: number; clientID: string; name: string; args: unknown }): {
+interface RecordedMutation {
   id: number;
   clientID: string;
   name: string;
   args: unknown;
   timestamp: number;
-} {
+}
+
+function mutation(args: {
+  id: number;
+  clientID: string;
+  name: string;
+  args: unknown;
+}): RecordedMutation {
   return { ...args, timestamp: 1 };
 }
 

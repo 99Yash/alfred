@@ -301,11 +301,13 @@ export async function runDriftHealthCheck(
 }
 
 /** Minimal operator-facing breach email. One metric per send. */
-function composeHealthAlertEmail(result: MetricResult): {
+interface HealthAlertEmail {
   subject: string;
   html: string;
   text: string;
-} {
+}
+
+function composeHealthAlertEmail(result: MetricResult): HealthAlertEmail {
   const subject = `[Alfred health] ${result.metric} drift`;
   const detailLines = Object.entries(result.detail)
     .map(([k, v]) => `${k}: ${JSON.stringify(v) ?? String(v)}`)

@@ -291,7 +291,7 @@ export type DispatchRejectionOutcome =
  * expected user decision, not an error (DEFAULT), but still worth a node so
  * the "bounce on the same wall" pattern is countable.
  */
-const DISPATCH_OUTCOME_LEVEL: Record<DispatchRejectionOutcome, "DEFAULT" | "WARNING" | "ERROR"> = {
+const DISPATCH_OUTCOME_LEVEL = {
   unknown_tool: "WARNING",
   inactive_tool: "WARNING",
   not_allowed: "WARNING",
@@ -301,7 +301,7 @@ const DISPATCH_OUTCOME_LEVEL: Record<DispatchRejectionOutcome, "DEFAULT" | "WARN
   // not an anomaly — a node worth counting but not a warning.
   feature_disabled: "DEFAULT",
   failed: "ERROR",
-};
+} satisfies Record<DispatchRejectionOutcome, "DEFAULT" | "WARNING" | "ERROR">;
 
 export interface DispatchRejectionInput {
   /** Run id — doubles as the Langfuse trace id this span hangs under. */
@@ -548,7 +548,7 @@ export async function shutdownLangfuse(): Promise<void> {
  * to the shape they actually run as and are surfaced under a separate
  * `cost_kind:` namespace.
  */
-const CALL_SHAPE: Record<CallKind, string> = {
+const CALL_SHAPE = {
   llm: "llm",
   embedding: "embedding",
   web_search: "web_search",
@@ -556,7 +556,7 @@ const CALL_SHAPE: Record<CallKind, string> = {
   tool_api: "tool_api",
   // A briefing call is an LLM generation; `briefing` is only a cost bucket.
   briefing: "llm",
-};
+} satisfies Record<CallKind, string>;
 
 /**
  * Build the filterable trace tags from a call's attribution (#226). Three

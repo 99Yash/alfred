@@ -18,10 +18,10 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   ref?: Ref<HTMLButtonElement> | undefined;
 }
 
-const SIZE: Record<IconButtonSize, string> = {
+const SIZE = {
   sm: "size-7",
   md: "size-8",
-};
+} satisfies Record<IconButtonSize, string>;
 
 export function IconButton({
   label,

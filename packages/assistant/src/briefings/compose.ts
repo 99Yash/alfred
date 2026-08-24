@@ -45,14 +45,14 @@ import { shortenFrom } from "./sender";
  * the digest serialised as the prompt.
  */
 
-const CATEGORY_LABEL: Record<PriorityCategory, string> = {
+const CATEGORY_LABEL = {
   urgent: "Urgent",
   action_needed: "Action needed",
   follow_up: "Follow ups",
   awaiting_reply: "Awaiting your reply",
   meeting: "Meetings",
   payment: "Payments",
-};
+} satisfies Record<PriorityCategory, string>;
 
 const CATEGORY_ORDER: readonly PriorityCategory[] = [
   "urgent",

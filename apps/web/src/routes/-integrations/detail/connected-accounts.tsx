@@ -25,7 +25,7 @@ export function ConnectedAccounts({
   connected: boolean;
 }) {
   const accounts = provider.connectedAccounts ?? [];
-  const backend = PROVIDER_BACKEND[provider.id];
+  const backend = PROVIDER_BACKEND.get(provider.id);
 
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: "120ms" }}>

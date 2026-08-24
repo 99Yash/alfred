@@ -495,10 +495,12 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
  * Sum a sender prior histogram and the share that falls in bulk categories.
  * Used by the over-classification conflict net.
  */
-function priorBulkProfile(categoryCounts: Record<string, number>): {
+interface BulkProfile {
   total: number;
   bulkShare: number;
-} {
+}
+
+function priorBulkProfile(categoryCounts: Record<string, number>): BulkProfile {
   let total = 0;
   let bulk = 0;
   for (const [cat, n] of Object.entries(categoryCounts)) {
@@ -512,10 +514,12 @@ function priorBulkProfile(categoryCounts: Record<string, number>): {
  * Sum a sender prior histogram and the share that falls in `action_needed`.
  * Used by the service-prior over-classification challenge (#351). PURE.
  */
-function priorActionShare(categoryCounts: Record<string, number>): {
+interface ActionShare {
   total: number;
   actionShare: number;
-} {
+}
+
+function priorActionShare(categoryCounts: Record<string, number>): ActionShare {
   let total = 0;
   let action = 0;
   for (const [cat, n] of Object.entries(categoryCounts)) {

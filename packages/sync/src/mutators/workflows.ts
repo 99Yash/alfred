@@ -12,7 +12,7 @@ import { readSyncedValue } from "./read";
 
 export const AUTHORABLE_EVENT_SOURCES = ["gmail"] as const;
 
-const CRON_MONTH_NAMES: Readonly<Record<string, number>> = {
+const CRON_MONTH_NAMES = {
   JAN: 1,
   FEB: 2,
   MAR: 3,
@@ -25,9 +25,9 @@ const CRON_MONTH_NAMES: Readonly<Record<string, number>> = {
   OCT: 10,
   NOV: 11,
   DEC: 12,
-};
+} satisfies Readonly<Record<string, number>>;
 
-const CRON_DAY_NAMES: Readonly<Record<string, number>> = {
+const CRON_DAY_NAMES = {
   SUN: 0,
   MON: 1,
   TUE: 2,
@@ -35,7 +35,7 @@ const CRON_DAY_NAMES: Readonly<Record<string, number>> = {
   THU: 4,
   FRI: 5,
   SAT: 6,
-};
+} satisfies Readonly<Record<string, number>>;
 
 function cronFieldValue(value: string, names?: Readonly<Record<string, number>>): number | null {
   if (/^\d+$/.test(value)) return Number(value);

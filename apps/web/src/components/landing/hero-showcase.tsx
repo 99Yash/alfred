@@ -41,11 +41,11 @@ const TAB_VALUES: ReadonlyArray<ShowcaseTab> = TABS.map((t) => t.value);
 // quickly — no point sitting on a static frame. The inbox needs longer for
 // its auto-tagging sequence to actually play. The meeting-prep still just
 // needs a comfortable reading beat.
-const TAB_DURATION_MS: Record<ShowcaseTab, number> = {
+const TAB_DURATION_MS = {
   briefing: 4200,
   inbox: 5000,
   meetings: 5000,
-};
+} satisfies Record<ShowcaseTab, number>;
 
 /**
  * Hero product showcase — the page's one full-bleed moment.

@@ -5,7 +5,7 @@ import { Elysia } from "elysia";
 import { notionIntegrationRoutes } from "../../src/connections/notion-routes";
 import { errorHandler } from "../../src/middleware/error-handler";
 
-const SERVER_ENV_FIXTURES: Record<string, string> = {
+const SERVER_ENV_FIXTURES = {
   DATABASE_URL: "postgresql://localhost:5432/alfred_test",
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
@@ -28,7 +28,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   GITHUB_APP_PRIVATE_KEY: "test-private-key",
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
-};
+} satisfies Record<string, string>;
 
 for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;

@@ -35,10 +35,7 @@ export async function flushMeteringWrites(): Promise<void> {
  * `unknown`. A divergent-but-unrecognized id is still surfaced on
  * `response_meta.servedModelId` so the row is auditable.
  */
-function reconcileServed(
-  meta: MeteredMeta,
-  extracted: MeteredResult,
-): { provider: string; model: string; responseMeta: MeteredResult["responseMeta"] } {
+function reconcileServed(meta: MeteredMeta, extracted: MeteredResult) {
   const served = extracted.served?.model;
   if (!served || served === meta.model) {
     return { provider: meta.provider, model: meta.model, responseMeta: extracted.responseMeta };

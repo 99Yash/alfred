@@ -27,11 +27,11 @@ import { cn } from "~/lib/utils";
  */
 export type ShowcaseFadeEdge = "left" | "right" | "bottom";
 
-const EDGE_MASK: Record<ShowcaseFadeEdge, string> = {
+const EDGE_MASK = {
   left: "linear-gradient(to right, transparent 0%, #000 12%, #000 100%)",
   right: "linear-gradient(to right, #000 0%, #000 88%, transparent 100%)",
   bottom: "linear-gradient(to bottom, #000 0%, #000 86%, transparent 100%)",
-};
+} satisfies Record<ShowcaseFadeEdge, string>;
 
 /** Full-bleed looping product clip. Muted + autoPlay + loop + playsInline is
  * the standard recipe for a silent ambient hero clip that also satisfies

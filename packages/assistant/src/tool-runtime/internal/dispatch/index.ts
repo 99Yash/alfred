@@ -1272,10 +1272,19 @@ async function resolveAwaitSubAgentWithSpan(
   }
 }
 
-function awaitSubAgentSpanOutput(result: DispatchResult): unknown {
+type ParkedDispatchResult = Extract<DispatchResult, { kind: "parked" }>;
+type FailedDispatchResult = Extract<DispatchResult, { kind: "failed" }>;
+
+type SubAgentSpanOutput =
+  | { status: "executed"; toolResult: unknown }
+  | { status: "parked"; wake: ParkedDispatchResult["wake"] }
+  | { status: "failed"; error: FailedDispatchResult["error"] }
+  | { status: Exclude<DispatchResult["kind"], "executed" | "parked" | "failed"> };
+
+function awaitSubAgentSpanOutput(result: DispatchResult): SubAgentSpanOutput {
   switch (result.kind) {
     case "executed":
-      return result.toolResult;
+      return { status: "executed", toolResult: result.toolResult };
     case "parked":
       return { status: "parked", wake: result.wake };
     case "failed":

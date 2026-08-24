@@ -56,7 +56,7 @@ const FULL_INTEGRATIONS: LoadableIntegrationSlug[] = [
   "vercel",
 ];
 
-const BLURB: Record<LoadableIntegrationSlug, string> = {
+const BLURB = {
   gmail: "the user's email",
   calendar: "the user's calendar",
   drive: "the user's Google Drive files",
@@ -70,7 +70,7 @@ const BLURB: Record<LoadableIntegrationSlug, string> = {
   slack: "",
   linear: "",
   imessage: "",
-};
+} satisfies Record<LoadableIntegrationSlug, string>;
 
 /** Build the SDK tool set for a set of slugs — mirrors `resolveSdkTools`. */
 function buildToolSet(slugs: IntegrationSlug[]): ToolSet {

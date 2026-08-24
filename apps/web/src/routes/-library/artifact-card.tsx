@@ -5,22 +5,21 @@ import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { cn } from "~/lib/utils";
 import { artifactType, artifactTypeLabel, formatArtifactDate, type ArtifactType } from "./helpers";
 
-const TYPE_TINT: Record<ArtifactType, { bg: string; fg: string; ring: string; icon: LucideIcon }> =
-  {
-    document: {
-      bg: "bg-app-blue-1",
-      fg: "text-app-blue-4",
-      ring: "ring-app-blue-2",
-      icon: FileText,
-    },
-    pdf: { bg: "bg-app-red-1", fg: "text-app-red-4", ring: "ring-app-red-2", icon: FileText },
-    slides: {
-      bg: "bg-app-amber-1",
-      fg: "text-app-amber-4",
-      ring: "ring-app-amber-2",
-      icon: Presentation,
-    },
-  };
+const TYPE_TINT = {
+  document: {
+    bg: "bg-app-blue-1",
+    fg: "text-app-blue-4",
+    ring: "ring-app-blue-2",
+    icon: FileText,
+  },
+  pdf: { bg: "bg-app-red-1", fg: "text-app-red-4", ring: "ring-app-red-2", icon: FileText },
+  slides: {
+    bg: "bg-app-amber-1",
+    fg: "text-app-amber-4",
+    ring: "ring-app-amber-2",
+    icon: Presentation,
+  },
+} satisfies Record<ArtifactType, { bg: string; fg: string; ring: string; icon: LucideIcon }>;
 
 export function ArtifactCard({ artifact, index }: { artifact: SyncedArtifact; index: number }) {
   const type = artifactType(artifact);

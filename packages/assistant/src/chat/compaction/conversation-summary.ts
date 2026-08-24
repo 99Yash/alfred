@@ -60,10 +60,14 @@ export interface EligibleConversationSummarySources {
   attachmentIds: ReadonlySet<string>;
 }
 
-export function parsePersistedConversationSummary(value: unknown): {
+export interface PersistedConversationSummaryParse {
   summary: ConversationSummary | null;
   invalid: boolean;
-} {
+}
+
+export function parsePersistedConversationSummary(
+  value: unknown,
+): PersistedConversationSummaryParse {
   if (value === null) return { summary: null, invalid: false };
   const parsed = conversationSummarySchema.safeParse(value);
   return parsed.success
