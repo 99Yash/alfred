@@ -53,6 +53,7 @@ export interface StagingStoreHarness {
     executeSanitized: boolean;
     executeError: unknown;
     executedAt: Date | null;
+    displayInput: unknown;
   } | null>;
   /** A run id this adapter is certain has no row. */
   unknownRunId(): string;
@@ -174,6 +175,7 @@ export function runStagingStoreContract(
       const promoted = await h.store.promotePendingApproval(row.id, {
         riskTier: "high",
         proposedInput: { slug: "calendar" },
+        displayInput: { slug: "calendar", credential: "[REDACTED]" },
         proposedInputHash: "hash_promoted",
         notifyAfterAt,
         expiresAt,
@@ -185,10 +187,20 @@ export function runStagingStoreContract(
       assert.equal(promoted?.proposedInputHash, "hash_promoted");
       assert.deepEqual(promoted?.notifyAfterAt, notifyAfterAt);
       assert.deepEqual(promoted?.expiresAt, expiresAt);
+      // #374: the promotion rewrites the input pair together — raw for resume,
+      // redacted for display. Read back through the harness because
+      // `StagingRow` (the store's gate-facing view) does not carry it.
+      const promotedBack = await h.readBack(row.id);
+      assert.deepEqual(
+        promotedBack?.displayInput,
+        { slug: "calendar", credential: "[REDACTED]" },
+        "promotion persists the redacted display projection",
+      );
       assert.equal(
         await h.store.promotePendingApproval(row.id, {
           riskTier: "high",
           proposedInput: { slug: "calendar" },
+          displayInput: { slug: "calendar", credential: "[REDACTED]" },
           proposedInputHash: "hash_promoted",
           notifyAfterAt,
           expiresAt,
@@ -447,6 +459,7 @@ export function runStagingStoreContract(
       const promoted = await h.store.promotePendingApproval(row.id, {
         riskTier: "high",
         proposedInput: { slug: "calendar" },
+        displayInput: { slug: "calendar" },
         proposedInputHash: "hash_promoted",
         notifyAfterAt: new Date(),
         expiresAt: new Date(),

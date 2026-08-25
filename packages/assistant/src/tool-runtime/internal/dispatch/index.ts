@@ -649,6 +649,13 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   const proposedInputForRow =
     !requiresApproval && tool.redactInput ? tool.redactInput(input) : input;
   const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
+  // #374: every row ALSO carries a display-safe projection, redacted whenever
+  // the tool declares a redactor regardless of what the gate decided — a gated
+  // secret-bearing tool keeps raw `proposed_input` for resume while its email
+  // and notification read this column instead.
+  const persistedDisplayInput = jsonValueSchema.parse(
+    tool.redactInput ? tool.redactInput(input) : input,
+  );
   const upserted = await stagingStore().upsertStaging({
     userId: args.userId,
     runId: args.runId,
@@ -658,6 +665,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     integration,
     riskTier,
     proposedInput: persistedProposedInput,
+    displayInput: persistedDisplayInput,
     proposedInputHash,
     requestHash,
     requiresApproval,
@@ -690,6 +698,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     const promoted = await stagingStore().promotePendingApproval(row.id, {
       riskTier,
       proposedInput: persistedProposedInput,
+      displayInput: persistedDisplayInput,
       proposedInputHash,
       notifyAfterAt,
       expiresAt,

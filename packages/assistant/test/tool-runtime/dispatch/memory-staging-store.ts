@@ -13,6 +13,7 @@ import {
   toJsonValue,
   type ActionStagingStatus,
   type CancellationFence,
+  type JsonValue,
   type RunStatus,
   type ToolName,
 } from "@alfred/contracts";
@@ -31,6 +32,8 @@ import {
 interface StoredRow extends StagingRow {
   userId: string;
   toolCallId: string;
+  /** The #374 display projection — outside `StagingRow` because the gate never branches on it. */
+  displayInput: JsonValue | null;
   decidedAt: Date | null;
   executedAt: Date | null;
   rowVersion: number;
@@ -184,6 +187,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         requiresApproval: values.requiresApproval,
         toolName: values.toolName as ToolName,
         proposedInput: values.proposedInput,
+        displayInput: values.displayInput ?? null,
         proposedInputHash: values.proposedInputHash,
         decidedInput: values.decidedInput ?? null,
         rejectReason: values.rejectReason ?? null,
@@ -211,6 +215,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       if (row.status !== "pending" || row.requiresApproval) return null;
       row.riskTier = promotion.riskTier;
       row.proposedInput = promotion.proposedInput;
+      row.displayInput = promotion.displayInput;
       row.proposedInputHash = promotion.proposedInputHash;
       row.requiresApproval = true;
       row.outcome = "awaiting_approval";

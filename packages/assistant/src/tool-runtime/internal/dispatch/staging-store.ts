@@ -99,7 +99,12 @@ export function attemptKeyFor(runId: string, toolCallId: string): string {
 
 export type PendingApprovalPromotion = Pick<
   ActionStaging,
-  "riskTier" | "proposedInput" | "proposedInputHash" | "notifyAfterAt" | "expiresAt"
+  | "riskTier"
+  | "proposedInput"
+  | "displayInput"
+  | "proposedInputHash"
+  | "notifyAfterAt"
+  | "expiresAt"
 >;
 
 /**
@@ -363,6 +368,7 @@ export const postgresStagingStore: StagingStore = {
       .set({
         riskTier: promotion.riskTier,
         proposedInput: promotion.proposedInput,
+        displayInput: promotion.displayInput,
         proposedInputHash: promotion.proposedInputHash,
         requiresApproval: true,
         outcome: "awaiting_approval",
