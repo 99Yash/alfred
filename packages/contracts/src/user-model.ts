@@ -161,7 +161,8 @@ export function isObservationKindForSource(
   source: ObservationSource,
   kind: ObservationKind,
 ): boolean {
-  return (OBSERVATION_KINDS_BY_SOURCE[source] as readonly ObservationKind[]).includes(kind);
+  const kinds: readonly ObservationKind[] = OBSERVATION_KINDS_BY_SOURCE[source];
+  return kinds.includes(kind);
 }
 
 /**
