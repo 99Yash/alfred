@@ -13,10 +13,10 @@ import {
   toJsonValue,
   type ActionStagingStatus,
   type CancellationFence,
-  type JsonValue,
   type RunStatus,
   type ToolName,
 } from "@alfred/contracts";
+import type { ActionStaging } from "@alfred/db/schemas";
 
 import {
   attemptKeyFor,
@@ -33,7 +33,7 @@ interface StoredRow extends StagingRow {
   userId: string;
   toolCallId: string;
   /** The #374 display projection — outside `StagingRow` because the gate never branches on it. */
-  displayInput: JsonValue | null;
+  displayInput: ActionStaging["displayInput"];
   decidedAt: Date | null;
   executedAt: Date | null;
   rowVersion: number;
@@ -187,7 +187,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         requiresApproval: values.requiresApproval,
         toolName: values.toolName as ToolName,
         proposedInput: values.proposedInput,
-        displayInput: values.displayInput ?? null,
+        displayInput: values.displayInput,
         proposedInputHash: values.proposedInputHash,
         decidedInput: values.decidedInput ?? null,
         rejectReason: values.rejectReason ?? null,
