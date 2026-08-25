@@ -78,6 +78,7 @@ function stagingValues(
     integration: "system",
     riskTier: "no_risk",
     proposedInput: { slug: "github" },
+    displayInput: { slug: "github" },
     proposedInputHash: `hash_${uniqueSuffix()}`,
     requestHash: `req_${uniqueSuffix()}`,
     requiresApproval: false,

@@ -90,7 +90,7 @@ async function processApprovalNotificationJob(
   // #374: render the email and persist the payload from the redacted display
   // projection, never raw `proposed_input` — a gated tool's staging row holds
   // the resume payload verbatim, and that must not reach a notification sink.
-  // The fallback covers only legacy rows staged before `display_input` existed.
+  // The fallback covers only pre-column legacy rows (removed by 0107 backfill).
   const displayInput = jsonValueSchema.parse(row.displayInput ?? row.proposedInput);
   const approvalUrl = approvalDeepLink(stagingId);
   const rendered = await renderApprovalNotification({
