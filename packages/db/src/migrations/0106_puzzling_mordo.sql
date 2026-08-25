@@ -1,0 +1,1 @@
+ALTER TABLE "action_stagings" ADD COLUMN "display_input" jsonb;

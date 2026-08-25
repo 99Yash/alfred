@@ -64,6 +64,15 @@ export const actionStagings = pgTable(
     riskTier: text("risk_tier").$type<ToolRiskTier>().notNull(),
     proposedInput: jsonb("proposed_input").$type<JsonValue>().notNull(),
     proposedInputHash: text("proposed_input_hash").notNull(),
+    // #374: the display-safe projection of `proposed_input`, written alongside
+    // it at birth. `proposed_input` must stay raw for gated rows (it doubles as
+    // the approval-resume payload), so notification sinks — the approval email
+    // and the delivery payload — read this column instead. The approvals card is
+    // intentionally not a notification sink: it syncs raw `proposed_input` as the
+    // edit surface and the resume payload needs it verbatim.
+    // Nullable until the 0107 backfill completes; the notification worker falls
+    // back to `proposed_input` only for pre-column rows.
+    displayInput: jsonb("display_input").$type<JsonValue>(),
     requiresApproval: boolean("requires_approval").notNull(),
     status: text("status").$type<ActionStagingStatus>().notNull().default("pending"),
     // #559a: the effect dimension, orthogonal to `status`. `status` is the

@@ -372,9 +372,14 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.equal(lastFetchUrlExecuteUrl, rawUrl, "execute receives the unredacted url");
 
     // ...but the persisted proposed_input is scrubbed (system tools are
-    // autonomous, so they always take the redact branch).
+    // autonomous, so they always take the redact branch), and the display
+    // projection is scrubbed alongside it (#374 — the two columns are written
+    // as a pair whatever the gate decided).
     const rows = await db()
-      .select({ proposedInput: actionStagings.proposedInput })
+      .select({
+        proposedInput: actionStagings.proposedInput,
+        displayInput: actionStagings.displayInput,
+      })
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
     const persisted = rows[0]?.proposedInput as { url?: string } | undefined;
@@ -382,6 +387,11 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.match(persisted.url, /code=\[REDACTED\]/);
     assert.match(persisted.url, /page=2/, "non-credential params survive redaction");
     assert.doesNotMatch(persisted.url, /topsecret42/, "the secret never reaches the persisted row");
+    assert.deepEqual(
+      rows[0]?.displayInput,
+      persisted,
+      "an autonomous row's display projection matches its redacted proposed_input",
+    );
   });
 
   test("a fresh toolCallId in the same run executes again", async () => {
@@ -563,6 +573,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
             executeSanitized: actionStagings.executeSanitized,
             executeError: actionStagings.executeError,
             executedAt: actionStagings.executedAt,
+            displayInput: actionStagings.displayInput,
           })
           .from(actionStagings)
           .where(eq(actionStagings.id, stagingId));
