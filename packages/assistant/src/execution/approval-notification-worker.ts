@@ -70,6 +70,9 @@ async function processApprovalNotificationJob(
       integration: actionStagings.integration,
       riskTier: actionStagings.riskTier,
       proposedInput: actionStagings.proposedInput,
+      // #374: the display-safe projection. Null only on rows staged before the
+      // column existed; those fall back to `proposed_input` below.
+      displayInput: actionStagings.displayInput,
       status: actionStagings.status,
       notifiedAt: actionStagings.notifiedAt,
       workflowSlug: agentRuns.workflowSlug,
@@ -84,7 +87,11 @@ async function processApprovalNotificationJob(
   if (row.status !== "pending") return { status: "skipped", reason: row.status, stagingId };
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
 
-  const proposedInput = jsonValueSchema.parse(row.proposedInput);
+  // #374: render the email and persist the payload from the redacted display
+  // projection, never raw `proposed_input` — a gated tool's staging row holds
+  // the resume payload verbatim, and that must not reach a notification sink.
+  // The fallback covers only pre-column legacy rows (removed by 0107 backfill).
+  const displayInput = jsonValueSchema.parse(row.displayInput ?? row.proposedInput);
   const approvalUrl = approvalDeepLink(stagingId);
   const rendered = await renderApprovalNotification({
     stagingId,
@@ -94,7 +101,7 @@ async function processApprovalNotificationJob(
     toolName: row.toolName,
     integration: row.integration,
     riskTier: row.riskTier,
-    proposedInput,
+    displayInput,
     approvalUrl,
   });
 
@@ -114,7 +121,7 @@ async function processApprovalNotificationJob(
       integration: row.integration,
       riskTier: row.riskTier,
       approvalUrl,
-      proposedInput,
+      displayInput,
     },
   });
 
@@ -157,7 +164,7 @@ interface RenderApprovalNotificationArgs {
   toolName: string;
   integration: string;
   riskTier: string;
-  proposedInput: unknown;
+  displayInput: unknown;
   approvalUrl: string;
 }
 
@@ -169,7 +176,7 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   const action = humanizeToolName(args.toolName);
   const heading = `Alfred wants to ${action}`;
   const subject = `[${args.riskTier}] ${heading}`;
-  const inputFields = summarizeInput(args.proposedInput);
+  const inputFields = summarizeInput(args.displayInput);
   // Workflow / Tool / Risk lead the table, then the summarized input fields.
   const fields: ApprovalEmailField[] = [
     { label: "Workflow", value: args.workflowSlug },

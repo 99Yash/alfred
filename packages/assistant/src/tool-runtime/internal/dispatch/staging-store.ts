@@ -81,10 +81,17 @@ export type StagingRow = Pick<
  * `NewActionStaging`: `effect_key` / `attempt_key` / `outcome` are minted by the
  * store (mint-once, keep-on-replay is the conflict idiom), and `request_hash`
  * is required here because only the gate knows the target account/resource
- * binding the canonical hash must scope to.
+ * binding the canonical hash must scope to. `displayInput` is required — every
+ * writer must pair it with `proposedInput` (raw for resume, redacted for
+ * notification sinks) so a naive `.set({ proposedInput: x })` does not compile
+ * into a leak; the column stays nullable only for pre-#374 legacy rows.
  */
-export type StagingInsertValues = Omit<NewActionStaging, "effectKey" | "attemptKey" | "outcome"> & {
+export type StagingInsertValues = Omit<
+  NewActionStaging,
+  "effectKey" | "attemptKey" | "outcome" | "displayInput"
+> & {
   requestHash: string;
+  displayInput: JsonValue;
 };
 
 /** The logical effect this staging row is one attempt of (#559a). */
@@ -99,7 +106,12 @@ export function attemptKeyFor(runId: string, toolCallId: string): string {
 
 export type PendingApprovalPromotion = Pick<
   ActionStaging,
-  "riskTier" | "proposedInput" | "proposedInputHash" | "notifyAfterAt" | "expiresAt"
+  | "riskTier"
+  | "proposedInput"
+  | "displayInput"
+  | "proposedInputHash"
+  | "notifyAfterAt"
+  | "expiresAt"
 >;
 
 /**
@@ -363,6 +375,7 @@ export const postgresStagingStore: StagingStore = {
       .set({
         riskTier: promotion.riskTier,
         proposedInput: promotion.proposedInput,
+        displayInput: promotion.displayInput,
         proposedInputHash: promotion.proposedInputHash,
         requiresApproval: true,
         outcome: "awaiting_approval",

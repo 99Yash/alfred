@@ -640,15 +640,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // conflict idiom and the `wasInserted` verdict the Replicache poke is gated
   // on. The stored row comes back verbatim on conflict, which is what the
   // resume path below reads `status` / `decidedInput` off.
-  // #293: redact secrets from the persisted `proposed_input` — but ONLY for an
-  // autonomous call. A gated tool's `proposed_input` doubles as the
-  // approval-resume payload (the `approved` branch below re-executes from it when
-  // the user didn't edit), so redacting it would corrupt resume. fetch_url is
-  // autonomous, so it always takes the redacted branch; the guard is the seam for
-  // a future gated secret-bearing tool. The hash + execute always use raw `input`.
-  const proposedInputForRow =
-    !requiresApproval && tool.redactInput ? tool.redactInput(input) : input;
+  // #293/#374: one redaction, two routing decisions. `redactedInput` is the
+  // display-safe projection; `proposedInputForRow` keeps raw when gated (it
+  // doubles as the approval-resume payload) and redacts when autonomous.
+  // The hash + execute always use raw `input`.
+  const redactedInput = tool.redactInput ? tool.redactInput(input) : input;
+  const proposedInputForRow = !requiresApproval ? redactedInput : input;
   const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
+  // #374: notification sinks (approval email, delivery payload) read this
+  // column — never raw `proposed_input`, which a gated tool keeps verbatim
+  // for resume.
+  const persistedDisplayInput = jsonValueSchema.parse(redactedInput);
   const upserted = await stagingStore().upsertStaging({
     userId: args.userId,
     runId: args.runId,
@@ -658,6 +660,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     integration,
     riskTier,
     proposedInput: persistedProposedInput,
+    displayInput: persistedDisplayInput,
     proposedInputHash,
     requestHash,
     requiresApproval,
@@ -690,6 +693,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     const promoted = await stagingStore().promotePendingApproval(row.id, {
       riskTier,
       proposedInput: persistedProposedInput,
+      displayInput: persistedDisplayInput,
       proposedInputHash,
       notifyAfterAt,
       expiresAt,
