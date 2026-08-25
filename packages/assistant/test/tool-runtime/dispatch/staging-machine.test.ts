@@ -147,6 +147,9 @@ function registerDoubles(): void {
   );
   // A `high`-tier system tool: `system.*` resolves to autonomy, so this is the
   // risk-tier floor firing on its own (ADR-0069) rather than a policy decision.
+  // The redactor mirrors real fetch_url: scrub a credential query param to
+  // [REDACTED] — making this double exactly the "gated secret-bearing tool"
+  // shape issue #374 is about.
   registerTool(
     liveTool({
       integration: "system",
@@ -159,6 +162,10 @@ function registerDoubles(): void {
         lastExecutedInput = input;
         return { ok: true, url: input.url };
       },
+      redactInput: (input) => ({
+        ...input,
+        url: input.url.replace(/([?&](?:code|access_token|token)=)[^&#]*/gi, "$1[REDACTED]"),
+      }),
     }),
   );
   registerTool({
@@ -482,6 +489,31 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(row?.status, "pending");
     assert.equal(row?.requiresApproval, true);
     assert.ok(row?.expiresAt instanceof Date, "a gated row gets a hard expiry");
+  });
+
+  test("#374: a gated secret-bearing tool stages raw input for resume, redacted for display", async () => {
+    const result = await dispatchToolCall(
+      baseArgs({
+        toolCallId: "tc_gated_secret",
+        toolName: "system.fetch_url",
+        input: { url: "https://example.test/cb?code=topsecret42&page=2" },
+      }),
+    );
+
+    assert.equal(result.kind, "staged", "the high-tier floor gates it");
+    assert.equal(executeCount, 0, "a staged call must not execute");
+
+    const [row] = store.rows();
+    // `proposed_input` stays RAW for a gated call: it doubles as the
+    // approval-resume payload, so redacting it would corrupt resume.
+    const proposed = row?.proposedInput as { url?: string } | undefined;
+    assert.match(proposed?.url ?? "", /code=topsecret42/, "resume needs the real credential");
+    // ...while `display_input` — the column the approval email and the
+    // notification payload read (#374) — scrubs it and keeps safe params.
+    const display = row?.displayInput as { url?: string } | undefined;
+    assert.match(display?.url ?? "", /code=\[REDACTED\]/, "display projection is scrubbed");
+    assert.match(display?.url ?? "", /page=2/, "non-credential params survive redaction");
+    assert.doesNotMatch(JSON.stringify(display), /topsecret42/, "no secret in display_input");
   });
 
   test("a Calendar event without attendees stays medium and executes under autonomy", async () => {
@@ -868,6 +900,7 @@ runStagingStoreContract("memory", (): StagingStoreHarness => {
             executeSanitized: row.executeSanitized,
             executeError: row.executeError,
             executedAt: row.executedAt,
+            displayInput: row.displayInput,
           }
         : null;
     },

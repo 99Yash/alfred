@@ -82,6 +82,10 @@ export async function restageWorkflowApproval(
     .update(actionStagings)
     .set({
       proposedInput: jsonValueSchema.parse(input),
+      // #374: keep the display projection paired with every proposed_input
+      // write. Workflow activation has no redactor today, so they are equal;
+      // the pairing is what lets notification readers trust either column.
+      displayInput: jsonValueSchema.parse(input),
       proposedInputHash: hashToolInput("system.activate_workflow", input),
       decidedInput: null,
       expiresAt,

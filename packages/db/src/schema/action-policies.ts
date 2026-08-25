@@ -64,6 +64,13 @@ export const actionStagings = pgTable(
     riskTier: text("risk_tier").$type<ToolRiskTier>().notNull(),
     proposedInput: jsonb("proposed_input").$type<JsonValue>().notNull(),
     proposedInputHash: text("proposed_input_hash").notNull(),
+    // #374: the display-safe projection of `proposed_input`, written alongside
+    // it at birth. `proposed_input` must stay raw for gated rows (it doubles as
+    // the approval-resume payload), so every sink that *shows* a staged input —
+    // the approval email, the notification payload — reads this column instead.
+    // Nullable because rows staged before the column existed have none; the
+    // notification worker falls back to `proposed_input` for exactly those.
+    displayInput: jsonb("display_input").$type<JsonValue>(),
     requiresApproval: boolean("requires_approval").notNull(),
     status: text("status").$type<ActionStagingStatus>().notNull().default("pending"),
     // #559a: the effect dimension, orthogonal to `status`. `status` is the
