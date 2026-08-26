@@ -16,6 +16,8 @@ function languageOf(className: unknown): string | undefined {
  * `<pre>` parent, so it falls through to the wrapper's `[&_code]` styling.
  */
 export const MarkdownPre: NonNullable<Components["pre"]> = ({ node: _node, children }) => {
+  // SAFETY: isValidElement narrows to a React element whose props carry the
+  // className/children this viewer reads.
   const child = Children.toArray(children).find((c) => isValidElement(c)) as
     | { props: { className?: string; children?: ReactNode } }
     | undefined;

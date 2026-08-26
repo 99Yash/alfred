@@ -108,7 +108,11 @@ export function StyleguidePage() {
             <Tabs
               variant="pill"
               value={mode}
-              onValueChange={(next) => setMode(next as StyleguideMode)}
+              onValueChange={(next) =>
+                // SAFETY: Radix emits the string value of a rendered item,
+                // which is exactly the StyleguideMode union.
+                setMode(next as StyleguideMode)
+              }
               items={[
                 {
                   value: "app",
@@ -843,6 +847,8 @@ function FrostBorderSection() {
           className="frost-border inline-flex h-10 items-center rounded-full bg-white px-4 text-black"
           style={{
             // bumped variant — matches the Upgrade Plan white pill
+            // SAFETY: CSS custom properties are valid style keys at runtime;
+            // React's CSSProperties type just omits them.
             ["--frost-strength" as never]: "0.8",
             ["--frost-border-strength" as never]: "3",
           }}
@@ -854,6 +860,8 @@ function FrostBorderSection() {
         <div
           className="frost-border inline-flex h-10 items-center rounded-full bg-[rgb(var(--gray-50))] px-4 text-gray-950"
           style={{
+            // SAFETY: CSS custom properties are valid style keys at runtime;
+            // React's CSSProperties type just omits them.
             ["--frost-strength" as never]: "1",
             ["--frost-border-strength" as never]: "0.3",
           }}

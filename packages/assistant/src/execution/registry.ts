@@ -11,6 +11,8 @@ export function registerRecipe<S>(workflow: Workflow<S>): void {
   if (registry.has(workflow.slug)) {
     throw new Error(`[agent] workflow already registered: ${workflow.slug}`);
   }
+  // SAFETY: the registry's storage shape is the type-erased Workflow<unknown>;
+  // every registered definition is stored under this one erase.
   registry.set(workflow.slug, workflow as Workflow<unknown>);
 }
 

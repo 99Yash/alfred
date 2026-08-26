@@ -1296,6 +1296,8 @@ async function loadHistoryCursor(credentialId: string): Promise<string | null> {
     .where(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
+  // SAFETY: ingestion_state.state is jsonb written by these very cursors with
+  // the historyId envelope; this read views that stored shape.
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
   const id = state?.historyId;
   return id ?? null;
@@ -1314,6 +1316,7 @@ async function loadIngestionState(
     .where(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
+  // SAFETY: same stored envelope as above, plus the optional coverageGap flag.
   const state = rows[0]?.state as { historyId?: string | null; coverageGap?: boolean } | undefined;
   return {
     historyId: state?.historyId ?? null,

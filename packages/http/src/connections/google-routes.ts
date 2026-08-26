@@ -105,6 +105,8 @@ export const googleIntegrationRoutes = new Elysia({
             const known = parsed.filter((f): f is GoogleFeature => f in GOOGLE_FEATURE_SCOPES);
             if (known.length !== parsed.length) {
               throw Errors.BadRequestError(
+                // SAFETY: the cast only types .includes' argument for the
+                // unknown-feature test; `f` itself prints unchanged.
                 `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
               );
             }

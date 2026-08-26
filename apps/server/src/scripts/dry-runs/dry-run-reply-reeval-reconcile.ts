@@ -50,6 +50,7 @@ type DocRow = {
 };
 
 async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[]> {
+  // SAFETY: the select projects exactly the columns DocRow declares.
   return (await db()
     .select({
       id: documents.id,

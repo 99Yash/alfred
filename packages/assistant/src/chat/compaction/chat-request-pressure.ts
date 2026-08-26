@@ -99,6 +99,8 @@ interface NormalizedTranscript {
 
 function normalizeTranscript(messages: readonly ModelMessage[]): NormalizedTranscript {
   let hydratedImages = 0;
+  // SAFETY: JSON.stringify emitted this text, so parsing it back yields plain
+  // JSON values; the input was the messages array, so the result is an array.
   const normalized = JSON.parse(
     JSON.stringify(messages, (_key, value: unknown) => {
       if (!isHydratedFilePart(value)) return value;

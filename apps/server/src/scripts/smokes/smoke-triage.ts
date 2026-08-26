@@ -161,6 +161,7 @@ async function main() {
     run1.status === "completed",
     `run 1 status=${run1.status} error=${JSON.stringify(run1.error)}`,
   );
+  // SAFETY: triage workflow's own committed output shape.
   const out1 = run1.output as {
     category: TriageCategory;
     confidence: number;
@@ -222,6 +223,7 @@ async function main() {
 
   const run2 = await pollRun(runId2, "run 2");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
+  // SAFETY: triage workflow's own committed output shape.
   const out2 = run2.output as { category: TriageCategory; appliedLabelId: string };
   console.log(
     `[smoke-triage] run 2 output: category=${out2.category} appliedLabelId=${out2.appliedLabelId}`,
@@ -328,6 +330,7 @@ async function main() {
       });
       const latestRun = await pollRun(latestRunId, "strip-siblings");
       assert(latestRun.status === "completed", `strip-siblings status=${latestRun.status}`);
+      // SAFETY: strip-siblings step's own committed output shape.
       const latestOut = latestRun.output as { strippedSiblings: number };
       console.log(
         `[smoke-triage] strip-siblings stripped=${latestOut.strippedSiblings} (expected=${older.length})`,

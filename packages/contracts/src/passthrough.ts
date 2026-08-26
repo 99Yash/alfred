@@ -161,6 +161,10 @@ export function passthroughPreferenceKey(slug: SupportedIntegrationSlug): string
 }
 
 export const PASSTHROUGH_PREFERENCE_KEYS: Record<SupportedIntegrationSlug, string> =
+  // SAFETY: the entries are built by mapping SUPPORTED_PASSTHROUGH_SLUGS — the
+  // same closed tuple the SupportedIntegrationSlug union derives from — so the
+  // fromEntries result has exactly those keys; Object.fromEntries' string index
+  // erases that, and this cast restores it.
   Object.fromEntries(
     SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => [slug, passthroughPreferenceKey(slug)]),
   ) as Record<SupportedIntegrationSlug, string>;

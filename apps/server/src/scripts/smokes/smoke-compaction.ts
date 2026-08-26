@@ -64,6 +64,7 @@ async function loadFixtures(): Promise<Fixture[]> {
   const out: Fixture[] = [];
   for (const f of files) {
     const raw = await readFile(resolve(FIXTURES_DIR, f), "utf8");
+    // SAFETY: fixtures are committed test inputs authored to the Fixture shape.
     out.push(JSON.parse(raw) as Fixture);
   }
   return out;

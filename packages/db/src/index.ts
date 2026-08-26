@@ -127,6 +127,8 @@ function hasRows(result: unknown): result is { rows: unknown[] } {
 
 export function rowsFromExecute<T>(result: unknown): T[] {
   const rawRows = hasRows(result) ? result.rows : result;
+  // SAFETY: the driver returns rows untyped; T is the caller's named Drizzle
+  // row type for this query — the contract every rowsFromExecute caller owns.
   return Array.isArray(rawRows) ? (rawRows as T[]) : [];
 }
 

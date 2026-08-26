@@ -1,6 +1,8 @@
 import type { JsonObject } from "@alfred/contracts";
 
 const DEV =
+  // SAFETY: import.meta.env is Vite's injected env record; this only types the
+  // optional field access.
   (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true &&
   typeof window !== "undefined" &&
   typeof performance !== "undefined";
@@ -244,6 +246,8 @@ function round(value: number): number {
 }
 
 function exposeDebugHandle(): void {
+  // SAFETY: augmenting globalThis with this module's own debug accessor; no
+  // other writer uses the key.
   (
     globalThis as { __alfredChatTimings?: () => ReturnType<typeof getChatTimingSnapshot> }
   ).__alfredChatTimings = getChatTimingSnapshot;

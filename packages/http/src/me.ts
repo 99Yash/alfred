@@ -567,6 +567,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             // ingest (schema-validated then). Cast back to `GmailMessage`
             // rather than re-running zod per request — the shape is fixed
             // and parsing the MIME tree dominates the cost anyway.
+            // SAFETY: raw was schema-validated when the document was ingested;
+            // this read-only path re-views the stored payload as GmailMessage.
             const raw = (row.raw ?? null) as GmailMessage | null;
             const attachments: ExtractedAttachment[] = raw ? extractAttachments(raw) : [];
             const rawHtml = raw ? extractMessageHtml(raw) : null;

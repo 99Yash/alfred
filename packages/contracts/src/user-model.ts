@@ -794,6 +794,9 @@ export interface AccountBridgeInput {
  * `isHardPersonBridge` for the complete merge-policy predicate.
  */
 export function isImmutableAccountBridge({ kind, verified }: AccountBridgeInput): boolean {
+  // SAFETY: the table is `as const satisfies readonly IdentityKind[]`;
+  // widening its element type to the full union only lets .includes take the
+  // wider `kind` argument — every member already is an IdentityKind.
   if ((IMMUTABLE_ACCOUNT_ID_KINDS as readonly IdentityKind[]).includes(kind)) return true;
   return kind === "google_directory_id" && verified === true;
 }
@@ -1228,7 +1231,10 @@ export function isFactKey(key: string): key is FactKey {
  * registry (`FACT_ONTOLOGY`), never a parallel list. The order tracks the
  * registry declaration order.
  */
-export const CANONICAL_FACT_KEYS = Object.keys(FACT_ONTOLOGY) as readonly FactKey[];
+export const CANONICAL_FACT_KEYS =
+  // SAFETY: FactKey is `keyof typeof FACT_ONTOLOGY`, so Object.keys of that
+  // very registry enumerates exactly those strings.
+  Object.keys(FACT_ONTOLOGY) as readonly FactKey[];
 
 /**
  * Open-ended fact-key prefixes (a key is `<prefix><suffix>`):

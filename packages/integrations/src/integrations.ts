@@ -78,11 +78,18 @@ export type Integrations = {
  * provider without per-provider glue.
  */
 export function integrations(options: ProviderBindOptions): Integrations {
+  // SAFETY: bound starts empty and gains exactly one property per
+  // ProviderRegistry key in the loop below, so it ends up shaped by the mapped
+  // type; Object.keys' string[] is the only thing erased.
   const bound = {} as { [K in keyof ProviderRegistry]: ReturnType<ProviderRegistry[K]> };
+  // SAFETY: the registry is keyed by its own factory names, so its keys are
+  // exactly keyof ProviderRegistry.
   for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {
     // Localized cast: iterating string keys collapses the registry to a union of
     // factory types; the uniform signature makes the call safe, and the public
     // return type stays precise per key via the mapped type above.
+    // SAFETY: every registry entry is a ProviderFactory (the uniform signature
+    // the table's value type declares), so the union collapses safely.
     const build = once(() => (providerRegistry[key] as ProviderFactory)(options));
     Object.defineProperty(bound, key, { enumerable: true, get: build });
   }

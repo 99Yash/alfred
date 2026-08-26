@@ -160,6 +160,7 @@ async function main() {
     throw new Error(`run status=${run.status}`);
   }
 
+  // SAFETY: briefing workflow's own committed output shape.
   const output = run.output as {
     briefingId?: string;
     emailSendId?: string | null;

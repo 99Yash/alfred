@@ -176,6 +176,8 @@ function queryTokens(query: string | undefined): string[] {
 }
 
 function isIdentityFactKey(key: string): key is IdentityFactKey {
+  // SAFETY: the cast only types .has' argument for the membership test; the
+  // map's keys are exactly the IdentityFactKey union.
   return identityKeyRank.has(key as IdentityFactKey);
 }
 
@@ -357,6 +359,8 @@ export async function readUserContext(
       : Promise.resolve([]),
     // Entities are needed whenever the caller wants entities OR relationships
     // (relation endpoints resolve to entity names from this set).
+    // SAFETY: the skipped tier contributes no rows; EntityRow[] is the shared
+    // element type of these Promise.all branches.
     wants("entities") || wants("relationships")
       ? db()
           .select(ENTITY_COLUMNS)

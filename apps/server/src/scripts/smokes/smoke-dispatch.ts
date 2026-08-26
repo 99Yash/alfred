@@ -171,6 +171,8 @@ async function main(): Promise<void> {
     stubs.searchExecCount() === 1,
     `tool.execute should fire exactly once, got ${stubs.searchExecCount()}`,
   );
+  // SAFETY: auto is the dispatch verdict whose staged arm carries stagingId;
+  // the asserts below verify the row it points at.
   const autoRow = (
     await db()
       .select()
@@ -246,12 +248,17 @@ async function main(): Promise<void> {
     fence: { generation: 0 },
   });
   assert(staged.kind === "staged", `gated expected 'staged', got '${staged.kind}'`);
+  // SAFETY: the assert above narrowed kind to "staged", whose arm carries
+  // stagingId.
   const stagedId = (staged as { stagingId: string }).stagingId;
   assert(
+    // SAFETY: same staged-arm envelope; wake.approvalId mirrors stagingId by
+    // construction of the staging write.
     (staged as { wake: { approvalId: string; approvalKind: string } }).wake.approvalId === stagedId,
     "wake.approvalId must equal stagingId",
   );
   assert(
+    // SAFETY: same staged-arm envelope as above.
     (staged as { wake: { approvalKind: string } }).wake.approvalKind === "action_staging",
     "wake.approvalKind must be 'action_staging'",
   );
@@ -353,6 +360,7 @@ async function main(): Promise<void> {
   });
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
   assert(
+    // SAFETY: resumed is this smoke's own send-tool result envelope.
     (resumed as { toolResult: { sentTo: string } }).toolResult.sentTo === "yash@example.com",
     "approved resume must execute the STAGED proposed_input, not the caller's new input",
   );
@@ -381,6 +389,7 @@ async function main(): Promise<void> {
     fence: { generation: 0 },
   });
   assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
+  // SAFETY: the assert above proved firstAttempt.kind === "staged".
   const firstAttemptId = (firstAttempt as { stagingId: string }).stagingId;
 
   // User rejects with a reason — Phase 5's decision API would do this.
@@ -413,10 +422,13 @@ async function main(): Promise<void> {
     `retry-suppression expected 'rejected', got '${reproposed.kind}'`,
   );
   assert(
+    // SAFETY: reproposed is a dispatch verdict; only the staged arm carries a
+    // non-null stagingId, which is what this assertion checks.
     (reproposed as { stagingId: string | null }).stagingId === null,
     "retry-suppression must NOT write a new staging row",
   );
   assert(
+    // SAFETY: retry-suppression rides the executed-result arm of the verdict.
     (reproposed as { result: { retryPolicy: string } }).result.retryPolicy ===
       "do_not_retry_identical",
     "retry-suppression result must carry retryPolicy='do_not_retry_identical'",
@@ -476,6 +488,8 @@ async function main(): Promise<void> {
   assert(cancelledRow?.status === "cancelled", "run row should be 'cancelled'");
   assert(cancelledRow.endedAt != null, "cancelled row should carry ended_at");
   assert(
+    // SAFETY: agent_runs.error is jsonb written by the executor with a
+    // reason field for this cancel path.
     (cancelledRow.error as { reason: string } | null)?.reason === "smoke",
     "cancelled row should record the reason",
   );

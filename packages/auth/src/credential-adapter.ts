@@ -62,6 +62,8 @@ function sealWrite<T extends Record<string, unknown>>(payload: T, vault: Credent
     sealed ??= { ...payload };
     sealed[field] = vault.seal(value);
   }
+  // SAFETY: sealing replaces only marked field values with envelope strings;
+  // the record's key structure is untouched, so T's shape holds.
   return (sealed ?? payload) as T;
 }
 
@@ -187,6 +189,8 @@ type DecoratedMember = {
  * assertion.
  */
 function decorateOperations(base: WithoutTransaction, vault: CredentialVault): WithoutTransaction {
+  // SAFETY: forwards to base.create unchanged except sealing account-model
+  // token fields on the way in and opening them on the way out.
   const create = (async (data: Parameters<AuthAdapter["create"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.create(data);
     const result = await base.create({
@@ -196,6 +200,8 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return openRow(result, vault);
   }) as AuthAdapter["create"];
 
+  // SAFETY: same seal/open forwarding as create; the asserted member type is
+  // the operation being wrapped.
   const findOne = (async (data: Parameters<AuthAdapter["findOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL && !data.join) return base.findOne(data);
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
@@ -204,6 +210,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return data.model === ACCOUNT_MODEL ? openRow(withJoins, vault) : withJoins;
   }) as AuthAdapter["findOne"];
 
+  // SAFETY: same seal/open forwarding as findOne, mapped over rows.
   const findMany = (async (data: Parameters<AuthAdapter["findMany"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL && !data.join) return base.findMany(data);
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
@@ -214,6 +221,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     });
   }) as AuthAdapter["findMany"];
 
+  // SAFETY: same seal/open forwarding as update; row opened on return.
   const update = (async (data: Parameters<AuthAdapter["update"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.update(data);
     rejectSealedWhere(data.where);
@@ -233,6 +241,8 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
    * a read of token values as much as a delete — an undecorated pass-through
    * would hand Better Auth raw envelopes and it would use them as tokens.
    */
+  // SAFETY: consumeOne returns the deleted row, so it is a read of token
+  // values; same seal/open forwarding, asserted to its own member type.
   const consumeOne = (async (data: Parameters<AuthAdapter["consumeOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.consumeOne(data);
     rejectSealedWhere(data.where);
@@ -247,6 +257,8 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
    * string envelope, so incrementing one is incoherent rather than merely wrong
    * and is refused.
    */
+  // SAFETY: set fields sealed on the way in, row opened on the way out;
+  // asserted to its own member type.
   const incrementOne = (async (data: Parameters<AuthAdapter["incrementOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.incrementOne(data);
     rejectSealedWhere(data.where);
@@ -271,6 +283,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return base.count(data);
   };
 
+  // SAFETY: delete never carries a token value; only rejectSealedWhere runs.
   const remove = (async (data: Parameters<AuthAdapter["delete"]>[0]) => {
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
     return base.delete(data);
@@ -327,7 +340,12 @@ export function encryptedAuthAdapter(
       transaction: (callback) =>
         // drift-ok: Better-Auth adapter interface — its transaction wraps
         // db().transaction internally; not a Drizzle handle to run runAtomic on.
-        adapter.transaction((trx) => callback(decorateOperations(trx, resolved) as typeof trx)),
+        adapter.transaction(
+          // SAFETY: decorateOperations returns the same member set it wraps —
+          // every wrapper above asserts to its AuthAdapter member type — so the
+          // decorated handle is structurally the trx interface it replaced.
+          (trx) => callback(decorateOperations(trx, resolved) as typeof trx),
+        ),
     };
   };
 }

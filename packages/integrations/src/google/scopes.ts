@@ -74,6 +74,8 @@ export async function requireScopes(
 /** Convenience: which features can this credential currently support? */
 export function featuresFromGrantedScopes(grantedScopes: readonly string[]): GoogleFeature[] {
   const granted = new Set(grantedScopes);
+  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`, so
+  // Object.keys of that very table enumerates exactly those features.
   return (Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[]).filter((f) =>
     GOOGLE_FEATURE_SCOPES[f].every((s) => granted.has(s)),
   );

@@ -171,6 +171,8 @@ export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntr
         byteSize: raw === null ? 0 : Buffer.byteLength(raw, "utf8"),
       },
     });
+    // SAFETY: entries are written through put() with the same envelope for T,
+    // and a corrupt envelope already degraded to entry === null above.
     return entry === null ? null : (entry as ScratchEntry<T>);
   } catch (err) {
     span.end({ status: "error", level: "ERROR" });

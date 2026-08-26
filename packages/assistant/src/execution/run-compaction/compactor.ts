@@ -98,6 +98,8 @@ export async function compactTranscript(
       ...(args.timeoutMs === undefined ? {} : { timeout: args.timeoutMs }),
       temperature: 0,
       instructions: COMPACTOR_SYSTEM_PROMPT,
+      // SAFETY: transcriptPayloadMessage builds one ModelMessage from the
+      // stored transcript payload.
       messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
     },
     {

@@ -351,6 +351,8 @@ export class McpRawClient {
       let validator: JsonSchemaValidator<Record<string, unknown>>;
       try {
         validator = this.#schemaValidator.getValidator<Record<string, unknown>>(
+          // SAFETY: tool.inputSchema is the MCP JSON-schema envelope; the
+          // validator consumes exactly that shape.
           tool.inputSchema as JsonSchemaType,
         );
       } catch (err) {
@@ -364,6 +366,7 @@ export class McpRawClient {
         try {
           nextOutputValidators.set(
             tool.name,
+            // SAFETY: same MCP schema-envelope view as the input validator.
             this.#schemaValidator.getValidator<JsonValue>(tool.outputSchema as JsonSchemaType),
           );
         } catch (err) {
@@ -597,6 +600,8 @@ const MCP_CONTENT_KINDS: ReadonlySet<string> = new Set(mcpContentKindValues);
  */
 function contentKindOf(block: unknown): McpContentKind {
   const type = isRecord(block) && typeof block.type === "string" ? block.type : "unknown";
+  // SAFETY: the Set membership test above proved type is one of the known
+  // kinds; this narrows the string to that union.
   return MCP_CONTENT_KINDS.has(type) ? (type as McpContentKind) : "unknown";
 }
 

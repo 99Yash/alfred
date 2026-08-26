@@ -28,6 +28,8 @@ export function acceptedParamNames(schema: z.ZodTypeAny): readonly string[] {
   if (cached) return cached;
   let names: readonly string[];
   try {
+    // SAFETY: z.toJSONSchema emits a JSON Schema document; this reads only the
+    // top-level `properties` keyword off it.
     const json = z.toJSONSchema(schema, { io: "input" }) as {
       properties?: Record<string, unknown>;
     };

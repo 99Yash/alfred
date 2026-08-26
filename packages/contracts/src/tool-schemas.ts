@@ -323,6 +323,9 @@ function promoteWindowSynonym(value: unknown): unknown {
   // to validate, so build it as a plain record rather than a literal.
   const obj = Object.assign({}, value);
   if (obj.window !== undefined) return obj;
+  // SAFETY: CALENDAR_WINDOW_VALUES is the closed const table of window
+  // literals; widening it to readonly string[] only types the receiver of
+  // .includes so a candidate field value can be tested against the table.
   const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
   for (const [key, val] of Object.entries(obj)) {
     if (typeof val === "string" && windowValues.includes(val)) {

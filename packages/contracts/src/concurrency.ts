@@ -20,6 +20,8 @@ export async function runTaskGroup<T>(
   const settled = await settleTaskGroup(tasks, opts);
   const firstRejected = settled.find((result) => result.status === "rejected");
   if (firstRejected?.status === "rejected") throw firstRejected.reason;
+  // SAFETY: the rejected head was thrown above, so every remaining result is
+  // the fulfilled arm of TaskGroupSettledResult.
   return settled.map((result) => (result as { status: "fulfilled"; value: T }).value);
 }
 
@@ -75,6 +77,8 @@ export async function mapConcurrent<T>(
         throwIfAborted(scope.signal);
         const current = index++;
         if (current >= items.length) return;
+        // SAFETY: current < items.length was checked above, so the indexed
+        // read is defined even under noUncheckedIndexedAccess.
         await fn(items[current] as T, scope);
       }
     }),

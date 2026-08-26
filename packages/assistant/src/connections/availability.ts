@@ -134,6 +134,8 @@ async function loadIntegrationAvailability(
 
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
   const passthroughEnabled = new Map<SupportedIntegrationSlug, boolean>();
+  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedIntegrationSlug
+  // with string preference keys, so Object.entries yields exactly these tuples.
   for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
     SupportedIntegrationSlug,
     string,

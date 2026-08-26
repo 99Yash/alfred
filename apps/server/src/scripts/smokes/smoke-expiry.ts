@@ -130,6 +130,7 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     fence: { generation: 0 },
   });
   assert(staged.kind === "staged", `expected 'staged', got '${staged.kind}'`);
+  // SAFETY: the assert above narrowed kind to "staged".
   return (staged as { stagingId: string }).stagingId;
 }
 

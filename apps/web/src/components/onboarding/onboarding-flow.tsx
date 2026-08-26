@@ -155,6 +155,8 @@ export function OnboardingFlow({
                 <h2 className="mb-3 text-[17px] font-semibold text-white">Get set up</h2>
                 <ul className="flex flex-col items-start">
                   {STEPS.map((s, idx) => {
+                    // SAFETY: STEPS is ordered from step 1, so idx+1 is
+                    // exactly that entry's OnboardingStep value.
                     const stepNumber = (idx + 1) as OnboardingStep;
                     const isActive = stepNumber === step;
                     const isDone = stepNumber < step;

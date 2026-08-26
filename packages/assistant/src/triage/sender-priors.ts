@@ -147,6 +147,9 @@ export async function getSenderPrior(
     if (cached !== null) {
       // Sentinel for a known-absent sender so we don't re-hit PG every email
       // for a brand-new bulk sender mid-burst.
+      // SAFETY: the only writer is this module's set path, which stringifies a
+      // SenderPrior (or the "null" sentinel answered above); corrupt content
+      // throws into the caller's miss handling.
       return cached === "null" ? null : (JSON.parse(cached) as SenderPrior);
     }
   } catch {

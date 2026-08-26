@@ -123,6 +123,8 @@ type ShellAction =
   | { type: "setThreadViewModel"; value: ShellThreadViewModel | null };
 
 function resolveSetState<T>(current: T, next: SetStateAction<T>): T {
+  // SAFETY: the typeof check proved next is the callable arm of the union;
+  // the assertion restores exactly that arm's signature.
   return typeof next === "function" ? (next as (current: T) => T)(current) : next;
 }
 
@@ -155,6 +157,8 @@ function shellReducer(state: ShellState, action: ShellAction): ShellState {
       return { ...state, threadViewModel: action.value };
     default: {
       const _exhaustive: never = action;
+      // SAFETY: this arm only runs on an unhandled action; recovering the
+      // discriminant for the message cannot touch a real member.
       throw new Error(`Unhandled shell action: ${(_exhaustive as ShellAction).type}`);
     }
   }

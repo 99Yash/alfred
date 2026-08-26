@@ -504,6 +504,8 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
             "bg-white/85 p-[1px] dark:bg-white/90",
           )}
           onError={(e) => {
+            // SAFETY: this handler renders on the <img> itself, so
+            // currentTarget is that HTMLImageElement.
             (e.currentTarget as HTMLImageElement).style.display = "none";
           }}
         />

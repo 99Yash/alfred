@@ -47,6 +47,8 @@ export function labelNameFor(category: TriageCategory): string {
 /** Reverse map of label name → category, for parsing existing Gmail state. */
 const NAME_TO_CATEGORY = Object.entries(LABEL_NAMES).reduce<Record<string, TriageCategory>>(
   (acc, [cat, name]) => {
+    // SAFETY: LABEL_NAMES is `satisfies Record<TriageCategory, string>`, so
+    // every entry key is one of those categories.
     acc[name] = cat as TriageCategory;
     return acc;
   },
@@ -86,6 +88,8 @@ export async function ensureAlfredLabels(
   const existing = await listLabels({ accessToken });
   const existingByName = new Map(existing.map((l) => [l.name, l.id] as const));
 
+  // SAFETY: the loop below fills every TRIAGE_CATEGORIES key before any read,
+  // so the record is complete despite the empty-literal start.
   const byCategory = {} as Record<TriageCategory, string>;
   for (const cat of TRIAGE_CATEGORIES) {
     const name = LABEL_NAMES[cat];
@@ -134,6 +138,8 @@ async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | 
   const meta: unknown = rows[0]?.metadata;
   // The cache must cover every category — a category added since the cache was
   // written (or any non-string junk at that key) forces a refresh.
+  // SAFETY: the loop below fills every TRIAGE_CATEGORIES key before any read,
+  // so the record is complete despite the empty-literal start.
   const byCategory = {} as Record<TriageCategory, string>;
   for (const cat of TRIAGE_CATEGORIES) {
     const id = getStringPath(meta, "alfredLabels", "byCategory", cat);

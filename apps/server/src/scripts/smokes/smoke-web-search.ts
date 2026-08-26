@@ -28,6 +28,7 @@ async function main(): Promise<void> {
   if (!tool) throw new Error("system.web_search did not register");
   console.log(`✓ registered: ${tool.name} (riskTier=${tool.riskTier})`);
 
+  // SAFETY: web_search's own tool-result envelope; the smoke only logs it.
   const result = (await tool.execute(
     { query: "What are Cloudflare Durable Object facets?" },
     toolExecuteContext({

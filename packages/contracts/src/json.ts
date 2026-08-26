@@ -57,6 +57,8 @@ export function parseJsonWith<T>(
 export function toJsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
   try {
+    // SAFETY: JSON.stringify emitted this text, so it parses back to a plain
+    // JSON value; unserializable input throws and degrades via the catch.
     return JSON.parse(JSON.stringify(value)) as JsonValue;
   } catch {
     return { unserializable: String(value) };

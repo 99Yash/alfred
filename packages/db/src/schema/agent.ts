@@ -133,6 +133,8 @@ export function isDuplicateRunIndex(constraint: string | null): constraint is Ag
   return (
     constraint !== null &&
     constraint in AGENT_RUN_UNIQUE_INDEX_MEANING &&
+    // SAFETY: the `in` check above proves constraint is one of the record's
+    // own keys, so this indexed read sees exactly an AgentRunUniqueIndex.
     AGENT_RUN_UNIQUE_INDEX_MEANING[constraint as AgentRunUniqueIndex] === "duplicate"
   );
 }

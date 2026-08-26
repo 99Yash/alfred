@@ -73,6 +73,8 @@ export function safeRemove(key: string): void {
 
 /** The schema-defined default for a key (its `.default(...)`). Always valid. */
 function schemaDefault<K extends LocalStorageKey>(key: K): LocalStorageValue<K> {
+  // SAFETY: LOCAL_STORAGE_SCHEMAS registers under each key the schema whose
+  // output IS LocalStorageValue<that key>.
   return LOCAL_STORAGE_SCHEMAS[key].parse(undefined) as LocalStorageValue<K>;
 }
 
@@ -90,7 +92,10 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
   const resolveDefault = (): LocalStorageValue<K> => {
     if (defaultValue !== undefined) {
       const r = schema.safeParse(defaultValue);
-      if (r.success) return r.data as LocalStorageValue<K>;
+      if (r.success) {
+        // SAFETY: same per-key schema contract as schemaDefault above.
+        return r.data as LocalStorageValue<K>;
+      }
       console.error(
         `[storage] default value for "${key}" does not match its schema`,
         r.error.issues,
@@ -112,7 +117,10 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
   }
 
   const result = schema.safeParse(candidate);
-  if (result.success) return result.data as LocalStorageValue<K>;
+  if (result.success) {
+    // SAFETY: same per-key schema contract as schemaDefault above.
+    return result.data as LocalStorageValue<K>;
+  }
 
   console.warn(
     `[storage] stored value for "${key}" is invalid — falling back to default`,

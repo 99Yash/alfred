@@ -52,5 +52,8 @@ function walk(value: unknown, path: readonly string[]): unknown {
  * mutates its input, so a sink hook can apply it to any event payload.
  */
 export function redactSensitiveLogPaths<T>(value: T): T {
+  // SAFETY: walk copies arrays and plain records structurally and passes every
+  // other value through by reference; the only content change is a matched
+  // path's value becoming the CENSOR string, so the tree keeps T's shape.
   return walk(value, []) as T;
 }

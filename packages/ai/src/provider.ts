@@ -171,6 +171,8 @@ export function googleSearchGroundingTools(): ToolSet {
   // The SDK over-narrows a provider tool's input schema to `never` inside the
   // non-generic `ToolSet`, so the concrete grounding tool needs a cast — the
   // same `as ToolSet` shape `resolveSdkTools` uses for our function tools.
+  // SAFETY: the built object is one SDK provider tool under its own key, which
+  // is exactly the ToolSet record shape.
   return { google_search: google.tools.googleSearch({}) } as ToolSet;
 }
 

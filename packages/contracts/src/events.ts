@@ -75,6 +75,8 @@ export type AgentRunError = z.infer<typeof agentRunErrorSchema>;
  * plain string cannot reach the payload.
  */
 export function boundAgentRunError(raw: string): AgentRunError {
+  // SAFETY: sanitizeErrorMessage strips ADR-0070 poison and bounds to the cap;
+  // AgentRunError brands exactly that contract.
   return sanitizeErrorMessage(raw, AGENT_RUN_ERROR_MAX) as AgentRunError;
 }
 
@@ -326,7 +328,10 @@ export const eventPayloadSchemas = {
 export type EventKind = keyof typeof eventPayloadSchemas;
 export type EventPayload<K extends EventKind> = z.infer<(typeof eventPayloadSchemas)[K]>;
 
-export const EVENT_KINDS = Object.freeze(Object.keys(eventPayloadSchemas) as EventKind[]);
+export const EVENT_KINDS =
+  // SAFETY: EventKind is `keyof typeof eventPayloadSchemas`, so Object.keys of
+  // that very table enumerates exactly the EventKind strings.
+  Object.freeze(Object.keys(eventPayloadSchemas) as EventKind[]);
 
 export const eventFrameSchema = z.object({
   id: z.number().int().positive(),

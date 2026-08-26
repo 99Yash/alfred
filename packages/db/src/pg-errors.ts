@@ -29,6 +29,8 @@ export interface PgErrorLike {
 export function* pgErrorChain(err: unknown, maxDepth = 5): Generator<PgErrorLike> {
   let cur: unknown = err;
   for (let depth = 0; depth < maxDepth && isIndexable(cur); depth++) {
+    // SAFETY: isIndexable in the loop condition proved cur is an object;
+    // PgErrorLike reads only optional fields off it via Reflect.get.
     yield cur as PgErrorLike;
     cur = Reflect.get(cur, "cause");
   }
