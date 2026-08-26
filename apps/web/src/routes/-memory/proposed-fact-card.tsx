@@ -32,7 +32,7 @@ export function ProposedFactCard({
         <code className="font-mono text-[12px] break-all text-app-fg-4">{fact.key}</code>
         <ConfidenceChip confidence={fact.confidence} />
       </div>
-      <div className="rounded-md bg-app-bg-2 px-3 py-2 font-mono text-[12px] break-words whitespace-pre-wrap text-app-fg-4">
+      <div className="rounded-md bg-app-bg-2 px-3 py-2 font-mono text-[12px] wrap-break-word whitespace-pre-wrap text-app-fg-4">
         {formatValue(fact.value)}
       </div>
       <div className="text-[11px] text-app-fg-3 tabular-nums">

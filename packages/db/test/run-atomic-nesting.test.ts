@@ -193,7 +193,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
         try {
           await outer.execute(sql`insert into run_atomic_probe (id) values (2)`);
           seen.callerWriteAccepted = true;
-        } catch (err) {
+        } catch {
           seen.callerWriteAccepted = false;
         }
 

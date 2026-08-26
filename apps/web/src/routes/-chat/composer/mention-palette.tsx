@@ -122,6 +122,19 @@ export function MentionPalette({
   );
 }
 
+/** Presentation overrides for one mention-row connection state. */
+interface MentionRowPresentation {
+  icon?: string;
+  label?: string;
+  subtitle?: string;
+  tag?: { srText: string; label: string; className: string };
+}
+
+/**
+ * Exhaustive over `MentionConnection`, so a new state cannot ship unstyled.
+ */
+type RowPresentationTable = { [State in MentionConnection]: MentionRowPresentation };
+
 /**
  * Per-state row presentation, keyed exhaustively over `MentionConnection` so
  * a new state cannot ship unstyled — adding one is a compile error here, not
@@ -130,15 +143,7 @@ export function MentionPalette({
  * An integration you can't use yet sits visually behind the ones you can —
  * quiet dimming, not removal, so the catalog stays discoverable.
  */
-const ROW_PRESENTATION: Record<
-  MentionConnection,
-  {
-    icon?: string;
-    label?: string;
-    subtitle?: string;
-    tag?: { srText: string; label: string; className: string };
-  }
-> = {
+const ROW_PRESENTATION: RowPresentationTable = {
   internal: {},
   connected: {},
   loading: {},

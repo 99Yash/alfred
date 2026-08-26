@@ -401,7 +401,7 @@ function InboxRow({
       <span
         aria-hidden
         className={cn(
-          "absolute top-2 bottom-2 left-0 w-[2px] rounded-full transition-colors",
+          "absolute inset-y-2 left-0 w-[2px] rounded-full transition-colors",
           item.unread ? "bg-app-purple-4" : "bg-transparent",
         )}
       />
@@ -730,7 +730,7 @@ function InboxDetailPane({
       ) : (
         <article className="space-y-3 px-1">
           <header className="space-y-1.5">
-            <h3 className="text-[14px] leading-5 font-medium break-words text-white">
+            <h3 className="text-[14px] leading-5 font-medium wrap-break-word text-white">
               {data.subject || "(no subject)"}
             </h3>
             <div className="flex flex-wrap items-center gap-2">

@@ -114,7 +114,7 @@ export function HeroAtmosphere({
             src="/images/landing/sun-halo.png"
             alt=""
             aria-hidden
-            className="pointer-events-none absolute inset-0 size-full object-cover object-left-top mix-blend-screen transition-opacity duration-500 select-none"
+            className="pointer-events-none absolute inset-0 size-full object-cover object-top-left mix-blend-screen transition-opacity duration-500 select-none"
             style={{ opacity: lensFlare }}
           />
 

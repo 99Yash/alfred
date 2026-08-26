@@ -159,7 +159,7 @@ export function NotesPage() {
               {notes.map((note) => (
                 <li key={note.id}>
                   <AppCard className="px-4 py-3">
-                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-app-fg-4">
+                    <p className="text-sm leading-relaxed wrap-break-word whitespace-pre-wrap text-app-fg-4">
                       {note.text}
                     </p>
                     <p className="mt-2 text-[11.5px] text-app-fg-2 tabular-nums">

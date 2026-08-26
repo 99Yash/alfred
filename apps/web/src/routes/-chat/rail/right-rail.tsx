@@ -47,7 +47,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
           aria-label="Today"
           aria-hidden={!open}
           className={cn(
-            "fixed top-0 right-0 bottom-0 z-50 w-[340px] max-w-[88vw]",
+            "fixed inset-y-0 right-0 z-50 w-[340px] max-w-[88vw]",
             "border-l border-app-bg-3/60 bg-transparent",
             "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
             // Enters and exits along the same path (in from / out to the
