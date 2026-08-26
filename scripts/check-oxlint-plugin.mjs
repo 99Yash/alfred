@@ -40,6 +40,24 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PLUGIN_DIR = join("scripts", "oxlint", "anti-slop");
+
+// Fail fast when the interpreter is older than package.json's `engines.node`.
+// The symptom otherwise is an oxlint plugin-load crash ("Unknown file extension
+// \".ts\"") that this gate reports as twelve "vendored and registered but NOT
+// enforced" failures — a misdiagnosis that points at .oxlintrc.json instead of
+// at the interpreter. oxlint loads the plugin through Node's native TS support,
+// so anything below the engines floor cannot drive a single rule.
+const ENGINES_NODE = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).engines?.node;
+const ENGINES_FLOOR = /^>=(\d+)\./.exec(String(ENGINES_NODE ?? ""));
+const nodeMajor = Number.parseInt(process.versions.node, 10);
+if (ENGINES_FLOOR !== null && nodeMajor < Number(ENGINES_FLOOR[1])) {
+  console.error(
+    `This gate is running on Node ${process.versions.node}, but package.json requires ` +
+      `${ENGINES_NODE}. oxlint cannot load the .ts plugin below that floor, so no rule can be ` +
+      `driven. Re-run on a qualifying Node (\`nvm use\` reads .nvmrc).`,
+  );
+  process.exit(1);
+}
 const RULES_DIR = join(PLUGIN_DIR, "rules");
 const INDEX_FILE = join(PLUGIN_DIR, "index.ts");
 const GATE_FILE = join("scripts", "check-oxlint-plugin.mjs");
@@ -225,8 +243,8 @@ for (const rule of Object.keys(PROBES)) {
 // ---------------------------------------------------------------------------
 
 // `--experimental-strip-types` is passed explicitly rather than relying on bare
-// `node file.ts`: type stripping is unflagged only from Node 22.18, and this
-// repo's `engines` field admits 22.12. On a newer Node the flag is a no-op.
+// `node file.ts`: the flag is a no-op on a new enough Node, and the engines
+// guard above has already rejected one too old to load the plugin at all.
 let testsRun = 0;
 for (const rule of vendored) {
   if (!testModules.has(`${rule}.rule-test.ts`)) continue;
