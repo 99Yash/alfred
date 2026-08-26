@@ -209,7 +209,7 @@ export function TiptapComposer({
         "aria-label": "Message",
         class: cn(
           "tiptap tiptap-minimum-input composer-editor",
-          "break-words whitespace-pre-wrap outline-none",
+          "wrap-break-word whitespace-pre-wrap outline-none",
           "max-h-64 min-h-[64px] overflow-y-auto px-3 pt-2 pb-1.5",
           // Dissolve overflowing content into the top/bottom edges instead of a
           // hard clip. The fade sits within the pt-2/pb-1.5 padding, so at rest
@@ -313,7 +313,7 @@ export function TiptapComposer({
           aria-hidden
           className={cn(
             // Same first-line position as the placeholder overlay below.
-            "pointer-events-none absolute top-2 right-3 left-3",
+            "pointer-events-none absolute inset-x-3 top-2",
             "flex items-center gap-1.5",
             "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
             "animate-chat-in",

@@ -290,6 +290,7 @@ describe("sseResponse", () => {
     let calls = 0;
     // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     const foreign = {
+      // eslint-disable-next-line unicorn/no-thenable -- the test subject IS a thenable from outside this realm
       then(_onFulfilled: (value: void) => void, onRejected: (reason: unknown) => void) {
         onRejected(new Error("foreign rejected"));
       },

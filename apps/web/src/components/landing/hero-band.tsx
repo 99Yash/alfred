@@ -54,7 +54,7 @@ export function HeroBand({
             // The notch can never exceed the viewport: the tab labels are
             // fixed strings, so at a narrow width the row scrolls rather than
             // wrapping inside a shape that is 26px-rounded at the bottom.
-            "max-w-[calc(100vw-1.5rem)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            "max-w-[calc(100vw-1.5rem)] [scrollbar-width:none] overflow-x-auto [&::-webkit-scrollbar]:hidden",
           )}
         >
           {notch}

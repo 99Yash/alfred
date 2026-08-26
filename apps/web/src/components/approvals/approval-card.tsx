@@ -99,7 +99,7 @@ export function ApprovalCard({
               Last rejected {formatTimestamp(staging.recentRejection.decidedAt)}
             </p>
             {staging.recentRejection.reason ? (
-              <p className="mt-0.5 break-words opacity-80">{staging.recentRejection.reason}</p>
+              <p className="mt-0.5 wrap-break-word opacity-80">{staging.recentRejection.reason}</p>
             ) : null}
           </div>
         </div>

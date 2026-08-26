@@ -181,7 +181,7 @@ export function MarkdownRenderer({
         "[&_strong]:font-semibold",
         "[&_em]:italic",
         "[&_a]:underline [&_a]:underline-offset-2",
-        "[&_a]:break-words",
+        "[&_a]:wrap-break-word",
         // Lists
         "[&_ol]:list-decimal [&_ul]:list-disc",
         "[&_li]:pl-0.5",
@@ -208,7 +208,7 @@ export function MarkdownRenderer({
         "[&_table]:border-collapse",
         "[&_th]:border [&_th]:px-1.5 [&_th]:py-1 [&_th]:font-medium",
         "[&_td]:border [&_td]:px-1.5 [&_td]:py-1",
-        "[&_td]:break-words [&_th]:break-words",
+        "[&_td]:wrap-break-word [&_th]:wrap-break-word",
         // Horizontal rule
         "[&_hr]:border-t",
         // Images — rare, and we don't proxy them so cors / privacy concerns
@@ -222,7 +222,7 @@ export function MarkdownRenderer({
         // shrink us below content width (otherwise children with intrinsic
         // width like long URLs can blow the card open), and the wrap rules
         // catch anything that slipped past the per-tag selectors above.
-        "min-w-0 [overflow-wrap:anywhere] break-words",
+        "min-w-0 [overflow-wrap:anywhere] wrap-break-word",
         ...(tone === "media" ? MEDIA_TONE : SURFACE_TONE),
         className,
       )}

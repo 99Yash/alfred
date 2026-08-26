@@ -80,7 +80,7 @@ const PROBES = {
     snippet:
       `type Handler = () => void;\n` +
       `const handlers: Record<string, Handler> = { start: startHandler };\n`,
-    severity: "warn",
+    severity: "error",
   },
   "no-object-parameters": {
     snippet: `export function save(value: object) {}\n`,
@@ -100,7 +100,7 @@ const PROBES = {
   },
   "no-unknown-type-aliases": {
     snippet: `export type ExternalValue = unknown;\n`,
-    severity: "warn",
+    severity: "error",
   },
   "no-unsafe-dictionary-type": {
     snippet: `export type Metadata = Record<string, unknown>;\n`,
