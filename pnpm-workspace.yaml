@@ -50,10 +50,12 @@ catalog:
   "@tanstack/router-plugin": ^1.121.7
   "@types/node": ^24.0.0
   "@vitejs/plugin-react": ^4.5.2
-  # Pinned exact and bumped deliberately. `@ai-sdk/code-mode` declares an exact
-  # `ai` peer and the two move in lockstep (`1.0.23` <-> `7.0.66`), so this line
-  # chooses the code-mode release too. See the ADR-0087 amendment. Bump to the
-  # newest pair that clears pnpm's 24-hour release-age floor, never past it.
+  # Pinned exact and bumped deliberately. This pin is a FREE choice again: the
+  # ADR-0087 amendment of 2026-08-26 depends on `run` directly instead of
+  # `@ai-sdk/code-mode`, and `run` declares no peer dependencies, so no other
+  # entry constrains this one. (Until then, code-mode's exact `ai` peer moved in
+  # lockstep and chose this line for us.) Bump to the newest version that clears
+  # pnpm's 24-hour release-age floor, never past it.
   ai: 7.0.66
   # Provider-fallback cascade for the LanguageModel dispatchers (see
   # `withFallback` in packages/ai/src/provider.ts). Same version warden

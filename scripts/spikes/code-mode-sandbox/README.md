@@ -1,5 +1,33 @@
 # Code Mode — Phase 0 sandbox proof (issue #535 / ADR-0087)
 
+> **SUPERSEDED 2026-08-19. Do not run this spike, and do not build on it.**
+>
+> Everything below describes a **Vercel Sandbox** (remote Firecracker microVM) substrate that
+> ADR-0087 no longer uses. The substrate is now **`run` from `vercel-labs`**, called directly
+> (dependency narrowed 2026-08-26): an embedded QuickJS WebAssembly module in a
+> `node:worker_threads` worker, **inside** the Alfred process. Read
+> [ADR-0087](../../../docs/decisions/ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md)
+> and [the plan](../../../docs/plans/code-mode-object-handles-v1.md) instead.
+>
+> **Why it died.** The pivot below accepted a data-custody reversal — private Gmail and GitHub
+> reads leaving Alfred's infrastructure for Vercel/AWS `iad1`. It did so to buy
+> operating-system-enforced egress denial, which an unprivileged Railway container cannot give.
+> `run` makes that purchase unnecessary: the guest owns **no network API at all**, so "zero
+> network" became structural instead of configured, and nothing leaves the process. This is
+> verdict #4 of `docs/research/code-mode-sandbox-feasibility.md` (quickjs-emscripten is a
+> stronger isolation story by construction) winning over the pivot to verdict #5, which that
+> same document had already marked **NO-GO on custody**.
+>
+> **What replaced this acceptance matrix.** Two checks, both listed under "Open verification" in
+> the plan: a production-image smoke test on Railway, and the fork-or-not decision. The probes
+> below that still matter (timeout, out-of-memory, output flood, crash) are folded into that
+> smoke test; `egress-denied` is moot, because there is no egress path to deny.
+>
+> The text below is kept as the record of a decision that was made and reversed. Every claim in
+> it about the chosen substrate is **false as of 2026-08-19.**
+
+---
+
 This is the **blocking Phase 0 spike**: prove the execution substrate before any
 product code. It is deliberately **outside the pnpm workspace** (`scripts/spikes/**`
 is not matched by `pnpm-workspace.yaml`), so it never enters `pnpm check-types` on
