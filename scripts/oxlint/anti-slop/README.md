@@ -15,26 +15,32 @@ copy we own, not a dependency we track.
 
 ## What is enforced
 
-**Four rules at `error`** — pure ratchets with zero violations at adoption:
+**Seven rules at `error`** — ratchets with zero violations in the tree:
 
-| Rule                   | What it rejects                                             |
-| ---------------------- | ----------------------------------------------------------- |
-| `no-module-mocking`    | `vi.mock` / `jest.mock` and friends, in favor of real seams |
-| `no-reflect-apply`     | `Reflect.apply`, in favor of a typed call                   |
-| `no-widen-then-assert` | widening a known value to `unknown` and asserting it back   |
-| `no-object-parameters` | `object` type on function inputs                            |
+| Rule                         | What it rejects                                             |
+| ---------------------------- | ----------------------------------------------------------- |
+| `no-module-mocking`          | `vi.mock` / `jest.mock` and friends, in favor of real seams |
+| `no-reflect-apply`           | `Reflect.apply`, in favor of a typed call                   |
+| `no-widen-then-assert`       | widening a known value to `unknown` and asserting it back   |
+| `no-object-parameters`       | `object` type on function inputs                            |
+| `no-chained-type-assertions` | nested `as` / angle-bracket assertions                      |
+| `no-known-value-widening`    | broadening known literal types to `Record<string, T>`       |
+| `no-unknown-type-aliases`    | type aliases that resolve to `unknown`                      |
 
-**Eight rules at `warn`** — paydown rules with existing violations:
+The last three were adopted at warn with violations and driven to zero before
+promotion (`no-chained-type-assertions`: 46 → 0; `no-known-value-widening`:
+290 → 0; `no-unknown-type-aliases` was clean on arrival and never had any).
 
-| Rule                                        | Violations | What it rejects                                       |
-| ------------------------------------------- | ---------- | ----------------------------------------------------- |
-| `require-safety-comment-for-type-assertion` | 606        | type assertions without a `SAFETY:` comment           |
-| `no-runtime-typeof`                         | 389        | runtime `typeof` checks instead of boundary parsing   |
-| `no-known-value-widening`                   | 290        | broadening known literal types to `Record<string, T>` |
-| `no-shape-in-symbol-names`                  | 170        | "shape" in identifier names                           |
-| `no-unsafe-dictionary-type`                 | 156        | `Record<string, unknown>` and equivalents             |
-| `no-unknown-returns`                        | 102        | functions returning `unknown`                         |
-| `no-chained-type-assertions`                | 46         | nested `as` / angle-bracket assertions                |
+**Five rules at `warn`** — paydown rules with live violations (counts as of
+2026-08-25):
+
+| Rule                                        | Violations | What it rejects                                     |
+| ------------------------------------------- | ---------- | --------------------------------------------------- |
+| `require-safety-comment-for-type-assertion` | ~450       | type assertions without a `SAFETY:` comment         |
+| `no-runtime-typeof`                         | ~405       | runtime `typeof` checks instead of boundary parsing |
+| `no-shape-in-symbol-names`                  | ~170       | "shape" in identifier names                         |
+| `no-unsafe-dictionary-type`                 | ~155       | `Record<string, unknown>` and equivalents           |
+| `no-unknown-returns`                        | ~94        | functions returning `unknown`                       |
 
 `pnpm check:oxlint-plugin` holds all of that together: it runs the upstream
 fixtures, asserts every vendored rule is registered here, and DRIVES each rule

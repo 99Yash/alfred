@@ -138,7 +138,7 @@ export function AppSidebar({
             aria-label="Workspace navigation"
             aria-hidden={!open}
             className={cn(
-              "fixed top-0 bottom-0 left-0 z-50 max-w-[88vw]",
+              "fixed inset-y-0 left-0 z-50 max-w-[88vw]",
               "border-r border-app-bg-3/60 bg-app-bg-1",
               "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
               "overflow-hidden transition-transform duration-200 ease-out",
