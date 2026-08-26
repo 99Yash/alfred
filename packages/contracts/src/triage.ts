@@ -159,10 +159,16 @@ export const COLLAB_ACTIVITY_PARTITION_CHECK: Record<
   Record<Extract<OwnershipCollabActivityKind, PassiveCollabActivityKind>, never> = {};
 
 export function isOwnershipCollabActivity(kind: CollabActivityKind): boolean {
+  // SAFETY: the table is `as const satisfies readonly CollabActivityKind[]`;
+  // widening its element type to the full union only lets .includes take the
+  // wider `kind` argument — every member already is a CollabActivityKind.
   return (COLLAB_ACTIVITY_OWNERSHIP_KINDS as readonly CollabActivityKind[]).includes(kind);
 }
 
 export function isPassiveCollabActivity(kind: CollabActivityKind): boolean {
+  // SAFETY: the table is `as const satisfies readonly CollabActivityKind[]`;
+  // widening its element type to the full union only lets .includes take the
+  // wider `kind` argument — every member already is a CollabActivityKind.
   return (COLLAB_ACTIVITY_PASSIVE_KINDS as readonly CollabActivityKind[]).includes(kind);
 }
 

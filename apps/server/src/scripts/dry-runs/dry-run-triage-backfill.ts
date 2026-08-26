@@ -55,7 +55,9 @@ async function main() {
 
   for (const t of rows) {
     const src = Array.isArray(t.sources)
-      ? (t.sources as Array<{ provider: string; kind: string; id: string }>).find(
+      ? // SAFETY: email_triage.sources is the jsonb { provider, kind, id }
+        // envelope written by the triage workflow.
+        (t.sources as Array<{ provider: string; kind: string; id: string }>).find(
           (s) => s.provider === "gmail" && s.kind === "thread",
         )
       : undefined;

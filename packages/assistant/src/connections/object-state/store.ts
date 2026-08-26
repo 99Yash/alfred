@@ -120,10 +120,13 @@ const MAX_OBJECT_LIST_LIMIT = 250;
 function rowToObjectState(row: IntegrationObject): ObjectState {
   return {
     objectId: row.id,
+    // SAFETY: object_state.provider is a text column written only with
+    // registry-known provider ids; this read views it as that union.
     provider: row.provider as ObjectStateProvider,
     kind: row.kind,
     externalId: row.externalId,
     // Legal values are guaranteed on the write path by the registry.
+    // SAFETY: that write-path guarantee is exactly what this read asserts.
     stateCategory: row.stateCategory as StateCategory,
     nativeState: row.nativeState,
     title: row.title,

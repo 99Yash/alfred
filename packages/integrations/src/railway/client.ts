@@ -167,6 +167,9 @@ async function railwayGraphql<T>(
   }
   let json: { data?: T; errors?: GraphqlError[] };
   try {
+    // SAFETY: Railway GraphQL answers JSON on both arms — payload under `data`,
+    // failures under `errors`; a non-JSON body throws into the catch below,
+    // and `errors` presence is rejected right after.
     json = JSON.parse(text) as { data?: T; errors?: GraphqlError[] };
   } catch {
     console.error(`[railway] non-JSON response :: ${summarizeBody(text)}`);

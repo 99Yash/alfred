@@ -414,6 +414,8 @@ const chatTurnStep: Step<ChatRunState> = {
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
         tools: sdkTools,
+        // SAFETY: AgentTranscriptMessage is the persisted superset view of the
+        // SDK's ModelMessage transcript.
         transcript: modelTranscript as ModelMessage[],
         outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
       });
@@ -442,6 +444,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // streamed, and finalize through the normal completion path.
       const stream = await agent.streamTurn({
         ctx,
+        // SAFETY: same persisted-superset view as the generateTurn call above.
         transcript: modelTranscript as ModelMessage[],
         attribution: {
           stepId: ctx.idempotencyKey,
@@ -578,6 +581,8 @@ const chatTurnStep: Step<ChatRunState> = {
       // resurrect the overflow on the next tool-loop turn.
       const nextTranscript = appendModelResponseMessages(
         continuationTranscript,
+        // SAFETY: response.messages is the SDK's transcript output; the agent
+        // transcript message type is its persisted view.
         response.messages as AgentTranscriptMessage[],
         stepCallIds,
       );

@@ -12,6 +12,9 @@ import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import type { AppTint } from "~/lib/tints";
 import type { RailInboxItem } from "~/routes/-chat/rail/models";
 
+/** The first page has no cursor. */
+const INITIAL_PAGE_PARAM: string | null = null;
+
 export interface InboxPage {
   items: ReadonlyArray<RailInboxItem>;
   nextCursor: string | null;
@@ -38,7 +41,7 @@ export function useInbox() {
         total: res.data.total ?? items.length,
       };
     },
-    initialPageParam: null as string | null,
+    initialPageParam: INITIAL_PAGE_PARAM,
     getNextPageParam: (lastPage: InboxPage) => lastPage.nextCursor ?? null,
     staleTime: 30_000,
     gcTime: 5 * 60_000,

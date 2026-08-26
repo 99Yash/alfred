@@ -160,6 +160,7 @@ async function main() {
   const run = await pollRun(runId, "cold-start run");
   assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
 
+  // SAFETY: cold-start workflow's own committed output shape.
   const out = run.output as {
     factsProposed: number;
     factsSkipped: number;

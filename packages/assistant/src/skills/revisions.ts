@@ -83,6 +83,9 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
         .where(
           and(
             eq(skillRevisions.skillId, args.skillId),
+            // SAFETY: this conflict branch is reachable only for a non-manual
+            // revision (manual carries null and never conflicts), so the run id
+            // is a string here.
             eq(skillRevisions.createdByRunId, createdByRunId as string),
           ),
         )

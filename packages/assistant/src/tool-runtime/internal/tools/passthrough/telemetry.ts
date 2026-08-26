@@ -57,6 +57,8 @@ function readCauses(value: unknown): PassthroughTruncation["causes"] {
     const { kind, droppedApprox } = entry;
     if (typeof kind !== "string" || !TRUNCATION_CAUSE_KINDS.has(kind)) continue;
     if (!isFiniteNumber(droppedApprox)) continue;
+    // SAFETY: kind was proven a member of TRUNCATION_CAUSE_KINDS and
+    // droppedApprox finite above; together they are exactly this union member.
     causes.push({ kind, droppedApprox } as PassthroughTruncation["causes"][number]);
   }
   return causes;
@@ -104,6 +106,8 @@ export function passthroughTruncationTelemetry(
 /** Tool name → integration slug, tolerant of a malformed name (telemetry must never throw). */
 function integrationFromToolNameSafe(toolName: string): string {
   try {
+    // SAFETY: integrationFromToolName validates its own argument and throws on
+    // an unknown name; the catch below is that path.
     return integrationFromToolName(toolName as Parameters<typeof integrationFromToolName>[0]);
   } catch {
     return toolName.slice(0, toolName.indexOf(".")) || toolName;

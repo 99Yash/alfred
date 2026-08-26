@@ -368,9 +368,11 @@ export const groundingTierSchema = z.enum(GROUNDING_TIERS);
 export type GroundingTier = (typeof GROUNDING_TIERS)[number];
 
 /** Rank for each tier (lower = stronger), derived from {@link GROUNDING_TIERS} order. */
-export const GROUNDING_TIER_RANK: Readonly<Record<GroundingTier, number>> = Object.fromEntries(
-  GROUNDING_TIERS.map((tier, i) => [tier, i]),
-) as Record<GroundingTier, number>;
+export const GROUNDING_TIER_RANK: Readonly<Record<GroundingTier, number>> =
+  // SAFETY: GROUNDING_TIERS is the closed tier tuple, so mapping it produces
+  // exactly one entry per GroundingTier; Object.fromEntries' string index
+  // erases that, and this cast restores it.
+  Object.fromEntries(GROUNDING_TIERS.map((tier, i) => [tier, i])) as Record<GroundingTier, number>;
 
 export function groundingTierRank(tier: GroundingTier): number {
   return GROUNDING_TIER_RANK[tier];

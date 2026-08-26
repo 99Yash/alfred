@@ -60,6 +60,8 @@ async function main() {
       `cost computation failed — got ${row.costUsd} (expected > 0). Check that ${row.provider}/${row.model} is in model_prices.`,
     );
   }
+  // SAFETY: apiCallLog.requestMeta is jsonb written by the metering layer with
+  // the idempotency key included.
   const meta = row.requestMeta as { idempotencyKey?: string } | null;
   if (meta?.idempotencyKey !== idempotencyKey) {
     throw new Error(`idempotency key not persisted: got ${meta?.idempotencyKey}`);

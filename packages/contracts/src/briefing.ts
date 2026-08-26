@@ -100,7 +100,12 @@ export function isIanaTimezone(value: unknown): value is IanaTimezone {
 export const ianaTimezoneSchema = z
   .string()
   .refine(isIanaTimezone, { message: "Expected an IANA timezone identifier" })
-  .transform((value) => value as IanaTimezone);
+  .transform((value) => {
+    // SAFETY: the refine above ran isIanaTimezone, which is exactly what the
+    // IanaTimezone brand certifies; this mints the branded alias of a proven
+    // string (the standard parse-then-brand idiom).
+    return value as IanaTimezone;
+  });
 
 // ─── Per-source contribution shapes ───────────────────────────────────────
 
@@ -272,7 +277,12 @@ export const integrationSlugSchema = z
   .refine(isIntegrationSlug, {
     message: "Expected a known integration slug",
   })
-  .transform((value) => value as IntegrationSlug);
+  .transform((value) => {
+    // SAFETY: the refine above ran isIntegrationSlug, which is exactly what
+    // the IntegrationSlug union certifies; this mints the branded alias of a
+    // proven string.
+    return value as IntegrationSlug;
+  });
 
 export const integrationActivityRollupSchema = z.object({
   eventCount: z.number().int().nonnegative(),

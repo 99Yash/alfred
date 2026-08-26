@@ -82,6 +82,8 @@ async function main() {
       signal: AbortSignal.timeout(LANGFUSE_FETCH_TIMEOUT_MS),
     });
     if (res.ok) {
+      // SAFETY: Obs is the loose diagnostic view of one Langfuse observation;
+      // the fields this verifier reads tolerate absence.
       const t = (await res.json()) as { observations?: Obs[] };
       gen = (t.observations ?? []).find(
         (o) => o.type === "GENERATION" && (o.metadata?.toolCallCount ?? 0) > 0,

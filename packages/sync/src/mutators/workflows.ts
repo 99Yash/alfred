@@ -130,6 +130,9 @@ export const authorableWorkflowTriggerSchema = z
       return;
     }
     if (trigger.kind !== "event") return;
+    // SAFETY: the per-source row is a const tuple of that source's event-type
+    // literals; widening to readonly string[] only types the .includes
+    // receiver for the runtime membership test below.
     const types = EVENT_TYPES_BY_SOURCE[trigger.source] as readonly string[];
     if (!types.includes(trigger.type)) {
       ctx.addIssue({

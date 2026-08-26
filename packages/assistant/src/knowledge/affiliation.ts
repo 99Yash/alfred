@@ -350,6 +350,9 @@ export async function recordOrgAffiliationOnCredentialUpsert(
         currentBuiltAtChange.ok &&
         (!previousConnectBuilt.ok ||
           previousConnectBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey ||
+          // SAFETY: both inputs came from buildOrgAffiliationObservationInput
+          // and `.ok` was checked for each arm of this conjunction, so each
+          // payload below holds the built payload shape.
           !payloadsMatchForCurrentAffiliation(
             previousConnectBuilt.input.payload as UserOrgAffiliationPayload,
             currentBuiltAtChange.input.payload as UserOrgAffiliationPayload,

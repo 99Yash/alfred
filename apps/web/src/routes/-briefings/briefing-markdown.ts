@@ -32,6 +32,8 @@ interface MdNode {
 export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin {
   const plugin = () => (tree: MdNode) => {
     if (!gather) return;
+    // SAFETY: mdast's visit wants its own tree generic; the briefing remark
+    // tree is structurally that AST.
     visit(tree as never, "text", (node: MdNode, index, parent: MdNode | undefined) => {
       if (!parent?.children || index === undefined || node.value === undefined) return;
       const { segments } = resolveBriefingReferences(node.value, gather);
@@ -61,12 +63,17 @@ export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin 
       return index + replacement.length;
     });
   };
+  // SAFETY: the transformer above has the remark-plugin signature; the alias
+  // names that structural fact.
   return plugin as RemarkPlugin;
 }
 
 /** Component overrides for briefing markdown: entity chips + glyphed links. */
-export const briefingMarkdownComponents: Components = {
-  // Custom element — outside react-markdown's intrinsic-tag typing, so cast.
-  "briefing-ref": BriefingRef,
-  a: BriefingLink,
-} as Components;
+export const briefingMarkdownComponents: Components =
+  // SAFETY: `briefing-ref` is a custom element outside react-markdown's
+  // intrinsic tag typing; every other member maps an intrinsic tag.
+  {
+    // Custom element — outside react-markdown's intrinsic-tag typing, so cast.
+    "briefing-ref": BriefingRef,
+    a: BriefingLink,
+  } as Components;

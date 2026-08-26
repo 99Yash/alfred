@@ -102,6 +102,8 @@ async function loadCursor(credentialId: string): Promise<string | null> {
     .where(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
+  // SAFETY: ingestion_state.state is jsonb written by these cursors with the
+  // historyId envelope.
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
   return state?.historyId ?? null;
 }

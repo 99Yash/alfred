@@ -162,6 +162,7 @@ async function main() {
     `learn status=${learnRun.status} error=${JSON.stringify(learnRun.error)}`,
   );
 
+  // SAFETY: this smoke's own workflow output envelope.
   const learnOut = learnRun.output as {
     revisionId: string;
     documentationRunId: string | null;
@@ -184,6 +185,7 @@ async function main() {
     docRun.status === "completed",
     `doc status=${docRun.status} error=${JSON.stringify(docRun.error)}`,
   );
+  // SAFETY: this smoke's own workflow output envelope.
   const docOut = docRun.output as {
     skillId: string;
     revisionId: string;

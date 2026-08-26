@@ -107,7 +107,8 @@ export function parseEventFrame<K extends EventKind>(
   // line.
   //
   // The `as` covers **only the `kind` ↔ `payload` pairing**, and it says nothing
-  // about the payload's own shape: the contract types `payload` as `z.unknown()`,
+  // SAFETY: about the payload's own shape: the contract types `payload` as
+  // `z.unknown()`,
   // so `satisfies EventFrame` cannot check that pairing and the per-kind table in
   // `frame.test.ts` is what pins it. The cast is needed because TypeScript will
   // not distribute a generic indexed access, so `payload.data` widens to the

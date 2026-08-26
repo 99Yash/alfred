@@ -50,8 +50,11 @@ export function AppSegmented<T extends string = string>({
   variant = "default",
 }: AppSegmentedProps<T>) {
   const glass = variant === "glass";
+  // SAFETY: Radix emits the string value of a rendered item, which is exactly
+  // the generic T this component was instantiated with.
+  const emit = (next: string) => onValueChange(next as T);
   return (
-    <TabsPrimitive.Root value={value} onValueChange={(next) => onValueChange(next as T)}>
+    <TabsPrimitive.Root value={value} onValueChange={emit}>
       <TabsPrimitive.List
         aria-label={label}
         className={cn(

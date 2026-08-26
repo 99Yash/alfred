@@ -196,5 +196,6 @@ export function applyFloors(classification: TriageClassification, ctx: FloorCont
   // Localized cast: the loop fills exactly one key per sequence entry, which is
   // the same set `FloorAudits` derives from it. The public type stays precise per
   // floor via that mapped type, so callers never see this widening.
+  // SAFETY: the loop above fills every FLOOR_SEQUENCE entry before returning.
   return { classification: current, audits: audits as FloorAudits, modelIdTags };
 }

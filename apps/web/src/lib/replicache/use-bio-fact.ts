@@ -91,6 +91,8 @@ export function useBioFact(): BioFactState {
   );
 
   return {
+    // SAFETY: the synced bio row's value column holds the FactValue shape the
+    // mutators wrote; toText reads it tolerantly.
     value: toText(bio?.value as FactValue | undefined),
     loading: rows === null && !loadError,
     error: loadError,

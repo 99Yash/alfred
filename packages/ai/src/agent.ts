@@ -250,6 +250,9 @@ export class AlfredAgent<CTX = unknown> {
       // The SDK types `providerOptions` as `JSONObject` per provider; our
       // public surface uses the looser `unknown` per provider so callers
       // don't have to import internal SDK types. Cast at the boundary.
+      // SAFETY: attachProviderTurnPolicy returns our public providerOptions
+      // shape; the SDK slot is structurally narrower, so this adapts at the
+      // boundary without leaking SDK types into the public surface.
       providerOptions: attachProviderTurnPolicy(this.s.providerOptions, this.cacheTtl()) as Record<
         string,
         never
@@ -308,6 +311,8 @@ export class AlfredAgent<CTX = unknown> {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 async function resolve<T, CTX>(v: T | ((ctx: CTX) => Promise<T> | T), ctx: CTX): Promise<T> {
+  // SAFETY: the typeof check above proved v is the callable arm of the union;
+  // the assertion restores exactly that arm's signature.
   return typeof v === "function" ? await (v as (c: CTX) => Promise<T> | T)(ctx) : v;
 }
 
