@@ -34,6 +34,7 @@ Alfred is a personal assistant.
 
 - [Code style and review checklist](./docs/reference/code-style.md) and [structural review](./docs/reference/structural-review.md)
 - [Shared helpers — reach for these before writing new ones](./docs/reference/shared-helpers.md)
+- [Schema placement and catalog](./docs/reference/schemas.md)
 - [Architecture and package boundaries](./docs/reference/architecture.md)
 - [Tool-runtime boot-seam map](./docs/reference/tool-runtime-map.md)
 - [TypeScript configuration](./docs/reference/typescript.md)
