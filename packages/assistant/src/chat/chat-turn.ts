@@ -64,6 +64,7 @@ import {
   assertStableChatSystem,
   chatRunStateSchema,
   closeLeadInNarration,
+  foldResumedPark,
   fullAssistantText,
   interruptChatRun,
   type ChatRunState,
@@ -74,6 +75,7 @@ import { isChatStopRequested } from "./stop-signal";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
 import { createTurnStopController } from "./turn-stop-controller";
+import { emitTurnPhaseThermometer, type TurnPhaseOutcome } from "./turn-thermometer";
 
 /**
  * Interactive streaming chat (streaming-chat plan). One run services one user
@@ -265,6 +267,39 @@ const chatTurnStep: Step<ChatRunState> = {
   staleAfterMs: DEFAULT_TURN_STREAM_TIMEOUT.totalMs + 60_000,
   async run(ctx) {
     const state: ChatRunState = { ...ctx.state, turnCount: ctx.state.turnCount + 1 };
+    // Phase thermometer (#902). The step body outside the model stream is
+    // "other" — hydration, guards, persistence; it is never bracketed, only
+    // derived at emit time as the residual of `stepWallMs`. The stream bracket
+    // below folds into `generationMs` exactly once per attempt (including an
+    // aborted one, so a timed-out retry still pays its generation cost).
+    const stepStartedMs = Date.now();
+    let generationStartMs: number | null = null;
+    let generationFolded = false;
+    let stepWallFolded = false;
+    const foldGeneration = (): void => {
+      if (generationFolded || generationStartMs === null) return;
+      generationFolded = true;
+      state.generationMs += Math.max(0, Date.now() - generationStartMs);
+    };
+    // Close both brackets exactly once, on every exit. Anything that *reads*
+    // the accumulators before leaving — a thermometer emission or a bounded
+    // retry (whose planner snapshots the state) — must call this first, since
+    // the `finally` below otherwise runs after those readers.
+    const closeBrackets = (): void => {
+      if (stepWallFolded) return;
+      stepWallFolded = true;
+      foldGeneration();
+      state.stepWallMs += Math.max(0, Date.now() - stepStartedMs);
+    };
+    const emitPhases = (outcome: TurnPhaseOutcome): void => {
+      emitTurnPhaseThermometer({
+        runId: ctx.runId,
+        startedAt: state.startedAt ? new Date(state.startedAt) : undefined,
+        outcome,
+        turns: state.turnCount,
+        reading: state,
+      });
+    };
     try {
       if (ctx.state.turnCount >= CHAT_TURN_CAP_MAX) {
         throw new Error("chat_turn_limit_exceeded");
@@ -396,6 +431,8 @@ const chatTurnStep: Step<ChatRunState> = {
       } catch (error) {
         if (!stop.stopped) throw error;
         await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+        closeBrackets();
+        emitPhases("stopped");
         return {
           kind: "done",
           state,
@@ -442,6 +479,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // User-initiated stop (composer stop button → Redis flag). Polled while
       // draining the stream; on stop we abort the provider call, keep whatever
       // streamed, and finalize through the normal completion path.
+      generationStartMs = Date.now();
       const stream = await agent.streamTurn({
         ctx,
         // SAFETY: same persisted-superset view as the generateTurn call above.
@@ -478,6 +516,8 @@ const chatTurnStep: Step<ChatRunState> = {
         // assistant row (renders as nothing), which is honest: the user
         // stopped before the model said anything.
         await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+        closeBrackets();
+        emitPhases("stopped");
         // The transcript's assistant turn should reflect everything the model
         // said this turn — earlier narration segments plus the current one.
         const stoppedText = fullAssistantText(state);
@@ -518,6 +558,9 @@ const chatTurnStep: Step<ChatRunState> = {
         if (isStreamTimeoutAbort(err) && !stop.stopped && state.assistantText.trim().length === 0) {
           const retry = retries.afterStreamTimeout(state);
           if (retry) {
+            // Close the brackets before the planner snapshots the state, so
+            // this aborted attempt's partial wall-clock rides the retry (#902).
+            closeBrackets();
             console.warn(
               `[chat-turn] stream timeout abort; retry ` +
                 `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
@@ -527,6 +570,9 @@ const chatTurnStep: Step<ChatRunState> = {
         }
         throw err;
       }
+      // The stream settled: everything from the `streamTurn` call to here is
+      // generation wall-clock (#902) — token streaming and the drain overlap.
+      foldGeneration();
       const { toolCalls, finishReason, response, warnings, usage } = finalStep;
       const billedInputTokens = usage.inputTokens;
       if (typeof billedInputTokens === "number" && billedInputTokens > 0) {
@@ -601,6 +647,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // across the retry (no `started` re-poke, no committed delta).
         const retry = retries.afterEmptyCompletion(state);
         if (retry) {
+          closeBrackets();
           console.warn(
             `[chat-turn] empty completion (finishReason:${finishReason}); retry ` +
               `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
@@ -658,6 +705,8 @@ const chatTurnStep: Step<ChatRunState> = {
 
       // final → persist the assistant message and complete.
       await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+      closeBrackets();
+      emitPhases("completed");
       return {
         kind: "done",
         state,
@@ -672,6 +721,11 @@ const chatTurnStep: Step<ChatRunState> = {
       // the run failure for audit.
       await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
+    } finally {
+      // Close the step's wall-clock bracket on every exit — done, retry,
+      // park-adjacent `next`, or throw. Idempotent: exits that already read
+      // the accumulators closed them first.
+      closeBrackets();
     }
   },
 };
@@ -690,6 +744,29 @@ const dispatchToolsStep: Step<ChatRunState> = {
     };
     let transcript = [...ctx.transcript];
 
+    // Phase thermometer (#902). A resumed run re-enters this step after a
+    // park; fold the parked wall-clock into its bucket before the round
+    // re-runs, then bracket the round itself as dispatch time.
+    foldResumedPark(state, Date.now());
+    const stepStartedMs = Date.now();
+    let stepWallFolded = false;
+    // Close the step's wall-clock bracket exactly once; anything reading the
+    // accumulators before leaving (the stop-path emission) calls it first.
+    const closeBrackets = (): void => {
+      if (stepWallFolded) return;
+      stepWallFolded = true;
+      state.stepWallMs += Math.max(0, Date.now() - stepStartedMs);
+    };
+    const emitPhases = (outcome: TurnPhaseOutcome): void => {
+      emitTurnPhaseThermometer({
+        runId: ctx.runId,
+        startedAt: state.startedAt ? new Date(state.startedAt) : undefined,
+        outcome,
+        turns: state.turnCount,
+        reading: state,
+      });
+    };
+
     try {
       const calls = state.pendingToolCalls;
       if (calls.length > 0) {
@@ -699,6 +776,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
         // bail at (and a per-call check would race the in-flight dispatches).
         if (await isChatStopRequested(ctx.runId)) {
           await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+          closeBrackets();
+          emitPhases("stopped");
           return {
             kind: "done",
             state,
@@ -707,6 +786,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           };
         }
 
+        const roundStartedMs = Date.now();
         const round = await executeToolCallRound<PendingToolCall>({
           calls,
           transcript,
@@ -726,6 +806,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             allowedIntegrations: state.allowedIntegrations,
           },
         });
+        state.dispatchMs += Math.max(0, Date.now() - roundStartedMs);
         state.activeTools = round.activeNames;
 
         if (round.kind === "waiting") {
@@ -826,6 +907,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
       // the loop for the client instead of stranding the streaming bubble.
       await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
+    } finally {
+      // Close the step's wall-clock bracket on every exit — including the
+      // park (`interruptChatRun`), whose gap is attributed separately by
+      // `foldResumedPark` on resume (#902). The interrupt result holds this
+      // same `state` object, so the fold lands in what the executor commits.
+      closeBrackets();
     }
   },
 };
@@ -876,6 +963,12 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       emptyCompletionRetries: 0,
       streamTimeoutRetries: 0,
       startedAt: undefined,
+      // Phase thermometer (#902) accumulators.
+      generationMs: 0,
+      dispatchMs: 0,
+      stepWallMs: 0,
+      parkedAt: undefined,
+      parkKind: undefined,
       foldedChildRunIds: [],
       notedFailureToolCallIds: [],
     };
@@ -957,6 +1050,18 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
         // failure) writes a `status:"failed"` row, which the client renders as an
         // error with a retry affordance.
         case "failed":
+          // Phase thermometer (#902): failures and cancels emit here — the one
+          // chokepoint every non-completed ending passes through. The reading
+          // is the last-*committed* state, so the faulted step's uncommitted
+          // brackets are lost; that undercount is accepted over re-plumbing
+          // emission into every throw path.
+          emitTurnPhaseThermometer({
+            runId: ctx.runId,
+            startedAt: ctx.state.startedAt ? new Date(ctx.state.startedAt) : undefined,
+            outcome: "failed",
+            turns: ctx.state.turnCount,
+            reading: ctx.state,
+          });
           await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
           return;
         // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so
@@ -973,6 +1078,14 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
         // `ctx.reason` is deliberately unused: it is cancel bookkeeping
         // (`user_stopped`), not something to show as an error.
         case "cancelled":
+          // Same chokepoint as `failed` above (#902).
+          emitTurnPhaseThermometer({
+            runId: ctx.runId,
+            startedAt: ctx.state.startedAt ? new Date(ctx.state.startedAt) : undefined,
+            outcome: "cancelled",
+            turns: ctx.state.turnCount,
+            reading: ctx.state,
+          });
           await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
           return;
         default: {
