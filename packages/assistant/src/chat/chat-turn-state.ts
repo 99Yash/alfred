@@ -138,6 +138,22 @@ export const chatRunStateSchema = z
     startedAt: z.iso.datetime().optional(),
     // Read only while resuming checkpoints created before `startedAt`.
     started: z.boolean().optional(),
+    // ── Phase thermometer (#902) ─────────────────────────────────────────
+    // Wall-clock accumulators for the turn's phase split, shipped once at the
+    // run's terminal as the `runtime.turn.phases` span (see
+    // `./turn-thermometer`). Generation is the streamed model turn; dispatch is
+    // host-side tool-round execution including sub-agent join parks. All three
+    // default to 0 for checkpoints minted before this slice.
+    generationMs: z.number().int().min(0).default(0),
+    dispatchMs: z.number().int().min(0).default(0),
+    // Total wall-clock spent inside step bodies; `other` is derived at emit
+    // time as the residual after generation and dispatch (`otherPhaseMs`).
+    stepWallMs: z.number().int().min(0).default(0),
+    // Set when a dispatch round parks the run, folded back into the phase
+    // buckets on resume by {@link foldResumedPark}.
+    parkedAt: z.iso.datetime().optional(),
+    /** Why the run parked: `join` = sub-agent await, `gate` = HIL approval. */
+    parkKind: z.enum(["join", "gate"]).optional(),
     // Instant the ephemeral `<runtime_context>` line — the chat run's single
     // source of the current date and time — is anchored to (#410). Held stable
     // across a contiguous execution slice so the tool-result tail stays
@@ -197,7 +213,36 @@ export function interruptChatRun(
   // A park is the real discontinuity. Clearing here makes even a millisecond
   // park refresh grounding, while a long uninterrupted tool loop retains it.
   state.runtimeGroundingAnchor = undefined;
+  // Stamp the park so the phase thermometer (#902) can attribute the parked
+  // wall-clock on resume: in this workflow a signal wake is a sub-agent join
+  // (`await_sub_agent`), an HIL wake is a gated action waiting on the user.
+  state.parkedAt = new Date().toISOString();
+  state.parkKind = wake.kind === "hil" ? "gate" : "join";
   return { kind: "interrupt", state, transcript, wake };
+}
+
+/**
+ * Attribute the wall-clock a just-resumed run spent parked (#902).
+ *
+ * Called at the top of the resumed step body. A sub-agent join park folds into
+ * `dispatchMs` — the join is tool work the boss is synchronously waiting on,
+ * and it is exactly the slow-tool signal the thermometer hunts. A gate
+ * (approval) park is human time, not machine dispatch, so it stays out of the
+ * buckets and lands in the residual `other` reading instead. Either way the
+ * markers clear so a later park stamps fresh. Returns the folded gap (0 when
+ * the state carries no unfinished park).
+ */
+export function foldResumedPark(
+  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs">,
+  now: number,
+): number {
+  if (state.parkedAt === undefined || state.parkKind === undefined) return 0;
+  const parkedAtMs = Date.parse(state.parkedAt);
+  const gap = Number.isFinite(parkedAtMs) ? Math.max(0, now - parkedAtMs) : 0;
+  if (state.parkKind === "join") state.dispatchMs += gap;
+  state.parkedAt = undefined;
+  state.parkKind = undefined;
+  return gap;
 }
 
 /**
