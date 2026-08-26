@@ -32,15 +32,18 @@ promotion (`no-chained-type-assertions`: 46 → 0; `no-known-value-widening`:
 290 → 0; `no-unknown-type-aliases` was clean on arrival and never had any).
 
 **Five rules at `warn`** — paydown rules with live violations (counts as of
-2026-08-25):
+2026-08-26):
 
 | Rule                                        | Violations | What it rejects                                     |
 | ------------------------------------------- | ---------- | --------------------------------------------------- |
-| `require-safety-comment-for-type-assertion` | ~450       | type assertions without a `SAFETY:` comment         |
 | `no-runtime-typeof`                         | ~405       | runtime `typeof` checks instead of boundary parsing |
+| `require-safety-comment-for-type-assertion` | ~220       | type assertions without a `SAFETY:` comment         |
 | `no-shape-in-symbol-names`                  | ~170       | "shape" in identifier names                         |
 | `no-unsafe-dictionary-type`                 | ~155       | `Record<string, unknown>` and equivalents           |
 | `no-unknown-returns`                        | ~94        | functions returning `unknown`                       |
+
+Counts drift with paydown; regenerate with
+`pnpm exec oxlint --format json . | grep -o 'anti-slop([^)]*)' | sort | uniq -c`.
 
 `pnpm check:oxlint-plugin` holds all of that together: it runs the upstream
 fixtures, asserts every vendored rule is registered here, and DRIVES each rule
