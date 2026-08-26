@@ -18,27 +18,28 @@
   "jsPlugins": ["oxlint-tailwindcss", "./scripts/oxlint/anti-slop/index.ts"],
   "categories": {},
   "rules": {
-    // The three vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
-    // upstream commit and for the twelve rules measured and deliberately NOT vendored). Each one
-    // had ZERO violations in apps + packages + scripts on adoption, so all three are pure
-    // ratchets: they can only fire on code written after this point, and none of them is holding
-    // back a paydown backlog. That is the bar for registering a fourth — a rule the tree already
-    // violates belongs in its own change, violations first, rule second.
+    // The vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
+    // upstream commit and for the twelve rules measured and deliberately NOT vendored).
+    //
+    // Six rules at `error`. Each was either adopted clean (zero violations on arrival,
+    // so it can only fire on code written after adoption) or driven to zero at warn and
+    // promoted here. That is also the bar for registering a new rule — a rule the tree
+    // already violates belongs in its own change, violations first, rule second.
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-widen-then-assert": "error",
-    // Nine rules enabled at warn for paydown. Each had violations when adopted;
-    // promote to error only after the tree is clean. Three rules stay out:
+    "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    // Five rules remain at warn for paydown. Each still has live violations;
+    // promote to error only after the tree is clean. Three upstream rules stay out:
     // - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
     // - no-unknown-parameters: conflicts with boundary validator pattern
     // - no-reflect-get: conflicts with Reflect.get for class instances
-    "anti-slop/no-chained-type-assertions": "error",
-    "anti-slop/no-known-value-widening": "warn",
-    "anti-slop/no-object-parameters": "error",
     "anti-slop/no-runtime-typeof": "warn",
     "anti-slop/no-shape-in-symbol-names": "warn",
     "anti-slop/no-unknown-returns": "warn",
-    "anti-slop/no-unknown-type-aliases": "warn",
     "anti-slop/no-unsafe-dictionary-type": "warn",
     "anti-slop/require-safety-comment-for-type-assertion": "warn",
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],

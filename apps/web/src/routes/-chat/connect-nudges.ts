@@ -32,6 +32,12 @@ export interface ConnectNudgeView {
   cta: string;
 }
 
+/** One persisted turn split into drawable cards and repair offers. */
+export interface PersistedToolCallSplit {
+  cards: SyncedChatToolCall[];
+  nudges: ChatConnectNudge[];
+}
+
 /**
  * Pull the repair offers out of a persisted turn's tool-call log, deduped by
  * integration under the same rule as the live stream state's map:
@@ -42,10 +48,9 @@ export interface ConnectNudgeView {
  * draw as a failed step, inflate the run summary, or leak into source
  * extraction.
  */
-export function splitPersistedToolCalls(toolCalls: readonly SyncedChatToolCall[]): {
-  cards: SyncedChatToolCall[];
-  nudges: ChatConnectNudge[];
-} {
+export function splitPersistedToolCalls(
+  toolCalls: readonly SyncedChatToolCall[],
+): PersistedToolCallSplit {
   const cards: SyncedChatToolCall[] = [];
   const offers = new Map<string, ChatConnectNudge>();
   for (const call of toolCalls) {
