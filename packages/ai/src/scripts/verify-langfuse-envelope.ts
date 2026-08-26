@@ -98,6 +98,8 @@ async function fetchTrace(
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
+  // SAFETY: VerifiedTrace is the loose diagnostic view this verifier reads;
+  // field accesses tolerate absence, and a wrong shape fails the check itself.
   return res.json() as Promise<VerifiedTrace>;
 }
 

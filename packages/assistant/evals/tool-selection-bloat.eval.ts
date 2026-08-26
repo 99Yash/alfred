@@ -82,6 +82,8 @@ function buildToolSet(slugs: IntegrationSlug[]): ToolSet {
       out[reg.name] = tool({ description: reg.description, inputSchema: reg.inputSchema });
     }
   }
+  // SAFETY: ToolSet is the SDK's index-signature tool record; the resolved map
+  // satisfies it by construction.
   return out as ToolSet;
 }
 

@@ -853,6 +853,8 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   }
 
   if (valueType === "object") {
+    // SAFETY: value === null returned "null" at the top of the walk and
+    // valueType is `typeof value`, so this branch holds a non-null object.
     const objectValue = value as object;
     if (seen.has(objectValue)) throw new TypeError("Cannot hash circular tool input");
     seen.add(objectValue);

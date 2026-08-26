@@ -265,6 +265,9 @@ export const vectorColumn = (name: string, dimensions: number) =>
       return formatVectorFloat32(value);
     },
     fromDriver(value: string): number[] {
+      // SAFETY: the column stores a pg vector literal — toDriver wrote a
+      // number[] through formatVectorFloat32, so parsing it back yields
+      // numbers in array order.
       return JSON.parse(value) as number[];
     },
   })(name);

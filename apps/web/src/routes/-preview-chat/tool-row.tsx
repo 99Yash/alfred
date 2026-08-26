@@ -72,5 +72,7 @@ export function ToolRow(props: ToolRowProps) {
 }
 
 export function SearchRow(props: Omit<ToolRowProps, "done">) {
+  // SAFETY: SearchRow supplies `done` itself; props carries every other
+  // ToolRowProps member by the Omit type.
   return <ToolRow {...(props as ToolRowProps)} done />;
 }

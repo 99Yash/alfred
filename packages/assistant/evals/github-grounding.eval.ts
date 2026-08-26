@@ -110,6 +110,8 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
     const call = result.toolCalls.find((c) => c.toolName === SEARCH_TOOL) ?? result.toolCalls[0];
     return {
       toolName: call?.toolName ?? null,
+      // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
+      // tolerates absence via ??.
       args: (call?.input as Record<string, unknown> | undefined) ?? null,
       text: result.text,
     };
@@ -195,6 +197,8 @@ evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
     const call = result.toolCalls[0];
     return {
       toolName: call?.toolName ?? null,
+      // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
+      // tolerates absence via ??.
       args: (call?.input as Record<string, unknown> | undefined) ?? null,
       text: result.text,
     };

@@ -174,6 +174,8 @@ function assertProtocolRegistry(): void {
       );
     }
   }
+  // SAFETY: PROVIDER_ADAPTERS is keyed by ModelProviderId and holds one
+  // adapter per entry, so Object.entries yields exactly these tuples.
   for (const [provider, adapter] of Object.entries(PROVIDER_ADAPTERS) as [
     ModelProviderId,
     ProviderAdapter<ModelId>,
@@ -200,6 +202,8 @@ function decodeToolName(name: string, encoding: ToolNameEncoding): string {
 
 function assertToolNameRegistry(): void {
   for (const adapter of Object.values(PROVIDER_ADAPTERS)) {
+    // SAFETY: INTEGRATION_ACTIONS is keyed by IntegrationSlug with readonly
+    // string-array actions, so Object.entries yields exactly these tuples.
     for (const [integration, actions] of Object.entries(INTEGRATION_ACTIONS) as [
       IntegrationSlug,
       readonly string[],
@@ -263,6 +267,8 @@ function consumeTurnEnvelope(providerOptions: CallOptions["providerOptions"]): T
   const parsed = turnEnvelopeSchema.safeParse(envelope);
   return {
     cacheTtl: parsed.success ? (parsed.data.cacheTtl ?? undefined) : undefined,
+    // SAFETY: rest is the caller's own providerOptions record minus our
+    // internal namespace key; ProviderOptions is that same record-of-records.
     providerOptions: Object.keys(rest).length > 0 ? (rest as ProviderOptions) : undefined,
   };
 }
@@ -336,6 +342,8 @@ function decorateAnthropicTools(
   }
   if (lastFunctionIndex === -1) return out;
   out[lastFunctionIndex] = withAnthropicCacheControl(
+    // SAFETY: lastFunctionIndex was set only where the entry's type is
+    // "function", which is FunctionToolDefinition's discriminant.
     out[lastFunctionIndex] as FunctionToolDefinition,
     ttl,
   );
@@ -400,6 +408,9 @@ function encodeMessagePart(part: MessagePart, encoding: ToolNameEncoding): Messa
 
 function encodePromptMessage(message: PromptMessage, encoding: ToolNameEncoding): PromptMessage {
   if (!Array.isArray(message.content)) return message;
+  // SAFETY: encodeMessagePart returns either the part unchanged or a spread
+  // of it with toolName rewritten, so every member keeps its PromptMessage
+  // content-part type.
   return {
     ...message,
     content: message.content.map((part) => encodeMessagePart(part, encoding)),
@@ -553,5 +564,8 @@ export function createProviderRouteModel(
       }),
     });
   }
+  // SAFETY: model is a LanguageModelV4 composed entirely from
+  // createProviderModel / composeFallback / wrapLanguageModel above; the brand
+  // is minted once here, at the outer route seam.
   return model as ProviderAdaptedLanguageModel;
 }

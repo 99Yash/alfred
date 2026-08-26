@@ -124,7 +124,9 @@ function asString(value: unknown): string | undefined {
 function primaryType(schema: JsonSchema): string | undefined {
   const t = schema.type;
   if (typeof t === "string") return t;
-  if (Array.isArray(t)) return t.find((v) => v !== "null") as string | undefined;
+  if (Array.isArray(t)) {
+    return t.find((v): v is string => typeof v === "string" && v !== "null");
+  }
   return undefined;
 }
 
@@ -164,6 +166,8 @@ function fieldFromProperty(key: string, prop: JsonSchema, required: boolean): Fi
   }
 
   if (type === "array") {
+    // SAFETY: a JSON Schema `items` keyword, when present, is itself a schema
+    // object; JsonSchema models one as this loose record shape.
     const items = (prop.items as JsonSchema | undefined) ?? {};
     const itemType = primaryType(items);
     if (itemType === "string") {
@@ -189,6 +193,8 @@ function deref(schema: JsonSchema, root: JsonSchema): JsonSchema {
   const ref = asString(schema.$ref);
   if (!ref) return schema;
   const name = ref.replace(/^#\/(\$defs|definitions)\//, "");
+  // SAFETY: `$defs` / `definitions` hold named schema nodes per the JSON
+  // Schema spec; the loose record view types that map.
   const defs = (root.$defs ?? root.definitions) as Record<string, JsonSchema> | undefined;
   return defs?.[name] ?? schema;
 }
@@ -200,6 +206,8 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
     // avoids `$ref` indirection for shared primitives; `unrepresentable: "any"`
     // keeps custom `.refine()` checks from throwing (the server still enforces
     // them on `.parse()` — they just don't shape the form).
+    // SAFETY: z.toJSONSchema emits a JSON Schema document, which is exactly
+    // the loose record shape the JsonSchema alias models.
     json = z.toJSONSchema(schema, {
       io: "input",
       reused: "inline",
@@ -211,6 +219,8 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
 
   const root = json;
   const resolved = deref(json, root);
+  // SAFETY: a JSON Schema `properties` keyword maps property names to schema
+  // nodes; the loose record view types that map.
   const properties = resolved.properties as Record<string, JsonSchema> | undefined;
   if (!properties) return null;
 
@@ -234,6 +244,10 @@ const FIELD_CACHE = new Map<ToolName, FieldSpec[] | null>();
  */
 export function toolInputFields(toolName: ToolName): FieldSpec[] | null {
   if (FIELD_CACHE.has(toolName)) return FIELD_CACHE.get(toolName) ?? null;
+  // SAFETY: TOOL_INPUT_SCHEMAS is keyed by ToolName (its key type is checked
+  // against the union) with one intentionally absent entry, so Partial is the
+  // honest lookup type; the cast only homogenizes the per-tool schema values
+  // to their common base for this read.
   const schema = (TOOL_INPUT_SCHEMAS as Partial<Record<ToolName, z.ZodType>>)[toolName];
   const fields = schema ? deriveFields(schema) : null;
   FIELD_CACHE.set(toolName, fields);

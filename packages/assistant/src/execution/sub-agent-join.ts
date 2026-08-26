@@ -65,6 +65,8 @@ export type ParkSignal = SafeToParkSignal;
  * system — so it is confined here, one line from the check that earns it.
  */
 function mintParkSignal(childRunId: string): ParkSignal {
+  // SAFETY: ParkSignal is the branded signal-name template; the minter builds
+  // exactly that string.
   return subAgentDoneSignalName(childRunId) as ParkSignal;
 }
 

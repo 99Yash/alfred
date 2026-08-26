@@ -631,7 +631,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     state: {
       ...ctx.state,
       sourceThreadId,
-      category: classification.category as TriageCategory,
+      category: classification.category,
       confidence: classification.confidence,
       rationale: classification.rationale,
       senderContext,

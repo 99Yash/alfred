@@ -48,6 +48,7 @@ export const PROVIDER_COLOR = {
 export function formatEventRange(subtitle: string, timeZone: string): string {
   const parts = subtitle.split(" - ");
   if (parts.length !== 2) return subtitle;
+  // SAFETY: the length check above proves the split yielded exactly two parts.
   const [start, end] = parts as [string, string];
   const startDate = new Date(start);
   const endDate = new Date(end);

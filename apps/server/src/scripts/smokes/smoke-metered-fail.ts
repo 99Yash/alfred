@@ -48,6 +48,8 @@ async function main() {
   console.log(`[fail-smoke] failure row: cost=${row.costUsd} error=${JSON.stringify(row.error)}`);
   if (Number(row.costUsd) !== 0)
     throw new Error(`expected cost_usd=0 on failure, got ${row.costUsd}`);
+  // SAFETY: agent_runs.error is jsonb written by the executor with a message
+  // field for failed runs.
   const err = row.error as { message?: string } | null;
   if (err?.message !== "synthetic failure for smoke test") {
     throw new Error(`error column not populated correctly: ${JSON.stringify(row.error)}`);

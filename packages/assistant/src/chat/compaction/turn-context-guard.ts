@@ -168,6 +168,8 @@ async function applyForegroundContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
+      // SAFETY: AgentTranscriptMessage is the persisted superset view of the
+      // SDK's ModelMessage transcript; assess reads the model-message shape.
       transcript: candidate as ModelMessage[],
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
@@ -319,6 +321,9 @@ async function applyWithinRunContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
+      // SAFETY: withEphemeralReference rebuilds the same transcript shape it is
+      // given (AgentTranscriptMessage), which the pressure check reads as
+      // ModelMessage.
       transcript: withEphemeralReference(candidate, artifactReference) as ModelMessage[],
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,

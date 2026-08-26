@@ -142,6 +142,8 @@ async function agentTodoThreads(userId: string): Promise<{ ids: string[]; thread
 
   const threads = new Set<string>();
   for (const t of rows) {
+    // SAFETY: email_triage.sources is the jsonb { provider, kind, id } envelope
+    // written by the triage workflow; Array.isArray gates the array read.
     const sources = Array.isArray(t.sources)
       ? (t.sources as Array<{ provider: string; kind: string; id: string }>)
       : [];

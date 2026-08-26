@@ -75,6 +75,8 @@ function draftFromWorkflow(w: SyncedWorkflow): Draft {
     eventSource,
     eventType: t.kind === "event" ? t.type : (EVENT_TYPES_BY_SOURCE[eventSource][0] ?? ""),
     allowed: w.allowedIntegrations.filter((s): s is LoadableIntegrationSlug =>
+      // SAFETY: widening the const tuple only types the .includes receiver for
+      // this membership test.
       (LOADABLE_INTEGRATION_SLUGS as readonly string[]).includes(s),
     ),
   };
@@ -118,6 +120,8 @@ export function PlanTab({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // SAFETY: the per-source row is a const tuple of event-type literals;
+  // widening only types downstream .includes / index reads on it.
   const eventTypes = EVENT_TYPES_BY_SOURCE[draft.eventSource] as readonly string[];
 
   // The event trigger source must be inside a non-empty allowed-integration
@@ -262,6 +266,7 @@ export function PlanTab({
                   setDraft((d) => ({
                     ...d,
                     eventSource,
+                    // SAFETY: same const-tuple row read as above.
                     eventType: (EVENT_TYPES_BY_SOURCE[eventSource] as readonly string[])[0] ?? "",
                   }))
                 }

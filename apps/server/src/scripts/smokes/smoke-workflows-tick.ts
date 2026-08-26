@@ -113,6 +113,8 @@ async function main() {
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
   assert(runs.length === 1, `expected exactly 1 run row after tick 1; got ${runs.length}`);
   const run = runs[0]!;
+  // SAFETY: agent_runs.trigger is jsonb written by the cron scheduler with
+  // this envelope.
   const trigger = run.trigger as { kind: string; scheduledFor: string } | null;
   assert(trigger?.kind === "cron", `expected trigger.kind='cron'; got ${JSON.stringify(trigger)}`);
   assert(

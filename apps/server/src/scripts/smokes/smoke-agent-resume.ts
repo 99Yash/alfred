@@ -28,6 +28,8 @@ async function main() {
     throw new Error(`expected waiting, got ${row.status}`);
   }
 
+  // SAFETY: agent_runs.wakeCondition is jsonb written by the park path with
+  // this envelope.
   const wake = row.wakeCondition as { kind: string; approvalId: string } | null;
   if (!wake || wake.kind !== "hil") throw new Error("expected HIL wake");
 

@@ -594,6 +594,8 @@ export function pinningLookup(
       const list = addresses ?? [];
       const blocked = list.find((a) => isBlockedIp(a.address));
       if (blocked) {
+        // SAFETY: minting an errno-style error; `code` is the field Node
+        // conventions attach to it.
         const e = new Error(
           `'${hostname}' resolves to a private or internal address (${blocked.address}).`,
         ) as NodeJS.ErrnoException;
@@ -603,6 +605,7 @@ export function pinningLookup(
       }
       const first = list[0];
       if (!first) {
+        // SAFETY: errno-style mint, same as the EBLOCKEDHOST site above.
         const e = new Error(`'${hostname}' did not resolve.`) as NodeJS.ErrnoException;
         e.code = "ENOTFOUND";
         callback(e);
@@ -979,6 +982,9 @@ export async function safeRequest(
       // SAFETY: the throw site above tags the blocked-host error with this
       // exact `code` via ErrnoException.
       if ((err as NodeJS.ErrnoException)?.code === "EBLOCKEDHOST") {
+        // SAFETY: the classifier above matched the errno-style error this
+        // module minted (an Error carrying message), so `.message` reads the
+        // same object's own field.
         const e = new FetchError("blocked_host", (err as Error).message, parsed.toString());
         e.redirects = chain;
         throw e;

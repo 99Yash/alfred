@@ -73,6 +73,8 @@ export function parseLocalDateKey(value: string): LocalDateKey {
   if (utc.toISOString().slice(0, 10) !== value) {
     throw new Error(`[timezone] not a real calendar day: ${value}`);
   }
+  // SAFETY: value passed isLocalDateKey above, which accepts exactly the
+  // YYYY-MM-DD calendar-day shape the brand names.
   return value as LocalDateKey;
 }
 
@@ -228,6 +230,8 @@ const WALL_CLOCK_RECIPE: FormatRecipe = {
 export function addDays(key: LocalDateKey, days: number): LocalDateKey {
   const next = noonUtcOn(key);
   next.setUTCDate(next.getUTCDate() + days);
+  // SAFETY: the first ten chars of an ISO instant are exactly YYYY-MM-DD,
+  // which is the LocalDateKey brand's whole claim.
   return next.toISOString().slice(0, 10) as LocalDateKey;
 }
 
@@ -240,6 +244,8 @@ export function addDays(key: LocalDateKey, days: number): LocalDateKey {
  * cosmetic and silently breaks the decision.
  */
 export function weekdayIndex(key: LocalDateKey): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
+  // SAFETY: getUTCDay returns exactly 0-6 by spec; the literal union restates
+  // that domain fact for the compiler.
   return noonUtcOn(key).getUTCDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
 }
 

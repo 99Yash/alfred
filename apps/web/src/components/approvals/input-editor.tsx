@@ -96,6 +96,8 @@ function editorFieldsForTool(
 }
 
 function hasCalendarListKey(keys: ReadonlySet<CalendarListEventsKey>, key: string): boolean {
+  // SAFETY: widening the set only types .has' argument — CalendarListEventsKey
+  // members are strings, and a miss is the intended false answer.
   return (keys as ReadonlySet<string>).has(key);
 }
 

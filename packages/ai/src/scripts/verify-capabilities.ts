@@ -149,6 +149,8 @@ async function main() {
   const drift: string[] = [];
   const missing: string[] = [];
 
+  // SAFETY: MODEL_CAPABILITIES is keyed by ModelId, so Object.keys of that
+  // very table enumerates exactly those ids.
   for (const modelId of Object.keys(MODEL_CAPABILITIES) as ModelId[]) {
     const provider = MODEL_REGISTRY[modelId];
     const result = await db().execute(sql`

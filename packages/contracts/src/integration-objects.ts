@@ -25,6 +25,9 @@ export const TERMINAL_STATE_CATEGORIES = ["resolved", "failed", "abandoned"] as 
 export type TerminalStateCategory = (typeof TERMINAL_STATE_CATEGORIES)[number];
 
 export function isTerminalCategory(category: StateCategory): category is TerminalStateCategory {
+  // SAFETY: the tuple is a const list of StateCategory literals; widening to
+  // readonly string[] only types the .includes receiver for this narrowing
+  // predicate.
   return (TERMINAL_STATE_CATEGORIES as readonly string[]).includes(category);
 }
 
@@ -39,6 +42,9 @@ export type LoopClosingStateCategory = (typeof LOOP_CLOSING_STATE_CATEGORIES)[nu
 export function isLoopClosingCategory(
   category: StateCategory,
 ): category is LoopClosingStateCategory {
+  // SAFETY: the tuple is a const list of StateCategory literals; widening to
+  // readonly string[] only types the .includes receiver for this narrowing
+  // predicate.
   return (LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(category);
 }
 

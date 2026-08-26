@@ -74,6 +74,8 @@ async function main() {
   if (parked.status !== "waiting") {
     throw new Error(`expected waiting, got ${parked.status}`);
   }
+  // SAFETY: agent_runs.wakeCondition is jsonb written by the park path with
+  // this envelope.
   const wake = parked.wakeCondition as { kind: string; approvalId: string };
   console.log(`[smoke] interrupted; wake=${JSON.stringify(wake)}`);
 

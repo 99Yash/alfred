@@ -78,6 +78,8 @@ function buildAllTools() {
       out[r.name] = tool({ description: r.description, inputSchema: r.inputSchema });
     }
   }
+  // SAFETY: ToolSet is the SDK's index-signature tool record; the resolved
+  // map satisfies it by construction.
   return { tools: out as ToolSet, count: Object.keys(out).length };
 }
 
@@ -121,6 +123,8 @@ async function once(
 
   for await (const part of res.stream) {
     const now = performance.now();
+    // SAFETY: stream parts are discriminated on `type`; this only types that
+    // field read for the part-kind test below.
     const type = String((part as { type: string }).type);
     if (ttft === null && isContent(type)) ttft = now - t0;
     if (firstText === null && (type === "text-delta" || type === "text")) firstText = now - t0;

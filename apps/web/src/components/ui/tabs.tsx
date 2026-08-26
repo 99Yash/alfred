@@ -53,8 +53,11 @@ export function Tabs<T extends string = string>({
   label = "Tabs",
   className,
 }: TabsProps<T>) {
+  // SAFETY: Radix emits the string value of a rendered item, which is exactly
+  // the generic T this component was instantiated with.
+  const emit = (next: string) => onValueChange(next as T);
   return (
-    <TabsPrimitive.Root value={value} onValueChange={(next) => onValueChange(next as T)}>
+    <TabsPrimitive.Root value={value} onValueChange={emit}>
       <TabsPrimitive.List aria-label={label} className={listClassName(variant, className)}>
         {items.map((item) => (
           <TabsPrimitive.Trigger

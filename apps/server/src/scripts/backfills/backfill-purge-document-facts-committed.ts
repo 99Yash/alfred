@@ -91,6 +91,8 @@ type ActiveFactRow = {
 
 /** Lower wins. User edits beat cold-start beat agent beat autonomous extraction. */
 function sourcePriority(source: unknown): number {
+  // SAFETY: documents.source is the jsonb { kind, id } envelope written at
+  // ingest; every read below tolerates absence.
   const kind = (source as { kind?: string } | null)?.kind;
   switch (kind) {
     case "user":
@@ -171,6 +173,8 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
   // documents.id == the document fact's source.id.
   const docIds = Array.from(
     new Set(
+      // SAFETY: rows' source column is the jsonb { kind, id } envelope read by
+      // sourcePriority above; both reads below tolerate absence.
       rows
         .filter((r) => (r.source as { kind?: string } | null)?.kind === "document")
         .map((r) => (r.source as { id?: string } | null)?.id)
@@ -194,11 +198,13 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
   const purge: Array<{ row: ActiveFactRow; reason: string }> = [];
   const surviving: ActiveFactRow[] = [];
   for (const r of rows) {
+    // SAFETY: same source envelope as sourcePriority above.
     const kind = (r.source as { kind?: string } | null)?.kind;
     if (kind !== "document") {
       surviving.push(r);
       continue;
     }
+    // SAFETY: same source envelope as above.
     const sourceId = (r.source as { id?: string } | null)?.id;
     const doc = sourceId ? docById.get(sourceId) : undefined;
     // A missing source document can't attribute a Tier-B identity claim — feed

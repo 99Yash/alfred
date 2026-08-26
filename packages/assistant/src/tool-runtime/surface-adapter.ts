@@ -75,6 +75,8 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       .filter((definition) => definition.availability?.surface !== "kernel")
       .map((definition) => definition.name);
     const resolved: ResolvedToolSurface = {
+      // SAFETY: the SDK ToolSet is an index-signature record of tools; the
+      // resolved tool map satisfies it by construction.
       tools: tools as ToolSet,
       surfacedNames,
       loadedNames,

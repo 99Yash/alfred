@@ -268,6 +268,8 @@ type RunScopedFrame = Extract<
  * unrepresentable.
  */
 function toBarrierRunId(frame: RunScopedFrame): BarrierRunId {
+  // SAFETY: RunScopedFrame's payload was schema-parsed with runId present;
+  // BarrierRunId brands that same string.
   return frame.payload.runId as BarrierRunId;
 }
 

@@ -112,6 +112,8 @@ function labelOf(category: UsageRunCategory, workflowSlug: string | null, state:
 function categoryPredicate(category: UsageRunCategory): SQL {
   switch (category) {
     case "workflow":
+      // SAFETY: drizzle's and() returns a narrower SQL chunk union than the
+      // declared return; the built predicate is exactly a SQL node.
       return and(isNotNull(agentRuns.id), notInArray(agentRuns.workflowSlug, KNOWN_SLUGS)) as SQL;
     case "uncategorized":
       return isNull(agentRuns.id);

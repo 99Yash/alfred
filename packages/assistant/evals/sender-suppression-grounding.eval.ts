@@ -284,11 +284,18 @@ evalite<string, GroundingTaskOutput, null>(
         const call = result.toolCalls[0];
         return {
           toolName: call?.toolName ?? null,
+          // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
+          // tolerates absence via ??.
           args: (call?.input as Record<string, unknown> | undefined) ?? null,
           text: result.text,
         };
       } catch (err) {
-        return { toolName: null, args: null, text: `ERROR: ${(err as Error).message}` };
+        return {
+          // SAFETY: caught values here are this eval's own thrown Errors.
+          toolName: null,
+          args: null,
+          text: `ERROR: ${(err as Error).message}`,
+        };
       }
     },
     scorers: [

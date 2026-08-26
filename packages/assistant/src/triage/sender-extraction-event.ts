@@ -93,14 +93,19 @@ type FloorTraceFields = UnionToIntersection<
  */
 function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
   const fields: Record<string, unknown> = {};
+  // SAFETY: FLOOR_TRACE_PROJECTIONS is keyed by ProjectedFloorName, so its
+  // keys enumerate exactly those names.
   for (const name of Object.keys(FLOOR_TRACE_PROJECTIONS) as ProjectedFloorName[]) {
     // Localized casts: `name` and the projection it indexes are correlated by
     // construction, which the compiler cannot follow through the key union. The
     // registry's `satisfies` already checked each entry against its own floor's
     // audit type, and neither widening reaches a caller.
+    // SAFETY: name came from the table's own key list, so the indexed entry is
+    // that projection.
     const project = FLOOR_TRACE_PROJECTIONS[name] as FloorTraceProjection<ProjectedFloorName>;
     Object.assign(fields, project(floors?.[name] ?? null));
   }
+  // SAFETY: the loop assigned one field-set per projected floor above.
   return fields as FloorTraceFields;
 }
 

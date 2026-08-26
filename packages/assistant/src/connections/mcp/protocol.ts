@@ -168,6 +168,8 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     // reconcile the two.
     try {
       await this.#client.connect(
+        // SAFETY: our transport implements the MCP Transport interface; the
+        // SDK ships its own wider nominal type for the same members.
         this.#transport as Transport,
         requestOptions(this.#requestTimeoutMs, undefined, trace),
       );

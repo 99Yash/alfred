@@ -131,6 +131,8 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
       console.log(`! skipping credential=${r.credentialId} (${r.email}) — status=${r.status}`);
       continue;
     }
+    // SAFETY: integration_credentials.scopes is a jsonb string array written by
+    // the connect flow.
     const scopes = (r.scopes as string[] | null) ?? [];
     if (!hasGmailScope(scopes)) {
       console.log(`! skipping credential=${r.credentialId} (${r.email}) — no gmail scope`);

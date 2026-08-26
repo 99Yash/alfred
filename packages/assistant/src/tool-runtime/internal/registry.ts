@@ -510,7 +510,14 @@ export function liveTool<
       return args.execute(parsed, ctx);
     },
     ...(args.redactInput
-      ? { redactInput: (input: unknown) => args.redactInput!(input as z.infer<S>) }
+      ? {
+          // SAFETY: the registry erases schema-typed fields to unknown on
+          // RegisteredTool, so this restores the authoring generic S for the
+          // stored closure. Dispatch invokes redactInput on raw pre-parse
+          // input and catches a throw, so the redactor reads its fields
+          // defensively.
+          redactInput: (input: unknown) => args.redactInput!(input as z.infer<S>),
+        }
       : {}),
     ...(args.resolveRiskTier
       ? {
@@ -626,6 +633,8 @@ export function registerTool(tool: RegisteredTool): void {
   // mirrors the compile-time check `liveTool` enforces, but covers the
   // case where someone bypasses the factory and constructs a
   // `RegisteredTool` literal directly.
+  // SAFETY: the per-integration row is a readonly tuple of action strings;
+  // widening only types the .includes receiver for the membership test below.
   const knownActions = INTEGRATION_ACTIONS[tool.integration] as readonly string[];
   if (!knownActions.includes(tool.action)) {
     throw new Error(

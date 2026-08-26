@@ -23,6 +23,8 @@ export function isStreamTimeoutAbort(err: unknown): boolean {
     typeof err === "object" &&
     err !== null &&
     "name" in err &&
+    // SAFETY: the `in` check proved the property exists on err; this only
+    // types the field read for the comparison.
     (err as { name?: unknown }).name === "TimeoutError"
   );
 }

@@ -453,7 +453,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       },
     };
   }
-  const input = parsed.data as unknown;
+  const input: unknown = parsed.data;
   const approvedResourceScope = workflowCapabilities[0]?.resourceScope;
   if (approvedResourceScope && !inputMatchesWorkflowResourceScope(input, approvedResourceScope)) {
     const message = `Tool '${toolName}' input is outside this workflow revision's approved resource boundary.`;
@@ -811,7 +811,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
         if (exhausted) return exhausted;
       }
-      return executeAndCommit(row, tool, reparsed.data as unknown, ctx, {
+      return executeAndCommit(row, tool, reparsed.data, ctx, {
         expectedFence: args.fence,
         editedByUser,
       });
@@ -1105,6 +1105,8 @@ function integrationActionSuggestion(
     };
   }
 
+  // SAFETY: INTEGRATION_ACTIONS is keyed by IntegrationSlug, so Object.keys of
+  // that very table enumerates exactly those slugs.
   const matches = (Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]).filter((integration) => {
     if (integration === "system") return false;
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(integration)) {
