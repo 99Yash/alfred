@@ -243,9 +243,13 @@ export async function createRun(
     workflowSlug,
     workflowRevisionId: resolved.userAuthoredRow?.revisionId ?? null,
     brief,
+    // SAFETY: workflow state columns hold plain JSON objects; a missing initial
+    // state stores the empty object.
     state: (initialState as object) ?? {},
     transcript,
     currentStep: workflow.initialStep,
+    // SAFETY: metadata arrives from the workflow trigger envelope, whose
+    // writers store a plain JSON object.
     metadata: metadata as object,
     trigger,
     status: "pending",

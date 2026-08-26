@@ -26,6 +26,7 @@ export function useMicRecording() {
   // Live audio data — shared with the waveform renderer through this ref.
   const levelsRef = useRef<Float32Array | null>(null);
   if (levelsRef.current === null) levelsRef.current = new Float32Array(SAMPLE_COUNT);
+  // SAFETY: the branch above guaranteed current is a Float32Array.
   const initializedLevelsRef = levelsRef as React.RefObject<Float32Array>;
 
   const streamRef = useRef<MediaStream | null>(null);

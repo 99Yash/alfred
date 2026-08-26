@@ -1,4 +1,5 @@
 import { serverEnv } from "@alfred/env/server";
+import { z } from "zod";
 
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
@@ -64,6 +65,19 @@ export interface VercelTokenResult {
   teamId: string | null;
 }
 
+/**
+ * Vercel's token-exchange response. External payload, so it is validated at
+ * this boundary instead of asserted — a malformed body fails the exchange
+ * loudly rather than persisting `undefined` token fields.
+ */
+const tokenResponseSchema = z.object({
+  access_token: z.string().min(1),
+  token_type: z.string().optional(),
+  installation_id: z.string().nullish(),
+  user_id: z.string().nullish(),
+  team_id: z.string().nullish(),
+});
+
 export async function exchangeVercelCode(code: string): Promise<VercelTokenResult> {
   const cfg = getVercelOAuthConfig();
   const form = new URLSearchParams({
@@ -82,13 +96,11 @@ export async function exchangeVercelCode(code: string): Promise<VercelTokenResul
     const body = await res.text().catch(() => "");
     throw new Error(`[vercel.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
   }
-  const json = (await res.json()) as {
-    access_token: string;
-    token_type?: string;
-    installation_id?: string | null;
-    user_id?: string | null;
-    team_id?: string | null;
-  };
+  const parsed = tokenResponseSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error("[vercel.oauth] token exchange returned an unexpected shape");
+  }
+  const json = parsed.data;
   return {
     accessToken: json.access_token,
     tokenType: json.token_type ?? "Bearer",

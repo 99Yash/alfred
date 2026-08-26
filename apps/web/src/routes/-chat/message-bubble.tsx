@@ -191,6 +191,8 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
       // The reply reads at a larger scale than the rail, so its fenced code
       // stays 13px; `--md-code-fs` cascades into the shared CodeBlock's
       // highlighter (which defaults to the rail's 11.5px).
+      // SAFETY: a CSS custom property is valid at runtime; React's
+      // CSSProperties type omits the arbitrary-key form.
       style={{ "--md-code-fs": "13px" } as React.CSSProperties}
       className={cn("text-sm leading-relaxed tracking-tight text-app-fg-4", MARKDOWN_CLASSES)}
     >

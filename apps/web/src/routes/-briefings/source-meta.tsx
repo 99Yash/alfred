@@ -43,13 +43,18 @@ export function SourceIcon({ source }: { source: GatherSourceSlug }) {
  * generic Activity icon for providers without a brand glyph (system, imessage).
  */
 export function ProviderGlyph({ provider, size = 14 }: { provider: string; size?: number }) {
+  // SAFETY: provider is open-ended; the `!brand` guard below answers the
+  // unknown-key case this index admits.
   const brand = PROVIDER_BRAND[provider as keyof typeof PROVIDER_BRAND];
   if (!brand) return <Activity size={size} aria-hidden className="text-app-fg-2" />;
   return (
     <IntegrationGlyph
       brand={brand}
       size={size}
-      colorOverride={PROVIDER_COLOR[provider as keyof typeof PROVIDER_COLOR]}
+      colorOverride={
+        // SAFETY: same open-key lookup as the brand map above.
+        PROVIDER_COLOR[provider as keyof typeof PROVIDER_COLOR]
+      }
     />
   );
 }

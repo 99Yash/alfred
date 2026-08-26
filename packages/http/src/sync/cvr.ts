@@ -40,6 +40,8 @@ export class CVRStore {
     const raw = await this.redis.get(this.key(clientGroupId, version));
     if (!raw) return null;
     try {
+      // SAFETY: the only writer is put(), which stringifies a CVRSnapshot;
+      // truncated or foreign Redis content throws and degrades to null below.
       return JSON.parse(raw) as CVRSnapshot;
     } catch {
       return null;

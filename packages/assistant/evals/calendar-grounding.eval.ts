@@ -47,6 +47,8 @@ const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY);
 // schema also tolerates window-key synonyms (`timeframe`/`range`/…), but the
 // goal we measure here is that the model uses the real `window` — a synonym
 // still counts as a grounding miss even though the tool would accept it.
+// SAFETY: reads only the top-level `properties` keyword off the emitted JSON
+// Schema document.
 const ADVERTISED = z.toJSONSchema(calendarListEventsInput, { io: "input" }) as {
   properties?: Record<string, unknown>;
 };
@@ -114,6 +116,8 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
       result.toolCalls.find((c) => c.toolName === LIST_EVENTS_TOOL) ?? result.toolCalls[0];
     return {
       toolName: call?.toolName ?? null,
+      // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
+      // tolerates absence via ??.
       args: (call?.input as Record<string, unknown> | undefined) ?? null,
       text: result.text,
     };

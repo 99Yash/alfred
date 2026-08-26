@@ -31,6 +31,8 @@ async function fetchTrace(host: string, auth: string, traceId: string): Promise<
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
+  // SAFETY: TraceLike is the deliberately loose diagnostic view of a Langfuse
+  // trace this replay tool reads; every field access tolerates absence.
   return res.json() as Promise<TraceLike>;
 }
 

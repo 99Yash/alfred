@@ -105,6 +105,8 @@ export async function resolveWorkflowForRun(args: {
   }
 
   return {
+    // SAFETY: the registry stores workflows type-erased to Workflow<unknown>;
+    // the typed definition is erased once at this storage seam.
     workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
     workflowSlug: args.workflowSlug,
     userAuthoredRow: {

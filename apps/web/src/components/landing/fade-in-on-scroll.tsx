@@ -32,6 +32,8 @@ export function FadeInOnScroll({
 
   const style: CSSProperties = delay > 0 ? { transitionDelay: `${delay}ms` } : {};
 
+  // SAFETY: As is a polymorphic host element; its ref slot accepts the same
+  // callback ref but types it against `never` to admit arbitrary tags.
   return (
     <As ref={ref as never} className={cn("reveal-on-scroll", className)} style={style}>
       {children}

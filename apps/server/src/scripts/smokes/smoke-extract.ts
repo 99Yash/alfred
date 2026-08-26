@@ -141,6 +141,7 @@ async function main() {
 
   const run1 = await pollRun(runId1, "run 1 completion");
   assert(run1.status === "completed", `run 1 status=${run1.status}`);
+  // SAFETY: agent_runs.output is this smoke's own workflow output shape.
   const out1 = run1.output as { processed: number; proposed: number; blocked: number };
   console.log(
     `[smoke-extract] run 1 output: processed=${out1.processed} proposed=${out1.proposed} blocked=${out1.blocked}`,
@@ -195,6 +196,7 @@ async function main() {
 
   const run2 = await pollRun(runId2, "run 2 completion");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
+  // SAFETY: same workflow output shape as run 1.
   const out2 = run2.output as { processed: number; proposed: number; blocked: number };
   console.log(
     `[smoke-extract] run 2 output: processed=${out2.processed} proposed=${out2.proposed} blocked=${out2.blocked}`,

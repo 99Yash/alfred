@@ -75,6 +75,8 @@ async function realCount(
       body: body(t),
     });
     if (!res.ok) return null;
+    // SAFETY: Anthropic usage payloads put token counts under `input_tokens`;
+    // this diagnostic counter tolerates absence via `?.` at the caller.
     return ((await res.json()) as { input_tokens: number }).input_tokens;
   };
   const base = await call([]);

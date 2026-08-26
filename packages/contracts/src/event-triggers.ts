@@ -19,12 +19,19 @@ export type EventType = {
   [S in EventSource]: EventTypeForSource<S>;
 }[EventSource];
 
-export const EVENT_TYPES = Object.freeze([
-  // De-duplicate: multiple sources share an event type (e.g. both
-  // `google.oauth.callback` and `learn-skill` emit `completed`), so a raw
-  // `.flat()` would repeat it. Keep this a canonical set of unique types.
-  ...new Set(Object.values(EVENT_TYPES_BY_SOURCE).flat()),
-]) as readonly EventType[];
+export const EVENT_TYPES =
+  // SAFETY: every element comes from EVENT_TYPES_BY_SOURCE's per-source const
+  // tuples, whose members are exactly the EventType literals; Set only
+  // dedupes, so the frozen array is a readonly EventType[].
+  Object.freeze([
+    // De-duplicate: multiple sources share an event type (e.g. both
+    // `google.oauth.callback` and `learn-skill` emit `completed`), so a raw
+    // `.flat()` would repeat it. Keep this a canonical set of unique types.
+    // SAFETY: every element comes from EVENT_TYPES_BY_SOURCE's per-source const
+    // tuples, whose members are exactly the EventType literals; Set only
+    // dedupes, so the frozen array is a readonly EventType[].
+    ...new Set(Object.values(EVENT_TYPES_BY_SOURCE).flat()),
+  ]) as readonly EventType[];
 
 export const isEventSource = enumGuard(EVENT_SOURCES);
 
@@ -34,5 +41,8 @@ export function isEventTypeForSource<S extends EventSource>(
   source: S,
   value: string,
 ): value is EventTypeForSource<S> {
+  // SAFETY: the per-source row is a const tuple of that source's event-type
+  // literals; widening to readonly string[] only types the .includes receiver
+  // for the runtime membership test this guard performs.
   return (EVENT_TYPES_BY_SOURCE[source] as readonly string[]).includes(value);
 }

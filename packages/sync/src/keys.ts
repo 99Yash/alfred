@@ -84,7 +84,10 @@ export const IDB_KEY = {
 export type IDBKeys = keyof typeof IDB_KEY;
 
 /** All entity slugs as a runtime array — server iterates over this. */
-export const IDB_KEY_NAMES = Object.keys(IDB_KEY) as IDBKeys[];
+export const IDB_KEY_NAMES =
+  // SAFETY: IDBKeys is `keyof typeof IDB_KEY`, so Object.keys of that very
+  // record enumerates exactly those strings.
+  Object.keys(IDB_KEY) as IDBKeys[];
 
 /**
  * Round-trip through `JSON.stringify`/`JSON.parse` to coerce any

@@ -206,6 +206,9 @@ export async function meteredGenerateText(
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
+    // SAFETY: args is the full metered call arguments and captureInput reads
+    // only the prompt-bearing fields, so its parameter type is a view of these
+    // same args.
     input: captureInput(args as Parameters<typeof captureInput>[0]),
   };
   const callArgs = withDefaultTimeout(args);
@@ -237,6 +240,9 @@ export async function meteredGenerateObject<O>(
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
+    // SAFETY: rest is the metered call arguments minus the structured-output
+    // fields; captureInput reads only the prompt-bearing fields of that same
+    // object.
     input: captureInput(rest as Parameters<typeof captureInput>[0]),
   };
   type Result = GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>;
@@ -286,12 +292,18 @@ export function meteredStreamText(
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
+    // SAFETY: args is the full metered call arguments and captureInput reads
+    // only the prompt-bearing fields, so its parameter type is a view of these
+    // same args.
     input: captureInput(args as Parameters<typeof captureInput>[0]),
   };
   const callerOnEnd = args.onEnd;
   const callerOnError = args.onError;
   const callerOnAbort = args.onAbort;
   const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
+  // SAFETY: streamText's own generic parameters are erased by meteredStream's
+  // non-generic signature; this restores the SDK result shape the caller passed
+  // in for.
   return meteredStream(meta, ({ finish, fail, abort }) =>
     streamText({
       ...args,
@@ -428,5 +440,7 @@ function resolveIds(model: unknown, attribution: AttributedCall): ModelIdentifie
   if (attribution.provider && attribution.model) {
     return { provider: attribution.provider, model: attribution.model };
   }
+  // SAFETY: callers pass the SDK model instance from the very request being
+  // metered, which is a LanguageModel; `unknown` only erases the SDK import.
   return modelIdsFor(model as LanguageModel);
 }

@@ -615,6 +615,8 @@ async function gatherIntegrationActivity(args: {
     .limit(MAX_ACTIVITY_ITEMS);
 
   return rows.map((row) => {
+    // SAFETY: documents.payload is the webhook envelope stored verbatim at
+    // ingest; this read views it as that payload shape.
     const payload = (row.payload ?? {}) as GithubWebhookPayload;
     const { title, status, url } = describeGithubActivity(
       row.eventType,

@@ -536,6 +536,8 @@ function rowToTriage(row: EmailTriage): TriageRow {
     userId: row.userId,
     sourceThreadId: row.sourceThreadId,
     documentId: row.documentId,
+    // SAFETY: email_triage.category is a text column written only with
+    // TRIAGE_CATEGORIES values by these very mutators.
     category: row.category as TriageCategory,
     confidence: row.confidence,
     rationale: row.rationale,

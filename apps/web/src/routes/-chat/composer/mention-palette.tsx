@@ -39,6 +39,8 @@ export function MentionPalette({
     const handler = (e: PointerEvent) => {
       const root = rootRef.current;
       if (!root) return;
+      // SAFETY: DOM events carry an EventTarget-or-null on `target`; Node is
+      // the base of every target the pointerdown can deliver here.
       const target = e.target as Node | null;
       // Don't close on clicks inside the palette, or inside the composer
       // form (the textarea is the trigger surface — clicking it should

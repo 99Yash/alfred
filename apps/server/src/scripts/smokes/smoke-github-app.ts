@@ -59,6 +59,8 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  // SAFETY: GitHub's app endpoint always returns these fields for a valid
+  // JWT (checked above); this smoke only logs them.
   const app = (await appRes.json()) as { id: number; slug: string; name: string };
   console.log(
     `[smoke-github-app] App JWT accepted — app #${app.id} "${app.name}" (slug ${app.slug})`,
@@ -80,6 +82,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  // SAFETY: GitHub's installations list shape; the smoke logs entries tolerantly.
   const installations = (await instRes.json()) as Array<{
     id: number;
     account?: { login?: string };
@@ -103,6 +106,7 @@ async function main() {
       process.exitCode = 1;
       return;
     }
+    // SAFETY: total_count is optional here; the smoke prints "?" on absence.
     const repos = (await repoRes.json()) as { total_count?: number };
     console.log(`   → installation can see ${repos.total_count ?? "?"} repositories`);
   }

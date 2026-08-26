@@ -1,5 +1,6 @@
 import { httpErrorFromResponse } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import { z } from "zod";
 import {
   BATCH_CHARS_PER_TOKEN,
   EMBEDDING_DIMENSIONS,
@@ -68,6 +69,20 @@ interface VoyageEmbeddingResponse {
   usage: { total_tokens: number };
 }
 
+/** Voyage's success payload, validated at the boundary instead of asserted. */
+const voyageEmbeddingResponseSchema = z.object({
+  object: z.literal("list"),
+  data: z.array(
+    z.object({
+      embedding: z.array(z.number()),
+      index: z.number(),
+      object: z.literal("embedding"),
+    }),
+  ),
+  model: z.string(),
+  usage: z.object({ total_tokens: z.number() }),
+});
+
 async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEmbeddingResponse> {
   const env = serverEnv();
   if (!env.VOYAGE_API_KEY) {
@@ -112,7 +127,11 @@ async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEm
       if (!res.ok) {
         throw await httpErrorFromResponse("embeddings", res, { url: "voyage/embeddings" });
       }
-      return (await res.json()) as VoyageEmbeddingResponse;
+      const parsed = voyageEmbeddingResponseSchema.safeParse(await res.json());
+      if (!parsed.success) {
+        throw new Error("[embeddings] Voyage returned an unexpected payload shape");
+      }
+      return parsed.data;
     },
     (result) => ({
       usage: { inputTokens: result.usage.total_tokens, outputTokens: 0 },

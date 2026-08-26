@@ -187,6 +187,9 @@ export function createAuthRateLimitStorage(
       const bucket = bucketFor(key, rule.window, nowMs);
       let count: number;
       try {
+        // SAFETY: RateLimitRedis carries eval (the drift-guard comment in
+        // @alfred/db/redis pins it); EvalRedis names that single-command
+        // subset incrementExpiringCounter uses.
         count = await incrementExpiringCounter(redis() as EvalRedis, bucket.key, 1, rule.window);
       } catch (err) {
         degrade(err);

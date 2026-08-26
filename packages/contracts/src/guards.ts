@@ -208,6 +208,8 @@ export function withDefaults<T extends object>(
   if (!overrides) return merged;
   // `Object.keys` is typed `string[]`; the value is a `Partial<T>`, so its keys
   // are `keyof T` by construction. The read below is what needs the key type.
+  // SAFETY: the parameter type pins every present key to keyof T, so the key
+  // list is exactly a (keyof T)[].
   for (const key of Object.keys(overrides) as (keyof T)[]) {
     const value = overrides[key];
     if (value !== undefined) merged[key] = value;

@@ -228,6 +228,8 @@ export const learnSkillWorkflow: Workflow<State> = {
 
         let inserted = 0;
         let skipped = 0;
+        // SAFETY: distill returns distillOutputSchema-validated output whose
+        // proposal objects carry exactly the SkillProposal fields.
         for (const p of distill.proposals as SkillProposal[]) {
           const fact = await proposeFact({
             userId: ctx.userId,

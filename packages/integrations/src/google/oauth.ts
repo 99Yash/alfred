@@ -95,7 +95,10 @@ export const GOOGLE_FEATURE_SCOPES = {
 
 export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;
 
-const ALL_FEATURES = Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[];
+const ALL_FEATURES =
+  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`, so
+  // Object.keys of that very table enumerates exactly those features.
+  Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[];
 
 /**
  * Resolve the OAuth scope list for a set of features. Always includes

@@ -1,4 +1,5 @@
 import { serverEnv } from "@alfred/env/server";
+import { z } from "zod";
 
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
@@ -11,6 +12,29 @@ import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
 const NOTION_AUTHORIZE_URL = "https://api.notion.com/v1/oauth/authorize";
 const NOTION_TOKEN_URL = "https://api.notion.com/v1/oauth/token";
+
+/**
+ * Notion's token-exchange response. External payload, so it is validated at
+ * this boundary instead of asserted — a malformed body fails the exchange
+ * loudly rather than persisting `undefined` token fields.
+ */
+const tokenResponseSchema = z.object({
+  access_token: z.string().min(1),
+  workspace_id: z.string().min(1),
+  workspace_name: z.string().nullish(),
+  workspace_icon: z.string().nullish(),
+  bot_id: z.string().nullish(),
+  owner: z
+    .object({
+      user: z
+        .object({
+          name: z.string().nullish(),
+          person: z.object({ email: z.string().nullish() }).nullish(),
+        })
+        .nullish(),
+    })
+    .nullish(),
+});
 
 export interface NotionOAuthConfig {
   clientId: string;
@@ -92,14 +116,11 @@ export async function exchangeNotionCode(code: string): Promise<NotionTokenResul
     console.error(`[notion.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
     throw new Error(`[notion.oauth] token exchange failed (${res.status})`);
   }
-  const json = (await res.json()) as {
-    access_token: string;
-    workspace_id: string;
-    workspace_name?: string | null;
-    workspace_icon?: string | null;
-    bot_id?: string | null;
-    owner?: { user?: { name?: string | null; person?: { email?: string | null } } };
-  };
+  const parsed = tokenResponseSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error("[notion.oauth] token exchange returned an unexpected shape");
+  }
+  const json = parsed.data;
   const ownerName = json.owner?.user?.name ?? json.owner?.user?.person?.email ?? null;
   return {
     accessToken: json.access_token,

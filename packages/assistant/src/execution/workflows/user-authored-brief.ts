@@ -276,6 +276,8 @@ const bossTurnStep: Step<BriefRunState> = {
     const retries = openBriefTurnRetries(transcript);
     const result = await agent.turn({
       ctx,
+      // SAFETY: AgentTranscriptMessage is the persisted superset view of the
+      // SDK's ModelMessage transcript.
       transcript: transcript as ModelMessage[],
       attribution: {
         stepId: ctx.idempotencyKey,
@@ -295,6 +297,8 @@ const bossTurnStep: Step<BriefRunState> = {
     );
     const nextTranscript = appendModelResponseMessages(
       transcript,
+      // SAFETY: response.messages is the SDK's transcript output; the agent
+      // transcript message type is its persisted view.
       result.raw.responseMessages as AgentTranscriptMessage[],
       stepCallIds,
     );

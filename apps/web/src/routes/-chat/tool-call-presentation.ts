@@ -1,5 +1,6 @@
 import {
   SPAWN_SUB_AGENT_TOOL,
+  toStringArray,
   type ToolCategory,
   toolCategoryOf,
   toolLabel,
@@ -97,9 +98,7 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
     : "";
 
   if (tool.toolName === SPAWN_SUB_AGENT_TOOL) {
-    const allowed = Array.isArray(args?.allowedIntegrations)
-      ? (args.allowedIntegrations as unknown[]).filter((v): v is string => typeof v === "string")
-      : [];
+    const allowed = toStringArray(args?.allowedIntegrations);
     const provider = allowed[0] ? getIntegrationProvider(allowed[0]) : undefined;
     return {
       brand: provider?.brand,

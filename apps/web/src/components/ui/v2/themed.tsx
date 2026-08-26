@@ -32,6 +32,8 @@ export function AppThemed({
   // @media block track system preference (the original behavior). With a
   // provider, always write the resolved theme so the tokens are deterministic.
   const dataTheme = ctx?.resolved;
+  // SAFETY: As holds a component-or-tag for the polymorphic render below;
+  // React.ElementType is exactly that union.
   const Comp = As as React.ElementType;
   return (
     <Comp className={cn("app", className)} data-app-theme={dataTheme} {...rest}>

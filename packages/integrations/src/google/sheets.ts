@@ -106,7 +106,13 @@ export async function getValues(
 ): Promise<GetValuesResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}`;
   const parsed = await sendJson(valueRangeSchema, "GET", url, args.accessToken, undefined, retry);
-  return { range: parsed.range, values: (parsed.values ?? []) as CellValue[][] };
+  return {
+    range: parsed.range,
+    // SAFETY: valueRangeSchema validated values as unknown[][]; CellValue is
+    // the sheet cell view of that same array-of-arrays (strings, numbers,
+    // booleans as Sheets renders them).
+    values: (parsed.values ?? []) as CellValue[][],
+  };
 }
 
 export interface UpdateValuesArgs {
