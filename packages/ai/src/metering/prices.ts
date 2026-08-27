@@ -127,13 +127,13 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
  * `db:sync-prices` step. The DB remains the source of truth; this map is a
  * safety net that is intentionally narrow to the verified set.
  */
-const FALLBACK_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
+const FALLBACK_CONTEXT_WINDOWS = {
   "anthropic/claude-sonnet-4-6": 1_000_000,
   "anthropic/claude-opus-4-8": 1_000_000,
   "google/gemini-2.5-flash": 1_048_576,
   "google/gemini-2.5-flash-lite": 1_048_576,
   "google/gemini-3.5-flash": 1_048_576,
-};
+} as const satisfies Readonly<Record<string, number>>;
 
 /**
  * Resolve the input-token context window for an AI SDK `LanguageModel` via
@@ -153,15 +153,20 @@ export async function resolveModelContextWindow(model: LanguageModel): Promise<n
   const { provider, modelId } = identifyLanguageModel(model);
   const price = await getPrice(provider, modelId);
   if (price?.contextWindow != null) return price.contextWindow;
-  const fallback = FALLBACK_CONTEXT_WINDOWS[`${provider}/${modelId}`];
+  const key = `${provider}/${modelId}`;
+  // SAFETY: `in` guard ensures key is a known literal before indexing the const table.
+  const fallback =
+    key in FALLBACK_CONTEXT_WINDOWS
+      ? FALLBACK_CONTEXT_WINDOWS[key as keyof typeof FALLBACK_CONTEXT_WINDOWS]
+      : undefined;
   if (fallback != null) {
     console.warn(
-      `[metering] using fallback context_window=${fallback} for ${provider}/${modelId} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
+      `[metering] using fallback context_window=${fallback} for ${key} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
     );
     return fallback;
   }
   throw new Error(
-    `[metering] no context_window for ${provider}/${modelId} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
+    `[metering] no context_window for ${key} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
   );
 }
 
