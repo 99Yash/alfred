@@ -66,7 +66,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       if (!oldQueue || oldQueue.length === 0) return prev;
       const newQueue = prev[threadId];
       if (newQueue && newQueue.length > 0) return prev;
-      const next: Queues = { ...prev };
+      const next = { ...prev } satisfies Queues;
       next[threadId] = oldQueue;
       next[oldKey] = [];
       return next;

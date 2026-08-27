@@ -55,7 +55,7 @@ Continuous score internally; projected to 3 bands `{ demanding | normal | muted 
 
 ## Success metric (the #210 reframe)
 
-The metric is **NOT** "% of inbox tagged urgent/action_needed" — those category counts _should not move_ (honest categories). It is **"% of inbox surfaced in the demanding lane / dimmed-vs-bright in the rail."** Target: demanding-lane share well below today's 26%, with the recurring-machine and cold-low-significance items landing in the ambient tail. Corroborate against suggested-todo acceptance over the following window.
+The metric is **NOT** "% of inbox tagged urgent/action*needed" — those category counts \_should not move* (honest categories). It is **"% of inbox surfaced in the demanding lane / dimmed-vs-bright in the rail."** Target: demanding-lane share well below today's 26%, with the recurring-machine and cold-low-significance items landing in the ambient tail. Corroborate against suggested-todo acceptance over the following window.
 
 ## Open (decide during build)
 
