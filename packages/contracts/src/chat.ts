@@ -163,3 +163,28 @@ export type TurnStartResponse = z.infer<typeof turnStartResponseSchema>;
 export const turnKickResponseSchema = turnStartResponseSchema;
 /** @deprecated Use `TurnStartResponse`. */
 export type TurnKickResponse = TurnStartResponse;
+
+/**
+ * Client-local queue cap for #489. At most this many turns may wait while a
+ * reply streams; the cap lives here so web and server agree on the back-pressure
+ * and `enqueue` can reject without importing server code.
+ */
+export const MAX_QUEUED_TURNS = 10;
+
+/**
+ * Single source of truth for "nothing to send" (#489, #488). Empty means no
+ * trimmed text, no fresh files, no re-attached history files, and no structured
+ * artifact target. Centralized so `useSendMessage`, `useChatQueue`, and
+ * `ChatShell.onSend` cannot disagree.
+ */
+export function isEmptyChatTurnInput(input: {
+  content: string;
+  hasFiles: boolean;
+  artifactTargetId?: string | undefined;
+  retryAttachmentIds?: string[] | undefined;
+}): boolean {
+  const hasText = input.content.trim().length > 0;
+  const hasArtifact = Boolean(input.artifactTargetId);
+  const hasRetry = Boolean(input.retryAttachmentIds && input.retryAttachmentIds.length > 0);
+  return !hasText && !input.hasFiles && !hasArtifact && !hasRetry;
+}

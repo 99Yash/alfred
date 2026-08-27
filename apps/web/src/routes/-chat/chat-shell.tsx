@@ -1,3 +1,4 @@
+import { isEmptyChatTurnInput } from "@alfred/contracts";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -168,19 +169,28 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const { queue, enqueue, remove, dequeue } = useChatQueue(threadId);
   const [queueSending, setQueueSending] = useState(false);
   const prevShowStreamRef = useRef(showStream);
+  const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset the completion detector when the thread changes — the previous
   // thread's `showStream` must not fire the next thread's queue flush.
   useEffect(() => {
     prevShowStreamRef.current = false;
+    lastErrorStreamIdRef.current = null;
     setQueueSending(false);
   }, [threadId]);
   const onSend = useCallback(
     async (text: string, files?: File[], artifactTargetId?: string): Promise<boolean> => {
       const trimmed = text.trim();
       const hasFiles = Boolean(files && files.length > 0);
-      // Guard duplicated in `enqueue`, but keep a fast pre-check so the
-      // composer does not clear on an empty submit.
-      if (trimmed.length === 0 && !hasFiles && !artifactTargetId) return false;
+      // Fast pre-check before enqueue/send so the composer does not clear on an
+      // empty submit. Canonical predicate lives in `@alfred/contracts`.
+      if (
+        isEmptyChatTurnInput({
+          content: trimmed,
+          hasFiles,
+          artifactTargetId,
+        })
+      )
+        return false;
       // While a turn is active (streaming or stream done but durable not yet
       // synced) enqueue locally so the previous reply can finish rendering
       // before the next turn starts. This keeps the auto-send FIFO waiting for
@@ -220,6 +230,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // entry queued for the next completion; other failures keep it for manual
   // removal/retry. The `queueSending` gate prevents a burst of concurrent starts
   // while the newly started turn's stream is still mounting.
+  const streamDone = stream?.done ?? false;
+  const streamError = stream?.error ?? null;
+  const streamRunId = stream?.runId ?? null;
   useEffect(() => {
     const prev = prevShowStreamRef.current;
     prevShowStreamRef.current = showStream;
@@ -229,10 +242,22 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     // `showStream` stays true, yet the run is terminal and the next turn should
     // not stay stuck; treat a done+error stream as completed even while its
     // bubble is still shown.
-    const errorCompleted =
-      Boolean(stream?.done && stream.error) && queue.length > 0 && !queueSending && !isStreaming;
-    if ((!completed && !errorCompleted) || queue.length === 0 || queueSending || isStreaming)
-      return;
+    // Guard against tight-loop retries: the same `runId+error` should only
+    // trigger one auto-send attempt until a new completion edge arrives.
+    const errorId =
+      streamDone && streamError ? `${streamRunId ?? "unknown"}:${String(streamError)}` : null;
+    const isNewErrorCompletion =
+      Boolean(errorId) &&
+      errorId !== lastErrorStreamIdRef.current &&
+      queue.length > 0 &&
+      !queueSending &&
+      !isStreaming;
+    if (isNewErrorCompletion && errorId) lastErrorStreamIdRef.current = errorId;
+    // Reset the error dedup when the stream clears so a future error on a new
+    // run is not suppressed.
+    if (!streamDone || !streamError) lastErrorStreamIdRef.current = null;
+    const shouldFlush = completed || isNewErrorCompletion;
+    if (!shouldFlush || queue.length === 0 || queueSending || isStreaming) return;
     const next = queue[0];
     if (!next) return;
     setQueueSending(true);
@@ -242,8 +267,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         next.text,
         next.tier,
         next.files,
-        undefined,
-        undefined,
+        next.retryAttachmentIds,
+        next.retryAttachmentMessageId,
         next.artifactTargetId,
       );
       if (result.ok) {
@@ -262,7 +287,18 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       }
       setQueueSending(false);
     })();
-  }, [showStream, queue, queueSending, isStreaming, send, threadId, dequeue, stream]);
+  }, [
+    showStream,
+    queue,
+    queueSending,
+    isStreaming,
+    send,
+    threadId,
+    dequeue,
+    streamDone,
+    streamError,
+    streamRunId,
+  ]);
   // Retry re-sends the prior user turn as a fresh turn. It carries that
   // message's attachment ids (not File objects — the bytes are already in the
   // bucket); the server copies them onto the new message. This is what lets an
@@ -279,9 +315,18 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           retryAttachmentMessageId,
         );
         if (!result.ok && result.reason === "busy") {
-          // For a retry that collided, queue the text so it is not dropped;
-          // the queue's completion effect will retry it.
-          enqueue({ text, files: [], tier, artifactTargetId: undefined });
+          // For a retry that collided, queue the text (with its faithful
+          // attachment ids) so it is not dropped; the queue's completion effect
+          // will retry it. Previously this dropped the retry ids and queued a
+          // text-only turn — violating ADR-0065 for image-only retries.
+          enqueue({
+            text,
+            files: [],
+            tier,
+            artifactTargetId: undefined,
+            retryAttachmentIds,
+            retryAttachmentMessageId,
+          });
         }
       })();
     },
