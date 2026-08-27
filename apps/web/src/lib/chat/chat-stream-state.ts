@@ -591,6 +591,24 @@ export function applyChatFrame(
 }
 
 /**
+ * Shared freeze logic for any terminal turn transition (optimistic stop or
+ * transport failure): anchor the eased counter to the live segment, slice both
+ * buffers at what is shown, and mark the turn done+stopped so late SSE frames
+ * are dropped and the composer recovers. Centralized so a third terminal reason
+ * does not copy the 4-line freeze a third time (axis 1 — Repetition).
+ */
+function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
+  const eased = anchorEasedSegment(ref);
+  ref.segments.set(eased.segment, eased.text.slice(0, eased.shown));
+  ref.reasoning = ref.reasoning.slice(0, ref.reasoningShown);
+  if (error !== null) ref.error = error;
+  ref.stopped = true;
+  ref.done = true;
+  ref.awaitingApproval = false;
+  ref.compacting = false;
+}
+
+/**
  * Optimistic stop: freeze the eased buffers at what is currently shown and flip
  * to done, so the composer swaps back to the send button this frame. `stopped`
  * makes `applyChatFrame` drop any further frames for this run, so the bubble
@@ -617,14 +635,7 @@ export function applyChatFrame(
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
   if (!r || r.stopped) return false;
-  // Freeze the live segment at what's shown *of it* so the bubble stops typing.
-  const eased = anchorEasedSegment(r);
-  r.segments.set(eased.segment, eased.text.slice(0, eased.shown));
-  r.reasoning = r.reasoning.slice(0, r.reasoningShown);
-  r.stopped = true;
-  r.done = true;
-  r.awaitingApproval = false;
-  r.compacting = false;
+  freezeAndFinalizeTurn(r, null);
   return true;
 }
 
@@ -644,14 +655,7 @@ export function applyStreamError(cell: ChatStreamCell, message: string): boolean
   // arrived (a late CLOSED after `completed`); do not overwrite a successful
   // finish with a failure.
   if (r.done) return false;
-  const eased = anchorEasedSegment(r);
-  r.segments.set(eased.segment, eased.text.slice(0, eased.shown));
-  r.reasoning = r.reasoning.slice(0, r.reasoningShown);
-  r.error = message;
-  r.stopped = true;
-  r.done = true;
-  r.awaitingApproval = false;
-  r.compacting = false;
+  freezeAndFinalizeTurn(r, message);
   return true;
 }
 

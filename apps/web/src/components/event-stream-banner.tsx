@@ -1,4 +1,4 @@
-import { useEventStreamStatus } from "~/lib/events/stream";
+import { useEventStreamStatus } from "~/lib/events/event-stream-status";
 
 /**
  * Floating notice shown when the shared SSE bus has died with a fatal error

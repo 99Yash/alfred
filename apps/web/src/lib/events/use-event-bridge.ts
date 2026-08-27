@@ -29,6 +29,10 @@ export function useEventBridge(): void {
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) return;
+    // No `onError` here — fatal bus errors are surfaced globally by
+    // `EventStreamBanner` (reconnecting) and the shared bus backs off before
+    // re-opening. The inbox degrades to polling (useInbox: `refetchOnWindowFocus`
+    // + 5-min interval), so per-subscriber toast/bubble handling is unnecessary.
     const close = openEventStream({
       onFrame: (frame) => {
         switch (frame.kind) {
@@ -42,13 +46,6 @@ export function useEventBridge(): void {
             break;
         }
       },
-      // Fatal SSE disconnect — the shared EventSource moves to CLOSED with no
-      // auto-reconnect (e.g. 401 after session expiry). The inbox degrades to
-      // polling (useInbox refetches on focus / every 5 min), so no toast is
-      // needed here; the global EventStreamBanner surfaces "reconnecting" and
-      // the shared bus backs off before re-opening. This handler exists so the
-      // disconnect is not silently swallowed.
-      onError: () => {},
     });
     return close;
   }, [session?.user?.id, queryClient]);

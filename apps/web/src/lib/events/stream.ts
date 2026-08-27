@@ -1,8 +1,8 @@
-import { useSyncExternalStore } from "react";
 import { EVENT_KINDS } from "@alfred/contracts/events";
 import { parseEventFrame, type EventStreamFrame } from "./frame";
 import { getReplaySince, noteReplayFrame } from "./replay-anchor";
 import { API_URL } from "~/lib/eden";
+import { getEventStreamStatus, setEventStreamStatus } from "./event-stream-status";
 
 export interface OpenEventStreamOptions {
   onFrame: (frame: EventStreamFrame) => void;
@@ -14,8 +14,6 @@ interface EventStreamSubscriber {
   onError?: ((err: Event) => void) | undefined;
 }
 
-export type EventStreamStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
-
 interface SharedEventStream {
   source: EventSource | null;
   subscribers: Map<number, EventStreamSubscriber>;
@@ -26,33 +24,6 @@ interface SharedEventStream {
 
 let sharedStream: SharedEventStream | null = null;
 
-let eventStreamStatus: EventStreamStatus = "disconnected";
-const statusListeners = new Set<() => void>();
-
-function setStatus(next: EventStreamStatus): void {
-  if (eventStreamStatus === next) return;
-  eventStreamStatus = next;
-  for (const cb of statusListeners) cb();
-}
-
-export function getEventStreamStatus(): EventStreamStatus {
-  return eventStreamStatus;
-}
-
-export function subscribeToEventStreamStatus(cb: () => void): () => void {
-  statusListeners.add(cb);
-  return () => statusListeners.delete(cb);
-}
-
-export function useEventStreamStatus(): EventStreamStatus {
-  // SAFETY: "disconnected" is a member of EventStreamStatus; the cast closes the generic.
-  return useSyncExternalStore(
-    subscribeToEventStreamStatus,
-    getEventStreamStatus,
-    () => "disconnected" as EventStreamStatus,
-  );
-}
-
 function eventStreamUrl(): URL {
   const url = new URL(`${API_URL}/api/events/`);
   const anchor = getReplaySince();
@@ -60,6 +31,13 @@ function eventStreamUrl(): URL {
   return url;
 }
 
+/**
+ * Reconnect backoff for fatal EventSource CLOSED (e.g. 401 — no auto-reconnect per WHATWG).
+ * Base 1s keeps the first retry snappy for transient session blips; max 30s caps
+ * load during a prolonged outage (auth outage, deploy). Exponential (2^attempt)
+ * with ±15% jitter avoids thunder-herding when many tabs share the same session.
+ * Tuned against `apps/web` browser-only usage — no operator knob needed.
+ */
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
@@ -92,7 +70,7 @@ function attachSource(shared: SharedEventStream): void {
   source.onopen = () => {
     // A successful open resets the backoff window and marks the bus live.
     shared.reconnectAttempts = 0;
-    setStatus("connected");
+    setEventStreamStatus("connected");
   };
 
   source.onerror = (err) => {
@@ -120,39 +98,40 @@ function attachSource(shared: SharedEventStream): void {
           shared.reconnectTimer = null;
         }
         if (sharedStream === shared) sharedStream = null;
-        setStatus("disconnected");
+        setEventStreamStatus("disconnected");
         return;
       }
 
       const attempt = shared.reconnectAttempts;
       shared.reconnectAttempts += 1;
       const delay = backoffMs(attempt);
-      setStatus("reconnecting");
+      setEventStreamStatus("reconnecting");
       if (shared.reconnectTimer) clearTimeout(shared.reconnectTimer);
       shared.reconnectTimer = setTimeout(() => {
         shared.reconnectTimer = null;
         if (shared.subscribers.size === 0) {
           if (sharedStream === shared) sharedStream = null;
-          setStatus("disconnected");
+          setEventStreamStatus("disconnected");
           return;
         }
         // Re-entering connecting before the new EventSource fires onopen/onerror.
-        setStatus("connecting");
+        setEventStreamStatus("connecting");
         attachSource(shared);
       }, delay);
     } else {
       // Transient drop — the browser will auto-retry; do not fan out as a
       // fatal error, but surface the intermediate state so a banner can show
       // "reconnecting" without spamming error toasts / flipping the chat bubble.
-      setStatus("connecting");
+      setEventStreamStatus("connecting");
     }
   };
 
   shared.source = source;
   // The new source starts in CONNECTING; if we were previously reconnecting
   // (backoff), we now transition to connecting until onopen confirms.
-  if (eventStreamStatus === "reconnecting" || eventStreamStatus === "disconnected") {
-    setStatus("connecting");
+  const curStatus = getEventStreamStatus();
+  if (curStatus === "reconnecting" || curStatus === "disconnected") {
+    setEventStreamStatus("connecting");
   }
 }
 
@@ -181,13 +160,13 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
       reconnectAttempts: 0,
       reconnectTimer: null,
     };
-    setStatus("connecting");
+    setEventStreamStatus("connecting");
     attachSource(sharedStream);
   } else if (!sharedStream.source && !sharedStream.reconnectTimer) {
     // Fatal error tore down the source but the timer was cleared (e.g. by a
     // previous last-subscriber teardown that raced a new subscriber). Re-attach
     // immediately rather than leaving the new subscriber on a dead bus.
-    setStatus("connecting");
+    setEventStreamStatus("connecting");
     attachSource(sharedStream);
   }
 
@@ -215,7 +194,7 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
         stream.reconnectTimer = null;
       }
       if (sharedStream === stream) sharedStream = null;
-      setStatus("disconnected");
+      setEventStreamStatus("disconnected");
     }
   };
 }
