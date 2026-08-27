@@ -149,41 +149,32 @@ export function ComposerToolbar({
                   <Square size={12} strokeWidth={2.5} fill="currentColor" />
                 </button>
               </Tip>
-            ) : (
-              <Tip label="Send" keys={["↵"]}>
-                <button
-                  type="submit"
-                  disabled={!canSend}
-                  aria-label={
-                    sending
-                      ? "Sending"
-                      : disabled
-                        ? "Waiting for approval"
-                        : isStreaming
-                          ? "Waiting for response"
-                          : "Send"
-                  }
-                  className={cn(
-                    "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
-                    "app-press transition-[opacity,filter,transform]",
-                    "active:scale-[0.97] enabled:hover:scale-[1.04]",
-                    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                    "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-                    canSend
-                      ? cn(
-                          "text-(--app-accent-fg)",
-                          "bg-(image:--app-cta-bg)",
-                          "shadow-(--app-button-primary-shadow)",
-                          "hover:brightness-[1.06]",
-                          "hover:shadow-(--app-button-primary-shadow-hover)",
-                        )
-                      : "cursor-not-allowed bg-app-bg-2 text-app-fg-2",
-                  )}
-                >
-                  <ArrowUp size={16} strokeWidth={2.25} />
-                </button>
-              </Tip>
-            )}
+            ) : null}
+            <Tip label="Send" keys={["↵"]}>
+              <button
+                type="submit"
+                disabled={!canSend}
+                aria-label={sending ? "Sending" : disabled ? "Waiting for approval" : "Send"}
+                className={cn(
+                  "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
+                  "app-press transition-[opacity,filter,transform]",
+                  "active:scale-[0.97] enabled:hover:scale-[1.04]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                  canSend
+                    ? cn(
+                        "text-(--app-accent-fg)",
+                        "bg-(image:--app-cta-bg)",
+                        "shadow-(--app-button-primary-shadow)",
+                        "hover:brightness-[1.06]",
+                        "hover:shadow-(--app-button-primary-shadow-hover)",
+                      )
+                    : "cursor-not-allowed bg-app-bg-2 text-app-fg-2",
+                )}
+              >
+                <ArrowUp size={16} strokeWidth={2.25} />
+              </button>
+            </Tip>
           </>
         )}
       </div>

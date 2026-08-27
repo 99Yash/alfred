@@ -3,6 +3,7 @@ import { firstName, greeting } from "~/lib/user-display";
 import { Composer } from "./composer/composer";
 import type { ChatModelTier } from "@alfred/contracts";
 import { ConnectToolsBar } from "./connect-tools-bar";
+import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
 
 export function EmptyHero({
   threadId,
@@ -13,6 +14,8 @@ export function EmptyHero({
   onToggleAutoApprove,
   tier,
   onTierChange,
+  queued,
+  onRemoveQueued,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -24,6 +27,8 @@ export function EmptyHero({
   onToggleAutoApprove?: (() => void) | undefined;
   tier: ChatModelTier;
   onTierChange: (tier: ChatModelTier) => void;
+  queued?: QueuedMessage[] | undefined;
+  onRemoveQueued?: ((id: string) => void) | undefined;
 }) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
@@ -62,6 +67,8 @@ export function EmptyHero({
           onToggleAutoApprove={onToggleAutoApprove}
           tier={tier}
           onTierChange={onTierChange}
+          queued={queued}
+          onRemoveQueued={onRemoveQueued}
         />
         <ConnectToolsBar />
       </div>

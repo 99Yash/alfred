@@ -9,6 +9,11 @@ import { uploadAttachment } from "./upload-attachments";
 import type { ChatAttachmentDescriptor } from "@alfred/contracts";
 import { API_URL } from "~/lib/eden";
 
+export type SendResult =
+  | { ok: true; runId: string | null; assistantMessageId: string }
+  | { ok: false; reason: "busy"; blockingRunId: string | null }
+  | { ok: false; reason: "error" | "empty" };
+
 export type SendMessage = (
   threadId: string | undefined,
   text: string,
@@ -25,7 +30,7 @@ export type SendMessage = (
   retryAttachmentMessageId?: string,
   /** Structured target selected by the artifact sidebar; never parsed from prose. */
   artifactTargetId?: string,
-) => Promise<boolean>;
+) => Promise<SendResult>;
 
 /**
  * The kick just stages the message + enqueues the run (the reply streams back
@@ -61,10 +66,11 @@ export function useSendMessage(): SendMessage {
       const content = text.trim();
       const pickedFiles = files ?? [];
       const retryIds = retryAttachmentIds ?? [];
-      if (!rep || !userId) return false;
+      if (!rep || !userId) return { ok: false, reason: "error" } as SendResult;
       // A turn needs text, at least one fresh file, or at least one re-attached
       // file (image-only sends — and image-only retries — are valid).
-      if (content.length === 0 && pickedFiles.length === 0 && retryIds.length === 0) return false;
+      if (content.length === 0 && pickedFiles.length === 0 && retryIds.length === 0)
+        return { ok: false, reason: "empty" } as SendResult;
 
       const isNew = !threadId;
       const tid = threadId ?? crypto.randomUUID();
@@ -98,9 +104,11 @@ export function useSendMessage(): SendMessage {
         uploaded = uploadResults.filter((a): a is ChatAttachmentDescriptor => a !== null);
         uploaded = uploaded.map((a, position) => ({ ...a, position }));
         // Every file failed and there's no text or re-attached file — nothing to send.
-        if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0) return false;
+        if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0)
+          return { ok: false, reason: "empty" } as SendResult;
       }
 
+      let successPayload: { runId: string | null; assistantMessageId: string } | null = null;
       try {
         markChatTimingByUser(userMessageId, "turn_request_started");
         const res = await fetch(`${API_URL}/api/chat/threads/${tid}/turn`, {
@@ -133,23 +141,27 @@ export function useSendMessage(): SendMessage {
           );
           console.error("[chat] turn kick failed:", res.status, body);
           toast.error("Couldn't send your message. Please try again.");
-          return false;
+          return { ok: false, reason: "error" } as SendResult;
         }
 
         const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
         if (payload.success) {
           if (payload.data.outcome === "busy") {
             // The thread already has a turn in flight (#488). No run was created
-            // for this message. Keep the composer's text and attachments (return
-            // false → the composer does NOT clear) so the user can retry once
-            // the in-flight reply finishes; don't surface it as a failure.
+            // for this message. The caller decides whether to keep the message
+            // queued for a retry once the in-flight reply finishes; don't surface
+            // it as a failure toast here.
             markChatTimingByUser(
               userMessageId,
               "turn_request_thread_busy",
               { status: res.status, blockingRunId: payload.data.runId },
               { summarize: true },
             );
-            return false;
+            return {
+              ok: false,
+              reason: "busy",
+              blockingRunId: payload.data.runId,
+            } as SendResult;
           }
           attachChatAssistantTiming({
             userMessageId,
@@ -157,6 +169,10 @@ export function useSendMessage(): SendMessage {
             runId: payload.data.runId,
             detail: { status: res.status },
           });
+          successPayload = {
+            runId: payload.data.runId,
+            assistantMessageId: payload.data.assistantMessageId,
+          };
         } else {
           markChatTimingByUser(
             userMessageId,
@@ -207,9 +223,19 @@ export function useSendMessage(): SendMessage {
         );
         console.error("[chat] turn kick error:", toMessage(err));
         toast.error("Couldn't send your message. Please try again.");
-        return false;
+        return { ok: false, reason: "error" } as SendResult;
       }
-      return true;
+      // Success path: the payload already validated the ids; fall back to a
+      // minimal shape when the ack was unparseable but the turn still durably
+      // succeeded (Replicache mirror above already staged it).
+      if (successPayload) {
+        return {
+          ok: true,
+          runId: successPayload.runId,
+          assistantMessageId: successPayload.assistantMessageId,
+        } as SendResult;
+      }
+      return { ok: true, runId: null, assistantMessageId: userMessageId } as SendResult;
     },
     [rep, session?.user?.id, navigate],
   );

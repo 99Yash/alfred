@@ -1,8 +1,9 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { stopChatRun } from "~/lib/chat/turn-controls";
+import { useChatQueue } from "~/lib/chat/use-chat-queue";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
@@ -158,19 +159,133 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Model tier from the composer's picker (Auto vs Deep). Persisted so the
   // choice survives reloads and thread switches; rides with every turn.
   const [tier, setTier] = useModelTier();
+  // Client-local per-thread queue for lining up messages while a reply streams
+  // (#489). While `isStreaming` is true, submits enqueue as removable chips
+  // above the composer; on turn completion the oldest entry auto-kicks as its
+  // own turn (FIFO, one at a time). A `busy` response keeps the entry queued
+  // for a retry on the next completion rather than dropping it. Empty/whitespace
+  // entries are not enqueued; queue state is scoped per thread via `useChatQueue`.
+  const { queue, enqueue, remove, dequeue } = useChatQueue(threadId);
+  const [queueSending, setQueueSending] = useState(false);
+  const prevShowStreamRef = useRef(showStream);
+  // Reset the completion detector when the thread changes — the previous
+  // thread's `showStream` must not fire the next thread's queue flush.
+  useEffect(() => {
+    prevShowStreamRef.current = false;
+    setQueueSending(false);
+  }, [threadId]);
   const onSend = useCallback(
-    (text: string, files?: File[], artifactTargetId?: string) =>
-      send(threadId, text, tier, files, undefined, undefined, artifactTargetId),
-    [send, threadId, tier],
+    async (text: string, files?: File[], artifactTargetId?: string): Promise<boolean> => {
+      const trimmed = text.trim();
+      const hasFiles = Boolean(files && files.length > 0);
+      // Guard duplicated in `enqueue`, but keep a fast pre-check so the
+      // composer does not clear on an empty submit.
+      if (trimmed.length === 0 && !hasFiles && !artifactTargetId) return false;
+      // While a turn is active (streaming or stream done but durable not yet
+      // synced) enqueue locally so the previous reply can finish rendering
+      // before the next turn kicks. This keeps the auto-send FIFO waiting for
+      // `showStream` to clear (stream done + durable synced) per #489, and
+      // avoids mounting a new stream over the previous done-but-not-yet-synced
+      // bubble.
+      if (showStream) {
+        const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
+        return ok;
+      }
+      const result = await send(
+        threadId,
+        text,
+        tier,
+        files,
+        undefined,
+        undefined,
+        artifactTargetId,
+      );
+      if (result.ok) return true;
+      if (result.reason === "busy") {
+        // Per-thread concurrency guard (#488) — the kick created no run because
+        // a different turn is still in flight. Keep the message queued and retry
+        // on the next completion signal rather than dropping it (#489 AC 4).
+        const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
+        return ok;
+      }
+      if (result.reason === "empty") return false;
+      // Hard failure already toasted by `useSendMessage`; keep composer content
+      // so the user can retry manually rather than losing their draft.
+      return false;
+    },
+    [showStream, enqueue, send, threadId, tier],
   );
+  // On turn completion (stream done + durable synced), auto-kick the oldest
+  // queued message as its own turn, one at a time. A `busy` reply keeps the
+  // entry queued for the next completion; other failures keep it for manual
+  // removal/retry. The `queueSending` gate prevents a burst of concurrent kicks
+  // while the newly kicked turn's stream is still mounting.
+  useEffect(() => {
+    const prev = prevShowStreamRef.current;
+    prevShowStreamRef.current = showStream;
+    const completed = prev && !showStream;
+    // Also handle the error case where the stream is done with an inline error
+    // but no durable message ever arrives (SSE disconnect). In that window
+    // `showStream` stays true, yet the run is terminal and the next turn should
+    // not stay stuck; treat a done+error stream as completed even while its
+    // bubble is still shown.
+    const errorCompleted =
+      Boolean(stream?.done && stream.error) && queue.length > 0 && !queueSending && !isStreaming;
+    if ((!completed && !errorCompleted) || queue.length === 0 || queueSending || isStreaming)
+      return;
+    const next = queue[0];
+    if (!next) return;
+    setQueueSending(true);
+    void (async () => {
+      const result = await send(
+        threadId,
+        next.text,
+        next.tier,
+        next.files,
+        undefined,
+        undefined,
+        next.artifactTargetId,
+      );
+      if (result.ok) {
+        dequeue();
+      } else if (result.reason === "busy") {
+        // Keep queued; the in-flight run (or a newly kicked one) will trigger
+        // the next retry on its completion. No toast — the user already sees the
+        // pending chip and the busy is transient.
+      } else if (result.reason === "empty") {
+        // Guarded on enqueue, but drop a stale empty entry rather than stalling
+        // the queue behind it.
+        dequeue();
+      } else {
+        // Hard error: leave the entry queued so the user does not lose it.
+        // `useSendMessage` already toasted the failure; the chip stays removable.
+      }
+      setQueueSending(false);
+    })();
+  }, [showStream, queue, queueSending, isStreaming, send, threadId, dequeue, stream]);
   // Retry re-sends the prior user turn as a fresh turn. It carries that
   // message's attachment ids (not File objects — the bytes are already in the
   // bucket); the server copies them onto the new message. This is what lets an
   // image-only failed turn be retried (ADR-0065).
   const onRetry = useCallback(
-    (text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) =>
-      void send(threadId, text, tier, undefined, retryAttachmentIds, retryAttachmentMessageId),
-    [send, threadId, tier],
+    (text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) => {
+      void (async () => {
+        const result = await send(
+          threadId,
+          text,
+          tier,
+          undefined,
+          retryAttachmentIds,
+          retryAttachmentMessageId,
+        );
+        if (!result.ok && result.reason === "busy") {
+          // For a retry that collided, queue the text so it is not dropped;
+          // the queue's completion effect will retry it.
+          enqueue({ text, files: [], tier, artifactTargetId: undefined });
+        }
+      })();
+    },
+    [send, threadId, tier, enqueue],
   );
   const awaitingApproval = Boolean(showStream && stream.awaitingApproval);
   const { rows: approvalRows } = useActionStagings();
@@ -277,6 +392,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   onToggleAutoApprove={onToggleAutoApprove}
                   tier={tier}
                   onTierChange={setTier}
+                  queued={queue}
+                  onRemoveQueued={remove}
                 />
               </div>
             </div>
@@ -295,6 +412,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
             onToggleAutoApprove={onToggleAutoApprove}
             tier={tier}
             onTierChange={setTier}
+            queued={queue}
+            onRemoveQueued={remove}
           />
         )}
       </div>
