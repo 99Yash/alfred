@@ -1,6 +1,7 @@
-import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
-import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
-import { openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
+import { anthropic, createAnthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI, google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
+import { createOpenAI, openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
+import { cloudflareGatewayConfig, cloudflareGatewayEnabled } from "@alfred/env/server";
 import { INTEGRATION_ACTIONS, type IntegrationSlug, toRecord } from "@alfred/contracts";
 import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
@@ -65,6 +66,84 @@ function isGoogleThinkingLevel(value: EffortLevel): value is GoogleThinkingLevel
 }
 
 /**
+ * Cloudflare AI Gateway singletons — lazily minted so `serverEnv()` is not
+ * evaluated at import time (which would throw during `tsx --test` without env).
+ * Each sets `baseURL` to `gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}`
+ * and `cf-aig-authorization: Bearer {token}` for Unified Billing; the SDK's
+ * `apiKey` is a dummy since billing is via the CF token. A custom `fetch`
+ * strips the dummy provider auth (`x-api-key`, `Authorization`, `x-goog-api-key`,
+ * `?key=`) that would otherwise be forwarded to the origin and invalidate the
+ * unified-billing request (verified via live curl: dummy key → 401 invalid).
+ */
+let _cfAnthropic: ReturnType<typeof createAnthropic> | undefined;
+let _cfOpenAI: ReturnType<typeof createOpenAI> | undefined;
+let _cfGoogle: ReturnType<typeof createGoogleGenerativeAI> | undefined;
+
+function cfFetch(token: string): typeof fetch {
+  return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const urlString = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const url = new URL(urlString);
+    url.searchParams.delete("key");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const headers = new Headers((init?.headers as any) ?? undefined);
+    if (input instanceof Request) {
+      for (const [k, v] of input.headers.entries()) headers.set(k, v);
+    }
+    headers.delete("x-api-key");
+    headers.delete("authorization");
+    headers.delete("x-goog-api-key");
+    headers.set("cf-aig-authorization", `Bearer ${token}`);
+    const newInit = { ...(init as unknown as RequestInit), headers } as RequestInit;
+    if (input instanceof Request) {
+      return fetch(new Request(url.toString(), { ...(input as unknown as RequestInit), headers } as RequestInit), newInit);
+    }
+    return fetch(url.toString(), newInit);
+  };
+}
+
+function getCfAnthropic(): ReturnType<typeof createAnthropic> | undefined {
+  if (!cloudflareGatewayEnabled()) return undefined;
+  if (_cfAnthropic) return _cfAnthropic;
+  const cfg = cloudflareGatewayConfig();
+  if (!cfg) return undefined;
+  _cfAnthropic = createAnthropic({
+    apiKey: "cf-dummy",
+    baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/anthropic`,
+    headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
+    fetch: cfFetch(cfg.token) as unknown as typeof fetch,
+  });
+  return _cfAnthropic;
+}
+
+function getCfOpenAI(): ReturnType<typeof createOpenAI> | undefined {
+  if (!cloudflareGatewayEnabled()) return undefined;
+  if (_cfOpenAI) return _cfOpenAI;
+  const cfg = cloudflareGatewayConfig();
+  if (!cfg) return undefined;
+  _cfOpenAI = createOpenAI({
+    apiKey: "cf-dummy",
+    baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/openai`,
+    headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
+    fetch: cfFetch(cfg.token) as unknown as typeof fetch,
+  });
+  return _cfOpenAI;
+}
+
+function getCfGoogle(): ReturnType<typeof createGoogleGenerativeAI> | undefined {
+  if (!cloudflareGatewayEnabled()) return undefined;
+  if (_cfGoogle) return _cfGoogle;
+  const cfg = cloudflareGatewayConfig();
+  if (!cfg) return undefined;
+  _cfGoogle = createGoogleGenerativeAI({
+    apiKey: "cf-dummy",
+    baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/google-ai-studio/v1beta`,
+    headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
+    fetch: cfFetch(cfg.token) as unknown as typeof fetch,
+  });
+  return _cfGoogle;
+}
+
+/**
  * One deep provider adapter map. Each entry owns every SDK-adapter fact:
  * concrete construction, reasoning shape, name policy, cache/protocol selection,
  * and eventually native deferred-tool projection.
@@ -74,7 +153,11 @@ const PROVIDER_ADAPTERS = {
     toolNameMaxLen: 128,
     toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
-    createModel: (modelId: ModelIdFor<"anthropic">) => anthropic(modelId),
+    createModel: (modelId: ModelIdFor<"anthropic">) => {
+      const cf = getCfAnthropic();
+      if (cf) return cf(modelId) as unknown as LanguageModelV4;
+      return anthropic(modelId);
+    },
     reasoningOptions(
       modelId: ModelIdFor<"anthropic">,
       effort: EffortLevel,
@@ -101,7 +184,11 @@ const PROVIDER_ADAPTERS = {
     toolNameMaxLen: 64,
     toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
-    createModel: (modelId: ModelIdFor<"google">) => google(modelId),
+    createModel: (modelId: ModelIdFor<"google">) => {
+      const cf = getCfGoogle();
+      if (cf) return cf(modelId) as unknown as LanguageModelV4;
+      return google(modelId);
+    },
     reasoningOptions(
       modelId: ModelIdFor<"google">,
       effort: EffortLevel,
@@ -125,7 +212,11 @@ const PROVIDER_ADAPTERS = {
     toolNameMaxLen: 64,
     toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
-    createModel: (modelId: ModelIdFor<"openai">) => openai.responses(modelId),
+    createModel: (modelId: ModelIdFor<"openai">) => {
+      const cf = getCfOpenAI();
+      if (cf) return cf.responses(modelId) as unknown as LanguageModelV4;
+      return openai.responses(modelId);
+    },
     reasoningOptions(
       modelId: ModelIdFor<"openai">,
       effort: EffortLevel,
