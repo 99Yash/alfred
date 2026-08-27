@@ -27,6 +27,8 @@ export function useEventStream(limit = 50): EventStreamFrame[] {
 
   useEffect(() => {
     if (!userId) return;
+    // No `onError` — debug feed is low-stakes; fatal bus failure is surfaced
+    // by the global `EventStreamBanner` and the shared bus backs off + re-opens.
     const close = openEventStream({
       onFrame: (frame) => {
         setFrames((prev) => [frame, ...prev].slice(0, limit));

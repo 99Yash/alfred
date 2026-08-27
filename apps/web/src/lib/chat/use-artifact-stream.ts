@@ -210,8 +210,21 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
     const onFrame = (frame: EventStreamFrame) => {
       if (applyArtifactFrame(streamsRef.current, frame, threadId)) setVersion((v) => v + 1);
     };
+    const onError = () => {
+      // Fatal SSE disconnect while artifacts are still authoring — freeze any
+      // in-flight streams so the sidebar does not hang on a spinner. The
+      // durable `artifacts` row will reconcile once the worker finishes.
+      let changed = false;
+      for (const [id, stream] of streamsRef.current) {
+        if (!stream.done) {
+          streamsRef.current.set(id, { ...stream, done: true });
+          changed = true;
+        }
+      }
+      if (changed) setVersion((v) => v + 1);
+    };
 
-    const close = openEventStream({ onFrame });
+    const close = openEventStream({ onFrame, onError });
     return close;
   }, [threadId]);
 
