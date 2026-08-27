@@ -81,7 +81,12 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       if (!cur || cur.done) return;
       watchdogId = window.setTimeout(() => {
         watchdogId = null;
-        if (applyStreamError(cell, "Connection stalled — no updates received. The reply may be incomplete.")) {
+        if (
+          applyStreamError(
+            cell,
+            "Connection stalled — no updates received. The reply may be incomplete.",
+          )
+        ) {
           ensureRaf();
           toast.error("Connection stalled — live updates stopped. Please retry.");
         }
