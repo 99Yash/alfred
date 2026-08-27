@@ -633,6 +633,15 @@ function FeedFooter() {
             <ConnectNudgeRows nudges={stream.connectNudges} />
           ) : null}
 
+          {stream.error ? (
+            <div
+              role="alert"
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] leading-snug text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
+            >
+              {stream.error}
+            </div>
+          ) : null}
+
           {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
 
           {/* The live bubble holds the copy affordance during the brief window

@@ -31,6 +31,10 @@ export function useEventStream(limit = 50): EventStreamFrame[] {
       onFrame: (frame) => {
         setFrames((prev) => [frame, ...prev].slice(0, limit));
       },
+      // Fatal SSE bus failure — debug feed is low-stakes, so we surface
+      // nothing beyond the global EventStreamBanner; the shared bus will
+      // back off and re-open automatically.
+      onError: () => {},
     });
     return close;
   }, [session?.user?.id, limit]);
