@@ -1,6 +1,7 @@
 import { useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { SyncedChatThread } from "@alfred/sync";
+import { EventStreamBanner } from "~/components/event-stream-banner";
 import { GithubReconnectBanner } from "~/components/github-reconnect-banner";
 import { ScopeGapBanner } from "~/components/scope-gap-banner";
 import { AppThemed } from "~/components/ui/v2/themed";
@@ -100,6 +101,7 @@ export default function AuthedAppShell({
             <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex flex-col items-center gap-2 px-3">
               <ScopeGapBanner />
               <GithubReconnectBanner />
+              <EventStreamBanner />
             </div>
             {mainContent}
           </div>

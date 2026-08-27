@@ -111,6 +111,8 @@ export interface StreamingMessage {
   compacting: boolean;
   /** The turn finished; the durable synced message will replace this shortly. */
   done: boolean;
+  /** Client-side stream failure (SSE disconnect, watchdog) — shown inline. */
+  error: string | null;
 }
 
 interface SubAgentTrailRef extends Omit<SubAgentTrail, "tools"> {
@@ -160,6 +162,7 @@ interface StreamRef {
   awaitingApproval: boolean;
   compacting: boolean;
   done: boolean;
+  error: string | null;
   /**
    * The user hit stop locally. We flip to done immediately and ignore any late
    * SSE frames for this run, so the bubble freezes the instant they click
@@ -303,6 +306,7 @@ function ensureStreamRef(
     awaitingApproval: false,
     compacting: false,
     done: false,
+    error: null,
     stopped: false,
   };
   cell.current = fresh;
@@ -624,6 +628,33 @@ export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   return true;
 }
 
+/**
+ * Client-side stream failure: the SSE transport died (EventSource CLOSED or
+ * watchdog timeout) while a turn was still in flight. Like `applyOptimisticStop`
+ * it freezes the eased buffers and flips to done so the composer recovers from
+ * the stop-button state, but it also records an `error` string that the UI
+ * renders inline so the failure is not silent. `stopped` still drops late
+ * frames for this run, and a new `(messageId, runId)` can still mount fresh
+ * via `ensureStreamRef` — the next turn is not blocked by a failed one.
+ */
+export function applyStreamError(cell: ChatStreamCell, message: string): boolean {
+  const r = cell.current;
+  if (!r || r.stopped) return false;
+  // `done` already true means the turn completed normally before the error
+  // arrived (a late CLOSED after `completed`); do not overwrite a successful
+  // finish with a failure.
+  if (r.done) return false;
+  const eased = anchorEasedSegment(r);
+  r.segments.set(eased.segment, eased.text.slice(0, eased.shown));
+  r.reasoning = r.reasoning.slice(0, r.reasoningShown);
+  r.error = message;
+  r.stopped = true;
+  r.done = true;
+  r.awaitingApproval = false;
+  r.compacting = false;
+  return true;
+}
+
 /** A few chars per animation frame, proportional so a big backlog catches up. */
 function ease(shown: number, full: number): number {
   return shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
@@ -707,6 +738,7 @@ export function tickDrip(
       awaitingApproval: ref.awaitingApproval,
       compacting: ref.compacting,
       done: ref.done,
+      error: ref.error,
     },
     caughtUp: shown >= eased.text.length && ref.reasoningShown >= ref.reasoning.length,
   };
@@ -734,6 +766,7 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     a.awaitingApproval !== b.awaitingApproval ||
     a.compacting !== b.compacting ||
     a.done !== b.done ||
+    a.error !== b.error ||
     a.tools.length !== b.tools.length ||
     a.connectNudges.length !== b.connectNudges.length ||
     a.subAgents.length !== b.subAgents.length ||

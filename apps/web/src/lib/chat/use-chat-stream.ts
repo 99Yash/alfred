@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openEventStream } from "~/lib/events/stream";
+import { toast } from "~/lib/toast";
 import {
   applyChatFrame,
   applyOptimisticStop,
+  applyStreamError,
   createChatStreamCell,
   streamSnapshotsEqual,
   tickDrip,
@@ -61,6 +63,31 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     // nothing has to remember to clear it. Read and written only in `tick`.
     let lastSnapshot: StreamingMessage | null = null;
 
+    // Watchdog: if the SSE bus dies but the server never sends a terminal
+    // frame, the bubble would otherwise hang on the stop button forever. Arm
+    // a timeout after each frame that flips the turn to a failed/done state so
+    // the composer recovers, matching the fatal-error path below.
+    const WATCHDOG_MS = 45_000;
+    let watchdogId: number | null = null;
+    const clearWatchdog = () => {
+      if (watchdogId !== null) {
+        clearTimeout(watchdogId);
+        watchdogId = null;
+      }
+    };
+    const armWatchdog = () => {
+      clearWatchdog();
+      const cur = cell.current;
+      if (!cur || cur.done) return;
+      watchdogId = window.setTimeout(() => {
+        watchdogId = null;
+        if (applyStreamError(cell, "Connection stalled — no updates received. The reply may be incomplete.")) {
+          ensureRaf();
+          toast.error("Connection stalled — live updates stopped. Please retry.");
+        }
+      }, WATCHDOG_MS);
+    };
+
     const ensureRaf = () => {
       if (rafRef.current !== null) return;
       const tick = () => {
@@ -83,16 +110,33 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     };
 
     stopFnRef.current = () => {
+      clearWatchdog();
       if (applyOptimisticStop(cell)) ensureRaf();
     };
 
     const close = openEventStream({
       onFrame: (frame) => {
-        if (applyChatFrame(cell, frame, Date.now())) ensureRaf();
+        const didChange = applyChatFrame(cell, frame, Date.now());
+        if (didChange) {
+          ensureRaf();
+          // A completed/failed terminal frame ends the turn — no need to keep
+          // the watchdog armed. Otherwise re-arm so a stalled bus still fails
+          // after the window.
+          if (cell.current?.done) clearWatchdog();
+          else armWatchdog();
+        }
+      },
+      onError: () => {
+        clearWatchdog();
+        if (applyStreamError(cell, "Live updates disconnected — reply may be incomplete.")) {
+          ensureRaf();
+          toast.error("Live updates disconnected — reply may be incomplete. Please retry.");
+        }
       },
     });
     return () => {
       close();
+      clearWatchdog();
       stopFnRef.current = null;
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);

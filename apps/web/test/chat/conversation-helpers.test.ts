@@ -18,6 +18,7 @@ const BLANK: StreamingMessage = {
   awaitingApproval: false,
   compacting: false,
   done: false,
+  error: null,
 };
 
 const stream = (over: Partial<StreamingMessage>): StreamingMessage => ({ ...BLANK, ...over });
