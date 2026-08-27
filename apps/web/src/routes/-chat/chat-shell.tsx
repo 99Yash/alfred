@@ -171,12 +171,16 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const prevShowStreamRef = useRef(showStream);
   const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset the completion detector when the thread changes — the previous
-  // thread's `showStream` must not fire the next thread's queue flush.
-  useEffect(() => {
+  // thread's `showStream` must not fire the next thread's queue flush. Do this
+  // during render so the next thread never commits with the previous thread's
+  // send gate.
+  const [prevThreadId, setPrevThreadId] = useState(threadId);
+  if (prevThreadId !== threadId) {
+    setPrevThreadId(threadId);
     prevShowStreamRef.current = false;
     lastErrorStreamIdRef.current = null;
     setQueueSending(false);
-  }, [threadId]);
+  }
   const onSend = useCallback(
     async (text: string, files?: File[], artifactTargetId?: string): Promise<boolean> => {
       const trimmed = text.trim();
