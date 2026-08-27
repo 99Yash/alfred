@@ -25,7 +25,7 @@ export function QueuedChips({
       {items.map((item) => {
         const preview = item.text.trim();
         // Truncate long queued text for the chip while keeping file affordance.
-        // The full text rides the queued turn when it later kicks.
+        // The full text rides the queued turn when it later starts.
         const shown = preview.length > 80 ? `${preview.slice(0, 80).trimEnd()}…` : preview;
         const label =
           shown ||

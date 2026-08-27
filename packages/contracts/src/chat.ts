@@ -129,7 +129,7 @@ export const chatMessageUsageSchema = z.object({
 export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
 
 /**
- * Response of the turn-kick endpoint (`POST /api/chat/threads/:id/turn`),
+ * Response of the turn start endpoint (`POST /api/chat/threads/:id/turn`),
  * discriminated on `outcome` so the client can tell three things apart on a
  * `2xx`: the turn started (a run exists for it), or the thread is busy (a
  * different turn is still in flight, so no run was created for this message).
@@ -142,11 +142,11 @@ export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
  *                 may be `null` only in the rare recovery path where the run row
  *                 could not be re-read after a concurrent insert.
  *   - `busy`    — the thread already has a non-terminal run for a *different*
- *                 user message, so this kick created nothing. `runId`, when
+ *                 user message, so this start created nothing. `runId`, when
  *                 present, is that in-flight run — the one to await before
  *                 retrying.
  */
-export const turnKickResponseSchema = z.discriminatedUnion("outcome", [
+export const turnStartResponseSchema = z.discriminatedUnion("outcome", [
   z.object({
     outcome: z.literal("started"),
     runId: z.string().nullable(),
@@ -157,4 +157,9 @@ export const turnKickResponseSchema = z.discriminatedUnion("outcome", [
     runId: z.string().nullable(),
   }),
 ]);
-export type TurnKickResponse = z.infer<typeof turnKickResponseSchema>;
+export type TurnStartResponse = z.infer<typeof turnStartResponseSchema>;
+// Back-compat aliases — deprecated, use `turnStartResponseSchema` / `TurnStartResponse`.
+/** @deprecated Use `turnStartResponseSchema`. */
+export const turnKickResponseSchema = turnStartResponseSchema;
+/** @deprecated Use `TurnStartResponse`. */
+export type TurnKickResponse = TurnStartResponse;

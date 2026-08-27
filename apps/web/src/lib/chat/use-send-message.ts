@@ -1,4 +1,4 @@
-import { toMessage, turnKickResponseSchema, type ChatModelTier } from "@alfred/contracts";
+import { toMessage, turnStartResponseSchema, type ChatModelTier } from "@alfred/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { authClient } from "~/lib/auth/auth-client";
@@ -33,16 +33,16 @@ export type SendMessage = (
 ) => Promise<SendResult>;
 
 /**
- * The kick just stages the message + enqueues the run (the reply streams back
+ * The start just stages the message + enqueues the run (the reply streams back
  * over SSE), so it should ack in well under a second. Bound it anyway: without
  * a signal a wedged connection leaves the optimistic UI waiting on the
  * browser's default network timeout (minutes), with no error toast. Mirrors the
  * transcription path in `turn-controls.ts`.
  */
-const TURN_KICK_TIMEOUT_MS = 30_000;
+const TURN_START_TIMEOUT_MS = 30_000;
 
 /**
- * Send a chat turn. Uploads any files, kicks the agent over
+ * Send a chat turn. Uploads any files, starts the agent over
  * `POST /api/chat/threads/:id/turn` (which durably upserts the user message),
  * then mirrors the accepted turn into Replicache for immediate local display.
  * The agent's reply streams back over SSE (see `useChatStream`).
@@ -81,7 +81,7 @@ export function useSendMessage(): SendMessage {
       // Upload the bytes to the bucket before staging the message. The durable
       // transcript stores object keys; the worker signs fresh read URLs from
       // those keys when a model step starts, so the object must exist before the
-      // run is kicked. A per-file failure drops just that file (toast); the rest
+      // run is enqueued. A per-file failure drops just that file (toast); the rest
       // of the turn still goes through. (ADR-0065)
       let uploaded: ChatAttachmentDescriptor[] = [];
       if (pickedFiles.length > 0) {
@@ -129,7 +129,7 @@ export function useSendMessage(): SendMessage {
                 : undefined,
             artifactTargetId,
           }),
-          signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
+          signal: AbortSignal.timeout(TURN_START_TIMEOUT_MS),
         });
         if (!res.ok) {
           const body = await res.text().catch(() => "");
@@ -139,12 +139,12 @@ export function useSendMessage(): SendMessage {
             { status: res.status, body },
             { summarize: true },
           );
-          console.error("[chat] turn kick failed:", res.status, body);
+          console.error("[chat] turn start failed:", res.status, body);
           toast.error("Couldn't send your message. Please try again.");
           return { ok: false, reason: "error" } as SendResult;
         }
 
-        const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
+        const payload = turnStartResponseSchema.safeParse(await res.json().catch(() => null));
         if (payload.success) {
           if (payload.data.outcome === "busy") {
             // The thread already has a turn in flight (#488). No run was created
@@ -221,7 +221,7 @@ export function useSendMessage(): SendMessage {
           { error: toMessage(err) },
           { summarize: true },
         );
-        console.error("[chat] turn kick error:", toMessage(err));
+        console.error("[chat] turn start error:", toMessage(err));
         toast.error("Couldn't send your message. Please try again.");
         return { ok: false, reason: "error" } as SendResult;
       }

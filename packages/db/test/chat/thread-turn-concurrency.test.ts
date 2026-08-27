@@ -13,13 +13,13 @@ import { dbBackedSkip } from "../support/db-backed";
 /**
  * DB-backed guard for the per-thread turn concurrency invariant (#488).
  *
- * The turn kick used to dedupe only on `userMessageId`, so the ONLY thing
+ * The turn start used to dedupe only on `userMessageId`, so the ONLY thing
  * preventing two concurrent runs on one thread was the client's "not streaming"
  * submit gate. Once the composer can auto-fire queued/steered turns a completion
- * race could kick a second run before the first is terminal. The fix is a
+ * race could start a second run before the first is terminal. The fix is a
  * partial unique index — {@link CHAT_THREAD_ACTIVE_RUN_INDEX} — enforcing at most
  * one non-terminal `__chat-turn__` run per (user, thread). This is the race-safe
- * boundary the kick relies on; the endpoint translates a 23505 on THIS index to
+ * boundary the start relies on; the endpoint translates a 23505 on THIS index to
  * a typed "thread busy" response and a 23505 on the dedup index to double-submit
  * recovery, so these lock which constraint each collision trips.
  *
@@ -108,7 +108,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
     assert.equal(Number((row as { count: number }).count), 1);
   });
 
-  test("a second overlapping kick on one thread is rejected → exactly one run", async () => {
+  test("a second overlapping start on one thread is rejected → exactly one run", async () => {
     const { userId, threadId } = await seedUserThread();
     await insertChatTurnRun({ userId, threadId, userMessageId: `m-${randomUUID()}` });
 
@@ -120,7 +120,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
     assert.equal(await countActiveThreadRuns(userId, threadId), 1);
   });
 
-  test("a duplicate kick (same user message) trips the dedup index, not the thread index", async () => {
+  test("a duplicate start (same user message) trips the dedup index, not the thread index", async () => {
     const { userId, threadId } = await seedUserThread();
     const userMessageId = `m-${randomUUID()}`;
     await insertChatTurnRun({ userId, threadId, userMessageId });
@@ -133,7 +133,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
     assert.equal(constraint, DEDUP_INDEX);
   });
 
-  test("a sequential kick after the prior run reaches a terminal state succeeds", async () => {
+  test("a sequential start after the prior run reaches a terminal state succeeds", async () => {
     const { userId, threadId } = await seedUserThread();
     let activeRunId = await insertChatTurnRun({
       userId,

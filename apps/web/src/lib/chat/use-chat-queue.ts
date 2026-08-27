@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChatModelTier } from "@alfred/contracts";
 
 /**
- * One message waiting for the in-flight turn to finish before it is kicked as
+ * One message waiting for the in-flight turn to finish before it is started as
  * its own turn. FIFO, client-local, per-thread — does not survive reload (v1).
  * The queue lives in an in-memory map keyed by threadId so switching threads
  * does not leak queued text into the wrong conversation; the thread-scoped
@@ -29,7 +29,7 @@ export interface ChatQueue {
   enqueue: (entry: Omit<QueuedMessage, "id">) => boolean;
   /** Remove a pending chip before it sends; order of the rest is preserved. */
   remove: (id: string) => void;
-  /** Drop the oldest entry after it has been successfully kicked. */
+  /** Drop the oldest entry after it has been successfully started. */
   dequeue: () => void;
   /** Peek at the oldest entry without removing it. */
   peek: () => QueuedMessage | undefined;
@@ -40,7 +40,7 @@ export interface ChatQueue {
  *
  * While a turn is streaming, submits are enqueued instead of dropped. When the
  * current turn completes (stream done + durable synced), the oldest entry is
- * kicked as its own turn. The `busy` guard (#488) keeps the entry queued for a
+ * started as its own turn. The `busy` guard (#488) keeps the entry queued for a
  * retry rather than dropping it or duplicating the run.
  *
  * Implementation is a plain in-memory `Record<threadId, QueuedMessage[]>`
@@ -84,7 +84,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       // "nothing to send".
       if (text.length === 0 && !hasFiles && !hasArtifact) return false;
       // Normalize to trimmed text so a chip never renders leading/trailing blank
-      // and the kicked turn does not carry it.
+      // and the started turn does not carry it.
       const normalized = text.length === 0 && !hasFiles ? "" : text;
       // Guard duplicated here: a whitespace-only text with no files must not
       // enqueue even if the caller forgot to trim before calling.

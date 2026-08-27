@@ -118,7 +118,7 @@ export function Composer({
   const composerDisabled = disabled || sending;
   // While a turn is streaming, submitting enqueues instead of being dropped
   // (#489). Keep the composer enabled so the user can line up follow-ups; the
-  // send action distinguishes "streaming → enqueue" from "idle → kick".
+  // send action distinguishes "streaming → enqueue" from "idle → start".
   const canSend =
     !composerDisabled &&
     !sending &&
