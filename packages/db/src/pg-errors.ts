@@ -60,7 +60,7 @@ export function isUniqueViolation(err: unknown): boolean {
 /**
  * The name of the unique index a 23505 violated, or `null` if the error is not
  * a unique violation. Lets a caller that owns more than one partial unique
- * index (e.g. the chat turn kick: a `userMessageId` dedup index and a
+ * index (e.g. the chat turn start: a `userMessageId` dedup index and a
  * per-thread active-run index) tell WHICH invariant collided and branch
  * accordingly — double-submit recovery vs. a typed "thread busy" response
  * (#488). Walks the same wrapped-cause chain as {@link isUniqueViolation};

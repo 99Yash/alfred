@@ -131,8 +131,8 @@ as **unverified / likely blocked**.
 
 Man page `seccomp(2)` (`https://man7.org/linux/man-pages/man2/seccomp.2.html`):
 
-> "In order to use the SECCOMP_SET_MODE_FILTER operation, either the calling thread must have the
-> CAP_SYS_ADMIN capability … _or_ the thread must … `prctl(PR_SET_NO_NEW_PRIVS, 1)`." Without one of
+> "In order to use the SECCOMP*SET_MODE_FILTER operation, either the calling thread must have the
+> CAP_SYS_ADMIN capability … \_or* the thread must … `prctl(PR_SET_NO_NEW_PRIVS, 1)`." Without one of
 > those, the operation "fails and returns EACCES". A filter "can be designed to filter arbitrary system
 > calls" — including `socket`/`connect`.
 
