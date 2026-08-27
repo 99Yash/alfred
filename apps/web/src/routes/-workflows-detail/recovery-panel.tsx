@@ -100,12 +100,12 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
 
   const openActivationChat = async () => {
     setOpeningChat(true);
-    const sent = await send(
+    const result = await send(
       undefined,
       `Resume workflow activation for workflow ${workflowId}, revision ${revisionId}. Call system.recover_workflow with these exact IDs. If it returns ready_to_activate, copy its activationProposal directly into system.activate_workflow without reconstructing it.`,
       "standard",
     );
-    if (!sent) setOpeningChat(false);
+    if (!result.ok) setOpeningChat(false);
   };
 
   return (
