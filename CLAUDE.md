@@ -46,6 +46,7 @@ Alfred is a personal assistant.
 - Domain pipelines: [email triage](./docs/reference/triage.md), [morning briefing](./docs/reference/briefing.md), and [cold-start research](./docs/reference/cold-start.md)
 
 <!-- polylane:start -->
+
 ## Investigating production with Polylane
 
 [Polylane](https://polylane.com/?ref=github.onboarding-pr) is an AI production engineer: it watches deploys, telemetry, incidents, and the infrastructure this repository ships to, investigates problems as they happen, and proposes fixes as pull requests. It is connected to this repository and available to coding agents through the [Polylane MCP server](https://mcp.polylane.com/mcp).

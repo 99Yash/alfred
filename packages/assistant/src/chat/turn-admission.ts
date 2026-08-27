@@ -6,7 +6,7 @@ import {
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   toMessage,
-  type TurnKickResponse,
+  type TurnStartResponse,
 } from "@alfred/contracts";
 import { db, type DbRoot, type DbTransaction } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
@@ -218,12 +218,12 @@ export interface StartChatTurnInput {
 
 /**
  * Admit a chat turn: validate the message + attachments, durably write the
- * accepted user turn, and kick the chat-turn run (createRun inside a SAVEPOINT
+ * accepted user turn, and start the chat-turn run (createRun inside a SAVEPOINT
  * + best-effort enqueue). Owns the busy / reuse / started outcomes and the
  * per-thread concurrency guard. The route is the only transport in front of
  * this; `chat` owns turn admission per ADR-0089.
  */
-export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKickResponse> {
+export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStartResponse> {
   const { userId, threadId, tier, artifactTargetId } = input;
   const userMessageId = input.userMessageId;
   const content = input.content.trim();
@@ -299,14 +299,14 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
   // flight on this thread, don't create a second run — return a typed
   // "busy" outcome so the client can keep this message queued and retry
   // when that run completes. Checked here, before any attachment copies
-  // or durable writes, so a busy kick has no side effects. This is the
+  // or durable writes, so a busy start has no side effects. This is the
   // fast path; the DB partial unique index below is the race-safe
-  // backstop for two kicks that both pass this check concurrently. An
+  // backstop for two starts that both pass this check concurrently. An
   // exact duplicate submit (same user message) is NOT busy — it falls
   // through to the idempotent existing-run path.
   const blockingRunId = await findBlockingChatTurnRun(db(), userId, threadId, userMessageId);
   if (blockingRunId) {
-    return { outcome: "busy", runId: blockingRunId } satisfies TurnKickResponse;
+    return { outcome: "busy", runId: blockingRunId } satisfies TurnStartResponse;
   }
 
   const retrySources: RetryAttachmentSource[] = [];
@@ -384,7 +384,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
     );
     if (existingRun) {
       await enqueueChatTurnRunBestEffort(existingRun.runId);
-      return { outcome: "started", ...existingRun } satisfies TurnKickResponse;
+      return { outcome: "started", ...existingRun } satisfies TurnStartResponse;
     }
   }
 
@@ -478,7 +478,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
 
   const assistantMessageId = createId("msg");
   let acceptedFreshAttachmentBytes = 0;
-  const result = await db().transaction<TurnKickResponse>(async (tx) => {
+  const result = await db().transaction<TurnStartResponse>(async (tx) => {
     if (!thread) {
       await tx
         .insert(chatThreads)
@@ -584,7 +584,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
       // Postgres transaction — recovering via `findExistingChatTurnRun(tx)` on
       // an aborted tx would fail with 25P02 and 500 the loser (data was fine —
       // one run — but the client saw an error); the savepoint is what keeps the
-      // outer tx usable. Delivery is deferred to the post-commit kick at the
+      // outer tx usable. Delivery is deferred to the post-commit enqueue at the
       // bottom of this function.
       const { runId } = await persistChatTurnRunInTx(tx, {
         userId: userId,
@@ -609,9 +609,9 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
       // is still alive to recover. Discriminate on WHICH index tripped.
       const constraint = uniqueViolationConstraint(err);
       if (constraint === null) throw err;
-      // Per-thread guard (#488): a concurrent kick with a DIFFERENT user
+      // Per-thread guard (#488): a concurrent start with a DIFFERENT user
       // message already has a run in flight on this thread and won the
-      // race. This is the race-safe backstop for two kicks that both
+      // race. This is the race-safe backstop for two starts that both
       // passed the pre-tx `findBlockingChatTurnRun` check. Report busy —
       // no second run was created — carrying the in-flight run when it's
       // still visible so the client can await it before retrying.
@@ -645,7 +645,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnKick
   await releasePendingUploadBudget(userId, acceptedFreshAttachmentBytes);
   // Only a started turn owns a run to enqueue. A busy outcome created no
   // run — the in-flight one it points at is already enqueued by its own
-  // kick — so don't re-enqueue another turn's work.
+  // start — so don't re-enqueue another turn's work.
   if (result.outcome === "started") {
     await enqueueChatTurnRunBestEffort(result.runId);
   }

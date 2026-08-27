@@ -929,7 +929,9 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const messageId =
       typeof metadata.assistantMessageId === "string"
         ? metadata.assistantMessageId
-        : `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${metadata.kickId ?? ""}`))}`;
+        : // `kickId` is the legacy alias for `startId`; keep it as fallback for
+          // runs persisted before the rename so the hash stays stable.
+          `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${typeof metadata.startId === "string" ? metadata.startId : typeof metadata.kickId === "string" ? metadata.kickId : ""}`))}`;
     const tier: ChatModelTier = metadata.tier === "deep" ? "deep" : "standard";
     const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
