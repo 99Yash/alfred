@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ChatModelTier } from "@alfred/contracts";
+import {
+  isEmptyChatTurnInput,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_QUEUED_TURNS,
+  type ChatModelTier,
+} from "@alfred/contracts";
 
 /**
  * One message waiting for the in-flight turn to finish before it is started as
@@ -14,12 +19,21 @@ export interface QueuedMessage {
   files: File[];
   tier: ChatModelTier;
   artifactTargetId?: string | undefined;
+  retryAttachmentIds?: string[] | undefined;
+  retryAttachmentMessageId?: string | undefined;
 }
 
-type Queues = Record<string, QueuedMessage[]>;
+type Queues = Map<string, QueuedMessage[]>;
 
 function queueKey(threadId: string | undefined): string {
   return threadId ?? "__new__";
+}
+
+function safeRandomId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export interface ChatQueue {
@@ -43,15 +57,15 @@ export interface ChatQueue {
  * started as its own turn. The `busy` guard (#488) keeps the entry queued for a
  * retry rather than dropping it or duplicating the run.
  *
- * Implementation is a plain in-memory `Record<threadId, QueuedMessage[]>`
- * in component state — no persistence for v1 — so reload clears it. The map
- * keeps each thread's slice isolated; `queueKey` scopes `__new__` for the
- * bare `/chat` surface so that surface does not leak a queue into a real thread.
+ * Implementation is an in-memory `Map<threadId, QueuedMessage[]>` in component
+ * state — no persistence for v1 — so reload clears it. The map keeps each
+ * thread's slice isolated; `queueKey` scopes `__new__` for the bare `/chat`
+ * surface so that surface does not leak a queue into a real thread.
  */
 export function useChatQueue(threadId: string | undefined): ChatQueue {
-  const [queues, setQueues] = useState<Queues>({});
+  const [queues, setQueues] = useState<Queues>(() => new Map());
   const key = queueKey(threadId);
-  const queue = useMemo(() => queues[key] ?? [], [queues, key]);
+  const queue = useMemo(() => queues.get(key) ?? [], [queues, key]);
 
   // Migrate any queued entries from the ephemeral `__new__` bucket (the bare
   // `/chat` surface) into the newly created real thread after the first send
@@ -62,13 +76,27 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
     if (!threadId) return;
     setQueues((prev) => {
       const oldKey = "__new__";
-      const oldQueue = prev[oldKey];
+      const oldQueue = prev.get(oldKey);
       if (!oldQueue || oldQueue.length === 0) return prev;
-      const newQueue = prev[threadId];
-      if (newQueue && newQueue.length > 0) return prev;
-      const next = { ...prev } satisfies Queues;
-      next[threadId] = oldQueue;
-      next[oldKey] = [];
+      const newQueue = prev.get(threadId) ?? [];
+      // Merge rather than drop: if the new thread already has queued items
+      // (race of two rapid enqueues around navigation), preserve FIFO by
+      // appending the migrated items after the existing ones. Dropping either
+      // side would silently lose the user's draft — the harsher structural
+      // review flagged the old `if (newQueue.length>0) return prev` as data loss.
+      const merged = [...newQueue, ...oldQueue];
+      if (merged.length === 0) return prev;
+      const next = new Map(prev);
+      next.set(threadId, merged);
+      next.set(oldKey, []);
+      // Prune empty buckets to bound memory: a Map that grows per visited
+      // thread would leak `File` handles. Delete empties and cap distinct
+      // thread buckets (LRU-ish: drop oldest empty-ish entries if we exceed 20).
+      if (next.get(oldKey)?.length === 0) next.delete(oldKey);
+      if (next.size > 20) {
+        const firstKey = next.keys().next().value as string | undefined;
+        if (firstKey && firstKey !== threadId && firstKey !== oldKey) next.delete(firstKey);
+      }
       return next;
     });
   }, [threadId]);
@@ -77,42 +105,72 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
     (entry: Omit<QueuedMessage, "id">): boolean => {
       const text = entry.text.trim();
       const hasFiles = entry.files.length > 0;
-      const hasArtifact = Boolean(entry.artifactTargetId);
-      // Empty/whitespace-only entries are not enqueued; an image-only entry
-      // (empty text + files) is valid and must be kept. Mirrors the send guard
-      // in `useSendMessage` so the two gates cannot disagree on what counts as
-      // "nothing to send".
-      if (text.length === 0 && !hasFiles && !hasArtifact) return false;
+      // Single source of truth for "empty" — mirrors `useSendMessage` and
+      // `ChatShell.onSend` via `isEmptyChatTurnInput` in `@alfred/contracts`.
+      if (
+        isEmptyChatTurnInput({
+          content: text,
+          hasFiles,
+          artifactTargetId: entry.artifactTargetId,
+          retryAttachmentIds: entry.retryAttachmentIds,
+        })
+      )
+        return false;
+      // Guard `File` caps at enqueue time so a queued batch cannot later exceed
+      // the per-message limits the server enforces. The composer already caps
+      // live attachments, but a queued turn bypasses that gate.
+      if (entry.files.length > MAX_ATTACHMENTS_PER_MESSAGE) return false;
       // Normalize to trimmed text so a chip never renders leading/trailing blank
       // and the started turn does not carry it.
-      const normalized = text.length === 0 && !hasFiles ? "" : text;
-      // Guard duplicated here: a whitespace-only text with no files must not
-      // enqueue even if the caller forgot to trim before calling.
-      if (normalized.length === 0 && !hasFiles) return false;
-      const id = crypto.randomUUID();
+      const normalized = text;
+      if (
+        isEmptyChatTurnInput({
+          content: normalized,
+          hasFiles,
+          artifactTargetId: entry.artifactTargetId,
+          retryAttachmentIds: entry.retryAttachmentIds,
+        })
+      )
+        return false;
+
+      // Capacity: keep queue bounded so a runaway loop cannot pin unbounded
+      // `File` handles in memory. When full, reject and let the caller keep
+      // the draft in the composer (same as "empty" → composer does not clear).
+      const currentLen = queues.get(key)?.length ?? 0;
+      if (currentLen >= MAX_QUEUED_TURNS) return false;
+
+      const id = safeRandomId();
       const queued: QueuedMessage = {
         id,
         text: normalized,
         files: entry.files,
         tier: entry.tier,
         artifactTargetId: entry.artifactTargetId,
+        retryAttachmentIds: entry.retryAttachmentIds,
+        retryAttachmentMessageId: entry.retryAttachmentMessageId,
       };
       setQueues((prev) => {
-        const prevList = prev[key] ?? [];
-        return { ...prev, [key]: [...prevList, queued] };
+        const prevList = prev.get(key) ?? [];
+        if (prevList.length >= MAX_QUEUED_TURNS) return prev;
+        const next = new Map(prev);
+        next.set(key, [...prevList, queued]);
+        return next;
       });
       return true;
     },
-    [key],
+    [key, queues],
   );
 
   const remove = useCallback(
     (id: string) => {
       setQueues((prev) => {
-        const list = prev[key] ?? [];
+        const list = prev.get(key) ?? [];
         const next = list.filter((m) => m.id !== id);
         if (next.length === list.length) return prev;
-        return { ...prev, [key]: next };
+        const map = new Map(prev);
+        if (next.length === 0) map.delete(key);
+        else map.set(key, next);
+        return map;
       });
     },
     [key],
@@ -120,9 +178,13 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
 
   const dequeue = useCallback(() => {
     setQueues((prev) => {
-      const list = prev[key] ?? [];
+      const list = prev.get(key) ?? [];
       if (list.length === 0) return prev;
-      return { ...prev, [key]: list.slice(1) };
+      const rest = list.slice(1);
+      const map = new Map(prev);
+      if (rest.length === 0) map.delete(key);
+      else map.set(key, rest);
+      return map;
     });
   }, [key]);
 
