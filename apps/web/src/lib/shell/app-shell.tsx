@@ -222,7 +222,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPending) return;
     setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, !!session?.user);
   }, [isPending, session?.user]);
-  const { data: onboardingData } = useQuery({
+  const { data: onboardingData, isError: onboardingError } = useQuery({
     queryKey: ["me", "onboarding"],
     queryFn: async () => {
       const res = await client.api.me.onboarding.get();
@@ -231,6 +231,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     },
     enabled: !isPending && !!sessionUser,
     staleTime: 60_000,
+    retry: 1,
   });
 
   /* Gate `/onboarding` access in both directions:
@@ -385,7 +386,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   // redirect effect above still fires — costing only a brief flash, the same
   // self-correcting tradeoff as the auth hint on `/`.
   const gatingPending =
-    routeToOnboarding === undefined && !onOnboardingRoute && !onboardingHintComplete;
+    routeToOnboarding === undefined &&
+    !onOnboardingRoute &&
+    !onboardingHintComplete &&
+    !onboardingError;
   const mainContent = gatingPending ? null : children;
 
   // Chrome should be present for any non-chromeless route the user is
