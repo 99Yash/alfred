@@ -118,9 +118,35 @@ const serverEnvSchema = z.object({
   // `Alfred <noreply@example.com>` is valid and `.email()` would reject it.
   RESEND_API_KEY: z.string().min(1),
   RESEND_FROM_EMAIL: z.string().min(1),
-  ANTHROPIC_API_KEY: z.string().min(1),
-  GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1),
+  /**
+   * Direct provider keys — optional when Cloudflare AI Gateway is configured.
+   * When `cloudflareGatewayEnabled()` is true, every call routes via CF Unified
+   * Billing (`cfut_` token) at `gateway.ai.cloudflare.com` and no provider key is
+   * needed. Kept optional so a fully-migrated CF deploy boots without them.
+   * When CF is disabled, at least one of these must be set or model construction
+   * will throw at first LLM call (not at boot, to keep `tsx --test` without env working).
+   */
+  ANTHROPIC_API_KEY: optionalSecret(),
+  GOOGLE_GENERATIVE_AI_API_KEY: optionalSecret(),
   OPENAI_API_KEY: z.string().optional(),
+  /**
+   * Cloudflare AI Gateway — when all three are set, every LLM call routes via
+   * `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}` using
+   * Unified Billing (`cfut_` token). This fully replaces the Vercel AI Gateway
+   * (`AI_GATEWAY_API_KEY` `vck_` prefix) and direct keys when present.
+   * All three are `optionalSecret` so a half-configured gateway does not bounce
+   * boot — the gateway simply stays disabled and the provider fallback handles it.
+   */
+  CLOUDFLARE_AI_GATEWAY_TOKEN: optionalSecret(),
+  CLOUDFLARE_ACCOUNT_ID: optionalSecret(),
+  CLOUDFLARE_GATEWAY_ID: optionalSecret(),
+  /**
+   * Vercel AI Gateway (`vck_` token) — kept for migration but unused when
+   * Cloudflare is configured. `optionalSecret` tolerates `AI_GATEWAY_API_KEY=`
+   * blank line; a `cfut_` token here is also accepted as Cloudflare alias so
+   * the single var `AI_GATEWAY_API_KEY=cfut_...` continues to work.
+   */
+  AI_GATEWAY_API_KEY: optionalSecret(),
   VOYAGE_API_KEY: z.string().optional(),
   /**
    * Vendor pricing override for the embed cost-cap math (`maxTokensForPrice`
@@ -375,4 +401,39 @@ export function gmailMailboxWritesEnabled(): boolean {
 
 export function chatMemoryCaptureEnabled(): boolean {
   return serverEnv().CHAT_MEMORY_CAPTURE_ENABLED === true;
+}
+
+/**
+ * Whether Cloudflare AI Gateway should be used. True only when the universal
+ * gateway token + account + gateway id are all present. Single decision point
+ * mirrors `gmailMailboxWritesEnabled()` — callers must not branch on raw env fields.
+ * Also accepts the legacy `AI_GATEWAY_API_KEY=cfut_...` alias so a single var
+ * `AI_GATEWAY_API_KEY` continues to work after the Vercel→Cloudflare migration.
+ */
+export function cloudflareGatewayEnabled(): boolean {
+  const env = serverEnv();
+  const token =
+    env.CLOUDFLARE_AI_GATEWAY_TOKEN ??
+    (env.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? env.AI_GATEWAY_API_KEY : undefined);
+  return Boolean(token && env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_GATEWAY_ID);
+}
+
+export function cloudflareGatewayConfig():
+  | { token: string; accountId: string; gatewayId: string }
+  | undefined {
+  const env = serverEnv();
+  const token =
+    env.CLOUDFLARE_AI_GATEWAY_TOKEN ??
+    (env.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? env.AI_GATEWAY_API_KEY : undefined);
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const gatewayId = env.CLOUDFLARE_GATEWAY_ID;
+  if (token && accountId && gatewayId) return { token, accountId, gatewayId };
+  return undefined;
+}
+
+/** Whether Vercel AI Gateway (`vck_`) is configured and Cloudflare is not. */
+export function vercelGatewayEnabled(): boolean {
+  const env = serverEnv();
+  if (cloudflareGatewayEnabled()) return false;
+  return Boolean(env.AI_GATEWAY_API_KEY?.startsWith("vck_"));
 }
