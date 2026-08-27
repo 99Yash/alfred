@@ -1,7 +1,7 @@
 /**
  * Small fetch helpers for the chat turn's side-channels: voice transcription
  * and stop-generation. Plain `fetch` against the API origin with the session
- * cookie, matching `use-send-message`'s turn kick (these are imperative
+ * cookie, matching `use-send-message`'s turn start (these are imperative
  * one-shots, not synced state — Replicache and the SSE bus stay the source of
  * truth for everything durable).
  */

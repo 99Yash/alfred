@@ -48,7 +48,7 @@ describe("isUniqueViolation", () => {
 });
 
 /**
- * `uniqueViolationConstraint` lets the chat turn kick tell WHICH partial unique
+ * `uniqueViolationConstraint` lets the chat turn start tell WHICH partial unique
  * index a 23505 tripped — the per-thread active-run index ("thread busy") vs.
  * the userMessageId dedup index (double-submit recovery) (#488). node-postgres
  * carries the index name on `.constraint`, one level down the wrapped chain.

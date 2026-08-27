@@ -40,7 +40,7 @@ const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
 /**
  * Chat turn surface (streaming-chat plan). The composer uploads any attachment
  * bytes first, then the turn endpoint durably writes the user's accepted turn
- * and kicks the agent. The client mirrors the accepted turn into Replicache only
+ * and starts the agent turn. The client mirrors the accepted turn into Replicache only
  * after this route acks, so the server is the canonical send boundary.
  *
  * The reply streams over the SSE event bus (`chat.delta` / `chat.tool` /

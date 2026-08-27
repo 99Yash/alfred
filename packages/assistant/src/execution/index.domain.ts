@@ -44,8 +44,8 @@ export { normalizeDecisionTraceKey } from "./decision-traces";
 // Execution's public run-start surface is `startRun` / `startRunInTx` (folded
 // persist+deliver) plus two narrow ops for the callers that legitimately hold a
 // run apart from its delivery: `redeliverRun(runId)` hands an already-persisted
-// run to the worker (approvals re-delivery, the chat-turn post-commit kick, ops
-// re-kicks, and the HTTP replay/signal endpoints), and `persistChatTurnRunInTx(tx,
+// run to the worker (approvals re-delivery, the chat-turn post-commit enqueue, ops
+// re-enqueues, and the HTTP replay/signal endpoints), and `persistChatTurnRunInTx(tx,
 // args)` persists a chat-turn run on the caller's transaction inside a savepoint.
 // `replayRun(args)` re-persists a run from a revision choice and returns the new
 // run for the caller to `redeliverRun`; it is the entry the `/runs/:runId/replay`

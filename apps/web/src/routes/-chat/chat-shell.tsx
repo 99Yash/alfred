@@ -161,7 +161,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const [tier, setTier] = useModelTier();
   // Client-local per-thread queue for lining up messages while a reply streams
   // (#489). While `isStreaming` is true, submits enqueue as removable chips
-  // above the composer; on turn completion the oldest entry auto-kicks as its
+  // above the composer; on turn completion the oldest entry auto-starts as its
   // own turn (FIFO, one at a time). A `busy` response keeps the entry queued
   // for a retry on the next completion rather than dropping it. Empty/whitespace
   // entries are not enqueued; queue state is scoped per thread via `useChatQueue`.
@@ -183,7 +183,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       if (trimmed.length === 0 && !hasFiles && !artifactTargetId) return false;
       // While a turn is active (streaming or stream done but durable not yet
       // synced) enqueue locally so the previous reply can finish rendering
-      // before the next turn kicks. This keeps the auto-send FIFO waiting for
+      // before the next turn starts. This keeps the auto-send FIFO waiting for
       // `showStream` to clear (stream done + durable synced) per #489, and
       // avoids mounting a new stream over the previous done-but-not-yet-synced
       // bubble.
@@ -202,7 +202,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       );
       if (result.ok) return true;
       if (result.reason === "busy") {
-        // Per-thread concurrency guard (#488) — the kick created no run because
+        // Per-thread concurrency guard (#488) — the start created no run because
         // a different turn is still in flight. Keep the message queued and retry
         // on the next completion signal rather than dropping it (#489 AC 4).
         const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
@@ -215,11 +215,11 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     },
     [showStream, enqueue, send, threadId, tier],
   );
-  // On turn completion (stream done + durable synced), auto-kick the oldest
+  // On turn completion (stream done + durable synced), auto-start the oldest
   // queued message as its own turn, one at a time. A `busy` reply keeps the
   // entry queued for the next completion; other failures keep it for manual
-  // removal/retry. The `queueSending` gate prevents a burst of concurrent kicks
-  // while the newly kicked turn's stream is still mounting.
+  // removal/retry. The `queueSending` gate prevents a burst of concurrent starts
+  // while the newly started turn's stream is still mounting.
   useEffect(() => {
     const prev = prevShowStreamRef.current;
     prevShowStreamRef.current = showStream;
@@ -249,7 +249,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       if (result.ok) {
         dequeue();
       } else if (result.reason === "busy") {
-        // Keep queued; the in-flight run (or a newly kicked one) will trigger
+        // Keep queued; the in-flight run (or a newly started one) will trigger
         // the next retry on its completion. No toast — the user already sees the
         // pending chip and the busy is transient.
       } else if (result.reason === "empty") {
