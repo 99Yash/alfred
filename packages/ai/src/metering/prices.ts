@@ -119,12 +119,30 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
 }
 
 /**
+ * Code-resident fallback windows for the models the boot guard verifies.
+ * Mirrors the current `model_prices.context_window` seeded by
+ * `db:sync-prices` (models.dev). Used only when the DB row is missing or
+ * carries a null window — e.g. a fresh local DB before the first sync, or a
+ * brief models.dev rename gap — so a new checkout boots without a manual
+ * `db:sync-prices` step. The DB remains the source of truth; this map is a
+ * safety net that is intentionally narrow to the verified set.
+ */
+const FALLBACK_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
+  "anthropic/claude-sonnet-4-6": 1_000_000,
+  "anthropic/claude-opus-4-8": 1_000_000,
+  "google/gemini-2.5-flash": 1_048_576,
+  "google/gemini-2.5-flash-lite": 1_048_576,
+  "google/gemini-3.5-flash": 1_048_576,
+};
+
+/**
  * Resolve the input-token context window for an AI SDK `LanguageModel` via
- * the `model_prices.context_window` column. Throws when the row is
- * missing or carries a null context window — boot-time `verifyMeteringModels`
- * uses this to fail fast on misconfigured workers (ADR-0035 derives the
- * compaction threshold from this value; a silent fallback would mean
- * unbounded transcript growth).
+ * the `model_prices.context_window` column. Falls back to
+ * `FALLBACK_CONTEXT_WINDOWS` for the known agent models when the row is
+ * missing or carries a null window, otherwise throws — boot-time
+ * `verifyMeteringModels` uses this to fail fast on misconfigured workers
+ * (ADR-0035 derives the compaction threshold from this value; a silent
+ * fallback for an *unknown* model would mean unbounded transcript growth).
  *
  * Provider id normalization is handled by `identifyLanguageModel` (shared with
  * the metering wrappers): AI SDK exposes namespaced ids
@@ -134,12 +152,17 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
 export async function resolveModelContextWindow(model: LanguageModel): Promise<number> {
   const { provider, modelId } = identifyLanguageModel(model);
   const price = await getPrice(provider, modelId);
-  if (!price || price.contextWindow == null) {
-    throw new Error(
-      `[metering] no context_window for ${provider}/${modelId} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
+  if (price?.contextWindow != null) return price.contextWindow;
+  const fallback = FALLBACK_CONTEXT_WINDOWS[`${provider}/${modelId}`];
+  if (fallback != null) {
+    console.warn(
+      `[metering] using fallback context_window=${fallback} for ${provider}/${modelId} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
     );
+    return fallback;
   }
-  return price.contextWindow;
+  throw new Error(
+    `[metering] no context_window for ${provider}/${modelId} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
+  );
 }
 
 /**
