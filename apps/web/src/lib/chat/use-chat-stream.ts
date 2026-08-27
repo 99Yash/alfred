@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openEventStream } from "~/lib/events/stream";
+import { toast } from "~/lib/toast";
 import {
   applyChatFrame,
   applyOptimisticStop,
+  applyStreamError,
   createChatStreamCell,
   streamSnapshotsEqual,
   tickDrip,
@@ -24,6 +26,21 @@ interface StreamSnapshot {
   threadId: string;
   message: StreamingMessage;
 }
+
+/**
+ * Watchdog: if the SSE bus dies but the server never sends a terminal frame,
+ * the bubble would hang on the stop button forever. 45s is deliberately
+ * shorter than the 60s streaming timeout on the server (`code-style.md:backend`
+ * — streaming ~60s) but well beyond the ~5/sec delta cadence, so a healthy
+ * turn never trips it while a dead bus recovers before the user perceives a
+ * hang. Centralized here (not per-component) so only one timer exists per
+ * subscription; a third terminal reason would not re-invent it.
+ */
+const WATCHDOG_MS = 45_000;
+
+const STREAM_ERROR_MESSAGE = "Live updates disconnected — reply may be incomplete.";
+const WATCHDOG_ERROR_MESSAGE =
+  "Connection stalled — no updates received. The reply may be incomplete.";
 
 /**
  * Assembles the in-flight assistant turn for `threadId` from the SSE event bus.
@@ -61,6 +78,27 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     // nothing has to remember to clear it. Read and written only in `tick`.
     let lastSnapshot: StreamingMessage | null = null;
 
+    let watchdogId: number | null = null;
+    const clearWatchdog = () => {
+      if (watchdogId !== null) {
+        // `window.setTimeout` returns `number` in lib.dom; `clearTimeout` is global.
+        clearTimeout(watchdogId);
+        watchdogId = null;
+      }
+    };
+    const armWatchdog = () => {
+      clearWatchdog();
+      const cur = cell.current;
+      if (!cur || cur.done) return;
+      watchdogId = window.setTimeout(() => {
+        watchdogId = null;
+        if (applyStreamError(cell, WATCHDOG_ERROR_MESSAGE)) {
+          ensureRaf();
+          toast.error("Connection stalled — live updates stopped. Please retry.");
+        }
+      }, WATCHDOG_MS);
+    };
+
     const ensureRaf = () => {
       if (rafRef.current !== null) return;
       const tick = () => {
@@ -83,16 +121,32 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     };
 
     stopFnRef.current = () => {
+      clearWatchdog();
       if (applyOptimisticStop(cell)) ensureRaf();
     };
 
     const close = openEventStream({
       onFrame: (frame) => {
-        if (applyChatFrame(cell, frame, Date.now())) ensureRaf();
+        const didChange = applyChatFrame(cell, frame, Date.now());
+        if (didChange) ensureRaf();
+        // Connection is alive — re-arm watchdog for any in-flight turn, not only
+        // when the frame mutated the snapshot. A dup seq or a foreign-thread
+        // frame (didChange=false) still proves the bus is healthy; only a done
+        // turn or no turn should leave the timer cleared.
+        if (cell.current?.done) clearWatchdog();
+        else if (cell.current) armWatchdog();
+      },
+      onError: () => {
+        clearWatchdog();
+        if (applyStreamError(cell, STREAM_ERROR_MESSAGE)) {
+          ensureRaf();
+          toast.error(`${STREAM_ERROR_MESSAGE} Please retry.`);
+        }
       },
     });
     return () => {
       close();
+      clearWatchdog();
       stopFnRef.current = null;
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);

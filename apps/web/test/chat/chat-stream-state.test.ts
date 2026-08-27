@@ -5,6 +5,7 @@ import type { EventPayload } from "@alfred/contracts/events";
 import {
   applyChatFrame,
   applyOptimisticStop,
+  applyStreamError,
   createChatStreamCell,
   streamSnapshotsEqual,
   tickDrip,
@@ -1018,5 +1019,88 @@ describe("connection-health nudges (#378 item 3)", () => {
     };
     assert.equal(streamSnapshotsEqual(build("connect"), build("connect")), true);
     assert.equal(streamSnapshotsEqual(build("connect"), build("reconnect")), false);
+  });
+});
+
+describe("applyStreamError — transport failure vs optimistic stop", () => {
+  test("records error, freezes at shown, and blocks late frames", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "012345678901234567890123456789"), 1_100);
+    const { snapshot: mid } = tick(cell);
+    assert.ok(mid.text.length > 0 && mid.text.length < 30, `unexpected prefix: ${mid.text}`);
+
+    assert.equal(
+      applyStreamError(cell, "Live updates disconnected — reply may be incomplete."),
+      true,
+    );
+    const frozen = drain(cell).snapshot;
+    assert.equal(frozen.text, mid.text);
+    assert.equal(frozen.done, true);
+    assert.equal(frozen.error, "Live updates disconnected — reply may be incomplete.");
+    assert.equal(refOf(cell).stopped, true);
+
+    // Late frames are dropped
+    assert.equal(applyChatFrame(cell, delta(2, " late"), 2_000), false);
+    assert.equal(drain(cell).snapshot.text, mid.text);
+  });
+
+  test("does not overwrite a successful completion (late CLOSED after completed)", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "answer"), 1_000);
+    applyChatFrame(cell, completed(), 1_000);
+    assert.equal(drain(cell).snapshot.done, true);
+    assert.equal(drain(cell).snapshot.error, null);
+    assert.equal(
+      applyStreamError(cell, "Live updates disconnected — reply may be incomplete."),
+      false,
+    );
+    assert.equal(drain(cell).snapshot.done, true);
+    assert.equal(drain(cell).snapshot.error, null);
+  });
+
+  test("second error, stopped, and empty cell are no-ops", () => {
+    assert.equal(applyStreamError(cellOf(), "x"), false);
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    assert.equal(applyStreamError(cell, "first"), true);
+    assert.equal(applyStreamError(cell, "second"), false);
+    assert.equal(drain(cell).snapshot.error, "first");
+  });
+
+  test("next turn still mounts — error does not block retry", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "half"), 1_000);
+    applyStreamError(cell, "boom");
+    assert.equal(applyChatFrame(cell, started(TURN_2), 1_000), true);
+    assert.equal(refOf(cell).stopped, false);
+    assert.equal(refOf(cell).error, null);
+    assert.equal(applyChatFrame(cell, delta(1, "fresh", { turn: TURN_2 }), 1_000), true);
+    assert.equal(drain(cell).snapshot.text, "fresh");
+  });
+
+  test("shares freeze path with optimistic stop — error vs no-error", () => {
+    const forError = cellOf();
+    applyChatFrame(forError, started(), 1_000);
+    applyChatFrame(forError, delta(1, "ABCDEFGHIJ"), 1_000);
+    tick(forError);
+    applyStreamError(forError, "e");
+    const errSnap = drain(forError).snapshot;
+
+    const forStop = cellOf();
+    applyChatFrame(forStop, started(), 1_000);
+    applyChatFrame(forStop, delta(1, "ABCDEFGHIJ"), 1_000);
+    tick(forStop);
+    applyOptimisticStop(forStop);
+    const stopSnap = drain(forStop).snapshot;
+
+    // Both freeze at same prefix; only difference is error string
+    assert.equal(errSnap.text, stopSnap.text);
+    assert.equal(stopSnap.error, null);
+    assert.equal(errSnap.error, "e");
+    assert.equal(errSnap.done, true);
+    assert.equal(stopSnap.done, true);
   });
 });

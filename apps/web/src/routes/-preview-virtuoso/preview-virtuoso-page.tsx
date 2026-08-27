@@ -88,6 +88,7 @@ export function PreviewVirtuosoPage() {
       awaitingApproval: false,
       compacting: false,
       done: false,
+      error: null,
     });
     timerRef.current = setInterval(() => {
       shown += Math.max(4, Math.floor(full.length / 60));
