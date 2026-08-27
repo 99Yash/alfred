@@ -5,13 +5,13 @@ It is the source-of-truth type: its `z.infer` is the type every consumer
 compiles against, so the schema belongs to whichever module owns that
 contract. Placement therefore follows **consumer need**, not file type:
 
-| The question that decides it                          | Home                                                        | Example                                        |
-| ----------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| Must browser and server agree on this shape?           | `@alfred/contracts`, split by domain file                    | `briefing.ts`, `events.ts`, `tool-schemas.ts`  |
-| Is this a synced Replicache read model or mutator arg? | `@alfred/sync` (`src/schemas.ts` holds the shared registry)  | `syncedNoteSchema`, `factValueSchema`          |
-| Is this a provider's wire shape?                       | The owning integration client                                | `google/gmail.ts`, `notion/oauth.ts`           |
-| Does code look schemas up by name across features?     | A registry table next to the dispatcher                      | `TOOL_INPUT_SCHEMAS`                           |
-| None of these - one feature parses one payload         | Colocate with the parser that owns the boundary              | `valueRangeSchema` in `sheets.ts`              |
+| The question that decides it                           | Home                                                        | Example                                       |
+| ------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------- |
+| Must browser and server agree on this shape?           | `@alfred/contracts`, split by domain file                   | `briefing.ts`, `events.ts`, `tool-schemas.ts` |
+| Is this a synced Replicache read model or mutator arg? | `@alfred/sync` (`src/schemas.ts` holds the shared registry) | `syncedNoteSchema`, `factValueSchema`         |
+| Is this a provider's wire shape?                       | The owning integration client                               | `google/gmail.ts`, `notion/oauth.ts`          |
+| Does code look schemas up by name across features?     | A registry table next to the dispatcher                     | `TOOL_INPUT_SCHEMAS`                          |
+| None of these - one feature parses one payload         | Colocate with the parser that owns the boundary             | `valueRangeSchema` in `sheets.ts`             |
 
 Do not introduce a per-package grab-bag `schemas.ts`. Grouping by syntax
 ("it is a zod schema") instead of by domain recreates the junk-drawer problem:
