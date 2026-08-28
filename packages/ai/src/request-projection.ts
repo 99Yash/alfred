@@ -1,5 +1,5 @@
 import type { LanguageModelV4CallOptions, SharedV4ProviderOptions } from "@ai-sdk/provider";
-import { toRecord } from "@alfred/contracts";
+import { getPath, toRecord } from "@alfred/contracts";
 import { z } from "zod";
 
 export type CacheTtl = "5m" | "1h";
@@ -41,8 +41,8 @@ interface TurnEnvelopeConsume {
 function consumeTurnEnvelope(
   providerOptions: LanguageModelV4CallOptions["providerOptions"],
 ): TurnEnvelopeConsume {
-  // SAFETY: providerOptions is SharedV4ProviderOptions (record of JSONObject); toRecord narrows unknown safely.
-  const existing = toRecord(providerOptions as Record<string, unknown> | undefined);
+  // SAFETY: providerOptions is SharedV4ProviderOptions (record of JSONObject); toRecord validates the boundary.
+  const existing = toRecord(providerOptions);
   const { [INTERNAL_PROVIDER_NAMESPACE]: envelope, ...rest } = existing;
   const parsed = turnEnvelopeSchema.safeParse(envelope);
   return {
@@ -56,10 +56,8 @@ function withAnthropicCacheControl<
   T extends { readonly providerOptions?: LanguageModelV4CallOptions["providerOptions"] },
 >(value: T, ttl: CacheTtl): T {
   const existing = value.providerOptions ?? {};
-  // SAFETY: existing.anthropic is unknown JSON — toRecord narrows it without asserting shape.
-  const anthropic = toRecord(
-    (existing as Record<string, unknown>).anthropic as Record<string, unknown> | undefined,
-  );
+  // SAFETY: existing is SharedV4ProviderOptions; getPath reads the nested anthropic bag off the validated record.
+  const anthropic = toRecord(getPath(existing as unknown, "anthropic"));
   return {
     ...value,
     providerOptions: {
@@ -168,14 +166,16 @@ export function projectRequestForModel(
     : projectApplicationRequest(params);
 }
 
-export function cleanAndProjectRequest(
-  params: LanguageModelV4CallOptions,
-  isAnthropic: boolean,
-): {
+export interface CleanAndProjectResult {
   clean: LanguageModelV4CallOptions;
   cacheTtl: CacheTtl | undefined;
   projected: LanguageModelV4CallOptions;
-} {
+}
+
+export function cleanAndProjectRequest(
+  params: LanguageModelV4CallOptions,
+  isAnthropic: boolean,
+): CleanAndProjectResult {
   const { clean, cacheTtl } = cleanProviderRequest(params);
   const projected = projectRequestForModel("", clean, cacheTtl, isAnthropic);
   return { clean, cacheTtl, projected };
