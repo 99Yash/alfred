@@ -320,7 +320,11 @@ function parseGitHubMessageIdAddress(raw: string): {
 }
 
 function stripAngleBrackets(value: string): string {
-  return value.replace(/^</, "").replace(/>$/, "");
+  const trimmed = value.trim();
+  if (trimmed.startsWith("<") && trimmed.endsWith(">")) return trimmed.slice(1, -1).trim();
+  // Tolerate a single leading `<` or trailing `>` when the peer bracket was
+  // stripped upstream — keep the old two-replace behaviour as fallback.
+  return trimmed.replace(/^</, "").replace(/>$/, "").trim();
 }
 
 /**
