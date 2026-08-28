@@ -3,6 +3,7 @@ export {
   buildInstallUrl,
   mintAppJwt,
   getInstallationToken,
+  getInstallation,
   exchangeUserCode,
   canUserAccessInstallation,
   verifyWebhookSignature,
