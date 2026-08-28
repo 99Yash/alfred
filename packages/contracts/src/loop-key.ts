@@ -76,6 +76,9 @@ const TRACKER_SENDER_PATTERNS: Array<{ key: string; re: RegExp }> = [
   { key: "notion", re: /\bnotion\b|notion\.so/i },
 ];
 
+const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
+const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\s*:\s*(.+?)\s*$/i;
+
 interface LoopKeyContext {
   /** Sender header, email address, or persisted sender display label. */
   sender?: string | null | undefined;
@@ -120,6 +123,10 @@ export function deriveLoopEntityRef(
   const raw = subject.trim();
   if (raw.length === 0) return null;
   const prefixStripped = stripReplyPrefixes(raw);
+
+  const monitoring = monitoringAlarmLoopEntityRef(prefixStripped, context.sender);
+  if (monitoring) return monitoring;
+
   const tracker = trackerSenderKey(context.sender);
 
   const github = githubLoopEntityRef(prefixStripped);
@@ -179,6 +186,35 @@ function trackerSenderKey(sender: string | null | undefined): string | null {
   if (address) parts.push(address, address.split("@")[1] ?? "");
   const haystack = parts.join(" ");
   return TRACKER_SENDER_PATTERNS.find((pattern) => pattern.re.test(haystack))?.key ?? null;
+}
+
+function monitoringAlarmLoopEntityRef(
+  subject: string,
+  sender: string | null | undefined,
+): LoopEntityRef | null {
+  const match = subject.match(MONITORING_ALARM_SUBJECT_RE);
+  if (!match) return null;
+  if (!sender || !MONITORING_SENDER_RE.test(sender)) return null;
+  const remainder = (match[1] ?? "").trim();
+  if (!remainder) return null;
+  // CloudWatch alarm subjects are `ALARM: "Name" in region — breached …`.
+  // The quoted name is the stable entity; the region/suffix is noise.
+  const quoted = remainder.match(/"([^"]+)"|'([^']+)'/);
+  const rawName = quoted
+    ? (quoted[1] ?? quoted[2] ?? "")
+    : (remainder.split(/\s+in\s+|\s+-\s+/i)[0] ?? remainder);
+  const trimmed = rawName.trim();
+  if (!trimmed) return null;
+  const normalized = normalizeSubject(trimmed);
+  if (!normalized || normalized === NO_SUBJECT_SENTINEL) return null;
+  // Alarm names are often 1-2 tokens ("baserow-response-time") — still a real entity.
+  if (GENERIC_SUBJECTS.has(normalized)) return null;
+  return {
+    key: `alarm:${normalized}`,
+    provider: "monitoring",
+    kind: "alarm",
+    id: normalized,
+  };
 }
 
 function isSpecificFallbackSubject(normalized: string): boolean {
