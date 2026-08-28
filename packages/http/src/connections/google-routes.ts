@@ -82,8 +82,34 @@ export const googleIntegrationRoutes = new Elysia({
 })
   .use(authMacro)
   .use(requireOnboarded)
-  .guard({ auth: true, requireOnboarded: true }, (app) =>
+  // `/connect` + `/credentials` must be reachable *during* onboarding
+  // before `user.onboarded_at` is set — otherwise the step-1 CTA 302s to
+  // 403 and the step-2 / integrations tiles that probe credentials read as
+  // "not connected" (empty array) while the user is still onboarding.
+  .guard({ auth: true }, (app) =>
     app
+      .get("/credentials", async ({ user }) => {
+        const rows = await db()
+          .select({
+            id: integrationCredentials.id,
+            accountId: integrationCredentials.accountId,
+            accountLabel: integrationCredentials.accountLabel,
+            status: integrationCredentials.status,
+            scopes: integrationCredentials.scopes,
+            persona: integrationCredentials.persona,
+            expiresAt: integrationCredentials.expiresAt,
+            lastRefreshedAt: integrationCredentials.lastRefreshedAt,
+            createdAt: integrationCredentials.createdAt,
+          })
+          .from(integrationCredentials)
+          .where(
+            and(
+              eq(integrationCredentials.userId, user.id),
+              eq(integrationCredentials.provider, "google"),
+            ),
+          );
+        return { credentials: rows.map(rowToCredentialWire) };
+      })
       .get(
         "/connect",
         async ({ user, query, set }) => {
@@ -151,29 +177,8 @@ export const googleIntegrationRoutes = new Elysia({
           }),
         },
       )
-      .get("/credentials", async ({ user }) => {
-        const rows = await db()
-          .select({
-            id: integrationCredentials.id,
-            accountId: integrationCredentials.accountId,
-            accountLabel: integrationCredentials.accountLabel,
-            status: integrationCredentials.status,
-            scopes: integrationCredentials.scopes,
-            persona: integrationCredentials.persona,
-            expiresAt: integrationCredentials.expiresAt,
-            lastRefreshedAt: integrationCredentials.lastRefreshedAt,
-            createdAt: integrationCredentials.createdAt,
-          })
-          .from(integrationCredentials)
-          .where(
-            and(
-              eq(integrationCredentials.userId, user.id),
-              eq(integrationCredentials.provider, "google"),
-            ),
-          );
-        return { credentials: rows.map(rowToCredentialWire) };
-      })
-      .delete(
+    )
+  .guard({ auth: true, requireOnboarded: true }, (app) => app.delete(
         "/:id",
         async ({ params, user }) => {
           try {

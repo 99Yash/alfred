@@ -42,16 +42,9 @@ export const githubIntegrationRoutes = new Elysia({
 })
   .use(authMacro)
   .use(requireOnboarded)
-  .guard({ auth: true, requireOnboarded: true }, (app) =>
-    app
-      .get("/connect", async ({ user, set }) => {
-        const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: "github", nonce, userId: user.id });
-        const state = signOAuthState({ userId: user.id, nonce });
-        set.status = 302;
-        set.headers["Location"] = buildInstallUrl(state);
-        return null;
-      })
+  // `/connect` + `/credentials` must be reachable during onboarding
+  // step 2 so the showcase truth-checks correctly.
+  .guard({ auth: true }, (app) => app
       .get("/credentials", async ({ user }) => {
         const rows = await db()
           .select({
@@ -60,8 +53,6 @@ export const githubIntegrationRoutes = new Elysia({
             accountLabel: integrationCredentials.accountLabel,
             status: integrationCredentials.status,
             scopes: integrationCredentials.scopes,
-            // Surfaced so the web client can nag legacy classic-OAuth rows
-            // (no installation_id) to reconnect under the GitHub App.
             installationId: integrationCredentials.installationId,
             expiresAt: integrationCredentials.expiresAt,
             lastRefreshedAt: integrationCredentials.lastRefreshedAt,
@@ -76,6 +67,16 @@ export const githubIntegrationRoutes = new Elysia({
           );
         return { credentials: rows.map(rowToCredentialWire) };
       })
+      .get("/connect", async ({ user, set }) => {
+        const nonce = randomBytes(16).toString("hex");
+        await rememberOAuthNonce({ provider: "github", nonce, userId: user.id });
+        const state = signOAuthState({ userId: user.id, nonce });
+        set.status = 302;
+        set.headers["Location"] = buildInstallUrl(state);
+        return null;
+      }),
+  )
+  .guard({ auth: true, requireOnboarded: true }, (app) => app
       .delete(
         "/:id",
         async ({ params, user }) => {
