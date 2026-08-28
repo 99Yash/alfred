@@ -20,15 +20,14 @@ import { route } from "../src/provider";
 describe("provider capability dispatch", () => {
   test("route follows the chat tier capability map", () => {
     // standard → Sonnet 4.6: adaptive thinking + clamped medium effort (ADR-0077 amendment).
-    // Fallback is gemini-2.5-flash (budget-based, no thinkingLevel) via Cloudflare unified billing.
     assert.deepEqual(route("standard").providerOptions(), {
       anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
-      google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
     });
     // deep → Opus 4.8: adaptive thinking + clamped effort.
     assert.deepEqual(route("deep").providerOptions(), {
       anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
-      google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
     });
   });
 
