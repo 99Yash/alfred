@@ -22,13 +22,11 @@ type ToolDefinition = NonNullable<LanguageModelV4CallOptions["tools"]>[number];
 type FunctionToolDefinition = Extract<ToolDefinition, { type: "function" }>;
 
 export function attachProviderTurnPolicy(
-  providerOptions: Record<string, Record<string, unknown>> | SharedV4ProviderOptions | undefined,
+  providerOptions: SharedV4ProviderOptions | undefined,
   cacheTtl: CacheTtl | undefined,
 ): SharedV4ProviderOptions {
-  // SAFETY: this is the single conversion from Alfred's loose providerOptions surface to the SDK's JSONObject shape; values are typed provider bags plus JSON envelope.
   return {
-    // SAFETY: providerOptions is already SharedV4ProviderOptions-compatible when it comes from typed builders.
-    ...(providerOptions as SharedV4ProviderOptions | undefined),
+    ...(providerOptions ?? {}),
     [INTERNAL_PROVIDER_NAMESPACE]: { cacheTtl: cacheTtl ?? null },
   } as SharedV4ProviderOptions;
 }
