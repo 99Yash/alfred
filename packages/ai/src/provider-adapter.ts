@@ -1,6 +1,7 @@
-import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
-import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
-import { openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
+import { anthropic, createAnthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI, google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
+import { createOpenAI, openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
+import { cloudflareGatewayConfig } from "@alfred/env/server";
 import { INTEGRATION_ACTIONS, type IntegrationSlug, toRecord } from "@alfred/contracts";
 import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
@@ -65,6 +66,71 @@ function isGoogleThinkingLevel(value: EffortLevel): value is GoogleThinkingLevel
 }
 
 /**
+ * Cloudflare AI Gateway singletons — lazily minted so `serverEnv()` is not
+ * evaluated at import time (which would throw during `tsx --test` without env).
+ * Each sets `baseURL` to `gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}`
+ * for Unified Billing. The SDK's `apiKey` is the gateway token itself (the
+ * `cfut_` value); `cf-aig-authorization` is the gateway auth header. No custom
+ * `fetch` is needed — all three SDKs spread `...options.headers` after their
+ * native auth header, so setting `cf-aig-authorization` via the first-class
+ * `headers` option is sufficient (see
+ * `docs/research/cloudflare-ai-gateway-provider-wiring.md`). The provider's
+ * native header (`x-api-key` / `Authorization` / `x-goog-api-key`) still ships
+ * alongside `cf-aig-authorization` on the provider-native surface, which the
+ * gateway accepts for Unified Billing (verified via live curl of that surface).
+ */
+let _cfAnthropic: ReturnType<typeof createAnthropic> | undefined;
+let _cfOpenAI: ReturnType<typeof createOpenAI> | undefined;
+let _cfGoogle: ReturnType<typeof createGoogleGenerativeAI> | undefined;
+
+function gatewayBaseUrl(
+  cfg: { accountId: string; gatewayId: string },
+  providerSegment: string,
+): string {
+  return `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/${providerSegment}`;
+}
+
+function gatewayHeaders(token: string) {
+  return { "cf-aig-authorization": `Bearer ${token}` } satisfies Record<string, string>;
+}
+
+function getCfAnthropic(): ReturnType<typeof createAnthropic> | undefined {
+  const cfg = cloudflareGatewayConfig();
+  if (!cfg) return undefined;
+  if (_cfAnthropic) return _cfAnthropic;
+  _cfAnthropic = createAnthropic({
+    apiKey: cfg.token,
+    baseURL: gatewayBaseUrl(cfg, "anthropic"),
+    headers: gatewayHeaders(cfg.token),
+  });
+  return _cfAnthropic;
+}
+
+function getCfOpenAI(): ReturnType<typeof createOpenAI> | undefined {
+  const cfg = cloudflareGatewayConfig();
+  if (!cfg) return undefined;
+  if (_cfOpenAI) return _cfOpenAI;
+  _cfOpenAI = createOpenAI({
+    apiKey: cfg.token,
+    baseURL: gatewayBaseUrl(cfg, "openai"),
+    headers: gatewayHeaders(cfg.token),
+  });
+  return _cfOpenAI;
+}
+
+function getCfGoogle(): ReturnType<typeof createGoogleGenerativeAI> | undefined {
+  const cfg = cloudflareGatewayConfig();
+  if (!cfg) return undefined;
+  if (_cfGoogle) return _cfGoogle;
+  _cfGoogle = createGoogleGenerativeAI({
+    apiKey: cfg.token,
+    baseURL: gatewayBaseUrl(cfg, "google-ai-studio/v1beta"),
+    headers: gatewayHeaders(cfg.token),
+  });
+  return _cfGoogle;
+}
+
+/**
  * One deep provider adapter map. Each entry owns every SDK-adapter fact:
  * concrete construction, reasoning shape, name policy, cache/protocol selection,
  * and eventually native deferred-tool projection.
@@ -74,7 +140,10 @@ const PROVIDER_ADAPTERS = {
     toolNameMaxLen: 128,
     toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
-    createModel: (modelId: ModelIdFor<"anthropic">) => anthropic(modelId),
+    createModel: (modelId: ModelIdFor<"anthropic">) => {
+      const cf = getCfAnthropic();
+      return cf ? cf(modelId) : anthropic(modelId);
+    },
     reasoningOptions(
       modelId: ModelIdFor<"anthropic">,
       effort: EffortLevel,
@@ -101,7 +170,10 @@ const PROVIDER_ADAPTERS = {
     toolNameMaxLen: 64,
     toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
-    createModel: (modelId: ModelIdFor<"google">) => google(modelId),
+    createModel: (modelId: ModelIdFor<"google">) => {
+      const cf = getCfGoogle();
+      return cf ? cf(modelId) : google(modelId);
+    },
     reasoningOptions(
       modelId: ModelIdFor<"google">,
       effort: EffortLevel,
@@ -125,7 +197,10 @@ const PROVIDER_ADAPTERS = {
     toolNameMaxLen: 64,
     toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
-    createModel: (modelId: ModelIdFor<"openai">) => openai.responses(modelId),
+    createModel: (modelId: ModelIdFor<"openai">) => {
+      const cf = getCfOpenAI();
+      return cf ? cf.responses(modelId) : openai.responses(modelId);
+    },
     reasoningOptions(
       modelId: ModelIdFor<"openai">,
       effort: EffortLevel,
