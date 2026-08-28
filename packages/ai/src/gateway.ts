@@ -24,8 +24,8 @@ function gatewayBaseUrl(cfg: GatewayConfig, providerSegment: string): string {
   return `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/${providerSegment}`;
 }
 
-function gatewayHeaders(token: string): Record<string, string> {
-  return { "cf-aig-authorization": `Bearer ${token}` };
+function gatewayHeaders(token: string) {
+  return { "cf-aig-authorization": `Bearer ${token}` } satisfies Record<string, string>;
 }
 
 export function createGateway(config: GatewayConfig | undefined): Gateway {
