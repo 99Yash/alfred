@@ -82,7 +82,12 @@ let _cfGoogle: ReturnType<typeof createGoogleGenerativeAI> | undefined;
 function cfFetch(token: string): typeof fetch {
   return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     // SAFETY: input is RequestInfo | URL, narrowing to Request to read url is safe after instanceof check
-    const urlString = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const urlString =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as Request).url;
     const url = new URL(urlString);
     url.searchParams.delete("key");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,7 +103,13 @@ function cfFetch(token: string): typeof fetch {
     const newInit = { ...(init as unknown as RequestInit), headers } as RequestInit; // oxlint-disable-line anti-slop/no-chained-type-assertions
     if (input instanceof Request) {
       // SAFETY: Request is compatible with RequestInit for construction, cast via unknown is safe
-      return fetch(new Request(url.toString(), { ...(input as unknown as RequestInit), headers } as RequestInit), newInit); // oxlint-disable-line anti-slop/no-chained-type-assertions
+      return fetch(
+        new Request(url.toString(), {
+          ...(input as unknown as RequestInit),
+          headers,
+        } as RequestInit),
+        newInit,
+      ); // oxlint-disable-line anti-slop/no-chained-type-assertions
     }
     return fetch(url.toString(), newInit);
   };
