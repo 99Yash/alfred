@@ -122,6 +122,7 @@ jobs:
       OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
       BETTER_AUTH_URL: http://localhost:3001
       ALFRED_ALLOWED_EMAIL: ci@example.com
+      ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
       ANTHROPIC_API_KEY: ci-dummy
@@ -259,6 +260,7 @@ jobs:
       OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
       BETTER_AUTH_URL: http://localhost:3001
       ALFRED_ALLOWED_EMAIL: ci@example.com
+      ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
       ANTHROPIC_API_KEY: ci-dummy
@@ -578,6 +580,7 @@ jobs:
       OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
       BETTER_AUTH_URL: http://localhost:3001
       ALFRED_ALLOWED_EMAIL: ci@example.com
+      ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
       ANTHROPIC_API_KEY: ci-dummy
@@ -681,6 +684,7 @@ jobs:
       OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
       BETTER_AUTH_URL: http://localhost:3001
       ALFRED_ALLOWED_EMAIL: ci@example.com
+      ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
       ANTHROPIC_API_KEY: ci-dummy
