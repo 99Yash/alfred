@@ -176,9 +176,11 @@ export const googleIntegrationRoutes = new Elysia({
             revisionId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
           }),
         },
-      )
-    )
-  .guard({ auth: true, requireOnboarded: true }, (app) => app.delete(
+      ),
+  )
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
+    app
+      .delete(
         "/:id",
         async ({ params, user }) => {
           try {

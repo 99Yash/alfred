@@ -45,7 +45,8 @@ export const githubIntegrationRoutes = new Elysia({
   .use(requireOnboarded)
   // `/connect` + `/credentials` must be reachable during onboarding
   // step 2 so the showcase truth-checks correctly.
-  .guard({ auth: true }, (app) => app
+  .guard({ auth: true }, (app) =>
+    app
       .get("/credentials", async ({ user }) => {
         const rows = await db()
           .select({
@@ -77,23 +78,23 @@ export const githubIntegrationRoutes = new Elysia({
         return null;
       }),
   )
-  .guard({ auth: true, requireOnboarded: true }, (app) => app
-      .delete(
-        "/:id",
-        async ({ params, user }) => {
-          // Drops our stored token + installation reference. The GitHub App
-          // itself stays installed on the user's account until they remove it
-          // from GitHub's settings — we just stop holding credentials for it.
-          const deleted = await deleteIntegrationCredential({
-            userId: user.id,
-            provider: "github",
-            id: params.id,
-          });
-          if (!deleted) throw Errors.NotFoundError("Credential not found");
-          return { id: deleted.id, ok: true };
-        },
-        { params: t.Object({ id: t.String() }) },
-      ),
+  .guard({ auth: true, requireOnboarded: true }, (app) =>
+    app.delete(
+      "/:id",
+      async ({ params, user }) => {
+        // Drops our stored token + installation reference. The GitHub App
+        // itself stays installed on the user's account until they remove it
+        // from GitHub's settings — we just stop holding credentials for it.
+        const deleted = await deleteIntegrationCredential({
+          userId: user.id,
+          provider: "github",
+          id: params.id,
+        });
+        if (!deleted) throw Errors.NotFoundError("Credential not found");
+        return { id: deleted.id, ok: true };
+      },
+      { params: t.Object({ id: t.String() }) },
+    ),
   )
   // Callback is unauthenticated; the signed state proves who initiated.
   .get(
