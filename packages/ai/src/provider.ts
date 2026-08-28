@@ -36,11 +36,11 @@ interface ModelRoute {
  */
 const MODEL_ROUTES = {
   boss: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["claude-sonnet-4-6", "gemini-3.5-flash"],
     reasoning: "medium",
   },
   subAgent: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["claude-sonnet-4-6", "gemini-3.5-flash"],
     reasoning: "medium",
   },
   cheap: {
@@ -60,11 +60,11 @@ const MODEL_ROUTES = {
     reasoning: "disabled",
   },
   standard: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["claude-sonnet-4-6", "gemini-3.5-flash"],
     reasoning: "medium",
   },
   deep: {
-    chain: ["claude-opus-4-8", "gemini-2.5-flash"],
+    chain: ["claude-opus-4-8", "gemini-3.5-flash"],
     reasoning: "high",
   },
 } as const satisfies Record<string, ModelRoute>;
