@@ -409,31 +409,49 @@ export function chatMemoryCaptureEnabled(): boolean {
  * mirrors `gmailMailboxWritesEnabled()` — callers must not branch on raw env fields.
  * Also accepts the legacy `AI_GATEWAY_API_KEY=cfut_...` alias so a single var
  * `AI_GATEWAY_API_KEY` continues to work after the Vercel→Cloudflare migration.
+ *
+ * Must not throw when `serverEnv()` is missing required vars (e.g. barrel-load
+ * test with every service env unset) — the gateway is simply disabled in that
+ * environment, same as if the three CF vars were unset. The provider-adapter
+ * calls this at import time via `getCfAnthropic()` → `createProviderRouteModel`,
+ * so a throw would break `barrel-load.test.ts:32`.
  */
 export function cloudflareGatewayEnabled(): boolean {
-  const env = serverEnv();
-  const token =
-    env.CLOUDFLARE_AI_GATEWAY_TOKEN ??
-    (env.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? env.AI_GATEWAY_API_KEY : undefined);
-  return Boolean(token && env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_GATEWAY_ID);
+  try {
+    const env = serverEnv();
+    const token =
+      env.CLOUDFLARE_AI_GATEWAY_TOKEN ??
+      (env.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? env.AI_GATEWAY_API_KEY : undefined);
+    return Boolean(token && env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_GATEWAY_ID);
+  } catch {
+    return false;
+  }
 }
 
 export function cloudflareGatewayConfig():
   | { token: string; accountId: string; gatewayId: string }
   | undefined {
-  const env = serverEnv();
-  const token =
-    env.CLOUDFLARE_AI_GATEWAY_TOKEN ??
-    (env.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? env.AI_GATEWAY_API_KEY : undefined);
-  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
-  const gatewayId = env.CLOUDFLARE_GATEWAY_ID;
-  if (token && accountId && gatewayId) return { token, accountId, gatewayId };
-  return undefined;
+  try {
+    const env = serverEnv();
+    const token =
+      env.CLOUDFLARE_AI_GATEWAY_TOKEN ??
+      (env.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? env.AI_GATEWAY_API_KEY : undefined);
+    const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+    const gatewayId = env.CLOUDFLARE_GATEWAY_ID;
+    if (token && accountId && gatewayId) return { token, accountId, gatewayId };
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Whether Vercel AI Gateway (`vck_`) is configured and Cloudflare is not. */
 export function vercelGatewayEnabled(): boolean {
-  const env = serverEnv();
-  if (cloudflareGatewayEnabled()) return false;
-  return Boolean(env.AI_GATEWAY_API_KEY?.startsWith("vck_"));
+  try {
+    const env = serverEnv();
+    if (cloudflareGatewayEnabled()) return false;
+    return Boolean(env.AI_GATEWAY_API_KEY?.startsWith("vck_"));
+  } catch {
+    return false;
+  }
 }
