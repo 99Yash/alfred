@@ -14,10 +14,24 @@ import {
 } from "~/lib/integrations/integrations";
 
 /**
+ * Eden Treaty revives ISO-shaped response strings into `Date` objects on the
+ * client, so a timestamp the wire contract honestly types as `string` arrives
+ * as a `Date` at runtime. A bare `z.string()` then fails, and because
+ * `parseCredentialRows` drops any row that fails to parse, every connected
+ * provider silently reads as "not connected". Accept both and flatten back to
+ * the ISO string the contract promises. See the same trap in
+ * `use-latest-briefing`'s `toDateKey()`.
+ */
+const edenTimestamp = z
+  .union([z.string(), z.date()])
+  .transform((value) => (value instanceof Date ? value.toISOString() : value));
+
+/**
  * The web projection of the integration credential routes, derived from the
- * owning wire schema in `@alfred/contracts`. The only local delta is the
- * normalization of the provider-specific `installationId` (absent on bearer
- * rows) to null, so consumers read one shape.
+ * owning wire schema in `@alfred/contracts`. Two local deltas: the
+ * provider-specific `installationId` (absent on bearer rows) normalizes to
+ * null, and the timestamps absorb Eden's date revival — so consumers read one
+ * shape.
  */
 export const parsedCredentialRowSchema = credentialRowSchema.extend({
   installationId: z
@@ -25,6 +39,9 @@ export const parsedCredentialRowSchema = credentialRowSchema.extend({
     .nullable()
     .optional()
     .transform((value) => value ?? null),
+  expiresAt: edenTimestamp.nullable(),
+  lastRefreshedAt: edenTimestamp.nullable(),
+  createdAt: edenTimestamp,
 });
 export type CredentialRow = z.infer<typeof parsedCredentialRowSchema>;
 
