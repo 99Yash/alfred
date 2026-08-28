@@ -185,6 +185,35 @@ describe("gmailTodoSources", () => {
     });
     assert.equal(todoSourcesOverlap(a, b), false);
   });
+
+  test("adds a stable alarm ref for SNS/CloudWatch and distinct threads share it → overlap → merge", () => {
+    const first = gmailTodoSources({
+      threadId: "thread_A",
+      subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
+      sender: "no-reply@sns.amazonaws.com",
+    });
+    const second = gmailTodoSources({
+      threadId: "thread_B",
+      subject: 'ALARM: "Baserow response time alarm" in eu-west-1 — threshold breached',
+      sender: "AWS Notifications <no-reply@sns.amazonaws.com>",
+    });
+    assert.deepEqual(first.at(-1), {
+      provider: "monitoring",
+      kind: "alarm",
+      id: "baserow response time alarm",
+    });
+    assert.notEqual(first[0]?.id, second[0]?.id, "distinct transport threads");
+    assert.equal(todoSourcesOverlap(first, second), true, "collapse via the alarm ref");
+  });
+
+  test("does not alarm-key a human ALARM subject (no monitoring sender → no stable key)", () => {
+    const sources = gmailTodoSources({
+      threadId: "thread_1",
+      subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
+      sender: "priya@client.com",
+    });
+    assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
+  });
 });
 
 describe("boundTodoSources", () => {

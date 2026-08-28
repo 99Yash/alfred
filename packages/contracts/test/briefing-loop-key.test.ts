@@ -120,6 +120,47 @@ describe("deriveLoopKey", () => {
     });
   });
 
+  describe("monitoring alarms (#353 class 2 — SNS/CloudWatch)", () => {
+    test("collapses recurring SNS alarm notifications onto one key (quoted name is the entity)", () => {
+      const a = deriveLoopKey('ALARM: "Baserow response time alarm" in eu-west-1', {
+        sender: "no-reply@sns.amazonaws.com",
+      });
+      const b = deriveLoopKey(
+        'ALARM: "Baserow response time alarm" in us-east-1 — threshold breached 5',
+        { sender: "no-reply@sns.amazonaws.com" },
+      );
+      assert.equal(a, "alarm:baserow response time alarm");
+      assert.equal(b, a);
+    });
+
+    test("handles unquoted ELK-style ALERT subject via dash/in split", () => {
+      const key = deriveLoopKey("ALERT: ElastiCache Current Connection - threshold exceeded", {
+        sender: "no-reply@sns.amazonaws.com",
+      });
+      assert.equal(key, "alarm:elasticache current connection");
+    });
+
+    test("requires a monitoring sender — a human ALARM subject does not key", () => {
+      assert.equal(
+        deriveLoopKey('ALARM: "Baserow response time alarm" in eu-west-1', {
+          sender: "priya@client.com",
+        }),
+        null,
+      );
+      assert.equal(deriveLoopKey("ALARM: Baserow response time alarm"), null);
+    });
+
+    test("keeps distinct alarms separate", () => {
+      const a = deriveLoopKey('ALARM: "Baserow response time alarm" in eu-west-1', {
+        sender: "no-reply@sns.amazonaws.com",
+      });
+      const b = deriveLoopKey("ALARM: ElastiCache Current Connection in eu-west-1", {
+        sender: "no-reply@sns.amazonaws.com",
+      });
+      assert.notEqual(a, b);
+    });
+  });
+
   describe("no usable signal", () => {
     test("returns null for empty / subject-less mail", () => {
       assert.equal(deriveLoopKey(null), null);
