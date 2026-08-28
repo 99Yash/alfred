@@ -1,3 +1,4 @@
+import { sanitizeVoice } from "@alfred/ai/voice";
 import {
   boundTodoSources,
   mergeTodoSources,
@@ -68,6 +69,16 @@ export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[
  * always wins over a resolved one (merge beats suppress).
  */
 export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoResult> {
+  // Voice boundary (contracts AGENTS.md: reach for sanitizeVoice before
+  // persisting/displaying a slug or prose). The cheap triage model and the
+  // `system.suggest_todo` tool both produce `name`/`assist` - sanitize once
+  // here so every writer (triage workflow + tool runtime) is covered and the
+  // rail's `SuggestionRow` never renders em dashes or double hyphens.
+  const name = sanitizeVoice(input.name.trim()).trim();
+  const rawAssist = input.assist?.trim() ?? "";
+  const assist = rawAssist ? sanitizeVoice(rawAssist).trim() : "";
+  const normalizedAssist = assist.length > 0 ? assist : undefined;
+
   // Bound the incoming set so neither a fresh insert nor a merge can push the
   // row past the schema max the sync read path enforces (#355).
   const sources = boundTodoSources(input.sources ?? []);
@@ -149,11 +160,11 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       .insert(todos)
       .values({
         userId: input.userId,
-        name: input.name,
+        name,
         description: input.description ?? null,
         status: "suggested",
         createdBy: "agent",
-        assist: input.assist ?? null,
+        assist: normalizedAssist ?? null,
         sources,
         agentRunId: input.agentRunId,
       })

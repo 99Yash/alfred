@@ -16,7 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { FrostButton, HeroAtmosphere, TopAnnouncement } from "~/components/landing";
+import { FrostButton, HeroAtmosphere } from "~/components/landing";
 import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
@@ -61,7 +61,7 @@ export function OnboardingFlow({
   const primaryAction = (() => {
     if (step === 1)
       return { label: "Connect Google Workspace", onClick: () => setConsentOpen(true) };
-    if (step === 2) return { label: "Continue", onClick: onSkip };
+    if (step === 2) return { label: "Skip for now", onClick: onSkip };
     return { label: "Start using Alfred", onClick: onFinish };
   })();
 
@@ -75,9 +75,6 @@ export function OnboardingFlow({
           onConnect();
         }}
       />
-      <TopAnnouncement href="/login" dotClassName="bg-amber-200/70">
-        Set up Alfred in under a minute
-      </TopAnnouncement>
 
       <HeroAtmosphere className="min-h-[100dvh]">
         <div className="mx-auto flex min-h-[100dvh] w-full max-w-[100rem] flex-col lg:flex-row">
@@ -87,55 +84,73 @@ export function OnboardingFlow({
             className={cn(
               "relative shrink-0 px-6 sm:px-10",
               "lg:sticky lg:top-0 lg:max-h-[100dvh] lg:max-w-[32rem] lg:pr-12 lg:pl-10",
-              "lg:border-r-[0.5px] lg:border-black/10",
               "pt-24 pb-12 lg:pt-20 lg:pb-10",
             )}
           >
             <div className="flex h-full max-w-lg flex-col">
-              <p className="text-[15px] font-medium text-white">
+              <p
+                className="onboarding-headline-in text-[15px] font-medium text-white"
+                style={{ animationDelay: "40ms" }}
+              >
                 Setting up Alfred · Step {step} of 3
               </p>
               <h1
                 className={cn(
-                  "mt-4 max-w-[20rem] font-medium text-balance text-white sm:max-w-none",
+                  "onboarding-headline-in mt-4 max-w-[20rem] font-medium text-balance text-white sm:max-w-none",
                   "text-4xl leading-[1.05] tracking-[-0.04em] sm:text-5xl",
                 )}
+                style={{ animationDelay: "80ms" }}
               >
                 {active.headline}
               </h1>
-              <p className="mt-5 max-w-md text-[15px] leading-relaxed text-white/90">
+              <p
+                className="onboarding-headline-in mt-5 max-w-md text-[15px] leading-relaxed text-white/90"
+                style={{ animationDelay: "120ms" }}
+              >
                 {active.lead}
               </p>
 
               <ul className="mt-7 flex flex-col gap-3 text-white">
-                {active.bullets.map((bullet) => (
+                {active.bullets.map((bullet, idx) => (
                   <Bullet
                     key={bullet.text}
                     icon={<bullet.icon className="size-4" strokeWidth={2} />}
+                    index={idx}
                   >
                     {bullet.text}
                   </Bullet>
                 ))}
               </ul>
 
-              {/* Stack on phones, inline on sm+ — assurance copy wraps
-               * awkwardly next to the CTA on a narrow viewport. */}
-              <div className="mt-7 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+              <div className="mt-7 flex flex-col items-start gap-3">
                 <FrostButton
-                  tone="light"
+                  tone={step === 2 ? "dark" : "light"}
+                  size="lg"
                   onClick={primaryAction.onClick}
                   disabled={finishing && step === 3}
+                  className={
+                    step === 2
+                      ? "min-h-11 px-6 text-[15px]"
+                      : "min-h-11 px-6 text-[15px] shadow-[0_1px_2px_rgba(0,0,0,0.12),0_8px_24px_rgba(0,0,0,0.18)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.16),0_12px_32px_rgba(0,0,0,0.22)]"
+                  }
                 >
                   {finishing && step === 3 ? "Finishing…" : primaryAction.label}
                   <ArrowRight className="size-3.5" />
                 </FrostButton>
-                {step === 2 && !connectedEmail ? null : (
-                  <span className="text-xs text-white/55">{active.assurance}</span>
-                )}
+                <span className="max-w-[32ch] text-[13px] leading-relaxed text-white/60">
+                  {step === 2
+                    ? "Optional — connect GitHub now or do it later from Integrations. Google Drive/Docs/Sheets show as Included once Workspace is linked."
+                    : active.assurance}
+                </span>
+                {step === 2 ? (
+                  <span className="text-[11.5px] text-white/45">
+                    Tip: you can always change this in Settings → Integrations.
+                  </span>
+                ) : null}
               </div>
 
               {step === 2 && connectedEmail ? (
-                <p className="mt-4 inline-flex items-center gap-2 text-[12.5px] text-white/85">
+                <p className="onboarding-check-pop mt-4 inline-flex items-center gap-2 text-[12.5px] text-white/85">
                   <CheckCircle2 size={13} className="text-emerald-300" />
                   Google Workspace connected as{" "}
                   <span className="font-medium text-white">{connectedEmail}</span>
@@ -143,97 +158,71 @@ export function OnboardingFlow({
               ) : null}
 
               {step === 2 && connectedGithub ? (
-                <p className="mt-2 inline-flex items-center gap-2 text-[12.5px] text-white/85">
+                <p className="onboarding-check-pop mt-2 inline-flex items-center gap-2 text-[12.5px] text-white/85">
                   <CheckCircle2 size={13} className="text-emerald-300" />
                   GitHub connected as{" "}
                   <span className="font-medium text-white">@{connectedGithub}</span>
                 </p>
               ) : null}
 
-              {/* Step pager — pinned to the bottom of the left rail */}
+              {/* Step pager — visitors.now pill + progress track, pinned to bottom */}
               <div className="mt-10 lg:mt-auto lg:pt-10">
                 <h2 className="mb-3 text-[17px] font-semibold text-white">Get set up</h2>
-                <ul className="flex flex-col items-start">
+                <ul className="flex flex-wrap gap-2">
                   {STEPS.map((s, idx) => {
-                    // SAFETY: STEPS is ordered from step 1, so idx+1 is
-                    // exactly that entry's OnboardingStep value.
                     const stepNumber = (idx + 1) as OnboardingStep;
                     const isActive = stepNumber === step;
                     const isDone = stepNumber < step;
                     return (
-                      <li key={s.id} className="w-full">
+                      <li key={s.id}>
                         <div
                           className={cn(
-                            "group flex w-full items-center justify-between rounded-[10px] p-2 select-none",
-                            "text-[15px] transition-colors duration-200",
+                            "inline-flex items-center gap-2 rounded-full px-3 py-2.5 text-[13px] font-medium transition-all duration-200 select-none",
                             isActive
-                              ? "bg-white/[0.05] text-white"
+                              ? "bg-white text-[#0c0c0c] shadow-[0_1px_1px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.05)]"
                               : isDone
-                                ? "text-white/85"
-                                : "text-white/65",
+                                ? "bg-white/[0.08] text-white/85 backdrop-blur"
+                                : "bg-white/[0.04] text-white/60",
                           )}
                           aria-current={isActive ? "step" : undefined}
                         >
-                          <div className="flex items-center">
-                            <span
-                              className="flex shrink-0 items-center"
-                              style={{ width: "auto", marginRight: 6 }}
-                            >
-                              <span
-                                className={cn(
-                                  "block h-5 w-[3px] rounded-[2px] transition-opacity duration-200",
-                                  isActive ? "bg-[#73A7FF] opacity-100" : "bg-[#73A7FF] opacity-0",
-                                )}
-                              />
-                            </span>
-                            {s.pagerLabel}
-                          </div>
-                          <span className="tabular flex items-center gap-2 font-medium text-white/75 mix-blend-plus-lighter">
-                            {isDone ? (
-                              <CheckCircle2 size={14} className="text-emerald-300" />
-                            ) : null}
+                          {isDone ? (
+                            <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+                          ) : null}
+                          {isActive ? (
+                            <span className="size-1.5 rounded-full bg-[#0c0c0c]" aria-hidden />
+                          ) : null}
+                          {s.pagerLabel}
+                          <span className="tabular text-[11px] opacity-60">
                             {String(idx + 1).padStart(2, "0")}
                           </span>
+                          {isDone ? <CheckCircle2 size={12} className="text-emerald-500" /> : null}
                         </div>
                       </li>
                     );
                   })}
                 </ul>
+                <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-white transition-all duration-500 ease-out"
+                    style={{ width: `${(step / 3) * 100}%` }}
+                  />
+                </div>
               </div>
             </div>
           </aside>
 
-          {/* Right pane — showcase per step. `bg-black/10` only at `lg`
-           * where the pane sits next to the rail; on mobile the pane
-           * stacks BELOW the rail and the band reads as a hard seam.
-           * `<main>` (paired with the rail's `<aside>`) is this chromeless
-           * route's primary landmark. */}
           <main className="relative z-10 grow lg:bg-black/10">
-            {/* Vertical tick ruler */}
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <svg
-                aria-hidden
-                className="absolute top-0 z-10 box-content h-full w-2 border-r border-white/10 px-1.5 pt-1"
-              >
-                <defs>
-                  <pattern
-                    id="onboarding-tick-ruler"
-                    width="8"
-                    height="16"
-                    patternUnits="userSpaceOnUse"
-                  >
-                    <path d="M0 0H16M0" className="stroke-white/40" fill="none" />
-                  </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#onboarding-tick-ruler)" />
-              </svg>
-            </div>
-
-            {/* Sticky locale + step header */}
+            {/* Sticky locale + step header — masked blur */}
             <div className="sticky top-0 z-30">
               <div
                 aria-hidden
-                className="absolute inset-0 left-5 bg-linear-to-b from-[#4867AF]/40 to-transparent"
+                className="absolute inset-0 backdrop-blur-xl"
+                style={{
+                  mask: "linear-gradient(to bottom, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%)",
+                  WebkitMask: "linear-gradient(to bottom, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%)",
+                  background: "linear-gradient(to bottom, rgba(12,12,12,0.8), transparent)",
+                }}
               />
               <div className="relative ml-5 w-[calc(100%-20px)] pt-16">
                 <p className="pl-5 text-[12.5px] font-bold tracking-[0.18em] text-white/55 uppercase mix-blend-plus-lighter">
@@ -250,9 +239,9 @@ export function OnboardingFlow({
               </div>
             </div>
 
-            {/* Step content */}
+            {/* Step content — narrow visitors.now column */}
             <div className="relative flex flex-col pl-5">
-              <div className="mx-auto flex w-full flex-col pt-4 pr-6 pb-32 pl-10 sm:pr-10">
+              <div className="mx-auto flex w-full max-w-[720px] flex-col pt-4 pr-6 pb-32 pl-10 sm:pr-10">
                 <div className="mb-6 flex flex-col gap-1.5">
                   <h3 className="text-[34px] leading-tight font-medium tracking-[-0.04em] text-white sm:text-[36px]">
                     {active.showcaseTitle}
@@ -413,7 +402,10 @@ function UnlockShowcase() {
       <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
         {UNLOCK_FEATURES.map((f) => (
-          <li key={f.key} className="morning-briefing-surface flex items-start gap-3 p-5">
+          <li
+            key={f.key}
+            className="flex items-start gap-3 bg-white/[0.04] p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+          >
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <f.icon size={17} strokeWidth={2} />
             </span>
@@ -530,6 +522,11 @@ function ConnectShowcase({
           <br />
           One assistant.
         </h4>
+        <p className="mt-3 text-[13px] leading-relaxed text-white/60">
+          GitHub connects here. Drive, Docs, Sheets &amp; Slides are{" "}
+          <span className="font-medium text-emerald-200">Included</span> once Google Workspace is
+          linked. Everything else is coming soon.
+        </p>
       </div>
       <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
@@ -547,7 +544,10 @@ function ConnectShowcase({
           const detail =
             isGithubConnected && connectedGithub ? `@${connectedGithub}` : p.description;
           return (
-            <li key={p.id} className="morning-briefing-surface flex items-center gap-3 px-5 py-4">
+            <li
+              key={p.id}
+              className="flex items-center gap-3 bg-white/[0.04] px-5 py-4 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+            >
               <IntegrationIcon brand={p.brand} size="md" title={p.name} variant="frost" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14px] font-semibold text-white">{p.name}</p>
@@ -573,9 +573,9 @@ function ConnectPill({ onClick, label }: { onClick: () => void; label: string })
       onClick={onClick}
       aria-label={label}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-3.5 py-1 text-[12px] font-medium",
-        "bg-white/15 text-white ring-1 ring-white/25 backdrop-blur-sm ring-inset",
-        "transition-colors duration-150 hover:bg-white hover:text-[#0c0c0c] focus-visible:bg-white focus-visible:text-[#0c0c0c]",
+        "inline-flex shrink-0 items-center rounded-full bg-white px-3.5 py-1.5 text-[12px] font-medium text-[#0c0c0c]",
+        "shadow-[0_1px_1px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.05)]",
+        "transition-all duration-150 hover:translate-y-[-1px] hover:shadow-[0_2px_8px_rgba(0,0,0,0.12)] active:translate-y-0 active:scale-[0.99]",
         "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none",
       )}
     >
@@ -660,7 +660,10 @@ function FinishShowcase() {
       <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-3">
         {INSTALL_TILES.map((tile) => (
-          <li key={tile.key} className="morning-briefing-surface flex flex-col gap-3 p-5">
+          <li
+            key={tile.key}
+            className="flex flex-col gap-3 bg-white/[0.04] p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+          >
             <span className="grid size-10 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <tile.icon size={18} strokeWidth={2} />
             </span>
@@ -684,10 +687,10 @@ function ShowcaseFrame({ children }: { children: ReactNode }) {
   return (
     <div
       className={cn(
-        "relative isolate overflow-hidden rounded-[28px]",
+        "onboarding-panel-in relative isolate overflow-hidden rounded-[24px]",
+        "bg-white/[0.04] backdrop-blur-xl",
         "ring-1 ring-white/12 ring-inset",
         "shadow-[0_30px_80px_-30px_rgba(15,30,55,0.55)]",
-        "morning-briefing-surface",
       )}
     >
       {children}
@@ -699,13 +702,27 @@ function ShowcaseFrame({ children }: { children: ReactNode }) {
 /* Shared bits                                                        */
 /* ------------------------------------------------------------------ */
 
-function Bullet({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+function Bullet({
+  icon,
+  children,
+  index = 0,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+  index?: number;
+}) {
   return (
-    <li className="flex items-start gap-2">
-      <span className="mt-0.5 text-white" aria-hidden>
-        {icon}
+    <li
+      className="onboarding-bullet-in flex items-start gap-2"
+      style={{ animationDelay: `${160 + index * 70}ms` }}
+    >
+      <span
+        className="mt-0.5 grid size-6 place-items-center rounded-full bg-white/[0.08] text-white ring-1 ring-white/10"
+        aria-hidden
+      >
+        <span className="scale-[0.85]">{icon}</span>
       </span>
-      <span className="text-[15px] text-white">{children}</span>
+      <span className="text-[15px] leading-6 text-white">{children}</span>
     </li>
   );
 }
