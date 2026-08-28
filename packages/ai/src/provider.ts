@@ -1,7 +1,8 @@
 import { google } from "@ai-sdk/google";
+import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
 import type { ChatModelTier } from "@alfred/contracts";
 import { isCallerAbort } from "./abort";
-import { APICallError, generateText, type ToolSet } from "ai";
+import { APICallError, type ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV4` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
 // `LanguageModel` union (which also admits gateway string ids). Same narrowing
@@ -21,7 +22,10 @@ import {
 // of truth shared with the web bundle, which can't import `@alfred/ai`).
 export type { ChatModelTier };
 
-type ChatProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
+// Owned by @ai-sdk/provider: `Record<string, JSONObject>` where each value is the provider's own
+// `*LanguageModelOptions` shape. Replacing the hand-rolled `NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>`
+// indirection from the original `provider-adapter.ts:CallOptions` alias.
+export type ChatProviderOptions = SharedV4ProviderOptions;
 
 type ModelChain = readonly [ModelId, ...ModelId[]];
 interface ModelRoute {
