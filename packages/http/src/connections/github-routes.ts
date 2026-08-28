@@ -6,6 +6,7 @@ import {
   buildInstallUrl,
   canUserAccessInstallation,
   exchangeUserCode,
+  getInstallation,
   upsertGithubCredential,
 } from "@alfred/integrations/github";
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
@@ -116,35 +117,81 @@ export const githubIntegrationRoutes = new Elysia({
       if (!storedUserId || storedUserId !== decoded.userId) {
         throw Errors.BadRequestError("Invalid or expired state");
       }
-      if (!query.code) throw Errors.BadRequestError("Missing code");
       if (!query.installation_id) throw Errors.BadRequestError("Missing installation_id");
-
-      const tokens = await exchangeUserCode(query.code);
       const installationId = query.installation_id;
-      const installationMatchesUser = await canUserAccessInstallation({
-        accessToken: tokens.accessToken,
-        installationId,
-      });
-      if (!installationMatchesUser) {
-        throw Errors.BadRequestError("GitHub installation is not accessible to this user");
+
+      // Normal path: GitHub sent both `code` (user-to-server OAuth) and
+      // `installation_id` — exchange the code for identity and verify the
+      // installation belongs to the caller.
+      //
+      // Already-installed path: the App is already on the account and the
+      // user just re-configured it (setup_action=update). GitHub then
+      // redirects with `installation_id` but NO `code`. We reconcile via the
+      // App JWT instead, so deleting your Alfred row (DB wipe) doesn't force
+      // you to uninstall/reinstall the GitHub App to get back in.
+      let accountId: string;
+      let accountLogin: string;
+      let accountEmail: string | null = null;
+      let accountName: string | null = null;
+      let accessToken: string;
+      let refreshToken: string | null = null;
+      let expiresAt: Date;
+      let scopes: string[] = [];
+      let tokenType = "bearer";
+
+      if (query.code) {
+        const tokens = await exchangeUserCode(query.code);
+        const installationMatchesUser = await canUserAccessInstallation({
+          accessToken: tokens.accessToken,
+          installationId,
+        });
+        if (!installationMatchesUser) {
+          throw Errors.BadRequestError("GitHub installation is not accessible to this user");
+        }
+        accountId = tokens.accountId;
+        accountLogin = tokens.accountLogin;
+        accountEmail = tokens.accountEmail;
+        accountName = tokens.accountName;
+        accessToken = tokens.accessToken;
+        refreshToken = tokens.refreshToken;
+        expiresAt = tokens.expiresAt;
+        scopes = tokens.scopes;
+        tokenType = tokens.tokenType;
+      } else {
+        // No code — fall back to App-JWT installation lookup. This still
+        // proves the installation exists and yields the account, but we
+        // mint a placeholder token that will be refreshed on next use via
+        // the installation token flow. We use a sentinel far-future expiry
+        // and empty scopes since the App permissions live on the
+        // installation, not on OAuth scopes.
+        const inst = await getInstallation(installationId);
+        if (!inst) throw Errors.BadRequestError("GitHub installation not found");
+        accountId = inst.accountId;
+        accountLogin = inst.accountLogin;
+        // Use a sealed sentinel token — the credential row requires one, but
+        // live REST goes through `getInstallationToken(installationId)` so it
+        // never uses this value. `expiresAt` is far-future so we don't trip
+        // `needs_reauth` immediately.
+        accessToken = `ghu_placeholder_${installationId}`;
+        expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
       }
 
       // Onboarding lookup is independent of the credential upsert — race them.
       const [credential, userRow] = await Promise.all([
         upsertGithubCredential({
           userId: decoded.userId,
-          accountId: tokens.accountId,
-          accountLabel: tokens.accountLogin,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
+          accountId,
+          accountLabel: accountLogin,
+          accessToken,
+          refreshToken,
           installationId,
-          expiresAt: tokens.expiresAt,
-          scopes: tokens.scopes,
+          expiresAt,
+          scopes,
           metadata: {
-            login: tokens.accountLogin,
-            name: tokens.accountName,
-            email: tokens.accountEmail,
-            token_type: tokens.tokenType,
+            login: accountLogin,
+            name: accountName,
+            email: accountEmail,
+            token_type: tokenType,
             installation_id: installationId,
             setup_action: query.setup_action ?? null,
           },
@@ -157,7 +204,7 @@ export const githubIntegrationRoutes = new Elysia({
       ]);
 
       const stillOnboarding = userRow[0]?.onboardedAt === null;
-      const connectedParam = `github_connected=${encodeURIComponent(tokens.accountLogin)}`;
+      const connectedParam = `github_connected=${encodeURIComponent(accountLogin)}`;
       const target = stillOnboarding
         ? `/onboarding?step=2&${connectedParam}`
         : `/integrations?${connectedParam}`;
