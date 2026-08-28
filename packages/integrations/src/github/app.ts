@@ -74,7 +74,9 @@ const installationSchema = z.object({
     .optional(),
 });
 
-export async function getInstallation(installationId: string): Promise<{ accountId: string; accountLogin: string } | null> {
+export async function getInstallation(
+  installationId: string,
+): Promise<{ accountId: string; accountLogin: string } | null> {
   if (!/^\d+$/.test(installationId)) return null;
   const jwt = await mintAppJwt();
   const res = await githubFetch(`${GITHUB_API}/app/installations/${installationId}`, {
