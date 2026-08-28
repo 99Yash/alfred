@@ -1,7 +1,7 @@
 import { anthropic, createAnthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI, google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { createOpenAI, openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
-import { cloudflareGatewayConfig, cloudflareGatewayEnabled } from "@alfred/env/server";
+import { cloudflareGatewayConfig } from "@alfred/env/server";
 import { INTEGRATION_ACTIONS, type IntegrationSlug, toRecord } from "@alfred/contracts";
 import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
@@ -70,87 +70,62 @@ function isGoogleThinkingLevel(value: EffortLevel): value is GoogleThinkingLevel
  * evaluated at import time (which would throw during `tsx --test` without env).
  * Each sets `baseURL` to `gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}`
  * for Unified Billing. The SDK's `apiKey` is the gateway token itself (the
- * `cfut_` value from `CLOUDFLARE_AI_GATEWAY_TOKEN` / `AI_GATEWAY_API_KEY`) so the
- * SDK's `loadApiKey` is satisfied without a fabricated value; a custom `fetch`
- * then moves it out of the provider's native auth slot (`x-api-key`,
- * `Authorization`, `x-goog-api-key`, `?key=`) into `cf-aig-authorization`, the
- * header the gateway actually reads for Unified Billing (verified via live curl:
- * a key forwarded in the provider's native slot → 401 invalid).
+ * `cfut_` value); `cf-aig-authorization` is the gateway auth header. No custom
+ * `fetch` is needed — all three SDKs spread `...options.headers` after their
+ * native auth header, so setting `cf-aig-authorization` via the first-class
+ * `headers` option is sufficient (see
+ * `docs/research/cloudflare-ai-gateway-provider-wiring.md`). The provider's
+ * native header (`x-api-key` / `Authorization` / `x-goog-api-key`) still ships
+ * alongside `cf-aig-authorization` on the provider-native surface, which the
+ * gateway accepts for Unified Billing (verified via live curl of that surface).
  */
 let _cfAnthropic: ReturnType<typeof createAnthropic> | undefined;
 let _cfOpenAI: ReturnType<typeof createOpenAI> | undefined;
 let _cfGoogle: ReturnType<typeof createGoogleGenerativeAI> | undefined;
 
-function cfFetch(token: string): typeof fetch {
-  // SAFETY: the provider `fetch` option is `FetchFunction`, which is exactly
-  // `typeof globalThis.fetch` — this signature matches it with no cast.
-  return async (
-    input: Parameters<typeof fetch>[0],
-    init?: Parameters<typeof fetch>[1],
-  ): Promise<Response> => {
-    const url = new URL(
-      input instanceof URL ? input.href : input instanceof Request ? input.url : input,
-    );
-    url.searchParams.delete("key");
+function gatewayBaseUrl(
+  cfg: { accountId: string; gatewayId: string },
+  providerSegment: string,
+): string {
+  return `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/${providerSegment}`;
+}
 
-    // Seed the sanitized headers from the incoming Request (when given) or the
-    // call's own `init.headers`, drop the provider's auth, and stamp the
-    // Cloudflare Unified Billing header in its place.
-    const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
-    headers.delete("x-api-key");
-    headers.delete("authorization");
-    headers.delete("x-goog-api-key");
-    headers.set("cf-aig-authorization", `Bearer ${token}`);
-
-    const sanitizedInit: RequestInit = { ...init, headers };
-    if (input instanceof Request) {
-      // Clone the incoming request so method/body/credentials survive intact,
-      // overriding only its headers; re-supply the same sanitized set as the
-      // second argument so a provider header cannot leak back in via fetch's merge.
-      return fetch(new Request(input, { headers }), sanitizedInit);
-    }
-    return fetch(url, sanitizedInit);
-  };
+function gatewayHeaders(token: string) {
+  return { "cf-aig-authorization": `Bearer ${token}` } satisfies Record<string, string>;
 }
 
 function getCfAnthropic(): ReturnType<typeof createAnthropic> | undefined {
-  if (!cloudflareGatewayEnabled()) return undefined;
-  if (_cfAnthropic) return _cfAnthropic;
   const cfg = cloudflareGatewayConfig();
   if (!cfg) return undefined;
+  if (_cfAnthropic) return _cfAnthropic;
   _cfAnthropic = createAnthropic({
     apiKey: cfg.token,
-    baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/anthropic`,
-    headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
-    fetch: cfFetch(cfg.token),
+    baseURL: gatewayBaseUrl(cfg, "anthropic"),
+    headers: gatewayHeaders(cfg.token),
   });
   return _cfAnthropic;
 }
 
 function getCfOpenAI(): ReturnType<typeof createOpenAI> | undefined {
-  if (!cloudflareGatewayEnabled()) return undefined;
-  if (_cfOpenAI) return _cfOpenAI;
   const cfg = cloudflareGatewayConfig();
   if (!cfg) return undefined;
+  if (_cfOpenAI) return _cfOpenAI;
   _cfOpenAI = createOpenAI({
     apiKey: cfg.token,
-    baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/openai`,
-    headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
-    fetch: cfFetch(cfg.token),
+    baseURL: gatewayBaseUrl(cfg, "openai"),
+    headers: gatewayHeaders(cfg.token),
   });
   return _cfOpenAI;
 }
 
 function getCfGoogle(): ReturnType<typeof createGoogleGenerativeAI> | undefined {
-  if (!cloudflareGatewayEnabled()) return undefined;
-  if (_cfGoogle) return _cfGoogle;
   const cfg = cloudflareGatewayConfig();
   if (!cfg) return undefined;
+  if (_cfGoogle) return _cfGoogle;
   _cfGoogle = createGoogleGenerativeAI({
     apiKey: cfg.token,
-    baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/google-ai-studio/v1beta`,
-    headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
-    fetch: cfFetch(cfg.token),
+    baseURL: gatewayBaseUrl(cfg, "google-ai-studio/v1beta"),
+    headers: gatewayHeaders(cfg.token),
   });
   return _cfGoogle;
 }

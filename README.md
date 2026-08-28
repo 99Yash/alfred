@@ -67,8 +67,6 @@ Required server keys:
 | `ALFRED_ALLOWED_EMAIL`         | Comma-separated emails allowed to sign up    |
 | `RESEND_API_KEY`               | Transactional email                          |
 | `RESEND_FROM_EMAIL`            | Sender address                               |
-| `ANTHROPIC_API_KEY`            | Primary LLM                                  |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Fallback/cheap LLM + live web search         |
 | `GOOGLE_OAUTH_CLIENT_ID`       | Google sign-in + Workspace integration OAuth |
 | `GOOGLE_OAUTH_CLIENT_SECRET`   | Google sign-in + Workspace integration OAuth |
 | `GOOGLE_OAUTH_REDIRECT_URI`    | Workspace integration callback URL           |
@@ -79,6 +77,13 @@ Required server keys:
 | `GITHUB_APP_PRIVATE_KEY`       | GitHub App JWT signing key                   |
 | `GITHUB_WEBHOOK_SECRET`        | GitHub webhook HMAC verification             |
 | `GITHUB_APP_REDIRECT_URI`      | GitHub App callback URL                      |
+
+LLM provider keys — one of the following must be set (boot validates):
+
+| Var                                    | Purpose                                                |
+| -------------------------------------- | ------------------------------------------------------ |
+| `ANTHROPIC_API_KEY` + `GOOGLE_GENERATIVE_AI_API_KEY` | Direct provider keys (primary + fallback/cheap) |
+| `CLOUDFLARE_AI_GATEWAY_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_GATEWAY_ID` (or `AI_GATEWAY_API_KEY=cfut_...` alias + ids) | Cloudflare AI Gateway Unified Billing — replaces direct keys |
 
 Feature-gated or optional locally: `OPENAI_API_KEY`, `VOYAGE_API_KEY` (embeddings), `PERPLEXITY_API_KEY` (legacy/research smokes), `GOOGLE_PUBSUB_*` (Gmail push), `NOTION_*`, `VERCEL_*`, `CHAT_S3_*`, `ENTITY_ID_NAMESPACE`, and observability keys (`SENTRY_DSN`, `LANGFUSE_*`, `POSTHOG_API_KEY`, `VITE_SENTRY_DSN`, `VITE_POSTHOG_*`).
 

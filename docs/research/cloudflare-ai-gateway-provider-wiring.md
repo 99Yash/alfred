@@ -1,6 +1,6 @@
 # Cloudflare AI Gateway + Vercel AI SDK: correct provider wiring for Unified Billing
 
-Status: researched 2026-08-28
+Status: researched 2026-08-28 — decision 2026-08-28: ship surface (2) provider-native
 
 Scope: how to point `@ai-sdk/anthropic`, `@ai-sdk/openai`, and `@ai-sdk/google`
 at Cloudflare AI Gateway with Unified Billing (the `cfut_` token), with the
@@ -103,11 +103,25 @@ So, concretely:
   provider call, and a custom fetch declared as `FetchFunction =
   typeof globalThis.fetch` needs no cast.
 
+## Decision 2026-08-28 — why Alfred ships surface (2) despite the research preferring surface (1)
+
+**Research conclusion:** surface (1) REST API (`api.cloudflare.com`) is the cleanest — native `Authorization`, no `cf-aig-authorization`, no dummy key, no custom fetch, no casts — and Cloudflare recommends it for new integrations.
+
+**Alfred ships surface (2) provider-native** (`gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}`) in this PR because:
+
+- **No migration of model ids.** REST requires `author/model` prefixed ids (`openai/...`, `google/...`); provider-native keeps Alfred's existing registry ids (`claude-sonnet-4-6`, `gemini-2.5-flash`) and the metering/pricing join unchanged.
+- **Google has no native REST endpoint.** REST has only `/ai/run`, `/ai/v1/chat/completions`, `/ai/v1/responses`, `/ai/v1/messages` — no Google-native path. Using Google models via REST would require routing them through `createOpenAI` with `google/...` ids (an adapter-shape break). Provider-native keeps `@ai-sdk/google` and its `thinkingConfig` block intact.
+- **Token permission gap.** REST `/ai/*` requires **Account > Workers AI > Read**; a gateway-minted `cfut_` token with only **AI Gateway Run** returns 401 code 10000. Provider-native accepts the same `cfut_` the gateway UI mints. No token change is required.
+- **Validated live.** Provider-native with `cf-aig-authorization` via the first-class `headers` option (no custom fetch) was verified via live `curl` against `gateway.ai.cloudflare.com` (cfut in native slot → 401, cf-aig → 200 billing via Unified Billing). The REST token path was verified only from docs.
+
+**Follow-up:** track a migration to surface (1) once (a) the gateway token carries Workers AI Read, (b) Google-via-OpenAI routing is characterized with the installed SDK's `thinkingConfig` → `reasoningEffort` mapping, and (c) the prefixed-id pricing join is ready. Open an issue `ai-gateway-rest-migration` and link it from `provider-adapter.ts`.
+
 ## The three surfaces, and which auth each wants
 
 Cloudflare's docs describe three different request surfaces with three different
-auth stories. The current Alfred code is on surface (2); the clean answer is
-surface (1).
+auth stories. The current Alfred code is on surface (2); the clean answer on
+a green field is surface (1), but Alfred defers that migration for the reasons
+above.
 
 ### 1. REST API — `api.cloudflare.com/client/v4/accounts/{account}/ai/*`
 
