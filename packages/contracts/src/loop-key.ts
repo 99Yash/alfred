@@ -34,6 +34,15 @@
  * This is the *interim* content/shape key. The durable form derives the entity
  * identity from the ADR-0067 observation-log projection (#218); this heuristic
  * is the same one both consumers share until that lands.
+ *
+ * DEBT CLOCK — ADR-0092 S2. Every vendor branch in this file
+ * (`githubLoopEntityRef`, `issueLoopEntityRef`, `monitoringAlarmLoopEntityRef`)
+ * is a shrinking floor. It stays only until the shadow-projection probe shows
+ * coverage, then it is deleted — see `docs/decisions/ADR-0092-notification-referent-dedup-on-the-observation-log.md:D5`.
+ * Closer: `feat/917-referent-identity-s2` (consumers read the referent node id
+ * and one branch is deleted per probe). Do not add new vendors here; mint
+ * referent identities in `packages/assistant/src/knowledge/referent-identity.ts`
+ * or per-source reducers instead.
  */
 
 import { parseEmailAddress } from "./guards";
