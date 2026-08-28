@@ -120,6 +120,18 @@ function ThreadRow({
         to="/chat/$threadId"
         params={{ threadId: entry.id }}
         aria-current={active ? "page" : undefined}
+        onClick={(event) => {
+          if (!active) return;
+          if (
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey ||
+            event.button !== 0
+          )
+            return;
+          event.preventDefault();
+        }}
         className={cn(
           "inline-flex h-9 w-full items-center gap-2 rounded-xl pr-2 pl-3 text-left",
           "app-press transition-[background-color,color] duration-150",

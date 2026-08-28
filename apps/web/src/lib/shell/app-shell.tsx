@@ -307,16 +307,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   // can leak if React discards the render; a queued setState cannot).
   const [prevLocation, setPrevLocation] = useState(location);
   if (prevLocation !== location) {
+    const sameHref =
+      prevLocation.pathname === location.pathname &&
+      prevLocation.searchStr === location.searchStr &&
+      prevLocation.hash === location.hash;
     setPrevLocation(location);
-    setPaletteOpen(false);
-    setRightRailNode(null);
-    setThreadViewModel(null);
-    // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
-    // leave it floating over the page it just routed to. Owned here (not via a
-    // child effect calling back up) for the same reason as the palette close —
-    // the route is the owner's external store, and navigation can come from
-    // anywhere (nav rows, browser back, programmatic). Inline mode stays pinned.
-    if (sidebarMode === "overlay") setSidebarOpen(false);
+    if (!sameHref) {
+      setPaletteOpen(false);
+      setRightRailNode(null);
+      setThreadViewModel(null);
+      // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
+      // leave it floating over the page it just routed to. Owned here (not via a
+      // child effect calling back up) for the same reason as the palette close —
+      // the route is the owner's external store, and navigation can come from
+      // anywhere (nav rows, browser back, programmatic). Inline mode stays pinned.
+      if (sidebarMode === "overlay") setSidebarOpen(false);
+    }
   }
 
   /* Routes that render edge-to-edge — no sidebar, no rail. `/` is in
