@@ -69,54 +69,47 @@ function isGoogleThinkingLevel(value: EffortLevel): value is GoogleThinkingLevel
  * Cloudflare AI Gateway singletons — lazily minted so `serverEnv()` is not
  * evaluated at import time (which would throw during `tsx --test` without env).
  * Each sets `baseURL` to `gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}`
- * and `cf-aig-authorization: Bearer {token}` for Unified Billing; the SDK's
- * `apiKey` is a dummy since billing is via the CF token. A custom `fetch`
- * strips the dummy provider auth (`x-api-key`, `Authorization`, `x-goog-api-key`,
- * `?key=`) that would otherwise be forwarded to the origin and invalidate the
- * unified-billing request (verified via live curl: dummy key → 401 invalid).
+ * for Unified Billing. The SDK's `apiKey` is the gateway token itself (the
+ * `cfut_` value from `CLOUDFLARE_AI_GATEWAY_TOKEN` / `AI_GATEWAY_API_KEY`) so the
+ * SDK's `loadApiKey` is satisfied without a fabricated value; a custom `fetch`
+ * then moves it out of the provider's native auth slot (`x-api-key`,
+ * `Authorization`, `x-goog-api-key`, `?key=`) into `cf-aig-authorization`, the
+ * header the gateway actually reads for Unified Billing (verified via live curl:
+ * a key forwarded in the provider's native slot → 401 invalid).
  */
 let _cfAnthropic: ReturnType<typeof createAnthropic> | undefined;
 let _cfOpenAI: ReturnType<typeof createOpenAI> | undefined;
 let _cfGoogle: ReturnType<typeof createGoogleGenerativeAI> | undefined;
 
 function cfFetch(token: string): typeof fetch {
-  return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    // SAFETY: input is RequestInfo | URL, narrowing to Request to read url is safe after instanceof check
-    const urlString =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : (input as Request).url;
-    const url = new URL(urlString);
+  // SAFETY: the provider `fetch` option is `FetchFunction`, which is exactly
+  // `typeof globalThis.fetch` — this signature matches it with no cast.
+  return async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ): Promise<Response> => {
+    const url = new URL(
+      input instanceof URL ? input.href : input instanceof Request ? input.url : input,
+    );
     url.searchParams.delete("key");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const headers = new Headers((init?.headers as any) ?? undefined);
-    if (input instanceof Request) {
-      for (const [k, v] of input.headers.entries()) headers.set(k, v);
-    }
+
+    // Seed the sanitized headers from the incoming Request (when given) or the
+    // call's own `init.headers`, drop the provider's auth, and stamp the
+    // Cloudflare Unified Billing header in its place.
+    const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
     headers.delete("x-api-key");
     headers.delete("authorization");
     headers.delete("x-goog-api-key");
     headers.set("cf-aig-authorization", `Bearer ${token}`);
-    // SAFETY: init is RequestInit | undefined, spreading as RequestInit is safe
-    const newInit = {
-      // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: init spread is safe
-      ...(init as unknown as RequestInit),
-      headers,
-    } as RequestInit; // oxlint-disable-line anti-slop/no-chained-type-assertions
+
+    const sanitizedInit: RequestInit = { ...init, headers };
     if (input instanceof Request) {
-      // SAFETY: Request is compatible with RequestInit for construction, cast via unknown is safe
-      return fetch(
-        new Request(url.toString(), {
-          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: Request spread is safe
-          ...(input as unknown as RequestInit),
-          headers,
-        } as RequestInit),
-        newInit,
-      ); // oxlint-disable-line anti-slop/no-chained-type-assertions
+      // Clone the incoming request so method/body/credentials survive intact,
+      // overriding only its headers; re-supply the same sanitized set as the
+      // second argument so a provider header cannot leak back in via fetch's merge.
+      return fetch(new Request(input, { headers }), sanitizedInit);
     }
-    return fetch(url.toString(), newInit);
+    return fetch(url, sanitizedInit);
   };
 }
 
@@ -126,12 +119,10 @@ function getCfAnthropic(): ReturnType<typeof createAnthropic> | undefined {
   const cfg = cloudflareGatewayConfig();
   if (!cfg) return undefined;
   _cfAnthropic = createAnthropic({
-    apiKey: "cf-dummy",
+    apiKey: cfg.token,
     baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/anthropic`,
     headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
-    // SAFETY: cfFetch is (input, init) => Promise<Response> compatible with provider's fetch option
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- single cast via unknown to bridge lib types
-    fetch: cfFetch(cfg.token) as unknown as typeof fetch,
+    fetch: cfFetch(cfg.token),
   });
   return _cfAnthropic;
 }
@@ -142,12 +133,10 @@ function getCfOpenAI(): ReturnType<typeof createOpenAI> | undefined {
   const cfg = cloudflareGatewayConfig();
   if (!cfg) return undefined;
   _cfOpenAI = createOpenAI({
-    apiKey: "cf-dummy",
+    apiKey: cfg.token,
     baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/openai`,
     headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
-    // SAFETY: cfFetch matches provider fetch signature
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
-    fetch: cfFetch(cfg.token) as unknown as typeof fetch,
+    fetch: cfFetch(cfg.token),
   });
   return _cfOpenAI;
 }
@@ -158,12 +147,10 @@ function getCfGoogle(): ReturnType<typeof createGoogleGenerativeAI> | undefined 
   const cfg = cloudflareGatewayConfig();
   if (!cfg) return undefined;
   _cfGoogle = createGoogleGenerativeAI({
-    apiKey: "cf-dummy",
+    apiKey: cfg.token,
     baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/google-ai-studio/v1beta`,
     headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
-    // SAFETY: cfFetch matches provider fetch signature
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
-    fetch: cfFetch(cfg.token) as unknown as typeof fetch,
+    fetch: cfFetch(cfg.token),
   });
   return _cfGoogle;
 }
@@ -180,11 +167,7 @@ const PROVIDER_ADAPTERS = {
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"anthropic">) => {
       const cf = getCfAnthropic();
-      if (cf) {
-        // SAFETY: CF provider returns ai LanguageModel which is LanguageModelV4 (same warden as direct)
-        return cf(modelId) as unknown as LanguageModelV4; // oxlint-disable-line anti-slop/no-chained-type-assertions
-      }
-      return anthropic(modelId);
+      return cf ? cf(modelId) : anthropic(modelId);
     },
     reasoningOptions(
       modelId: ModelIdFor<"anthropic">,
@@ -214,11 +197,7 @@ const PROVIDER_ADAPTERS = {
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"google">) => {
       const cf = getCfGoogle();
-      if (cf) {
-        // SAFETY: CF provider returns ai LanguageModel which is LanguageModelV4 (same warden as direct)
-        return cf(modelId) as unknown as LanguageModelV4; // oxlint-disable-line anti-slop/no-chained-type-assertions
-      }
-      return google(modelId);
+      return cf ? cf(modelId) : google(modelId);
     },
     reasoningOptions(
       modelId: ModelIdFor<"google">,
@@ -245,11 +224,7 @@ const PROVIDER_ADAPTERS = {
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"openai">) => {
       const cf = getCfOpenAI();
-      if (cf) {
-        // SAFETY: CF provider returns ai LanguageModel which is LanguageModelV4 (same warden as direct)
-        return cf.responses(modelId) as unknown as LanguageModelV4; // oxlint-disable-line anti-slop/no-chained-type-assertions
-      }
-      return openai.responses(modelId);
+      return cf ? cf.responses(modelId) : openai.responses(modelId);
     },
     reasoningOptions(
       modelId: ModelIdFor<"openai">,
