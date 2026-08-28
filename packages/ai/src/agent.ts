@@ -9,17 +9,12 @@ import {
   type ToolSet,
   type TypedToolCall,
 } from "ai";
+import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
 import { withDefaults } from "@alfred/contracts";
 import { meteredGenerateText, meteredStreamText, type AttributedCall } from "./metering/wrappers";
 import { attachProviderTurnPolicy, type ProviderAdaptedLanguageModel } from "./provider-adapter";
 
-/**
- * Provider-options bag, structurally identical to the SDK's
- * `ProviderOptions` (`{ [provider]: { [key]: unknown } }`). We type it
- * inline rather than importing from `@ai-sdk/provider-utils` to avoid
- * pulling that into our direct deps for one type alias.
- */
-type AlfredProviderOptions = Record<string, Record<string, unknown>>;
+type AlfredProviderOptions = SharedV4ProviderOptions;
 
 /**
  * AlfredAgent — a per-turn LLM driver designed to compose with the durable
@@ -247,16 +242,7 @@ export class AlfredAgent<CTX = unknown> {
       stopWhen: isStepCount(1),
       ...(this.s.maxOutputTokens !== undefined ? { maxOutputTokens: this.s.maxOutputTokens } : {}),
       ...(this.s.temperature !== undefined ? { temperature: this.s.temperature } : {}),
-      // The SDK types `providerOptions` as `JSONObject` per provider; our
-      // public surface uses the looser `unknown` per provider so callers
-      // don't have to import internal SDK types. Cast at the boundary.
-      // SAFETY: attachProviderTurnPolicy returns our public providerOptions
-      // shape; the SDK slot is structurally narrower, so this adapts at the
-      // boundary without leaking SDK types into the public surface.
-      providerOptions: attachProviderTurnPolicy(this.s.providerOptions, this.cacheTtl()) as Record<
-        string,
-        never
-      >,
+      providerOptions: attachProviderTurnPolicy(this.s.providerOptions, this.cacheTtl()),
       ...(args.abortSignal !== undefined ? { abortSignal: args.abortSignal } : {}),
     };
 
