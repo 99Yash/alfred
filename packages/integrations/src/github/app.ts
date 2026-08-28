@@ -63,6 +63,35 @@ export function buildInstallUrl(state: string): string {
   return `https://github.com/apps/${slug}/installations/new?state=${encodeURIComponent(state)}`;
 }
 
+/** Fetch installation metadata via App JWT — used when the callback arrives
+ *  with `installation_id` but no `code` (setup_action=update on an already-
+ *  installed App). */
+const installationSchema = z.object({
+  id: z.number(),
+  account: z
+    .object({ id: z.number(), login: z.string(), type: z.string().optional() })
+    .nullable()
+    .optional(),
+});
+
+export async function getInstallation(installationId: string): Promise<{ accountId: string; accountLogin: string } | null> {
+  if (!/^\d+$/.test(installationId)) return null;
+  const jwt = await mintAppJwt();
+  const res = await githubFetch(`${GITHUB_API}/app/installations/${installationId}`, {
+    headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${jwt}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw await httpErrorFromResponse("github.app", res, {
+      url: `${GITHUB_API}/app/installations/${installationId}`,
+    });
+  }
+  const parsed = installationSchema.parse(await res.json());
+  const acct = parsed.account;
+  if (!acct) return null;
+  return { accountId: String(acct.id), accountLogin: acct.login };
+}
+
 // GitHub's manifest issues a PKCS#1 key (`BEGIN RSA PRIVATE KEY`), which
 // jose's importPKCS8 rejects; Node's createPrivateKey auto-detects the
 // encoding and yields a KeyObject jose signs with directly.

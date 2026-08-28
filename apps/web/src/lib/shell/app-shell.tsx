@@ -222,7 +222,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPending) return;
     setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, !!session?.user);
   }, [isPending, session?.user]);
-  const { data: onboardingData, isError: onboardingError } = useQuery({
+  const { data: onboardingData } = useQuery({
     queryKey: ["me", "onboarding"],
     queryFn: async () => {
       const res = await client.api.me.onboarding.get();
@@ -234,10 +234,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     retry: 1,
   });
 
-  /* Gate `/onboarding` access in both directions:
-   *   - new user (routeToOnboarding=true) on any other authed route → /onboarding
-   *   - finished user on /onboarding → / */
-  const routeToOnboarding = onboardingData?.routeToOnboarding;
   const onOnboardingRoute = location.pathname.startsWith("/onboarding");
 
   /* Mirror the resolved onboarding decision into a synchronous localStorage
@@ -248,17 +244,47 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const nextRoute = onboardingData?.routeToOnboarding;
     if (nextRoute === undefined) return;
-    setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, !nextRoute);
-  }, [onboardingData?.routeToOnboarding]);
+    const complete = !nextRoute;
+    setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, complete);
+    if (sessionUser?.id) {
+      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID, sessionUser.id);
+    }
+  }, [onboardingData?.routeToOnboarding, sessionUser?.id]);
 
-  /* First-paint guess (read once at mount): does this returning user appear to
-   * be already onboarded? Lets us render content optimistically instead of
-   * blanking while the query resolves. */
-  const [onboardingHintComplete] = useState(() =>
-    getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE),
-  );
+  /* First-paint hint: per-user so a DB wipe (old account was onboarded,
+   * new account is not) doesn't keep a genuinely new user out of
+   * `/onboarding` via a stale `true`. We store the user ID alongside the
+   * boolean and only trust the hint when the IDs match. Derived during
+   * render so no effect chain is needed. */
+  const onboardingHintComplete = (() => {
+    const stored = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE);
+    const storedId = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID);
+    if (sessionUser?.id && storedId !== sessionUser.id) return false;
+    return stored;
+  })();
+  useEffect(() => {
+    const curId = sessionUser?.id ?? null;
+    if (!curId) return;
+    const storedId = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID);
+    if (storedId !== curId) {
+      // Stale hint for a different user (DB wipe → new signup) — reset.
+      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, false);
+      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID, curId);
+    }
+  }, [sessionUser?.id]);
+  // Route guard: redirect based on server truth, with optimistic hint for
+  // the pending window (query may be slow due to server restart). This is a
+  // guard, not an event handler, so an effect is the correct primitive.
   useEffect(() => {
     if (!session?.user) return;
+    // Optimistic: hint says not onboarded → go to onboarding immediately
+    // (query may still be pending due to server restart / slow network).
+    if (!onboardingHintComplete && !onOnboardingRoute) {
+      const nextRoute = onboardingData?.routeToOnboarding;
+      if (nextRoute === false) return;
+      void navigate({ to: "/onboarding", search: { step: 1 } });
+      return;
+    }
     const nextRoute = onboardingData?.routeToOnboarding;
     if (nextRoute === undefined) return;
     if (nextRoute && !onOnboardingRoute) {
@@ -266,7 +292,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     } else if (!nextRoute && onOnboardingRoute) {
       void navigate({ to: "/" });
     }
-  }, [onboardingData?.routeToOnboarding, onOnboardingRoute, session?.user, navigate]);
+  }, [
+    onboardingData?.routeToOnboarding,
+    onOnboardingRoute,
+    session?.user,
+    navigate,
+    onboardingHintComplete,
+  ]);
 
   // Close the palette on route change. Tracking the previous location in
   // state (not a ref) and resetting during render replaces the prior
@@ -370,27 +402,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     [setThreadViewModel],
   );
 
-  // First-load gating: between "session resolved" and "onboarding query
-  // resolved" we don't yet know whether to redirect new users to
-  // /onboarding. Without this guard, the route's component paints for a
-  // frame before the effect above navigates away. Render the chrome but
-  // blank the main column until we know. This also covers `isPending`
-  // implicitly: `onboardingQuery.enabled` is `!isPending && !!sessionUser`,
-  // so while the session is loading `routeToOnboarding` stays `undefined`.
-  //
-  // The `onboardingHintComplete` escape hatch is what kills the long blank on
-  // refresh for the steady-state (already-onboarded) user: when last we knew
-  // they were onboarded, there's no redirect coming, so we render content
-  // immediately rather than waiting out the session → onboarding chain. If the
-  // hint is somehow stale and the query says they *do* need onboarding, the
-  // redirect effect above still fires — costing only a brief flash, the same
-  // self-correcting tradeoff as the auth hint on `/`.
-  const gatingPending =
-    routeToOnboarding === undefined &&
-    !onOnboardingRoute &&
-    !onboardingHintComplete &&
-    !onboardingError;
-  const mainContent = gatingPending ? null : children;
+  // First-load: render optimistically. The redirect effect above will
+  // push non-onboarded users to `/onboarding` once the query resolves;
+  // we trade a brief flash for no dead blank. Hint invalidation above
+  // handles the wiped-DB → new-account stale-cache case.
+  const mainContent = children;
 
   // Chrome should be present for any non-chromeless route the user is
   // allowed to see — including the brief window where the session is

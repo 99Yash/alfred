@@ -26,6 +26,7 @@ export const LOCAL_STORAGE_KEY = {
   CHAT_TIER: "alfred.chat.tier",
   MAYBE_AUTHED: "alfred.maybe-authed",
   ONBOARDING_COMPLETE: "alfred.onboarding-complete",
+  ONBOARDING_USER_ID: "alfred.onboarding-user-id",
   EVENT_REPLAY_STATE: "alfred.events.replayAnchor",
   CHAT_SOUND_PREFERENCE: "alfred.chat.soundPreference",
   CHAT_NOTIFY_ONBOARDED: "alfred.chat.notifyOnboarded",
@@ -67,6 +68,10 @@ export const LOCAL_STORAGE_SCHEMAS = {
   [LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE]: z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
     .default(false),
+  /** User ID for which the onboarding hint above is valid — prevents stale
+   * `true` from a previous account (DB wipe → new signup) from keeping a
+   * genuinely new user out of `/onboarding`. */
+  [LOCAL_STORAGE_KEY.ONBOARDING_USER_ID]: z.string().nullable().default(null),
   /**
    * Replay state for the SSE event stream. `cursor` advances monotonically;
    * active chat runs retain their own earlier recovery barriers. The numeric
