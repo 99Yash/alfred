@@ -66,7 +66,7 @@ const GENERIC_SUBJECTS = new Set([
   "updates",
 ]);
 
-const TRACKER_SENDER_PATTERNS: Array<{ key: string; re: RegExp }> = [
+const TRACKER_SENDER_PATTERNS = [
   { key: "clickup", re: /\bclickup\b|tasks\.clickup\.com/i },
   { key: "linear", re: /\blinear\b|linear\.app/i },
   { key: "jira", re: /\bjira\b|atlassian\.net|atlassian\.com/i },
@@ -74,7 +74,10 @@ const TRACKER_SENDER_PATTERNS: Array<{ key: string; re: RegExp }> = [
   { key: "asana", re: /\basana\b|asana\.com/i },
   { key: "trello", re: /\btrello\b|trello\.com/i },
   { key: "notion", re: /\bnotion\b|notion\.so/i },
-];
+] as const satisfies ReadonlyArray<{ key: string; re: RegExp }>;
+
+/** The vendors {@link trackerSenderKey} recognizes. */
+export type TrackerSenderKey = (typeof TRACKER_SENDER_PATTERNS)[number]["key"];
 
 const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
 const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\s*:\s*(.+?)\s*$/i;
@@ -92,10 +95,24 @@ interface LoopKeyContext {
   requireTrackerSender?: boolean;
 }
 
+/**
+ * What the ref points AT. A closed union on purpose: a consumer that turns a ref
+ * into a persisted identity has to branch on this (a normalized `subject` is
+ * unique only within its sender; a `pull_request` is unique everywhere), so a
+ * new kind must break every such switch instead of falling into its default.
+ */
+export type LoopEntityKind = "pull_request" | "issue" | "subject" | "alarm";
+
+/**
+ * Who the ref came from. A tracker vendor, `monitoring` for an alarm, or the
+ * generic `issue` when an issue key appears without a trusted tracker sender.
+ */
+export type LoopEntityProvider = TrackerSenderKey | "issue" | "monitoring";
+
 export interface LoopEntityRef {
   key: string;
-  provider: string;
-  kind: string;
+  provider: LoopEntityProvider;
+  kind: LoopEntityKind;
   id: string;
 }
 
@@ -166,7 +183,7 @@ function githubLoopEntityRef(subject: string): LoopEntityRef | null {
 
 function issueLoopEntityRef(
   subject: string,
-  tracker: string | null | undefined,
+  tracker: TrackerSenderKey | null | undefined,
 ): LoopEntityRef | null {
   const key = subject.match(ISSUE_KEY_ENCLOSED_RE)?.[1] ?? subject.match(ISSUE_KEY_LEADING_RE)?.[1];
   if (!key) return null;
@@ -179,7 +196,15 @@ function issueLoopEntityRef(
   };
 }
 
-function trackerSenderKey(sender: string | null | undefined): string | null {
+/**
+ * The ONE sender-trust test. Returns the tracker vendor a sender looks like, or
+ * `null`. Exported because every consumer that mints a HARD, persisted key from
+ * vendor-shaped text needs this same question answered — subject grammar and
+ * threading headers alike — and the alternative is each caller copying the
+ * pattern table and drifting from it. Reads the display name as well as the
+ * address, so it is a heuristic, not an authentication check.
+ */
+export function trackerSenderKey(sender: string | null | undefined): TrackerSenderKey | null {
   if (!sender) return null;
   const parts = [sender];
   const address = parseEmailAddress(sender);
