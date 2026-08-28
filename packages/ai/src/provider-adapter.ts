@@ -100,11 +100,16 @@ function cfFetch(token: string): typeof fetch {
     headers.delete("x-goog-api-key");
     headers.set("cf-aig-authorization", `Bearer ${token}`);
     // SAFETY: init is RequestInit | undefined, spreading as RequestInit is safe
-    const newInit = { ...(init as unknown as RequestInit), headers } as RequestInit; // oxlint-disable-line anti-slop/no-chained-type-assertions
+    const newInit = {
+      // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: init spread is safe
+      ...(init as unknown as RequestInit),
+      headers,
+    } as RequestInit; // oxlint-disable-line anti-slop/no-chained-type-assertions
     if (input instanceof Request) {
       // SAFETY: Request is compatible with RequestInit for construction, cast via unknown is safe
       return fetch(
         new Request(url.toString(), {
+          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: Request spread is safe
           ...(input as unknown as RequestInit),
           headers,
         } as RequestInit),
