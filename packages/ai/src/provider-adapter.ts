@@ -81,6 +81,7 @@ let _cfGoogle: ReturnType<typeof createGoogleGenerativeAI> | undefined;
 
 function cfFetch(token: string): typeof fetch {
   return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    // SAFETY: input is RequestInfo | URL, narrowing to Request to read url is safe after instanceof check
     const urlString = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
     const url = new URL(urlString);
     url.searchParams.delete("key");
@@ -93,9 +94,11 @@ function cfFetch(token: string): typeof fetch {
     headers.delete("authorization");
     headers.delete("x-goog-api-key");
     headers.set("cf-aig-authorization", `Bearer ${token}`);
-    const newInit = { ...(init as unknown as RequestInit), headers } as RequestInit;
+    // SAFETY: init is RequestInit | undefined, spreading as RequestInit is safe
+    const newInit = { ...(init as unknown as RequestInit), headers } as RequestInit; // oxlint-disable-line anti-slop/no-chained-type-assertions
     if (input instanceof Request) {
-      return fetch(new Request(url.toString(), { ...(input as unknown as RequestInit), headers } as RequestInit), newInit);
+      // SAFETY: Request is compatible with RequestInit for construction, cast via unknown is safe
+      return fetch(new Request(url.toString(), { ...(input as unknown as RequestInit), headers } as RequestInit), newInit); // oxlint-disable-line anti-slop/no-chained-type-assertions
     }
     return fetch(url.toString(), newInit);
   };
@@ -110,6 +113,8 @@ function getCfAnthropic(): ReturnType<typeof createAnthropic> | undefined {
     apiKey: "cf-dummy",
     baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/anthropic`,
     headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
+    // SAFETY: cfFetch is (input, init) => Promise<Response> compatible with provider's fetch option
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- single cast via unknown to bridge lib types
     fetch: cfFetch(cfg.token) as unknown as typeof fetch,
   });
   return _cfAnthropic;
@@ -124,6 +129,8 @@ function getCfOpenAI(): ReturnType<typeof createOpenAI> | undefined {
     apiKey: "cf-dummy",
     baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/openai`,
     headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
+    // SAFETY: cfFetch matches provider fetch signature
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
     fetch: cfFetch(cfg.token) as unknown as typeof fetch,
   });
   return _cfOpenAI;
@@ -138,6 +145,8 @@ function getCfGoogle(): ReturnType<typeof createGoogleGenerativeAI> | undefined 
     apiKey: "cf-dummy",
     baseURL: `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/google-ai-studio/v1beta`,
     headers: { "cf-aig-authorization": `Bearer ${cfg.token}` },
+    // SAFETY: cfFetch matches provider fetch signature
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
     fetch: cfFetch(cfg.token) as unknown as typeof fetch,
   });
   return _cfGoogle;
@@ -155,7 +164,10 @@ const PROVIDER_ADAPTERS = {
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"anthropic">) => {
       const cf = getCfAnthropic();
-      if (cf) return cf(modelId) as unknown as LanguageModelV4;
+      if (cf) {
+        // SAFETY: CF provider returns ai LanguageModel which is LanguageModelV4 (same warden as direct)
+        return cf(modelId) as unknown as LanguageModelV4; // oxlint-disable-line anti-slop/no-chained-type-assertions
+      }
       return anthropic(modelId);
     },
     reasoningOptions(
@@ -186,7 +198,10 @@ const PROVIDER_ADAPTERS = {
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"google">) => {
       const cf = getCfGoogle();
-      if (cf) return cf(modelId) as unknown as LanguageModelV4;
+      if (cf) {
+        // SAFETY: CF provider returns ai LanguageModel which is LanguageModelV4 (same warden as direct)
+        return cf(modelId) as unknown as LanguageModelV4; // oxlint-disable-line anti-slop/no-chained-type-assertions
+      }
       return google(modelId);
     },
     reasoningOptions(
@@ -214,7 +229,10 @@ const PROVIDER_ADAPTERS = {
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"openai">) => {
       const cf = getCfOpenAI();
-      if (cf) return cf.responses(modelId) as unknown as LanguageModelV4;
+      if (cf) {
+        // SAFETY: CF provider returns ai LanguageModel which is LanguageModelV4 (same warden as direct)
+        return cf.responses(modelId) as unknown as LanguageModelV4; // oxlint-disable-line anti-slop/no-chained-type-assertions
+      }
       return openai.responses(modelId);
     },
     reasoningOptions(
