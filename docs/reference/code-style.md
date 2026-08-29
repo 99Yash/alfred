@@ -177,6 +177,20 @@ Before moving a value into `@alfred/contracts`, confirm the web bundle is allowe
 
 ---
 
+## 5. Tests assert behaviour, not spelling
+
+A test that mirrors the SUT or pins a literal with no policy cannot fail when the SUT is wrong — it fails only when you edit both files together. `pnpm check:test-tautology` gates the mechanically detectable shapes; the rest is review judgment.
+
+- **One side of `assert.equal/deepEqual` is a literal, an external artifact (fixture golden, `Caddyfile`, `Intl` snapshot), or a cross-source agreement** (tuple vs registry). `assert.equal(fn(x), fn(y))` where both sides call the same SUT is a self-mirroring oracle — pin one side to a literal. The one exception is a deliberate cross-check of two code paths (e.g. `stream(chunks)` vs `sanitizeVoice(full)`): keep it only with `// tautology-ok: cross-check + anchored at <file:line>` and one literal-anchored test for the shared oracle.
+- **Do not rebuild expected `0..N-1` from actual.length.** `assert.deepEqual(xs.map(c => c.position), xs.map((_, i) => i))` is tautological — it cannot fail when `position` is wrong. Use a literal `deepEqual(..., [0,1])` or a loop `assert.equal(c.position, i)`. Gated by `rebuilt-position-index`.
+- **A literal pin must carry `// why: #NNN` / `ADR-xxxx` or be deleted.** `assert.equal(EMBED_COST_CAP_USD, 0.5)` with no linked incident/policy is a change detector with no policy — it greens until you change the constant and the test in lockstep. If the literal must stay (policy gate), add `// tautology-ok: policy — <what breaks if it changes>` and prefer exercising the value through behaviour (`maxTokensForPrice`) as well.
+- **An existence-only assert needs a behaviour companion in the same `test` block.** `assert.ok(x)` / `length > 0` / `typeof == "function"` alone proves the import didn't throw, not product behaviour — pair it with a shape/status/header assertion.
+- **A mock/spy test must assert wire/state, not just `calls.length`.** `assert.equal(calls.length, N)` as the sole assertion tests the mock — add the header/status/body that makes the count load-bearing.
+
+Escape hatch `// tautology-ok: <reason>` is chain-aware (like `// drift-ok:`) — it may live on any line the match touches or on the comment block directly above. An empty marker is itself a violation.
+
+---
+
 ## Recurrent high-signal patterns (the review hit-list)
 
 1. A local shape duplicating a Drizzle table or zod schema → derive it (§1).
@@ -189,5 +203,6 @@ Before moving a value into `@alfred/contracts`, confirm the web bundle is allowe
 8. `useEffect` updating state after unmount / wrong deps.
 9. Webhook HMAC verified against re-parsed (not raw) body.
 10. Unbilled `Promise.all` work that keeps running after a sibling fails.
+11. Tautological test — `assert.equal(fn(x), fn(x))`, rebuilt `0..N-1` oracle, literal pin with no `why`, `assert.ok(x)` alone, or `calls.length` alone (§5).
 
 > Before claiming a library _can't_ do something, check its `.d.ts`, its repo, or the relevant reference doc here. Most "limitations" are a missing option name.

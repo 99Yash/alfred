@@ -16,6 +16,7 @@
     "check:test-typecheck-baseline": "node scripts/check-test-typecheck-baseline.mjs",
     "check:imports": "node scripts/relative-to-alias.mjs --check",
     "check:consolidation": "node scripts/check-consolidation-drift.mjs",
+    "check:test-tautology": "node scripts/check-test-tautology.mjs",
     "check:doc-symbols": "node scripts/check-doc-symbols.mjs",
     "check:prose-locators": "node scripts/check-prose-locators.mjs",
     "check:script-paths": "node scripts/check-script-paths.mjs",
@@ -43,7 +44,7 @@
     "db:predeploy": "pnpm --filter @alfred/db db:migrate && pnpm --filter @alfred/db db:sync-prices",
     "format": "oxfmt --write --ignore-path .gitignore --ignore-path .prettierignore apps packages scripts package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
     "format:check": "oxfmt --check --ignore-path .gitignore --ignore-path .prettierignore apps packages scripts package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
-    "check": "pnpm check:script-paths && pnpm check:test-id-prefixes && pnpm check:architecture && pnpm check:web-boundaries && pnpm check:exports && pnpm check:type-fixtures && pnpm check:test-typecheck-baseline && pnpm check:imports && pnpm check:consolidation && pnpm check:doc-symbols && pnpm check:prose-locators && pnpm check:campaign-state && pnpm check:schema-catalog && pnpm check:duplicates && pnpm check:oxlint-config && pnpm check:oxlint-plugin && pnpm lint && pnpm format:check",
+    "check": "pnpm check:script-paths && pnpm check:test-id-prefixes && pnpm check:architecture && pnpm check:web-boundaries && pnpm check:exports && pnpm check:type-fixtures && pnpm check:test-typecheck-baseline && pnpm check:imports && pnpm check:consolidation && pnpm check:test-tautology && pnpm check:doc-symbols && pnpm check:prose-locators && pnpm check:campaign-state && pnpm check:schema-catalog && pnpm check:duplicates && pnpm check:oxlint-config && pnpm check:oxlint-plugin && pnpm lint && pnpm format:check",
     "test:deterministic": "pnpm -r --no-bail --filter=!@alfred/db test",
     "verify:fast": "pnpm check && pnpm check-types",
     "verify": "pnpm verify:fast && pnpm test:deterministic",
@@ -52,6 +53,9 @@
     "dup": "jscpd apps packages",
     "dup:report": "jscpd apps packages --reporters json,html",
     "knip": "knip"
+  },
+  "dependencies": {
+    "ai": "catalog:"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.78.0",
