@@ -14,5 +14,5 @@ export type NoteCreateArgs = z.infer<typeof noteCreateArgsSchema>;
 
 export async function noteCreateClient(tx: WriteTransaction, args: NoteCreateArgs): Promise<void> {
   const value: SyncedNote = { ...args, rowVersion: 0 };
-  await tx.set(SYNC_MODEL.NOTE.storageKeyForId(args.id), normalizeToReadonlyJSON(value));
+  await tx.set(SYNC_MODEL.note.storageKeyForId(args.id), normalizeToReadonlyJSON(value));
 }

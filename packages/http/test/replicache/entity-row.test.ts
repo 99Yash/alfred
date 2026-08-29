@@ -21,7 +21,7 @@ import { syncedNoteSchema } from "@alfred/sync";
 import { SerializationError, toEntityRow } from "../../src/sync/read/entity-row";
 import type { EntityRow } from "../../src/sync/read/entity-row";
 
-const ROW = { slug: "NOTE" } as const;
+const ROW = { slug: "note" } as const;
 
 const SERIALIZED = {
   id: "note-1",
@@ -31,7 +31,7 @@ const SERIALIZED = {
   rowVersion: 3,
 };
 
-const ROW_MAKE: () => EntityRow<"NOTE"> = () => ({
+const ROW_MAKE: () => EntityRow<"note"> = () => ({
   id: "note-1",
   rowVersion: 3,
   serialized: SERIALIZED,
@@ -59,7 +59,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
   test("a SerializationError skips the row instead of failing the pull", () => {
     const result = toEntityRow({
       ...ROW,
-      make: (): EntityRow<"NOTE"> => {
+      make: (): EntityRow<"note"> => {
         throw new SerializationError("notes.createdAt must not be null");
       },
     });
@@ -71,7 +71,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
       () =>
         toEntityRow({
           ...ROW,
-          make: (): EntityRow<"NOTE"> => {
+          make: (): EntityRow<"note"> => {
             throw new TypeError("the connection dropped mid-serialize");
           },
         }),

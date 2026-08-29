@@ -33,7 +33,7 @@ export function useMemoryFacts(): MemoryFactsState {
     }
 
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix: SYNC_MODEL.FACT.prefix }).values().toArray(),
+      async (tx: ReadTransaction) => tx.scan({ prefix: SYNC_MODEL.fact.prefix }).values().toArray(),
       (values) => {
         const parsed: SyncedFact[] = [];
         for (const value of values) {

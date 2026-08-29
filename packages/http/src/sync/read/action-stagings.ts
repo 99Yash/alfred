@@ -97,7 +97,7 @@ function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   };
 }
 
-export const fetchActionStagings = syncEntity("ACTION_STAGING", {
+export const fetchActionStagings = syncEntity("actionstaging", {
   query: async (tx, userId) => {
     const rows: SelectedActionStagingRow[] = await tx
       .select({

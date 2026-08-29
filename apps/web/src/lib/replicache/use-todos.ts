@@ -68,7 +68,7 @@ export function useTodos(): TodosState {
       setRows(null);
       return;
     }
-    const prefix = SYNC_MODEL.TODO.prefix;
+    const prefix = SYNC_MODEL.todo.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {

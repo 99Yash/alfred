@@ -7,7 +7,7 @@ import { syncEntity } from "./sync-entity";
 
 // Only `proposed` + `confirmed` reach the client; rejected / edited /
 // superseded rows stay server-side as audit history.
-export const fetchFacts = syncEntity("FACT", {
+export const fetchFacts = syncEntity("fact", {
   query: async (tx, userId) => {
     const rows: UserFact[] = await tx
       .select()

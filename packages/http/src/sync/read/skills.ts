@@ -11,13 +11,13 @@ import { jsonRecordSchema } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
-export const fetchSkills = syncEntity("SKILL", {
+export const fetchSkills = syncEntity("skill", {
   query: (tx, userId) =>
     tx.select().from(skills).where(eq(skills.userId, userId)).orderBy(asc(skills.id)),
   map: (s: Skill) => s,
 });
 
-export const fetchSkillRevisions = syncEntity("SKILL_REVISION", {
+export const fetchSkillRevisions = syncEntity("skillrev", {
   query: (tx, userId) =>
     tx
       .select()
@@ -37,7 +37,7 @@ export const fetchSkillRevisions = syncEntity("SKILL_REVISION", {
   }),
 });
 
-export const fetchSkillRuns = syncEntity("SKILL_RUN", {
+export const fetchSkillRuns = syncEntity("skillrun", {
   query: (tx, userId) =>
     tx.select().from(skillRuns).where(eq(skillRuns.userId, userId)).orderBy(asc(skillRuns.id)),
   map: (r: SkillRun) => ({

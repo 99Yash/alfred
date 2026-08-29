@@ -4,7 +4,7 @@ import { syncEntity } from "./sync-entity";
 
 const BRIEFING_PULL_WINDOW_DAYS = 30;
 
-export const fetchBriefings = syncEntity("BRIEFING", {
+export const fetchBriefings = syncEntity("briefing", {
   query: async (tx, userId) => {
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - BRIEFING_PULL_WINDOW_DAYS);

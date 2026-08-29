@@ -10,7 +10,7 @@ const UNUSED_TX = {} as DbTransaction;
 
 describe("syncEntity", () => {
   test("serializes Dates, strips server fields, and derives CVR fields", async () => {
-    const fetchNotes = syncEntity("NOTE", {
+    const fetchNotes = syncEntity("note", {
       query: async () => [
         {
           id: "note_1",
@@ -43,7 +43,7 @@ describe("syncEntity", () => {
 
   test("isolates a row that has a runtime-invalid projection", async (t) => {
     t.mock.method(console, "warn", () => undefined);
-    const fetchNotes = syncEntity("NOTE", {
+    const fetchNotes = syncEntity("note", {
       query: async () => [
         {
           id: "note_1",

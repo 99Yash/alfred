@@ -105,7 +105,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     assert.equal(revised.ok, true);
     if (!revised.ok) return;
 
-    const synced = await ENTITY_FETCHERS.WORKFLOW(db(), userId);
+    const synced = await ENTITY_FETCHERS.workflow(db(), userId);
     const entity = synced.find((row) => row.id === slug)?.serialized;
     assert.ok(entity && "slug" in entity && entity.slug === slug);
     if (!entity || !("slug" in entity) || entity.slug !== slug) return;

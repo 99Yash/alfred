@@ -30,7 +30,7 @@ export function useWorkflows(): WorkflowsState {
 
   useEffect(() => {
     if (!rep) return;
-    const prefix = SYNC_MODEL.WORKFLOW.prefix;
+    const prefix = SYNC_MODEL.workflow.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
@@ -74,7 +74,7 @@ export function useWorkflow(slug: string): WorkflowState {
 
   useEffect(() => {
     if (!rep) return;
-    const key = SYNC_MODEL.WORKFLOW.storageKeyForId(slug);
+    const key = SYNC_MODEL.workflow.storageKeyForId(slug);
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.get(key),
       (value) => {

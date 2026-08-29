@@ -27,7 +27,7 @@ const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
  */
 export function usePreferenceMap(): PreferenceMap {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const prefix = SYNC_MODEL.PREFERENCE.prefix;
+  const prefix = SYNC_MODEL.pref.prefix;
   const query = useCallback(
     (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
     [prefix],

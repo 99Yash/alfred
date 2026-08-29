@@ -36,6 +36,11 @@ import {
  */
 type SyncSchema = z.ZodType<{ rowVersion: number }, unknown>;
 
+interface SyncEntityDefinition<TSchema extends SyncSchema = SyncSchema> {
+  schema: TSchema;
+  idOf: (entity: z.output<TSchema>) => string;
+}
+
 type ValidModelPrefix<Prefix extends string> = string extends Prefix
   ? never
   : Prefix extends ""
@@ -59,15 +64,39 @@ interface SyncEntityModel<Prefix extends string = string, TSchema extends SyncSc
 }
 
 /**
- * Build one registry entry so `idOf` is typed against the schema's output —
- * the loose `satisfies`+object-literal alternative would type every `idOf` as
- * `(entity: any) => string` and lose per-schema precision.
+ * Describe one registry entry before `defineModels` binds its persisted prefix.
+ * Keeping this as a generic constructor types `idOf` against the selected
+ * schema without repeating its output type.
  */
-function model<const Prefix extends string, TSchema extends SyncSchema>(
-  prefixRaw: Prefix & ValidModelPrefix<Prefix>,
+function model<TSchema extends SyncSchema>(
   schema: TSchema,
   idOf: (entity: z.output<TSchema>) => string,
+): SyncEntityDefinition<TSchema> {
+  return { schema, idOf };
+}
+
+type ModelDefinitionContract = {
+  schema: SyncSchema;
+  idOf: (entity: never) => string;
+};
+
+type InvalidModelPrefixes<Definitions extends Record<string, ModelDefinitionContract>> = {
+  [Prefix in keyof Definitions & string]: ValidModelPrefix<Prefix> extends never ? Prefix : never;
+}[keyof Definitions & string];
+
+type DefinedModels<Definitions extends Record<string, ModelDefinitionContract>> = {
+  [Prefix in keyof Definitions & string]: SyncEntityModel<Prefix, Definitions[Prefix]["schema"]>;
+};
+
+interface BoundSyncModels {
+  [prefix: string]: SyncEntityModel;
+}
+
+function bindModel<const Prefix extends string, TSchema extends SyncSchema>(
+  prefixRaw: Prefix,
+  definition: SyncEntityDefinition<TSchema>,
 ): SyncEntityModel<Prefix, TSchema> {
+  const { schema, idOf } = definition;
   // SAFETY: Prefix is the literal type of prefixRaw, so appending `/` produces
   // the exact template-literal type declared here.
   const prefix = `${prefixRaw}/` as `${Prefix}/`;
@@ -88,6 +117,26 @@ function model<const Prefix extends string, TSchema extends SyncSchema>(
 }
 
 /**
+ * Bind each model to its object key, which is also its persisted raw prefix.
+ * A prefix therefore has one declaration and cannot drift from its registry
+ * slot. Invalid, widened, empty, uppercase, or slash-containing keys fail at
+ * the call site.
+ */
+function defineModels<const Definitions extends Record<string, ModelDefinitionContract>>(
+  definitions: Definitions &
+    ([InvalidModelPrefixes<Definitions>] extends [never] ? unknown : never),
+): DefinedModels<Definitions>;
+function defineModels(definitions: Record<string, ModelDefinitionContract>): BoundSyncModels {
+  const models: BoundSyncModels = {};
+  for (const [prefixRaw, definition] of Object.entries(definitions)) {
+    // SAFETY: every entry was created by model(), which binds idOf to its own
+    // schema. Object.entries erases that correlation, but does not change it.
+    models[prefixRaw] = bindModel(prefixRaw, definition as SyncEntityDefinition<SyncSchema>);
+  }
+  return models;
+}
+
+/**
  * Single registry of every synced entity.
  *
  * `IDBKeys` and `SyncedEntity` are derived from this map, so
@@ -97,26 +146,26 @@ function model<const Prefix extends string, TSchema extends SyncSchema>(
  * The literal order is load-bearing: `IDB_KEY_NAMES` and the server patch
  * dispatcher preserve this insertion order. Keep existing entries stable.
  */
-export const SYNC_MODEL = {
-  NOTE: model("note", syncedNoteSchema, (n) => n.id),
-  FACT: model("fact", syncedFactSchema, (f) => f.id),
-  BRIEFING: model("briefing", syncedBriefingSchema, (b) => `${b.briefingDate}/${b.slot}`),
-  PREFERENCE: model("pref", syncedPreferenceSchema, (p) => p.key),
-  SKILL: model("skill", syncedSkillSchema, (s) => s.id),
-  SKILL_REVISION: model("skillrev", syncedSkillRevisionSchema, (r) => r.id),
-  SKILL_RUN: model("skillrun", syncedSkillRunSchema, (r) => r.id),
-  ACTION_STAGING: model("actionstaging", syncedActionStagingSchema, (a) => a.id),
-  ACTION_POLICY: model("actionpolicy", syncedActionPolicySchema, (p) => p.userId),
-  WORKFLOW: model("workflow", syncedWorkflowSchema, (w) => w.slug),
-  TODO: model("todo", syncedTodoSchema, (t) => t.id),
-  CHAT_THREAD: model("chatthread", syncedChatThreadSchema, (t) => t.id),
-  CHAT_MESSAGE: model("chatmsg", syncedChatMessageSchema, (m) => m.id),
-  CHAT_ATTACHMENT: model("chatatt", syncedChatAttachmentSchema, (a) => a.id),
-  ARTIFACT: model("artifact", syncedArtifactSchema, (a) => a.id),
-  TRIAGE_TAG: model("triagetag", syncedTriageTagSchema, (t) => t.threadId),
-} satisfies Record<string, SyncEntityModel>;
+export const SYNC_MODEL = defineModels({
+  note: model(syncedNoteSchema, (note) => note.id),
+  fact: model(syncedFactSchema, (fact) => fact.id),
+  briefing: model(syncedBriefingSchema, (briefing) => `${briefing.briefingDate}/${briefing.slot}`),
+  pref: model(syncedPreferenceSchema, (preference) => preference.key),
+  skill: model(syncedSkillSchema, (skill) => skill.id),
+  skillrev: model(syncedSkillRevisionSchema, (revision) => revision.id),
+  skillrun: model(syncedSkillRunSchema, (run) => run.id),
+  actionstaging: model(syncedActionStagingSchema, (action) => action.id),
+  actionpolicy: model(syncedActionPolicySchema, (policy) => policy.userId),
+  workflow: model(syncedWorkflowSchema, (workflow) => workflow.slug),
+  todo: model(syncedTodoSchema, (todo) => todo.id),
+  chatthread: model(syncedChatThreadSchema, (thread) => thread.id),
+  chatmsg: model(syncedChatMessageSchema, (message) => message.id),
+  chatatt: model(syncedChatAttachmentSchema, (attachment) => attachment.id),
+  artifact: model(syncedArtifactSchema, (artifact) => artifact.id),
+  triagetag: model(syncedTriageTagSchema, (tag) => tag.threadId),
+});
 
-/** Union of every entity slug — drives generic dispatchers (server + types). */
+/** Union of every persisted raw prefix — drives generic dispatchers. */
 export type IDBKeys = keyof typeof SYNC_MODEL;
 
 /** The precise model (schema + key) bound to one slug. */
@@ -151,6 +200,7 @@ export function parseSyncPullValue<Slug extends IDBKeys>(
 }
 
 /** All entity slugs as a runtime array — server iterates over this. */
+// SAFETY: defineModels preserves every literal object key and adds no keys.
 export const IDB_KEY_NAMES = Object.keys(SYNC_MODEL) as IDBKeys[];
 
 /**

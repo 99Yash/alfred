@@ -30,7 +30,7 @@ export function useTriageTags(): TriageTagsState {
       setTagsByThreadId(null);
       return;
     }
-    const prefix = SYNC_MODEL.TRIAGE_TAG.prefix;
+    const prefix = SYNC_MODEL.triagetag.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
