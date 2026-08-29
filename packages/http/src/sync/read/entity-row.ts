@@ -44,8 +44,8 @@ export function toEntityRow<Slug extends IDBKeys>(args: {
     return [args.make()];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    // SAFETY: the id is only known after `make` returns, so a skipped row is
-    // logged by slug alone — the mapper/schema that failed is still on record.
+    // SAFETY: `syncEntity` logs schema paths and a bounded mapped-value preview;
+    // this generic warning also covers domain `SerializationError` failures.
     console.warn(`[replicache] skipping invalid ${args.slug} row: ${toMessage(err)}`);
     return [];
   }

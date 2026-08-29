@@ -1,7 +1,7 @@
 import { isRecord } from "@alfred/contracts";
 import type { DbTransaction } from "@alfred/db";
 import { parseSyncPullValue, type IDBKeys, type SyncModelFor } from "@alfred/sync";
-import type { z } from "zod";
+import { ZodError, type z } from "zod";
 import { toEntityRow, type EntityFetcher } from "./entity-row";
 
 type MapperHasSchemaKeys<Slug extends IDBKeys, Mapped> =
@@ -35,8 +35,31 @@ export function syncEntity<Slug extends IDBKeys, Row, Mapped>(
         slug,
         make: () => {
           const mapped = config.map(row);
-          const { id, rowVersion, value } = parseSyncPullValue(slug, stringifyDates(mapped));
-          return { id, rowVersion, serialized: value };
+          try {
+            const { id, rowVersion, value } = parseSyncPullValue(slug, stringifyDates(mapped));
+            return { id, rowVersion, serialized: value };
+          } catch (err) {
+            if (err instanceof ZodError) {
+              const paths = err.issues
+                .map((issue) =>
+                  issue.path.length > 0
+                    ? issue.path.map((segment) => String(segment)).join(".")
+                    : "<root>",
+                )
+                .join(", ");
+              let preview = "<unserializable mapped value>";
+              try {
+                const serialized = JSON.stringify(mapped);
+                if (serialized !== undefined) preview = serialized.slice(0, 200);
+              } catch {
+                // The schema error remains recoverable even when its diagnostic cannot serialize the value.
+              }
+              console.warn(
+                `[replicache] invalid ${slug} row at ${paths}; mapped value: ${preview}`,
+              );
+            }
+            throw err;
+          }
         },
       }),
     );

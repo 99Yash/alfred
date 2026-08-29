@@ -41,8 +41,36 @@ describe("syncEntity", () => {
     ]);
   });
 
-  test("isolates a row that has a runtime-invalid projection", async (t) => {
-    t.mock.method(console, "warn", () => undefined);
+  test("logs a bounded diagnostic and isolates a runtime-invalid projection", async (t) => {
+    const warnings: string[] = [];
+    t.mock.method(console, "warn", (message: unknown) => {
+      warnings.push(String(message));
+    });
+    const mapped = {
+      id: "note_1",
+      userId: "user_1",
+      text: 42,
+      createdAt: new Date("2026-08-29T00:00:00.000Z"),
+      rowVersion: 4,
+      diagnosticPadding: `included-before-the-boundary-${"x".repeat(220)}excluded-after-boundary`,
+    };
+    const fetchNotes = syncEntity("note", {
+      query: async () => [mapped],
+      map: (row) => row,
+    });
+
+    assert.deepEqual(await fetchNotes(UNUSED_TX, "user_1"), []);
+    const preview = JSON.stringify(mapped).slice(0, 200);
+    assert.equal(warnings[0], `[replicache] invalid note row at text; mapped value: ${preview}`);
+    assert.equal(preview.length, 200);
+    assert.ok(!warnings[0]?.includes("excluded-after-boundary"));
+  });
+
+  test("an unserializable diagnostic preview cannot fail the pull", async (t) => {
+    const warnings: string[] = [];
+    t.mock.method(console, "warn", (message: unknown) => {
+      warnings.push(String(message));
+    });
     const fetchNotes = syncEntity("note", {
       query: async () => [
         {
@@ -51,11 +79,16 @@ describe("syncEntity", () => {
           text: 42,
           createdAt: new Date("2026-08-29T00:00:00.000Z"),
           rowVersion: 4,
+          diagnosticOnly: 1n,
         },
       ],
       map: (row) => row,
     });
 
     assert.deepEqual(await fetchNotes(UNUSED_TX, "user_1"), []);
+    assert.equal(
+      warnings[0],
+      "[replicache] invalid note row at text; mapped value: <unserializable mapped value>",
+    );
   });
 });
