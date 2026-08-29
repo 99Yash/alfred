@@ -1,13 +1,22 @@
-import type { IDBKeys } from "@alfred/sync";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
+import { IDB_KEY_NAMES, type IDBKeys } from "@alfred/sync";
+import { z } from "zod";
 
 /** One entry per row in the CVR snapshot — `v` is the row's `row_version`. */
-export interface CVRRow {
-  v: number;
-}
+const cvrRowSchema = z.object({ v: z.number().int() });
+
+export type CVRRow = z.infer<typeof cvrRowSchema>;
 
 /** id → CVRRow for one entity. */
-export type ClientViewMap = Record<string, CVRRow>;
+const clientViewMapSchema = z.record(z.string(), cvrRowSchema);
+
+export type ClientViewMap = z.infer<typeof clientViewMapSchema>;
+
+const IDB_KEY_NAME_SET = new Set<string>(IDB_KEY_NAMES);
+const idbKeySchema = z.custom<IDBKeys>((value) => {
+  const parsed = z.string().safeParse(value);
+  return parsed.success && IDB_KEY_NAME_SET.has(parsed.data);
+}, "unknown synced entity slug");
 
 /**
  * A Client-View Record — what the client had last time they pulled.
@@ -22,10 +31,12 @@ export type ClientViewMap = Record<string, CVRRow>;
  * only the diffs so Replicache's invariant holds: if `cookie` doesn't change,
  * `lastMutationIDChanges` must be empty.
  */
-export interface CVRSnapshot {
-  entities: Partial<Record<IDBKeys, ClientViewMap>>;
-  clients?: Record<string, number>;
-}
+const cvrSnapshotSchema = z.object({
+  entities: z.partialRecord(idbKeySchema, clientViewMapSchema),
+  clients: z.record(z.string(), z.number().int()).optional(),
+});
+
+export type CVRSnapshot = z.infer<typeof cvrSnapshotSchema>;
 
 /** CVR snapshots expire after 12 h of inactivity. */
 const TTL_SECONDS = 12 * 60 * 60;
@@ -41,9 +52,9 @@ export class CVRStore {
     const raw = await this.redis.get(this.key(clientGroupId, version));
     if (!raw) return null;
     try {
-      // SAFETY: the only writer is put(), which stringifies a CVRSnapshot;
-      // truncated or foreign Redis content throws and degrades to null below.
-      return JSON.parse(raw) as CVRSnapshot;
+      const input: unknown = JSON.parse(raw);
+      const parsed = cvrSnapshotSchema.safeParse(input);
+      return parsed.success ? parsed.data : null;
     } catch {
       return null;
     }

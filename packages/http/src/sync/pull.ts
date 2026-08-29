@@ -83,14 +83,13 @@ export async function handlePull(
         .onConflictDoNothing();
     }
 
-    // Load previous CVR snapshot. A mismatch (e.g. stale cookie from a
-    // different client group, or a pre-refactor snapshot shape) is treated
-    // as cold sync.
+    // Load the previous CVR snapshot. A missing cookie, a different client
+    // group, or persisted data that CVRStore rejects is a cold sync.
     const cookieMatchesGroup = cookie != null && cookie.clientGroupID === clientGroupID;
     const prev: CVRSnapshot | null = cookieMatchesGroup
       ? await cvrStore.get(clientGroupID, cookie.order)
       : null;
-    const isColdSync = prev == null || !prev.entities;
+    const isColdSync = prev == null;
     const prevSnapshot: CVRSnapshot = prev ?? { entities: {} };
 
     const patch: PatchOp[] = [];
@@ -102,7 +101,7 @@ export async function handlePull(
     for (const { slug, fetchRows } of SYNC_ENTITIES) {
       const rows = await fetchRows(tx, userId);
       const nextMap: ClientViewMap = {};
-      const prevMap = prevSnapshot.entities?.[slug] ?? {};
+      const prevMap = prevSnapshot.entities[slug] ?? {};
 
       for (const r of rows) {
         nextMap[r.id] = { v: r.rowVersion };
