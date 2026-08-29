@@ -19,10 +19,10 @@ export type { EntityRow } from "./entity-row";
  * Per-entity read model for Replicache pull, one file per domain.
  *
  * `satisfies Record<IDBKeys, EntityFetcher>` is load-bearing: adding a key to
- * `IDB_KEY` forces a fetcher here, so server pull cannot silently forget a
- * client-visible entity. This is the ONLY place the check runs, and it is the
- * only way a fetcher becomes reachable — no domain file is imported anywhere
- * else in `src/`.
+ * `SYNC_MODEL` (which defines `IDBKeys`) forces a fetcher here, so server pull
+ * cannot silently forget a client-visible entity. This is the ONLY place the
+ * check runs, and it is the only way a fetcher becomes reachable — no domain
+ * file is imported anywhere else in `src/`.
  */
 export const ENTITY_FETCHERS = {
   NOTE: fetchNotes,

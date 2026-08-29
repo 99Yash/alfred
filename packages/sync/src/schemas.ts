@@ -500,21 +500,3 @@ export const syncedWorkflowSchema = z.object({
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
 export type SyncedWorkflow = z.infer<typeof syncedWorkflowSchema>;
-
-export type SyncedEntity =
-  | SyncedNote
-  | SyncedPreference
-  | SyncedSkill
-  | SyncedSkillRevision
-  | SyncedSkillRun
-  | SyncedActionStaging
-  | SyncedActionPolicy
-  | SyncedWorkflow
-  | SyncedFact
-  | SyncedBriefing
-  | SyncedTodo
-  | SyncedChatThread
-  | SyncedChatMessage
-  | SyncedChatAttachment
-  | SyncedArtifact
-  | SyncedTriageTag;

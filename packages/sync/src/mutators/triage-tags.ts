@@ -1,7 +1,7 @@
 import { triageCategorySchema } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { syncedTriageTagSchema } from "../schemas";
 import type { SyncedTriageTag } from "../types";
 import { readSyncedValue } from "./read";
@@ -28,7 +28,7 @@ async function readTag(tx: WriteTransaction, threadId: string): Promise<SyncedTr
 }
 
 async function writeTag(tx: WriteTransaction, tag: SyncedTriageTag): Promise<void> {
-  await tx.set(IDB_KEY.TRIAGE_TAG({ id: tag.threadId }), normalizeToReadonlyJSON(tag));
+  await tx.set(SYNC_MODEL.TRIAGE_TAG.key(tag), normalizeToReadonlyJSON(tag));
 }
 
 /**

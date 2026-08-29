@@ -1,6 +1,6 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON } from "../sync-model";
 import { memorySourceSchema, preferenceValueSchema, syncedPreferenceSchema } from "../schemas";
 import type { SyncedPreference } from "../types";
 import { readSyncedValue } from "./read";

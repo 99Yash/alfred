@@ -1,15 +1,10 @@
 import { briefings, type Briefing } from "@alfred/db/schemas";
-import { syncedBriefingSchema, type SyncedBriefing } from "@alfred/sync";
 import { and, asc, desc, eq, gte } from "drizzle-orm";
-import { defineFetcher } from "./define-fetcher";
-import { defineSerializer } from "./define-serializer";
+import { syncEntity } from "./sync-entity";
 
 const BRIEFING_PULL_WINDOW_DAYS = 30;
 
-const serializeBriefing = defineSerializer<Briefing, SyncedBriefing>(syncedBriefingSchema);
-
-export const fetchBriefings = defineFetcher<Briefing>({
-  slug: "BRIEFING",
+export const fetchBriefings = syncEntity<"BRIEFING", Briefing>("BRIEFING", {
   query: async (tx, userId) => {
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - BRIEFING_PULL_WINDOW_DAYS);
@@ -20,7 +15,5 @@ export const fetchBriefings = defineFetcher<Briefing>({
       .where(and(eq(briefings.userId, userId), gte(briefings.briefingDate, cutoffDate)))
       .orderBy(desc(briefings.briefingDate), asc(briefings.slot));
   },
-  idOf: (b) => `${b.briefingDate}/${b.slot}`,
-  versionOf: (b) => b.rowVersion,
-  serialize: serializeBriefing,
+  map: (b) => b,
 });

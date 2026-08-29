@@ -21,30 +21,26 @@ export type EntityFetcher = (tx: any, userId: string) => Promise<EntityRow[]>;
  *
  * One malformed row must cost the user one row, never the whole pull. Drop the
  * `try` below, narrow {@link isRecoverableSerializationError}, or let a domain
- * serializer throw a plain `Error` where it used to throw
+ * `make` throw a plain `Error` where it used to throw
  * {@link SerializationError}, and a single bad row stops being a skipped row
  * and becomes a failed pull — a total sync outage for that user, with every
  * type check green.
  *
+ * `make` produces the whole row contribution — id, rowVersion, and the parsed
+ * serialized value — so every derivation that can throw (the domain mapper,
+ * the schema `parse`) stays behind the same recoverable boundary. The caller
+ * (`syncEntity`, in this directory) keeps only the query.
+ *
  * `packages/http/test/replicache/entity-row.test.ts` drives the three arms.
  */
-export function toEntityRow(args: {
-  slug: IDBKeys;
-  id: string;
-  rowVersion: number;
-  serialize: () => SyncedEntity;
-}): EntityRow[] {
+export function toEntityRow(args: { slug: IDBKeys; make: () => EntityRow }): EntityRow[] {
   try {
-    return [
-      {
-        id: args.id,
-        rowVersion: args.rowVersion,
-        serialized: args.serialize(),
-      },
-    ];
+    return [args.make()];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    console.warn(`[replicache] skipping invalid ${args.slug} row '${args.id}': ${toMessage(err)}`);
+    // SAFETY: the id is only known after `make` returns, so a skipped row is
+    // logged by slug alone — the mapper/schema that failed is still on record.
+    console.warn(`[replicache] skipping invalid ${args.slug} row: ${toMessage(err)}`);
     return [];
   }
 }

@@ -1,6 +1,6 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { factValueSchema, memorySourceSchema, syncedFactSchema } from "../schemas";
 import type { SyncedFact } from "../types";
 import { readSyncedValue } from "./read";
@@ -66,7 +66,7 @@ async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFac
 }
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
-  await tx.set(IDB_KEY.FACT({ id: fact.id }), normalizeToReadonlyJSON(fact));
+  await tx.set(SYNC_MODEL.FACT.key(fact), normalizeToReadonlyJSON(fact));
 }
 
 /**

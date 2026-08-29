@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { WriteTransaction } from "replicache";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON } from "../sync-model";
 import { isoDateTimeStringSchema } from "../schemas";
 import type { SyncedNote } from "../types";
 

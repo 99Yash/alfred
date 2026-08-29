@@ -5,7 +5,7 @@ import {
 } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON } from "../sync-model";
 import { syncedWorkflowSchema, workflowStatusSchema } from "../schemas";
 import type { SyncedWorkflow } from "../types";
 import { readSyncedValue } from "./read";

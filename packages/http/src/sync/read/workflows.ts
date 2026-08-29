@@ -5,16 +5,26 @@ import {
   type Workflow,
   type WorkflowRevision,
 } from "@alfred/db/schemas";
-import { syncedWorkflowSchema, type SyncedWorkflow } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
-import { defineFetcher } from "./define-fetcher";
-import { defineSerializer } from "./define-serializer";
+import { syncEntity } from "./sync-entity";
 
 type WorkflowRow = { workflow: Workflow; currentRevision: WorkflowRevision | null };
 
-const serializeWorkflow = defineSerializer<WorkflowRow, SyncedWorkflow>(
-  syncedWorkflowSchema,
-  ({ workflow: w, currentRevision }) => ({
+// Both built-in and user-authored rows sync (m13 Phase 8). The editor
+// only mutates `is_builtin = false` rows; built-ins render read-only.
+// Keyed by `slug` so the editor's optimistic write addresses the row
+// without an id lookup, matching the `/workflows/$workflow` route param.
+export const fetchWorkflows = syncEntity<"WORKFLOW", WorkflowRow>("WORKFLOW", {
+  query: async (tx, userId) => {
+    const rows: WorkflowRow[] = await tx
+      .select({ workflow: workflows, currentRevision: workflowRevisions })
+      .from(workflows)
+      .leftJoin(workflowRevisions, eq(workflows.currentRevisionId, workflowRevisions.id))
+      .where(eq(workflows.userId, userId))
+      .orderBy(asc(workflows.slug));
+    return rows.filter((r) => !isInternalWorkflowSlug(r.workflow.slug));
+  },
+  map: ({ workflow: w, currentRevision }) => ({
     id: w.id,
     userId: w.userId,
     slug: w.slug,
@@ -38,24 +48,4 @@ const serializeWorkflow = defineSerializer<WorkflowRow, SyncedWorkflow>(
     createdAt: w.createdAt,
     updatedAt: w.updatedAt,
   }),
-);
-
-// Both built-in and user-authored rows sync (m13 Phase 8). The editor
-// only mutates `is_builtin = false` rows; built-ins render read-only.
-// Keyed by `slug` so the editor's optimistic write addresses the row
-// without an id lookup, matching the `/workflows/$workflow` route param.
-export const fetchWorkflows = defineFetcher<WorkflowRow>({
-  slug: "WORKFLOW",
-  query: async (tx, userId) => {
-    const rows: WorkflowRow[] = await tx
-      .select({ workflow: workflows, currentRevision: workflowRevisions })
-      .from(workflows)
-      .leftJoin(workflowRevisions, eq(workflows.currentRevisionId, workflowRevisions.id))
-      .where(eq(workflows.userId, userId))
-      .orderBy(asc(workflows.slug));
-    return rows.filter((r) => !isInternalWorkflowSlug(r.workflow.slug));
-  },
-  idOf: ({ workflow }) => workflow.slug,
-  versionOf: ({ workflow }) => workflow.rowVersion,
-  serialize: serializeWorkflow,
 });

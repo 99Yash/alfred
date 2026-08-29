@@ -1,9 +1,7 @@
 import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
 import { emailTriage, type EmailTriage } from "@alfred/db/schemas";
-import { syncedTriageTagSchema, type SyncedTriageTag } from "@alfred/sync";
 import { and, asc, eq, gte, notInArray, or } from "drizzle-orm";
-import { defineFetcher } from "./define-fetcher";
-import { defineSerializer } from "./define-serializer";
+import { syncEntity } from "./sync-entity";
 
 /** Auto triage tags sync for this long after classification (rfc-triage-tags.md). */
 const TRIAGE_TAG_WINDOW_DAYS = 30;
@@ -16,9 +14,31 @@ const TRIAGE_TAG_WINDOW_DAYS = 30;
  * rationale/classifiedAt, an `auto` row drops overriddenAt. `zod` validates
  * the category string against `TRIAGE_CATEGORIES` on the way out.
  */
-const serializeTriageTag = defineSerializer<EmailTriage, SyncedTriageTag>(
-  syncedTriageTagSchema,
-  (t) => {
+// rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
+// TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
+// `source_thread_id` so the client store holds one tag per thread.
+export const fetchTriageTags = syncEntity<"TRIAGE_TAG", EmailTriage>("TRIAGE_TAG", {
+  query: (tx, userId) => {
+    const cutoff = new Date(Date.now() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    return tx
+      .select()
+      .from(emailTriage)
+      .where(
+        and(
+          eq(emailTriage.userId, userId),
+          or(
+            eq(emailTriage.source, "user"),
+            and(
+              eq(emailTriage.source, "auto"),
+              gte(emailTriage.classifiedAt, cutoff),
+              notInArray(emailTriage.category, [...TRIAGE_RAIL_SUPPRESSED_CATEGORIES]),
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(emailTriage.sourceThreadId));
+  },
+  map: (t) => {
     const shared = {
       threadId: t.sourceThreadId,
       userId: t.userId,
@@ -44,34 +64,4 @@ const serializeTriageTag = defineSerializer<EmailTriage, SyncedTriageTag>(
       ...shared,
     };
   },
-);
-
-// rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
-// TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
-// `source_thread_id` so the client store holds one tag per thread.
-export const fetchTriageTags = defineFetcher<EmailTriage>({
-  slug: "TRIAGE_TAG",
-  query: (tx, userId) => {
-    const cutoff = new Date(Date.now() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    return tx
-      .select()
-      .from(emailTriage)
-      .where(
-        and(
-          eq(emailTriage.userId, userId),
-          or(
-            eq(emailTriage.source, "user"),
-            and(
-              eq(emailTriage.source, "auto"),
-              gte(emailTriage.classifiedAt, cutoff),
-              notInArray(emailTriage.category, [...TRIAGE_RAIL_SUPPRESSED_CATEGORIES]),
-            ),
-          ),
-        ),
-      )
-      .orderBy(asc(emailTriage.sourceThreadId));
-  },
-  idOf: (r) => r.sourceThreadId,
-  versionOf: (r) => r.rowVersion,
-  serialize: serializeTriageTag,
 });

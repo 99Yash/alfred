@@ -1,7 +1,7 @@
 import { LOADABLE_INTEGRATION_SLUGS, POLICY_MODES } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON } from "../sync-model";
 import { syncedActionPolicySchema } from "../schemas";
 import type { SyncedActionPolicy } from "../types";
 import { readSyncedValue } from "./read";
