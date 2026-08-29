@@ -55,7 +55,7 @@ export const todoEditArgsSchema = z
 export type TodoEditArgs = z.infer<typeof todoEditArgsSchema>;
 
 async function readTodo(tx: WriteTransaction, id: string): Promise<SyncedTodo | null> {
-  return SYNC_MODEL.todo.get(tx, id);
+  return SYNC_MODEL.todo.get(tx, { id });
 }
 
 async function writeTodo(tx: WriteTransaction, todo: SyncedTodo): Promise<void> {
@@ -159,7 +159,7 @@ export async function todoDismissClient(
   tx: WriteTransaction,
   args: TodoDismissArgs,
 ): Promise<void> {
-  await SYNC_MODEL.todo.del(tx, args.id);
+  await SYNC_MODEL.todo.del(tx, { id: args.id });
 }
 
 /**
@@ -171,7 +171,7 @@ export async function todoDismissClient(
 export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "done") return;
-  await SYNC_MODEL.todo.del(tx, args.id);
+  await SYNC_MODEL.todo.del(tx, { id: args.id });
 }
 
 /** Edit a todo's name and/or description. */

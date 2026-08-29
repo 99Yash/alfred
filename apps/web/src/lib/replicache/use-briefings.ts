@@ -67,7 +67,7 @@ export interface BriefingDayState {
 export function useBriefing(date: string): BriefingDayState {
   const { loadError, retry } = useReplicacheStatus();
   const query = useCallback(
-    (tx: ReadTransaction) => SYNC_MODEL.briefing.scan(tx, { idPrefix: `${date}/` }),
+    (tx: ReadTransaction) => SYNC_MODEL.briefing.scanPrefix(tx, { briefingDate: date }),
     [date],
   );
   const slots = useReplicacheSubscription<SyncedBriefing[], SyncedBriefing[]>(

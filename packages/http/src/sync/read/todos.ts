@@ -1,4 +1,5 @@
 import { todos, type Todo } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, eq, gte, ne, notInArray, or } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
@@ -10,7 +11,7 @@ const TODO_DONE_WINDOW_DAYS = 2;
 // linger `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the
 // DB). `suggested` + `open` always sync. `cleared` (#297) is a `done` the
 // user removed from the rail early — terminal, so excluded like `dismissed`.
-export const fetchTodos = syncEntity("todo", {
+export const fetchTodos = syncEntity(SYNC_MODEL.todo, {
   query: (tx, userId) => {
     const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     return tx

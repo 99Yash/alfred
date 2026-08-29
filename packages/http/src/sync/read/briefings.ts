@@ -1,10 +1,11 @@
 import { briefings, type Briefing } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
 const BRIEFING_PULL_WINDOW_DAYS = 30;
 
-export const fetchBriefings = syncEntity("briefing", {
+export const fetchBriefings = syncEntity(SYNC_MODEL.briefing, {
   query: async (tx, userId) => {
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - BRIEFING_PULL_WINDOW_DAYS);

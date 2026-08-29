@@ -1,5 +1,6 @@
 import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
 import { emailTriage, type EmailTriage } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, eq, gte, notInArray, or } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
@@ -18,7 +19,7 @@ const TRIAGE_TAG_WINDOW_DAYS = 30;
 // rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
 // TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
 // `source_thread_id` so the client store holds one tag per thread.
-export const fetchTriageTags = syncEntity("triagetag", {
+export const fetchTriageTags = syncEntity(SYNC_MODEL.triagetag, {
   query: (tx, userId) => {
     const cutoff = new Date(Date.now() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     return tx

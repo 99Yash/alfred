@@ -64,7 +64,7 @@ export function useWorkflow(slug: string): WorkflowState {
   useEffect(() => {
     if (!rep) return;
     return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.workflow.get(tx, slug),
+      (tx: ReadTransaction) => SYNC_MODEL.workflow.get(tx, { slug }),
       (workflow) => setSnapshot({ rep, slug, workflow }),
     );
   }, [rep, slug]);

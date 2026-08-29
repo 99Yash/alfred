@@ -70,7 +70,7 @@ export const chatAttachmentCreateArgsSchema = z.object({
 export type ChatAttachmentCreateArgs = z.infer<typeof chatAttachmentCreateArgsSchema>;
 
 async function readThread(tx: WriteTransaction, id: string): Promise<SyncedChatThread | null> {
-  return SYNC_MODEL.chatthread.get(tx, id);
+  return SYNC_MODEL.chatthread.get(tx, { id });
 }
 
 /** Create an empty thread. Idempotent on id. */
@@ -78,7 +78,7 @@ export async function chatThreadCreateClient(
   tx: WriteTransaction,
   args: ChatThreadCreateArgs,
 ): Promise<void> {
-  if (await SYNC_MODEL.chatthread.get(tx, args.id)) return;
+  if (await SYNC_MODEL.chatthread.get(tx, { id: args.id })) return;
   const value: SyncedChatThread = {
     id: args.id,
     userId: args.userId,
@@ -131,13 +131,13 @@ export async function chatThreadDeleteClient(
   tx: WriteTransaction,
   args: ChatThreadDeleteArgs,
 ): Promise<void> {
-  await SYNC_MODEL.chatthread.del(tx, args.id);
+  await SYNC_MODEL.chatthread.del(tx, { id: args.id });
   const deletedMessageIds = new Set<string>();
   const messages = await SYNC_MODEL.chatmsg.scan(tx);
   for (const message of messages) {
     if (message.threadId === args.id) {
       deletedMessageIds.add(message.id);
-      await SYNC_MODEL.chatmsg.del(tx, message.id);
+      await SYNC_MODEL.chatmsg.del(tx, { id: message.id });
     }
   }
   // Drop the deleted messages' attachments too (server cascades the rows +
@@ -145,7 +145,7 @@ export async function chatThreadDeleteClient(
   const attachments = await SYNC_MODEL.chatatt.scan(tx);
   for (const attachment of attachments) {
     if (deletedMessageIds.has(attachment.messageId)) {
-      await SYNC_MODEL.chatatt.del(tx, attachment.id);
+      await SYNC_MODEL.chatatt.del(tx, { id: attachment.id });
     }
   }
 }
@@ -162,7 +162,7 @@ export async function chatAttachmentCreateClient(
   tx: WriteTransaction,
   args: ChatAttachmentCreateArgs,
 ): Promise<void> {
-  if (await SYNC_MODEL.chatatt.get(tx, args.id)) return;
+  if (await SYNC_MODEL.chatatt.get(tx, { id: args.id })) return;
   const value: SyncedChatAttachment = {
     id: args.id,
     messageId: args.messageId,
@@ -183,7 +183,7 @@ export async function chatMessageCreateClient(
   tx: WriteTransaction,
   args: ChatMessageCreateArgs,
 ): Promise<void> {
-  if (!(await SYNC_MODEL.chatmsg.get(tx, args.id))) {
+  if (!(await SYNC_MODEL.chatmsg.get(tx, { id: args.id }))) {
     const message: SyncedChatMessage = {
       id: args.id,
       userId: args.userId,

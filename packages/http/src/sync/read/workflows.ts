@@ -5,6 +5,7 @@ import {
   type Workflow,
   type WorkflowRevision,
 } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
@@ -14,7 +15,7 @@ type WorkflowRow = { workflow: Workflow; currentRevision: WorkflowRevision | nul
 // only mutates `is_builtin = false` rows; built-ins render read-only.
 // Keyed by `slug` so the editor's optimistic write addresses the row
 // without an id lookup, matching the `/workflows/$workflow` route param.
-export const fetchWorkflows = syncEntity("workflow", {
+export const fetchWorkflows = syncEntity(SYNC_MODEL.workflow, {
   query: async (tx, userId) => {
     const rows: WorkflowRow[] = await tx
       .select({ workflow: workflows, currentRevision: workflowRevisions })

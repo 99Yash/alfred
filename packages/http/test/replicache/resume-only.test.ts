@@ -5,7 +5,7 @@ import { after, afterEach, beforeEach, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import { user, workflows } from "@alfred/db/schemas";
 import { SYNC_MODEL } from "@alfred/sync";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
 import { createRun } from "@alfred/assistant/execution/service";
@@ -158,7 +158,7 @@ describe(
       await closeConnections();
     });
 
-    test("deleting a stale built-in produces a workflow tombstone on the next pull", async () => {
+    test("an existing CVR keeps changed-row puts and stale-row deletes byte-compatible", async () => {
       const userId = `test-resume-only-${randomUUID()}`;
       const clientGroupID = `test-resume-only-cg-${randomUUID()}`;
       createdUserIds.push(userId);
@@ -182,23 +182,48 @@ describe(
         cookie: null,
       });
       assert.ok(!("forbidden" in firstPull));
-      const workflowKey = SYNC_MODEL.workflow.storageKeyForId(RESUME_ONLY_SLUG);
+      const workflowKey = SYNC_MODEL.workflow.storageKeyForId({ slug: RESUME_ONLY_SLUG });
       assert.ok(
         firstPull.patch.some((op) => op.op === "put" && op.key === workflowKey),
         "the stale built-in must be present in the client's prior view",
       );
 
-      const retired = await seedBuiltinWorkflowsForUser(userId);
-      assert.equal(retired.retired, 1);
-
-      const secondPull = await handlePull(userId, {
+      await db()
+        .update(workflows)
+        .set({
+          name: "Changed built-in",
+          rowVersion: sql`${workflows.rowVersion} + 1`,
+        })
+        .where(and(eq(workflows.userId, userId), eq(workflows.slug, RESUME_ONLY_SLUG)));
+      const changedPull = await handlePull(userId, {
         pullVersion: 1,
         clientGroupID,
         cookie: firstPull.cookie,
       });
-      assert.ok(!("forbidden" in secondPull));
+      assert.ok(!("forbidden" in changedPull));
+      const changedOperations = changedPull.patch.filter(
+        (op) => "key" in op && op.key === workflowKey,
+      );
+      assert.equal(changedOperations.length, 1);
+      const [changedOperation] = changedOperations;
+      assert.equal(changedOperation?.op, "put");
+      assert.equal(changedOperation?.key, "workflow/retired-built-in");
+      assert.equal(
+        changedOperation?.op === "put" ? changedOperation.value.name : null,
+        "Changed built-in",
+      );
+
+      const retired = await seedBuiltinWorkflowsForUser(userId);
+      assert.equal(retired.retired, 1);
+
+      const deletedPull = await handlePull(userId, {
+        pullVersion: 1,
+        clientGroupID,
+        cookie: changedPull.cookie,
+      });
+      assert.ok(!("forbidden" in deletedPull));
       assert.deepEqual(
-        secondPull.patch.filter((op) => "key" in op && op.key === workflowKey),
+        deletedPull.patch.filter((op) => "key" in op && op.key === workflowKey),
         [{ op: "del", key: workflowKey }],
       );
     });

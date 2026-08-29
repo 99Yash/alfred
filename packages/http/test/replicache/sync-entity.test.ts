@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { DbTransaction } from "@alfred/db";
+import { SYNC_MODEL } from "@alfred/sync";
 
 import { syncEntity } from "../../src/sync/read/sync-entity";
 
@@ -10,7 +11,7 @@ const UNUSED_TX = {} as DbTransaction;
 
 describe("syncEntity", () => {
   test("serializes Dates, strips server fields, and derives CVR fields", async () => {
-    const fetchNotes = syncEntity("note", {
+    const fetchNotes = syncEntity(SYNC_MODEL.note, {
       query: async () => [
         {
           id: "note_1",
@@ -29,6 +30,7 @@ describe("syncEntity", () => {
     assert.deepEqual(rows, [
       {
         id: "note_1",
+        storageKey: "note/note_1",
         rowVersion: 4,
         serialized: {
           id: "note_1",
@@ -54,7 +56,7 @@ describe("syncEntity", () => {
       rowVersion: 4,
       diagnosticPadding: `included-before-the-boundary-${"x".repeat(220)}excluded-after-boundary`,
     };
-    const fetchNotes = syncEntity("note", {
+    const fetchNotes = syncEntity(SYNC_MODEL.note, {
       query: async () => [mapped],
       map: (row) => row,
     });
@@ -71,7 +73,7 @@ describe("syncEntity", () => {
     t.mock.method(console, "warn", (message: unknown) => {
       warnings.push(String(message));
     });
-    const fetchNotes = syncEntity("note", {
+    const fetchNotes = syncEntity(SYNC_MODEL.note, {
       query: async () => [
         {
           id: "note_1",

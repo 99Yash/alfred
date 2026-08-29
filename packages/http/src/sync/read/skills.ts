@@ -6,16 +6,17 @@ import {
   type SkillRevision,
   type SkillRun,
 } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
-export const fetchSkills = syncEntity("skill", {
+export const fetchSkills = syncEntity(SYNC_MODEL.skill, {
   query: (tx, userId) =>
     tx.select().from(skills).where(eq(skills.userId, userId)).orderBy(asc(skills.id)),
   map: (s: Skill) => s,
 });
 
-export const fetchSkillRevisions = syncEntity("skillrev", {
+export const fetchSkillRevisions = syncEntity(SYNC_MODEL.skillrev, {
   query: (tx, userId) =>
     tx
       .select()
@@ -35,7 +36,7 @@ export const fetchSkillRevisions = syncEntity("skillrev", {
   }),
 });
 
-export const fetchSkillRuns = syncEntity("skillrun", {
+export const fetchSkillRuns = syncEntity(SYNC_MODEL.skillrun, {
   query: (tx, userId) =>
     tx.select().from(skillRuns).where(eq(skillRuns.userId, userId)).orderBy(asc(skillRuns.id)),
   map: (r: SkillRun) => ({

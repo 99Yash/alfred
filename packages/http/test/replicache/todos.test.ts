@@ -100,7 +100,7 @@ function todo(overrides: Partial<SyncedTodo> = {}): SyncedTodo {
   };
 }
 
-const KEY = SYNC_MODEL.todo.storageKeyForId("todo_1");
+const KEY = SYNC_MODEL.todo.storageKeyForId({ id: "todo_1" });
 
 describe("todoClearClient (#297: done → cleared)", () => {
   test("deletes a done todo from the local store (cleared never syncs)", async () => {
