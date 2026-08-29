@@ -29,6 +29,12 @@ import {
  * keys triage tags by `id` and a client that keys them by `threadId` can no
  * longer compile.
  *
+ * Each registered Zod object schema is also the allowlist for browser-visible
+ * fields. Its default unknown-key stripping is intentional: an identity mapper
+ * can pass a whole server row, and only schema-declared fields reach the browser.
+ * Do not make these schemas strict; a new database-only column must not
+ * invalidate and skip the row.
+ *
  * `storageKeyFor` derives a full key (`todo/abc`) from a parsed entity;
  * `storageKeyForId` builds one from the model's typed identity; `prefix` is the scan prefix
  * (`todo/`). No public key operation returns a bare id-part, so a caller cannot
