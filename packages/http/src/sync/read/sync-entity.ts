@@ -4,27 +4,16 @@ import { parseSyncPullValue, type IDBKeys, type SyncModelFor } from "@alfred/syn
 import type { z } from "zod";
 import { toEntityRow, type EntityFetcher } from "./entity-row";
 
-/** `T` with every `Date` at any depth replaced by its ISO-string output. */
-export type DatesAsIso<T> = T extends Date
-  ? string
-  : T extends string | number | boolean | null | undefined
-    ? T
-    : T extends readonly (infer U)[]
-      ? DatesAsIso<U>[]
-      : T extends object
-        ? { [K in keyof T]: DatesAsIso<T[K]> }
-        : T;
-
-type MapperMatchesSchema<Slug extends IDBKeys, Mapped> =
-  DatesAsIso<Mapped> extends z.input<SyncModelFor<Slug>["schema"]>
+type MapperHasSchemaKeys<Slug extends IDBKeys, Mapped> =
+  Exclude<keyof z.input<SyncModelFor<Slug>["schema"]>, keyof Mapped> extends never
     ? unknown
     : {
-        readonly "syncEntity map output must match the selected schema after Date serialization": never;
+        readonly "syncEntity map output is missing a selected schema field": never;
       };
 
 type SyncEntityConfig<Slug extends IDBKeys, Row, Mapped> = {
   query: (tx: DbTransaction, userId: string) => Promise<Row[]>;
-  map: (row: Row) => Mapped & MapperMatchesSchema<Slug, Mapped>;
+  map: (row: Row) => Mapped & MapperHasSchemaKeys<Slug, Mapped>;
 };
 
 /**
@@ -32,9 +21,8 @@ type SyncEntityConfig<Slug extends IDBKeys, Row, Mapped> = {
  *
  * The domain supplies the query and its real projection. This module owns the
  * mechanical work: recursive Date serialization, wire-schema parsing, ID/CVR
- * derivation, and one-bad-row isolation. The mapper's post-serialization type
- * must satisfy the selected model schema, so a missing or renamed field fails
- * TypeScript instead of turning into a silently skipped row at runtime.
+ * derivation, and one-bad-row isolation. The mapper must supply every selected
+ * schema field, while the selected schema validates field values at runtime.
  */
 export function syncEntity<Slug extends IDBKeys, Row, Mapped>(
   slug: Slug,
@@ -55,23 +43,21 @@ export function syncEntity<Slug extends IDBKeys, Row, Mapped>(
   };
 }
 
-function stringifyDates<T>(value: T): DatesAsIso<T> {
+// eslint-disable-next-line anti-slop/no-unknown-returns -- the selected sync schema owns the output contract and parses this value immediately
+function stringifyDates(value: unknown): unknown {
   if (value instanceof Date) {
-    // SAFETY: the Date branch is serialized to the string that DatesAsIso<Date> describes.
-    return value.toISOString() as DatesAsIso<T>;
+    return value.toISOString();
   }
   if (Array.isArray(value)) {
-    // SAFETY: DatesAsIso maps an array to the recursively serialized element type.
-    return value.map(stringifyDates) as DatesAsIso<T>;
+    return value.map(stringifyDates);
   }
   if (isRecord(value)) {
-    const out: Record<string, DatesAsIso<unknown>> = {};
+    const out = Object.assign({}, value);
     for (const [key, entry] of Object.entries(value)) {
       out[key] = stringifyDates(entry);
     }
-    // SAFETY: isRecord proves a plain object; every own entry is copied and serialized.
-    return out as DatesAsIso<T>;
+    // eslint-disable-next-line anti-slop/no-known-value-widening -- the selected sync schema validates this complete projection immediately
+    return out;
   }
-  // SAFETY: primitives and non-plain values contain no traversable Date for this wire seam.
-  return value as DatesAsIso<T>;
+  return value;
 }

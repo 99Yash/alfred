@@ -6,8 +6,6 @@ import {
   type SkillRevision,
   type SkillRun,
 } from "@alfred/db/schemas";
-import { runStatusSchema } from "@alfred/contracts";
-import { jsonRecordSchema } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
@@ -30,7 +28,7 @@ export const fetchSkillRevisions = syncEntity("skillrev", {
     userId: r.userId,
     kind: r.kind,
     body: r.body,
-    metadata: jsonRecordSchema.parse(r.metadata),
+    metadata: r.metadata,
     createdByRunId: r.createdByRunId,
     rowVersion: r.rowVersion,
     createdAt: r.createdAt,
@@ -46,7 +44,7 @@ export const fetchSkillRuns = syncEntity("skillrun", {
     userId: r.userId,
     kind: r.kind,
     agentRunId: r.agentRunId,
-    status: runStatusSchema.parse(r.status),
+    status: r.status,
     producedRevisionId: r.producedRevisionId,
     rowVersion: r.rowVersion,
     startedAt: r.startedAt,

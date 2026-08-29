@@ -1,5 +1,4 @@
 import { userPreferences, type UserPreference } from "@alfred/db/schemas";
-import { memorySourceSchema, preferenceValueSchema } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
@@ -15,8 +14,8 @@ export const fetchPreferences = syncEntity("pref", {
   map: (p: UserPreference) => ({
     key: p.key,
     userId: p.userId,
-    value: preferenceValueSchema.parse(p.value),
-    source: memorySourceSchema.parse(p.source),
+    value: p.value,
+    source: p.source,
     rowVersion: p.rowVersion,
   }),
 });

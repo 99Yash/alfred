@@ -48,8 +48,8 @@ describe("syncEntity", () => {
         {
           id: "note_1",
           userId: "user_1",
-          text: "Remember this",
-          createdAt: "not-a-date",
+          text: 42,
+          createdAt: new Date("2026-08-29T00:00:00.000Z"),
           rowVersion: 4,
         },
       ],
