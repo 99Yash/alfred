@@ -1,4 +1,4 @@
-import { IDB_KEY, type SyncedBriefing, syncedBriefingSchema } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedBriefing, syncedBriefingSchema } from "@alfred/sync";
 import type { BriefingSlot } from "@alfred/contracts";
 import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
@@ -40,7 +40,7 @@ export interface BriefingsState {
  */
 export function useBriefings(): BriefingsState {
   const { loadError, retry } = useReplicacheStatus();
-  const prefix = IDB_KEY.BRIEFING({});
+  const prefix = SYNC_MODEL.BRIEFING.prefix;
   const query = useCallback(
     (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
     [prefix],
@@ -80,7 +80,7 @@ export interface BriefingDayState {
  */
 export function useBriefing(date: string): BriefingDayState {
   const { loadError, retry } = useReplicacheStatus();
-  const prefix = IDB_KEY.BRIEFING({ id: `${date}/` });
+  const prefix = SYNC_MODEL.BRIEFING.storageKeyForId(`${date}/`);
   const query = useCallback(
     (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
     [prefix],

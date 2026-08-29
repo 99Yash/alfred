@@ -5,7 +5,7 @@ import {
 } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../sync-model";
+import { normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { syncedWorkflowSchema, workflowStatusSchema } from "../schemas";
 import type { SyncedWorkflow } from "../types";
 import { readSyncedValue } from "./read";
@@ -172,7 +172,7 @@ export async function workflowUpdateClient(
   tx: WriteTransaction,
   args: WorkflowUpdateArgs,
 ): Promise<void> {
-  const key = IDB_KEY.WORKFLOW({ id: args.slug });
+  const key = SYNC_MODEL.WORKFLOW.storageKeyForId(args.slug);
   const current = await readSyncedValue(tx, key, syncedWorkflowSchema);
   if (!current) return;
   if (current.isBuiltin) return;

@@ -5,6 +5,7 @@ import {
   type Workflow,
   type WorkflowRevision,
 } from "@alfred/db/schemas";
+import { workflowStatusSchema } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
@@ -14,7 +15,7 @@ type WorkflowRow = { workflow: Workflow; currentRevision: WorkflowRevision | nul
 // only mutates `is_builtin = false` rows; built-ins render read-only.
 // Keyed by `slug` so the editor's optimistic write addresses the row
 // without an id lookup, matching the `/workflows/$workflow` route param.
-export const fetchWorkflows = syncEntity<"WORKFLOW", WorkflowRow>("WORKFLOW", {
+export const fetchWorkflows = syncEntity("WORKFLOW", {
   query: async (tx, userId) => {
     const rows: WorkflowRow[] = await tx
       .select({ workflow: workflows, currentRevision: workflowRevisions })
@@ -24,7 +25,7 @@ export const fetchWorkflows = syncEntity<"WORKFLOW", WorkflowRow>("WORKFLOW", {
       .orderBy(asc(workflows.slug));
     return rows.filter((r) => !isInternalWorkflowSlug(r.workflow.slug));
   },
-  map: ({ workflow: w, currentRevision }) => ({
+  map: ({ workflow: w, currentRevision }: WorkflowRow) => ({
     id: w.id,
     userId: w.userId,
     slug: w.slug,
@@ -39,7 +40,7 @@ export const fetchWorkflows = syncEntity<"WORKFLOW", WorkflowRow>("WORKFLOW", {
     currentRevisionId: w.currentRevisionId,
     publishedRevisionId: w.publishedRevisionId,
     blocked: w.blocked,
-    status: w.status,
+    status: workflowStatusSchema.parse(w.status),
     isBuiltin: w.isBuiltin,
     lastRunAt: w.lastRunAt,
     lastRunStatus: w.lastRunStatus,

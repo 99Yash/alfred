@@ -1,5 +1,5 @@
 import type { TriageCategory } from "@alfred/contracts";
-import { IDB_KEY, syncedTriageTagSchema, type SyncedTriageTag } from "@alfred/sync";
+import { SYNC_MODEL, syncedTriageTagSchema, type SyncedTriageTag } from "@alfred/sync";
 import { useCallback, useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
@@ -30,7 +30,7 @@ export function useTriageTags(): TriageTagsState {
       setTagsByThreadId(null);
       return;
     }
-    const prefix = IDB_KEY.TRIAGE_TAG({});
+    const prefix = SYNC_MODEL.TRIAGE_TAG.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {

@@ -21,47 +21,68 @@ import {
 
 /**
  * One synced Replicache entity: the prefix of its IDB keys, the zod schema
- * that owns its shape, and the function that derives a row's IDB id-part from
- * a synced entity `k`.
+ * that owns its shape, and the functions that derive full IDB storage keys.
  *
  * This is the single source of truth for "which field of a synced entity is
  * its IDB id". The server pull (`syncEntity` in `@alfred/http`), the client
- * mutators, and the key builders all read `key` from here — so a server that
+ * mutators, and the key builders all read from here — so a server that
  * keys triage tags by `id` and a client that keys them by `threadId` can no
  * longer compile.
  *
- * `key: (k) => k.id` returns a plain id; composite ids (briefing
- * `${date}/${slot}`, pref `key`) stay explicit per entity.
+ * `storageKeyFor` derives a full key (`todo/abc`) from a parsed entity;
+ * `storageKeyForId` builds one from a raw id-part; `prefix` is the scan prefix
+ * (`todo/`). No public key operation returns a bare id-part, so a caller cannot
+ * pass the result of a key builder to Replicache by mistake.
  */
-interface SyncEntityModel<TSchema extends z.ZodTypeAny> {
+interface SyncEntityModel<
+  TSchema extends z.ZodType<{ rowVersion: number }, unknown> = z.ZodType<
+    { rowVersion: number },
+    unknown
+  >,
+> {
   prefix: string;
   schema: TSchema;
-  key: (entity: z.output<TSchema>) => string;
+  storageKeyForId: (id: string) => string;
+  storageKeyFor: (entity: z.output<TSchema>) => string;
+  parsePullValue: (input: unknown) => {
+    id: string;
+    rowVersion: number;
+    value: z.output<TSchema>;
+  };
 }
 
 /**
- * Build one registry entry so `key` is typed against the schema's output —
- * the loose `satisfies`+object-literal alternative would type every `key` as
+ * Build one registry entry so `idOf` is typed against the schema's output —
+ * the loose `satisfies`+object-literal alternative would type every `idOf` as
  * `(entity: any) => string` and lose per-schema precision.
  */
-function model<TSchema extends z.ZodTypeAny>(
-  prefix: string,
+function model<TSchema extends z.ZodType<{ rowVersion: number }, unknown>>(
+  prefixRaw: string,
   schema: TSchema,
-  key: (entity: z.output<TSchema>) => string,
+  idOf: (entity: z.output<TSchema>) => string,
 ): SyncEntityModel<TSchema> {
-  return { prefix, schema, key };
+  const prefix = `${prefixRaw}/`;
+  return {
+    prefix,
+    schema,
+    storageKeyForId: (id: string) => `${prefix}${id}`,
+    storageKeyFor: (entity: z.output<TSchema>) => `${prefix}${idOf(entity)}`,
+    parsePullValue: (input: unknown) => {
+      const value = schema.parse(input);
+      return { id: idOf(value), rowVersion: value.rowVersion, value };
+    },
+  };
 }
 
 /**
- * Single registry of every synced entity (ADR-…).
+ * Single registry of every synced entity.
  *
- * `IDB_KEY`, `IDBKeys`, and `SyncedEntity` are derived from this map, so
+ * `IDBKeys` and `SyncedEntity` are derived from this map, so
  * adding an entity is one entry here plus one fetcher and one mutator — no
  * parallel schema/key/SyncedEntity-union bookkeeping.
  *
- * The literal order is load-bearing: `IDB_KEY_NAMES` (and therefore the
- * server's patch-operation order in `SYNC_ENTITIES`) is `Object.keys` of this
- * object, so keep the current order stable when adding entries.
+ * The literal order is load-bearing: `IDB_KEY_NAMES` and the server patch
+ * dispatcher preserve this insertion order. Keep existing entries stable.
  */
 export const SYNC_MODEL = {
   NOTE: model("note", syncedNoteSchema, (n) => n.id),
@@ -80,7 +101,7 @@ export const SYNC_MODEL = {
   CHAT_ATTACHMENT: model("chatatt", syncedChatAttachmentSchema, (a) => a.id),
   ARTIFACT: model("artifact", syncedArtifactSchema, (a) => a.id),
   TRIAGE_TAG: model("triagetag", syncedTriageTagSchema, (t) => t.threadId),
-} satisfies Record<string, SyncEntityModel<z.ZodTypeAny>>;
+} satisfies Record<string, SyncEntityModel>;
 
 /** Union of every entity slug — drives generic dispatchers (server + types). */
 export type IDBKeys = keyof typeof SYNC_MODEL;
@@ -99,27 +120,25 @@ export type SyncedEntity = {
   [Slug in IDBKeys]: SyncedValueFor<Slug>;
 }[IDBKeys];
 
-/** All entity slugs as a runtime array — server iterates over this. */
-export const IDB_KEY_NAMES = Object.keys(SYNC_MODEL) as IDBKeys[];
-
-function constructIDBKey(parts: (string | null | undefined | number)[]): string {
-  return parts.filter((p) => p !== undefined && p !== null).join("/");
+export interface ParsedSyncPullValue<Slug extends IDBKeys> {
+  id: string;
+  rowVersion: number;
+  value: SyncedValueFor<Slug>;
 }
 
-/**
- * Replicache IDB key builders, derived from `SYNC_MODEL` so the prefix and the
- * "what is the id" rule cannot drift from the entity definitions.
- *
- * Calling with `{}` produces the *prefix* (`note/`) for `tx.scan({ prefix })`;
- * calling with `{ id }` produces a single-row key (`note/abc`). Same call site
- * for both — the prefix is the model prefix with no trailing segment.
- */
-export const IDB_KEY = Object.fromEntries(
-  IDB_KEY_NAMES.map((slug) => [
-    slug,
-    ({ id = "" }: { id?: string }) => constructIDBKey([SYNC_MODEL[slug].prefix, id]),
-  ]),
-) as { [Slug in IDBKeys]: (args: { id?: string }) => string };
+/** Parse one pull projection through the schema and identity bound to `slug`. */
+export function parseSyncPullValue<Slug extends IDBKeys>(
+  slug: Slug,
+  input: unknown,
+): ParsedSyncPullValue<Slug> {
+  // SAFETY: the selected registry entry owns both the schema and its identity
+  // function. TypeScript widens a generic indexed access to the union of all
+  // entries, but the runtime lookup and the requested Slug are the same value.
+  return SYNC_MODEL[slug].parsePullValue(input) as ParsedSyncPullValue<Slug>;
+}
+
+/** All entity slugs as a runtime array — server iterates over this. */
+export const IDB_KEY_NAMES = Object.keys(SYNC_MODEL) as IDBKeys[];
 
 /**
  * Round-trip through `JSON.stringify`/`JSON.parse` to coerce any

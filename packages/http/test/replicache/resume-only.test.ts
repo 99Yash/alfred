@@ -4,7 +4,7 @@ import { after, afterEach, beforeEach, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { user, workflows } from "@alfred/db/schemas";
-import { IDB_KEY } from "@alfred/sync";
+import { SYNC_MODEL } from "@alfred/sync";
 import { inArray } from "drizzle-orm";
 
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
@@ -182,7 +182,7 @@ describe(
         cookie: null,
       });
       assert.ok(!("forbidden" in firstPull));
-      const workflowKey = IDB_KEY.WORKFLOW({ id: RESUME_ONLY_SLUG });
+      const workflowKey = SYNC_MODEL.WORKFLOW.storageKeyForId(RESUME_ONLY_SLUG);
       assert.ok(
         firstPull.patch.some((op) => op.op === "put" && op.key === workflowKey),
         "the stale built-in must be present in the client's prior view",

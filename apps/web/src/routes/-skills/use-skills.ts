@@ -1,5 +1,5 @@
 import {
-  IDB_KEY,
+  SYNC_MODEL,
   type SyncedSkill,
   type SyncedSkillRevision,
   type SyncedSkillRun,
@@ -31,10 +31,7 @@ export function useSkills(): SkillsState {
     if (!rep) return;
     return rep.subscribe(
       async (tx: ReadTransaction) =>
-        tx
-          .scan({ prefix: IDB_KEY.SKILL({}) })
-          .values()
-          .toArray(),
+        tx.scan({ prefix: SYNC_MODEL.SKILL.prefix }).values().toArray(),
       (values) => {
         const skills = values.flatMap((value) => {
           const result = syncedSkillSchema.safeParse(value);
@@ -86,18 +83,9 @@ export function useSkillDetail(slug: string): SkillDetailState {
     return rep.subscribe(
       async (tx: ReadTransaction) =>
         Promise.all([
-          tx
-            .scan({ prefix: IDB_KEY.SKILL({}) })
-            .values()
-            .toArray(),
-          tx
-            .scan({ prefix: IDB_KEY.SKILL_REVISION({}) })
-            .values()
-            .toArray(),
-          tx
-            .scan({ prefix: IDB_KEY.SKILL_RUN({}) })
-            .values()
-            .toArray(),
+          tx.scan({ prefix: SYNC_MODEL.SKILL.prefix }).values().toArray(),
+          tx.scan({ prefix: SYNC_MODEL.SKILL_REVISION.prefix }).values().toArray(),
+          tx.scan({ prefix: SYNC_MODEL.SKILL_RUN.prefix }).values().toArray(),
         ]),
       ([skillValues, revisionValues, runValues]) => {
         const skill = skillValues

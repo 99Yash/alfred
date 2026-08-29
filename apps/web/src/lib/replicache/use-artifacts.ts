@@ -1,4 +1,4 @@
-import { IDB_KEY, syncedArtifactSchema, type SyncedArtifact } from "@alfred/sync";
+import { SYNC_MODEL, syncedArtifactSchema, type SyncedArtifact } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction, Replicache } from "replicache";
 import type { ClientMutators } from "@alfred/sync";
@@ -29,7 +29,7 @@ export function useRecentArtifacts(): RecentArtifactsState {
       setSnapshot(null);
       return;
     }
-    const prefix = IDB_KEY.ARTIFACT({});
+    const prefix = SYNC_MODEL.ARTIFACT.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
@@ -71,7 +71,7 @@ export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact
 
   useEffect(() => {
     if (!rep || !threadId) return;
-    const prefix = IDB_KEY.ARTIFACT({});
+    const prefix = SYNC_MODEL.ARTIFACT.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
@@ -104,7 +104,7 @@ export function useArtifact(artifactId: string | undefined): SyncedArtifact | nu
   useEffect(() => {
     if (!rep || !artifactId) return;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.get(IDB_KEY.ARTIFACT({ id: artifactId })),
+      async (tx: ReadTransaction) => tx.get(SYNC_MODEL.ARTIFACT.storageKeyForId(artifactId)),
       (value) => {
         const result = syncedArtifactSchema.safeParse(value);
         setSnapshot({ rep, artifactId, artifact: result.success ? result.data : null });

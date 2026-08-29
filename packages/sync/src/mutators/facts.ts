@@ -1,6 +1,6 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
+import { normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { factValueSchema, memorySourceSchema, syncedFactSchema } from "../schemas";
 import type { SyncedFact } from "../types";
 import { readSyncedValue } from "./read";
@@ -62,11 +62,11 @@ export const factEditArgsSchema = z.object({
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
 
 async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFact | null> {
-  return readSyncedValue(tx, IDB_KEY.FACT({ id: factId }), syncedFactSchema);
+  return readSyncedValue(tx, SYNC_MODEL.FACT.storageKeyForId(factId), syncedFactSchema);
 }
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
-  await tx.set(SYNC_MODEL.FACT.key(fact), normalizeToReadonlyJSON(fact));
+  await tx.set(SYNC_MODEL.FACT.storageKeyFor(fact), normalizeToReadonlyJSON(fact));
 }
 
 /**
@@ -118,7 +118,7 @@ export async function factConfirmClient(
  * rejected_inferences row.
  */
 export async function factRejectClient(tx: WriteTransaction, args: FactRejectArgs): Promise<void> {
-  const key = IDB_KEY.FACT({ id: args.factId });
+  const key = SYNC_MODEL.FACT.storageKeyForId(args.factId);
   const exists = await tx.has(key);
   if (!exists) return;
   await tx.del(key);
@@ -133,7 +133,7 @@ export async function factRejectClient(tx: WriteTransaction, args: FactRejectArg
 export async function factEditClient(tx: WriteTransaction, args: FactEditArgs): Promise<void> {
   const old = await readFact(tx, args.factId);
   if (!old) return;
-  await tx.del(IDB_KEY.FACT({ id: args.factId }));
+  await tx.del(SYNC_MODEL.FACT.storageKeyForId(args.factId));
 
   const now = new Date().toISOString();
   const replacement: SyncedFact = {

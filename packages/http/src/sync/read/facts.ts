@@ -1,12 +1,13 @@
 import { isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
 import { userFacts, type UserFact } from "@alfred/db/schemas";
+import { factValueSchema, syncedFactSchema } from "@alfred/sync";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
 // Only `proposed` + `confirmed` reach the client; rejected / edited /
 // superseded rows stay server-side as audit history.
-export const fetchFacts = syncEntity<"FACT", UserFact>("FACT", {
+export const fetchFacts = syncEntity("FACT", {
   query: async (tx, userId) => {
     const rows: UserFact[] = await tx
       .select()
@@ -24,10 +25,27 @@ export const fetchFacts = syncEntity<"FACT", UserFact>("FACT", {
         !(f.status === "proposed" && isUninformativeRelationshipFact(f.key, f.value)),
     );
   },
-  map: (f) => {
+  map: (f: UserFact) => {
     if (f.status !== "proposed" && f.status !== "confirmed") {
       throw new SerializationError(`cannot sync fact with status '${f.status}'`);
     }
-    return f;
+    // DB stores status as plain text; wire is narrowed to "proposed" | "confirmed".
+    // Explicit narrow is the real work the old serializer did — without it a
+    // renamed column would compile but silently skip every row.
+    return {
+      id: f.id,
+      userId: f.userId,
+      key: f.key,
+      value: factValueSchema.parse(f.value),
+      confidence: f.confidence,
+      status: syncedFactSchema.shape.status.parse(f.status),
+      source: f.source,
+      validFrom: f.validFrom,
+      validUntil: f.validUntil,
+      supersedesId: f.supersedesId,
+      rowVersion: f.rowVersion,
+      createdAt: f.createdAt,
+      updatedAt: f.updatedAt,
+    };
   },
 });

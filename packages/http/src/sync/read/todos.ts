@@ -10,7 +10,7 @@ const TODO_DONE_WINDOW_DAYS = 2;
 // linger `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the
 // DB). `suggested` + `open` always sync. `cleared` (#297) is a `done` the
 // user removed from the rail early — terminal, so excluded like `dismissed`.
-export const fetchTodos = syncEntity<"TODO", Todo>("TODO", {
+export const fetchTodos = syncEntity("TODO", {
   query: (tx, userId) => {
     const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     return tx
@@ -25,7 +25,7 @@ export const fetchTodos = syncEntity<"TODO", Todo>("TODO", {
       )
       .orderBy(asc(todos.createdAt), asc(todos.id));
   },
-  map: (t) => {
+  map: (t: Todo) => {
     if (t.status === "dismissed") {
       throw new SerializationError("cannot sync a dismissed todo");
     }
