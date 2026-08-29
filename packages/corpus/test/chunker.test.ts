@@ -54,10 +54,7 @@ describe("chunkText", () => {
       }
     }
     assert.ok(pageChunks.length >= 2);
-    assert.deepEqual(
-      pageChunks.map((c) => c.position),
-      pageChunks.map((_, i) => i),
-    );
+    for (let i = 0; i < pageChunks.length; i++) assert.equal(pageChunks[i]?.position, i);
   });
 
   test("estimateTokens rounds up and never returns 0", () => {
@@ -97,10 +94,7 @@ describe("chunkPages", () => {
       if (c.page === 3) assert.ok(!c.content.includes("Alpha") && !c.content.includes("Beta"));
     }
     // Positions are globally dense
-    assert.deepEqual(
-      chunks.map((c) => c.position),
-      chunks.map((_, i) => i),
-    );
+    for (let i = 0; i < chunks.length; i++) assert.equal(chunks[i]?.position, i);
   });
 
   test("skips empty pages but keeps dense positions", () => {
