@@ -13,3 +13,17 @@ export const incompleteNoteFetcher = syncEntity("note", {
   // @ts-expect-error — the `note` projection must include createdAt before Date serialization
   map: (row) => row,
 });
+
+export const runtimeValidatedNoteFetcher = syncEntity("note", {
+  query: async () => [
+    {
+      id: "note_1",
+      userId: "user_1",
+      text: 42,
+      createdAt: new Date("2026-08-29T00:00:00.000Z"),
+      rowVersion: 1,
+    },
+  ],
+  // Every schema key is present. The final selected-schema parse owns value validation.
+  map: (row) => row,
+});

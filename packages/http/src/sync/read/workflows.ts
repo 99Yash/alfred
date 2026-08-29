@@ -5,7 +5,6 @@ import {
   type Workflow,
   type WorkflowRevision,
 } from "@alfred/db/schemas";
-import { workflowStatusSchema } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
@@ -40,7 +39,7 @@ export const fetchWorkflows = syncEntity("workflow", {
     currentRevisionId: w.currentRevisionId,
     publishedRevisionId: w.publishedRevisionId,
     blocked: w.blocked,
-    status: workflowStatusSchema.parse(w.status),
+    status: w.status,
     isBuiltin: w.isBuiltin,
     lastRunAt: w.lastRunAt,
     lastRunStatus: w.lastRunStatus,

@@ -1,6 +1,5 @@
 import { isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
 import { userFacts, type UserFact } from "@alfred/db/schemas";
-import { factValueSchema, syncedFactSchema } from "@alfred/sync";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
@@ -29,16 +28,13 @@ export const fetchFacts = syncEntity("fact", {
     if (f.status !== "proposed" && f.status !== "confirmed") {
       throw new SerializationError(`cannot sync fact with status '${f.status}'`);
     }
-    // DB stores status as plain text; wire is narrowed to "proposed" | "confirmed".
-    // Explicit narrow is the real work the old serializer did — without it a
-    // renamed column would compile but silently skip every row.
     return {
       id: f.id,
       userId: f.userId,
       key: f.key,
-      value: factValueSchema.parse(f.value),
+      value: f.value,
       confidence: f.confidence,
-      status: syncedFactSchema.shape.status.parse(f.status),
+      status: f.status,
       source: f.source,
       validFrom: f.validFrom,
       validUntil: f.validUntil,
