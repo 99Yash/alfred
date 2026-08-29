@@ -118,7 +118,7 @@ export async function handlePull(
       if (!isColdSync) {
         for (const id of Object.keys(prevMap)) {
           if (!nextMap[id]) {
-            patch.push({ op: "del", key: `${SYNC_MODEL[slug].prefix}${id}` });
+            patch.push({ op: "del", key: SYNC_MODEL[slug].storageKeyForCVRId(id) });
           }
         }
       }

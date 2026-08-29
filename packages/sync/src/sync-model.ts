@@ -36,9 +36,9 @@ import {
  * invalidate and skip the row.
  *
  * `storageKeyFor` derives a full key (`todo/abc`) from a parsed entity;
- * `storageKeyForId` builds one from the model's typed identity; `prefix` is the scan prefix
- * (`todo/`). No public key operation returns a bare id-part, so a caller cannot
- * pass the result of a key builder to Replicache by mistake.
+ * `storageKeyForId` builds one from the model's typed identity. Scan prefixes
+ * stay private to this module. No public key operation returns a bare id-part,
+ * so a caller cannot pass the result of a key builder to Replicache by mistake.
  */
 type SyncSchema = z.ZodType<{ rowVersion: number }, unknown>;
 
@@ -50,34 +50,14 @@ export type SyncStringKey<TSchema extends SyncSchema> = {
 export type SyncIdentity<
   TSchema extends SyncSchema,
   TKeys extends readonly SyncStringKey<TSchema>[],
-> = Pick<z.output<TSchema>, TKeys[number]>;
-
-type ProperLeadingKeys<
-  TKeys extends readonly PropertyKey[],
-  Acc extends readonly PropertyKey[] = [],
-> = TKeys extends readonly [
-  infer Head extends PropertyKey,
-  ...infer Tail extends readonly PropertyKey[],
-]
-  ? Tail extends readonly []
-    ? never
-    : readonly [...Acc, Head] | ProperLeadingKeys<Tail, readonly [...Acc, Head]>
-  : never;
-
-type IdentityForKeys<TSchema extends SyncSchema, TKeys extends readonly PropertyKey[]> = Pick<
-  z.output<TSchema>,
-  TKeys[number] & keyof z.output<TSchema>
->;
+> = Record<TKeys[number], string>;
 
 export type SyncIdentityPrefix<
   TSchema extends SyncSchema,
   TKeys extends readonly SyncStringKey<TSchema>[],
-> =
-  ProperLeadingKeys<TKeys> extends infer PrefixKeys
-    ? PrefixKeys extends readonly PropertyKey[]
-      ? IdentityForKeys<TSchema, PrefixKeys>
-      : never
-    : never;
+> = TKeys extends readonly [SyncStringKey<TSchema>, SyncStringKey<TSchema>]
+  ? Record<TKeys[0], string>
+  : never;
 
 export interface SyncEntityModel<
   Prefix extends string,
@@ -85,9 +65,14 @@ export interface SyncEntityModel<
   TKeys extends readonly SyncStringKey<TSchema>[],
 > {
   readonly slug: Prefix;
-  readonly prefix: `${Prefix}/`;
+  /** Type carrier for SyncModelFor and server projection derivation. */
   readonly schema: TSchema;
-  readonly key: TKeys;
+  /**
+   * Rebuild a storage key from the bare identity stored in a CVR snapshot.
+   * The delete-diff loop in `packages/http/src/sync/pull.ts` is the only
+   * intended caller.
+   */
+  storageKeyForCVRId(id: string): `${Prefix}/${string}`;
   storageKeyForId(id: SyncIdentity<TSchema, TKeys>): `${Prefix}/${string}`;
   storageKeyFor(entity: z.output<TSchema>): `${Prefix}/${string}`;
   scan(tx: Pick<ReadTransaction, "scan">): Promise<z.output<TSchema>[]>;
@@ -109,32 +94,11 @@ export interface SyncEntityModel<
   };
 }
 
-function identityPart<TValue extends object>(value: TValue, keys: readonly PropertyKey[]): string {
-  return keys
-    .map((key) => {
-      const part = Reflect.get(value, key);
-      if (typeof part !== "string") {
-        throw new TypeError(`sync identity field ${String(key)} must be a string`);
-      }
-      return part;
-    })
-    .join("/");
-}
-
-function leadingIdentityKeys<TValue extends object>(
-  value: TValue,
-  keys: readonly PropertyKey[],
-): PropertyKey[] {
-  const provided = keys.filter((key) => Object.hasOwn(value, key));
-  const expected = keys.slice(0, provided.length);
-  if (
-    provided.length === 0 ||
-    provided.length === keys.length ||
-    provided.some((key, index) => key !== expected[index])
-  ) {
-    throw new TypeError("sync scan identity must be a non-empty proper leading prefix");
-  }
-  return expected;
+function identityPart<TKey extends string>(
+  value: Record<TKey, string>,
+  keys: readonly TKey[],
+): string {
+  return keys.map((key) => value[key]).join("/");
 }
 
 function model<
@@ -147,56 +111,63 @@ function model<
   identity: { readonly key: TKeys },
 ): SyncEntityModel<Prefix, TSchema, TKeys> {
   const { key } = identity;
+  const identityOf = (value: z.output<TSchema>): SyncIdentity<TSchema, TKeys> => {
+    // SAFETY: TKeys can contain only string-valued keys from TSchema's output,
+    // so the parsed value satisfies the identity record by construction.
+    return value as z.output<TSchema> & SyncIdentity<TSchema, TKeys>;
+  };
   // SAFETY: Prefix is the literal type of prefixRaw, so appending `/` produces
   // the exact template-literal type declared here.
   const prefix = `${prefixRaw}/` as `${Prefix}/`;
+  const storageKeyForCVRId = (id: string): `${Prefix}/${string}` => {
+    // SAFETY: prefix carries Prefix and id is the persisted identity suffix,
+    // so their concatenation has the declared storage-key template shape.
+    return `${prefix}${id}` as `${Prefix}/${string}`;
+  };
   const storageKeyForId = (id: SyncIdentity<TSchema, TKeys>): `${Prefix}/${string}` => {
-    return `${prefix}${identityPart(id, key)}` as `${Prefix}/${string}`;
+    return storageKeyForCVRId(identityPart(id, key));
+  };
+  const parseSynced = (values: readonly unknown[]): z.output<TSchema>[] => {
+    const parsed: z.output<TSchema>[] = [];
+    for (const value of values) {
+      const result = schema.safeParse(value);
+      if (result.success) parsed.push(result.data);
+    }
+    return parsed;
   };
   return {
     slug: prefixRaw,
-    prefix,
     schema,
-    key,
+    storageKeyForCVRId,
     storageKeyForId,
-    storageKeyFor: (entity) => storageKeyForId(entity),
+    storageKeyFor: (entity) => storageKeyForId(identityOf(entity)),
     scan: async (tx) => {
       const values = await tx.scan({ prefix }).values().toArray();
-      const parsed: z.output<TSchema>[] = [];
-      for (const value of values) {
-        const result = schema.safeParse(value);
-        if (result.success) parsed.push(result.data);
-      }
-      return parsed;
+      return parseSynced(values);
     },
     scanPrefix: async (tx, id) => {
-      const boundedPrefix = `${prefix}${identityPart(id, leadingIdentityKeys(id, key))}/`;
+      const boundedPrefix = `${prefix}${identityPart(id, [key[0]])}/`;
       const values = await tx.scan({ prefix: boundedPrefix }).values().toArray();
-      const parsed: z.output<TSchema>[] = [];
-      for (const value of values) {
-        const result = schema.safeParse(value);
-        if (result.success) parsed.push(result.data);
-      }
-      return parsed;
+      return parseSynced(values);
     },
     get: async (tx, id) => {
       const value = await tx.get(storageKeyForId(id));
       if (value === undefined) return null;
-      const result = schema.safeParse(value);
-      return result.success ? result.data : null;
+      return parseSynced([value])[0] ?? null;
     },
     put: async (tx, input) => {
       const value = schema.parse(input);
-      await tx.set(storageKeyForId(value), normalizeToReadonlyJSON(value));
+      await tx.set(storageKeyForId(identityOf(value)), normalizeToReadonlyJSON(value));
     },
     del: async (tx, id) => {
       await tx.del(storageKeyForId(id));
     },
     parsePullValue: (input: unknown) => {
       const value = schema.parse(input);
-      const storageKey = storageKeyForId(value);
+      const valueIdentity = identityOf(value);
+      const storageKey = storageKeyForId(valueIdentity);
       return {
-        id: identityPart(value, key),
+        id: identityPart(valueIdentity, key),
         storageKey,
         rowVersion: value.rowVersion,
         value,
@@ -235,13 +206,13 @@ const syncModels = {
 };
 
 export const SYNC_MODEL = syncModels satisfies {
-  [Key in keyof typeof syncModels]: { readonly prefix: `${Key & string}/` };
+  [Key in keyof typeof syncModels]: { readonly slug: Key & string };
 };
 
 /** Union of every persisted raw prefix — drives generic dispatchers. */
 export type IDBKeys = keyof typeof SYNC_MODEL;
 
-/** The precise model (schema + key) bound to one slug. */
+/** The precise schema and operations bound to one slug. */
 export type SyncModelFor<Slug extends IDBKeys> = (typeof SYNC_MODEL)[Slug];
 
 /** The synced value type for a slug. */

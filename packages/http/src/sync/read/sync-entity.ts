@@ -1,6 +1,6 @@
 import { isRecord } from "@alfred/contracts";
 import type { DbTransaction } from "@alfred/db";
-import type { IDBKeys, SyncModelFor, SyncedValueFor } from "@alfred/sync";
+import type { IDBKeys, SyncModelFor } from "@alfred/sync";
 import { ZodError, type z } from "zod";
 import { toEntityRow, type EntityFetcher } from "./entity-row";
 
@@ -16,16 +16,10 @@ type SyncEntityConfig<Slug extends IDBKeys, Row, Mapped> = {
   map: (row: Row) => Mapped & MapperHasSchemaKeys<Slug, Mapped>;
 };
 
-type SyncEntityModelContract<Slug extends IDBKeys> = {
-  readonly slug: Slug;
-  readonly schema: SyncModelFor<Slug>["schema"];
-  parsePullValue(input: unknown): {
-    id: string;
-    storageKey: `${Slug}/${string}`;
-    rowVersion: number;
-    value: SyncedValueFor<Slug>;
-  };
-};
+type SyncEntityModelContract<Slug extends IDBKeys> = Pick<
+  SyncModelFor<Slug>,
+  "slug" | "schema" | "parsePullValue"
+>;
 
 /**
  * Define one Replicache pull reader.
@@ -35,10 +29,10 @@ type SyncEntityModelContract<Slug extends IDBKeys> = {
  * derivation, and one-bad-row isolation. The mapper must supply every selected
  * schema field, while the selected schema validates field values at runtime.
  */
-export function syncEntity<const Slug extends IDBKeys, Row, Mapped>(
-  model: SyncEntityModelContract<Slug>,
-  config: SyncEntityConfig<Slug, Row, Mapped>,
-): EntityFetcher<Slug> {
+export function syncEntity<const Model extends SyncEntityModelContract<IDBKeys>, Row, Mapped>(
+  model: Model,
+  config: SyncEntityConfig<Model["slug"], Row, Mapped>,
+): EntityFetcher<Model["slug"]> {
   return async (tx, userId) => {
     const rows = await config.query(tx, userId);
     return rows.flatMap((row) =>
