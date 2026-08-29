@@ -58,6 +58,8 @@ function assertModelOperationTypes(
   void SYNC_MODEL.briefing.storageKeyForId({ briefingDate: "2026-08-29" });
   // @ts-expect-error a briefing scan prefix must start with briefingDate
   void SYNC_MODEL.briefing.scanPrefix(scanTransaction([], []), { slot: "morning" });
+  // @ts-expect-error scan prefixes are private implementation details
+  void SYNC_MODEL.note.prefix;
 
   // @ts-expect-error rowVersion is not a string-valued identity field
   const nonStringKey: SyncStringKey<typeof SYNC_MODEL.note.schema> = "rowVersion";
@@ -69,20 +71,19 @@ function assertModelOperationTypes(
   const mismatchedRegistry = {
     note: SYNC_MODEL.fact,
   };
-  // @ts-expect-error an entry's explicit prefix must match its registry key
+  // @ts-expect-error an entry's slug must match its registry key
   void (mismatchedRegistry satisfies {
-    [K in keyof typeof mismatchedRegistry]: { prefix: `${K}/` };
+    [K in keyof typeof mismatchedRegistry]: { slug: K };
   });
 }
 void assertModelOperationTypes;
 
 describe("SYNC_MODEL storage keys", () => {
   test("every public key operation returns the entity prefix", () => {
-    const prefix: "note/" = SYNC_MODEL.note.prefix;
     const storageKey: `note/${string}` = SYNC_MODEL.note.storageKeyForId({ id: note.id });
 
-    assert.equal(prefix, "note/");
     assert.equal(storageKey, "note/note_1");
+    assert.equal(SYNC_MODEL.note.storageKeyForCVRId(note.id), "note/note_1");
     assert.equal(SYNC_MODEL.note.storageKeyFor(note), "note/note_1");
   });
 
@@ -106,9 +107,9 @@ describe("SYNC_MODEL storage keys", () => {
     );
   });
 
-  test("derives every prefix from its registry key", () => {
-    for (const rawPrefix of IDB_KEY_NAMES) {
-      assert.equal(SYNC_MODEL[rawPrefix].prefix, `${rawPrefix}/`);
+  test("derives every model slug from its registry key", () => {
+    for (const slug of IDB_KEY_NAMES) {
+      assert.equal(SYNC_MODEL[slug].slug, slug);
     }
   });
 
