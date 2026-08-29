@@ -1,4 +1,4 @@
-import { IDB_KEY, syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
@@ -17,7 +17,7 @@ export interface ActionStagingsState {
  * Live view of the user's pending action approvals.
  *
  * The server pull only emits `status='pending' AND requires_approval` rows
- * (see `ENTITY_FETCHERS.ACTION_STAGING`), so this scan is already the
+ * (see `ENTITY_FETCHERS.actionstaging`), so this scan is already the
  * approval queue — no client-side status filtering needed. Rows that fail
  * schema validation are dropped rather than crashing the page; a malformed
  * row should never take the whole queue down.
@@ -32,17 +32,11 @@ export function useActionStagings(): ActionStagingsState {
       return;
     }
 
-    const prefix = IDB_KEY.ACTION_STAGING({});
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+      (tx: ReadTransaction) => SYNC_MODEL.actionstaging.scan(tx),
       (values) => {
-        const parsed: SyncedActionStaging[] = [];
-        for (const value of values) {
-          const result = syncedActionStagingSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setRows(parsed);
+        values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setRows(values);
       },
     );
   }, [rep]);

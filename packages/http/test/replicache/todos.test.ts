@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  IDB_KEY,
+  SYNC_MODEL,
   todoClearClient,
   todoCompleteClient,
   todoCompleteSuggestionClient,
@@ -100,7 +100,7 @@ function todo(overrides: Partial<SyncedTodo> = {}): SyncedTodo {
   };
 }
 
-const KEY = IDB_KEY.TODO({ id: "todo_1" });
+const KEY = SYNC_MODEL.todo.storageKeyForId({ id: "todo_1" });
 
 describe("todoClearClient (#297: done → cleared)", () => {
   test("deletes a done todo from the local store (cleared never syncs)", async () => {

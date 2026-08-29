@@ -1,15 +1,9 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
-import {
-  isoDateTimeStringSchema,
-  syncedChatAttachmentSchema,
-  syncedChatMessageSchema,
-  syncedChatThreadSchema,
-} from "../schemas";
+import { SYNC_MODEL } from "../sync-model";
+import { isoDateTimeStringSchema } from "../schemas";
 import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../types";
-import { parseSyncedValue, readSyncedValue } from "./read";
 
 /**
  * Client-side chat mutators (streaming-chat plan). Only the *user* side is a
@@ -76,7 +70,7 @@ export const chatAttachmentCreateArgsSchema = z.object({
 export type ChatAttachmentCreateArgs = z.infer<typeof chatAttachmentCreateArgsSchema>;
 
 async function readThread(tx: WriteTransaction, id: string): Promise<SyncedChatThread | null> {
-  return readSyncedValue(tx, IDB_KEY.CHAT_THREAD({ id }), syncedChatThreadSchema);
+  return SYNC_MODEL.chatthread.get(tx, { id });
 }
 
 /** Create an empty thread. Idempotent on id. */
@@ -84,7 +78,7 @@ export async function chatThreadCreateClient(
   tx: WriteTransaction,
   args: ChatThreadCreateArgs,
 ): Promise<void> {
-  if (await tx.has(IDB_KEY.CHAT_THREAD({ id: args.id }))) return;
+  if (await SYNC_MODEL.chatthread.get(tx, { id: args.id })) return;
   const value: SyncedChatThread = {
     id: args.id,
     userId: args.userId,
@@ -95,7 +89,7 @@ export async function chatThreadCreateClient(
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
   };
-  await tx.set(IDB_KEY.CHAT_THREAD({ id: args.id }), normalizeToReadonlyJSON(value));
+  await SYNC_MODEL.chatthread.put(tx, value);
 }
 
 /** Patch a thread's optimistic field set. No-op if the row hasn't synced yet. */
@@ -106,14 +100,11 @@ async function patchThread(
 ): Promise<void> {
   const thread = await readThread(tx, id);
   if (!thread) return;
-  await tx.set(
-    IDB_KEY.CHAT_THREAD({ id }),
-    normalizeToReadonlyJSON({
-      ...thread,
-      ...patch,
-      rowVersion: thread.rowVersion + 1,
-    } satisfies SyncedChatThread),
-  );
+  await SYNC_MODEL.chatthread.put(tx, {
+    ...thread,
+    ...patch,
+    rowVersion: thread.rowVersion + 1,
+  } satisfies SyncedChatThread);
 }
 
 /** Rename a thread's title optimistically. */
@@ -140,29 +131,21 @@ export async function chatThreadDeleteClient(
   tx: WriteTransaction,
   args: ChatThreadDeleteArgs,
 ): Promise<void> {
-  await tx.del(IDB_KEY.CHAT_THREAD({ id: args.id }));
+  await SYNC_MODEL.chatthread.del(tx, { id: args.id });
   const deletedMessageIds = new Set<string>();
-  const messages = await tx
-    .scan({ prefix: IDB_KEY.CHAT_MESSAGE({}) })
-    .entries()
-    .toArray();
-  for (const [key, value] of messages) {
-    const message = parseSyncedValue(value, syncedChatMessageSchema);
-    if (message?.threadId === args.id) {
+  const messages = await SYNC_MODEL.chatmsg.scan(tx);
+  for (const message of messages) {
+    if (message.threadId === args.id) {
       deletedMessageIds.add(message.id);
-      await tx.del(key);
+      await SYNC_MODEL.chatmsg.del(tx, { id: message.id });
     }
   }
   // Drop the deleted messages' attachments too (server cascades the rows +
   // reaps the bucket objects; this keeps the optimistic store consistent).
-  const attachments = await tx
-    .scan({ prefix: IDB_KEY.CHAT_ATTACHMENT({}) })
-    .entries()
-    .toArray();
-  for (const [key, value] of attachments) {
-    const att = parseSyncedValue(value, syncedChatAttachmentSchema);
-    if (att && deletedMessageIds.has(att.messageId)) {
-      await tx.del(key);
+  const attachments = await SYNC_MODEL.chatatt.scan(tx);
+  for (const attachment of attachments) {
+    if (deletedMessageIds.has(attachment.messageId)) {
+      await SYNC_MODEL.chatatt.del(tx, { id: attachment.id });
     }
   }
 }
@@ -179,7 +162,7 @@ export async function chatAttachmentCreateClient(
   tx: WriteTransaction,
   args: ChatAttachmentCreateArgs,
 ): Promise<void> {
-  if (await tx.has(IDB_KEY.CHAT_ATTACHMENT({ id: args.id }))) return;
+  if (await SYNC_MODEL.chatatt.get(tx, { id: args.id })) return;
   const value: SyncedChatAttachment = {
     id: args.id,
     messageId: args.messageId,
@@ -192,7 +175,7 @@ export async function chatAttachmentCreateClient(
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
   };
-  await tx.set(IDB_KEY.CHAT_ATTACHMENT({ id: args.id }), normalizeToReadonlyJSON(value));
+  await SYNC_MODEL.chatatt.put(tx, value);
 }
 
 /** Append the user's message and bump the thread's lastMessageAt. Idempotent on id. */
@@ -200,7 +183,7 @@ export async function chatMessageCreateClient(
   tx: WriteTransaction,
   args: ChatMessageCreateArgs,
 ): Promise<void> {
-  if (!(await tx.has(IDB_KEY.CHAT_MESSAGE({ id: args.id })))) {
+  if (!(await SYNC_MODEL.chatmsg.get(tx, { id: args.id }))) {
     const message: SyncedChatMessage = {
       id: args.id,
       userId: args.userId,
@@ -219,20 +202,17 @@ export async function chatMessageCreateClient(
       createdAt: args.createdAt,
       updatedAt: args.createdAt,
     };
-    await tx.set(IDB_KEY.CHAT_MESSAGE({ id: args.id }), normalizeToReadonlyJSON(message));
+    await SYNC_MODEL.chatmsg.put(tx, message);
   }
 
   // Optimistically float the thread to the top of the list.
   const thread = await readThread(tx, args.threadId);
   if (thread) {
-    await tx.set(
-      IDB_KEY.CHAT_THREAD({ id: args.threadId }),
-      normalizeToReadonlyJSON({
-        ...thread,
-        lastMessageAt: args.createdAt,
-        rowVersion: thread.rowVersion + 1,
-        updatedAt: args.createdAt,
-      } satisfies SyncedChatThread),
-    );
+    await SYNC_MODEL.chatthread.put(tx, {
+      ...thread,
+      lastMessageAt: args.createdAt,
+      rowVersion: thread.rowVersion + 1,
+      updatedAt: args.createdAt,
+    } satisfies SyncedChatThread);
   }
 }

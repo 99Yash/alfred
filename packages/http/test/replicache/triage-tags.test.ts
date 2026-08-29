@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { IDB_KEY, triageTagOverrideClient, type SyncedTriageTag } from "@alfred/sync";
+import { SYNC_MODEL, triageTagOverrideClient, type SyncedTriageTag } from "@alfred/sync";
 
 import { serverMutators } from "../../src/sync/write";
 
@@ -82,7 +82,7 @@ const baseTag = {
 
 describe("triageTagOverrideClient", () => {
   test("optimistically flips an auto tag to the user branch and drops classifier provenance", async () => {
-    const key = IDB_KEY.TRIAGE_TAG({ id: baseTag.threadId });
+    const key = SYNC_MODEL.triagetag.storageKeyForId({ threadId: baseTag.threadId });
     const autoTag: SyncedTriageTag = {
       source: "auto",
       confidence: 0.4,

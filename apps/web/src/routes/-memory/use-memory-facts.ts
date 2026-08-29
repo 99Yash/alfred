@@ -1,4 +1,4 @@
-import { IDB_KEY, type SyncedFact, syncedFactSchema } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedFact } from "@alfred/sync";
 import type { ClientMutators } from "@alfred/sync";
 import { useCallback, useEffect, useState } from "react";
 import type { ReadTransaction, Replicache } from "replicache";
@@ -33,19 +33,10 @@ export function useMemoryFacts(): MemoryFactsState {
     }
 
     return rep.subscribe(
-      async (tx: ReadTransaction) =>
-        tx
-          .scan({ prefix: IDB_KEY.FACT({}) })
-          .values()
-          .toArray(),
-      (values) => {
-        const parsed: SyncedFact[] = [];
-        for (const value of values) {
-          const result = syncedFactSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort(sortFacts);
-        setSnapshot({ rep, facts: parsed });
+      (tx: ReadTransaction) => SYNC_MODEL.fact.scan(tx),
+      (facts) => {
+        facts.sort(sortFacts);
+        setSnapshot({ rep, facts });
       },
     );
   }, [rep]);

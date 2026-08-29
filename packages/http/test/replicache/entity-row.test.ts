@@ -3,7 +3,7 @@
  * per-domain split of the pull read model.
  *
  * `toEntityRow` decides whether one malformed row costs the user ONE ROW or the
- * WHOLE PULL. A narrowed predicate, a deleted `try`, or a domain serializer that
+ * WHOLE PULL. A narrowed predicate, a deleted `try`, or a domain `make` that
  * throws a plain `Error` where it used to throw `SerializationError` turns a
  * skipped row into a failed pull — a total sync outage for that user, from one
  * bad row, with every type check green.
@@ -16,23 +16,44 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { z } from "zod";
+import { syncedNoteSchema } from "@alfred/sync";
 
 import { SerializationError, toEntityRow } from "../../src/sync/read/entity-row";
+import type { EntityRow } from "../../src/sync/read/entity-row";
 
-const ROW = { slug: "NOTE", id: "note-1", rowVersion: 3 } as const;
+const ROW = { slug: "note" } as const;
+
+const SERIALIZED = {
+  id: "note-1",
+  userId: "u",
+  text: "hi",
+  createdAt: "2026-08-29T00:00:00.000Z",
+  rowVersion: 3,
+};
+
+const ROW_MAKE: () => EntityRow<"note"> = () => ({
+  id: "note-1",
+  storageKey: "note/note-1",
+  rowVersion: 3,
+  serialized: SERIALIZED,
+});
 
 describe("toEntityRow recoverable-serialization skip", () => {
   test("a well-formed row becomes exactly one patch row", () => {
-    const serialized = { id: "note-1", userId: "u", text: "hi", createdAt: "x", rowVersion: 3 };
-    assert.deepEqual(toEntityRow({ ...ROW, serialize: () => serialized as never }), [
-      { id: "note-1", rowVersion: 3, serialized },
+    assert.deepEqual(toEntityRow({ ...ROW, make: ROW_MAKE }), [
+      { id: "note-1", storageKey: "note/note-1", rowVersion: 3, serialized: SERIALIZED },
     ]);
   });
 
   test("a ZodError skips the row instead of failing the pull", () => {
     const result = toEntityRow({
       ...ROW,
-      serialize: () => z.object({ id: z.string() }).parse({}) as never,
+      make: () => ({
+        id: "note-1",
+        storageKey: "note/note-1",
+        rowVersion: 3,
+        serialized: syncedNoteSchema.parse(z.object({ id: z.string() }).parse({})),
+      }),
     });
     assert.deepEqual(result, []);
   });
@@ -40,7 +61,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
   test("a SerializationError skips the row instead of failing the pull", () => {
     const result = toEntityRow({
       ...ROW,
-      serialize: (): never => {
+      make: (): EntityRow<"note"> => {
         throw new SerializationError("notes.createdAt must not be null");
       },
     });
@@ -52,7 +73,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
       () =>
         toEntityRow({
           ...ROW,
-          serialize: (): never => {
+          make: (): EntityRow<"note"> => {
             throw new TypeError("the connection dropped mid-serialize");
           },
         }),

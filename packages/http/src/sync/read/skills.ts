@@ -6,100 +6,40 @@ import {
   type SkillRevision,
   type SkillRun,
 } from "@alfred/db/schemas";
-import {
-  jsonRecordSchema,
-  syncedSkillRevisionSchema,
-  syncedSkillRunSchema,
-  syncedSkillSchema,
-  type SyncedSkill,
-  type SyncedSkillRevision,
-  type SyncedSkillRun,
-} from "@alfred/sync";
+import { SYNC_MODEL } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
-import { toEntityRow, type EntityFetcher } from "./entity-row";
-import { toIso, toRequiredIso } from "./iso-date";
+import { syncEntity } from "./sync-entity";
 
-export const fetchSkills: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select()
-    .from(skills)
-    .where(eq(skills.userId, userId))
-    .orderBy(asc(skills.id));
-  return rows.flatMap((s: Skill) =>
-    toEntityRow({
-      slug: "SKILL",
-      id: s.id,
-      rowVersion: s.rowVersion,
-      serialize: () => serializeSkill(s),
-    }),
-  );
-};
+export const fetchSkills = syncEntity(SYNC_MODEL.skill, {
+  query: (tx, userId) =>
+    tx.select().from(skills).where(eq(skills.userId, userId)).orderBy(asc(skills.id)),
+  map: (s: Skill) => s,
+});
 
-export const fetchSkillRevisions: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select()
-    .from(skillRevisions)
-    .where(eq(skillRevisions.userId, userId))
-    .orderBy(asc(skillRevisions.id));
-  return rows.flatMap((r: SkillRevision) =>
-    toEntityRow({
-      slug: "SKILL_REVISION",
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialize: () => serializeSkillRevision(r),
-    }),
-  );
-};
-
-export const fetchSkillRuns: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select()
-    .from(skillRuns)
-    .where(eq(skillRuns.userId, userId))
-    .orderBy(asc(skillRuns.id));
-  return rows.flatMap((r: SkillRun) =>
-    toEntityRow({
-      slug: "SKILL_RUN",
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialize: () => serializeSkillRun(r),
-    }),
-  );
-};
-
-function serializeSkill(s: Skill): SyncedSkill {
-  return syncedSkillSchema.parse({
-    id: s.id,
-    userId: s.userId,
-    slug: s.slug,
-    name: s.name,
-    description: s.description,
-    currentRevisionId: s.currentRevisionId,
-    status: s.status,
-    isBuiltin: s.isBuiltin,
-    lastInvokedAt: toIso(s.lastInvokedAt),
-    rowVersion: s.rowVersion,
-    createdAt: toRequiredIso(s.createdAt, "skills.createdAt"),
-    updatedAt: toIso(s.updatedAt),
-  });
-}
-
-function serializeSkillRevision(r: SkillRevision): SyncedSkillRevision {
-  return syncedSkillRevisionSchema.parse({
+export const fetchSkillRevisions = syncEntity(SYNC_MODEL.skillrev, {
+  query: (tx, userId) =>
+    tx
+      .select()
+      .from(skillRevisions)
+      .where(eq(skillRevisions.userId, userId))
+      .orderBy(asc(skillRevisions.id)),
+  map: (r: SkillRevision) => ({
     id: r.id,
     skillId: r.skillId,
     userId: r.userId,
     kind: r.kind,
     body: r.body,
-    metadata: jsonRecordSchema.parse(r.metadata),
+    metadata: r.metadata,
     createdByRunId: r.createdByRunId,
     rowVersion: r.rowVersion,
-    createdAt: toRequiredIso(r.createdAt, "skillRevisions.createdAt"),
-  });
-}
+    createdAt: r.createdAt,
+  }),
+});
 
-function serializeSkillRun(r: SkillRun): SyncedSkillRun {
-  return syncedSkillRunSchema.parse({
+export const fetchSkillRuns = syncEntity(SYNC_MODEL.skillrun, {
+  query: (tx, userId) =>
+    tx.select().from(skillRuns).where(eq(skillRuns.userId, userId)).orderBy(asc(skillRuns.id)),
+  map: (r: SkillRun) => ({
     id: r.id,
     skillId: r.skillId,
     userId: r.userId,
@@ -108,7 +48,7 @@ function serializeSkillRun(r: SkillRun): SyncedSkillRun {
     status: r.status,
     producedRevisionId: r.producedRevisionId,
     rowVersion: r.rowVersion,
-    startedAt: toRequiredIso(r.startedAt, "skillRuns.startedAt"),
-    endedAt: toIso(r.endedAt),
-  });
-}
+    startedAt: r.startedAt,
+    endedAt: r.endedAt,
+  }),
+});
