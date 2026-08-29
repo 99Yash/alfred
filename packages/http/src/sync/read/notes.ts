@@ -1,33 +1,16 @@
 import { notes, type Note } from "@alfred/db/schemas";
 import { syncedNoteSchema, type SyncedNote } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
-import { toEntityRow, type EntityFetcher } from "./entity-row";
-import { toRequiredIso } from "./iso-date";
+import { defineFetcher } from "./define-fetcher";
+import { defineSerializer } from "./define-serializer";
 
-export const fetchNotes: EntityFetcher = async (tx, userId) => {
-  const rows = await tx.select().from(notes).where(eq(notes.userId, userId)).orderBy(asc(notes.id));
-  return rows.flatMap((n: Note) =>
-    toEntityRow({
-      slug: "NOTE",
-      id: n.id,
-      rowVersion: n.rowVersion,
-      serialize: () => serializeNote(n),
-    }),
-  );
-};
+const serializeNote = defineSerializer<Note, SyncedNote>(syncedNoteSchema);
 
-function serializeNote(n: {
-  id: string;
-  userId: string;
-  text: string;
-  rowVersion: number;
-  createdAt: Date;
-}): SyncedNote {
-  return syncedNoteSchema.parse({
-    id: n.id,
-    userId: n.userId,
-    text: n.text,
-    createdAt: toRequiredIso(n.createdAt, "notes.createdAt"),
-    rowVersion: n.rowVersion,
-  });
-}
+export const fetchNotes = defineFetcher<Note>({
+  slug: "NOTE",
+  query: (tx, userId) =>
+    tx.select().from(notes).where(eq(notes.userId, userId)).orderBy(asc(notes.id)),
+  idOf: (n) => n.id,
+  versionOf: (n) => n.rowVersion,
+  serialize: serializeNote,
+});

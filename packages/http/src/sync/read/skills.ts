@@ -7,7 +7,6 @@ import {
   type SkillRun,
 } from "@alfred/db/schemas";
 import {
-  jsonRecordSchema,
   syncedSkillRevisionSchema,
   syncedSkillRunSchema,
   syncedSkillSchema,
@@ -16,99 +15,44 @@ import {
   type SyncedSkillRun,
 } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
-import { toEntityRow, type EntityFetcher } from "./entity-row";
-import { toIso, toRequiredIso } from "./iso-date";
+import { defineFetcher } from "./define-fetcher";
+import { defineSerializer } from "./define-serializer";
 
-export const fetchSkills: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select()
-    .from(skills)
-    .where(eq(skills.userId, userId))
-    .orderBy(asc(skills.id));
-  return rows.flatMap((s: Skill) =>
-    toEntityRow({
-      slug: "SKILL",
-      id: s.id,
-      rowVersion: s.rowVersion,
-      serialize: () => serializeSkill(s),
-    }),
-  );
-};
+const serializeSkill = defineSerializer<Skill, SyncedSkill>(syncedSkillSchema);
 
-export const fetchSkillRevisions: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select()
-    .from(skillRevisions)
-    .where(eq(skillRevisions.userId, userId))
-    .orderBy(asc(skillRevisions.id));
-  return rows.flatMap((r: SkillRevision) =>
-    toEntityRow({
-      slug: "SKILL_REVISION",
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialize: () => serializeSkillRevision(r),
-    }),
-  );
-};
+const serializeSkillRevision = defineSerializer<SkillRevision, SyncedSkillRevision>(
+  syncedSkillRevisionSchema,
+);
 
-export const fetchSkillRuns: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select()
-    .from(skillRuns)
-    .where(eq(skillRuns.userId, userId))
-    .orderBy(asc(skillRuns.id));
-  return rows.flatMap((r: SkillRun) =>
-    toEntityRow({
-      slug: "SKILL_RUN",
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialize: () => serializeSkillRun(r),
-    }),
-  );
-};
+const serializeSkillRun = defineSerializer<SkillRun, SyncedSkillRun>(syncedSkillRunSchema);
 
-function serializeSkill(s: Skill): SyncedSkill {
-  return syncedSkillSchema.parse({
-    id: s.id,
-    userId: s.userId,
-    slug: s.slug,
-    name: s.name,
-    description: s.description,
-    currentRevisionId: s.currentRevisionId,
-    status: s.status,
-    isBuiltin: s.isBuiltin,
-    lastInvokedAt: toIso(s.lastInvokedAt),
-    rowVersion: s.rowVersion,
-    createdAt: toRequiredIso(s.createdAt, "skills.createdAt"),
-    updatedAt: toIso(s.updatedAt),
-  });
-}
+export const fetchSkills = defineFetcher<Skill>({
+  slug: "SKILL",
+  query: (tx, userId) =>
+    tx.select().from(skills).where(eq(skills.userId, userId)).orderBy(asc(skills.id)),
+  idOf: (s) => s.id,
+  versionOf: (s) => s.rowVersion,
+  serialize: serializeSkill,
+});
 
-function serializeSkillRevision(r: SkillRevision): SyncedSkillRevision {
-  return syncedSkillRevisionSchema.parse({
-    id: r.id,
-    skillId: r.skillId,
-    userId: r.userId,
-    kind: r.kind,
-    body: r.body,
-    metadata: jsonRecordSchema.parse(r.metadata),
-    createdByRunId: r.createdByRunId,
-    rowVersion: r.rowVersion,
-    createdAt: toRequiredIso(r.createdAt, "skillRevisions.createdAt"),
-  });
-}
+export const fetchSkillRevisions = defineFetcher<SkillRevision>({
+  slug: "SKILL_REVISION",
+  query: (tx, userId) =>
+    tx
+      .select()
+      .from(skillRevisions)
+      .where(eq(skillRevisions.userId, userId))
+      .orderBy(asc(skillRevisions.id)),
+  idOf: (r) => r.id,
+  versionOf: (r) => r.rowVersion,
+  serialize: serializeSkillRevision,
+});
 
-function serializeSkillRun(r: SkillRun): SyncedSkillRun {
-  return syncedSkillRunSchema.parse({
-    id: r.id,
-    skillId: r.skillId,
-    userId: r.userId,
-    kind: r.kind,
-    agentRunId: r.agentRunId,
-    status: r.status,
-    producedRevisionId: r.producedRevisionId,
-    rowVersion: r.rowVersion,
-    startedAt: toRequiredIso(r.startedAt, "skillRuns.startedAt"),
-    endedAt: toIso(r.endedAt),
-  });
-}
+export const fetchSkillRuns = defineFetcher<SkillRun>({
+  slug: "SKILL_RUN",
+  query: (tx, userId) =>
+    tx.select().from(skillRuns).where(eq(skillRuns.userId, userId)).orderBy(asc(skillRuns.id)),
+  idOf: (r) => r.id,
+  versionOf: (r) => r.rowVersion,
+  serialize: serializeSkillRun,
+});
