@@ -1,5 +1,7 @@
 import {
   gmailEmailMessagePayloadSchema,
+  integrationObjectKeySegment,
+  INTEGRATION_OBJECT_KIND_SEGMENTS,
   type EntityKindClassification,
   type EntityNodeKind,
   type IdentityRef,
@@ -126,7 +128,26 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("repository", STRONG_CONFIDENCE, [`identity:${identity.kind}`]);
   }
   if (identity.kind === "integration_object_key") {
-    return classification("project", PERSON_CONFIDENCE, ["identity:integration_object_key"]);
+    // TWO node kinds anchor on this identity kind — an ADR-0062 provider object
+    // (`project`) and an ADR-0092 `referent` — so the kind alone decides
+    // nothing, and reading it as `project` labelled every referent a project.
+    // The registered kind SEGMENT of the value decides, from the one table both
+    // this classifier and every minter share.
+    const segment = integrationObjectKeySegment(identity.value);
+    if (segment) {
+      return classification(INTEGRATION_OBJECT_KIND_SEGMENTS[segment], STRONG_CONFIDENCE, [
+        `identity:integration_object_key:${segment}`,
+      ]);
+    }
+    // An unregistered segment is a minter that skipped the table. Say `unknown`
+    // and keep `project` as the guess: `kind` is versioned, so a replay fixes it
+    // once the segment is registered, and a wrong hard claim never lands.
+    return classification(
+      "unknown",
+      WEAK_CONFIDENCE,
+      ["identity:integration_object_key:unregistered"],
+      "project",
+    );
   }
   if (identity.kind !== "email") {
     return classification("unknown", WEAK_CONFIDENCE, [`identity:${identity.kind}`]);

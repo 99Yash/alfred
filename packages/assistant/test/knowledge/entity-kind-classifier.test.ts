@@ -112,6 +112,39 @@ describe("classifyEntityKind", () => {
     );
   });
 
+  test("reads the kind segment of an integration_object_key, not the identity kind", () => {
+    // Two node kinds anchor on `integration_object_key`. Reading the kind alone
+    // labelled every ADR-0092 referent a `project`.
+    const referent = classifyEntityKind({
+      identity: identity("integration_object_key", "github:pull_request:99yash/alfred#913"),
+    });
+    assert.equal(referent.kind, "referent");
+    assert.deepEqual(referent.evidenceCodes, ["identity:integration_object_key:pull_request"]);
+
+    const senderScoped = classifyEntityKind({
+      identity: identity(
+        "integration_object_key",
+        "alfred:referent:ent_aaaa/baserow-response-time",
+      ),
+    });
+    assert.equal(senderScoped.kind, "referent");
+
+    const project = classifyEntityKind({
+      identity: identity("integration_object_key", "clickup:project:901234"),
+    });
+    assert.equal(project.kind, "project");
+  });
+
+  test("an unregistered kind segment is unknown with a guess, never a guessed kind", () => {
+    const result = classifyEntityKind({
+      identity: identity("integration_object_key", "vercel:deployment:dpl_abc"),
+    });
+
+    assert.equal(result.kind, "unknown");
+    assert.equal(result.bestGuess, "project");
+    assert.deepEqual(result.evidenceCodes, ["identity:integration_object_key:unregistered"]);
+  });
+
   test("extracts Gmail payload signals from observations", () => {
     const result = classifyEntityKind({
       identity: emailIdentity("engineering@oliv.ai"),
