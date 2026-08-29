@@ -5,11 +5,9 @@ import {
   type ActionStaging,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
-import { syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
-import { defineFetcher } from "./define-fetcher";
-import { defineSerializer } from "./define-serializer";
+import { syncEntity } from "./sync-entity";
 
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -97,99 +95,94 @@ function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   };
 }
 
-const serializeActionStaging = defineSerializer<ActionStagingRow, SyncedActionStaging>(
-  syncedActionStagingSchema,
-  (row) => {
-    const s = row.staging;
-    if (s.status !== "pending") {
-      throw new SerializationError(`cannot sync action staging with status '${s.status}'`);
-    }
-    const recentRejection = row.recentRejection;
-    const brief = row.brief
-      ? row.brief.length > BRIEF_PREVIEW_CHARS
-        ? `${row.brief.slice(0, BRIEF_PREVIEW_CHARS - 1)}…`
-        : row.brief
-      : null;
-    return {
-      id: s.id,
-      userId: s.userId,
-      runId: s.runId,
-      workflowSlug: row.workflowSlug,
-      workflowName: row.workflowName ?? row.workflowSlug,
-      trigger: narrowTrigger(row.trigger),
-      brief,
-      stepId: s.stepId,
-      toolCallId: s.toolCallId,
-      toolName: s.toolName,
-      integration: s.integration,
-      riskTier: s.riskTier,
-      proposedInput: s.proposedInput,
-      requiresApproval: s.requiresApproval,
-      status: s.status,
-      expiresAt: s.expiresAt,
-      notifyAfterAt: s.notifyAfterAt,
-      notifiedAt: s.notifiedAt,
-      recentRejection: recentRejection
-        ? {
-            runId: recentRejection.runId,
-            reason: recentRejection.reason,
-            decidedAt: recentRejection.decidedAt,
-          }
-        : null,
-      rowVersion: s.rowVersion,
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-    };
-  },
-);
-
-export const fetchActionStagings = defineFetcher<ActionStagingRow>({
-  slug: "ACTION_STAGING",
-  query: async (tx, userId) => {
-    const rows: Array<{
-      staging: ActionStaging;
-      workflowSlug: string;
-      workflowName: string | null;
-      trigger: AgentRunTrigger | null;
-      brief: string | null;
-    }> = await tx
-      .select({
-        staging: actionStagings,
-        workflowSlug: agentRuns.workflowSlug,
-        workflowName: workflows.name,
-        trigger: agentRuns.trigger,
-        brief: agentRuns.brief,
-      })
-      .from(actionStagings)
-      .innerJoin(agentRuns, eq(actionStagings.runId, agentRuns.id))
-      .leftJoin(
-        workflows,
-        and(eq(workflows.userId, agentRuns.userId), eq(workflows.slug, agentRuns.workflowSlug)),
-      )
-      .where(
-        and(
-          eq(actionStagings.userId, userId),
-          eq(actionStagings.status, "pending"),
-          eq(actionStagings.requiresApproval, true),
-        ),
-      )
-      .orderBy(asc(actionStagings.id));
-
-    const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
-    return rows.map(
-      (r: {
+export const fetchActionStagings = syncEntity<"ACTION_STAGING", ActionStagingRow>(
+  "ACTION_STAGING",
+  {
+    query: async (tx, userId) => {
+      const rows: Array<{
         staging: ActionStaging;
         workflowSlug: string;
         workflowName: string | null;
         trigger: AgentRunTrigger | null;
         brief: string | null;
-      }) => ({
-        ...r,
-        recentRejection: recentRejections.get(r.staging.toolName) ?? null,
-      }),
-    );
+      }> = await tx
+        .select({
+          staging: actionStagings,
+          workflowSlug: agentRuns.workflowSlug,
+          workflowName: workflows.name,
+          trigger: agentRuns.trigger,
+          brief: agentRuns.brief,
+        })
+        .from(actionStagings)
+        .innerJoin(agentRuns, eq(actionStagings.runId, agentRuns.id))
+        .leftJoin(
+          workflows,
+          and(eq(workflows.userId, agentRuns.userId), eq(workflows.slug, agentRuns.workflowSlug)),
+        )
+        .where(
+          and(
+            eq(actionStagings.userId, userId),
+            eq(actionStagings.status, "pending"),
+            eq(actionStagings.requiresApproval, true),
+          ),
+        )
+        .orderBy(asc(actionStagings.id));
+
+      const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
+      return rows.map(
+        (r: {
+          staging: ActionStaging;
+          workflowSlug: string;
+          workflowName: string | null;
+          trigger: AgentRunTrigger | null;
+          brief: string | null;
+        }) => ({
+          ...r,
+          recentRejection: recentRejections.get(r.staging.toolName) ?? null,
+        }),
+      );
+    },
+    map: (row) => {
+      const s = row.staging;
+      if (s.status !== "pending") {
+        throw new SerializationError(`cannot sync action staging with status '${s.status}'`);
+      }
+      const recentRejection = row.recentRejection;
+      const brief = row.brief
+        ? row.brief.length > BRIEF_PREVIEW_CHARS
+          ? `${row.brief.slice(0, BRIEF_PREVIEW_CHARS - 1)}…`
+          : row.brief
+        : null;
+      return {
+        id: s.id,
+        userId: s.userId,
+        runId: s.runId,
+        workflowSlug: row.workflowSlug,
+        workflowName: row.workflowName ?? row.workflowSlug,
+        trigger: narrowTrigger(row.trigger),
+        brief,
+        stepId: s.stepId,
+        toolCallId: s.toolCallId,
+        toolName: s.toolName,
+        integration: s.integration,
+        riskTier: s.riskTier,
+        proposedInput: s.proposedInput,
+        requiresApproval: s.requiresApproval,
+        status: s.status,
+        expiresAt: s.expiresAt,
+        notifyAfterAt: s.notifyAfterAt,
+        notifiedAt: s.notifiedAt,
+        recentRejection: recentRejection
+          ? {
+              runId: recentRejection.runId,
+              reason: recentRejection.reason,
+              decidedAt: recentRejection.decidedAt,
+            }
+          : null,
+        rowVersion: s.rowVersion,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      };
+    },
   },
-  idOf: (r: ActionStagingRow) => r.staging.id,
-  versionOf: (r: ActionStagingRow) => r.staging.rowVersion,
-  serialize: serializeActionStaging,
-});
+);

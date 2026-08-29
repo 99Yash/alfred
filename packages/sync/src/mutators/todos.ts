@@ -1,6 +1,6 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { isoDateTimeStringSchema, syncedTodoSchema } from "../schemas";
 import type { SyncedTodo } from "../types";
 import { readSyncedValue } from "./read";
@@ -60,7 +60,7 @@ async function readTodo(tx: WriteTransaction, id: string): Promise<SyncedTodo | 
 }
 
 async function writeTodo(tx: WriteTransaction, todo: SyncedTodo): Promise<void> {
-  await tx.set(IDB_KEY.TODO({ id: todo.id }), normalizeToReadonlyJSON(todo));
+  await tx.set(SYNC_MODEL.TODO.key(todo), normalizeToReadonlyJSON(todo));
 }
 
 /** Add a user-authored todo. Idempotent on id (a retry overwrites with the same row). */

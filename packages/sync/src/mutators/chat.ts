@@ -1,7 +1,7 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON } from "../sync-model";
 import {
   isoDateTimeStringSchema,
   syncedChatAttachmentSchema,
