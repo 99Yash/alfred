@@ -1,4 +1,4 @@
-import { IDB_KEY, type PreferenceValue, syncedPreferenceSchema } from "@alfred/sync";
+import { SYNC_MODEL, type PreferenceValue, syncedPreferenceSchema } from "@alfred/sync";
 import { useCallback, useMemo } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
@@ -27,7 +27,7 @@ const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
  */
 export function usePreferenceMap(): PreferenceMap {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const prefix = IDB_KEY.PREFERENCE({});
+  const prefix = SYNC_MODEL.PREFERENCE.prefix;
   const query = useCallback(
     (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
     [prefix],

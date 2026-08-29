@@ -6,27 +6,50 @@ import {
   type SkillRevision,
   type SkillRun,
 } from "@alfred/db/schemas";
+import { runStatusSchema } from "@alfred/contracts";
+import { jsonRecordSchema } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
-export const fetchSkills = syncEntity<"SKILL", Skill>("SKILL", {
+export const fetchSkills = syncEntity("SKILL", {
   query: (tx, userId) =>
     tx.select().from(skills).where(eq(skills.userId, userId)).orderBy(asc(skills.id)),
-  map: (s) => s,
+  map: (s: Skill) => s,
 });
 
-export const fetchSkillRevisions = syncEntity<"SKILL_REVISION", SkillRevision>("SKILL_REVISION", {
+export const fetchSkillRevisions = syncEntity("SKILL_REVISION", {
   query: (tx, userId) =>
     tx
       .select()
       .from(skillRevisions)
       .where(eq(skillRevisions.userId, userId))
       .orderBy(asc(skillRevisions.id)),
-  map: (r) => r,
+  map: (r: SkillRevision) => ({
+    id: r.id,
+    skillId: r.skillId,
+    userId: r.userId,
+    kind: r.kind,
+    body: r.body,
+    metadata: jsonRecordSchema.parse(r.metadata),
+    createdByRunId: r.createdByRunId,
+    rowVersion: r.rowVersion,
+    createdAt: r.createdAt,
+  }),
 });
 
-export const fetchSkillRuns = syncEntity<"SKILL_RUN", SkillRun>("SKILL_RUN", {
+export const fetchSkillRuns = syncEntity("SKILL_RUN", {
   query: (tx, userId) =>
     tx.select().from(skillRuns).where(eq(skillRuns.userId, userId)).orderBy(asc(skillRuns.id)),
-  map: (r) => r,
+  map: (r: SkillRun) => ({
+    id: r.id,
+    skillId: r.skillId,
+    userId: r.userId,
+    kind: r.kind,
+    agentRunId: r.agentRunId,
+    status: runStatusSchema.parse(r.status),
+    producedRevisionId: r.producedRevisionId,
+    rowVersion: r.rowVersion,
+    startedAt: r.startedAt,
+    endedAt: r.endedAt,
+  }),
 });

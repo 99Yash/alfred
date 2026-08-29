@@ -1,4 +1,4 @@
-import { type FactValue, IDB_KEY, type SyncedFact, syncedFactSchema } from "@alfred/sync";
+import { type FactValue, SYNC_MODEL, type SyncedFact, syncedFactSchema } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
@@ -44,7 +44,7 @@ export function useBioFact(): BioFactState {
       setRows(null);
       return;
     }
-    const prefix = IDB_KEY.FACT({});
+    const prefix = SYNC_MODEL.FACT.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {

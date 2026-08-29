@@ -16,24 +16,31 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { z } from "zod";
+import { syncedNoteSchema } from "@alfred/sync";
 
 import { SerializationError, toEntityRow } from "../../src/sync/read/entity-row";
 import type { EntityRow } from "../../src/sync/read/entity-row";
 
 const ROW = { slug: "NOTE" } as const;
 
-const SERIALIZED = { id: "note-1", userId: "u", text: "hi", createdAt: "x", rowVersion: 3 };
+const SERIALIZED = {
+  id: "note-1",
+  userId: "u",
+  text: "hi",
+  createdAt: "2026-08-29T00:00:00.000Z",
+  rowVersion: 3,
+};
 
-const ROW_MAKE: () => EntityRow = () => ({
+const ROW_MAKE: () => EntityRow<"NOTE"> = () => ({
   id: "note-1",
   rowVersion: 3,
-  serialized: SERIALIZED as never,
+  serialized: SERIALIZED,
 });
 
 describe("toEntityRow recoverable-serialization skip", () => {
   test("a well-formed row becomes exactly one patch row", () => {
     assert.deepEqual(toEntityRow({ ...ROW, make: ROW_MAKE }), [
-      { id: "note-1", rowVersion: 3, serialized: SERIALIZED as never },
+      { id: "note-1", rowVersion: 3, serialized: SERIALIZED },
     ]);
   });
 
@@ -43,7 +50,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
       make: () => ({
         id: "note-1",
         rowVersion: 3,
-        serialized: z.object({ id: z.string() }).parse({}) as never,
+        serialized: syncedNoteSchema.parse(z.object({ id: z.string() }).parse({})),
       }),
     });
     assert.deepEqual(result, []);
@@ -52,7 +59,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
   test("a SerializationError skips the row instead of failing the pull", () => {
     const result = toEntityRow({
       ...ROW,
-      make: (): EntityRow => {
+      make: (): EntityRow<"NOTE"> => {
         throw new SerializationError("notes.createdAt must not be null");
       },
     });
@@ -64,7 +71,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
       () =>
         toEntityRow({
           ...ROW,
-          make: (): EntityRow => {
+          make: (): EntityRow<"NOTE"> => {
             throw new TypeError("the connection dropped mid-serialize");
           },
         }),

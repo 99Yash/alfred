@@ -1,7 +1,7 @@
 import { LOADABLE_INTEGRATION_SLUGS, POLICY_MODES } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../sync-model";
+import { normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { syncedActionPolicySchema } from "../schemas";
 import type { SyncedActionPolicy } from "../types";
 import { readSyncedValue } from "./read";
@@ -16,7 +16,7 @@ export async function policySetIntegrationModeClient(
   tx: WriteTransaction,
   args: PolicySetIntegrationModeArgs,
 ): Promise<void> {
-  const prefix = IDB_KEY.ACTION_POLICY({});
+  const prefix = SYNC_MODEL.ACTION_POLICY.prefix;
   const [key] = await tx.scan({ prefix }).keys().toArray();
   if (!key) return;
   const current = await readSyncedValue(tx, key, syncedActionPolicySchema);
@@ -47,7 +47,7 @@ export async function policySetDefaultModeClient(
   tx: WriteTransaction,
   args: PolicySetDefaultModeArgs,
 ): Promise<void> {
-  const prefix = IDB_KEY.ACTION_POLICY({});
+  const prefix = SYNC_MODEL.ACTION_POLICY.prefix;
   const [key] = await tx.scan({ prefix }).keys().toArray();
   if (!key) return;
   const current = await readSyncedValue(tx, key, syncedActionPolicySchema);

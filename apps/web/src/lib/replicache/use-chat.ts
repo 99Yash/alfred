@@ -1,5 +1,5 @@
 import {
-  IDB_KEY,
+  SYNC_MODEL,
   syncedChatAttachmentSchema,
   syncedChatMessageSchema,
   syncedChatThreadSchema,
@@ -23,7 +23,7 @@ export function useChatThreads(): SyncedChatThread[] {
 
   useEffect(() => {
     if (!rep) return;
-    const prefix = IDB_KEY.CHAT_THREAD({});
+    const prefix = SYNC_MODEL.CHAT_THREAD.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
@@ -58,7 +58,7 @@ export function useChatThread(threadId: string | undefined): ChatThreadState {
   useEffect(() => {
     if (!rep || !threadId) return;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.get(IDB_KEY.CHAT_THREAD({ id: threadId })),
+      async (tx: ReadTransaction) => tx.get(SYNC_MODEL.CHAT_THREAD.storageKeyForId(threadId)),
       (value) => {
         const result = syncedChatThreadSchema.safeParse(value);
         setSnapshot({ rep, threadId, thread: result.success ? result.data : null });
@@ -96,7 +96,7 @@ export function useChatMessages(threadId: string | undefined): ChatMessagesState
 
   useEffect(() => {
     if (!rep || !threadId) return;
-    const prefix = IDB_KEY.CHAT_MESSAGE({});
+    const prefix = SYNC_MODEL.CHAT_MESSAGE.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
@@ -142,8 +142,8 @@ export function useChatAttachmentsByMessage(
 
   useEffect(() => {
     if (!rep || !threadId) return;
-    const messagePrefix = IDB_KEY.CHAT_MESSAGE({});
-    const attachmentPrefix = IDB_KEY.CHAT_ATTACHMENT({});
+    const messagePrefix = SYNC_MODEL.CHAT_MESSAGE.prefix;
+    const attachmentPrefix = SYNC_MODEL.CHAT_ATTACHMENT.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => ({
         messages: await tx.scan({ prefix: messagePrefix }).values().toArray(),

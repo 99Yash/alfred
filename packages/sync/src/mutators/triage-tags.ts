@@ -1,7 +1,7 @@
 import { triageCategorySchema } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
+import { normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { syncedTriageTagSchema } from "../schemas";
 import type { SyncedTriageTag } from "../types";
 import { readSyncedValue } from "./read";
@@ -24,11 +24,15 @@ export const triageTagOverrideArgsSchema = z.object({
 export type TriageTagOverrideArgs = z.infer<typeof triageTagOverrideArgsSchema>;
 
 async function readTag(tx: WriteTransaction, threadId: string): Promise<SyncedTriageTag | null> {
-  return readSyncedValue(tx, IDB_KEY.TRIAGE_TAG({ id: threadId }), syncedTriageTagSchema);
+  return readSyncedValue(
+    tx,
+    SYNC_MODEL.TRIAGE_TAG.storageKeyForId(threadId),
+    syncedTriageTagSchema,
+  );
 }
 
 async function writeTag(tx: WriteTransaction, tag: SyncedTriageTag): Promise<void> {
-  await tx.set(SYNC_MODEL.TRIAGE_TAG.key(tag), normalizeToReadonlyJSON(tag));
+  await tx.set(SYNC_MODEL.TRIAGE_TAG.storageKeyFor(tag), normalizeToReadonlyJSON(tag));
 }
 
 /**

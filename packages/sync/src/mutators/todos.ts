@@ -1,6 +1,6 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
+import { normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
 import { isoDateTimeStringSchema, syncedTodoSchema } from "../schemas";
 import type { SyncedTodo } from "../types";
 import { readSyncedValue } from "./read";
@@ -56,11 +56,11 @@ export const todoEditArgsSchema = z
 export type TodoEditArgs = z.infer<typeof todoEditArgsSchema>;
 
 async function readTodo(tx: WriteTransaction, id: string): Promise<SyncedTodo | null> {
-  return readSyncedValue(tx, IDB_KEY.TODO({ id }), syncedTodoSchema);
+  return readSyncedValue(tx, SYNC_MODEL.TODO.storageKeyForId(id), syncedTodoSchema);
 }
 
 async function writeTodo(tx: WriteTransaction, todo: SyncedTodo): Promise<void> {
-  await tx.set(SYNC_MODEL.TODO.key(todo), normalizeToReadonlyJSON(todo));
+  await tx.set(SYNC_MODEL.TODO.storageKeyFor(todo), normalizeToReadonlyJSON(todo));
 }
 
 /** Add a user-authored todo. Idempotent on id (a retry overwrites with the same row). */
@@ -160,7 +160,7 @@ export async function todoDismissClient(
   tx: WriteTransaction,
   args: TodoDismissArgs,
 ): Promise<void> {
-  const key = IDB_KEY.TODO({ id: args.id });
+  const key = SYNC_MODEL.TODO.storageKeyForId(args.id);
   if (!(await tx.has(key))) return;
   await tx.del(key);
 }
@@ -174,7 +174,7 @@ export async function todoDismissClient(
 export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "done") return;
-  await tx.del(IDB_KEY.TODO({ id: args.id }));
+  await tx.del(SYNC_MODEL.TODO.storageKeyForId(args.id));
 }
 
 /** Edit a todo's name and/or description. */

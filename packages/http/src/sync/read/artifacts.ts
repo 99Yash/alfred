@@ -9,7 +9,7 @@ const ARTIFACT_PULL_LIMIT = 200;
 // recent ARTIFACT_PULL_LIMIT; the sidebar filters by threadId client-side. A
 // `generating` row syncs too (content may still be null) so the sidebar can
 // render the placeholder while the boss authors.
-export const fetchArtifacts = syncEntity<"ARTIFACT", Artifact>("ARTIFACT", {
+export const fetchArtifacts = syncEntity("ARTIFACT", {
   query: (tx, userId) =>
     tx
       .select()
@@ -17,5 +17,5 @@ export const fetchArtifacts = syncEntity<"ARTIFACT", Artifact>("ARTIFACT", {
       .where(eq(artifacts.userId, userId))
       .orderBy(desc(artifacts.createdAt), desc(artifacts.id))
       .limit(ARTIFACT_PULL_LIMIT),
-  map: (a) => a,
+  map: (a: Artifact) => a,
 });

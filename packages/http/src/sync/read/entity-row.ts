@@ -1,19 +1,22 @@
 import { toMessage } from "@alfred/contracts";
-import type { IDBKeys, SyncedEntity } from "@alfred/sync";
+import type { DbTransaction } from "@alfred/db";
+import type { IDBKeys, SyncedValueFor } from "@alfred/sync";
 import { ZodError } from "zod";
 
 /**
  * One row's contribution to the patch: its row_version drives CVR diffing,
  * and `serialized` is the value Replicache writes to the client store.
  */
-export interface EntityRow {
+export interface EntityRow<Slug extends IDBKeys = IDBKeys> {
   id: string;
   rowVersion: number;
-  serialized: SyncedEntity;
+  serialized: SyncedValueFor<Slug>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type EntityFetcher = (tx: any, userId: string) => Promise<EntityRow[]>;
+export type EntityFetcher<Slug extends IDBKeys> = (
+  tx: DbTransaction,
+  userId: string,
+) => Promise<EntityRow<Slug>[]>;
 
 /**
  * THE RECOVERABLE-SERIALIZATION PATH. Read this before editing any file in
@@ -33,7 +36,10 @@ export type EntityFetcher = (tx: any, userId: string) => Promise<EntityRow[]>;
  *
  * `packages/http/test/replicache/entity-row.test.ts` drives the three arms.
  */
-export function toEntityRow(args: { slug: IDBKeys; make: () => EntityRow }): EntityRow[] {
+export function toEntityRow<Slug extends IDBKeys>(args: {
+  slug: Slug;
+  make: () => EntityRow<Slug>;
+}): EntityRow<Slug>[] {
   try {
     return [args.make()];
   } catch (err) {

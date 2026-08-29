@@ -1,5 +1,5 @@
 import {
-  IDB_KEY,
+  SYNC_MODEL,
   type SyncedWorkflow,
   syncedWorkflowSchema,
   type WorkflowUpdateArgs,
@@ -30,7 +30,7 @@ export function useWorkflows(): WorkflowsState {
 
   useEffect(() => {
     if (!rep) return;
-    const prefix = IDB_KEY.WORKFLOW({});
+    const prefix = SYNC_MODEL.WORKFLOW.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
@@ -74,7 +74,7 @@ export function useWorkflow(slug: string): WorkflowState {
 
   useEffect(() => {
     if (!rep) return;
-    const key = IDB_KEY.WORKFLOW({ id: slug });
+    const key = SYNC_MODEL.WORKFLOW.storageKeyForId(slug);
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.get(key),
       (value) => {

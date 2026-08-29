@@ -15,7 +15,7 @@ export type ClientViewMap = Record<string, CVRRow>;
  *
  * `entities` is keyed by `IDBKeys` (e.g. `"NOTE"`, `"FACT"`) so the pull
  * dispatcher can iterate generically — adding a new synced entity is one
- * line in the `IDB_KEY` registry plus one entry in the pull entity table.
+ * line in the `SYNC_MODEL` registry plus one entry in the pull entity table.
  *
  * `clients` tracks `lastMutationId` per client at snapshot time. Pull emits
  * only the diffs so Replicache's invariant holds: if `cookie` doesn't change,

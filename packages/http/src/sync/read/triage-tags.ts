@@ -1,6 +1,7 @@
 import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
 import { emailTriage, type EmailTriage } from "@alfred/db/schemas";
 import { and, asc, eq, gte, notInArray, or } from "drizzle-orm";
+import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
 /** Auto triage tags sync for this long after classification (rfc-triage-tags.md). */
@@ -17,7 +18,7 @@ const TRIAGE_TAG_WINDOW_DAYS = 30;
 // rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
 // TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
 // `source_thread_id` so the client store holds one tag per thread.
-export const fetchTriageTags = syncEntity<"TRIAGE_TAG", EmailTriage>("TRIAGE_TAG", {
+export const fetchTriageTags = syncEntity("TRIAGE_TAG", {
   query: (tx, userId) => {
     const cutoff = new Date(Date.now() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     return tx
@@ -38,7 +39,7 @@ export const fetchTriageTags = syncEntity<"TRIAGE_TAG", EmailTriage>("TRIAGE_TAG
       )
       .orderBy(asc(emailTriage.sourceThreadId));
   },
-  map: (t) => {
+  map: (t: EmailTriage) => {
     const shared = {
       threadId: t.sourceThreadId,
       userId: t.userId,
@@ -50,6 +51,9 @@ export const fetchTriageTags = syncEntity<"TRIAGE_TAG", EmailTriage>("TRIAGE_TAG
       updatedAt: t.updatedAt,
     };
     if (t.source === "user") {
+      if (!t.overriddenAt) {
+        throw new SerializationError("emailTriage.overriddenAt must not be null");
+      }
       return {
         source: "user" as const,
         overriddenAt: t.overriddenAt,

@@ -1,4 +1,4 @@
-import { IDB_KEY, syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
+import { SYNC_MODEL, syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
@@ -32,7 +32,7 @@ export function useActionStagings(): ActionStagingsState {
       return;
     }
 
-    const prefix = IDB_KEY.ACTION_STAGING({});
+    const prefix = SYNC_MODEL.ACTION_STAGING.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {
