@@ -1,3 +1,4 @@
+import type { DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
@@ -36,8 +37,7 @@ interface RecentRejection {
 }
 
 async function loadRecentRejectionsByTool(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tx: any,
+  tx: DbTransaction,
   userId: string,
   pendingRows: Array<{ staging: ActionStaging }>,
 ): Promise<Map<string, RecentRejection>> {
