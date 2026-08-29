@@ -62,11 +62,11 @@ export const factEditArgsSchema = z.object({
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
 
 async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFact | null> {
-  return readSyncedValue(tx, SYNC_MODEL.FACT.storageKeyForId(factId), syncedFactSchema);
+  return readSyncedValue(tx, SYNC_MODEL.fact.storageKeyForId(factId), syncedFactSchema);
 }
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
-  await tx.set(SYNC_MODEL.FACT.storageKeyFor(fact), normalizeToReadonlyJSON(fact));
+  await tx.set(SYNC_MODEL.fact.storageKeyFor(fact), normalizeToReadonlyJSON(fact));
 }
 
 /**
@@ -118,7 +118,7 @@ export async function factConfirmClient(
  * rejected_inferences row.
  */
 export async function factRejectClient(tx: WriteTransaction, args: FactRejectArgs): Promise<void> {
-  const key = SYNC_MODEL.FACT.storageKeyForId(args.factId);
+  const key = SYNC_MODEL.fact.storageKeyForId(args.factId);
   const exists = await tx.has(key);
   if (!exists) return;
   await tx.del(key);
@@ -133,7 +133,7 @@ export async function factRejectClient(tx: WriteTransaction, args: FactRejectArg
 export async function factEditClient(tx: WriteTransaction, args: FactEditArgs): Promise<void> {
   const old = await readFact(tx, args.factId);
   if (!old) return;
-  await tx.del(SYNC_MODEL.FACT.storageKeyForId(args.factId));
+  await tx.del(SYNC_MODEL.fact.storageKeyForId(args.factId));
 
   const now = new Date().toISOString();
   const replacement: SyncedFact = {

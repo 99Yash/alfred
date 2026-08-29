@@ -15,7 +15,7 @@ type WorkflowRow = { workflow: Workflow; currentRevision: WorkflowRevision | nul
 // only mutates `is_builtin = false` rows; built-ins render read-only.
 // Keyed by `slug` so the editor's optimistic write addresses the row
 // without an id lookup, matching the `/workflows/$workflow` route param.
-export const fetchWorkflows = syncEntity("WORKFLOW", {
+export const fetchWorkflows = syncEntity("workflow", {
   query: async (tx, userId) => {
     const rows: WorkflowRow[] = await tx
       .select({ workflow: workflows, currentRevision: workflowRevisions })

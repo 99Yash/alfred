@@ -18,7 +18,7 @@ const CHAT_MESSAGE_PULL_LIMIT = 500;
 // rendering; message sync is bounded to the most recent
 // CHAT_MESSAGE_PULL_LIMIT rows so a long history doesn't pull the whole table
 // on every pull (the client re-sorts ascending).
-export const fetchChatThreads = syncEntity("CHAT_THREAD", {
+export const fetchChatThreads = syncEntity("chatthread", {
   query: (tx, userId) =>
     tx
       .select()
@@ -28,7 +28,7 @@ export const fetchChatThreads = syncEntity("CHAT_THREAD", {
   map: (t: ChatThread) => t,
 });
 
-export const fetchChatMessages = syncEntity("CHAT_MESSAGE", {
+export const fetchChatMessages = syncEntity("chatmsg", {
   query: (tx, userId) =>
     tx
       .select()
@@ -40,11 +40,11 @@ export const fetchChatMessages = syncEntity("CHAT_MESSAGE", {
 });
 
 // Attachments on user messages (ADR-0065). Bound to the same recent-message
-// window as CHAT_MESSAGE, expressed as a join so the pull is one query instead
+// window as `chatmsg`, expressed as a join so the pull is one query instead
 // of a message-id select followed by a 500-element `inArray`. A synced message
 // never loses its image metadata. Display metadata only — the bytes load
 // through the auth-gated content proxy.
-export const fetchChatAttachments = syncEntity("CHAT_ATTACHMENT", {
+export const fetchChatAttachments = syncEntity("chatatt", {
   query: async (tx, userId) => {
     const recentMessages = tx
       .select({ id: chatMessages.id })

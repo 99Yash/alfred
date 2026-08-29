@@ -82,7 +82,7 @@ const baseTag = {
 
 describe("triageTagOverrideClient", () => {
   test("optimistically flips an auto tag to the user branch and drops classifier provenance", async () => {
-    const key = SYNC_MODEL.TRIAGE_TAG.storageKeyForId(baseTag.threadId);
+    const key = SYNC_MODEL.triagetag.storageKeyForId(baseTag.threadId);
     const autoTag: SyncedTriageTag = {
       source: "auto",
       confidence: 0.4,

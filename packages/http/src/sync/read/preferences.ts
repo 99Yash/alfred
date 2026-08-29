@@ -5,7 +5,7 @@ import { syncEntity } from "./sync-entity";
 
 // Preferences are keyed by `(user_id, key)`; the IDB id is the pref key
 // so optimistic client writes can address rows without a lookup.
-export const fetchPreferences = syncEntity("PREFERENCE", {
+export const fetchPreferences = syncEntity("pref", {
   query: (tx, userId) =>
     tx
       .select()

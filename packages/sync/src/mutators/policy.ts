@@ -16,7 +16,7 @@ export async function policySetIntegrationModeClient(
   tx: WriteTransaction,
   args: PolicySetIntegrationModeArgs,
 ): Promise<void> {
-  const prefix = SYNC_MODEL.ACTION_POLICY.prefix;
+  const prefix = SYNC_MODEL.actionpolicy.prefix;
   const [key] = await tx.scan({ prefix }).keys().toArray();
   if (!key) return;
   const current = await readSyncedValue(tx, key, syncedActionPolicySchema);
@@ -47,7 +47,7 @@ export async function policySetDefaultModeClient(
   tx: WriteTransaction,
   args: PolicySetDefaultModeArgs,
 ): Promise<void> {
-  const prefix = SYNC_MODEL.ACTION_POLICY.prefix;
+  const prefix = SYNC_MODEL.actionpolicy.prefix;
   const [key] = await tx.scan({ prefix }).keys().toArray();
   if (!key) return;
   const current = await readSyncedValue(tx, key, syncedActionPolicySchema);

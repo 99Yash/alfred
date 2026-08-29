@@ -17,7 +17,7 @@ export interface ActionStagingsState {
  * Live view of the user's pending action approvals.
  *
  * The server pull only emits `status='pending' AND requires_approval` rows
- * (see `ENTITY_FETCHERS.ACTION_STAGING`), so this scan is already the
+ * (see `ENTITY_FETCHERS.actionstaging`), so this scan is already the
  * approval queue — no client-side status filtering needed. Rows that fail
  * schema validation are dropped rather than crashing the page; a malformed
  * row should never take the whole queue down.
@@ -32,7 +32,7 @@ export function useActionStagings(): ActionStagingsState {
       return;
     }
 
-    const prefix = SYNC_MODEL.ACTION_STAGING.prefix;
+    const prefix = SYNC_MODEL.actionstaging.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {

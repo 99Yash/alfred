@@ -18,7 +18,7 @@ const TRIAGE_TAG_WINDOW_DAYS = 30;
 // rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
 // TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
 // `source_thread_id` so the client store holds one tag per thread.
-export const fetchTriageTags = syncEntity("TRIAGE_TAG", {
+export const fetchTriageTags = syncEntity("triagetag", {
   query: (tx, userId) => {
     const cutoff = new Date(Date.now() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     return tx

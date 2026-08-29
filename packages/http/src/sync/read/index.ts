@@ -25,25 +25,25 @@ export type EntityFetchers = {
  * `satisfies EntityFetchers` is load-bearing: adding a key to `SYNC_MODEL`
  * forces a fetcher here, and each slot accepts only the fetcher for that slug.
  * Server pull therefore cannot forget an entity or pair (for example) the
- * FACT reader with NOTE. This is the only way a fetcher becomes reachable.
+ * `fact` reader with `note`. This is the only way a fetcher becomes reachable.
  */
 export const ENTITY_FETCHERS = {
-  NOTE: fetchNotes,
-  FACT: fetchFacts,
-  BRIEFING: fetchBriefings,
-  PREFERENCE: fetchPreferences,
-  SKILL: fetchSkills,
-  SKILL_REVISION: fetchSkillRevisions,
-  SKILL_RUN: fetchSkillRuns,
-  ACTION_STAGING: fetchActionStagings,
-  ACTION_POLICY: fetchActionPolicies,
-  WORKFLOW: fetchWorkflows,
-  TODO: fetchTodos,
-  CHAT_THREAD: fetchChatThreads,
-  CHAT_MESSAGE: fetchChatMessages,
-  CHAT_ATTACHMENT: fetchChatAttachments,
-  ARTIFACT: fetchArtifacts,
-  TRIAGE_TAG: fetchTriageTags,
+  note: fetchNotes,
+  fact: fetchFacts,
+  briefing: fetchBriefings,
+  pref: fetchPreferences,
+  skill: fetchSkills,
+  skillrev: fetchSkillRevisions,
+  skillrun: fetchSkillRuns,
+  actionstaging: fetchActionStagings,
+  actionpolicy: fetchActionPolicies,
+  workflow: fetchWorkflows,
+  todo: fetchTodos,
+  chatthread: fetchChatThreads,
+  chatmsg: fetchChatMessages,
+  chatatt: fetchChatAttachments,
+  artifact: fetchArtifacts,
+  triagetag: fetchTriageTags,
 } satisfies EntityFetchers;
 
 // Built from `IDB_KEY_NAMES`, NOT from `Object.entries(ENTITY_FETCHERS)`: this

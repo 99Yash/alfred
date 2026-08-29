@@ -13,7 +13,8 @@ export type ClientViewMap = Record<string, CVRRow>;
  * A Client-View Record — what the client had last time they pulled.
  * Diffing the current visible row set against this produces the next patch.
  *
- * `entities` is keyed by `IDBKeys` (e.g. `"NOTE"`, `"FACT"`) so the pull
+ * `entities` is keyed by each model's persisted raw prefix (for example,
+ * `"note"` and `"fact"`) so the pull
  * dispatcher can iterate generically — adding a new synced entity is one
  * line in the `SYNC_MODEL` registry plus one entry in the pull entity table.
  *

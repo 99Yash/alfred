@@ -13,12 +13,12 @@ describe("SYNC_MODEL storage keys", () => {
       rowVersion: 2,
     };
 
-    const prefix: "note/" = SYNC_MODEL.NOTE.prefix;
-    const storageKey: `note/${string}` = SYNC_MODEL.NOTE.storageKeyForId(note.id);
+    const prefix: "note/" = SYNC_MODEL.note.prefix;
+    const storageKey: `note/${string}` = SYNC_MODEL.note.storageKeyForId(note.id);
 
     assert.equal(prefix, "note/");
     assert.equal(storageKey, "note/note_1");
-    assert.equal(SYNC_MODEL.NOTE.storageKeyFor(note), "note/note_1");
+    assert.equal(SYNC_MODEL.note.storageKeyFor(note), "note/note_1");
   });
 
   test("keeps non-id identity rules inside the model", () => {
@@ -30,19 +30,19 @@ describe("SYNC_MODEL storage keys", () => {
       rowVersion: 1,
     };
 
-    assert.equal(SYNC_MODEL.PREFERENCE.storageKeyFor(preference), "pref/tone");
+    assert.equal(SYNC_MODEL.pref.storageKeyFor(preference), "pref/tone");
   });
 
-  test("uses unique prefixes for every registered entity", () => {
-    const prefixes = IDB_KEY_NAMES.map((slug) => SYNC_MODEL[slug].prefix);
-
-    assert.equal(new Set(prefixes).size, IDB_KEY_NAMES.length);
+  test("derives every prefix from its registry key", () => {
+    for (const rawPrefix of IDB_KEY_NAMES) {
+      assert.equal(SYNC_MODEL[rawPrefix].prefix, `${rawPrefix}/`);
+    }
   });
 });
 
 describe("SYNC_MODEL pull parsing", () => {
   test("derives CVR identity and version from the parsed value", () => {
-    const parsed = parseSyncPullValue("NOTE", {
+    const parsed = parseSyncPullValue("note", {
       id: "note_1",
       userId: "user_1",
       text: "Remember this",
@@ -56,7 +56,7 @@ describe("SYNC_MODEL pull parsing", () => {
 
   test("keeps the persisted wire schema strict", () => {
     assert.throws(() =>
-      parseSyncPullValue("NOTE", {
+      parseSyncPullValue("note", {
         id: "note_1",
         userId: "user_1",
         text: "Remember this",

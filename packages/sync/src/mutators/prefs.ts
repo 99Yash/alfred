@@ -34,7 +34,7 @@ export type PrefDeleteArgs = z.infer<typeof prefDeleteArgsSchema>;
  * with the canonical version.
  */
 export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Promise<void> {
-  const idbKey = SYNC_MODEL.PREFERENCE.storageKeyForId(args.key);
+  const idbKey = SYNC_MODEL.pref.storageKeyForId(args.key);
   const prev = await readSyncedValue(tx, idbKey, syncedPreferenceSchema);
   const replacement: SyncedPreference = {
     key: args.key,
@@ -48,7 +48,7 @@ export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Pr
 
 /** Optimistic delete. Server removes the row; next pull confirms. */
 export async function prefDeleteClient(tx: WriteTransaction, args: PrefDeleteArgs): Promise<void> {
-  const idbKey = SYNC_MODEL.PREFERENCE.storageKeyForId(args.key);
+  const idbKey = SYNC_MODEL.pref.storageKeyForId(args.key);
   const exists = await tx.has(idbKey);
   if (!exists) return;
   await tx.del(idbKey);

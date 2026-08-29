@@ -40,7 +40,7 @@ export interface BriefingsState {
  */
 export function useBriefings(): BriefingsState {
   const { loadError, retry } = useReplicacheStatus();
-  const prefix = SYNC_MODEL.BRIEFING.prefix;
+  const prefix = SYNC_MODEL.briefing.prefix;
   const query = useCallback(
     (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
     [prefix],
@@ -80,7 +80,7 @@ export interface BriefingDayState {
  */
 export function useBriefing(date: string): BriefingDayState {
   const { loadError, retry } = useReplicacheStatus();
-  const prefix = SYNC_MODEL.BRIEFING.storageKeyForId(`${date}/`);
+  const prefix = SYNC_MODEL.briefing.storageKeyForId(`${date}/`);
   const query = useCallback(
     (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
     [prefix],

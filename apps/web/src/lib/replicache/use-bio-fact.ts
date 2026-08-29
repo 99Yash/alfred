@@ -44,7 +44,7 @@ export function useBioFact(): BioFactState {
       setRows(null);
       return;
     }
-    const prefix = SYNC_MODEL.FACT.prefix;
+    const prefix = SYNC_MODEL.fact.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {

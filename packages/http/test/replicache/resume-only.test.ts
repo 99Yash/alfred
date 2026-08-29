@@ -182,7 +182,7 @@ describe(
         cookie: null,
       });
       assert.ok(!("forbidden" in firstPull));
-      const workflowKey = SYNC_MODEL.WORKFLOW.storageKeyForId(RESUME_ONLY_SLUG);
+      const workflowKey = SYNC_MODEL.workflow.storageKeyForId(RESUME_ONLY_SLUG);
       assert.ok(
         firstPull.patch.some((op) => op.op === "put" && op.key === workflowKey),
         "the stale built-in must be present in the client's prior view",

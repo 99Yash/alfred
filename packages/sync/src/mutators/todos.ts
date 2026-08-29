@@ -56,11 +56,11 @@ export const todoEditArgsSchema = z
 export type TodoEditArgs = z.infer<typeof todoEditArgsSchema>;
 
 async function readTodo(tx: WriteTransaction, id: string): Promise<SyncedTodo | null> {
-  return readSyncedValue(tx, SYNC_MODEL.TODO.storageKeyForId(id), syncedTodoSchema);
+  return readSyncedValue(tx, SYNC_MODEL.todo.storageKeyForId(id), syncedTodoSchema);
 }
 
 async function writeTodo(tx: WriteTransaction, todo: SyncedTodo): Promise<void> {
-  await tx.set(SYNC_MODEL.TODO.storageKeyFor(todo), normalizeToReadonlyJSON(todo));
+  await tx.set(SYNC_MODEL.todo.storageKeyFor(todo), normalizeToReadonlyJSON(todo));
 }
 
 /** Add a user-authored todo. Idempotent on id (a retry overwrites with the same row). */
@@ -160,7 +160,7 @@ export async function todoDismissClient(
   tx: WriteTransaction,
   args: TodoDismissArgs,
 ): Promise<void> {
-  const key = SYNC_MODEL.TODO.storageKeyForId(args.id);
+  const key = SYNC_MODEL.todo.storageKeyForId(args.id);
   if (!(await tx.has(key))) return;
   await tx.del(key);
 }
@@ -174,7 +174,7 @@ export async function todoDismissClient(
 export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "done") return;
-  await tx.del(SYNC_MODEL.TODO.storageKeyForId(args.id));
+  await tx.del(SYNC_MODEL.todo.storageKeyForId(args.id));
 }
 
 /** Edit a todo's name and/or description. */

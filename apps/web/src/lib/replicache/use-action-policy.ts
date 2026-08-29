@@ -38,7 +38,7 @@ export function useActionPolicy(): ActionPolicyState {
       setLoaded(false);
       return;
     }
-    const prefix = SYNC_MODEL.ACTION_POLICY.prefix;
+    const prefix = SYNC_MODEL.actionpolicy.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (values) => {

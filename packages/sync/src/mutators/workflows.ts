@@ -172,7 +172,7 @@ export async function workflowUpdateClient(
   tx: WriteTransaction,
   args: WorkflowUpdateArgs,
 ): Promise<void> {
-  const key = SYNC_MODEL.WORKFLOW.storageKeyForId(args.slug);
+  const key = SYNC_MODEL.workflow.storageKeyForId(args.slug);
   const current = await readSyncedValue(tx, key, syncedWorkflowSchema);
   if (!current) return;
   if (current.isBuiltin) return;
