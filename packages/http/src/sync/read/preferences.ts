@@ -1,10 +1,11 @@
 import { userPreferences, type UserPreference } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
 // Preferences are keyed by `(user_id, key)`; the IDB id is the pref key
 // so optimistic client writes can address rows without a lookup.
-export const fetchPreferences = syncEntity("pref", {
+export const fetchPreferences = syncEntity(SYNC_MODEL.pref, {
   query: (tx, userId) =>
     tx
       .select()

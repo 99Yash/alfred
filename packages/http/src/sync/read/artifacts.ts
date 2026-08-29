@@ -1,4 +1,5 @@
 import { artifacts, type Artifact } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { desc, eq } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
@@ -9,7 +10,7 @@ const ARTIFACT_PULL_LIMIT = 200;
 // recent ARTIFACT_PULL_LIMIT; the sidebar filters by threadId client-side. A
 // `generating` row syncs too (content may still be null) so the sidebar can
 // render the placeholder while the boss authors.
-export const fetchArtifacts = syncEntity("artifact", {
+export const fetchArtifacts = syncEntity(SYNC_MODEL.artifact, {
   query: (tx, userId) =>
     tx
       .select()

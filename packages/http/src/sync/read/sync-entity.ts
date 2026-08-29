@@ -1,6 +1,6 @@
 import { isRecord } from "@alfred/contracts";
 import type { DbTransaction } from "@alfred/db";
-import { parseSyncPullValue, type IDBKeys, type SyncModelFor } from "@alfred/sync";
+import type { IDBKeys, SyncModelFor, SyncedValueFor } from "@alfred/sync";
 import { ZodError, type z } from "zod";
 import { toEntityRow, type EntityFetcher } from "./entity-row";
 
@@ -16,6 +16,17 @@ type SyncEntityConfig<Slug extends IDBKeys, Row, Mapped> = {
   map: (row: Row) => Mapped & MapperHasSchemaKeys<Slug, Mapped>;
 };
 
+type SyncEntityModelContract<Slug extends IDBKeys> = {
+  readonly slug: Slug;
+  readonly schema: SyncModelFor<Slug>["schema"];
+  parsePullValue(input: unknown): {
+    id: string;
+    storageKey: `${Slug}/${string}`;
+    rowVersion: number;
+    value: SyncedValueFor<Slug>;
+  };
+};
+
 /**
  * Define one Replicache pull reader.
  *
@@ -24,20 +35,22 @@ type SyncEntityConfig<Slug extends IDBKeys, Row, Mapped> = {
  * derivation, and one-bad-row isolation. The mapper must supply every selected
  * schema field, while the selected schema validates field values at runtime.
  */
-export function syncEntity<Slug extends IDBKeys, Row, Mapped>(
-  slug: Slug,
+export function syncEntity<const Slug extends IDBKeys, Row, Mapped>(
+  model: SyncEntityModelContract<Slug>,
   config: SyncEntityConfig<Slug, Row, Mapped>,
 ): EntityFetcher<Slug> {
   return async (tx, userId) => {
     const rows = await config.query(tx, userId);
     return rows.flatMap((row) =>
       toEntityRow({
-        slug,
+        slug: model.slug,
         make: () => {
           const mapped = config.map(row);
           try {
-            const { id, rowVersion, value } = parseSyncPullValue(slug, stringifyDates(mapped));
-            return { id, rowVersion, serialized: value };
+            const { id, storageKey, rowVersion, value } = model.parsePullValue(
+              stringifyDates(mapped),
+            );
+            return { id, storageKey, rowVersion, serialized: value };
           } catch (err) {
             if (err instanceof ZodError) {
               const paths = err.issues
@@ -55,7 +68,7 @@ export function syncEntity<Slug extends IDBKeys, Row, Mapped>(
                 // The schema error remains recoverable even when its diagnostic cannot serialize the value.
               }
               console.warn(
-                `[replicache] invalid ${slug} row at ${paths}; mapped value: ${preview}`,
+                `[replicache] invalid ${model.slug} row at ${paths}; mapped value: ${preview}`,
               );
             }
             throw err;

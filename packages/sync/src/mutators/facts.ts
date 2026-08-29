@@ -61,7 +61,7 @@ export const factEditArgsSchema = z.object({
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
 
 async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFact | null> {
-  return SYNC_MODEL.fact.get(tx, factId);
+  return SYNC_MODEL.fact.get(tx, { id: factId });
 }
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
@@ -117,7 +117,7 @@ export async function factConfirmClient(
  * rejected_inferences row.
  */
 export async function factRejectClient(tx: WriteTransaction, args: FactRejectArgs): Promise<void> {
-  await SYNC_MODEL.fact.del(tx, args.factId);
+  await SYNC_MODEL.fact.del(tx, { id: args.factId });
 }
 
 /**
@@ -129,7 +129,7 @@ export async function factRejectClient(tx: WriteTransaction, args: FactRejectArg
 export async function factEditClient(tx: WriteTransaction, args: FactEditArgs): Promise<void> {
   const old = await readFact(tx, args.factId);
   if (!old) return;
-  await SYNC_MODEL.fact.del(tx, args.factId);
+  await SYNC_MODEL.fact.del(tx, { id: args.factId });
 
   const now = new Date().toISOString();
   const replacement: SyncedFact = {

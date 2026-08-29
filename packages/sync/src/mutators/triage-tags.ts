@@ -22,7 +22,7 @@ export const triageTagOverrideArgsSchema = z.object({
 export type TriageTagOverrideArgs = z.infer<typeof triageTagOverrideArgsSchema>;
 
 async function readTag(tx: WriteTransaction, threadId: string): Promise<SyncedTriageTag | null> {
-  return SYNC_MODEL.triagetag.get(tx, threadId);
+  return SYNC_MODEL.triagetag.get(tx, { threadId });
 }
 
 async function writeTag(tx: WriteTransaction, tag: SyncedTriageTag): Promise<void> {

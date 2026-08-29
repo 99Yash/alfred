@@ -1,12 +1,13 @@
 import { isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
 import { userFacts, type UserFact } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
 // Only `proposed` + `confirmed` reach the client; rejected / edited /
 // superseded rows stay server-side as audit history.
-export const fetchFacts = syncEntity("fact", {
+export const fetchFacts = syncEntity(SYNC_MODEL.fact, {
   query: async (tx, userId) => {
     const rows: UserFact[] = await tx
       .select()

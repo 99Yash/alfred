@@ -93,7 +93,7 @@ export function useArtifact(artifactId: string | undefined): SyncedArtifact | nu
   useEffect(() => {
     if (!rep || !artifactId) return;
     return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.artifact.get(tx, artifactId),
+      (tx: ReadTransaction) => SYNC_MODEL.artifact.get(tx, { id: artifactId }),
       (artifact) => setSnapshot({ rep, artifactId, artifact }),
     );
   }, [rep, artifactId]);

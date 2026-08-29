@@ -49,7 +49,7 @@ export function useChatThread(threadId: string | undefined): ChatThreadState {
   useEffect(() => {
     if (!rep || !threadId) return;
     return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.chatthread.get(tx, threadId),
+      (tx: ReadTransaction) => SYNC_MODEL.chatthread.get(tx, { id: threadId }),
       (thread) => setSnapshot({ rep, threadId, thread }),
     );
   }, [rep, threadId]);

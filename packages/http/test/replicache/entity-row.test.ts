@@ -33,6 +33,7 @@ const SERIALIZED = {
 
 const ROW_MAKE: () => EntityRow<"note"> = () => ({
   id: "note-1",
+  storageKey: "note/note-1",
   rowVersion: 3,
   serialized: SERIALIZED,
 });
@@ -40,7 +41,7 @@ const ROW_MAKE: () => EntityRow<"note"> = () => ({
 describe("toEntityRow recoverable-serialization skip", () => {
   test("a well-formed row becomes exactly one patch row", () => {
     assert.deepEqual(toEntityRow({ ...ROW, make: ROW_MAKE }), [
-      { id: "note-1", rowVersion: 3, serialized: SERIALIZED },
+      { id: "note-1", storageKey: "note/note-1", rowVersion: 3, serialized: SERIALIZED },
     ]);
   });
 
@@ -49,6 +50,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
       ...ROW,
       make: () => ({
         id: "note-1",
+        storageKey: "note/note-1",
         rowVersion: 3,
         serialized: syncedNoteSchema.parse(z.object({ id: z.string() }).parse({})),
       }),

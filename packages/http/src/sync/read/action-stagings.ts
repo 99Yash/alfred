@@ -5,6 +5,7 @@ import {
   type ActionStaging,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
@@ -97,7 +98,7 @@ function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   };
 }
 
-export const fetchActionStagings = syncEntity("actionstaging", {
+export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
   query: async (tx, userId) => {
     const rows: SelectedActionStagingRow[] = await tx
       .select({

@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type ChatThread,
 } from "@alfred/db/schemas";
+import { SYNC_MODEL } from "@alfred/sync";
 import { asc, desc, eq, getTableColumns } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
@@ -18,7 +19,7 @@ const CHAT_MESSAGE_PULL_LIMIT = 500;
 // rendering; message sync is bounded to the most recent
 // CHAT_MESSAGE_PULL_LIMIT rows so a long history doesn't pull the whole table
 // on every pull (the client re-sorts ascending).
-export const fetchChatThreads = syncEntity("chatthread", {
+export const fetchChatThreads = syncEntity(SYNC_MODEL.chatthread, {
   query: (tx, userId) =>
     tx
       .select()
@@ -28,7 +29,7 @@ export const fetchChatThreads = syncEntity("chatthread", {
   map: (t: ChatThread) => t,
 });
 
-export const fetchChatMessages = syncEntity("chatmsg", {
+export const fetchChatMessages = syncEntity(SYNC_MODEL.chatmsg, {
   query: (tx, userId) =>
     tx
       .select()
@@ -44,7 +45,7 @@ export const fetchChatMessages = syncEntity("chatmsg", {
 // of a message-id select followed by a 500-element `inArray`. A synced message
 // never loses its image metadata. Display metadata only — the bytes load
 // through the auth-gated content proxy.
-export const fetchChatAttachments = syncEntity("chatatt", {
+export const fetchChatAttachments = syncEntity(SYNC_MODEL.chatatt, {
   query: async (tx, userId) => {
     const recentMessages = tx
       .select({ id: chatMessages.id })

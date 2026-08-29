@@ -4,11 +4,12 @@ import type { IDBKeys, SyncedValueFor } from "@alfred/sync";
 import { ZodError } from "zod";
 
 /**
- * One row's contribution to the patch: its row_version drives CVR diffing,
- * and `serialized` is the value Replicache writes to the client store.
+ * One row's contribution to the patch: its raw `id` and row_version drive CVR
+ * diffing, while `storageKey` and `serialized` are what Replicache writes.
  */
 export interface EntityRow<Slug extends IDBKeys = IDBKeys> {
   id: string;
+  storageKey: `${Slug}/${string}`;
   rowVersion: number;
   serialized: SyncedValueFor<Slug>;
 }

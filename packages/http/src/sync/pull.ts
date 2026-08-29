@@ -109,7 +109,7 @@ export async function handlePull(
         if (!prevRow || prevRow.v !== r.rowVersion) {
           patch.push({
             op: "put",
-            key: SYNC_MODEL[slug].storageKeyForId(r.id),
+            key: r.storageKey,
             value: r.serialized,
           });
         }
@@ -118,7 +118,7 @@ export async function handlePull(
       if (!isColdSync) {
         for (const id of Object.keys(prevMap)) {
           if (!nextMap[id]) {
-            patch.push({ op: "del", key: SYNC_MODEL[slug].storageKeyForId(id) });
+            patch.push({ op: "del", key: `${SYNC_MODEL[slug].prefix}${id}` });
           }
         }
       }

@@ -171,7 +171,7 @@ export async function workflowUpdateClient(
   tx: WriteTransaction,
   args: WorkflowUpdateArgs,
 ): Promise<void> {
-  const current = await SYNC_MODEL.workflow.get(tx, args.slug);
+  const current = await SYNC_MODEL.workflow.get(tx, { slug: args.slug });
   if (!current) return;
   if (current.isBuiltin) return;
 
