@@ -88,6 +88,7 @@ function modelToolEmail() {
  *       • coerceJsonArrayFields — JSON-stringified array → real array
  *       • wrapScalarRecipients  — gmail: bare recipient string → [string]
  *       • promoteWindowSynonym  — calendar: any window-valued key → window
+ *       • padDatetimeSeconds    — calendar: minute-precision datetime → :00 seconds
  *       • promoteDriveBareQuery — drive: bare term → a valid query clause
  *       • withGithubItemUrl     — github: url/slug/number-synonym → owner/repo/<n>
  *
@@ -344,36 +345,74 @@ function promoteWindowSynonym(value: unknown): unknown {
 // `calendarListEventsObject` if you need the field map.
 export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calendarListEventsObject);
 
-export const calendarCreateEventInput = coerceJsonArrayFields(
-  ["attendees"],
-  z
-    .object({
-      calendarId: z
-        .string()
-        .min(1)
-        .max(200)
-        .default("primary")
-        .describe(
-          "Calendar id to create the event in. Use primary unless the user specified another calendar.",
-        ),
-      summary: z.string().min(1).max(500),
-      description: z.string().max(10_000).optional(),
-      location: z.string().max(1_000).optional(),
-      start: z.string().datetime({ offset: true }),
-      end: z.string().datetime({ offset: true }),
-      timeZone: z
-        .string()
-        .min(1)
-        .max(100)
-        .optional()
-        .describe("IANA timezone for the event. Omit when start/end include explicit offsets."),
-      attendees: z.array(modelToolEmail()).max(50).optional(),
-    })
-    .strict()
-    .refine((value) => new Date(value.end) > new Date(value.start), {
-      message: "end must be after start",
-      path: ["end"],
-    }),
+/**
+ * A zoned datetime that omits seconds (`2026-08-29T14:00+05:30`) is padded to
+ * `:00` seconds before validation. Zod accepted minute precision through 4.4.3;
+ * 4.5.0 tightened `z.iso.datetime()` to the RFC 3339 grammar, which makes the
+ * seconds field mandatory. Models routinely write the minute-precision form,
+ * because that is how a person writes a meeting time — so without this shim a
+ * `calendar.create_event` call that worked before the upgrade starts failing
+ * `invalid_format`, and there is no tool-input repair loop to recover it.
+ *
+ * The zone suffix is REQUIRED to match, so this only ever rewrites a value the
+ * old validator already accepted: a bare `2026-08-29T14:00` has no offset, so
+ * `datetime({ offset: true })` rejected it before and still rejects it after.
+ * The shim widens nothing; it restores the previously-accepted input set.
+ * Wrapped at the object level, so `z.toJSONSchema(schema, { io: "input" })`
+ * still advertises a plain datetime string — only the server gets more
+ * tolerant.
+ */
+const MINUTE_PRECISION_DATETIME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/;
+
+function padDatetimeSeconds<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+  return z.preprocess((value) => {
+    if (!isRecord(value)) return value;
+    let next = value;
+    for (const field of fields) {
+      const raw = next[field];
+      if (typeof raw !== "string") continue;
+      const match = MINUTE_PRECISION_DATETIME_RE.exec(raw);
+      if (!match) continue;
+      if (next === value) next = { ...value };
+      next[field] = `${match[1]}:00${match[2]}`;
+    }
+    return next;
+  }, schema);
+}
+
+export const calendarCreateEventInput = padDatetimeSeconds(
+  ["start", "end"],
+  coerceJsonArrayFields(
+    ["attendees"],
+    z
+      .object({
+        calendarId: z
+          .string()
+          .min(1)
+          .max(200)
+          .default("primary")
+          .describe(
+            "Calendar id to create the event in. Use primary unless the user specified another calendar.",
+          ),
+        summary: z.string().min(1).max(500),
+        description: z.string().max(10_000).optional(),
+        location: z.string().max(1_000).optional(),
+        start: z.string().datetime({ offset: true }),
+        end: z.string().datetime({ offset: true }),
+        timeZone: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("IANA timezone for the event. Omit when start/end include explicit offsets."),
+        attendees: z.array(modelToolEmail()).max(50).optional(),
+      })
+      .strict()
+      .refine((value) => new Date(value.end) > new Date(value.start), {
+        message: "end must be after start",
+        path: ["end"],
+      }),
+  ),
 );
 
 export type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
