@@ -17,6 +17,7 @@ import {
   type IanaTimezone,
   type SenderContext,
   type TodoDecisionOutcome,
+  trackerSenderKey,
   toMessage,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
@@ -34,6 +35,7 @@ import {
 import { createHedgeBudget, hedgeCeilingFor, runHedged, type HedgeBudget } from "./hedge";
 import type { Observations } from "./observations";
 import { MAX_RATIONALE_LEN, truncateRationale } from "./rationale";
+import { stripLeadingEmailHeaders } from "./thread-state";
 
 // Re-exported for the public triage surface (the barrel, `deepen.ts`) — the
 // definitions live in the leaf `rationale.ts` to avoid a `classify ↔ floors` cycle.
@@ -292,14 +294,19 @@ Rules:
     12b. Escalate a bot review comment to 'action_needed' or 'urgent' only when the body itself shows severe impact: exposed secret/token/key, auth bypass, data loss, production outage, blocked deploy, or a same-day security/account deadline.
     12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'.
     12d. Unknown service envelopes classify from body content alone.
-    12e. Activity-feed notifications from collaboration tools — task/issue trackers (ClickUp, Linear, Asana, Jira, Trello, Monday, Notion, GitHub Issues), doc/design comment threads (Google Docs/Drive, Figma, Confluence), and support/CRM/chat notifications (Zendesk, Intercom, Slack/Discord mention forwards) — share one trap: the SUBJECT is the work ITEM'S name (frequently an imperative task title like "Fix X" or "Debug Y"), NOT an instruction to the user. Classify from the BODY event and OWNERSHIP, never the subject. Use the "You (the user being triaged)" block to decide ownership. Use 'action_needed'/'awaiting_reply' ONLY when the body shows the item is ASSIGNED to the user, the user is @-mentioned with a concrete ask, or a reply is owed BY the user. A third-party comment, a status change, or activity on an item the user merely watches / is CC'd on → 'fyi'; an explicit closure ("resolved", "moved to Done", "nothing to do here") → 'done'. A task/ticket being CREATED, FILED, OPENED, or added to a list/backlog — INCLUDING an AI/bot replying "Done. Created [task] …" — is the OPENING of work, never 'done': route it by ownership exactly like any other item (assigned to / @-mentioned the user with a concrete ask → action_needed; a direct unanswered question → awaiting_reply; pure activity on someone else's item → fyi). Use the recent-thread-messages context to find the ownership: a trailing "task created" line whose thread shows the user was asked to fix/handle the item stays action_needed. Inside a product team's task comment, "the user"/"the customer" means an END USER of the product, NOT the email recipient — never read it as an obligation on the recipient.
+    12e. Activity-feed notifications from collaboration tools — task/issue trackers (ClickUp, Linear, Asana, Jira, Trello, Monday, Notion, GitHub Issues), doc/design comment threads (Google Docs/Drive, Figma, Confluence), and support/CRM/chat notifications (Zendesk, Intercom, Slack/Discord mention forwards) — separate the item title from the activity. The item title identifies WHAT the notification is about; it does not prove user ownership. The activity body AND recent thread context identify WHO owns the next action. Apply this compact matrix:
+      - Activity or status change with no ask owned by the user → 'fyi'.
+      - Activity assigns or @-mentions the user with a concrete ask → 'action_needed'; a reply-only ask → 'awaiting_reply'.
+      - Activity explicitly resolves the underlying work → 'done'.
+      - Activity creates/files/opens an item, including "Done. Created [task]" → opens work, NEVER 'done'. With no user-owned ask in the thread → 'fyi'. With an earlier unanswered assignment/ask to the user → keep 'action_needed'/'awaiting_reply'.
+    Use the "You (the user being triaged)" block to decide ownership. Inside a product-team task comment, "the user" or "the customer" can mean the product's END USER, not the email recipient.
     12f. Ownership of the failing system — a third-party vendor's own SERVICE-STATUS / incident notification about THE VENDOR'S systems (status-page posts, "Incident: elevated error rates", "degraded performance", "we've suspended access to X", "scheduled maintenance") for a service the user merely CONSUMES is informational: the user cannot act on the outage, they wait it out → 'fyi' while ongoing, 'done' on an explicit "resolved" post — NEVER 'urgent'/'action_needed'. The vendor's "production issue" is not the USER'S production; do not conflate them. The ONLY exception is a body that imposes a concrete action on the user with a consequence (migrate off a deprecated API by a date, rotate a key the vendor exposed) → then judge that action normally. This is DISTINCT from an alert on the user's OWN / their org's infrastructure (their Sentry project, their CloudWatch alarm, their app's build) — that is judged on real impact per 12c. The discriminator is WHOSE system is failing, not the word "incident".
 13. Confidence:
     - 0.9+: unambiguous (newsletter from a clearly subscribed sender, payment receipt with amount, secret-scanning alert from GitHub).
     - 0.7-0.9: clear category but with some overlap.
     - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
     - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
-14. Rationale: 1-2 sentences grounded in concrete cues: cite subject/body phrasing and any decisive observation you used (sender relationship, recent-thread message, sender prior, or content flag). Do not merely restate the rule. Never invent contact history, ownership, or relationship strength: do not call a sender known/strong/two-way/cold unless the Observations block says so. If the sender relationship affects the todo decision, name the exact observation ("no prior contact", "weak one-way", "strong two-way", etc.).
+14. Rationale: 1-2 sentences grounded in concrete evidence. Cite one exact or close subject/body phrase AND, when supplied context supports or counters it, the decisive observation (thread message/state, sender relationship/kind, or sender prior). If two categories apply, explain why the chosen one dominates. A rule number or email type alone is not evidence. Never invent contact history, ownership, or relationship strength: do not call a sender known/strong/two-way/cold unless the Observations block says so. If the sender relationship affects the todo decision, name the exact observation ("no prior contact", "weak one-way", "strong two-way", etc.).
 15. Self-initiated authentication mail is the EXPECTED ECHO of an action the user just took → fyi, not action_needed and not urgent. This covers sign-in / magic links, one-time login codes AND step-up / sudo / re-authentication codes ("Sudo email verification code", "your verification code is 123456"), email-address verification the user just requested, and transient same-flow confirmations that do NOT add/change future account access ("security verification completed"). The user is mid-flow; codes expire harmlessly and transient confirmations are moot by the time they surface — nothing to track, nothing to remember (rule 16c). DO NOT extend this demotion to persistent account-access grants or auth settings such as "passkey created", "two-factor authentication enabled/disabled", "OAuth application added", recovery email/phone updated, or login method added/changed: the email alone cannot prove the user initiated them, and these changes affect future account access. Keep those surfaced at 'action_needed' (not 'urgent' absent an explicit same-day compromise signal). Reserve urgent for the unsolicited inverse: an unrecognized sign-in, a "was this you?" challenge, account compromised, password/2FA changed without the user, or any body that says to secure the account immediately.
 16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
     Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
@@ -322,57 +329,59 @@ Rules:
     Emit \`null\` for ANY email that is not a collaboration-tool notification (ordinary person-to-person mail, newsletters, marketing, security/auth, payments, calendar invites, social networks, vendor status pages). This is a FACTUAL read of the notification and is independent of the category — set it even when the category is fyi/done. It does not change your category choice; it records the ownership you already judged.
 
 Examples (subject → category):
-- "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
-- "Sign-in attempt from a NEW device — was this you?" from security@google.com → urgent (unsolicited compromise alert).
 - "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → fyi (self-initiated auth, expires harmlessly, action is moot by the time it surfaces — rule 15, NOT action_needed, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
 - "[GitHub] Sudo email verification code" the user just triggered → fyi (rule 15: a self-initiated step-up code, moot by the time it surfaces), no todo (rule 16c). "Security verification completed" → fyi when it is only a transient same-flow confirmation. "Passkey created" / "Two-factor authentication enabled" / "A third-party OAuth application was added to your account" → action_needed (ambiguous persistent access grant/settings change, keep surfaced but not urgent), and "Sign-in from a NEW device — was this you?" → urgent (unsolicited).
 - "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
-- "Any update on the proposal?" from a client → follow_up (nudge on existing thread).
-- "Quick question about Q3 numbers" from a colleague → awaiting_reply (fresh ask, reply IS the action).
 - A recruiter's direct ask the user has ALREADY replied to (thread state shows "you last replied …" and the user's send is the latest message) → done (the user's side of the loop is closed; no longer awaiting_reply — rule 18; waiting on the recruiter to write back is not a user action).
-- "Your order has shipped — tracking #..." from amazon.com → done (closure notice).
-- "Incident resolved: API latency" from status@vercel.com → done (explicit resolution).
-- "We updated our Privacy Policy" from a service → fyi (informational, no closure).
 - "Arjun Rao wants to connect" / "I want to connect" from invitations@linkedin.com → fyi (social-network invitation, passive social activity — rule 8a; NOT awaiting_reply/action_needed, however senior the title), and no todo (rule 16a-i optional nicety).
 - "You appeared in 13 searches this week" from notifications@linkedin.com → fyi (profile-activity nudge — rule 8a).
-- "Your payment failed — update your card" from billing@stripe.com → payment (rule 11) — bump to urgent if access breaks today.
 - "**coderabbitai** commented on this pull request" with normal review suggestions → fyi (bot review, advisory by default).
 - "**coderabbitai** commented: API key exposed in this PR" → urgent (secret/security exception).
 - "Dependabot alert: CVE-2024-1234 in lodash (moderate)" → fyi (advisory bot, no exposed secret — rule 12a).
 - "**greptile-apps[bot]** commented: 99Yash has reached the 50-review trial limit — upgrade your plan to continue" → marketing (rule 11a: upsell, nothing owed; the trial cap is manufactured conversion pressure, NOT a bill — never payment/action_needed). Contrast "Your Greptile subscription payment failed" → payment.
-- "Conservice : Fix deal views resetting after saving" from ClickUp/Linear, body is a third-party comment "Nothing to be done here — product gap for the user" → done (rule 12e: closure on someone else's investigation; the subject is the task NAME, not your action, and "the user" is the product's end user).
-- "Fix login redirect loop" from a task tracker, body "Akshay assigned this to you · due Jun 14" → action_needed (rule 12e: the body shows the item is owned by the user).
-- ClickUp/Linear bot, body "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list", recent-thread-messages show "dvd assigned you a comment: there is still a bug … please make sure this is fixed" → action_needed, NOT done (rules 5/12e/17: filing a backlog task OPENS work, and the thread shows a live bug assigned to the user — the bot's "Done" is the filing, not the fix). With NO such earlier ask in the thread, the same line is fyi (a task was filed; awareness only) — never done.
 - "Errors spiking in production" from Sentry (the USER'S own project) → urgent/action_needed depending on immediacy and the user's project context.
 - "Claude Incident — elevated error rate on Opus 4.8" / "We've suspended access to X" from a vendor's status page → fyi (rule 12f: the VENDOR'S own outage, the user only consumes the service; 'done' once the same thread posts "resolved") — NEVER urgent, however alarming "production issue / elevated error rate" sounds. The discriminator vs the Sentry line above is WHOSE system is failing.
-- "Weekly digest from Substack: 5 stories" → newsletter (subscribed content).
-- "20% off everything this weekend only!" from a retailer → marketing (promotional blast).
 - "See you next week." from Apple / Inside Apple with WWDC or product-event content → marketing (public brand event, not the user's meeting).
 - "Join our launch webinar on Thursday" from a vendor → marketing (public event blast, not a personal meeting).
 - "Sundram Fasteners Limited — 63rd Annual General Meeting..." from a registrar/depository → fyi (shareholder/legal notice, not the user's meeting).
 - "Proxy voting closes tomorrow — cast your vote" from a registrar/depository → action_needed (concrete user action/deadline).
-- "Design review moved to 3pm — can you attend?" from a colleague/client → meeting (user participation/scheduling).
 - "Meeting notes: Eng standup • …" / "Post Meet Summary" from an automated meeting-assistant → fyi (a recap of a meeting that ALREADY happened — rule 7; nothing to attend or schedule), no todo.
 - "Meeting prep: Weekly Sync • …" / an agenda brief from an automated assistant → fyi (a pre-meeting brief, not a calendar action — rule 7).
 - A ClickUp/Linear comment "@everyone we'll meet in-person for the offsite in Aug, I'll confirm the dates" → fyi (rule 12e collab-tool relay + rule 7: a future event with no invite or set date; "meet" is not enough), no todo (16a: an @everyone broadcast, the sender owns confirming the dates).
 
 Todo-decision exemplars (each illustrates the ONE rubric test that decides it — note category and todo can disagree):
-- "Sign in to Anthropic" / "Your login code is 123456" the user requested → no todo (16c memorability: self-initiated, nothing to remember).
-- "Rate your recent delivery" / "How did we do? Leave a quick review" → no todo (16b significance: real ask, but trivial, no stake).
-- Amazon "Your order shipped" ending "…complete this 1-question survey" → category done, no todo (16b significance).
 - Client "Order shipped — also, please send the signed SOW by Friday" → category done, todo "Send the signed SOW to <client> by Friday" (16a+16b+16c all pass; category and todo disagree).
 - Vendor FYI "Your plan auto-renews on Jul 1 unless you cancel" → category fyi, todo "Decide whether to cancel <vendor> before the Jul 1 auto-renew" (16a obligation holds on an fyi).
 - "something broke on the site, can you look?" with no specifics → category action_needed, no todo (16d actionability: too vague).
-- "Your 100-day Chess.com streak is paused — play before midnight" → no todo (16b: manufactured stake, a counter resetting is not a real consequence). Same for "You have 7 unread on Linear" / "5 people viewed your profile".
-- Vendor/freemium "You've hit your free trial limit — upgrade your plan to continue" (Greptile/Vercel/Linear) → category marketing/fyi, no todo (11a + 16b: upsell, nothing owed, manufactured conversion stake). A real "Your invoice of $49 is past due" → category payment, todo only if action is owed and memorable.
 - A PR review (bot OR human) asking to add a timeout, optimize an index, fix style, or even patch a vulnerability that exists ONLY in the unmerged PR → category fyi, no todo (16b liveness: pre-merge advisory, nothing in production at stake). BUT a secret already committed/exposed, a vulnerability in \`main\`, or a blocked production deploy → todo (16b: a live consequence).
-- "Sakshi is running standup today while Dave is out" → category fyi/done, no todo (16a (ii): the action is owned by Sakshi, not the user — even though the user is the recipient).
-- A task-tracker notification (ClickUp/Linear/Jira) whose body is a third-party comment or a status change on a task NOT assigned to the user → category fyi/done, no todo (16a (i): pure awareness — the imperative task TITLE in the subject is not the user's obligation). When the body DOES assign the task to the user or @-mentions them with a concrete ask → category \`action_needed\` (the obligation is real and honest) with \`collabActivity\` set to the ownership kind — but STILL no todo (16c: the item lives in the tracker, which keeps and re-notifies it; a rail todo only duplicates the tool).
-- LinkedIn "I want to connect" → category fyi (rule 8a: passive social activity), no todo (16a (i): optional nicety — the sender's want, not the user's obligation — regardless of the headline title, "Founder & CEO" / "CTO" included; the title never earns a nudge).
-- A cold ask — "give me a recommendation", "endorse my skills", "can you intro me?" — whose Sender relationship reads \`weak · one-way inbound\` or \`no prior contact on record\` → category awaiting_reply (an honest direct ask), no todo (16b person-waiting: a cold contact is not a real person waiting, note \`cold_sender:\`). The SAME ask from a \`strong · two-way\` contact (or a known contact with real history) → todo (a real person is waiting).
-- "Sundram Fasteners — 63rd Annual General Meeting" from a registrar → category fyi, no todo (16b: ceremonial, no real stake) — unless it asks the user to vote by a deadline (then a todo).
+- A cold ask — "give me a recommendation", "endorse my skills", "can you intro me?" — whose Sender relationship reads \`weak · one-way inbound\` or \`no prior contact on record\` → category awaiting_reply (an honest direct ask), no todo (16b person-waiting: a cold contact is not a real person waiting, note \`cold_sender:\`). The SAME ask from a \`strong · two-way\` contact (or a known contact with real history) → todo (a real person is waiting).`;
 
-Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." }, "collabActivity": "assigned_to_user|mentioned_user|comment_to_user|state_change|other_activity|digest" | null }`;
+function renderThreadObservation(obs: Observations): string[] {
+  const lines: string[] = [];
+  const t = obs.thread;
+  if (t.messageCount > 0) {
+    const replied = t.lastUserReplyAt
+      ? `you last replied ${t.lastUserReplyAt.toISOString()}`
+      : "you have not replied";
+    lines.push(
+      `Thread: ${t.messageCount} prior message(s); ${replied}; newest is ${t.newestDirection ?? "unknown"}`,
+    );
+    // Prior-message excerpts (newest first). The fed context that lets the
+    // classifier of a trailing low-signal message see an earlier open ask in the
+    // SAME thread (ADR-0051 amendment 2026-06-13). Labelled by direction so the
+    // model knows which side spoke; "you sent" vs "you received".
+    if (t.recentMessages.length) {
+      lines.push(`Recent thread messages (newest first — the email below may be even newer):`);
+      for (const m of t.recentMessages) {
+        const who = m.direction === "sent" ? "you sent" : "received";
+        lines.push(`  - [${who}] ${m.snippet}`);
+      }
+    }
+  } else {
+    lines.push(`Thread: new (no prior messages on file)`);
+  }
+  return lines;
+}
 
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
@@ -405,29 +414,6 @@ function renderObservations(obs: Observations): string {
     );
   }
 
-  const t = obs.thread;
-  if (t.messageCount > 0) {
-    const replied = t.lastUserReplyAt
-      ? `you last replied ${t.lastUserReplyAt.toISOString()}`
-      : "you have not replied";
-    lines.push(
-      `Thread: ${t.messageCount} prior message(s); ${replied}; newest is ${t.newestDirection ?? "unknown"}`,
-    );
-    // Prior-message excerpts (newest first). The fed context that lets the
-    // classifier of a trailing low-signal message see an earlier open ask in the
-    // SAME thread (ADR-0051 amendment 2026-06-13). Labelled by direction so the
-    // model knows which side spoke; "you sent" vs "you received".
-    if (t.recentMessages.length) {
-      lines.push(`Recent thread messages (newest first — the email below may be even newer):`);
-      for (const m of t.recentMessages) {
-        const who = m.direction === "sent" ? "you sent" : "received";
-        lines.push(`  - [${who}] ${m.snippet}`);
-      }
-    }
-  } else {
-    lines.push(`Thread: new (no prior messages on file)`);
-  }
-
   const g = obs.gmail;
   lines.push(
     `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}`,
@@ -445,6 +431,7 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   const lines: string[] = [];
   const meta = args.document.metadata;
   const { from, to, cc } = meta;
+  const tracker = trackerSenderKey(from);
 
   lines.push("=== SenderContext ===");
   lines.push(JSON.stringify(args.senderContext));
@@ -467,18 +454,41 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   if (from) lines.push(`From: ${from}`);
   if (to) lines.push(`To: ${to}`);
   if (cc) lines.push(`Cc: ${cc}`);
-  if (args.document.title) lines.push(`Subject: ${args.document.title}`);
+  if (!tracker && args.document.title) lines.push(`Subject: ${args.document.title}`);
   if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
   lines.push("");
 
-  lines.push("=== Body ===");
+  const body = stripLeadingEmailHeaders(args.document.content);
+
+  if (tracker) {
+    lines.push(`=== Tracker notification (${tracker}) ===`);
+    lines.push("Item/notification subject — does not prove user ownership:");
+    lines.push(args.document.title?.trim() || "(no subject)");
+    lines.push("");
+    lines.push("=== Activity body ===");
+    if (/\bdone\.\s*created\b/i.test(body)) {
+      lines.push(
+        'Interpretation note (not email content): "Done. Created [task]" means filing finished, not the task, and is never category done. Check the earlier thread context below before choosing fyi; an unanswered user-owned ask keeps the loop action_needed or awaiting_reply.',
+      );
+    }
+  } else {
+    lines.push("=== Body ===");
+  }
   // Cap to keep token budget bounded — most emails fit easily; the rare long
   // thread gets truncated, which is fine for triage (the lede usually suffices).
-  const content =
-    args.document.content.length > 6_000
-      ? args.document.content.slice(0, 6_000) + "\n[…truncated]"
-      : args.document.content;
+  const content = body.length > 6_000 ? body.slice(0, 6_000) + "\n[…truncated]" : body;
   lines.push(content);
+
+  lines.push("");
+  lines.push(
+    tracker
+      ? "=== Earlier thread context — use this to decide current ownership ==="
+      : "=== Earlier thread context — use this to decide current loop state ===",
+  );
+  lines.push(...renderThreadObservation(args.observations));
+  lines.push(
+    "An unanswered user-owned ask in this earlier context stays open despite a later low-signal activity line.",
+  );
 
   if (conflict) {
     lines.push("");

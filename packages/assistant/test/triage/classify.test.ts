@@ -1144,6 +1144,111 @@ describe("detectConflict", () => {
 // ---------------------------------------------------------------------------
 
 describe("classifyEmail", () => {
+  test("renders tracker subjects and activity as distinct evidence", async () => {
+    let prompt = "";
+    const runPass: RunPass = async (input) => {
+      prompt = input.prompt;
+      return classification();
+    };
+    await classifyEmail(
+      args({
+        document: {
+          id: "doc_clickup_prompt",
+          title: "Fix login redirect loop",
+          content:
+            "From: Oliv AI <notifications@tasks.clickup.com>\n" +
+            "To: yash.k@oliv.ai\n" +
+            "Subject: Fix login redirect loop\n\n" +
+            "Brain: Done. Created [Fix login redirect loop] in the backlog.",
+          authoredAt: null,
+          metadata: {
+            from: "Oliv AI <notifications@tasks.clickup.com>",
+            to: "yash.k@oliv.ai",
+          },
+        },
+        observations: observations({
+          thread: {
+            lastUserReplyAt: null,
+            newestDirection: "received",
+            messageCount: 1,
+            recentMessages: [
+              {
+                direction: "received",
+                authoredAt: null,
+                snippet: "Priya assigned you this task and asked you to fix it.",
+              },
+            ],
+          },
+        }),
+        runPass,
+      }),
+    );
+
+    assert.match(prompt, /=== Tracker notification \(clickup\) ===/);
+    assert.match(
+      prompt,
+      /Item\/notification subject — does not prove user ownership:\nFix login redirect loop/,
+    );
+    assert.match(
+      prompt,
+      /=== Activity body ===\nInterpretation note \(not email content\): "Done\. Created \[task\]" means filing finished, not the task, and is never category done\. Check the earlier thread context below before choosing fyi; an unanswered user-owned ask keeps the loop action_needed or awaiting_reply\.\nBrain: Done\. Created \[Fix login redirect loop\] in the backlog\./,
+    );
+    assert.match(
+      prompt,
+      /=== Earlier thread context — use this to decide current ownership ===[\s\S]*Priya assigned you this task[\s\S]*An unanswered user-owned ask in this earlier context stays open despite a later low-signal activity line\./,
+    );
+    assert.equal(prompt.match(/Priya assigned you this task/g)?.length ?? 0, 1);
+    assert.equal(prompt.match(/Subject: Fix login redirect loop/g)?.length ?? 0, 0);
+    assert.equal(prompt.match(/From: Oliv AI/g)?.length ?? 0, 1);
+  });
+
+  test("strips stored envelope headers from an ordinary email body", async () => {
+    let prompt = "";
+    const runPass: RunPass = async (input) => {
+      prompt = input.prompt;
+      return classification();
+    };
+    await classifyEmail(
+      args({
+        document: {
+          id: "doc_person_prompt",
+          title: "Proposal update",
+          content:
+            "From: Priya <priya@acme.com>\n" +
+            "To: yash@example.com\n" +
+            "Subject: Proposal update\n\n" +
+            "Can you send the revised proposal?",
+          authoredAt: null,
+          metadata: { from: "Priya <priya@acme.com>", to: "yash@example.com" },
+        },
+        observations: observations({
+          thread: {
+            lastUserReplyAt: new Date("2026-06-10T11:30:00Z"),
+            newestDirection: "sent",
+            messageCount: 1,
+            recentMessages: [
+              {
+                direction: "sent",
+                authoredAt: new Date("2026-06-10T11:30:00Z"),
+                snippet: "I sent the revised proposal this morning.",
+              },
+            ],
+          },
+        }),
+        runPass,
+      }),
+    );
+
+    assert.match(prompt, /Subject: Proposal update/);
+    assert.match(prompt, /=== Body ===\nCan you send the revised proposal\?/);
+    assert.match(
+      prompt,
+      /Can you send the revised proposal\?[\s\S]*=== Earlier thread context — use this to decide current loop state ===[\s\S]*I sent the revised proposal this morning\./,
+    );
+    assert.equal(prompt.match(/I sent the revised proposal/g)?.length ?? 0, 1);
+    assert.equal(prompt.match(/From: Priya/g)?.length ?? 0, 1);
+  });
+
   test("acceptance: prior-heavy newsletter sender + credential-exposure body still lands urgent", async () => {
     // The model under-classifies (newsletter), but the body exposes a secret —
     // the override floor forces urgent.
