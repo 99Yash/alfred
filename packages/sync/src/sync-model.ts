@@ -256,8 +256,9 @@ export type SyncedEntity = {
 }[IDBKeys];
 
 /** All entity slugs as a runtime array — server iterates over this. */
-// SAFETY: Object.keys preserves every literal object key and adds no keys.
-export const IDB_KEY_NAMES = Object.keys(SYNC_MODEL) as IDBKeys[];
+export const IDB_KEY_NAMES =
+  /* SAFETY: Object.keys preserves every literal object key and adds no keys. */
+  Object.keys(SYNC_MODEL) as IDBKeys[];
 
 /**
  * Round-trip through `JSON.stringify`/`JSON.parse` to coerce any

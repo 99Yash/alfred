@@ -55,10 +55,10 @@ A **triage tag** is the single alfred category currently on a Gmail thread. It a
 
 | Concern                                    | Blessed primitive (from ground truth)                                                              | Where                                                       |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Synced entity registry                     | `IDB_KEY.<SLUG>({id})` one-liner; `satisfies Record<IDBKeys, EntityFetcher>` forces a fetcher      | `packages/sync/src/keys.ts`, `…/replicache/entities.ts:346` |
+| Synced entity registry                     | `SYNC_MODEL.<slug>.storageKeyForId({ id })`; `satisfies EntityFetchers` forces the matching fetcher | `packages/sync/src/sync-model.ts`, `packages/http/src/sync/read/index.ts` |
 | Read model → client                        | `ENTITY_FETCHERS.<SLUG>` returning `{id, rowVersion, serialized}`; generic CVR diff loop           | `…/replicache/pull.ts:88`, `entities.ts:104`                |
 | Discriminated union read schema            | `z.discriminatedUnion("source", [...])` — same family as `senderContextSchema` / `AgentRunTrigger` | `packages/contracts/src/triage.ts`, `sync/src/schemas.ts`   |
-| Optimistic client write                    | `<entity><Action>Client(tx, args)` reading/writing `IDB_KEY` k/v; bump `rowVersion`                | `sync/src/mutators/todos.ts`                                |
+| Optimistic client write                    | `<entity><Action>Client(tx, args)` using model-owned `get` / `put` / `del`; bump `rowVersion`      | `packages/sync/src/mutators/todos.ts`                       |
 | Server write (atomic w/ LMID)              | `serverMutators.<name>(tx, args, ctx)` inline against the push `tx`, `rowVersion: sql\`+1\``       | `…/replicache/server-mutators.ts`                           |
 | After-commit side effect keyed by mutator  | `POLICY_BUST_MUTATORS` set → fire after `tx` commits                                               | `…/replicache/push.ts:26,178`                               |
 | Per-thread serialization across DB + Gmail | `withTriageThreadLock(userId, threadId, fn)` (`pg_advisory_xact_lock`)                             | `…/triage/store.ts:40`                                      |
