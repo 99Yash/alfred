@@ -1,4 +1,4 @@
-import { SYNC_MODEL, syncedArtifactSchema, type SyncedArtifact } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedArtifact } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction, Replicache } from "replicache";
 import type { ClientMutators } from "@alfred/sync";
@@ -29,17 +29,11 @@ export function useRecentArtifacts(): RecentArtifactsState {
       setSnapshot(null);
       return;
     }
-    const prefix = SYNC_MODEL.artifact.prefix;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (values) => {
-        const parsed: SyncedArtifact[] = [];
-        for (const value of values) {
-          const result = syncedArtifactSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setSnapshot({ rep, rows: parsed });
+      (tx: ReadTransaction) => SYNC_MODEL.artifact.scan(tx),
+      (rows) => {
+        rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setSnapshot({ rep, rows });
       },
     );
   }, [rep]);
@@ -71,17 +65,12 @@ export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact
 
   useEffect(() => {
     if (!rep || !threadId) return;
-    const prefix = SYNC_MODEL.artifact.prefix;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+      (tx: ReadTransaction) => SYNC_MODEL.artifact.scan(tx),
       (values) => {
-        const parsed: SyncedArtifact[] = [];
-        for (const value of values) {
-          const result = syncedArtifactSchema.safeParse(value);
-          if (result.success && result.data.threadId === threadId) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setSnapshot({ rep, threadId, rows: parsed });
+        const rows = values.filter((value) => value.threadId === threadId);
+        rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setSnapshot({ rep, threadId, rows });
       },
     );
   }, [rep, threadId]);
@@ -104,11 +93,8 @@ export function useArtifact(artifactId: string | undefined): SyncedArtifact | nu
   useEffect(() => {
     if (!rep || !artifactId) return;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.get(SYNC_MODEL.artifact.storageKeyForId(artifactId)),
-      (value) => {
-        const result = syncedArtifactSchema.safeParse(value);
-        setSnapshot({ rep, artifactId, artifact: result.success ? result.data : null });
-      },
+      (tx: ReadTransaction) => SYNC_MODEL.artifact.get(tx, artifactId),
+      (artifact) => setSnapshot({ rep, artifactId, artifact }),
     );
   }, [rep, artifactId]);
 

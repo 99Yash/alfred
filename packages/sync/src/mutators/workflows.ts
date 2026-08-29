@@ -5,10 +5,9 @@ import {
 } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
-import { syncedWorkflowSchema, workflowStatusSchema } from "../schemas";
+import { SYNC_MODEL } from "../sync-model";
+import { workflowStatusSchema } from "../schemas";
 import type { SyncedWorkflow } from "../types";
-import { readSyncedValue } from "./read";
 
 export const AUTHORABLE_EVENT_SOURCES = ["gmail"] as const;
 
@@ -172,8 +171,7 @@ export async function workflowUpdateClient(
   tx: WriteTransaction,
   args: WorkflowUpdateArgs,
 ): Promise<void> {
-  const key = SYNC_MODEL.workflow.storageKeyForId(args.slug);
-  const current = await readSyncedValue(tx, key, syncedWorkflowSchema);
+  const current = await SYNC_MODEL.workflow.get(tx, args.slug);
   if (!current) return;
   if (current.isBuiltin) return;
 
@@ -189,5 +187,5 @@ export async function workflowUpdateClient(
     ...(args.trigger !== undefined ? { trigger: args.trigger } : {}),
     rowVersion: current.rowVersion + 1,
   };
-  await tx.set(key, normalizeToReadonlyJSON(next));
+  await SYNC_MODEL.workflow.put(tx, next);
 }
