@@ -49,4 +49,5 @@ export const fetchWorkflows = syncEntity("workflow", {
     createdAt: w.createdAt,
     updatedAt: w.updatedAt,
   }),
+  idOf: ({ workflow: w }: WorkflowRow) => w.slug,
 });

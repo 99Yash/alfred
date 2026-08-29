@@ -21,7 +21,7 @@ import { syncedNoteSchema } from "@alfred/sync";
 import { SerializationError, toEntityRow } from "../../src/sync/read/entity-row";
 import type { EntityRow } from "../../src/sync/read/entity-row";
 
-const ROW = { slug: "note" } as const;
+const ROW = { slug: "note", id: "note-1" } as const;
 
 const SERIALIZED = {
   id: "note-1",

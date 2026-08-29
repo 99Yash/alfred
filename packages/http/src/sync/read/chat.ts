@@ -26,6 +26,7 @@ export const fetchChatThreads = syncEntity("chatthread", {
       .where(eq(chatThreads.userId, userId))
       .orderBy(desc(chatThreads.pinned), desc(chatThreads.lastMessageAt), asc(chatThreads.id)),
   map: (t: ChatThread) => t,
+  idOf: (t: ChatThread) => t.id,
 });
 
 export const fetchChatMessages = syncEntity("chatmsg", {
@@ -37,6 +38,7 @@ export const fetchChatMessages = syncEntity("chatmsg", {
       .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
       .limit(CHAT_MESSAGE_PULL_LIMIT),
   map: (m: ChatMessage) => m,
+  idOf: (m: ChatMessage) => m.id,
 });
 
 // Attachments on user messages (ADR-0065). Bound to the same recent-message
@@ -62,4 +64,5 @@ export const fetchChatAttachments = syncEntity("chatatt", {
       .limit(CHAT_MESSAGE_PULL_LIMIT * MAX_ATTACHMENTS_PER_MESSAGE);
   },
   map: (a: ChatAttachment) => a,
+  idOf: (a: ChatAttachment) => a.id,
 });

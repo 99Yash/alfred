@@ -68,4 +68,5 @@ export const fetchTriageTags = syncEntity("triagetag", {
       ...shared,
     };
   },
+  idOf: (t: EmailTriage) => t.sourceThreadId,
 });

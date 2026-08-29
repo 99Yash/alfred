@@ -19,4 +19,5 @@ export const fetchPreferences = syncEntity("pref", {
     source: memorySourceSchema.parse(p.source),
     rowVersion: p.rowVersion,
   }),
+  idOf: (p: UserPreference) => p.key,
 });

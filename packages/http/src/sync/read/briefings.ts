@@ -34,4 +34,5 @@ export const fetchBriefings = syncEntity("briefing", {
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
   }),
+  idOf: (b: Briefing) => `${b.briefingDate}/${b.slot}`,
 });

@@ -22,6 +22,7 @@ describe("syncEntity", () => {
         },
       ],
       map: (row) => row,
+      idOf: (row) => row.id,
     });
 
     const rows = await fetchNotes(UNUSED_TX, "user_1");
@@ -54,6 +55,7 @@ describe("syncEntity", () => {
         },
       ],
       map: (row) => row,
+      idOf: (row) => row.id,
     });
 
     assert.deepEqual(await fetchNotes(UNUSED_TX, "user_1"), []);

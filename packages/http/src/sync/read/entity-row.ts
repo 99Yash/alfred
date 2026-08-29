@@ -38,15 +38,14 @@ export type EntityFetcher<Slug extends IDBKeys> = (
  */
 export function toEntityRow<Slug extends IDBKeys>(args: {
   slug: Slug;
+  id: string;
   make: () => EntityRow<Slug>;
 }): EntityRow<Slug>[] {
   try {
     return [args.make()];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    // SAFETY: the id is only known after `make` returns, so a skipped row is
-    // logged by slug alone — the mapper/schema that failed is still on record.
-    console.warn(`[replicache] skipping invalid ${args.slug} row: ${toMessage(err)}`);
+    console.warn(`[replicache] skipping invalid ${args.slug} row '${args.id}': ${toMessage(err)}`);
     return [];
   }
 }

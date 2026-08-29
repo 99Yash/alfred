@@ -9,4 +9,5 @@ export const fetchActionPolicies = syncEntity("actionpolicy", {
   query: (tx, userId) =>
     tx.select().from(userActionPolicies).where(eq(userActionPolicies.userId, userId)),
   map: (p: UserActionPolicy) => p,
+  idOf: (p: UserActionPolicy) => p.userId,
 });

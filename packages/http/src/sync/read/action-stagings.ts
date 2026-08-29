@@ -172,4 +172,5 @@ export const fetchActionStagings = syncEntity("actionstaging", {
       updatedAt: s.updatedAt,
     };
   },
+  idOf: (row: ActionStagingRow) => row.staging.id,
 });

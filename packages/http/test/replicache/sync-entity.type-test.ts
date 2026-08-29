@@ -12,4 +12,5 @@ export const incompleteNoteFetcher = syncEntity("note", {
   query: async () => [{ id: "note_1", userId: "user_1", text: "hi", rowVersion: 1 }],
   // @ts-expect-error — the `note` projection must include createdAt before Date serialization
   map: (row) => row,
+  idOf: (row) => row.id,
 });

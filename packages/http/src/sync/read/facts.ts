@@ -48,4 +48,5 @@ export const fetchFacts = syncEntity("fact", {
       updatedAt: f.updatedAt,
     };
   },
+  idOf: (f: UserFact) => f.id,
 });

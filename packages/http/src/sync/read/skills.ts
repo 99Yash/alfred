@@ -15,6 +15,7 @@ export const fetchSkills = syncEntity("skill", {
   query: (tx, userId) =>
     tx.select().from(skills).where(eq(skills.userId, userId)).orderBy(asc(skills.id)),
   map: (s: Skill) => s,
+  idOf: (s: Skill) => s.id,
 });
 
 export const fetchSkillRevisions = syncEntity("skillrev", {
@@ -35,6 +36,7 @@ export const fetchSkillRevisions = syncEntity("skillrev", {
     rowVersion: r.rowVersion,
     createdAt: r.createdAt,
   }),
+  idOf: (r: SkillRevision) => r.id,
 });
 
 export const fetchSkillRuns = syncEntity("skillrun", {
@@ -52,4 +54,5 @@ export const fetchSkillRuns = syncEntity("skillrun", {
     startedAt: r.startedAt,
     endedAt: r.endedAt,
   }),
+  idOf: (r: SkillRun) => r.id,
 });

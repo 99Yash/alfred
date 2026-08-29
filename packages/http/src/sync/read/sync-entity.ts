@@ -25,6 +25,8 @@ type MapperMatchesSchema<Slug extends IDBKeys, Mapped> =
 type SyncEntityConfig<Slug extends IDBKeys, Row, Mapped> = {
   query: (tx: DbTransaction, userId: string) => Promise<Row[]>;
   map: (row: Row) => Mapped & MapperMatchesSchema<Slug, Mapped>;
+  /** Raw-row identity for the skip warning, available before serialization runs. */
+  idOf: (row: Row) => string;
 };
 
 /**
@@ -45,6 +47,7 @@ export function syncEntity<Slug extends IDBKeys, Row, Mapped>(
     return rows.flatMap((row) =>
       toEntityRow({
         slug,
+        id: config.idOf(row),
         make: () => {
           const mapped = config.map(row);
           const { id, rowVersion, value } = parseSyncPullValue(slug, stringifyDates(mapped));

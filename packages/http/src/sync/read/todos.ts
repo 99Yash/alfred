@@ -31,4 +31,5 @@ export const fetchTodos = syncEntity("todo", {
     }
     return t;
   },
+  idOf: (t: Todo) => t.id,
 });

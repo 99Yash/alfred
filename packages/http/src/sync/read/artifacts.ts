@@ -18,4 +18,5 @@ export const fetchArtifacts = syncEntity("artifact", {
       .orderBy(desc(artifacts.createdAt), desc(artifacts.id))
       .limit(ARTIFACT_PULL_LIMIT),
   map: (a: Artifact) => a,
+  idOf: (a: Artifact) => a.id,
 });
