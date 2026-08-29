@@ -15,33 +15,36 @@ import { fetchWorkflows } from "./workflows";
 
 export type { EntityRow } from "./entity-row";
 
+export type EntityFetchers = {
+  [Slug in IDBKeys]: EntityFetcher<Slug>;
+};
+
 /**
  * Per-entity read model for Replicache pull, one file per domain.
  *
- * `satisfies Record<IDBKeys, EntityFetcher>` is load-bearing: adding a key to
- * `IDB_KEY` forces a fetcher here, so server pull cannot silently forget a
- * client-visible entity. This is the ONLY place the check runs, and it is the
- * only way a fetcher becomes reachable — no domain file is imported anywhere
- * else in `src/`.
+ * `satisfies EntityFetchers` is load-bearing: adding a key to `SYNC_MODEL`
+ * forces a fetcher here, and each slot accepts only the fetcher for that slug.
+ * Server pull therefore cannot forget an entity or pair (for example) the
+ * `fact` reader with `note`. This is the only way a fetcher becomes reachable.
  */
 export const ENTITY_FETCHERS = {
-  NOTE: fetchNotes,
-  FACT: fetchFacts,
-  BRIEFING: fetchBriefings,
-  PREFERENCE: fetchPreferences,
-  SKILL: fetchSkills,
-  SKILL_REVISION: fetchSkillRevisions,
-  SKILL_RUN: fetchSkillRuns,
-  ACTION_STAGING: fetchActionStagings,
-  ACTION_POLICY: fetchActionPolicies,
-  WORKFLOW: fetchWorkflows,
-  TODO: fetchTodos,
-  CHAT_THREAD: fetchChatThreads,
-  CHAT_MESSAGE: fetchChatMessages,
-  CHAT_ATTACHMENT: fetchChatAttachments,
-  ARTIFACT: fetchArtifacts,
-  TRIAGE_TAG: fetchTriageTags,
-} satisfies Record<IDBKeys, EntityFetcher>;
+  note: fetchNotes,
+  fact: fetchFacts,
+  briefing: fetchBriefings,
+  pref: fetchPreferences,
+  skill: fetchSkills,
+  skillrev: fetchSkillRevisions,
+  skillrun: fetchSkillRuns,
+  actionstaging: fetchActionStagings,
+  actionpolicy: fetchActionPolicies,
+  workflow: fetchWorkflows,
+  todo: fetchTodos,
+  chatthread: fetchChatThreads,
+  chatmsg: fetchChatMessages,
+  chatatt: fetchChatAttachments,
+  artifact: fetchArtifacts,
+  triagetag: fetchTriageTags,
+} satisfies EntityFetchers;
 
 // Built from `IDB_KEY_NAMES`, NOT from `Object.entries(ENTITY_FETCHERS)`: this
 // map order is the patch-operation order, and `Object.entries` would take it

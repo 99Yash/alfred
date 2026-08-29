@@ -1,7 +1,7 @@
 import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
-import { IDB_KEY, type IDBKeys, type SyncedEntity } from "@alfred/sync";
+import { SYNC_MODEL, type IDBKeys, type SyncedEntity } from "@alfred/sync";
 import { asc, eq, sql } from "drizzle-orm";
 import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "./cvr";
 import { SYNC_ENTITIES } from "./read";
@@ -83,39 +83,42 @@ export async function handlePull(
         .onConflictDoNothing();
     }
 
-    // Load previous CVR snapshot. A mismatch (e.g. stale cookie from a
-    // different client group, or a pre-refactor snapshot shape) is treated
-    // as cold sync.
+    // Load the previous CVR snapshot. A missing cookie, a different client
+    // group, or persisted data that CVRStore rejects is a cold sync.
     const cookieMatchesGroup = cookie != null && cookie.clientGroupID === clientGroupID;
     const prev: CVRSnapshot | null = cookieMatchesGroup
       ? await cvrStore.get(clientGroupID, cookie.order)
       : null;
-    const isColdSync = prev == null || !prev.entities;
+    const isColdSync = prev == null;
     const prevSnapshot: CVRSnapshot = prev ?? { entities: {} };
 
     const patch: PatchOp[] = [];
     if (isColdSync) patch.push({ op: "clear" });
 
     // Generic per-entity diff loop. `SYNC_ENTITIES` is compile-tied to
-    // `IDB_KEY`, so a new client-visible entity cannot skip server pull.
+    // `SYNC_MODEL`, so a new client-visible entity cannot skip server pull.
     const nextEntities: Partial<Record<IDBKeys, ClientViewMap>> = {};
     for (const { slug, fetchRows } of SYNC_ENTITIES) {
       const rows = await fetchRows(tx, userId);
       const nextMap: ClientViewMap = {};
-      const prevMap = prevSnapshot.entities?.[slug] ?? {};
+      const prevMap = prevSnapshot.entities[slug] ?? {};
 
       for (const r of rows) {
         nextMap[r.id] = { v: r.rowVersion };
         const prevRow: CVRRow | undefined = prevMap[r.id];
         if (!prevRow || prevRow.v !== r.rowVersion) {
-          patch.push({ op: "put", key: IDB_KEY[slug]({ id: r.id }), value: r.serialized });
+          patch.push({
+            op: "put",
+            key: r.storageKey,
+            value: r.serialized,
+          });
         }
       }
 
       if (!isColdSync) {
         for (const id of Object.keys(prevMap)) {
           if (!nextMap[id]) {
-            patch.push({ op: "del", key: IDB_KEY[slug]({ id }) });
+            patch.push({ op: "del", key: SYNC_MODEL[slug].storageKeyForCVRId(id) });
           }
         }
       }

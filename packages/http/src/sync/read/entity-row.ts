@@ -1,19 +1,23 @@
 import { toMessage } from "@alfred/contracts";
-import type { IDBKeys, SyncedEntity } from "@alfred/sync";
+import type { DbTransaction } from "@alfred/db";
+import type { IDBKeys, SyncedValueFor } from "@alfred/sync";
 import { ZodError } from "zod";
 
 /**
- * One row's contribution to the patch: its row_version drives CVR diffing,
- * and `serialized` is the value Replicache writes to the client store.
+ * One row's contribution to the patch: its raw `id` and row_version drive CVR
+ * diffing, while `storageKey` and `serialized` are what Replicache writes.
  */
-export interface EntityRow {
+export interface EntityRow<Slug extends IDBKeys = IDBKeys> {
   id: string;
+  storageKey: `${Slug}/${string}`;
   rowVersion: number;
-  serialized: SyncedEntity;
+  serialized: SyncedValueFor<Slug>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type EntityFetcher = (tx: any, userId: string) => Promise<EntityRow[]>;
+export type EntityFetcher<Slug extends IDBKeys> = (
+  tx: DbTransaction,
+  userId: string,
+) => Promise<EntityRow<Slug>[]>;
 
 /**
  * THE RECOVERABLE-SERIALIZATION PATH. Read this before editing any file in
@@ -21,30 +25,29 @@ export type EntityFetcher = (tx: any, userId: string) => Promise<EntityRow[]>;
  *
  * One malformed row must cost the user one row, never the whole pull. Drop the
  * `try` below, narrow {@link isRecoverableSerializationError}, or let a domain
- * serializer throw a plain `Error` where it used to throw
+ * `make` throw a plain `Error` where it used to throw
  * {@link SerializationError}, and a single bad row stops being a skipped row
  * and becomes a failed pull — a total sync outage for that user, with every
  * type check green.
  *
+ * `make` produces the whole row contribution — id, rowVersion, and the parsed
+ * serialized value — so every derivation that can throw (the domain mapper,
+ * the schema `parse`) stays behind the same recoverable boundary. The caller
+ * (`syncEntity`, in this directory) keeps only the query.
+ *
  * `packages/http/test/replicache/entity-row.test.ts` drives the three arms.
  */
-export function toEntityRow(args: {
-  slug: IDBKeys;
-  id: string;
-  rowVersion: number;
-  serialize: () => SyncedEntity;
-}): EntityRow[] {
+export function toEntityRow<Slug extends IDBKeys>(args: {
+  slug: Slug;
+  make: () => EntityRow<Slug>;
+}): EntityRow<Slug>[] {
   try {
-    return [
-      {
-        id: args.id,
-        rowVersion: args.rowVersion,
-        serialized: args.serialize(),
-      },
-    ];
+    return [args.make()];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    console.warn(`[replicache] skipping invalid ${args.slug} row '${args.id}': ${toMessage(err)}`);
+    // SAFETY: `syncEntity` logs schema paths and a bounded mapped-value preview;
+    // this generic warning also covers domain `SerializationError` failures.
+    console.warn(`[replicache] skipping invalid ${args.slug} row: ${toMessage(err)}`);
     return [];
   }
 }

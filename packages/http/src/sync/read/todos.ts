@@ -1,8 +1,8 @@
 import { todos, type Todo } from "@alfred/db/schemas";
-import { syncedTodoSchema, type SyncedTodo } from "@alfred/sync";
+import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, eq, gte, ne, notInArray, or } from "drizzle-orm";
-import { SerializationError, toEntityRow, type EntityFetcher } from "./entity-row";
-import { toIso, toRequiredIso } from "./iso-date";
+import { SerializationError } from "./entity-row";
+import { syncEntity } from "./sync-entity";
 
 /** Done todos linger this long in the sync window before falling out (ADR-0050). */
 const TODO_DONE_WINDOW_DAYS = 2;
@@ -11,50 +11,25 @@ const TODO_DONE_WINDOW_DAYS = 2;
 // linger `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the
 // DB). `suggested` + `open` always sync. `cleared` (#297) is a `done` the
 // user removed from the rail early — terminal, so excluded like `dismissed`.
-export const fetchTodos: EntityFetcher = async (tx, userId) => {
-  const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  const rows = await tx
-    .select()
-    .from(todos)
-    .where(
-      and(
-        eq(todos.userId, userId),
-        notInArray(todos.status, ["dismissed", "cleared"]),
-        or(ne(todos.status, "done"), gte(todos.completedAt, doneCutoff)),
-      ),
-    )
-    .orderBy(asc(todos.createdAt), asc(todos.id));
-  return rows.flatMap((t: Todo) =>
-    toEntityRow({
-      slug: "TODO",
-      id: t.id,
-      rowVersion: t.rowVersion,
-      serialize: () => serializeTodo(t),
-    }),
-  );
-};
-
-function serializeTodo(t: Todo): SyncedTodo {
-  if (t.status === "dismissed") {
-    throw new SerializationError("cannot sync a dismissed todo");
-  }
-  return syncedTodoSchema.parse({
-    id: t.id,
-    userId: t.userId,
-    name: t.name,
-    description: t.description,
-    status: t.status,
-    createdBy: t.createdBy,
-    executor: t.executor,
-    kind: t.kind,
-    assist: t.assist,
-    sources: t.sources,
-    agentRunId: t.agentRunId,
-    completedAt: toIso(t.completedAt),
-    position: t.position,
-    dueDate: t.dueDate,
-    rowVersion: t.rowVersion,
-    createdAt: toRequiredIso(t.createdAt, "todos.createdAt"),
-    updatedAt: toIso(t.updatedAt),
-  });
-}
+export const fetchTodos = syncEntity(SYNC_MODEL.todo, {
+  query: (tx, userId) => {
+    const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    return tx
+      .select()
+      .from(todos)
+      .where(
+        and(
+          eq(todos.userId, userId),
+          notInArray(todos.status, ["dismissed", "cleared"]),
+          or(ne(todos.status, "done"), gte(todos.completedAt, doneCutoff)),
+        ),
+      )
+      .orderBy(asc(todos.createdAt), asc(todos.id));
+  },
+  map: (t: Todo) => {
+    if (t.status === "dismissed") {
+      throw new SerializationError("cannot sync a dismissed todo");
+    }
+    return t;
+  },
+});

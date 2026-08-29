@@ -1,32 +1,22 @@
 import { userPreferences, type UserPreference } from "@alfred/db/schemas";
-import { memorySourceSchema, syncedPreferenceSchema, type SyncedPreference } from "@alfred/sync";
+import { SYNC_MODEL } from "@alfred/sync";
 import { asc, eq } from "drizzle-orm";
-import { toEntityRow, type EntityFetcher } from "./entity-row";
+import { syncEntity } from "./sync-entity";
 
 // Preferences are keyed by `(user_id, key)`; the IDB id is the pref key
 // so optimistic client writes can address rows without a lookup.
-export const fetchPreferences: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select()
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, userId))
-    .orderBy(asc(userPreferences.key));
-  return rows.flatMap((p: UserPreference) =>
-    toEntityRow({
-      slug: "PREFERENCE",
-      id: p.key,
-      rowVersion: p.rowVersion,
-      serialize: () => serializePreference(p),
-    }),
-  );
-};
-
-function serializePreference(p: UserPreference): SyncedPreference {
-  return syncedPreferenceSchema.parse({
+export const fetchPreferences = syncEntity(SYNC_MODEL.pref, {
+  query: (tx, userId) =>
+    tx
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .orderBy(asc(userPreferences.key)),
+  map: (p: UserPreference) => ({
     key: p.key,
     userId: p.userId,
     value: p.value,
-    source: memorySourceSchema.parse(p.source),
+    source: p.source,
     rowVersion: p.rowVersion,
-  });
-}
+  }),
+});

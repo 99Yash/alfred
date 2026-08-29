@@ -1,9 +1,8 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
-import { isoDateTimeStringSchema, syncedTodoSchema } from "../schemas";
+import { SYNC_MODEL } from "../sync-model";
+import { isoDateTimeStringSchema } from "../schemas";
 import type { SyncedTodo } from "../types";
-import { readSyncedValue } from "./read";
 
 /**
  * Client-side todo mutators (ADR-0050). User-authored todos and user-initiated
@@ -56,11 +55,11 @@ export const todoEditArgsSchema = z
 export type TodoEditArgs = z.infer<typeof todoEditArgsSchema>;
 
 async function readTodo(tx: WriteTransaction, id: string): Promise<SyncedTodo | null> {
-  return readSyncedValue(tx, IDB_KEY.TODO({ id }), syncedTodoSchema);
+  return SYNC_MODEL.todo.get(tx, { id });
 }
 
 async function writeTodo(tx: WriteTransaction, todo: SyncedTodo): Promise<void> {
-  await tx.set(IDB_KEY.TODO({ id: todo.id }), normalizeToReadonlyJSON(todo));
+  await SYNC_MODEL.todo.put(tx, todo);
 }
 
 /** Add a user-authored todo. Idempotent on id (a retry overwrites with the same row). */
@@ -160,9 +159,7 @@ export async function todoDismissClient(
   tx: WriteTransaction,
   args: TodoDismissArgs,
 ): Promise<void> {
-  const key = IDB_KEY.TODO({ id: args.id });
-  if (!(await tx.has(key))) return;
-  await tx.del(key);
+  await SYNC_MODEL.todo.del(tx, { id: args.id });
 }
 
 /**
@@ -174,7 +171,7 @@ export async function todoDismissClient(
 export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "done") return;
-  await tx.del(IDB_KEY.TODO({ id: args.id }));
+  await SYNC_MODEL.todo.del(tx, { id: args.id });
 }
 
 /** Edit a todo's name and/or description. */

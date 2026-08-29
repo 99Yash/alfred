@@ -1,9 +1,8 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
-import { memorySourceSchema, preferenceValueSchema, syncedPreferenceSchema } from "../schemas";
+import { SYNC_MODEL } from "../sync-model";
+import { memorySourceSchema, preferenceValueSchema } from "../schemas";
 import type { SyncedPreference } from "../types";
-import { readSyncedValue } from "./read";
 
 /**
  * Client-side mutators for `user_preferences` (ADR-0012).
@@ -34,8 +33,7 @@ export type PrefDeleteArgs = z.infer<typeof prefDeleteArgsSchema>;
  * with the canonical version.
  */
 export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Promise<void> {
-  const idbKey = IDB_KEY.PREFERENCE({ id: args.key });
-  const prev = await readSyncedValue(tx, idbKey, syncedPreferenceSchema);
+  const prev = await SYNC_MODEL.pref.get(tx, { key: args.key });
   const replacement: SyncedPreference = {
     key: args.key,
     userId: prev?.userId ?? "",
@@ -43,13 +41,10 @@ export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Pr
     source: args.source ?? prev?.source ?? { kind: "user" },
     rowVersion: (prev?.rowVersion ?? -1) + 1,
   };
-  await tx.set(idbKey, normalizeToReadonlyJSON(replacement));
+  await SYNC_MODEL.pref.put(tx, replacement);
 }
 
 /** Optimistic delete. Server removes the row; next pull confirms. */
 export async function prefDeleteClient(tx: WriteTransaction, args: PrefDeleteArgs): Promise<void> {
-  const idbKey = IDB_KEY.PREFERENCE({ id: args.key });
-  const exists = await tx.has(idbKey);
-  if (!exists) return;
-  await tx.del(idbKey);
+  await SYNC_MODEL.pref.del(tx, { key: args.key });
 }

@@ -10,7 +10,6 @@ export type {
   SyncedChatMessage,
   SyncedChatNarration,
   SyncedChatThread,
-  SyncedEntity,
   SyncedFact,
   SyncedNote,
   SyncedPreference,
@@ -22,3 +21,7 @@ export type {
   SyncedWorkflow,
   WorkflowStatus,
 } from "./schemas";
+
+// `SyncedEntity` is derived from `SYNC_MODEL` (so the union cannot drift) and
+// re-exported from "./sync-model"; keep it out of this list to avoid a
+// duplicate re-export through the barrel.

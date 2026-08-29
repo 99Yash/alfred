@@ -1,11 +1,8 @@
 import {
-  IDB_KEY,
+  SYNC_MODEL,
   type SyncedSkill,
   type SyncedSkillRevision,
   type SyncedSkillRun,
-  syncedSkillRevisionSchema,
-  syncedSkillRunSchema,
-  syncedSkillSchema,
 } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction, Replicache } from "replicache";
@@ -30,16 +27,8 @@ export function useSkills(): SkillsState {
   useEffect(() => {
     if (!rep) return;
     return rep.subscribe(
-      async (tx: ReadTransaction) =>
-        tx
-          .scan({ prefix: IDB_KEY.SKILL({}) })
-          .values()
-          .toArray(),
-      (values) => {
-        const skills = values.flatMap((value) => {
-          const result = syncedSkillSchema.safeParse(value);
-          return result.success ? [result.data] : [];
-        });
+      (tx: ReadTransaction) => SYNC_MODEL.skill.scan(tx),
+      (skills) => {
         skills.sort((a, b) =>
           (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt),
         );
@@ -86,32 +75,13 @@ export function useSkillDetail(slug: string): SkillDetailState {
     return rep.subscribe(
       async (tx: ReadTransaction) =>
         Promise.all([
-          tx
-            .scan({ prefix: IDB_KEY.SKILL({}) })
-            .values()
-            .toArray(),
-          tx
-            .scan({ prefix: IDB_KEY.SKILL_REVISION({}) })
-            .values()
-            .toArray(),
-          tx
-            .scan({ prefix: IDB_KEY.SKILL_RUN({}) })
-            .values()
-            .toArray(),
+          SYNC_MODEL.skill.scan(tx),
+          SYNC_MODEL.skillrev.scan(tx),
+          SYNC_MODEL.skillrun.scan(tx),
         ]),
-      ([skillValues, revisionValues, runValues]) => {
-        const skill = skillValues
-          .map((value) => syncedSkillSchema.safeParse(value))
-          .find((result) => result.success && result.data.slug === slug);
-        const parsedSkill = skill?.success ? skill.data : null;
-        const revisions = revisionValues.flatMap((value) => {
-          const result = syncedSkillRevisionSchema.safeParse(value);
-          return result.success ? [result.data] : [];
-        });
-        const runs = runValues.flatMap((value) => {
-          const result = syncedSkillRunSchema.safeParse(value);
-          return result.success && result.data.skillId === parsedSkill?.id ? [result.data] : [];
-        });
+      ([skills, revisions, skillRuns]) => {
+        const parsedSkill = skills.find((skill) => skill.slug === slug) ?? null;
+        const runs = skillRuns.filter((run) => run.skillId === parsedSkill?.id);
         runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
         setSnapshot({
           rep,

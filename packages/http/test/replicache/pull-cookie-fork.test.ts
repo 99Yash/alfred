@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
+import { closeRedis, createRedisConnection } from "@alfred/db/redis";
 import { replicacheClientGroup, user } from "@alfred/db/schemas";
 import { eq, inArray } from "drizzle-orm";
 
+import { getCVRStore } from "../../src/sync/cvr";
 import { handlePull } from "../../src/sync/pull";
-import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SERVER_ENV_FIXTURES = {
@@ -155,5 +156,71 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       .from(replicacheClientGroup)
       .where(eq(replicacheClientGroup.id, group));
     assert.equal(storedGroup?.cvrVersion, result.cookie.order);
+  });
+
+  test("a legacy uppercase CVR snapshot becomes a cold sync", async () => {
+    const userId = await seedUser();
+    const group = `${ID_PREFIX}legacy-${randomUUID()}`;
+    const order = 7;
+    await db().insert(replicacheClientGroup).values({ id: group, userId, cvrVersion: order });
+
+    const redis = createRedisConnection("command");
+    await redis.set(
+      `cvr:${group}:${order}`,
+      JSON.stringify({ entities: { TODO: { "gone-todo": { v: 1 } } }, clients: {} }),
+      "EX",
+      60,
+    );
+
+    const result = await handlePull(userId, {
+      pullVersion: 1,
+      clientGroupID: group,
+      cookie: { order, clientGroupID: group },
+    });
+
+    assert.ok(!("forbidden" in result));
+    assert.equal(result.patch[0]?.op, "clear");
+    assert.equal(result.cookie.order, order + 1);
+  });
+
+  test("a current lowercase CVR snapshot keeps delta deletes", async () => {
+    const userId = await seedUser();
+    const group = `${ID_PREFIX}current-${randomUUID()}`;
+    const order = 11;
+    await db().insert(replicacheClientGroup).values({ id: group, userId, cvrVersion: order });
+
+    const redis = createRedisConnection("command");
+    await redis.set(
+      `cvr:${group}:${order}`,
+      JSON.stringify({ entities: { todo: { "gone-todo": { v: 1 } } }, clients: {} }),
+      "EX",
+      60,
+    );
+
+    const result = await handlePull(userId, {
+      pullVersion: 1,
+      clientGroupID: group,
+      cookie: { order, clientGroupID: group },
+    });
+
+    assert.ok(!("forbidden" in result));
+    assert.equal(
+      result.patch.some((operation) => operation.op === "clear"),
+      false,
+    );
+    assert.deepEqual(result.patch, [{ op: "del", key: "todo/gone-todo" }]);
+  });
+
+  test("CVRStore reads a snapshot written by its current schema", async () => {
+    const group = `${ID_PREFIX}roundtrip-${randomUUID()}`;
+    const snapshot = {
+      entities: { todo: { "todo-1": { v: 2 } } },
+      clients: { "client-1": 4 },
+    } as const;
+    const store = getCVRStore();
+
+    await store.put(group, 3, snapshot);
+
+    assert.deepEqual(await store.get(group, 3), snapshot);
   });
 });

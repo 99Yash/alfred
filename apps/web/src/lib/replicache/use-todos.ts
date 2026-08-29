@@ -1,4 +1,4 @@
-import { IDB_KEY, type SyncedTodo, syncedTodoSchema } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedTodo } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
@@ -68,17 +68,11 @@ export function useTodos(): TodosState {
       setRows(null);
       return;
     }
-    const prefix = IDB_KEY.TODO({});
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (values) => {
-        const parsed: SyncedTodo[] = [];
-        for (const value of values) {
-          const result = syncedTodoSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort(sortTodos);
-        setRows(parsed);
+      (tx: ReadTransaction) => SYNC_MODEL.todo.scan(tx),
+      (todos) => {
+        todos.sort(sortTodos);
+        setRows(todos);
       },
     );
   }, [rep]);

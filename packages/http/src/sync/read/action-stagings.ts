@@ -1,3 +1,4 @@
+import type { DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
@@ -5,10 +6,10 @@ import {
   type ActionStaging,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
-import { syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
+import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
-import { SerializationError, toEntityRow, type EntityFetcher } from "./entity-row";
-import { toIso, toRequiredIso } from "./iso-date";
+import { SerializationError } from "./entity-row";
+import { syncEntity } from "./sync-entity";
 
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -18,59 +19,16 @@ const BRIEF_PREVIEW_CHARS = 280;
 // The approvals surface only syncs rows that still require a user
 // decision. Autonomy rows may briefly be `pending` while the dispatcher
 // is executing the tool; those are audit rows, not approval cards.
-export const fetchActionStagings: EntityFetcher = async (tx, userId) => {
-  const rows = await tx
-    .select({
-      staging: actionStagings,
-      workflowSlug: agentRuns.workflowSlug,
-      // Display name + provenance are derived read-only fields for the card
-      // (ADR-0034 amendment 2026-05-31). `workflowName` left-joins so a
-      // deleted/builtin workflow row doesn't drop the staging — the
-      // serializer falls back to the slug.
-      workflowName: workflows.name,
-      trigger: agentRuns.trigger,
-      brief: agentRuns.brief,
-    })
-    .from(actionStagings)
-    .innerJoin(agentRuns, eq(actionStagings.runId, agentRuns.id))
-    .leftJoin(
-      workflows,
-      and(eq(workflows.userId, agentRuns.userId), eq(workflows.slug, agentRuns.workflowSlug)),
-    )
-    .where(
-      and(
-        eq(actionStagings.userId, userId),
-        eq(actionStagings.status, "pending"),
-        eq(actionStagings.requiresApproval, true),
-      ),
-    )
-    .orderBy(asc(actionStagings.id));
-
-  const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
-
-  return rows.flatMap(
-    (r: {
-      staging: ActionStaging;
-      workflowSlug: string;
-      workflowName: string | null;
-      trigger: AgentRunTrigger | null;
-      brief: string | null;
-    }) =>
-      toEntityRow({
-        slug: "ACTION_STAGING",
-        id: r.staging.id,
-        rowVersion: r.staging.rowVersion,
-        serialize: () =>
-          serializeActionStaging(r.staging, {
-            workflowSlug: r.workflowSlug,
-            workflowName: r.workflowName,
-            trigger: r.trigger,
-            brief: r.brief,
-            recentRejection: recentRejections.get(r.staging.toolName) ?? null,
-          }),
-      }),
-  );
+type ActionStagingRow = {
+  staging: ActionStaging;
+  workflowSlug: string;
+  workflowName: string | null;
+  trigger: AgentRunTrigger | null;
+  brief: string | null;
+  recentRejection: RecentRejection | null;
 };
+
+type SelectedActionStagingRow = Omit<ActionStagingRow, "recentRejection">;
 
 interface RecentRejection {
   runId: string;
@@ -79,8 +37,7 @@ interface RecentRejection {
 }
 
 async function loadRecentRejectionsByTool(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tx: any,
+  tx: DbTransaction,
   userId: string,
   pendingRows: Array<{ staging: ActionStaging }>,
 ): Promise<Map<string, RecentRejection>> {
@@ -141,53 +98,79 @@ function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   };
 }
 
-function serializeActionStaging(
-  s: ActionStaging,
-  provenance: {
-    workflowSlug: string;
-    workflowName: string | null;
-    trigger: AgentRunTrigger | null;
-    brief: string | null;
-    recentRejection: RecentRejection | null;
+export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
+  query: async (tx, userId) => {
+    const rows: SelectedActionStagingRow[] = await tx
+      .select({
+        staging: actionStagings,
+        workflowSlug: agentRuns.workflowSlug,
+        workflowName: workflows.name,
+        trigger: agentRuns.trigger,
+        brief: agentRuns.brief,
+      })
+      .from(actionStagings)
+      .innerJoin(agentRuns, eq(actionStagings.runId, agentRuns.id))
+      .leftJoin(
+        workflows,
+        and(eq(workflows.userId, agentRuns.userId), eq(workflows.slug, agentRuns.workflowSlug)),
+      )
+      .where(
+        and(
+          eq(actionStagings.userId, userId),
+          eq(actionStagings.status, "pending"),
+          eq(actionStagings.requiresApproval, true),
+        ),
+      )
+      .orderBy(asc(actionStagings.id));
+
+    const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
+    return rows.map(
+      (row): ActionStagingRow => ({
+        ...row,
+        recentRejection: recentRejections.get(row.staging.toolName) ?? null,
+      }),
+    );
   },
-): SyncedActionStaging {
-  if (s.status !== "pending") {
-    throw new SerializationError(`cannot sync action staging with status '${s.status}'`);
-  }
-  const recentRejection = provenance.recentRejection;
-  const brief = provenance.brief
-    ? provenance.brief.length > BRIEF_PREVIEW_CHARS
-      ? `${provenance.brief.slice(0, BRIEF_PREVIEW_CHARS - 1)}…`
-      : provenance.brief
-    : null;
-  return syncedActionStagingSchema.parse({
-    id: s.id,
-    userId: s.userId,
-    runId: s.runId,
-    workflowSlug: provenance.workflowSlug,
-    workflowName: provenance.workflowName ?? provenance.workflowSlug,
-    trigger: narrowTrigger(provenance.trigger),
-    brief,
-    stepId: s.stepId,
-    toolCallId: s.toolCallId,
-    toolName: s.toolName,
-    integration: s.integration,
-    riskTier: s.riskTier,
-    proposedInput: s.proposedInput,
-    requiresApproval: s.requiresApproval,
-    status: s.status,
-    expiresAt: toIso(s.expiresAt),
-    notifyAfterAt: toIso(s.notifyAfterAt),
-    notifiedAt: toIso(s.notifiedAt),
-    recentRejection: recentRejection
-      ? {
-          runId: recentRejection.runId,
-          reason: recentRejection.reason,
-          decidedAt: toRequiredIso(recentRejection.decidedAt, "actionStagings.decidedAt"),
-        }
-      : null,
-    rowVersion: s.rowVersion,
-    createdAt: toRequiredIso(s.createdAt, "actionStagings.createdAt"),
-    updatedAt: toIso(s.updatedAt),
-  });
-}
+  map: (row: ActionStagingRow) => {
+    const s = row.staging;
+    if (s.status !== "pending") {
+      throw new SerializationError(`cannot sync action staging with status '${s.status}'`);
+    }
+    const recentRejection = row.recentRejection;
+    const brief = row.brief
+      ? row.brief.length > BRIEF_PREVIEW_CHARS
+        ? `${row.brief.slice(0, BRIEF_PREVIEW_CHARS - 1)}…`
+        : row.brief
+      : null;
+    return {
+      id: s.id,
+      userId: s.userId,
+      runId: s.runId,
+      workflowSlug: row.workflowSlug,
+      workflowName: row.workflowName ?? row.workflowSlug,
+      trigger: narrowTrigger(row.trigger),
+      brief,
+      stepId: s.stepId,
+      toolCallId: s.toolCallId,
+      toolName: s.toolName,
+      integration: s.integration,
+      riskTier: s.riskTier,
+      proposedInput: s.proposedInput,
+      requiresApproval: s.requiresApproval,
+      status: s.status,
+      expiresAt: s.expiresAt,
+      notifyAfterAt: s.notifyAfterAt,
+      notifiedAt: s.notifiedAt,
+      recentRejection: recentRejection
+        ? {
+            runId: recentRejection.runId,
+            reason: recentRejection.reason,
+            decidedAt: recentRejection.decidedAt,
+          }
+        : null,
+      rowVersion: s.rowVersion,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+    };
+  },
+});
