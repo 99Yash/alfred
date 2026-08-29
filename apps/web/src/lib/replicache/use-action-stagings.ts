@@ -1,4 +1,4 @@
-import { SYNC_MODEL, syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
@@ -32,17 +32,11 @@ export function useActionStagings(): ActionStagingsState {
       return;
     }
 
-    const prefix = SYNC_MODEL.actionstaging.prefix;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+      (tx: ReadTransaction) => SYNC_MODEL.actionstaging.scan(tx),
       (values) => {
-        const parsed: SyncedActionStaging[] = [];
-        for (const value of values) {
-          const result = syncedActionStagingSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setRows(parsed);
+        values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setRows(values);
       },
     );
   }, [rep]);

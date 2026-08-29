@@ -1,4 +1,4 @@
-import { SYNC_MODEL, type PreferenceValue, syncedPreferenceSchema } from "@alfred/sync";
+import { SYNC_MODEL, type PreferenceValue, type SyncedPreference } from "@alfred/sync";
 import { useCallback, useMemo } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
@@ -20,25 +20,20 @@ const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
 /**
  * Live view of the synced preference table (`pref/{key}` rows, ADR-0012).
  *
- * Scans the prefix once, parses each row with {@link syncedPreferenceSchema},
+ * Scans the model once and keeps a `key → value` map. The model owns row parsing.
  * and keeps a `key → value` map. Domain hooks (feature flags, briefing
  * schedule, …) interpret the values for their own surface; this hook owns only
  * the scan/parse/write machinery so it stays identical across those views.
  */
 export function usePreferenceMap(): PreferenceMap {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const prefix = SYNC_MODEL.pref.prefix;
-  const query = useCallback(
-    (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-    [prefix],
-  );
-  const rows = useReplicacheSubscription<unknown[], Record<string, PreferenceValue>>(
+  const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.pref.scan(tx), []);
+  const rows = useReplicacheSubscription<SyncedPreference[], Record<string, PreferenceValue>>(
     query,
-    useCallback((raw: unknown[]) => {
+    useCallback((preferences: SyncedPreference[]) => {
       const next: Record<string, PreferenceValue> = {};
-      for (const row of raw) {
-        const parsed = syncedPreferenceSchema.safeParse(row);
-        if (parsed.success) next[parsed.data.key] = parsed.data.value;
+      for (const preference of preferences) {
+        next[preference.key] = preference.value;
       }
       return next;
     }, []),

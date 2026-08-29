@@ -1,10 +1,8 @@
 import { LOADABLE_INTEGRATION_SLUGS, POLICY_MODES } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { normalizeToReadonlyJSON, SYNC_MODEL } from "../sync-model";
-import { syncedActionPolicySchema } from "../schemas";
+import { SYNC_MODEL } from "../sync-model";
 import type { SyncedActionPolicy } from "../types";
-import { readSyncedValue } from "./read";
 
 export const policySetIntegrationModeArgsSchema = z.object({
   slug: z.enum(LOADABLE_INTEGRATION_SLUGS),
@@ -16,10 +14,7 @@ export async function policySetIntegrationModeClient(
   tx: WriteTransaction,
   args: PolicySetIntegrationModeArgs,
 ): Promise<void> {
-  const prefix = SYNC_MODEL.actionpolicy.prefix;
-  const [key] = await tx.scan({ prefix }).keys().toArray();
-  if (!key) return;
-  const current = await readSyncedValue(tx, key, syncedActionPolicySchema);
+  const [current] = await SYNC_MODEL.actionpolicy.scan(tx);
   if (!current) return;
   const next: SyncedActionPolicy = {
     ...current,
@@ -29,7 +24,7 @@ export async function policySetIntegrationModeClient(
     },
     rowVersion: current.rowVersion + 1,
   };
-  await tx.set(key, normalizeToReadonlyJSON(next));
+  await SYNC_MODEL.actionpolicy.put(tx, next);
 }
 
 export const policySetDefaultModeArgsSchema = z.object({
@@ -47,15 +42,12 @@ export async function policySetDefaultModeClient(
   tx: WriteTransaction,
   args: PolicySetDefaultModeArgs,
 ): Promise<void> {
-  const prefix = SYNC_MODEL.actionpolicy.prefix;
-  const [key] = await tx.scan({ prefix }).keys().toArray();
-  if (!key) return;
-  const current = await readSyncedValue(tx, key, syncedActionPolicySchema);
+  const [current] = await SYNC_MODEL.actionpolicy.scan(tx);
   if (!current) return;
   const next: SyncedActionPolicy = {
     ...current,
     defaultMode: args.mode,
     rowVersion: current.rowVersion + 1,
   };
-  await tx.set(key, normalizeToReadonlyJSON(next));
+  await SYNC_MODEL.actionpolicy.put(tx, next);
 }

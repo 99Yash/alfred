@@ -1,4 +1,4 @@
-import type { ReadonlyJSONValue } from "replicache";
+import type { ReadonlyJSONValue, ReadTransaction, WriteTransaction } from "replicache";
 import { z } from "zod";
 import {
   syncedActionPolicySchema,
@@ -41,6 +41,11 @@ interface SyncEntityDefinition<TSchema extends SyncSchema = SyncSchema> {
   idOf: (entity: z.output<TSchema>) => string;
 }
 
+export interface SyncScanOptions {
+  /** Prefix within this model's id-part, for bounded scans such as one briefing day. */
+  idPrefix?: string;
+}
+
 type ValidModelPrefix<Prefix extends string> = string extends Prefix
   ? never
   : Prefix extends ""
@@ -56,6 +61,13 @@ interface SyncEntityModel<Prefix extends string = string, TSchema extends SyncSc
   schema: TSchema;
   storageKeyForId: (id: string) => `${Prefix}/${string}`;
   storageKeyFor: (entity: z.output<TSchema>) => `${Prefix}/${string}`;
+  scan: (
+    tx: Pick<ReadTransaction, "scan">,
+    options?: SyncScanOptions,
+  ) => Promise<z.output<TSchema>[]>;
+  get: (tx: Pick<ReadTransaction, "get">, id: string) => Promise<z.output<TSchema> | null>;
+  put: (tx: Pick<WriteTransaction, "set">, value: z.input<TSchema>) => Promise<void>;
+  del: (tx: Pick<WriteTransaction, "del">, id: string) => Promise<void>;
   parsePullValue: (input: unknown) => {
     id: string;
     rowVersion: number;
@@ -109,6 +121,31 @@ function bindModel<const Prefix extends string, TSchema extends SyncSchema>(
     schema,
     storageKeyForId,
     storageKeyFor: (entity: z.output<TSchema>) => storageKeyForId(idOf(entity)),
+    scan: async (tx, options) => {
+      const values = await tx
+        .scan({ prefix: options?.idPrefix ? storageKeyForId(options.idPrefix) : prefix })
+        .values()
+        .toArray();
+      const parsed: z.output<TSchema>[] = [];
+      for (const value of values) {
+        const result = schema.safeParse(value);
+        if (result.success) parsed.push(result.data);
+      }
+      return parsed;
+    },
+    get: async (tx, id) => {
+      const value = await tx.get(storageKeyForId(id));
+      if (value === undefined) return null;
+      const result = schema.safeParse(value);
+      return result.success ? result.data : null;
+    },
+    put: async (tx, input) => {
+      const value = schema.parse(input);
+      await tx.set(storageKeyForId(idOf(value)), normalizeToReadonlyJSON(value));
+    },
+    del: async (tx, id) => {
+      await tx.del(storageKeyForId(id));
+    },
     parsePullValue: (input: unknown) => {
       const value = schema.parse(input);
       return { id: idOf(value), rowVersion: value.rowVersion, value };

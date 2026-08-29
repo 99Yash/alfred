@@ -1,6 +1,6 @@
 import type { IntegrationSlug, LoadableIntegrationSlug, PolicyMode } from "@alfred/contracts";
 import { resolveIntegrationMode } from "@alfred/contracts";
-import { SYNC_MODEL, syncedActionPolicySchema, type SyncedActionPolicy } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedActionPolicy } from "@alfred/sync";
 import { useCallback, useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
@@ -38,13 +38,10 @@ export function useActionPolicy(): ActionPolicyState {
       setLoaded(false);
       return;
     }
-    const prefix = SYNC_MODEL.actionpolicy.prefix;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+      (tx: ReadTransaction) => SYNC_MODEL.actionpolicy.scan(tx),
       (values) => {
-        const first = values[0];
-        const result = first ? syncedActionPolicySchema.safeParse(first) : null;
-        setPolicy(result?.success ? result.data : null);
+        setPolicy(values[0] ?? null);
         setLoaded(true);
       },
     );

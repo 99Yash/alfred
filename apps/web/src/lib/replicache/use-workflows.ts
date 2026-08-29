@@ -1,9 +1,4 @@
-import {
-  SYNC_MODEL,
-  type SyncedWorkflow,
-  syncedWorkflowSchema,
-  type WorkflowUpdateArgs,
-} from "@alfred/sync";
+import { SYNC_MODEL, type SyncedWorkflow, type WorkflowUpdateArgs } from "@alfred/sync";
 import { useCallback, useEffect, useState } from "react";
 import type { ReadTransaction, Replicache } from "replicache";
 import type { ClientMutators } from "@alfred/sync";
@@ -30,17 +25,11 @@ export function useWorkflows(): WorkflowsState {
 
   useEffect(() => {
     if (!rep) return;
-    const prefix = SYNC_MODEL.workflow.prefix;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (values) => {
-        const parsed: SyncedWorkflow[] = [];
-        for (const value of values) {
-          const result = syncedWorkflowSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => a.name.localeCompare(b.name));
-        setSnapshot({ rep, value: parsed });
+      (tx: ReadTransaction) => SYNC_MODEL.workflow.scan(tx),
+      (workflows) => {
+        workflows.sort((a, b) => a.name.localeCompare(b.name));
+        setSnapshot({ rep, value: workflows });
       },
     );
   }, [rep]);
@@ -74,13 +63,9 @@ export function useWorkflow(slug: string): WorkflowState {
 
   useEffect(() => {
     if (!rep) return;
-    const key = SYNC_MODEL.workflow.storageKeyForId(slug);
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.get(key),
-      (value) => {
-        const result = value ? syncedWorkflowSchema.safeParse(value) : null;
-        setSnapshot({ rep, slug, workflow: result?.success ? result.data : null });
-      },
+      (tx: ReadTransaction) => SYNC_MODEL.workflow.get(tx, slug),
+      (workflow) => setSnapshot({ rep, slug, workflow }),
     );
   }, [rep, slug]);
 

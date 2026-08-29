@@ -1,4 +1,4 @@
-import { SYNC_MODEL, type SyncedBriefing, syncedBriefingSchema } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedBriefing } from "@alfred/sync";
 import type { BriefingSlot } from "@alfred/contracts";
 import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
@@ -13,15 +13,6 @@ const SLOT_ORDER = {
 
 function compareSlots(a: SyncedBriefing, b: SyncedBriefing): number {
   return (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9);
-}
-
-function parseBriefingRows(values: unknown[]): SyncedBriefing[] {
-  const rows: SyncedBriefing[] = [];
-  for (const value of values) {
-    const parsed = syncedBriefingSchema.safeParse(value);
-    if (parsed.success) rows.push(parsed.data);
-  }
-  return rows;
 }
 
 export interface BriefingsState {
@@ -40,20 +31,15 @@ export interface BriefingsState {
  */
 export function useBriefings(): BriefingsState {
   const { loadError, retry } = useReplicacheStatus();
-  const prefix = SYNC_MODEL.briefing.prefix;
-  const query = useCallback(
-    (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-    [prefix],
-  );
-  const briefings = useReplicacheSubscription<unknown[], SyncedBriefing[]>(
+  const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.briefing.scan(tx), []);
+  const briefings = useReplicacheSubscription<SyncedBriefing[], SyncedBriefing[]>(
     query,
-    useCallback((values: unknown[]) => {
-      const parsed = parseBriefingRows(values);
-      parsed.sort((a, b) => {
+    useCallback((rows: SyncedBriefing[]) => {
+      rows.sort((a, b) => {
         if (a.briefingDate !== b.briefingDate) return b.briefingDate.localeCompare(a.briefingDate);
         return compareSlots(a, b);
       });
-      return parsed;
+      return rows;
     }, []),
   );
 
@@ -80,17 +66,15 @@ export interface BriefingDayState {
  */
 export function useBriefing(date: string): BriefingDayState {
   const { loadError, retry } = useReplicacheStatus();
-  const prefix = SYNC_MODEL.briefing.storageKeyForId(`${date}/`);
   const query = useCallback(
-    (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-    [prefix],
+    (tx: ReadTransaction) => SYNC_MODEL.briefing.scan(tx, { idPrefix: `${date}/` }),
+    [date],
   );
-  const slots = useReplicacheSubscription<unknown[], SyncedBriefing[]>(
+  const slots = useReplicacheSubscription<SyncedBriefing[], SyncedBriefing[]>(
     query,
-    useCallback((values: unknown[]) => {
-      const parsed = parseBriefingRows(values);
-      parsed.sort(compareSlots);
-      return parsed;
+    useCallback((rows: SyncedBriefing[]) => {
+      rows.sort(compareSlots);
+      return rows;
     }, []),
   );
 

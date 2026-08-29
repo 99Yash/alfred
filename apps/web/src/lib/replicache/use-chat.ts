@@ -1,8 +1,5 @@
 import {
   SYNC_MODEL,
-  syncedChatAttachmentSchema,
-  syncedChatMessageSchema,
-  syncedChatThreadSchema,
   type SyncedChatAttachment,
   type SyncedChatMessage,
   type SyncedChatThread,
@@ -23,17 +20,11 @@ export function useChatThreads(): SyncedChatThread[] {
 
   useEffect(() => {
     if (!rep) return;
-    const prefix = SYNC_MODEL.chatthread.prefix;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (values) => {
-        const parsed: SyncedChatThread[] = [];
-        for (const value of values) {
-          const result = syncedChatThreadSchema.safeParse(value);
-          if (result.success) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
-        setSnapshot({ rep, value: parsed });
+      (tx: ReadTransaction) => SYNC_MODEL.chatthread.scan(tx),
+      (threads) => {
+        threads.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
+        setSnapshot({ rep, value: threads });
       },
     );
   }, [rep]);
@@ -58,11 +49,8 @@ export function useChatThread(threadId: string | undefined): ChatThreadState {
   useEffect(() => {
     if (!rep || !threadId) return;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.get(SYNC_MODEL.chatthread.storageKeyForId(threadId)),
-      (value) => {
-        const result = syncedChatThreadSchema.safeParse(value);
-        setSnapshot({ rep, threadId, thread: result.success ? result.data : null });
-      },
+      (tx: ReadTransaction) => SYNC_MODEL.chatthread.get(tx, threadId),
+      (thread) => setSnapshot({ rep, threadId, thread }),
     );
   }, [rep, threadId]);
 
@@ -96,17 +84,12 @@ export function useChatMessages(threadId: string | undefined): ChatMessagesState
 
   useEffect(() => {
     if (!rep || !threadId) return;
-    const prefix = SYNC_MODEL.chatmsg.prefix;
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+      (tx: ReadTransaction) => SYNC_MODEL.chatmsg.scan(tx),
       (values) => {
-        const parsed: SyncedChatMessage[] = [];
-        for (const value of values) {
-          const result = syncedChatMessageSchema.safeParse(value);
-          if (result.success && result.data.threadId === threadId) parsed.push(result.data);
-        }
-        parsed.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        setSnapshot({ rep, threadId, rows: parsed });
+        const rows = values.filter((value) => value.threadId === threadId);
+        rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        setSnapshot({ rep, threadId, rows });
       },
     );
   }, [rep, threadId]);
@@ -142,27 +125,22 @@ export function useChatAttachmentsByMessage(
 
   useEffect(() => {
     if (!rep || !threadId) return;
-    const messagePrefix = SYNC_MODEL.chatmsg.prefix;
-    const attachmentPrefix = SYNC_MODEL.chatatt.prefix;
     return rep.subscribe(
       async (tx: ReadTransaction) => ({
-        messages: await tx.scan({ prefix: messagePrefix }).values().toArray(),
-        attachments: await tx.scan({ prefix: attachmentPrefix }).values().toArray(),
+        messages: await SYNC_MODEL.chatmsg.scan(tx),
+        attachments: await SYNC_MODEL.chatatt.scan(tx),
       }),
       ({ messages, attachments }) => {
         const messageIds = new Set<string>();
-        for (const value of messages) {
-          const result = syncedChatMessageSchema.safeParse(value);
-          if (result.success && result.data.threadId === threadId) {
-            messageIds.add(result.data.id);
+        for (const message of messages) {
+          if (message.threadId === threadId) {
+            messageIds.add(message.id);
           }
         }
         const byMessage: Record<string, SyncedChatAttachment[]> = {};
-        for (const value of attachments) {
-          const result = syncedChatAttachmentSchema.safeParse(value);
-          if (!result.success) continue;
-          if (!messageIds.has(result.data.messageId)) continue;
-          (byMessage[result.data.messageId] ??= []).push(result.data);
+        for (const attachment of attachments) {
+          if (!messageIds.has(attachment.messageId)) continue;
+          (byMessage[attachment.messageId] ??= []).push(attachment);
         }
         for (const list of Object.values(byMessage)) {
           list.sort(
