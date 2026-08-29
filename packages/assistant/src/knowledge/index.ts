@@ -42,6 +42,18 @@ export {
 } from "./gmail-reducer";
 export { projectGmailKindProfiles, type ProjectGmailKindProfilesResult } from "./gmail-kind-fold";
 export {
+  globalReferentIdentity,
+  referentKeyForEmail,
+  senderScopedReferentIdentity,
+  REFERENT_IDENTITY_KIND,
+  type GlobalReferentKey,
+  type ReferentEvidence,
+  type ReferentKey,
+  type ReferentKeyInput,
+  type ReferentThreadingHeaders,
+  type SenderScopedReferentKey,
+} from "./referent-identity";
+export {
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,

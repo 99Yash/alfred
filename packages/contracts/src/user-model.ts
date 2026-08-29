@@ -931,6 +931,14 @@ export const ENTITY_NODE_KINDS = [
   "service",
   "repository",
   "project",
+  // The thing a recurring notification is ABOUT (ADR-0092): a CloudWatch alarm,
+  // a tracker task, a PR and its CI run, an invoice. It is the identity that
+  // persists across re-notifications, where the Gmail thread is only transport.
+  // Deliberately ONE kind with no sub-taxonomy: a declared vendor list has the
+  // same blind spot as the per-vendor regex it replaces, and a model asked to
+  // pick a label splits one referent across labels. What a referent IS stays in
+  // the identity value and the accumulated evidence, never in the kind.
+  "referent",
   "unknown",
 ] as const;
 export const entityNodeKindSchema = z.enum(ENTITY_NODE_KINDS);
@@ -943,11 +951,99 @@ export const NON_PERSON_ENTITY_KINDS = [
   "service",
   "repository",
   "project",
+  "referent",
   "unknown",
 ] as const satisfies readonly EntityNodeKind[];
 
 export function isPersonScorable(kind: EntityNodeKind): boolean {
   return kind === "person";
+}
+
+/**
+ * The `kind` SEGMENT vocabulary of an `integration_object_key`, and the
+ * `EntityNodeKind` each segment anchors.
+ *
+ * `integration_object_key` is the one identity kind that TWO node kinds anchor
+ * on: an ADR-0062 provider object (`project`) and an ADR-0092 `referent`. So the
+ * identity KIND decides nothing, and the middle segment of
+ * `provider:kind:externalId` is the only thing that separates them. That segment
+ * vocabulary lives here, once: every minter draws its segment from this table
+ * (see {@link IntegrationObjectSegmentFor}) and `classifyEntityKind` reads the
+ * same table, so a segment can never mean `referent` where it is minted and
+ * `project` where it is classified.
+ *
+ * The provider is deliberately NOT part of the key. `github:issue:…` and
+ * `linear:issue:…` are the same kind of thing, and a per-provider table would
+ * need a row for every vendor that ever mints one — the same blind spot as the
+ * per-vendor regex ADR-0092 removes.
+ *
+ * The table holds only the segments a minter uses today. A segment that is
+ * planned but unwritten (`aws:cloudwatch_alarm:<arn>`) is deliberately absent:
+ * the row arrives with the writer, so the table never claims coverage it does
+ * not have.
+ *
+ * An unregistered segment classifies as `unknown` with a `bestGuess`, never as a
+ * guessed kind. That is safe in the direction that matters: `kind` lives in the
+ * VERSIONED `entity_profiles` and a replay fixes it, while the permanent half —
+ * the identity value — is not decided here.
+ */
+export const INTEGRATION_OBJECT_KIND_SEGMENTS = {
+  // ADR-0092 referents: the thing a recurring notification is ABOUT. `referent`
+  // is the sender-scoped fallback, used when no provider-unique id was found.
+  pull_request: "referent",
+  issue: "referent",
+  discussion: "referent",
+  commit: "referent",
+  check_suite: "referent",
+  referent: "referent",
+  // ADR-0062 provider objects that anchor a `project` node (ClickUp / Notion /
+  // Railway / Vercel). The P2/P3 reducer that mints these registers its segments
+  // here rather than beside its own writer.
+  project: "project",
+} as const satisfies Readonly<Record<string, EntityNodeKind>>;
+
+export type IntegrationObjectKindSegment = keyof typeof INTEGRATION_OBJECT_KIND_SEGMENTS;
+
+/**
+ * The segments that anchor node kind `K`. A minter takes this instead of
+ * `string`, so an unregistered segment does not compile — which is what forces
+ * the table edit and the classifier to move together.
+ */
+export type IntegrationObjectSegmentFor<K extends EntityNodeKind> = {
+  [Segment in IntegrationObjectKindSegment]: (typeof INTEGRATION_OBJECT_KIND_SEGMENTS)[Segment] extends K
+    ? Segment
+    : never;
+}[IntegrationObjectKindSegment];
+
+/**
+ * Build an `integration_object_key` value. The ONE owner of the `:` shape, so
+ * the format regex, the segment table, and every writer stay in step.
+ * `externalId` may itself contain colons (`IDENTITY_VALUE_FORMATS` ends in `.+`);
+ * the caller still owns its length and its case (see `canonicalizeIdentityValue`).
+ */
+export function integrationObjectKey(
+  provider: string,
+  segment: IntegrationObjectKindSegment,
+  externalId: string,
+): string {
+  return `${provider}:${segment}:${externalId}`;
+}
+
+/**
+ * The registered kind segment of an `integration_object_key` value, or `null`
+ * when the value is malformed or its segment is not in the table. Reading the
+ * segment is the only way to learn which node kind an `integration_object_key`
+ * belongs to.
+ */
+export function integrationObjectKeySegment(value: string): IntegrationObjectKindSegment | null {
+  const segments = value.split(":");
+  const candidate = segments.length >= 3 ? segments[1] : undefined;
+  if (!candidate) return null;
+  return isIntegrationObjectKindSegment(candidate) ? candidate : null;
+}
+
+function isIntegrationObjectKindSegment(value: string): value is IntegrationObjectKindSegment {
+  return Object.hasOwn(INTEGRATION_OBJECT_KIND_SEGMENTS, value);
 }
 
 export const ENTITY_KIND_RESEARCH_STATUS = [
