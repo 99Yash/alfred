@@ -1,6 +1,9 @@
 import { defineConfig } from "evalite/config";
 
 export default defineConfig({
+  // Each real-model case can call both the classifier and its LLM judge. Keep
+  // the suite inside the Cloudflare AI Gateway request-rate budget.
+  maxConcurrency: 1,
   // Raise the per-case ceiling from evalite's 30s default. The triage classifier
   // bounds each cheap-model call at totalMs: 30_000, and the triage eval retries
   // a case up to a few times on transient empty-output failures (Gemini returning

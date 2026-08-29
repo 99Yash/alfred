@@ -62,12 +62,13 @@ const RECENT_SNIPPET_MAX = 220;
 // actual body, where the ask/assignment lives.
 const HEADER_LINE_RE = /^(?:from|to|cc|bcc|reply-to|sender|subject|date):/i;
 
-/** Body lede for the fed thread context: drop the leading header block, collapse whitespace, cap length. PURE. */
-export function buildThreadSnippet(
-  title: string | null,
-  content: string | null,
-  max: number,
-): string {
+/**
+ * Remove the RFC-822-like header block that Gmail ingestion stores before the
+ * message body. The envelope already exists as typed metadata, so callers can
+ * render it with an explicit role instead of feeding the model a second copy.
+ * PURE.
+ */
+export function stripLeadingEmailHeaders(content: string | null): string {
   const lines = (content ?? "").split("\n");
   let i = 0;
   while (i < lines.length) {
@@ -75,7 +76,16 @@ export function buildThreadSnippet(
     if (line !== "" && !HEADER_LINE_RE.test(line)) break;
     i++;
   }
-  const body = lines.slice(i).join(" ").replace(/\s+/g, " ").trim();
+  return lines.slice(i).join("\n");
+}
+
+/** Body lede for the fed thread context: drop the leading header block, collapse whitespace, cap length. PURE. */
+export function buildThreadSnippet(
+  title: string | null,
+  content: string | null,
+  max: number,
+): string {
+  const body = stripLeadingEmailHeaders(content).replace(/\s+/g, " ").trim();
   const base = body || (title ?? "").trim();
   return base.length > max ? `${base.slice(0, max).trimEnd()}…` : base;
 }
