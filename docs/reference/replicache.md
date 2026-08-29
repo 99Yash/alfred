@@ -4,7 +4,7 @@
 
 ## Adding a new synced entity
 
-1. Add one entry to `SYNC_MODEL` in `packages/sync/src/sync-model.ts` — `model(prefix, schema, idOf)`. The prefix drives `prefix` and `storageKeyForId`; the private `idOf` rule drives `storageKeyFor` and the pull CVR id. `IDBKeys` and `SyncedEntity` are derived from the same entry. No public key operation returns a bare IDB id-part.
+1. Add one entry to `SYNC_MODEL` in `packages/sync/src/sync-model.ts` — `model(prefix, schema, idOf)`. The prefix must be a non-empty lowercase literal with no `/`; its exact type drives `prefix` and `storageKeyForId`. The private `idOf` rule drives `storageKeyFor` and the pull CVR id. `IDBKeys` and `SyncedEntity` are derived from the same entry. No public key operation returns a bare IDB id-part.
 2. Define the read schema in `packages/sync/src/schemas.ts` and export its inferred type through `packages/sync/src/types.ts` (must include `rowVersion: number`). Register the schema in the `SYNC_MODEL` entry as the entity's owning schema.
 3. Add `<entity><Action>Client` mutator + zod arg schema in `packages/sync/src/mutators/<entity>.ts`, register both in `mutators/index.ts` (`clientMutators` + `mutatorArgsSchemas`).
 4. Add the matching server-side mutator as an `export async function` in `packages/http/src/sync/write/<domain>.ts` (create the file if the domain is new), and register it as one shorthand row in the `serverMutators` literal in `packages/http/src/sync/write/index.ts`. Write against the supplied `tx` (so it commits inside the push handler's outer transaction) and bump `row_version`. Pokes fire generically from the push handler after commit.

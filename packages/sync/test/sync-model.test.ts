@@ -13,8 +13,11 @@ describe("SYNC_MODEL storage keys", () => {
       rowVersion: 2,
     };
 
-    assert.equal(SYNC_MODEL.NOTE.prefix, "note/");
-    assert.equal(SYNC_MODEL.NOTE.storageKeyForId(note.id), "note/note_1");
+    const prefix: "note/" = SYNC_MODEL.NOTE.prefix;
+    const storageKey: `note/${string}` = SYNC_MODEL.NOTE.storageKeyForId(note.id);
+
+    assert.equal(prefix, "note/");
+    assert.equal(storageKey, "note/note_1");
     assert.equal(SYNC_MODEL.NOTE.storageKeyFor(note), "note/note_1");
   });
 

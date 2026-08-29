@@ -34,16 +34,23 @@ import {
  * (`todo/`). No public key operation returns a bare id-part, so a caller cannot
  * pass the result of a key builder to Replicache by mistake.
  */
-interface SyncEntityModel<
-  TSchema extends z.ZodType<{ rowVersion: number }, unknown> = z.ZodType<
-    { rowVersion: number },
-    unknown
-  >,
-> {
-  prefix: string;
+type SyncSchema = z.ZodType<{ rowVersion: number }, unknown>;
+
+type ValidModelPrefix<Prefix extends string> = string extends Prefix
+  ? never
+  : Prefix extends ""
+    ? never
+    : Prefix extends Lowercase<Prefix>
+      ? Prefix extends `${string}/${string}`
+        ? never
+        : unknown
+      : never;
+
+interface SyncEntityModel<Prefix extends string = string, TSchema extends SyncSchema = SyncSchema> {
+  prefix: `${Prefix}/`;
   schema: TSchema;
-  storageKeyForId: (id: string) => string;
-  storageKeyFor: (entity: z.output<TSchema>) => string;
+  storageKeyForId: (id: string) => `${Prefix}/${string}`;
+  storageKeyFor: (entity: z.output<TSchema>) => `${Prefix}/${string}`;
   parsePullValue: (input: unknown) => {
     id: string;
     rowVersion: number;
@@ -56,17 +63,23 @@ interface SyncEntityModel<
  * the loose `satisfies`+object-literal alternative would type every `idOf` as
  * `(entity: any) => string` and lose per-schema precision.
  */
-function model<TSchema extends z.ZodType<{ rowVersion: number }, unknown>>(
-  prefixRaw: string,
+function model<const Prefix extends string, TSchema extends SyncSchema>(
+  prefixRaw: Prefix & ValidModelPrefix<Prefix>,
   schema: TSchema,
   idOf: (entity: z.output<TSchema>) => string,
-): SyncEntityModel<TSchema> {
-  const prefix = `${prefixRaw}/`;
+): SyncEntityModel<Prefix, TSchema> {
+  // SAFETY: Prefix is the literal type of prefixRaw, so appending `/` produces
+  // the exact template-literal type declared here.
+  const prefix = `${prefixRaw}/` as `${Prefix}/`;
+  const storageKeyForId = (id: string): `${Prefix}/${string}` => {
+    // SAFETY: prefixRaw contains no `/`; this appends one separator and the id.
+    return `${prefixRaw}/${id}` as `${Prefix}/${string}`;
+  };
   return {
     prefix,
     schema,
-    storageKeyForId: (id: string) => `${prefix}${id}`,
-    storageKeyFor: (entity: z.output<TSchema>) => `${prefix}${idOf(entity)}`,
+    storageKeyForId,
+    storageKeyFor: (entity: z.output<TSchema>) => storageKeyForId(idOf(entity)),
     parsePullValue: (input: unknown) => {
       const value = schema.parse(input);
       return { id: idOf(value), rowVersion: value.rowVersion, value };
