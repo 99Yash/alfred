@@ -7,28 +7,33 @@ import { subAgentParentRunIdMatches } from "./sub-agent-metadata";
 /**
  * One `api_call_log` group summed for a single (agent, model) pair within a
  * turn. `subId` names the agent that made the calls: `null` for the boss run,
- * the child's `subId` for a sub-agent. The `sum`/`count` aggregates arrive from
- * Postgres as strings, so every numeric field also accepts a `string` —
+ * the child's `subId` for a sub-agent. The `sum`/`count` aggregates, including
+ * summed model latency, arrive from Postgres as strings, so every numeric field
+ * also accepts a `string` —
  * {@link foldModelUsage} coerces with `Number(...)` and treats `NaN`/empty as
  * `0`.
  */
 export interface ModelUsageGroup {
+  kind: string;
+  role: string | null;
   model: string;
   subId: string | null;
   inputTokens: string | number;
   outputTokens: string | number;
   cachedInputTokens: string | number;
+  modelLatencyMs: string | number;
   costUsd: string | number;
   calls: string | number;
 }
 
 /**
  * Fold per-(agent, model) usage groups into one {@link ChatMessageUsage}: sum
- * the turn totals, carry a per-model `{ model, calls }` breakdown sorted busiest
- * first, and carry a per-agent `{ subId, calls, costUsd }` split sorted most
- * expensive first. The single home for the `(model, tokens, cost)` rollup shape
- * — shared by the live finalize path ({@link aggregateRunUsage}) and the one-off
- * backfill script so the two can't drift.
+ * the turn totals and model latency, carry a per-model `{ model, calls }`
+ * breakdown sorted busiest first, and carry a per-agent
+ * `{ subId, calls, costUsd }` split sorted most expensive first. The single home
+ * for the `(model, tokens, latency, cost)` rollup shape — shared by the live
+ * finalize path ({@link aggregateRunUsage}) and the one-off backfill script so
+ * the two can't drift.
  *
  * Both breakdowns are re-bucketed here rather than trusted from the query: one
  * model can serve two agents, and one agent can be served by two models, so the
@@ -39,6 +44,7 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     inputTokens: 0,
     outputTokens: 0,
     cachedInputTokens: 0,
+    modelLatencyMs: 0,
     costUsd: 0,
     calls: 0,
     models: [],
@@ -49,11 +55,18 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
   // agent here and Map keys distinguish it from a child literally named "boss".
   const byAgent = new Map<string | null, { calls: number; costUsd: number }>();
   for (const group of groups) {
+    // A run id also attributes background work triggered by the turn, such as
+    // thread-title generation. The usage receipt is specifically the boss and
+    // its workers, so exclude un-attributed and non-agent calls even when they
+    // share the run id. This also stops a cheap title model from looking like a
+    // chat-provider fallback in the model chips.
+    if (group.kind !== "llm" || (group.role !== "boss" && group.role !== "sub_agent")) continue;
     const calls = Number(group.calls) || 0;
     const costUsd = Number(group.costUsd) || 0;
     usage.inputTokens += Number(group.inputTokens) || 0;
     usage.outputTokens += Number(group.outputTokens) || 0;
     usage.cachedInputTokens += Number(group.cachedInputTokens) || 0;
+    usage.modelLatencyMs += Number(group.modelLatencyMs) || 0;
     usage.costUsd += costUsd;
     usage.calls += calls;
     callsByModel.set(group.model, (callsByModel.get(group.model) ?? 0) + calls);
@@ -126,16 +139,30 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
   const rows = await db()
     .select({
       runId: apiCallLog.runId,
+      kind: apiCallLog.kind,
+      role: sql<string | null>`${apiCallLog.requestMeta}->>'role'`,
       model: sql<string>`coalesce(${apiCallLog.model}, 'unknown')`,
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
+      modelLatencyMs: sql<string>`coalesce(sum(case
+        when ${apiCallLog.kind} = 'llm'
+          and ${apiCallLog.error} is null
+          and ${apiCallLog.outputTokens} is not null
+        then ${apiCallLog.latencyMs}
+        else 0
+      end), 0)`,
       costUsd: sql<string>`coalesce(sum(${apiCallLog.costUsd}), 0)`,
       calls: sql<string>`count(*)`,
     })
     .from(apiCallLog)
     .where(inArray(apiCallLog.runId, [...runs.keys()]))
-    .groupBy(apiCallLog.runId, apiCallLog.model);
+    .groupBy(
+      apiCallLog.runId,
+      apiCallLog.kind,
+      sql`${apiCallLog.requestMeta}->>'role'`,
+      apiCallLog.model,
+    );
   if (rows.length === 0) return null;
   const usage = foldModelUsage(
     rows.map((row) => ({

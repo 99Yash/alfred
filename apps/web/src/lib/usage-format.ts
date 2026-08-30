@@ -18,3 +18,9 @@ export function formatTokens(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return `${Math.round(n)}`;
 }
+
+/** Model output throughput, excluding tool and workflow time. */
+export function outputTokensPerSecond(outputTokens: number, modelLatencyMs: number): number | null {
+  if (outputTokens <= 0 || modelLatencyMs <= 0) return null;
+  return outputTokens / (modelLatencyMs / 1_000);
+}
