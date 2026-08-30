@@ -82,7 +82,7 @@ interface CatalogRefreshState {
   generation: McpManagerGeneration;
 }
 
-type McpManagerCloseIntent = "shutdown" | "disconnect";
+type McpManagerCloseIntent = "shutdown" | "failure" | "disconnect";
 
 interface McpManagerGeneration {
   readonly connectionId: string;
@@ -91,6 +91,7 @@ interface McpManagerGeneration {
   client: McpRawClient | null;
   closeDone: Promise<void> | null;
   closeIntent: McpManagerCloseIntent | null;
+  closeFailure: string | null;
 }
 
 export class McpConnectionNotFoundError extends Error {
@@ -180,6 +181,7 @@ export class McpConnectionManager {
       client: null,
       closeDone: null,
       closeIntent: null,
+      closeFailure: null,
     };
     this.#generations.set(connectionId, generation);
     const start = this.#startClient(connectionId, generation, trace);
@@ -581,20 +583,13 @@ export class McpConnectionManager {
       await this.#refreshAndPersistStable(generation, client);
     } catch (err) {
       if (!this.#isOpenGeneration(generation)) return;
-      generation.phase = "closing";
-      await client.close().catch(() => undefined);
-      await this.#persistence.compareAndSetCatalogRevision({
-        connectionId,
-        expectedCurrentRevisionId: null,
-        nextRevisionId: null,
-        patch: {
-          status: "failed",
-          lastError: boundedMcpErrorText(err),
-        },
-      });
-      if (this.#generations.get(connectionId) === generation) {
-        this.#generations.delete(connectionId);
-      }
+      // Do not await this from inside the refresh promise: the generation closer
+      // waits for that promise before it performs terminal effects. A disconnect
+      // that joins meanwhile upgrades the intent and keeps the tombstone until
+      // its final durable update completes.
+      void this.#closeGeneration(generation, "failure", boundedMcpErrorText(err)).catch(
+        () => undefined,
+      );
     }
   }
 
@@ -660,14 +655,26 @@ export class McpConnectionManager {
       client: null,
       closeDone: null,
       closeIntent: null,
+      closeFailure: null,
     };
     this.#generations.set(connectionId, tombstone);
     return tombstone;
   }
 
-  #closeGeneration(generation: McpManagerGeneration, intent: McpManagerCloseIntent): Promise<void> {
+  #closeGeneration(
+    generation: McpManagerGeneration,
+    intent: McpManagerCloseIntent,
+    failure?: string,
+  ): Promise<void> {
     generation.phase = "closing";
-    if (generation.closeIntent !== "disconnect") generation.closeIntent = intent;
+    if (
+      intent === "disconnect" ||
+      (intent === "failure" && generation.closeIntent !== "disconnect") ||
+      generation.closeIntent === null
+    ) {
+      generation.closeIntent = intent;
+    }
+    if (failure !== undefined) generation.closeFailure = failure;
     return (generation.closeDone ??= (async () => {
       await generation.start?.catch(() => undefined);
       for (;;) {
@@ -679,6 +686,16 @@ export class McpConnectionManager {
       await generation.client?.close().catch(() => undefined);
       if (generation.closeIntent === "disconnect") {
         await this.#patch(generation.connectionId, { status: "disconnected" });
+      } else if (generation.closeIntent === "failure") {
+        await this.#persistence.compareAndSetCatalogRevision({
+          connectionId: generation.connectionId,
+          expectedCurrentRevisionId: null,
+          nextRevisionId: null,
+          patch: {
+            status: "failed",
+            lastError: generation.closeFailure ?? "The MCP catalog refresh failed",
+          },
+        });
       }
       if (this.#generations.get(generation.connectionId) === generation) {
         this.#generations.delete(generation.connectionId);
