@@ -213,6 +213,9 @@ export const mcpConnections = pgTable(
   },
   (t) => [
     uniqueIndex("mcp_connections_user_server_instance_idx").on(t.userId, t.serverId, t.instanceKey),
+    index("mcp_connections_current_catalog_order_idx")
+      .on(t.userId, t.serverId, t.instanceKey)
+      .where(sql`${t.currentCatalogRevisionId} is not null`),
     index("mcp_connections_user_status_idx").on(t.userId, t.status),
     foreignKey({
       columns: [t.serverId, t.userId],
