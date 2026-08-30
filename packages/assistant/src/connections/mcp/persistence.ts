@@ -1,13 +1,14 @@
 /**
- * MCP connection + catalog persistence (PRD #540) — pure durable row access over
- * the `mcp_connections` and `mcp_catalog_revisions` tables.
+ * MCP server + connection + catalog persistence (PRD #540) — pure durable row
+ * access over their three tables.
  *
  * This module holds NO live SDK clients and performs NO network I/O: it is the
- * seam between the in-memory `McpRawClient` world and the two connection-side
+ * seam between the in-memory `McpRawClient` world and the three connection-side
  * `mcp_*` tables (`packages/db/src/schema/mcp.ts`). Everything here is either a
  * single-row read, a single-row write, or the one genuinely-atomic multi-row
  * operation that MUST be a transaction to be crash-safe:
  *
+ *  - `ensureNamedConnection` — immutable server definition + named instance;
  *  - `publishCatalogRevision` — idempotent insert of an immutable revision +
  *    advance of the connection's current-revision pointer.
  *
@@ -22,9 +23,12 @@ import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
   mcpConnections,
+  mcpServers,
   type McpCatalogRevision,
   type McpConnection,
+  type McpServer,
   type NewMcpConnection,
+  type NewMcpServer,
 } from "@alfred/db/schemas";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
@@ -47,77 +51,141 @@ export type McpConnectionUpdate = Partial<
     | "credentialId"
     | "grantedScopes"
     | "requiredScopes"
-    | "endpointUrl"
-    | "endpointOrigin"
   >
 >;
+
+export type McpConnectionWithServer = McpConnection & { readonly server: McpServer };
+
+export type EnsureNamedMcpConnectionInput = Pick<
+  NewMcpConnection,
+  "userId" | "instanceKey" | "label" | "authServerIdentity" | "status"
+> &
+  Pick<NewMcpServer, "canonicalResource"> & {
+    endpoint: URL;
+  };
+
+const connectionWithServerSelection = {
+  connection: mcpConnections,
+  server: mcpServers,
+};
+
+function joinConnection(input: {
+  connection: McpConnection;
+  server: McpServer;
+}): McpConnectionWithServer {
+  return { ...input.connection, server: input.server };
+}
 
 export async function readConnection(
   id: string,
   runner: DbRunner = db(),
-): Promise<McpConnection | undefined> {
+): Promise<McpConnectionWithServer | undefined> {
+  const [row] = await runner
+    .select(connectionWithServerSelection)
+    .from(mcpConnections)
+    .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
+    .where(eq(mcpConnections.id, id))
+    .limit(1);
+  return row ? joinConnection(row) : undefined;
+}
+
+async function readServerByResource(
+  userId: string,
+  canonicalResource: string,
+  runner: DbRunner = db(),
+): Promise<McpServer | undefined> {
   const [row] = await runner
     .select()
-    .from(mcpConnections)
-    .where(eq(mcpConnections.id, id))
+    .from(mcpServers)
+    .where(and(eq(mcpServers.userId, userId), eq(mcpServers.canonicalResource, canonicalResource)))
     .limit(1);
   return row;
 }
 
-export async function insertConnection(
-  values: NewMcpConnection,
+/**
+ * Create or reuse one owner-scoped server definition and one immutable named
+ * instance. A repeated instance key may rename its label, but it cannot replace
+ * endpoint identity or connection-specific account state.
+ */
+export async function ensureNamedConnection(
+  input: EnsureNamedMcpConnectionInput,
   runner: DbRunner = db(),
-): Promise<McpConnection> {
-  const [row] = await runner.insert(mcpConnections).values(values).returning();
-  return requireRow(row, "insertConnection");
-}
+): Promise<McpConnectionWithServer> {
+  return runAtomic(runner, async (tx) => {
+    const endpointUrl = input.endpoint.href;
+    const endpointOrigin = input.endpoint.origin;
+    const [insertedServer] = await tx
+      .insert(mcpServers)
+      .values({
+        userId: input.userId,
+        canonicalResource: input.canonicalResource,
+        endpointUrl,
+        endpointOrigin,
+      })
+      .onConflictDoNothing({
+        target: [mcpServers.userId, mcpServers.canonicalResource],
+      })
+      .returning();
+    const server =
+      insertedServer ?? (await readServerByResource(input.userId, input.canonicalResource, tx));
+    if (!server) {
+      throw new Error(
+        `ensureNamedConnection: server vanished for resource ${input.canonicalResource}`,
+      );
+    }
+    if (server.endpointUrl !== endpointUrl || server.endpointOrigin !== endpointOrigin) {
+      throw new Error(
+        `MCP resource '${input.canonicalResource}' already uses endpoint ${server.endpointUrl}`,
+      );
+    }
 
-export async function upsertConnection(
-  values: NewMcpConnection,
-  runner: DbRunner = db(),
-): Promise<McpConnection> {
-  const [row] = await runner
-    .insert(mcpConnections)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [mcpConnections.userId, mcpConnections.canonicalResource],
-      set: {
-        label: values.label,
-        endpointUrl: values.endpointUrl,
-        endpointOrigin: values.endpointOrigin,
-        authServerIdentity: values.authServerIdentity,
-        status: "disconnected",
-        lastError: null,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
-  return requireRow(row, "upsertConnection");
+    const [connection] = await tx
+      .insert(mcpConnections)
+      .values({
+        userId: input.userId,
+        serverId: server.id,
+        instanceKey: input.instanceKey,
+        label: input.label,
+        ...(input.authServerIdentity !== undefined
+          ? { authServerIdentity: input.authServerIdentity }
+          : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+      })
+      .onConflictDoUpdate({
+        target: [mcpConnections.userId, mcpConnections.serverId, mcpConnections.instanceKey],
+        set: { label: input.label, updatedAt: new Date() },
+      })
+      .returning();
+    return { ...requireRow(connection, "ensureNamedConnection"), server };
+  });
 }
 
 export async function readOwnedConnection(
   id: string,
   userId: string,
   runner: DbRunner = db(),
-): Promise<McpConnection | undefined> {
+): Promise<McpConnectionWithServer | undefined> {
   const [row] = await runner
-    .select()
+    .select(connectionWithServerSelection)
     .from(mcpConnections)
+    .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
     .where(and(eq(mcpConnections.id, id), eq(mcpConnections.userId, userId)))
     .limit(1);
-  return row;
+  return row ? joinConnection(row) : undefined;
 }
 
 export async function listOwnedConnections(
   userId: string,
   runner: DbRunner = db(),
-): Promise<McpConnection[]> {
-  return runner
-    .select()
+): Promise<McpConnectionWithServer[]> {
+  const rows = await runner
+    .select(connectionWithServerSelection)
     .from(mcpConnections)
+    .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
     .where(eq(mcpConnections.userId, userId))
     .orderBy(desc(mcpConnections.updatedAt))
     .limit(100);
+  return rows.map(joinConnection);
 }
 
 export async function updateConnection(

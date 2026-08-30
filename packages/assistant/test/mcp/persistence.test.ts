@@ -3,12 +3,19 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  mcpConnections,
+  mcpInvocation,
+  mcpOauthCredentials,
+  user,
+} from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import {
   compareAndSetCatalogRevision,
-  insertConnection,
+  ensureNamedConnection,
   insertCatalogRevision,
   publishCatalogRevision,
   readConnection,
@@ -93,12 +100,12 @@ async function seedStaging(userId: string): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await insertConnection({
+  const conn = await ensureNamedConnection({
     userId,
+    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
-    endpointUrl: "https://example.test/mcp",
-    endpointOrigin: "https://example.test",
+    endpoint: new URL("https://example.test/mcp"),
   });
   return conn.id;
 }
@@ -127,6 +134,119 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     const updated = await updateConnection(connId, { status: "ready", lastError: null });
     assert.equal(updated?.status, "ready");
+  });
+
+  test("named connection instances share one server and keep separate state", async () => {
+    const userId = await seedUser();
+    const canonicalResource = `mcp://test/${randomUUID()}`;
+    const endpoint = new URL("https://shared.example.test/mcp");
+
+    const personal = await ensureNamedConnection({
+      userId,
+      instanceKey: "personal",
+      label: "Personal",
+      canonicalResource,
+      endpoint,
+    });
+    const work = await ensureNamedConnection({
+      userId,
+      instanceKey: "work",
+      label: "Work",
+      canonicalResource,
+      endpoint,
+    });
+
+    assert.notEqual(personal.id, work.id);
+    assert.equal(personal.serverId, work.serverId);
+    assert.deepEqual(personal.server, work.server);
+
+    const revision = await publishCatalogRevision({
+      connectionId: personal.id,
+      revisionHash: "sha256:personal",
+      descriptors: [{ name: "personal_tool" }],
+      descriptorHashes: { personal_tool: "sha256:personal_tool" },
+      toolCount: 1,
+    });
+    const [personalCredential, workCredential] = await db()
+      .insert(mcpOauthCredentials)
+      .values([
+        { userId, connectionId: personal.id, issuer: "https://auth.personal.example.test" },
+        { userId, connectionId: work.id, issuer: "https://auth.work.example.test" },
+      ])
+      .returning();
+    assert.ok(personalCredential);
+    assert.ok(workCredential);
+    await updateConnection(personal.id, {
+      credentialId: personalCredential.id,
+      status: "ready",
+    });
+    await updateConnection(work.id, { credentialId: workCredential.id });
+
+    const renamed = await ensureNamedConnection({
+      userId,
+      instanceKey: "personal",
+      label: "Renamed personal",
+      canonicalResource,
+      endpoint,
+    });
+    const unchangedWork = await readConnection(work.id);
+
+    assert.equal(renamed.id, personal.id);
+    assert.equal(renamed.label, "Renamed personal");
+    assert.equal(renamed.status, "ready");
+    assert.equal(renamed.credentialId, personalCredential.id);
+    assert.equal(renamed.currentCatalogRevisionId, revision.id);
+    assert.equal(unchangedWork?.label, "Work");
+    assert.equal(unchangedWork?.credentialId, workCredential.id);
+    assert.equal(unchangedWork?.currentCatalogRevisionId, null);
+  });
+
+  test("a connection cannot refer to another owner's server", async () => {
+    const ownerId = await seedUser();
+    const otherUserId = await seedUser();
+    const owned = await ensureNamedConnection({
+      userId: ownerId,
+      instanceKey: "default",
+      label: "Owned server",
+      canonicalResource: `mcp://test/${randomUUID()}`,
+      endpoint: new URL("https://owned.example.test/mcp"),
+    });
+
+    await assert.rejects(
+      db().insert(mcpConnections).values({
+        userId: otherUserId,
+        serverId: owned.serverId,
+        instanceKey: "cross-owner",
+        label: "Invalid",
+      }),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.cause instanceof Error &&
+        error.cause.message.includes("mcp_connections_server_owner_fk"),
+    );
+  });
+
+  test("a server definition cannot be silently retargeted", async () => {
+    const userId = await seedUser();
+    const canonicalResource = `mcp://test/${randomUUID()}`;
+    await ensureNamedConnection({
+      userId,
+      instanceKey: "default",
+      label: "Original",
+      canonicalResource,
+      endpoint: new URL("https://one.example.test/mcp"),
+    });
+
+    await assert.rejects(
+      ensureNamedConnection({
+        userId,
+        instanceKey: "second",
+        label: "Retarget",
+        canonicalResource,
+        endpoint: new URL("https://two.example.test/mcp"),
+      }),
+      /already uses endpoint/,
+    );
   });
 
   test("publishCatalogRevision is idempotent and advances the pointer", async () => {

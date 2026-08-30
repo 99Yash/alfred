@@ -11,7 +11,7 @@ import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import {
   computeDescriptorHashes,
-  insertConnection,
+  ensureNamedConnection,
   type McpCallEnvelope,
 } from "@alfred/assistant/connections/mcp";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
@@ -105,12 +105,12 @@ async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
 }
 
 async function seedConnectionWithCatalog(userId: string, tools: Tool[]): Promise<string> {
-  const conn = await insertConnection({
+  const conn = await ensureNamedConnection({
     userId,
+    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
-    endpointUrl: "https://mcp.example.test/mcp",
-    endpointOrigin: "https://mcp.example.test",
+    endpoint: new URL("https://mcp.example.test/mcp"),
   });
   await publishCatalogRevision({
     connectionId: conn.id,
@@ -136,12 +136,12 @@ async function seedOwnedCatalog(
   revisionHash: string;
   descriptorHashes: Record<string, string>;
 }> {
-  const conn = await insertConnection({
+  const conn = await ensureNamedConnection({
     userId,
+    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
-    endpointUrl: "https://mcp.example.test/mcp",
-    endpointOrigin: "https://mcp.example.test",
+    endpoint: new URL("https://mcp.example.test/mcp"),
   });
   const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
   const descriptorHashes = computeDescriptorHashes(tools);

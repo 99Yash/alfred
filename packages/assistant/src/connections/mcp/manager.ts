@@ -29,7 +29,6 @@
  * connection-creation slice actually wires it.
  */
 
-import type { McpConnection } from "@alfred/db/schemas";
 import {
   McpRawClient,
   type ExternalToolRef,
@@ -46,13 +45,14 @@ import {
   readConnection,
   readOwnedConnection,
   updateConnection,
+  type McpConnectionWithServer,
   type McpConnectionUpdate,
 } from "./persistence";
 import type { McpNegotiatedServer } from "./protocol";
 import { McpOAuthAuthorizationRequiredError, mcpOAuthProviderForConnection } from "./oauth";
 import { startMcpTraceSpan, type McpTraceContext } from "./trace";
 
-export type McpClientFactory = (connection: McpConnection) => McpRawClient;
+export type McpClientFactory = (connection: McpConnectionWithServer) => McpRawClient;
 
 export interface McpConnectionManagerPersistence {
   readConnection: typeof readConnection;
@@ -118,14 +118,14 @@ function liveClientFactory(authorization: McpEndpointAuthorization): McpClientFa
     const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
     return new McpRawClient({
       connectionId: connection.id,
-      endpoint: new URL(connection.endpointUrl),
+      endpoint: new URL(connection.server.endpointUrl),
       endpointAuthorization: authorization,
       ...(usesOAuth
         ? {
             oauthProvider: mcpOAuthProviderForConnection({
               connectionId: connection.id,
               userId: connection.userId,
-              endpoint: new URL(connection.endpointUrl),
+              endpoint: new URL(connection.server.endpointUrl),
             }),
             onAuthorizationRequired: async () => {
               await updateConnection(connection.id, {

@@ -56,11 +56,12 @@ export {
   McpOAuthAuthorizationRequiredError,
 } from "./oauth";
 export {
-  insertConnection,
+  ensureNamedConnection,
   listOwnedConnections,
   readOwnedConnection,
+  type EnsureNamedMcpConnectionInput,
+  type McpConnectionWithServer,
   updateConnection,
-  upsertConnection,
 } from "./persistence";
 export {
   MCP_CLIENT_CAPABILITIES,
