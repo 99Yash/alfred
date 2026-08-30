@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { McpConnection } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
 
 import {
@@ -9,6 +8,7 @@ import {
   McpConnectionManager,
   McpRawClient,
   type McpConnectionManagerPersistence,
+  type McpConnectionWithServer,
   type McpNegotiatedServer,
   type McpProtocolCallResult,
   type McpProtocolClient,
@@ -152,7 +152,7 @@ function managerWith(
     clientFactory: (row) =>
       new McpRawClient({
         connectionId: row.id,
-        endpoint: new URL(row.endpointUrl),
+        endpoint: new URL(row.server.endpointUrl),
         endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
         protocolFactory: () => protocol,
         ...(now ? { now } : {}),
@@ -399,15 +399,14 @@ function tool(name: string): Tool {
   };
 }
 
-function connection(): McpConnection {
+function connection(): McpConnectionWithServer {
   const now = new Date();
   return {
     id: "conn_lifecycle",
     userId: "user_lifecycle",
+    serverId: "server_lifecycle",
+    instanceKey: "default",
     label: "Lifecycle test",
-    canonicalResource: "mcp://test/lifecycle",
-    endpointUrl: "https://mcp.example.test/mcp",
-    endpointOrigin: "https://mcp.example.test",
     authServerIdentity: null,
     credentialId: null,
     grantedScopes: [],
@@ -419,5 +418,14 @@ function connection(): McpConnection {
     lastError: null,
     createdAt: now,
     updatedAt: now,
+    server: {
+      id: "server_lifecycle",
+      userId: "user_lifecycle",
+      canonicalResource: "mcp://test/lifecycle",
+      endpointUrl: "https://mcp.example.test/mcp",
+      endpointOrigin: "https://mcp.example.test",
+      createdAt: now,
+      updatedAt: now,
+    },
   };
 }

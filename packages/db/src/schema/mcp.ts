@@ -28,8 +28,8 @@ import { user } from "./auth";
 
 // ===========================================================================
 // MCP persistence (PRD #540). The layer ABOVE `McpRawClient`: durable
-// connection/catalog facts, a reviewed per-tool policy, and a durable operation
-// ledger for ambiguous writes. Amends ADR-0018.
+// server/connection/catalog facts, a reviewed per-tool policy, and a durable
+// operation ledger for ambiguous writes. Amends ADR-0018.
 //
 // Definition order matters: `mcpCatalogRevisions` is declared FIRST because the
 // composite "current revision" pointer FK on `mcpConnections` references its
@@ -37,6 +37,33 @@ import { user } from "./auth";
 // `connectionId` FK uses a lazy `() => mcpConnections.id` thunk, so the forward
 // reference resolves fine.
 // ===========================================================================
+
+/**
+ * Owner-scoped MCP server identity. Several named connection instances may use
+ * one endpoint definition, but the definition cannot be shared across owners or
+ * silently retargeted by an idempotent connection create.
+ */
+export const mcpServers = pgTable(
+  "mcp_servers",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcps")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Canonical MCP resource URI — the OAuth `resource` indicator. */
+    canonicalResource: text("canonical_resource").notNull(),
+    /** Pinned endpoint + origin. The model NEVER supplies these. */
+    endpointUrl: text("endpoint_url").notNull(),
+    endpointOrigin: text("endpoint_origin").notNull(),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("mcp_servers_user_resource_idx").on(t.userId, t.canonicalResource),
+    uniqueIndex("mcp_servers_id_user_idx").on(t.id, t.userId),
+  ],
+);
 
 /**
  * Immutable, append-only catalog authority + history. One row per atomically
@@ -128,10 +155,10 @@ export const mcpOauthCredentials = pgTable(
 );
 
 /**
- * Durable connection FACTS — owner, pinned endpoint/origin, negotiated identity,
- * status, and a pointer to the current catalog revision. NOT live SDK objects
- * (the connection manager re-hydrates a `McpRawClient` in memory on demand) and
- * NOT the catalog history.
+ * Durable named connection FACTS — owner, immutable instance identity,
+ * negotiated account identity, status, and a pointer to the current catalog
+ * revision. NOT live SDK objects (the connection manager re-hydrates a
+ * `McpRawClient` in memory on demand), endpoint definitions, or catalog history.
  */
 export const mcpConnections = pgTable(
   "mcp_connections",
@@ -142,13 +169,13 @@ export const mcpConnections = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: "cascade" }),
+    /** Opaque, immutable idempotency identity within one server definition. */
+    instanceKey: text("instance_key").notNull(),
     /** Human label shown in the (future) connection UI. */
     label: text("label").notNull(),
-    /** Canonical MCP resource URI — the OAuth `resource` indicator. */
-    canonicalResource: text("canonical_resource").notNull(),
-    /** Pinned endpoint + origin. The model NEVER supplies these. */
-    endpointUrl: text("endpoint_url").notNull(),
-    endpointOrigin: text("endpoint_origin").notNull(),
     /** Selected authorization-server identity. Null for unauthenticated servers. */
     authServerIdentity: text("auth_server_identity"),
     /** Alfred→MCP bearer, kept separate from downstream integration grants. */
@@ -184,8 +211,13 @@ export const mcpConnections = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    uniqueIndex("mcp_connections_user_resource_idx").on(t.userId, t.canonicalResource),
+    uniqueIndex("mcp_connections_user_server_instance_idx").on(t.userId, t.serverId, t.instanceKey),
     index("mcp_connections_user_status_idx").on(t.userId, t.status),
+    foreignKey({
+      columns: [t.serverId, t.userId],
+      foreignColumns: [mcpServers.id, mcpServers.userId],
+      name: "mcp_connections_server_owner_fk",
+    }).onDelete("cascade"),
     foreignKey({
       columns: [t.credentialId, t.userId],
       foreignColumns: [mcpOauthCredentials.id, mcpOauthCredentials.userId],
@@ -418,6 +450,8 @@ export const mcpInvocation = pgTable(
 
 export type McpConnection = typeof mcpConnections.$inferSelect;
 export type NewMcpConnection = typeof mcpConnections.$inferInsert;
+export type McpServer = typeof mcpServers.$inferSelect;
+export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type McpOauthCredential = typeof mcpOauthCredentials.$inferSelect;
 export type NewMcpOauthCredential = typeof mcpOauthCredentials.$inferInsert;
 export type McpOauthAuthorizationAttempt = typeof mcpOauthAuthorizationAttempts.$inferSelect;

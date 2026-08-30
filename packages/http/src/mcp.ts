@@ -6,6 +6,7 @@ import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connectio
 import {
   authorizeMcpOAuth,
   boundedMcpErrorText,
+  ensureNamedConnection,
   finishMcpOAuth,
   getMcpConnectionManager,
   listOwnedConnections,
@@ -15,7 +16,6 @@ import {
   mcpOAuthProviderForConnection,
   readOwnedConnection,
   updateConnection,
-  upsertConnection,
 } from "@alfred/assistant/connections/mcp";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
@@ -29,8 +29,8 @@ function connectionResult(
   return {
     id: connection.id,
     label: connection.label,
-    canonicalResource: connection.canonicalResource,
-    endpointOrigin: connection.endpointOrigin,
+    canonicalResource: connection.server.canonicalResource,
+    endpointOrigin: connection.server.endpointOrigin,
     status: connection.status,
     grantedScopes: connection.grantedScopes,
     requiredScopes: connection.requiredScopes,
@@ -50,11 +50,11 @@ async function beginAuthorization(input: {
   const provider = mcpOAuthProviderForConnection({
     connectionId: connection.id,
     userId: connection.userId,
-    endpoint: new URL(connection.endpointUrl),
+    endpoint: new URL(connection.server.endpointUrl),
   });
   const scope = [...new Set([...connection.grantedScopes, ...connection.requiredScopes])].join(" ");
   try {
-    await authorizeMcpOAuth(provider, new URL(connection.endpointUrl), {
+    await authorizeMcpOAuth(provider, new URL(connection.server.endpointUrl), {
       ...(input.forceReauthorization ? { forceReauthorization: true } : {}),
       ...(scope ? { scope } : {}),
     });
@@ -90,12 +90,12 @@ export const mcpIntegrationRoutes = new Elysia({
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
       .get("/github/connect", async ({ user, set }) => {
-        const connection = await upsertConnection({
+        const connection = await ensureNamedConnection({
           userId: user.id,
+          instanceKey: "github-default",
           label: "GitHub MCP",
           canonicalResource: GITHUB_MCP_ENDPOINT.href,
-          endpointUrl: GITHUB_MCP_ENDPOINT.href,
-          endpointOrigin: GITHUB_MCP_ENDPOINT.origin,
+          endpoint: GITHUB_MCP_ENDPOINT,
           authServerIdentity: MCP_OAUTH_PENDING_ISSUER,
           status: "disconnected",
         });
@@ -153,7 +153,7 @@ export const mcpIntegrationRoutes = new Elysia({
     const provider = mcpOAuthProviderForConnection({
       connectionId: connection.id,
       userId: connection.userId,
-      endpoint: new URL(connection.endpointUrl),
+      endpoint: new URL(connection.server.endpointUrl),
     });
     if (!(await provider.matchesState(parsed.data.state))) {
       throw Errors.BadRequestError("Invalid or expired OAuth state");
@@ -164,7 +164,7 @@ export const mcpIntegrationRoutes = new Elysia({
     try {
       // The URLSearchParams overload validates `iss` before it reads any
       // callback error text or redeems the authorization code.
-      await finishMcpOAuth(provider, new URL(connection.endpointUrl), params);
+      await finishMcpOAuth(provider, new URL(connection.server.endpointUrl), params);
       await getMcpConnectionManager().getReadyClient(connection.id);
     } catch (error) {
       await updateConnection(connection.id, {
