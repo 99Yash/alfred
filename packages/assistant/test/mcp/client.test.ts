@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
+import {
+  ProtocolError,
+  SdkErrorCode,
+  SdkHttpError,
+  type OAuthClientProvider,
+  type Tool,
+} from "@modelcontextprotocol/client";
 import {
   McpClientError,
   McpRawClient,
@@ -19,6 +25,8 @@ class FakeProtocol implements McpProtocolClient {
   readonly pages: McpProtocolPage[];
   readonly calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   listCalls = 0;
+  connectCalls = 0;
+  closeCalls = 0;
   connected = false;
   closedWithTerminate: boolean | null = null;
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
@@ -45,12 +53,14 @@ class FakeProtocol implements McpProtocolClient {
   }
 
   async connect(): Promise<McpProtocolServer> {
+    this.connectCalls += 1;
     if (this.connectError) throw this.connectError;
     this.connected = true;
     return this.negotiated;
   }
 
   async close(terminateSession: boolean): Promise<void> {
+    this.closeCalls += 1;
     this.closedWithTerminate = terminateSession;
   }
 
@@ -97,6 +107,16 @@ const SEARCH_TOOL = tool("search", {
   additionalProperties: false,
 });
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 function makeClient(
   protocol: FakeProtocol,
   overrides: Partial<ConstructorParameters<typeof McpRawClient>[0]> = {},
@@ -130,13 +150,7 @@ describe("McpRawClient catalog", () => {
         authorize: async (candidate) => {
           const endpoint = new URL(String(candidate.endpoint));
           events.push(`authorize:${endpoint.href}`);
-          return {
-            endpoint,
-            oauthResource: new URL(endpoint.href),
-            fetch: globalThis.fetch,
-            protocolFetch: globalThis.fetch,
-            close: async () => undefined,
-          };
+          return permissiveMcpEndpointAuthorizerForTests().authorize(candidate);
         },
       },
       protocolFactory: () => {
@@ -160,6 +174,174 @@ describe("McpRawClient catalog", () => {
 
     assert.equal(protocol.closedWithTerminate, false);
     await assertMcpError(client.refreshCatalog(), "not_connected");
+  });
+
+  test("closes endpoint authorization when the OAuth provider factory throws", async () => {
+    const protocol = new FakeProtocol([{ tools: [] }]);
+    const fallback = permissiveMcpEndpointAuthorizerForTests();
+    let authorizationCloses = 0;
+    const client = makeClient(protocol, {
+      endpointAuthorizer: {
+        authorize: async (candidate) => {
+          const authorized = await fallback.authorize(candidate);
+          return {
+            ...authorized,
+            close: async () => {
+              authorizationCloses += 1;
+              await authorized.close();
+            },
+          };
+        },
+      },
+      oauthProviderFactory: () => {
+        throw new Error("provider construction failed");
+      },
+    });
+
+    await assert.rejects(client.connect(), /provider construction failed/);
+
+    assert.equal(authorizationCloses, 1);
+    assert.equal(protocol.connectCalls, 0);
+    assert.equal(protocol.closeCalls, 0);
+  });
+
+  test("waits for a pending connect before close and releases its generation once", async () => {
+    const protocol = new FakeProtocol([{ tools: [] }]);
+    const pendingAuthorization =
+      deferred<
+        Awaited<ReturnType<ReturnType<typeof permissiveMcpEndpointAuthorizerForTests>["authorize"]>>
+      >();
+    const authorizationStarted = deferred<void>();
+    let authorizationCloses = 0;
+    const client = makeClient(protocol, {
+      endpointAuthorizer: {
+        authorize: async () => {
+          authorizationStarted.resolve();
+          const authorized = await pendingAuthorization.promise;
+          return {
+            ...authorized,
+            close: async () => {
+              authorizationCloses += 1;
+              await authorized.close();
+            },
+          };
+        },
+      },
+    });
+
+    const connect = client.connect();
+    await authorizationStarted.promise;
+    const close = client.close();
+    pendingAuthorization.resolve(
+      await permissiveMcpEndpointAuthorizerForTests().authorize({
+        endpoint: "https://mcp.example.test/mcp",
+        expectedOrigin: "https://mcp.example.test",
+      }),
+    );
+    await Promise.all([connect, close]);
+
+    assert.equal(protocol.connectCalls, 1);
+    assert.equal(protocol.closeCalls, 1);
+    assert.equal(authorizationCloses, 1);
+    await assertMcpError(client.refreshCatalog(), "not_connected");
+  });
+
+  test("coalesces concurrent connects into one authorization and protocol generation", async () => {
+    const protocol = new FakeProtocol([{ tools: [] }]);
+    const fallback = permissiveMcpEndpointAuthorizerForTests();
+    let authorizations = 0;
+    let protocolFactories = 0;
+    const client = makeClient(protocol, {
+      endpointAuthorizer: {
+        authorize: async (candidate) => {
+          authorizations += 1;
+          return fallback.authorize(candidate);
+        },
+      },
+      protocolFactory: () => {
+        protocolFactories += 1;
+        return protocol;
+      },
+    });
+
+    await Promise.all([client.connect(), client.connect()]);
+
+    assert.equal(authorizations, 1);
+    assert.equal(protocolFactories, 1);
+    assert.equal(protocol.connectCalls, 1);
+    await client.close();
+    assert.equal(protocol.closeCalls, 1);
+  });
+
+  test("passes correlated OAuth and protocol capabilities through raw client wiring", async () => {
+    const protocol = new FakeProtocol([{ tools: [] }]);
+    let refreshRequests = 0;
+    const endpointAuthorizer = permissiveMcpEndpointAuthorizerForTests(async (input) => {
+      assert.equal(String(input), "https://auth.example.test/token");
+      refreshRequests += 1;
+      return new Response(
+        JSON.stringify({ access_token: "fresh", token_type: "Bearer", expires_in: 3600 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    let oauthCapability: object | null = null;
+    let protocolCapability: object | null = null;
+    const oauthProvider: OAuthClientProvider = {
+      redirectUrl: new URL("https://alfred.example.test/callback"),
+      clientMetadata: {
+        redirect_uris: ["https://alfred.example.test/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+      },
+      discoveryState: async () => ({
+        authorizationServerUrl: "https://auth.example.test/",
+        resourceMetadata: {
+          resource: "https://mcp.example.test/mcp",
+          authorization_servers: ["https://auth.example.test/"],
+        },
+        authorizationServerMetadata: {
+          issuer: "https://auth.example.test/",
+          authorization_endpoint: "https://auth.example.test/authorize",
+          token_endpoint: "https://auth.example.test/token",
+          response_types_supported: ["code"],
+        },
+      }),
+      clientInformation: async () => ({
+        client_id: "client-id",
+        issuer: "https://auth.example.test/",
+      }),
+      tokens: async () => ({
+        access_token: "old",
+        refresh_token: "refresh-secret",
+        token_type: "Bearer",
+        issuer: "https://auth.example.test/",
+      }),
+      saveCodeVerifier: async () => undefined,
+      codeVerifier: async () => "verifier",
+      saveTokens: async () => undefined,
+      redirectToAuthorization: async () => {
+        throw new Error("authorization redirect was not expected");
+      },
+    };
+    const client = makeClient(protocol, {
+      endpointAuthorizer,
+      oauthProviderFactory: (authorization) => {
+        oauthCapability = authorization;
+        return oauthProvider;
+      },
+      protocolFactory: (authorization) => {
+        protocolCapability = authorization;
+        return protocol;
+      },
+    });
+
+    await client.connect();
+
+    assert.ok(oauthCapability);
+    assert.ok(protocolCapability);
+    assert.notEqual(oauthCapability, protocolCapability);
+    assert.equal(refreshRequests, 1);
+    assert.equal(protocol.connectCalls, 1);
+    await client.close();
   });
 
   test("reauthorizes the endpoint after close before reconnecting", async () => {
