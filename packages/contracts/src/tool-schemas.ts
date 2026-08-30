@@ -900,6 +900,7 @@ export const gmailSendDraftInput = coerceJsonArrayFields(
     ),
   ),
 );
+export type GmailSendDraftInput = z.infer<typeof gmailSendDraftInput>;
 
 export const gmailReadMessageInput = z
   .object({
