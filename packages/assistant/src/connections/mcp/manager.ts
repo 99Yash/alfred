@@ -12,10 +12,8 @@
  *    factory that wires a real client to a FAKE `McpProtocolClient` (via the raw
  *    client's own `protocolFactory`), exercising real validation/bounding code
  *    without a socket.
- *  - `endpointAuthorization` is handed to the DEFAULT factory only. It is a
- *    placeholder here: v1 enforces https + origin-pinning but the full SSRF /
- *    DNS-rebinding guard is a later slice, and no connection-creation route wires
- *    an untrusted endpoint to it yet.
+ *  - The default factory always uses the hosted endpoint authorizer. Tests that
+ *    need a local transport inject the complete `clientFactory` seam.
  *  - `persistence` lets lifecycle tests drive publication races without requiring
  *    Postgres; production always receives the module-owned default adapter.
  *
@@ -35,9 +33,9 @@ import {
   type ExternalToolRef,
   type McpCallEnvelope,
   type McpCatalogSnapshot,
-  type McpEndpointAuthorization,
   type McpPreparedToolCall,
 } from "./client";
+import { HostedMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, McpClientError } from "./errors";
 import { computeDescriptorHashes } from "./hash";
 import {
@@ -64,8 +62,6 @@ export interface McpConnectionManagerPersistence {
 
 export interface McpConnectionManagerOptions {
   clientFactory?: McpClientFactory;
-  /** Handed to the default `clientFactory` only. Ignored when one is injected. */
-  endpointAuthorization?: McpEndpointAuthorization;
   persistence?: McpConnectionManagerPersistence;
 }
 
@@ -93,40 +89,28 @@ export class McpConnectionNotFoundError extends Error {
 }
 
 /**
- * Placeholder endpoint authorization for the default factory. Enforces https and
- * pins to the exact origin; it does NOT yet block private/loopback IPs or DNS
- * rebinding (the SSRF slice owns that). Only reached by the production default
- * factory, never by tests (which inject their own client).
- */
-class HttpsOriginPinnedAuthorization implements McpEndpointAuthorization {
-  async authorize(endpoint: URL): Promise<URL> {
-    if (endpoint.protocol !== "https:") {
-      throw new Error(`MCP endpoint must be https: ${endpoint.origin}`);
-    }
-    return new URL(endpoint.href);
-  }
-}
-
-/**
  * The production factory: a live client per connection row, authorized by
  * `authorization`. OAuth discovery runs before transport connect. The transport
  * itself receives only a token reader, so it cannot refresh and replay an
  * in-flight call.
  */
-function liveClientFactory(authorization: McpEndpointAuthorization): McpClientFactory {
+function liveClientFactory(): McpClientFactory {
+  const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
   return (connection) => {
     const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
     return new McpRawClient({
       connectionId: connection.id,
-      endpoint: new URL(connection.endpointUrl),
-      endpointAuthorization: authorization,
+      endpoint: connection.endpointUrl,
+      expectedOrigin: connection.endpointOrigin,
+      endpointAuthorizer,
       ...(usesOAuth
         ? {
-            oauthProvider: mcpOAuthProviderForConnection({
-              connectionId: connection.id,
-              userId: connection.userId,
-              endpoint: new URL(connection.endpointUrl),
-            }),
+            oauthProviderFactory: (resource: URL) =>
+              mcpOAuthProviderForConnection({
+                connectionId: connection.id,
+                userId: connection.userId,
+                endpoint: resource,
+              }),
             onAuthorizationRequired: async () => {
               await updateConnection(connection.id, {
                 status: "auth_required",
@@ -158,9 +142,7 @@ export class McpConnectionManager {
   readonly #persistence: McpConnectionManagerPersistence;
 
   constructor(options: McpConnectionManagerOptions = {}) {
-    this.#clientFactory =
-      options.clientFactory ??
-      liveClientFactory(options.endpointAuthorization ?? new HttpsOriginPinnedAuthorization());
+    this.#clientFactory = options.clientFactory ?? liveClientFactory();
     this.#persistence = options.persistence ?? DEFAULT_PERSISTENCE;
   }
 

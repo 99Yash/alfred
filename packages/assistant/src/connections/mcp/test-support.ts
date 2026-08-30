@@ -28,3 +28,25 @@
 
 export { publishCatalogRevision } from "./persistence";
 export { _setMcpConnectionManagerForTests } from "./runtime";
+
+import type { McpEndpointAuthorizer } from "./endpoint-authorization";
+
+/** Explicitly bypass hosted-network policy for hermetic loopback/fake transports. */
+export function permissiveMcpEndpointAuthorizerForTests(
+  fetch: typeof globalThis.fetch = globalThis.fetch,
+): McpEndpointAuthorizer {
+  return {
+    authorize: async ({ endpoint }) => {
+      const authorizedEndpoint = new URL(
+        endpoint instanceof URL ? endpoint.href : String(endpoint),
+      );
+      return {
+        endpoint: authorizedEndpoint,
+        oauthResource: new URL(authorizedEndpoint.href),
+        fetch,
+        protocolFetch: fetch,
+        close: async () => undefined,
+      };
+    },
+  };
+}

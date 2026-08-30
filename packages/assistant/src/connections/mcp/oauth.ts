@@ -675,16 +675,13 @@ export function authorizeMcpOAuth(
   provider: OAuthClientProvider,
   endpoint: URL,
   options: {
+    fetch: FetchLike;
     forceReauthorization?: boolean;
     scope?: string;
-    fetch?: FetchLike;
     timeoutMs?: number;
-  } = {},
+  },
 ): Promise<AuthResult> {
-  const fetchFn = timeoutBoundFetch(
-    options.fetch ?? globalThis.fetch,
-    options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
-  );
+  const fetchFn = timeoutBoundFetch(options.fetch, options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS);
   const run = () =>
     auth(provider, {
       serverUrl: endpoint,
@@ -713,7 +710,7 @@ export function authorizeMcpOAuth(
 export async function refreshMcpOAuthIfNeeded(
   provider: OAuthClientProvider,
   endpoint: URL,
-  options: { fetch?: FetchLike; timeoutMs?: number } = {},
+  options: { fetch: FetchLike; timeoutMs?: number },
 ): Promise<void> {
   if (!(provider instanceof McpOAuthProvider)) return;
   if (!(await provider.authorizationNeedsRefresh())) return;
@@ -729,15 +726,12 @@ export async function finishMcpOAuth(
   provider: OAuthClientProvider,
   endpoint: URL,
   callbackParams: URLSearchParams,
-  options: { fetch?: FetchLike; timeoutMs?: number } = {},
+  options: { fetch: FetchLike; timeoutMs?: number },
 ): Promise<void> {
   const transport = new StreamableHTTPClientTransport(endpoint, {
     authProvider: provider,
     onInsufficientScope: "throw",
-    fetch: timeoutBoundFetch(
-      options.fetch ?? globalThis.fetch,
-      options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
-    ),
+    fetch: timeoutBoundFetch(options.fetch, options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS),
   });
   await transport.finishAuth(callbackParams);
 }

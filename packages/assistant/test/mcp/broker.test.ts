@@ -20,6 +20,7 @@ import { McpClientError } from "../../src/connections/mcp/errors";
 import { canonicalArgsHash, descriptorHash } from "../../src/connections/mcp/hash";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
 import { insertConnection } from "../../src/connections/mcp/persistence";
+import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import {
   createSuccessorInvocation,
   upsertToolPolicy,
@@ -152,7 +153,8 @@ function brokerWith(protocol: FakeProtocol): McpExecutionBroker {
       new McpRawClient({
         connectionId: connection.id,
         endpoint: new URL(connection.endpointUrl),
-        endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+        expectedOrigin: connection.endpointOrigin,
+        endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
   });
@@ -166,7 +168,8 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
       new McpRawClient({
         connectionId: connection.id,
         endpoint: new URL(connection.endpointUrl),
-        endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+        expectedOrigin: connection.endpointOrigin,
+        endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
   });
