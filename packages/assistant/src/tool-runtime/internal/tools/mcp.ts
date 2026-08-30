@@ -18,8 +18,7 @@
 
 import { mcpCallInput, mcpListToolsInput, unknownEffectEnvelopeSchema } from "@alfred/contracts";
 import {
-  inspectMcpToolLocal,
-  searchMcpToolsLocal,
+  listMcpToolsLocal,
   type ExternalToolRef,
   type McpCallEnvelope,
 } from "@alfred/assistant/connections/mcp";
@@ -162,17 +161,6 @@ export const mcpTools: readonly RegisteredTool[] = [
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpListToolsInput,
-    execute: async (input, ctx) =>
-      input.ref !== undefined
-        ? inspectMcpToolLocal({ userId: ctx.userId, ref: input.ref })
-        : searchMcpToolsLocal({
-            userId: ctx.userId,
-            query: input.query,
-            namespace: input.namespace,
-            connectionId: input.connectionId,
-            detail: input.detail,
-            cursor: input.cursor,
-            limit: input.limit,
-          }),
+    execute: (input, ctx) => listMcpToolsLocal({ userId: ctx.userId, request: input }),
   }),
 ];

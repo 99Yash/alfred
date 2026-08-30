@@ -8,6 +8,7 @@ import {
   mcpListToolsInput,
   mcpToolDiscoveryPageSchema,
   mcpToolInspectionResultSchema,
+  parseMcpListToolsOperation,
 } from "@alfred/contracts";
 
 const ref = {
@@ -60,10 +61,23 @@ describe("MCP discovery contracts", () => {
   test("rejects mixed search and inspection fields", () => {
     assert.equal(mcpListToolsInput.safeParse({ ref, query: "calendar" }).success, false);
     assert.equal(mcpListToolsInput.safeParse({ ref, limit: 1 }).success, false);
+    assert.equal(mcpListToolsInput.safeParse({ ref, query: undefined }).success, false);
     assert.equal(
       mcpListToolsInput.safeParse({ connectionId: "connection-1", remoteName: "tool" }).success,
       false,
     );
+  });
+
+  test("parses one search-or-inspect operation at the contract boundary", () => {
+    assert.deepEqual(parseMcpListToolsOperation({ query: "calendar", limit: 2 }), {
+      operation: "search",
+      input: { query: "calendar", limit: 2 },
+    });
+    assert.deepEqual(parseMcpListToolsOperation({ ref }), {
+      operation: "inspect",
+      input: { ref },
+    });
+    assert.throws(() => parseMcpListToolsOperation({ ref, query: "calendar" }));
   });
 
   test("accepts only the exact-ref inspection form", () => {
@@ -115,6 +129,14 @@ describe("MCP discovery contracts", () => {
       mcpToolDiscoveryPageSchema.safeParse({ status: "tools", tools: [], nextCursor: "" }).success,
       false,
     );
+    assert.equal(
+      mcpToolDiscoveryPageSchema.safeParse({
+        status: "tools",
+        tools: [{ ...hit, connection: { ...connection, id: "connection-2" } }],
+        nextCursor: null,
+      }).success,
+      false,
+    );
   });
 
   test("accepts bounded full-tool inspection results and strict negative results", () => {
@@ -137,6 +159,15 @@ describe("MCP discovery contracts", () => {
           inputSchema: { type: "object", properties: { title: { type: "string" } } },
         },
       },
+    );
+    assert.equal(
+      mcpToolInspectionResultSchema.safeParse({
+        status: "tool",
+        ref,
+        connection: { ...connection, id: "connection-2" },
+        tool: { name: ref.remoteName, inputSchema: { type: "object" } },
+      }).success,
+      false,
     );
 
     for (const status of ["not_found", "catalog_stale"] as const) {

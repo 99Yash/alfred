@@ -332,16 +332,29 @@ export const mcpListToolsInput = z
   })
   .strict()
   .superRefine((input, ctx) => {
-    if (input.ref === undefined) return;
-    const searchKeys = ["query", "namespace", "connectionId", "detail", "cursor", "limit"] as const;
-    if (searchKeys.some((key) => input[key] !== undefined)) {
+    const inputKeys = Object.keys(input);
+    if (!inputKeys.includes("ref")) return;
+    if (input.ref === undefined || inputKeys.some((key) => key !== "ref")) {
       ctx.addIssue({
         code: "custom",
         message: "MCP tool inspection accepts only an exact ref",
       });
     }
   });
-export type McpListToolsInput = McpToolInspectInput | McpToolSearchInput;
+export type McpListToolsInput = z.infer<typeof mcpListToolsInput>;
+
+export type McpListToolsOperation =
+  | { operation: "inspect"; input: McpToolInspectInput }
+  | { operation: "search"; input: McpToolSearchInput };
+
+/** Parse the provider-compatible root object into its strict domain operation. */
+export function parseMcpListToolsOperation(input: unknown): McpListToolsOperation {
+  const parsed = mcpListToolsInput.parse(input);
+  if (parsed.ref !== undefined) {
+    return { operation: "inspect", input: { ref: parsed.ref } };
+  }
+  return { operation: "search", input: mcpToolSearchInputSchema.parse(parsed) };
+}
 
 export const mcpDiscoveryConnectionSchema = z
   .object({
@@ -352,6 +365,19 @@ export const mcpDiscoveryConnectionSchema = z
   .strict();
 export type McpDiscoveryConnection = z.infer<typeof mcpDiscoveryConnectionSchema>;
 
+function enforceConnectionRefIdentity(
+  input: { ref: ExternalToolRef; connection: McpDiscoveryConnection },
+  ctx: z.RefinementCtx,
+): void {
+  if (input.connection.id !== input.ref.connectionId) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["connection", "id"],
+      message: "MCP discovery connection id must match the tool reference",
+    });
+  }
+}
+
 export const mcpToolDiscoveryHitSchema = z
   .object({
     ref: mcpExternalToolRefSchema,
@@ -360,7 +386,8 @@ export const mcpToolDiscoveryHitSchema = z
     title: z.string().optional(),
     description: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(enforceConnectionRefIdentity);
 export type McpToolDiscoveryHit = z.infer<typeof mcpToolDiscoveryHitSchema>;
 
 export const mcpToolDiscoveryPageSchema = z
@@ -379,7 +406,8 @@ export const mcpToolInspectionSuccessSchema = z
     connection: mcpDiscoveryConnectionSchema,
     tool: jsonObjectSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(enforceConnectionRefIdentity);
 export type McpToolInspectionSuccess = z.infer<typeof mcpToolInspectionSuccessSchema>;
 
 export const mcpToolInspectionNotFoundSchema = z
