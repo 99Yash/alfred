@@ -1,8 +1,8 @@
 import type { ChatMessageAgentUsage } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
-import { ArrowDown, ArrowUp, Repeat, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Gauge, Repeat, Zap } from "lucide-react";
 import { PROVIDERS, modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
-import { formatCost, formatTokens } from "~/lib/usage-format";
+import { formatCost, formatTokens, outputTokensPerSecond } from "~/lib/usage-format";
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
 
@@ -208,6 +208,7 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
  */
 export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usage"]> }) {
   const cost = formatCost(usage.costUsd);
+  const tokensPerSecond = outputTokensPerSecond(usage.outputTokens, usage.modelLatencyMs);
   const cachePct =
     usage.inputTokens > 0 ? Math.round((usage.cachedInputTokens / usage.inputTokens) * 100) : 0;
 
@@ -231,6 +232,15 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         label="Output tokens"
         description={`${usage.outputTokens.toLocaleString()} tokens the model wrote. Prose, reasoning, and tool arguments.`}
       />
+      {tokensPerSecond !== null ? (
+        <Stat
+          icon={Gauge}
+          value={tokensPerSecond.toFixed(1)}
+          suffix="tok/s"
+          label={`${tokensPerSecond.toFixed(1)} average output tokens per second`}
+          description={`${usage.outputTokens.toLocaleString()} output tokens across ${(usage.modelLatencyMs / 1_000).toFixed(1)} seconds of model calls. Time to first token is included. Tool execution and other workflow time are excluded.`}
+        />
+      ) : null}
       {usage.cachedInputTokens > 0 ? (
         <Tip
           label="Cached input"

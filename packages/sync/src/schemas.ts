@@ -315,9 +315,9 @@ export const syncedChatMessageSchema = z.object({
    */
   narration: z.array(syncedChatNarrationSchema).nullable().default(null),
   /**
-   * Token usage + cost for this turn, powering a dev-gated readout under the
-   * reply. Defaulted so rows cached before this field existed still parse (they
-   * read back with no usage line).
+   * Token usage, model latency, and cost for this turn, powering a dev-gated
+   * readout under the reply. Defaulted so rows cached before this field existed
+   * still parse (they read back with no usage line).
    */
   usage: chatMessageUsageSchema.nullable().default(null),
   runId: z.string().nullable(),
