@@ -22,7 +22,6 @@
  */
 
 import {
-  MCP_RECOVERY_PAGE_SIZE,
   mcpCallInput,
   type McpCallInput,
   type McpEffectClass,
@@ -39,7 +38,7 @@ import {
   type McpToolPolicyRow,
   type NewMcpInvocation,
 } from "@alfred/db/schemas";
-import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
   boundedMcpErrorText,
   canonicalArgsHash,
@@ -59,6 +58,7 @@ import {
   resolveMcpToolIdentity,
   type OwnedMcpConnectionRef,
 } from "./invocations";
+import { hasMcpBrokerAdmissionCapacity, MCP_SETTLEMENT_REPAIR_BATCH_SIZE } from "./broker-policy";
 
 const BLOCKED_BARRIER_MESSAGE =
   "A matching write to this MCP tool is already unresolved (it may have been delivered). " +
@@ -158,13 +158,14 @@ interface PendingMcpSettlementRepair {
 }
 
 const pendingMcpSettlementRepairs = new Map<string, PendingMcpSettlementRepair>();
-const MAX_PENDING_MCP_SETTLEMENT_REPAIRS = MCP_RECOVERY_PAGE_SIZE * 2;
 let activeMcpSettlementSlots = 0;
 
 function acquireMcpSettlementSlot(): () => void {
   if (
-    pendingMcpSettlementRepairs.size + activeMcpSettlementSlots >=
-    MAX_PENDING_MCP_SETTLEMENT_REPAIRS
+    !hasMcpBrokerAdmissionCapacity({
+      pendingRepairs: pendingMcpSettlementRepairs.size,
+      activeSettlements: activeMcpSettlementSlots,
+    })
   ) {
     throw new McpClientError(
       "not_connected",
@@ -345,7 +346,7 @@ async function markMcpSettlementIncomplete(input: PendingMcpSettlementRepair): P
         eq(actionStagings.id, row.stagingId),
         eq(actionStagings.userId, input.userId),
         or(
-          inArray(actionStagings.outcome, ["planned", "dispatching", "failed"]),
+          inArray(actionStagings.outcome, ["planned", "dispatching", "failed", "succeeded"]),
           isNull(actionStagings.outcome),
         ),
       ),
@@ -634,7 +635,6 @@ export class McpExecutionBroker {
     for (const repair of pendingMcpSettlementRepairs.values()) {
       if (repair.userId !== input.userId) continue;
       queued.push(repair);
-      if (queued.length === MCP_RECOVERY_PAGE_SIZE) break;
     }
     for (const repair of queued) {
       try {
@@ -647,8 +647,9 @@ export class McpExecutionBroker {
       }
     }
 
+    const effectiveAt = sql<string>`coalesce(${mcpInvocation.deliveryPossibleAt}, ${mcpInvocation.createdAt})`;
     const marked = await db()
-      .select({ invocationId: mcpInvocation.id })
+      .select({ invocationId: mcpInvocation.id, effectiveAt })
       .from(mcpInvocation)
       .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
       .where(
@@ -662,7 +663,8 @@ export class McpExecutionBroker {
           isNull(mcpInvocation.resolvedAt),
         ),
       )
-      .limit(MCP_RECOVERY_PAGE_SIZE);
+      .orderBy(asc(effectiveAt), asc(mcpInvocation.id))
+      .limit(MCP_SETTLEMENT_REPAIR_BATCH_SIZE);
     for (const row of marked) {
       await normalizeMarkedMcpSettlementFailure({
         userId: input.userId,
@@ -1177,6 +1179,13 @@ export class McpExecutionBroker {
   ): Promise<McpBrokerOutcome> {
     if (reason === "duplicate_staging") {
       const prior = await readInvocationByStagingId(input.stagingId);
+      if (prior && prior.resolvedAt === null && prior.attemptLifecycle !== "prepared") {
+        return {
+          status: "ambiguous",
+          invocationId: prior.id,
+          message: BLOCKED_RECORDED_MESSAGE,
+        };
+      }
       return {
         status: "blocked",
         reason: "already_recorded",

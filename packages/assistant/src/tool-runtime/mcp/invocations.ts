@@ -348,7 +348,7 @@ export async function reconcileInflightInvocations(
           eq(mcpInvocation.retryDisposition, "blocked"),
           isNull(mcpInvocation.resolvedAt),
           or(
-            inArray(actionStagings.outcome, ["planned", "dispatching", "failed"]),
+            inArray(actionStagings.outcome, ["planned", "dispatching", "failed", "succeeded"]),
             isNull(actionStagings.outcome),
           ),
         ),
