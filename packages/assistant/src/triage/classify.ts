@@ -26,6 +26,17 @@ import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/goo
 import { z } from "zod";
 import { addDays, formatDay, inZone } from "@alfred/assistant/time";
 import {
+  TRIAGE_BODY_MAX_CHARS,
+  TRIAGE_MAX_OUTPUT_TOKENS,
+  TRIAGE_REQUEST_TIMEOUT_MS,
+  TRIAGE_SECOND_PASS_FAILURE_CONFIDENCE_FLOOR,
+  TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE,
+  TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL,
+  TRIAGE_STRONG_BULK_MIN_SHARE,
+  TRIAGE_STRONG_BULK_MIN_TOTAL,
+  TRIAGE_TODO_ASSIST_MAX_CHARS,
+} from "./constants";
+import {
   applyFloors,
   isGithubNotificationSender,
   matchesCollabIntrinsicStake,
@@ -92,7 +103,7 @@ export const triageClassificationSchema = z.object({
    */
   confidence: confidenceSchema,
   /** Short rationale grounded in the email — used for audit and debugging. */
-  rationale: z.string().min(1).max(500),
+  rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
   /**
    * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
    * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
@@ -233,25 +244,6 @@ const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]
 const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsletter"]);
 /** Categories that count toward a sender's "bulk" share for the over-classification net. */
 const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
-const STRONG_BULK_MIN_TOTAL = 5;
-const STRONG_BULK_MIN_SHARE = 0.8;
-/**
- * Thresholds for the SERVICE-PRIOR `action_needed` over-classification challenge
- * (#351 partial mitigation). A collaboration/task-tracker service whose prior
- * has skewed heavily `action_needed` feeds that histogram back as a "repeat the
- * category" justification — a self-reinforcing loop past rule 12e (status
- * changes / watch-activity keep landing `action_needed` because past mail did).
- * When the loop is this pronounced we spell out 12e and re-ask ONCE; the model
- * KEEPS `action_needed` if the body genuinely assigns the item — NOT a forced
- * downgrade. The durable fix is sender-prior decay in the user-model epic (#218);
- * this only challenges the spike. Higher volume floor than the bulk net: a
- * service prior must be well-established before its skew is evidence of a loop.
- */
-const SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
-const SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
-const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
-const TRIAGE_BODY_MAX_CHARS = 6_000;
-
 export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
 - urgent: action needed within hours, not days. Unsolicited security alerts (unrecognized/suspicious sign-in "was this you?", password or 2FA changed without the user, account compromised), billing failure that breaks access today, deadline today, critical CI/CD blocking ship. NOT a routine login link or code the user requested themselves — that is fyi (rule 15).
@@ -610,7 +602,7 @@ export function detectConflict(
     !observations.gmail.important
   ) {
     const { total, bulkShare } = priorBulkProfile(observations.senderPrior.categoryCounts);
-    if (total >= STRONG_BULK_MIN_TOTAL && bulkShare >= STRONG_BULK_MIN_SHARE) {
+    if (total >= TRIAGE_STRONG_BULK_MIN_TOTAL && bulkShare >= TRIAGE_STRONG_BULK_MIN_SHARE) {
       return {
         kind: "over_classification",
         message: `You classified this as "${classification.category}", but this sender is historically bulk mail (${Math.round(bulkShare * 100)}% of ${total} prior messages were newsletter/marketing/fyi/done), Gmail did not mark it IMPORTANT, and no exposed-secret signal fired. Promotional-urgency language ("act now", "last chance"), an educational or security-topic MENTION, or a third-party vendor's own status/incident post is not a real deadline or YOUR incident — confirm this is genuinely actionable BY the user (rules 12f, 16b).`,
@@ -641,8 +633,8 @@ export function detectConflict(
     const { total, actionShare } = priorActionShare(observations.senderPrior.categoryCounts);
     if (
       isService &&
-      total >= SERVICE_ACTION_LOOP_MIN_TOTAL &&
-      actionShare >= SERVICE_ACTION_LOOP_MIN_SHARE
+      total >= TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL &&
+      actionShare >= TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE
     ) {
       return {
         kind: "over_classification",
@@ -669,9 +661,6 @@ const ASSIST_AMOUNT_RE =
   /[₹$€£¥]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:usd|eur|gbp|inr|rs\.?|rupees?|dollars?)\b/i;
 const ASSIST_DATE_RE =
   /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b\d{4}-\d{2}-\d{2}\b/i;
-/** A real hard-fact fragment is short; longer means the model wrote a sentence. */
-const ASSIST_MAX_LEN = 40;
-
 // A rail todo persists for days, so a relative date word ("due tomorrow") reads
 // as a lie the moment it goes stale — the absolute calendar date is always the
 // better fact. The prompt tells the cheap model to resolve relative phrasing
@@ -748,7 +737,7 @@ export function sanitizeAssist(
   const trimmed = assist?.trim();
   if (!trimmed) return undefined;
   const text = resolveRelativeDates(trimmed, anchor);
-  if (!text || text.length > ASSIST_MAX_LEN) return undefined;
+  if (!text || text.length > TRIAGE_TODO_ASSIST_MAX_CHARS) return undefined;
   if (ASSIST_URL_RE.test(text)) return undefined;
   if (RESIDUAL_RELATIVE_RE.test(text)) return undefined;
   if (!ASSIST_AMOUNT_RE.test(text) && !ASSIST_DATE_RE.test(text)) return undefined;
@@ -1097,7 +1086,7 @@ export function classifyCallOptions(input: {
     temperature: 0,
     // Triage answers are tiny — cap hard so a misbehaving model can't burn
     // tokens on a wall-of-text rationale.
-    maxOutputTokens: 400,
+    maxOutputTokens: TRIAGE_MAX_OUTPUT_TOKENS,
     // Bound the call so a hung/slow Gemini connection can't hold an agent worker
     // slot (and the DB connection behind it) indefinitely. The workflow catches a
     // timeout and falls through to the default category (better a label than a
@@ -1106,7 +1095,7 @@ export function classifyCallOptions(input: {
     // This is a *total* budget: the SDK folds it into the abort signal every
     // retry attempt shares, so once it expires there is nothing left for
     // `withFallback` to degrade into — see the timeout note on `withFallback`.
-    timeout: { totalMs: 30_000 },
+    timeout: { totalMs: TRIAGE_REQUEST_TIMEOUT_MS },
     // Cancels the losing hedge as soon as its twin answers. `withFallback`
     // carves aborts out of `shouldSwitch`, so this cancel dies here instead of
     // degrading to `gemini-2.5-flash`.
@@ -1211,7 +1200,7 @@ function conservativeUnderClassificationFallback(
   return {
     ...firstPass,
     category: "action_needed",
-    confidence: Math.max(firstPass.confidence, SECOND_PASS_FAILURE_CONFIDENCE_FLOOR),
+    confidence: Math.max(firstPass.confidence, TRIAGE_SECOND_PASS_FAILURE_CONFIDENCE_FLOOR),
     rationale: truncateRationale(
       `${firstPass.rationale} Second-pass failed after a security under-classification conflict; conservatively escalated to action_needed. err=${message.slice(0, 160)}`,
     ),

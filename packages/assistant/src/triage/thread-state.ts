@@ -6,6 +6,11 @@ import {
   type GmailDocumentMetadata,
 } from "@alfred/contracts";
 import { and, eq, ne, sql } from "drizzle-orm";
+import {
+  TRIAGE_RECENT_MESSAGE_LIMIT,
+  TRIAGE_RECENT_MESSAGE_MAX_CHARS,
+  TRIAGE_THREAD_STATE_ROW_LIMIT,
+} from "./constants";
 import { gmailSentSql } from "./sent-mail";
 
 /**
@@ -55,12 +60,6 @@ const EMPTY: ThreadState = {
   messageCount: 0,
   recentMessages: [],
 };
-
-const THREAD_STATE_ROW_LIMIT = 500;
-/** How many recent prior messages to excerpt; bounds the token cost of the fed context. */
-const RECENT_MESSAGE_LIMIT = 6;
-/** Per-message excerpt cap — a lede, not the whole body. */
-const RECENT_SNIPPET_MAX = 220;
 
 /** Body lede for the fed thread context: drop the leading header block, collapse whitespace, cap length. PURE. */
 export function buildThreadSnippet(
@@ -125,7 +124,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     // two messages sharing an authoredAt (same-second replies) resolve the
     // "newest" slot identically every run. `documents_thread_idx` supports it.
     .orderBy(newestFirst)
-    .limit(THREAD_STATE_ROW_LIMIT);
+    .limit(TRIAGE_THREAD_STATE_ROW_LIMIT);
 
   const siblings = rows;
   if (siblings.length === 0) return EMPTY;
@@ -157,7 +156,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     .from(documents)
     .where(threadWhere)
     .orderBy(newestFirst)
-    .limit(RECENT_MESSAGE_LIMIT);
+    .limit(TRIAGE_RECENT_MESSAGE_LIMIT);
 
   const recentMessages: ThreadMessageContext[] = recentRows
     .map((r) => ({
@@ -167,7 +166,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
         r.title,
         r.content,
         parseGmailDocumentMetadata(r.metadata),
-        RECENT_SNIPPET_MAX,
+        TRIAGE_RECENT_MESSAGE_MAX_CHARS,
       ),
     }))
     .filter((m) => m.snippet.length > 0);
