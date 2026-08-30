@@ -481,6 +481,34 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     assert.equal("descriptors" in row, false, "the full catalog is not part of the boundary shape");
   });
 
+  test("publication and exact inspection preserve a __proto__ remote name", async () => {
+    const userId = await seedUser();
+    const connection = await seedConnection(userId, { label: "Prototype-name catalog" });
+    const descriptor = tool("__proto__", {
+      description: "A valid remote name must remain an own hash-map key",
+    });
+    const hashes = computeDescriptorHashes([descriptor]);
+
+    assert.equal(Object.hasOwn(hashes, "__proto__"), true);
+    await seedRevision(connection.id, [descriptor]);
+
+    const row = await readOwnedCurrentCatalogDescriptor({
+      userId,
+      connectionId: connection.id,
+      remoteName: "__proto__",
+    });
+    assert.ok(row);
+    assert.deepEqual(row.descriptor, descriptor);
+
+    const page = await searchMcpToolsLocal({ userId, connectionId: connection.id });
+    const ref = page.tools[0]?.ref;
+    assert.ok(ref);
+    const inspected = await inspectMcpToolLocal({ userId, ref });
+    assert.equal(inspected.status, "tool");
+    if (inspected.status !== "tool") throw new Error("unreachable");
+    assert.equal(inspected.tool.name, "__proto__");
+  });
+
   test("malformed, filter-mismatched, and stale-revision cursors fail visibly", async () => {
     const userId = await seedUser();
     const connection = await seedConnection(userId, { label: "Cursor catalog" });

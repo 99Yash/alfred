@@ -26,7 +26,18 @@ export function descriptorHash(tool: Tool): string {
 /** `{ [remoteName]: descriptorHash }` for a whole catalog snapshot. */
 export function computeDescriptorHashes(tools: readonly Tool[]): Record<string, string> {
   const hashes: Record<string, string> = {};
-  for (const tool of tools) hashes[tool.name] = descriptorHash(tool);
+  for (const tool of tools) {
+    // Remote tool names are untrusted data. Defining an own data property makes
+    // every admitted name, including `__proto__`, a key instead of invoking an
+    // inherited Object.prototype setter. Keep the normal prototype because the
+    // Drizzle insert encoder expects ordinary record values.
+    Object.defineProperty(hashes, tool.name, {
+      configurable: true,
+      enumerable: true,
+      value: descriptorHash(tool),
+      writable: true,
+    });
+  }
   return hashes;
 }
 
