@@ -396,20 +396,14 @@ function ownedCurrentCatalogPredicate(input: ListOwnedCurrentCatalogSlicesInput)
 function firstOwnedCurrentCatalogKey(input: ListOwnedCurrentCatalogSlicesInput) {
   const ownedCurrentCatalog = ownedCurrentCatalogPredicate(input);
   return sql`
-    select first_server."namespace",
-           (
-             select min(${mcpConnections.instanceKey})
-               from ${mcpConnections}
-              where ${and(
-                ownedCurrentCatalog,
-                sql`${mcpConnections.serverId} = first_server."namespace"`,
-              )}
-           ) as "instanceKey"
-      from lateral (
-        select min(${mcpConnections.serverId}) as "namespace"
-          from ${mcpConnections}
-         where ${ownedCurrentCatalog}
-      ) first_server
+    select ${mcpConnections.serverId} as "namespace",
+           ${mcpConnections.instanceKey} as "instanceKey"
+      from ${mcpConnections}
+     where ${ownedCurrentCatalog}
+     order by ${mcpConnections.userId},
+              ${mcpConnections.serverId},
+              ${mcpConnections.instanceKey}
+     limit 1
   `;
 }
 
@@ -420,43 +414,17 @@ function nextOwnedCurrentCatalogKey(
 ) {
   const ownedCurrentCatalog = ownedCurrentCatalogPredicate(input);
   return sql`
-    select selected_server."namespace",
-           coalesce(
-             same_server."instanceKey",
-             (
-               select min(${mcpConnections.instanceKey})
-                 from ${mcpConnections}
-                where ${and(
-                  ownedCurrentCatalog,
-                  sql`${mcpConnections.serverId} = selected_server."namespace"`,
-                )}
-             )
-           ) as "instanceKey"
-      from lateral (
-        select min(${mcpConnections.instanceKey}) as "instanceKey"
-          from ${mcpConnections}
-         where ${and(
-           ownedCurrentCatalog,
-           sql`${mcpConnections.serverId} = ${namespace}`,
-           sql`${mcpConnections.instanceKey} > ${instanceKey}`,
-         )}
-         offset 0
-      ) same_server
-      cross join lateral (
-        select coalesce(
-                 case
-                   when same_server."instanceKey" is not null then ${namespace}
-                 end,
-                 (
-                   select min(${mcpConnections.serverId})
-                     from ${mcpConnections}
-                    where ${and(
-                      ownedCurrentCatalog,
-                      sql`${mcpConnections.serverId} > ${namespace}`,
-                    )}
-                 )
-               ) as "namespace"
-      ) selected_server
+    select ${mcpConnections.serverId} as "namespace",
+           ${mcpConnections.instanceKey} as "instanceKey"
+      from ${mcpConnections}
+     where ${and(
+       ownedCurrentCatalog,
+       sql`(${mcpConnections.serverId}, ${mcpConnections.instanceKey}) > (${namespace}, ${instanceKey})`,
+     )}
+     order by ${mcpConnections.userId},
+              ${mcpConnections.serverId},
+              ${mcpConnections.instanceKey}
+     limit 1
   `;
 }
 
@@ -550,12 +518,13 @@ type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { descriptors: un
 /**
  * Read a stable-order batch of owned current catalogs in one query. PostgreSQL
  * allocates one descriptor budget across the selected catalog rows before the
- * JSONB values cross the driver boundary. MIN probes walk the owning
- * `(user_id, server_id, instance_key)` index one current key at a time, including
- * after a cursor. Each selected pointer then uses a range seek plus an equality
- * fence on `(connection_id, id)`: PostgreSQL cannot flatten the fixed number of
- * exact revision reads into a catalog-table scan. Namespace and connection
- * filters remain exact and combine with AND.
+ * JSONB values cross the driver boundary. Ordered `LIMIT 1` probes walk the
+ * partial current-catalog `(user_id, server_id, instance_key)` index one key at
+ * a time, including after a cursor. Null pointers are absent from that index, so
+ * inactive connections cannot enlarge a probe. Each selected pointer then uses
+ * a range seek plus an equality fence on `(connection_id, id)`: PostgreSQL
+ * cannot flatten the fixed number of exact revision reads into a catalog-table
+ * scan. Namespace and connection filters remain exact and combine with AND.
  */
 export async function listOwnedCurrentCatalogSlices(
   input: ListOwnedCurrentCatalogSlicesInput,
