@@ -1014,6 +1014,52 @@ describe("detectConflict", () => {
     assert.equal(detectConflict(classification({ category: "fyi" }), observations(), false), null);
   });
 
+  test("loop-state conflict rechecks passive collaboration activity over an unanswered received message", () => {
+    const conflict = detectConflict(
+      classification({ category: "fyi", collabActivity: "other_activity" }),
+      observations({
+        thread: {
+          lastUserReplyAt: null,
+          newestDirection: "received",
+          messageCount: 1,
+          recentMessages: [
+            {
+              direction: "received",
+              authoredAt: new Date("2026-06-10T10:00:00Z"),
+              snippet: "Please fix the import issue.",
+            },
+          ],
+        },
+      }),
+      false,
+    );
+    assert.equal(conflict?.kind, "loop_state");
+  });
+
+  test("loop-state conflict stays silent when the user replied after the prior activity", () => {
+    assert.equal(
+      detectConflict(
+        classification({ category: "fyi", collabActivity: "other_activity" }),
+        observations({
+          thread: {
+            lastUserReplyAt: new Date("2026-06-10T11:00:00Z"),
+            newestDirection: "sent",
+            messageCount: 2,
+            recentMessages: [
+              {
+                direction: "received",
+                authoredAt: new Date("2026-06-10T10:00:00Z"),
+                snippet: "Please fix the import issue.",
+              },
+            ],
+          },
+        }),
+        false,
+      ),
+      null,
+    );
+  });
+
   test("over-classification A: a bulk sender's security-topic MENTION is still challenged when the floor is silent (the 'stop storing your api keys' newsletter miss)", () => {
     const conflict = detectConflict(
       classification({ category: "urgent" }),
@@ -1144,7 +1190,7 @@ describe("detectConflict", () => {
 // ---------------------------------------------------------------------------
 
 describe("classifyEmail", () => {
-  test("renders tracker subjects and activity as distinct evidence", async () => {
+  test("renders subject and body as distinct evidence without sender inference", async () => {
     let prompt = "";
     const runPass: RunPass = async (input) => {
       prompt = input.prompt;
@@ -1184,19 +1230,19 @@ describe("classifyEmail", () => {
       }),
     );
 
-    assert.match(prompt, /=== Tracker notification \(clickup\) ===/);
     assert.match(
       prompt,
-      /Item\/notification subject — does not prove user ownership:\nFix login redirect loop/,
+      /=== Subject — context, not proof of user ownership ===\nFix login redirect loop/,
     );
     assert.match(
       prompt,
-      /=== Activity body ===\nInterpretation note \(not email content\): "Done\. Created \[task\]" means filing finished, not the task, and is never category done\. Check the earlier thread context below before choosing fyi; an unanswered user-owned ask keeps the loop action_needed or awaiting_reply\.\nBrain: Done\. Created \[Fix login redirect loop\] in the backlog\./,
+      /=== Body ===\nBrain: Done\. Created \[Fix login redirect loop\] in the backlog\./,
     );
     assert.match(
       prompt,
-      /=== Earlier thread context — use this to decide current ownership ===[\s\S]*Priya assigned you this task[\s\S]*An unanswered user-owned ask in this earlier context stays open despite a later low-signal activity line\./,
+      /=== Earlier thread context — use this to decide loop state and ownership ===[\s\S]*Priya assigned you this task[\s\S]*Final loop-state check: if the earlier context shows an unanswered user-owned assignment or ask, you MUST keep action_needed\/awaiting_reply\. A passive current message cannot demote that open loop\./,
     );
+    assert.doesNotMatch(prompt, /Tracker notification|Interpretation note/);
     assert.equal(prompt.match(/Priya assigned you this task/g)?.length ?? 0, 1);
     assert.equal(prompt.match(/Subject: Fix login redirect loop/g)?.length ?? 0, 0);
     assert.equal(prompt.match(/From: Oliv AI/g)?.length ?? 0, 1);
@@ -1239,14 +1285,72 @@ describe("classifyEmail", () => {
       }),
     );
 
-    assert.match(prompt, /Subject: Proposal update/);
+    assert.match(prompt, /=== Subject — context, not proof of user ownership ===\nProposal update/);
     assert.match(prompt, /=== Body ===\nCan you send the revised proposal\?/);
     assert.match(
       prompt,
-      /Can you send the revised proposal\?[\s\S]*=== Earlier thread context — use this to decide current loop state ===[\s\S]*I sent the revised proposal this morning\./,
+      /Can you send the revised proposal\?[\s\S]*=== Earlier thread context — use this to decide loop state and ownership ===[\s\S]*I sent the revised proposal this morning\./,
     );
     assert.equal(prompt.match(/I sent the revised proposal/g)?.length ?? 0, 1);
     assert.equal(prompt.match(/From: Priya/g)?.length ?? 0, 1);
+  });
+
+  test("preserves a header-shaped first line in the real email body", async () => {
+    let prompt = "";
+    const runPass: RunPass = async (input) => {
+      prompt = input.prompt;
+      return classification();
+    };
+    await classifyEmail(
+      args({
+        document: {
+          id: "doc_date_body",
+          title: "Planning details",
+          content:
+            "From: Priya <priya@acme.com>\n" +
+            "To: yash@example.com\n" +
+            "Subject: Planning details\n\n" +
+            "Date: September 1\n" +
+            "Time: 10:00\n" +
+            "Location: Room 4",
+          authoredAt: null,
+          metadata: { from: "Priya <priya@acme.com>", to: "yash@example.com" },
+        },
+        runPass,
+      }),
+    );
+
+    assert.match(prompt, /=== Body ===\nDate: September 1\nTime: 10:00\nLocation: Room 4/);
+  });
+
+  test("rechecks a passive collaboration event when an earlier received ask may remain open", async () => {
+    const model = scriptedModel(
+      classification({ category: "fyi", collabActivity: "other_activity" }),
+      classification({ category: "action_needed", collabActivity: "other_activity" }),
+    );
+    const result = await classifyEmail(
+      args({
+        observations: observations({
+          thread: {
+            lastUserReplyAt: null,
+            newestDirection: "received",
+            messageCount: 1,
+            recentMessages: [
+              {
+                direction: "received",
+                authoredAt: null,
+                snippet: "Priya assigned this task to you and asked you to fix it.",
+              },
+            ],
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+
+    assert.equal(model.calls(), 2);
+    assert.equal(result.audit.conflict?.kind, "loop_state");
+    assert.equal(result.classification.category, "action_needed");
   });
 
   test("acceptance: prior-heavy newsletter sender + credential-exposure body still lands urgent", async () => {

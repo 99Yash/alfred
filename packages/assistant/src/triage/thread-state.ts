@@ -1,5 +1,10 @@
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
+import {
+  extractGmailDocumentBody,
+  parseGmailDocumentMetadata,
+  type GmailDocumentMetadata,
+} from "@alfred/contracts";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { gmailSentSql } from "./sent-mail";
 
@@ -57,35 +62,21 @@ const RECENT_MESSAGE_LIMIT = 6;
 /** Per-message excerpt cap — a lede, not the whole body. */
 const RECENT_SNIPPET_MAX = 220;
 
-// Our stored Gmail `content` prepends an RFC-822-ish header block
-// ("From:/To:/Subject:/Date:" lines). Strip it so the excerpt leads with the
-// actual body, where the ask/assignment lives.
-const HEADER_LINE_RE = /^(?:from|to|cc|bcc|reply-to|sender|subject|date):/i;
-
-/**
- * Remove the RFC-822-like header block that Gmail ingestion stores before the
- * message body. The envelope already exists as typed metadata, so callers can
- * render it with an explicit role instead of feeding the model a second copy.
- * PURE.
- */
-export function stripLeadingEmailHeaders(content: string | null): string {
-  const lines = (content ?? "").split("\n");
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i]?.trim() ?? "";
-    if (line !== "" && !HEADER_LINE_RE.test(line)) break;
-    i++;
-  }
-  return lines.slice(i).join("\n");
-}
-
 /** Body lede for the fed thread context: drop the leading header block, collapse whitespace, cap length. PURE. */
 export function buildThreadSnippet(
   title: string | null,
   content: string | null,
+  metadata: GmailDocumentMetadata,
   max: number,
 ): string {
-  const body = stripLeadingEmailHeaders(content).replace(/\s+/g, " ").trim();
+  const body = extractGmailDocumentBody(content, {
+    from: metadata.from,
+    to: metadata.to,
+    cc: metadata.cc,
+    subject: title,
+  })
+    .replace(/\s+/g, " ")
+    .trim();
   const base = body || (title ?? "").trim();
   return base.length > max ? `${base.slice(0, max).trimEnd()}…` : base;
 }
@@ -160,6 +151,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
       authoredAt: documents.authoredAt,
       title: documents.title,
       content: documents.content,
+      metadata: documents.metadata,
       isSent: gmailSentSql(),
     })
     .from(documents)
@@ -171,7 +163,12 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     .map((r) => ({
       direction: r.isSent ? ("sent" as const) : ("received" as const),
       authoredAt: r.authoredAt,
-      snippet: buildThreadSnippet(r.title, r.content, RECENT_SNIPPET_MAX),
+      snippet: buildThreadSnippet(
+        r.title,
+        r.content,
+        parseGmailDocumentMetadata(r.metadata),
+        RECENT_SNIPPET_MAX,
+      ),
     }))
     .filter((m) => m.snippet.length > 0);
 

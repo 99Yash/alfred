@@ -1,4 +1,5 @@
 import {
+  buildGmailDocumentContent,
   gmailDocumentMetadataSchema,
   getPath,
   mapConcurrent,
@@ -327,7 +328,14 @@ async function persistMessage(
     }
     return { outcome: "ignored" };
   }
-  const content = buildContent(extracted);
+  const content = buildGmailDocumentContent({
+    from: extracted.from,
+    to: extracted.to,
+    cc: extracted.cc,
+    subject: extracted.subject,
+    date: extracted.date,
+    body: extracted.body,
+  });
   const contentHash = sha256(content);
   const labelIds = message.labelIds ?? [];
   const isSent = labelIds.includes("SENT");
@@ -396,17 +404,6 @@ async function persistMessage(
     );
   }
   return { outcome: "skipped", documentId: existingId, isSent };
-}
-
-function buildContent(extracted: ReturnType<typeof extractMessageContent>): string {
-  const headerLines: string[] = [];
-  if (extracted.from) headerLines.push(`From: ${extracted.from}`);
-  if (extracted.to) headerLines.push(`To: ${extracted.to}`);
-  if (extracted.cc) headerLines.push(`Cc: ${extracted.cc}`);
-  if (extracted.subject) headerLines.push(`Subject: ${extracted.subject}`);
-  if (extracted.date) headerLines.push(`Date: ${extracted.date.toISOString()}`);
-  const header = headerLines.join("\n");
-  return header ? `${header}\n\n${extracted.body}` : extracted.body;
 }
 
 /**
