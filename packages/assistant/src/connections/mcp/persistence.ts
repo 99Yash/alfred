@@ -32,6 +32,9 @@ import {
   type NewMcpServer,
 } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { z } from "zod";
+import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
+import { compareMcpToolNames } from "./hash";
 
 // ===========================================================================
 // Connections
@@ -308,9 +311,6 @@ const ownedCurrentCatalogSelection = {
   ),
 } as const;
 
-const MAX_DISCOVERY_CATALOGS = 4;
-const MAX_DISCOVERY_DESCRIPTORS = 200;
-
 function boundedLimit(value: number, maximum: number): number {
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(
@@ -322,12 +322,35 @@ function boundedLimit(value: number, maximum: number): number {
 
 function descriptorSlice(offset: number, limit: number) {
   return sql<unknown>`coalesce((
-    select jsonb_agg(projected.descriptor order by projected.ordinality)
-     from jsonb_array_elements(${mcpCatalogRevisions.descriptors})
-           with ordinality as projected(descriptor, ordinality)
-     where projected.ordinality > ${offset}::bigint
-       and projected.ordinality <= (${offset}::bigint + ${limit}::bigint)
+    select jsonb_agg(
+             jsonb_extract_path(
+               ${mcpCatalogRevisions.descriptors},
+               (${offset}::bigint + projected."index")::text
+             )
+             order by projected."index"
+           )
+      from generate_series(
+             0::bigint,
+             greatest(
+               least(
+                 ${limit}::bigint,
+                 jsonb_array_length(${mcpCatalogRevisions.descriptors})::bigint - ${offset}::bigint
+               ),
+               0::bigint
+             ) - 1::bigint
+           ) as projected("index")
   ), '[]'::jsonb)`;
+}
+
+const descriptorHashesSchema = z.record(z.string(), z.string());
+
+function descriptorIndexFromHashes(descriptorHashes: unknown, remoteName: string): number | null {
+  const parsed = descriptorHashesSchema.safeParse(descriptorHashes);
+  if (!parsed.success) {
+    throw new Error("MCP catalog descriptor hashes are not a string record");
+  }
+  const index = Object.keys(parsed.data).sort(compareMcpToolNames).indexOf(remoteName);
+  return index < 0 ? null : index;
 }
 
 function toCatalogSliceRow(
@@ -362,7 +385,10 @@ export async function readOwnedCurrentCatalogSlice(
   runner: DbRunner = db(),
 ): Promise<OwnedCurrentCatalogSliceRow | undefined> {
   const descriptorOffset = boundedLimit(input.descriptorOffset, Number.MAX_SAFE_INTEGER);
-  const descriptorLimit = boundedLimit(input.descriptorLimit, MAX_DISCOVERY_DESCRIPTORS);
+  const descriptorLimit = boundedLimit(
+    input.descriptorLimit,
+    MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
+  );
   const [row] = await runner
     .select({
       ...ownedCurrentCatalogSelection,
@@ -387,23 +413,18 @@ export async function readOwnedCurrentCatalogSlice(
 
 /**
  * Read one exact descriptor from an owned connection's current catalog. The
- * scalar subquery projects at most one JSONB value; the complete array is never
- * returned to node-postgres.
+ * validated hash-map keys recover the array index using the publisher's stable
+ * name order, then a direct JSONB subscript reads that one immutable value. The
+ * descriptor array is never expanded or returned to node-postgres.
  */
 export async function readOwnedCurrentCatalogDescriptor(
   input: ReadOwnedCurrentCatalogDescriptorInput,
   runner: DbRunner = db(),
 ): Promise<OwnedCurrentCatalogDescriptorRow | undefined> {
-  const [row] = await runner
+  const [catalogWithHashes] = await runner
     .select({
       ...ownedCurrentCatalogSelection,
-      descriptor: sql<unknown>`(
-        select projected.descriptor
-          from jsonb_array_elements(${mcpCatalogRevisions.descriptors})
-               as projected(descriptor)
-         where projected.descriptor ->> 'name' = ${input.remoteName}
-         limit 1
-      )`,
+      descriptorHashes: mcpCatalogRevisions.descriptorHashes,
     })
     .from(mcpConnections)
     .innerJoin(
@@ -419,7 +440,28 @@ export async function readOwnedCurrentCatalogDescriptor(
     )
     .where(and(eq(mcpConnections.userId, input.userId), eq(mcpConnections.id, input.connectionId)))
     .limit(1);
-  return row;
+  if (!catalogWithHashes) return undefined;
+
+  const { descriptorHashes, ...catalog } = catalogWithHashes;
+  const descriptorIndex = descriptorIndexFromHashes(descriptorHashes, input.remoteName);
+  if (descriptorIndex === null) return { ...catalog, descriptor: null };
+
+  const [selected] = await runner
+    .select({
+      descriptor: sql<unknown>`jsonb_extract_path(
+        ${mcpCatalogRevisions.descriptors},
+        ${descriptorIndex}::text
+      )`,
+    })
+    .from(mcpCatalogRevisions)
+    .where(
+      and(
+        eq(mcpCatalogRevisions.id, catalog.revisionId),
+        eq(mcpCatalogRevisions.connectionId, catalog.connectionId),
+      ),
+    )
+    .limit(1);
+  return { ...catalog, descriptor: selected?.descriptor ?? null };
 }
 
 type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { descriptors: unknown };
@@ -435,8 +477,11 @@ export async function listOwnedCurrentCatalogSlices(
   input: ListOwnedCurrentCatalogSlicesInput,
   runner: DbRunner = db(),
 ): Promise<OwnedCurrentCatalogSliceRow[]> {
-  const catalogLimit = boundedLimit(input.catalogLimit, MAX_DISCOVERY_CATALOGS);
-  const descriptorLimit = boundedLimit(input.descriptorLimit, MAX_DISCOVERY_DESCRIPTORS);
+  const catalogLimit = boundedLimit(input.catalogLimit, MCP_DISCOVERY_SCAN_BUDGET.catalogLimit);
+  const descriptorLimit = boundedLimit(
+    input.descriptorLimit,
+    MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
+  );
   if (catalogLimit === 0) return [];
 
   const ownedAndPositioned = and(
@@ -484,13 +529,23 @@ export async function listOwnedCurrentCatalogSlices(
            "revisionHash",
            "descriptorCount",
            coalesce((
-             select jsonb_agg(projected.descriptor order by projected.ordinality)
-               from jsonb_array_elements("catalogDescriptors")
-                    with ordinality as projected(descriptor, ordinality)
-              where projected.ordinality <= greatest(
-                least(${descriptorLimit} - "descriptorsBefore", "descriptorCount"),
-                0
-              )
+             select jsonb_agg(
+                      jsonb_extract_path(
+                        "catalogDescriptors",
+                        projected."index"::text
+                      )
+                      order by projected."index"
+                    )
+               from generate_series(
+                      0,
+                      greatest(
+                        least(
+                          ${descriptorLimit} - "descriptorsBefore",
+                          "descriptorCount"
+                        ),
+                        0
+                      ) - 1
+                    ) as projected("index")
            ), '[]'::jsonb) as "descriptors"
       from budgeted_catalogs
      order by "namespace", "instanceKey", "connectionId"
@@ -598,6 +653,40 @@ export interface PublishCatalogRevisionInput {
   toolCount: number;
 }
 
+const catalogDescriptorNamesSchema = z.array(z.object({ name: z.string().min(1) }).passthrough());
+
+function assertCanonicalCatalogPublication(input: PublishCatalogRevisionInput): void {
+  const descriptors = catalogDescriptorNamesSchema.safeParse(input.descriptors);
+  if (!descriptors.success) {
+    throw new Error("MCP catalog descriptors must be an array of named objects");
+  }
+  const descriptorHashes = descriptorHashesSchema.safeParse(input.descriptorHashes);
+  if (!descriptorHashes.success) {
+    throw new Error("MCP catalog descriptor hashes must be a string record");
+  }
+
+  const names = descriptors.data.map((descriptor) => descriptor.name);
+  if (names.length !== input.toolCount) {
+    throw new Error("MCP catalog tool count must match its descriptor array");
+  }
+  for (let index = 1; index < names.length; index += 1) {
+    const previous = names[index - 1];
+    const current = names[index];
+    if (
+      previous === undefined ||
+      current === undefined ||
+      compareMcpToolNames(previous, current) >= 0
+    ) {
+      throw new Error("MCP catalog descriptors must use unique canonical tool-name order");
+    }
+  }
+
+  const hashNames = Object.keys(descriptorHashes.data).sort(compareMcpToolNames);
+  if (hashNames.length !== names.length || hashNames.some((name, index) => name !== names[index])) {
+    throw new Error("MCP catalog descriptor hashes must cover the exact descriptor names");
+  }
+}
+
 /**
  * The ONE genuinely-atomic catalog operation: publish (or re-use) an immutable
  * revision and advance the connection's current-revision pointer to it, in a
@@ -643,6 +732,7 @@ async function insertCatalogRevisionInTx(
   input: PublishCatalogRevisionInput,
   tx: DbRunner,
 ): Promise<McpCatalogRevision> {
+  assertCanonicalCatalogPublication(input);
   const [inserted] = await tx
     .insert(mcpCatalogRevisions)
     .values({

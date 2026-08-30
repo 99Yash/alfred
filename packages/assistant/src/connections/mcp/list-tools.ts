@@ -26,6 +26,7 @@ import {
   type McpToolSearchInput,
 } from "@alfred/contracts";
 import { z } from "zod";
+import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { sha256Canonical } from "./hash";
 import {
   listOwnedCurrentCatalogSlices,
@@ -37,8 +38,6 @@ import {
 } from "./persistence";
 
 const MAX_SUMMARY_DESCRIPTION_CHARS = 240;
-const MAX_CATALOGS_SCANNED = 4;
-const MAX_DESCRIPTORS_SCANNED = 200;
 
 const cursorPositionSchema = z
   .object({
@@ -199,17 +198,17 @@ async function rowsForSearch(input: {
       userId: input.userId,
       ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
       ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
-      catalogLimit: MAX_CATALOGS_SCANNED,
-      descriptorLimit: MAX_DESCRIPTORS_SCANNED,
+      catalogLimit: MCP_DISCOVERY_SCAN_BUDGET.catalogLimit,
+      descriptorLimit: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
     });
-    return { rows, fullBatch: rows.length === MAX_CATALOGS_SCANNED };
+    return { rows, fullBatch: rows.length === MCP_DISCOVERY_SCAN_BUDGET.catalogLimit };
   }
 
   const current = await readOwnedCurrentCatalogSlice({
     userId: input.userId,
     connectionId: input.cursor.position.connectionId,
     descriptorOffset: input.cursor.position.descriptorOffset,
-    descriptorLimit: MAX_DESCRIPTORS_SCANNED,
+    descriptorLimit: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
   });
   if (
     !current ||
@@ -227,8 +226,9 @@ async function rowsForSearch(input: {
     cursorError("descriptor position is outside the catalog");
   }
 
-  const remainingCatalogBudget = MAX_CATALOGS_SCANNED - 1;
-  const remainingDescriptorBudget = MAX_DESCRIPTORS_SCANNED - current.descriptors.length;
+  const remainingCatalogBudget = MCP_DISCOVERY_SCAN_BUDGET.catalogLimit - 1;
+  const remainingDescriptorBudget =
+    MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit - current.descriptors.length;
   const following = await listOwnedCurrentCatalogSlices({
     userId: input.userId,
     ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
@@ -271,7 +271,7 @@ export async function searchMcpToolsLocal(
 
     for (let localIndex = 0; localIndex < catalog.length; localIndex += 1) {
       const descriptorOffset = start + localIndex;
-      if (scanned >= MAX_DESCRIPTORS_SCANNED) {
+      if (scanned >= MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit) {
         return mcpToolDiscoveryPageSchema.parse({
           status: "tools",
           tools,

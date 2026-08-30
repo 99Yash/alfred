@@ -378,6 +378,24 @@ function enforceConnectionRefIdentity(
   }
 }
 
+function enforceInspectionIdentity(
+  input: {
+    ref: ExternalToolRef;
+    connection: McpDiscoveryConnection;
+    tool: z.infer<typeof jsonObjectSchema>;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  enforceConnectionRefIdentity(input, ctx);
+  if (input.tool.name !== input.ref.remoteName) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["tool", "name"],
+      message: "MCP inspected tool name must match the tool reference",
+    });
+  }
+}
+
 export const mcpToolDiscoveryHitSchema = z
   .object({
     ref: mcpExternalToolRefSchema,
@@ -407,7 +425,7 @@ export const mcpToolInspectionSuccessSchema = z
     tool: jsonObjectSchema,
   })
   .strict()
-  .superRefine(enforceConnectionRefIdentity);
+  .superRefine(enforceInspectionIdentity);
 export type McpToolInspectionSuccess = z.infer<typeof mcpToolInspectionSuccessSchema>;
 
 export const mcpToolInspectionNotFoundSchema = z

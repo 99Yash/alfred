@@ -169,6 +169,24 @@ describe("MCP discovery contracts", () => {
       }).success,
       false,
     );
+    assert.equal(
+      mcpToolInspectionResultSchema.safeParse({
+        status: "tool",
+        ref,
+        connection,
+        tool: { name: "calendar.delete_event", inputSchema: { type: "object" } },
+      }).success,
+      false,
+    );
+    assert.equal(
+      mcpToolInspectionResultSchema.safeParse({
+        status: "tool",
+        ref,
+        connection,
+        tool: { inputSchema: { type: "object" } },
+      }).success,
+      false,
+    );
 
     for (const status of ["not_found", "catalog_stale"] as const) {
       assert.equal(

@@ -8,6 +8,11 @@ import { sha256Canonical } from "@alfred/db/hash";
  */
 export { sha256Canonical };
 
+/** Stable UTF-16 code-unit order, matching JavaScript's relational string comparison. */
+export function compareMcpToolNames(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 /**
  * Per-tool descriptor hash. Binds an approval/downgrade to the EXACT reviewed
  * descriptor, so an unrelated tool changing (which bumps the whole catalog
