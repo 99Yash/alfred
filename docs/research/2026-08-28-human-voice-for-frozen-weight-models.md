@@ -645,6 +645,32 @@ This is the first thing to build, and everything else waits on it.
 - **Sycophancy.** Preference data favors agreement ([arXiv:2310.13548](https://arxiv.org/abs/2310.13548)). A judge shown Yash's exemplars and asked "does this match?" is being invited to agree.
 - **Judge-as-human proxy is weak here.** The one paper that measured an LLM-judge "perceived AI-ness" score against a real corpus reported it as an LLM judgment, not a human one ([arXiv:2607.29238](https://arxiv.org/html/2607.29238), 400 ratings). Do not read those as human numbers.
 
+### 8.8 A cliche highlighter supplies diagnostic features, not a voice target
+
+Simon Willison's [LLM cliche highlighter](https://github.com/simonw/tools/blob/aabd3c5b1258a20ea2d512269ea72a7f083b07a6/llm-cliche-highlighter.html) is a useful implementation reference. It contains 38 patterns and 192 embedded self-tests. Most patterns are phrase matchers, but four detect prose structure rather than vocabulary:
+
+- consecutive sentences that share a four-word sequence;
+- two or more questions in a row;
+- three or more sentences that start with the same non-trivial word;
+- repeated clause heads such as `no X, no Y`.
+
+Those features cover a gap in Alfred's current detector. `detectAiTells` finds tokens and phrases. It does not measure repeated sentence frames or local rhythm. The highlighter also shows how to keep such detectors bounded: each finder returns offsets and counts, and each finder has positive and negative test cases.
+
+It does **not** supply evidence that a match makes prose less human. There is no labeled human-preference set, authorship benchmark, or precision/recall result behind the 38 patterns. The tool turns every pattern on by default even though its own `colon-triple` description says that pattern is noisy in technical writing. Its collector also drops overlapping matches according to pattern order, so its total is a presentation count, not a stable style score. Section 8.1 still controls: a larger catalog of recognizable model habits is not a proxy for perceived humanness or for Yash's voice.
+
+**What Alfred should take from it.** Do not copy the catalog into `DEFAULT_VOICE_PROMPT`, `detectAiTells`, or `sanitizeVoice`. Add the four structural features above to the held-out sent-mail eval as **rates**, then compare each draft with the real reply and with Yash's sent-mail distribution. A repeated opener is a defect only when the draft uses it more than Yash does in comparable mail. Report the raw counts and distances as diagnostic metadata first. Promote a feature into a scorer only after the blind human set shows that the direction is useful.
+
+This changes the proposed deterministic block from "sentence-length variance" to a small rhythm vector:
+
+```
+sentence-length mean and variance
+echoing-sentence rate and longest run
+stacked-question rate and longest run
+repeated-opener rate and longest run
+repeated-clause-head rate and longest run
+```
+
+The vector describes a distribution. It does not create another universal denylist. That is the structural difference between measuring whether a draft sounds like its author and checking whether it contains one of 38 fashionable tics.
 
 ## 9. Comparison table
 
@@ -704,7 +730,7 @@ So the substrate work is **activation, not design**. The module comment at `styl
 
 Nothing above is attributable without it. The eval is described in section 8.6. In short: mask a real sent email from `documents` (identified by `isSentGmailMetadata`, `packages/assistant/src/triage/sent-mail.ts:22`), rebuild the draft-time context, generate, and score against the body Yash actually wrote.
 
-Start with the deterministic block, which is what the repo rule demands: greeting and sign-off match against the user's inventory, length ratio, sentence-length variance, and ROUGE-L against the held-out reply. Add LUAR-MUD cosine second; it identifies the true author first out of 81 candidates 45% of the time (section 8.2). Keep a small blind human set as the acceptance gate, because the automatic score correlates with human perception at only **r = 0.244** (section 8.3).
+Start with the deterministic block, which is what the repo rule demands: greeting and sign-off match against the user's inventory, length ratio, the rhythm vector from section 8.8, and ROUGE-L against the held-out reply. Add LUAR-MUD cosine second; it identifies the true author first out of 81 candidates 45% of the time (section 8.2). Keep a small blind human set as the acceptance gate, because the automatic score correlates with human perception at only **r = 0.244** (section 8.3).
 
 Do not use `detectAiTells` as the target. Section 8.1 shows the words it counts do not reliably move human preference. Keep it as a regression guard on a different axis.
 
@@ -788,6 +814,10 @@ Point 3 is a structural consequence, and it is the sharpest one. `composeAgentIn
 - OpenAI. [Model Spec (2026/08/18)](https://model-spec.openai.com/2026-08-18.html). Style and tone are guideline-level and implicitly overridable.
 - Google. [Vertex AI tuning](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/tune-models). SFT, RL fine-tuning, preference tuning listed; per-model matrix not extractable.
 - GPTZero. [Perplexity and burstiness](https://gptzero.me/news/perplexity-and-burstiness-what-is-it/). **Vendor explainer. No accuracy numbers, no benchmark.**
+
+**External implementation reference (not measurement):**
+
+- Simon Willison. [LLM cliche highlighter](https://github.com/simonw/tools/blob/aabd3c5b1258a20ea2d512269ea72a7f083b07a6/llm-cliche-highlighter.html), commit `aabd3c5` (2026-08-27). 38 phrase and structural patterns, 192 embedded self-tests; no labeled human-preference or authorship benchmark.
 
 **Repo (`path:line`):**
 
