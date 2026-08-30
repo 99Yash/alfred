@@ -9,6 +9,7 @@ import {
   mcpConnections,
   mcpInvocation,
   mcpOauthCredentials,
+  mcpServers,
   user,
 } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
@@ -252,10 +253,104 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const replay = await ensureBuiltInConnection(userId, "github");
 
     assert.equal(replay.id, first.id);
-    assert.equal(replay.instanceKey, "github-default");
+    assert.equal(replay.instanceKey, "default");
     assert.equal(replay.status, "ready");
     assert.equal(replay.lastError, "preserved");
     assert.deepEqual(replay.grantedScopes, ["repo"]);
+  });
+
+  test("concurrent first use reuses the GitHub row backfilled by migration 0108", async () => {
+    const userId = await seedUser();
+    const migratedConnectionId = `mcpc_migrated_${randomUUID()}`;
+    const endpoint = new URL("https://api.githubcopilot.com/mcp");
+    await db().insert(mcpServers).values({
+      id: migratedConnectionId,
+      userId,
+      canonicalResource: endpoint.href,
+      endpointUrl: endpoint.href,
+      endpointOrigin: endpoint.origin,
+    });
+    await db()
+      .insert(mcpConnections)
+      .values({
+        id: migratedConnectionId,
+        userId,
+        serverId: migratedConnectionId,
+        instanceKey: "default",
+        label: "GitHub MCP",
+        authServerIdentity: "oauth:legacy",
+        status: "ready",
+        grantedScopes: ["repo"],
+        lastError: "legacy-state",
+      });
+    const [credential] = await db()
+      .insert(mcpOauthCredentials)
+      .values({
+        userId,
+        connectionId: migratedConnectionId,
+        issuer: "https://github.com/login/oauth",
+      })
+      .returning();
+    assert.ok(credential);
+    await updateConnection(migratedConnectionId, { credentialId: credential.id });
+    const revision = await publishCatalogRevision({
+      connectionId: migratedConnectionId,
+      revisionHash: "sha256:migrated-github",
+      descriptors: [{ name: "search_repositories" }],
+      descriptorHashes: { search_repositories: "sha256:migrated-search" },
+      toolCount: 1,
+    });
+    const policy = await upsertToolPolicy({
+      userId,
+      connectionId: migratedConnectionId,
+      remoteName: "search_repositories",
+      descriptorHash: "sha256:migrated-search",
+      riskTier: "low",
+      effectClass: "read",
+      retryContract: "never",
+    });
+    const invocation = await insertInvocation({
+      userId,
+      connectionId: migratedConnectionId,
+      remoteName: "search_repositories",
+      argsHash: "sha256:migrated-args",
+      stagingId: await seedStaging(userId),
+      effectClass: "read",
+    });
+    assert.ok(invocation.ok);
+
+    const [first, second] = await Promise.all([
+      ensureBuiltInConnection(userId, "github"),
+      ensureBuiltInConnection(userId, "github"),
+    ]);
+
+    assert.equal(first.id, migratedConnectionId);
+    assert.equal(second.id, migratedConnectionId);
+    assert.equal(first.instanceKey, "default");
+    assert.equal(first.credentialId, credential.id);
+    assert.equal(first.authServerIdentity, "oauth:legacy");
+    assert.equal(first.currentCatalogRevisionId, revision.id);
+    assert.equal(first.status, "ready");
+    assert.equal(first.lastError, "legacy-state");
+    assert.deepEqual(first.grantedScopes, ["repo"]);
+    assert.equal(
+      (await readToolPolicy(migratedConnectionId, "search_repositories", "sha256:migrated-search"))
+        ?.id,
+      policy.id,
+    );
+    const [preservedInvocation] = await db()
+      .select({ id: mcpInvocation.id, connectionId: mcpInvocation.connectionId })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.id, invocation.invocation.id));
+    assert.deepEqual(preservedInvocation, {
+      id: invocation.invocation.id,
+      connectionId: migratedConnectionId,
+    });
+    const rows = await db()
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(eq(mcpConnections.userId, userId));
+    assert.deepEqual(rows, [{ id: migratedConnectionId }]);
   });
 
   test("publishCatalogRevision is idempotent and advances the pointer", async () => {

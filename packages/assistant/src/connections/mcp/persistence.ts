@@ -179,7 +179,8 @@ export async function createNamedConnection(
 
 const BUILT_IN_CONNECTIONS = {
   github: {
-    instanceKey: "github-default",
+    // Migration 0108 gives every historic server its one server-scoped built-in slot.
+    instanceKey: "default",
     label: "GitHub MCP",
     canonicalResource: "https://api.githubcopilot.com/mcp",
     endpoint: new URL("https://api.githubcopilot.com/mcp"),
