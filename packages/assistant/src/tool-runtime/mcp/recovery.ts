@@ -21,7 +21,7 @@ import {
   mcpInvocation,
   type McpInvocation,
 } from "@alfred/db/schemas";
-import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 
 import { canonicalArgsHash } from "@alfred/assistant/connections/mcp";
 import { getMcpExecutionBroker } from "./runtime";
@@ -64,14 +64,25 @@ export async function listMcpRecoveryOperations(
         eq(mcpInvocation.userId, userId),
         eq(mcpConnections.userId, userId),
         ne(mcpInvocation.effectClass, "read"),
-        inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
-        eq(mcpInvocation.effectOutcome, "unknown"),
-        eq(mcpInvocation.retryDisposition, "blocked"),
         isNull(mcpInvocation.resolvedAt),
-        isNotNull(mcpInvocation.deliveryPossibleAt),
+        or(
+          and(
+            inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+            eq(mcpInvocation.effectOutcome, "unknown"),
+            eq(mcpInvocation.retryDisposition, "blocked"),
+            isNotNull(mcpInvocation.deliveryPossibleAt),
+          ),
+          and(
+            eq(mcpInvocation.attemptLifecycle, "prepared"),
+            isNotNull(mcpInvocation.successorOf),
+            isNull(mcpInvocation.effectOutcome),
+            isNull(mcpInvocation.retryDisposition),
+            isNull(mcpInvocation.deliveryPossibleAt),
+          ),
+        ),
       ),
     )
-    .orderBy(mcpInvocation.deliveryPossibleAt);
+    .orderBy(sql`coalesce(${mcpInvocation.deliveryPossibleAt}, ${mcpInvocation.createdAt})`);
 
   return rows.map((row) => mcpRecoveryOperationSchema.parse(row));
 }
@@ -150,12 +161,54 @@ async function reserveMcpRecoverySuccessor(
   runner: DbRunner = db(),
 ): Promise<ReservedSuccessor> {
   return runAtomic(runner, async (tx) => {
+    // Read only the pointer needed to establish the lock order. Connection
+    // authority is locked first; catalog publishers, ownership changes, and the
+    // policy writer all serialize on this row. The invocation and staging locks
+    // come next, so validation and both barrier transitions use one stable
+    // authority snapshot.
+    const [requestedRef] = await tx
+      .select({ connectionId: mcpInvocation.connectionId })
+      .from(mcpInvocation)
+      .where(and(eq(mcpInvocation.id, input.invocationId), eq(mcpInvocation.userId, input.userId)))
+      .limit(1);
+    if (!requestedRef) throw Errors.NotFoundError("MCP recovery operation not found");
+
+    const [lockedConnection] = await tx
+      .select({
+        id: mcpConnections.id,
+        currentCatalogRevisionId: mcpConnections.currentCatalogRevisionId,
+      })
+      .from(mcpConnections)
+      .where(
+        and(
+          eq(mcpConnections.id, requestedRef.connectionId),
+          eq(mcpConnections.userId, input.userId),
+        ),
+      )
+      .for("update");
+    if (!lockedConnection) throw Errors.NotFoundError("MCP recovery operation not found");
+
     const [prior] = await tx
       .select()
       .from(mcpInvocation)
       .where(and(eq(mcpInvocation.id, input.invocationId), eq(mcpInvocation.userId, input.userId)))
       .for("update");
-    if (!prior) throw Errors.NotFoundError("MCP recovery operation not found");
+    if (!prior || prior.connectionId !== lockedConnection.id) {
+      throw Errors.NotFoundError("MCP recovery operation not found");
+    }
+
+    // A refreshed product posts the visible prepared successor's own id. This is
+    // the same closed action as posting the prior id: return the already-minted
+    // reservation, and let the broker's prepared-only claim decide whether one
+    // send is still allowed.
+    if (
+      prior.successorOf &&
+      prior.attemptLifecycle === "prepared" &&
+      !prior.resolvedAt &&
+      prior.effectOutcome === null
+    ) {
+      return { priorId: prior.successorOf, successor: prior };
+    }
 
     const [existing] = await tx
       .select()
@@ -206,6 +259,7 @@ async function reserveMcpRecoverySuccessor(
     if (
       identity.connection.currentCatalogRevisionId !== prior.catalogRevisionId ||
       identity.descriptorHash !== prior.descriptorHash ||
+      (identity.policy?.policyRevision ?? null) !== prior.policyRevision ||
       liveEffectClass === "read"
     ) {
       throw Errors.ConflictError("The MCP tool changed; review it before trying again");

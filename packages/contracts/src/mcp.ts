@@ -92,24 +92,49 @@ export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 export const mcpRecoveryDecisionSchema = z.enum(["confirmed_succeeded", "confirmed_not_applied"]);
 export type McpRecoveryDecision = z.infer<typeof mcpRecoveryDecisionSchema>;
 
-export const mcpRecoveryOperationSchema = z
-  .object({
-    invocationId: z.string(),
-    successorOf: z.string().nullable(),
-    connection: z.object({ id: z.string(), label: z.string() }).strict(),
-    remoteName: z.string(),
-    displayInput: jsonValueSchema.nullable(),
-    attemptLifecycle: z.enum(["delivery_possible", "response_received"]),
-    effectOutcome: z.literal("unknown"),
-    retryDisposition: z.literal("blocked"),
-    deliveryPossibleAt: z.coerce.date(),
-    responseReceivedAt: z.coerce.date().nullable(),
-    lastError: z.string().nullable(),
-    traceId: z.string().nullable(),
-    stepId: z.string().nullable(),
-    toolCallId: z.string().nullable(),
-  })
-  .strict();
+const mcpRecoveryOperationBaseSchema = z.object({
+  invocationId: z.string(),
+  connection: z.object({ id: z.string(), label: z.string() }).strict(),
+  remoteName: z.string(),
+  displayInput: jsonValueSchema.nullable(),
+  lastError: z.string().nullable(),
+  traceId: z.string().nullable(),
+  stepId: z.string().nullable(),
+  toolCallId: z.string().nullable(),
+});
+
+/**
+ * A product recovery row is one of two exact durable states:
+ *
+ * - an ambiguous call that crossed the delivery boundary; or
+ * - a user-authorized successor that was reserved but did not reach delivery.
+ *
+ * Keeping the prepared successor's outcome, disposition, and delivery timestamp
+ * null is load-bearing. It proves that a restart or failed pre-claim attempt did
+ * not silently classify or send the operation.
+ */
+export const mcpRecoveryOperationSchema = z.union([
+  mcpRecoveryOperationBaseSchema
+    .extend({
+      successorOf: z.string(),
+      attemptLifecycle: z.literal("prepared"),
+      effectOutcome: z.null(),
+      retryDisposition: z.null(),
+      deliveryPossibleAt: z.null(),
+      responseReceivedAt: z.null(),
+    })
+    .strict(),
+  mcpRecoveryOperationBaseSchema
+    .extend({
+      successorOf: z.string().nullable(),
+      attemptLifecycle: z.enum(["delivery_possible", "response_received"]),
+      effectOutcome: z.literal("unknown"),
+      retryDisposition: z.literal("blocked"),
+      deliveryPossibleAt: z.coerce.date(),
+      responseReceivedAt: z.coerce.date().nullable(),
+    })
+    .strict(),
+]);
 export type McpRecoveryOperation = z.infer<typeof mcpRecoveryOperationSchema>;
 
 export const mcpRecoveryMutationStatusSchema = z.enum([

@@ -41,8 +41,7 @@ import {
   type NewMcpInvocation,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import type { McpResultProvenance } from "@alfred/contracts";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 // ===========================================================================
 // Per-tool policy (reviewed effect/retry/tier, bound to a descriptor hash)
@@ -163,22 +162,42 @@ export async function upsertToolPolicy(
   values: NewMcpToolPolicyRow,
   runner: DbRunner = db(),
 ): Promise<McpToolPolicyRow> {
-  const [row] = await runner
-    .insert(mcpToolPolicy)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [mcpToolPolicy.connectionId, mcpToolPolicy.remoteName, mcpToolPolicy.descriptorHash],
-      set: {
-        policyRevision: values.policyRevision,
-        riskTier: values.riskTier,
-        effectClass: values.effectClass,
-        retryContract: values.retryContract,
-        reviewedAt: values.reviewedAt,
-        reviewedNote: values.reviewedNote,
-      },
-    })
-    .returning();
-  return requireRow(row, "upsertToolPolicy");
+  return runAtomic(runner, async (tx) => {
+    // Policy publication and explicit successor reservation serialize on the
+    // connection row. This makes an absent policy as stable as a present one:
+    // a concurrent first review cannot appear between recovery validation and
+    // the barrier transition, while catalog and ownership writers already take
+    // this same PostgreSQL row lock through their connection update.
+    const [ownedConnection] = await tx
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(
+        and(eq(mcpConnections.id, values.connectionId), eq(mcpConnections.userId, values.userId)),
+      )
+      .for("update");
+    requireRow(ownedConnection, "upsertToolPolicy owned connection");
+
+    const [row] = await tx
+      .insert(mcpToolPolicy)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [
+          mcpToolPolicy.connectionId,
+          mcpToolPolicy.remoteName,
+          mcpToolPolicy.descriptorHash,
+        ],
+        set: {
+          policyRevision: values.policyRevision,
+          riskTier: values.riskTier,
+          effectClass: values.effectClass,
+          retryContract: values.retryContract,
+          reviewedAt: values.reviewedAt,
+          reviewedNote: values.reviewedNote,
+        },
+      })
+      .returning();
+    return requireRow(row, "upsertToolPolicy");
+  });
 }
 // ===========================================================================
 // Operation ledger
@@ -328,130 +347,6 @@ export async function findUnresolvedBarrier(
   return row;
 }
 
-export async function readReservedMcpSuccessor(
-  input: { userId: string; invocationId: string },
-  runner: DbRunner = db(),
-): Promise<{ invocation: McpInvocation; effectiveInput: unknown } | undefined> {
-  const [row] = await runner
-    .select({
-      invocation: mcpInvocation,
-      proposedInput: actionStagings.proposedInput,
-      decidedInput: actionStagings.decidedInput,
-    })
-    .from(mcpInvocation)
-    .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
-    .where(
-      and(
-        eq(mcpInvocation.id, input.invocationId),
-        eq(mcpInvocation.userId, input.userId),
-        eq(actionStagings.userId, input.userId),
-        isNotNull(mcpInvocation.successorOf),
-      ),
-    )
-    .limit(1);
-  return row
-    ? { invocation: row.invocation, effectiveInput: row.decidedInput ?? row.proposedInput }
-    : undefined;
-}
-
-/** Claim a pre-reserved successor exactly once before its network hop. */
-export async function claimReservedMcpSuccessorDelivery(
-  input: { userId: string; invocationId: string },
-  runner: DbRunner = db(),
-): Promise<McpInvocation | undefined> {
-  const [claimed] = await runner
-    .update(mcpInvocation)
-    .set({ attemptLifecycle: "delivery_possible", deliveryPossibleAt: new Date() })
-    .where(
-      and(
-        eq(mcpInvocation.id, input.invocationId),
-        eq(mcpInvocation.userId, input.userId),
-        eq(mcpInvocation.attemptLifecycle, "prepared"),
-        isNull(mcpInvocation.resolvedAt),
-        isNotNull(mcpInvocation.successorOf),
-      ),
-    )
-    .returning();
-  return claimed;
-}
-
-export type ReservedMcpSuccessorSettlement =
-  | { kind: "succeeded"; resultProvenance: McpResultProvenance }
-  | { kind: "rejected"; resultProvenance: McpResultProvenance }
-  | { kind: "not_delivered"; lastError: string }
-  | {
-      kind: "ambiguous";
-      lastError: string;
-      resultProvenance?: McpResultProvenance;
-    };
-
-/** Settle the successor invocation and its action-staging barrier together. */
-export async function settleReservedMcpSuccessor(
-  input: { userId: string; invocationId: string; settlement: ReservedMcpSuccessorSettlement },
-  runner: DbRunner = db(),
-): Promise<void> {
-  await runAtomic(runner, async (tx) => {
-    const now = new Date();
-    const ambiguous = input.settlement.kind === "ambiguous";
-    const succeeded = input.settlement.kind === "succeeded";
-    const rejected = input.settlement.kind === "rejected";
-    const provenance =
-      input.settlement.kind === "succeeded" || input.settlement.kind === "rejected"
-        ? input.settlement.resultProvenance
-        : input.settlement.kind === "ambiguous"
-          ? input.settlement.resultProvenance
-          : undefined;
-    const [updated] = await tx
-      .update(mcpInvocation)
-      .set({
-        ...(ambiguous && provenance
-          ? {
-              attemptLifecycle: "response_received" as const,
-              responseReceivedAt: now,
-              resultProvenance: provenance,
-            }
-          : succeeded || rejected
-            ? {
-                attemptLifecycle: "response_received" as const,
-                responseReceivedAt: now,
-                resultProvenance: provenance,
-              }
-            : {}),
-        effectOutcome: succeeded
-          ? "succeeded"
-          : rejected
-            ? "rejected"
-            : ambiguous
-              ? "unknown"
-              : "failed",
-        retryDisposition: ambiguous ? "blocked" : "safe",
-        resolvedAt: ambiguous ? null : now,
-        resolutionReason: input.settlement.kind,
-        ...(input.settlement.kind === "ambiguous" || input.settlement.kind === "not_delivered"
-          ? { lastError: input.settlement.lastError }
-          : {}),
-      })
-      .where(
-        and(
-          eq(mcpInvocation.id, input.invocationId),
-          eq(mcpInvocation.userId, input.userId),
-          isNotNull(mcpInvocation.successorOf),
-        ),
-      )
-      .returning({ stagingId: mcpInvocation.stagingId });
-    const row = requireRow(updated, "settleReservedMcpSuccessor");
-    await tx
-      .update(actionStagings)
-      .set({
-        status: input.settlement.kind === "not_delivered" ? "failed" : "executed",
-        outcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
-        executedAt: now,
-        rowVersion: sql`${actionStagings.rowVersion} + 1`,
-      })
-      .where(and(eq(actionStagings.id, row.stagingId), eq(actionStagings.userId, input.userId)));
-  });
-}
-
 export interface ReconcileSummary {
   /** `prepared` rows that never reached delivery — safe, resolved. */
   abandoned: number;
@@ -459,6 +354,8 @@ export interface ReconcileSummary {
   resolvedReads: number;
   /** `delivery_possible` effectful rows — outcome unknown, left BLOCKED. */
   markedUnknown: number;
+  /** Split invocation/staging barriers repaired without sending. */
+  alignedStagingBarriers: number;
 }
 
 /**
@@ -534,7 +431,33 @@ export async function reconcileInflightInvocations(
       )
       .returning({ id: mcpInvocation.id, stagingId: mcpInvocation.stagingId });
 
-    if (markedUnknown.length > 0) {
+    // The broker can persist its unknown outcome before the dispatch owner
+    // persists the matching action-staging outcome. A process crash in that
+    // narrow gap leaves `mcp_invocation.effect_outcome = unknown` with staging
+    // still `dispatching` (or null on older rows). The old sweep only selected a
+    // null invocation outcome, so that split state survived every restart and
+    // both explicit recovery choices rejected it. Find the split AFTER the
+    // normalization above and align only the staging half. This is a database
+    // repair; it never calls the broker or a remote MCP server.
+    const splitStagingBarriers = await tx
+      .select({ stagingId: actionStagings.id })
+      .from(mcpInvocation)
+      .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+      .where(
+        and(
+          ...scope,
+          inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+          eq(mcpInvocation.effectOutcome, "unknown"),
+          eq(mcpInvocation.retryDisposition, "blocked"),
+          isNull(mcpInvocation.resolvedAt),
+          or(
+            inArray(actionStagings.outcome, ["planned", "dispatching"]),
+            isNull(actionStagings.outcome),
+          ),
+        ),
+      );
+
+    if (splitStagingBarriers.length > 0) {
       await tx
         .update(actionStagings)
         .set({
@@ -546,7 +469,7 @@ export async function reconcileInflightInvocations(
         .where(
           inArray(
             actionStagings.id,
-            markedUnknown.map((row) => row.stagingId),
+            splitStagingBarriers.map((row) => row.stagingId),
           ),
         );
     }
@@ -555,6 +478,7 @@ export async function reconcileInflightInvocations(
       abandoned: abandoned.length,
       resolvedReads: resolvedReads.length,
       markedUnknown: markedUnknown.length,
+      alignedStagingBarriers: splitStagingBarriers.length,
     };
   };
   return runAtomic(runner, run);

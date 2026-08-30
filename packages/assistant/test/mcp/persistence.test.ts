@@ -655,6 +655,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(summary.abandoned, 1);
     assert.equal(summary.resolvedReads, 1);
     assert.equal(summary.markedUnknown, 1);
+    assert.equal(summary.alignedStagingBarriers, 1);
 
     // prepared + read are resolved; the effectful write stays BLOCKED (unresolved).
     const rows = await db()
@@ -719,6 +720,46 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "write",
     });
     assert.deepEqual(resumed, { ok: false, reason: "barrier" });
+  });
+
+  test("boot repairs an unknown invocation whose staging barrier stayed dispatching", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const stagingId = await seedStaging(userId);
+    await db()
+      .update(actionStagings)
+      .set({ status: "approved", outcome: "dispatching" })
+      .where(eq(actionStagings.id, stagingId));
+    const crashed = await insertInvocation({
+      userId,
+      connectionId: connId,
+      remoteName: "send_invoice",
+      argsHash: "sha256:post-broker-crash",
+      stagingId,
+      effectClass: "write",
+      attemptLifecycle: "delivery_possible",
+      effectOutcome: "unknown",
+      retryDisposition: "blocked",
+      deliveryPossibleAt: new Date(),
+    });
+    assert.ok(crashed.ok);
+
+    const firstBoot = await reconcileInflightInvocations(userId);
+    assert.equal(firstBoot.markedUnknown, 0, "the broker had already recorded ambiguity");
+    assert.equal(firstBoot.alignedStagingBarriers, 1);
+    const [staging] = await db()
+      .select({ status: actionStagings.status, outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+    assert.deepEqual(staging, { status: "executed", outcome: "unknown" });
+
+    const secondBoot = await reconcileInflightInvocations(userId);
+    assert.equal(secondBoot.alignedStagingBarriers, 0, "the repair is idempotent");
+    const [invocation] = await db()
+      .select({ resolvedAt: mcpInvocation.resolvedAt })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.id, crashed.invocation.id));
+    assert.equal(invocation?.resolvedAt, null, "repair keeps the no-replay barrier unresolved");
   });
 
   test("a connection cannot point at another connection's catalog revision", async () => {

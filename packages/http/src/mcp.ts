@@ -1,4 +1,4 @@
-import { Errors, mcpRecoveryDecisionSchema } from "@alfred/contracts";
+import { Errors, type McpRecoveryDecision, mcpRecoveryDecisionSchema } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
@@ -25,6 +25,21 @@ import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
+const [firstMcpRecoveryDecision, ...remainingMcpRecoveryDecisions] =
+  mcpRecoveryDecisionSchema.options;
+if (!firstMcpRecoveryDecision) {
+  throw new Error("MCP recovery decisions must not be empty");
+}
+const mcpRecoveryDecisionValues: [McpRecoveryDecision, ...McpRecoveryDecision[]] = [
+  firstMcpRecoveryDecision,
+  ...remainingMcpRecoveryDecisions,
+];
+const mcpRecoveryDecisionBody = t.Object(
+  {
+    decision: t.UnionEnum(mcpRecoveryDecisionValues),
+  },
+  { additionalProperties: false },
+);
 
 function connectionResult(
   connection: NonNullable<Awaited<ReturnType<typeof readOwnedConnection>>>,
@@ -100,20 +115,16 @@ export const mcpIntegrationRoutes = new Elysia({
         async ({ body, params, user }) => {
           const decision = mcpRecoveryDecisionSchema.safeParse(body.decision);
           if (!decision.success) throw Errors.BadRequestError("Invalid MCP recovery decision");
+          const parsedDecision: McpRecoveryDecision = decision.data;
           return resolveMcpRecoveryOperation({
             userId: user.id,
             invocationId: params.invocationId,
-            decision: decision.data,
+            decision: parsedDecision,
           });
         },
         {
           params: t.Object({ invocationId: t.String({ minLength: 1 }) }),
-          body: t.Object(
-            {
-              decision: t.String(),
-            },
-            { additionalProperties: false },
-          ),
+          body: mcpRecoveryDecisionBody,
         },
       )
       .post(
