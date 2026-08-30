@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import { Elysia } from "elysia";
 
 import { errorHandler, mcpIntegrationRoutes } from "@alfred/http";
-import type { McpAuthorizedOAuth } from "@alfred/assistant/connections/mcp";
+import { McpRawClient, type McpAuthorizedOAuth } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
 import { completeMcpOAuthCallback } from "../src/mcp";
 
@@ -27,6 +27,22 @@ describe("mcpIntegrationRoutes", () => {
     const events: string[] = [];
     const fallback = permissiveMcpEndpointAuthorizerForTests();
     let providerAuthorization: McpAuthorizedOAuth | null = null;
+    const readyClient = new McpRawClient({
+      connectionId: "conn_test",
+      endpoint: new URL("https://mcp.example.test/mcp"),
+      expectedOrigin: "https://mcp.example.test",
+      endpointAuthorizer: fallback,
+      protocolFactory: () => {
+        throw new Error("the callback must not open a second protocol client");
+      },
+    });
+    const connectionManager = {
+      events,
+      async getReadyClient() {
+        this.events.push("ready");
+        return readyClient;
+      },
+    };
     const provider = {
       matchesState: async (state: string) => {
         events.push(`state:${state}`);
@@ -71,9 +87,7 @@ describe("mcpIntegrationRoutes", () => {
           providerAuthorization = input.authorization;
           return provider;
         },
-        getReadyClient: async () => {
-          events.push("ready");
-        },
+        connectionManager,
       },
     });
 

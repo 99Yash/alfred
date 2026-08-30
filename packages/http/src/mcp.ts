@@ -19,7 +19,6 @@ import {
   withMcpEndpointAuthorization,
   type McpConnectionManager,
   type McpEndpointAuthorizer,
-  type McpOAuthProvider,
   type McpOAuthProviderForConnectionInput,
 } from "@alfred/assistant/connections/mcp";
 import { authMacro } from "./middleware/auth";
@@ -30,7 +29,7 @@ const callbackParamsSchema = z.object({ state: z.string().min(1) });
 const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
 
 type McpOAuthCallbackProvider = Pick<
-  McpOAuthProvider,
+  ReturnType<typeof mcpOAuthProviderForConnection>,
   "matchesState" | "discoveryState" | "finishAuthorization"
 >;
 type McpOAuthCallbackConnection = Pick<
@@ -41,7 +40,7 @@ type McpOAuthCallbackConnection = Pick<
 interface McpOAuthCallbackDependencies {
   endpointAuthorizer: McpEndpointAuthorizer;
   providerForConnection(input: McpOAuthProviderForConnectionInput): McpOAuthCallbackProvider;
-  getReadyClient(...args: Parameters<McpConnectionManager["getReadyClient"]>): Promise<void>;
+  connectionManager: Pick<McpConnectionManager, "getReadyClient">;
 }
 
 /** Keep one callback authorization capability alive through token exchange and reconnect. */
@@ -72,7 +71,7 @@ export async function completeMcpOAuthCallback(input: {
       }
       try {
         await provider.finishAuthorization(input.params);
-        await dependencies.getReadyClient(connection.id);
+        await dependencies.connectionManager.getReadyClient(connection.id);
       } catch (error) {
         await updateConnection(connection.id, {
           status: "failed",
@@ -231,9 +230,7 @@ export const mcpIntegrationRoutes = new Elysia({
         providerForConnection: mcpOAuthProviderForConnection,
         // The URLSearchParams overload validates `iss` before it reads any
         // callback error text or redeems the authorization code.
-        getReadyClient: async (connectionId) => {
-          await getMcpConnectionManager().getReadyClient(connectionId);
-        },
+        connectionManager: getMcpConnectionManager(),
       },
     });
     set.status = 302;

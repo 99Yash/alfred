@@ -60,7 +60,6 @@ export {
 export {
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
-  McpOAuthProvider,
   McpOAuthAuthorizationRequiredError,
   type McpBoundOAuthSession,
   type McpOAuthProviderForConnectionInput,

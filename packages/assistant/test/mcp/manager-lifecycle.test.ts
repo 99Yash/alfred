@@ -446,6 +446,51 @@ describe("mcp connection manager lifecycle", () => {
     assert.equal(protocol.connectCount, 2);
   });
 
+  test("failed background refresh cannot retire a disconnect tombstone", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    await manager.getReadyClient(persistence.connection.id);
+    const closeStarted = deferred();
+    const releaseClose = deferred();
+    const disconnectedPatchStarted = deferred();
+    const releaseDisconnectedPatch = deferred();
+    protocol.onListTools = () => {
+      throw new Error("replacement catalog failed");
+    };
+    protocol.onClose = async () => {
+      closeStarted.resolve();
+      await releaseClose.promise;
+    };
+    persistence.onUpdate = async (patch) => {
+      if (patch.status !== "disconnected") return;
+      disconnectedPatchStarted.resolve();
+      await releaseDisconnectedPatch.promise;
+    };
+
+    await protocol.emitToolsChanged();
+    await closeStarted.promise;
+    const disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+
+    releaseClose.resolve();
+    await disconnectedPatchStarted.promise;
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+    assert.equal(protocol.connectCount, 1);
+
+    releaseDisconnectedPatch.resolve();
+    await disconnect;
+    assert.equal(protocol.closeCount, 1);
+    assert.equal(persistence.connection.status, "disconnected");
+    assert.equal(persistence.updates.filter((patch) => patch.status === "failed").length, 0);
+  });
+
   test("disconnect intent survives closeAll in either call order", async () => {
     for (const disconnectFirst of [false, true]) {
       const protocol = new FakeProtocol();
