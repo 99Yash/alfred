@@ -16,12 +16,12 @@
  *    to `unknown`/blocked, not just timeouts — clarification #2).
  *
  * It is proven OFFLINE: the connection manager injects a fake protocol, so
- * connect → refresh → call runs with no socket. Successor minting stays
- * host-owned in `invocations.createSuccessorInvocation`; the broker never mints a
- * successor from a model proposal (clarification #4).
+ * connect → refresh → call runs with no socket. Successor reservation stays
+ * host-owned in `recovery.ts`; the broker never mints a successor from a model
+ * proposal (clarification #4).
  */
 
-import type { McpEffectClass } from "@alfred/contracts";
+import { mcpCallInput, type McpEffectClass } from "@alfred/contracts";
 import type { McpInvocation, McpToolPolicyRow } from "@alfred/db/schemas";
 import {
   boundedMcpErrorText,
@@ -37,10 +37,13 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import {
+  claimReservedMcpSuccessorDelivery,
   findUnresolvedBarrier,
   insertInvocation,
   readInvocationByStagingId,
+  readReservedMcpSuccessor,
   resolveMcpToolIdentity,
+  settleReservedMcpSuccessor,
   type OwnedMcpConnectionRef,
   updateInvocation,
 } from "./invocations";
@@ -66,6 +69,12 @@ export interface McpBrokerCallInput {
   arguments: unknown;
   /** Run trace id. Observability only; ledger correlation still copies the staging row. */
   traceId?: string;
+  signal?: AbortSignal;
+}
+
+export interface McpReservedSuccessorInput {
+  userId: string;
+  invocationId: string;
   signal?: AbortSignal;
 }
 
@@ -134,6 +143,138 @@ export class McpExecutionBroker {
     } catch (error) {
       span.end({ status: "error", level: "ERROR" });
       throw error;
+    }
+  }
+
+  /**
+   * Deliver one host-reserved successor. The caller supplies only its durable id;
+   * target and arguments are reloaded from the exact staging row. The atomic
+   * `prepared` claim is the send-once gate for concurrent or repeated HTTP posts.
+   */
+  async resumeReservedSuccessor(input: McpReservedSuccessorInput): Promise<McpBrokerOutcome> {
+    const reserved = await readReservedMcpSuccessor(input);
+    if (!reserved) {
+      throw new McpClientError("not_connected", "MCP recovery operation was not found.");
+    }
+    if (reserved.invocation.attemptLifecycle !== "prepared" || reserved.invocation.resolvedAt) {
+      return {
+        status: "blocked",
+        reason: "already_recorded",
+        message: BLOCKED_RECORDED_MESSAGE,
+        priorInvocationId: reserved.invocation.id,
+      };
+    }
+
+    const parsed = mcpCallInput.safeParse(reserved.effectiveInput);
+    if (!parsed.success) {
+      throw new McpClientError("invalid_arguments", "Stored MCP recovery input is invalid.");
+    }
+    const call = parsed.data;
+    const invocation = reserved.invocation;
+    if (
+      call.connectionId !== invocation.connectionId ||
+      call.remoteName !== invocation.remoteName ||
+      canonicalArgsHash(call.arguments) !== invocation.argsHash
+    ) {
+      throw new McpClientError("invalid_arguments", "Stored MCP recovery input has drifted.");
+    }
+
+    const identity = await resolveMcpToolIdentity({
+      userId: input.userId,
+      connectionId: call.connectionId,
+      remoteName: call.remoteName,
+      catalogRevision: call.catalogRevision,
+    });
+    if (identity.status !== "resolved" || !identity.connection.currentCatalogRevisionId) {
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP tool changed after this recovery was authorized.",
+      );
+    }
+    const prepared = await this.#manager.prepareToolCall(call.connectionId, input.signal);
+    const liveTool = prepared.catalog.tools.find((tool) => tool.name === call.remoteName);
+    const liveDescriptorHash = liveTool ? descriptorHash(liveTool) : undefined;
+    const liveEffectClass = identity.policy?.effectClass ?? "unknown";
+    if (
+      prepared.catalog.revision !== call.catalogRevision ||
+      identity.connection.currentCatalogRevisionId !== invocation.catalogRevisionId ||
+      identity.descriptorHash !== invocation.descriptorHash ||
+      liveDescriptorHash !== invocation.descriptorHash ||
+      (identity.policy?.policyRevision ?? null) !== invocation.policyRevision ||
+      liveEffectClass !== invocation.effectClass ||
+      liveEffectClass === "read"
+    ) {
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP recovery contract changed before delivery.",
+      );
+    }
+
+    const claimed = await claimReservedMcpSuccessorDelivery(input);
+    if (!claimed) {
+      return {
+        status: "blocked",
+        reason: "already_recorded",
+        message: BLOCKED_RECORDED_MESSAGE,
+        priorInvocationId: invocation.id,
+      };
+    }
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: call.connectionId,
+      remoteName: call.remoteName,
+      catalogRevision: call.catalogRevision,
+    };
+    const trace = startMcpTraceSpan({
+      name: "runtime.mcp.broker_invoke",
+      metadata: {
+        invocationId: claimed.id,
+        successorOf: claimed.successorOf,
+        recovery: true,
+      },
+    });
+    try {
+      const envelope = await prepared.call(ref, call.arguments, {
+        ...(input.signal ? { signal: input.signal } : {}),
+        trace: trace.context,
+      });
+      await settleReservedMcpSuccessor({
+        userId: input.userId,
+        invocationId: claimed.id,
+        settlement: {
+          kind: envelope.outcome === "completed" ? "succeeded" : "rejected",
+          resultProvenance: envelope.provenance,
+        },
+      });
+      const outcome: McpBrokerOutcome = {
+        status: envelope.outcome === "completed" ? "completed" : "tool_error",
+        invocationId: claimed.id,
+        envelope,
+      };
+      trace.end({ status: outcome.status });
+      return outcome;
+    } catch (err) {
+      if (isProvenNotDelivered(err)) {
+        await settleReservedMcpSuccessor({
+          userId: input.userId,
+          invocationId: claimed.id,
+          settlement: { kind: "not_delivered", lastError: boundedMcpErrorText(err) },
+        });
+        trace.end({ status: "error", level: "ERROR" });
+        throw err;
+      }
+      const provenance = err instanceof McpClientError ? err.provenance : undefined;
+      await settleReservedMcpSuccessor({
+        userId: input.userId,
+        invocationId: claimed.id,
+        settlement: {
+          kind: "ambiguous",
+          lastError: boundedMcpErrorText(err),
+          ...(provenance ? { resultProvenance: provenance } : {}),
+        },
+      });
+      trace.end({ status: "ambiguous", level: "ERROR" });
+      return { status: "ambiguous", invocationId: claimed.id, message: AMBIGUOUS_MESSAGE };
     }
   }
 
@@ -285,9 +426,9 @@ export class McpExecutionBroker {
     // (reconnect rebuilds a client for a LATER authorized attempt, never replays
     // this one), this broker (the catch below leaves the row unresolved), nor any
     // worker/model-loop retry (the durable barrier index refuses an identical
-    // proposal). A second outbound attempt is legal only via a host-minted
-    // successor (`createSuccessorInvocation`). Before admitting any wrapper into
-    // this path, confirm its retry is disabled or provably pre-delivery.
+    // proposal). A second outbound attempt is legal only via an explicitly
+    // reserved recovery successor. Before admitting any wrapper into this path,
+    // confirm its retry is disabled or provably pre-delivery.
     await updateInvocation(invocation.id, {
       attemptLifecycle: "delivery_possible",
       deliveryPossibleAt: new Date(),

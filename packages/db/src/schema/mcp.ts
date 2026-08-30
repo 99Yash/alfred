@@ -446,6 +446,10 @@ export const mcpInvocation = pgTable(
     uniqueIndex("mcp_invocation_unresolved_barrier_idx")
       .on(t.userId, t.connectionId, t.remoteName, t.argsHash)
       .where(sql`${t.resolvedAt} IS NULL`),
+    // A prior invocation can grant exactly one fresh successor authorization.
+    uniqueIndex("mcp_invocation_successor_once_idx")
+      .on(t.successorOf)
+      .where(sql`${t.successorOf} IS NOT NULL`),
     foreignKey({
       columns: [t.successorOf],
       foreignColumns: [t.id],
