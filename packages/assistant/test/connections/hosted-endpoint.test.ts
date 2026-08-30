@@ -142,14 +142,25 @@ describe("guarded fetch", () => {
       headers: {
         authorization: "Bearer secret",
         cookie: "session=secret",
+        "proxy-authorization": "Basic secret",
         "mcp-session-id": "session-secret",
         traceparent: "00-secret",
+        tracestate: "vendor=secret",
+        "x-api-key": "api-secret",
       },
     });
 
     assert.equal(seen.length, 2);
     assert.equal(seen[1]?.url, "https://auth.example.test/metadata");
-    for (const name of ["authorization", "cookie", "mcp-session-id", "traceparent"]) {
+    for (const name of [
+      "authorization",
+      "cookie",
+      "proxy-authorization",
+      "mcp-session-id",
+      "traceparent",
+      "tracestate",
+      "x-api-key",
+    ]) {
       assert.equal(seen[1]?.headers.has(name), false, name);
     }
   });

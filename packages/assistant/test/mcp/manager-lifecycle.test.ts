@@ -25,6 +25,7 @@ class FakeProtocol implements McpProtocolClient {
   ttlMs = 0;
   onListTools: (() => void | Promise<void>) | null = null;
   onConnect: (() => void | Promise<void>) | null = null;
+  onClose: (() => void | Promise<void>) | null = null;
   connectTrace: McpTraceContext | undefined;
   listTraces: Array<McpTraceContext | undefined> = [];
   #toolsChanged: (() => void | Promise<void>) | null = null;
@@ -45,6 +46,7 @@ class FakeProtocol implements McpProtocolClient {
 
   async close(): Promise<void> {
     this.closeCount += 1;
+    await this.onClose?.();
   }
 
   async listTools(
@@ -77,7 +79,9 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   readonly connection = connection();
   readonly revisions = new Map<string, string[]>();
   publications = 0;
+  readonly updates: Array<Partial<McpConnection>> = [];
   onPublish: (() => void | Promise<void>) | null = null;
+  onReadOwned: (() => void | Promise<void>) | null = null;
   onUpdate: ((patch: Partial<McpConnection>) => void | Promise<void>) | null = null;
   onActivate:
     | ((
@@ -91,11 +95,16 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   readOwnedConnection: McpConnectionManagerPersistence["readOwnedConnection"] = async (
     id,
     userId,
-  ) =>
-    id === this.connection.id && userId === this.connection.userId ? this.connection : undefined;
+  ) => {
+    await this.onReadOwned?.();
+    return id === this.connection.id && userId === this.connection.userId
+      ? this.connection
+      : undefined;
+  };
 
   updateConnection: McpConnectionManagerPersistence["updateConnection"] = async (id, patch) => {
     if (id !== this.connection.id) return undefined;
+    this.updates.push(patch);
     await this.onUpdate?.(patch);
     Object.assign(this.connection, patch, { updatedAt: new Date() });
     return this.connection;
@@ -380,6 +389,99 @@ describe("mcp connection manager lifecycle", () => {
     persistence.onUpdate = null;
     await manager.getReadyClient(persistence.connection.id);
     assert.equal(protocol.connectCount, 2);
+  });
+
+  test("failed startup cannot retire a disconnect tombstone", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    const closeStarted = deferred();
+    const releaseClose = deferred();
+    const ownershipRead = deferred();
+    const disconnectedPatchStarted = deferred();
+    const releaseDisconnectedPatch = deferred();
+    protocol.onListTools = () => {
+      throw new Error("initial catalog failed");
+    };
+    protocol.onClose = async () => {
+      closeStarted.resolve();
+      await releaseClose.promise;
+    };
+    persistence.onReadOwned = () => ownershipRead.resolve();
+    persistence.onUpdate = async (patch) => {
+      if (patch.status !== "disconnected") return;
+      disconnectedPatchStarted.resolve();
+      await releaseDisconnectedPatch.promise;
+    };
+
+    const startup = manager.getReadyClient(persistence.connection.id);
+    await closeStarted.promise;
+    const disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
+    await ownershipRead.promise;
+    await Promise.resolve();
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+
+    releaseClose.resolve();
+    await assert.rejects(
+      startup,
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+    await disconnectedPatchStarted.promise;
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+    assert.equal(protocol.connectCount, 1);
+
+    releaseDisconnectedPatch.resolve();
+    await disconnect;
+    protocol.onListTools = null;
+    protocol.onClose = null;
+    persistence.onReadOwned = null;
+    persistence.onUpdate = null;
+    await manager.getReadyClient(persistence.connection.id);
+    assert.equal(protocol.connectCount, 2);
+  });
+
+  test("disconnect intent survives closeAll in either call order", async () => {
+    for (const disconnectFirst of [false, true]) {
+      const protocol = new FakeProtocol();
+      const persistence = new MemoryPersistence();
+      const manager = managerWith(protocol, persistence);
+      await manager.getReadyClient(persistence.connection.id);
+      const closeStarted = deferred();
+      const releaseClose = deferred();
+      protocol.onClose = async () => {
+        closeStarted.resolve();
+        await releaseClose.promise;
+      };
+
+      let disconnect: Promise<boolean>;
+      let closeAll: Promise<void>;
+      if (disconnectFirst) {
+        disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
+        await closeStarted.promise;
+        closeAll = manager.closeAll();
+      } else {
+        closeAll = manager.closeAll();
+        await closeStarted.promise;
+        disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
+      }
+      await Promise.resolve();
+      releaseClose.resolve();
+
+      assert.equal(await disconnect, true, disconnectFirst ? "disconnect first" : "closeAll first");
+      await closeAll;
+      assert.equal(persistence.connection.status, "disconnected");
+      assert.equal(
+        persistence.updates.filter((patch) => patch.status === "disconnected").length,
+        1,
+      );
+      assert.equal(protocol.closeCount, 1);
+    }
   });
 
   test("closeAll rejects admission and prevents a pending startup from publishing", async () => {
