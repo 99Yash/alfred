@@ -13,3 +13,26 @@
 **Alternatives.** (a) **Keep the status quo** (trust `default_mode = gated` as the protection) — rejected: a single global toggle silently defeats it for the one genuinely-irreversible cross-tenant action. (b) **Infra-redeploy-only allow-list floor** — rejected (above): simpler and more future-proof to floor the whole tier. (c) **Client-side or per-run carve-out on the autonomy toggle** — rejected: the gate must be server-authoritative (background runs have no browser; ADR-0034's m13 chat-bridge note).
 
 **Cross-ref.** Reverses ADR-0034 alt-(f) and supersedes ADR-0050's "no write is blocked structurally by `risk_tier`" for the `high` tier specifically. Composes with ADR-0034 (policy/staging/HIL) and ADR-0044 (the Google scope grant) / the Railway workspace-token connect path (workspace tokens are unscopable full-write).
+
+## Amendment (2026-08-30) — live Gmail sends also have a recipient floor
+
+`gmail.send_draft` is a historical name: its execute path calls Gmail
+`users.messages.send`, so approval causes a live external effect. The hard
+approval floor above stays necessary, but it is not the only boundary. The
+execute path now permits recipients only when they are the active Gmail mailbox
+or a person the user has emailed before. Every `to`, `cc`, and `bcc` address is
+checked after approval and before the provider call. A contact read failure
+blocks the send.
+
+"Known contact" is intentionally narrower here than "a person row exists." The
+passive Gmail graph creates a person row for an inbound-only sender. Such a row
+cannot authorize its own address, because an attacker could join the allow-list
+by sending one injected message. The policy therefore requires positive prior
+outbound correspondence (`metadata.correspondence.outbound > 0`).
+
+Draft-first was considered. Gmail [`users.drafts.create`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/create)
+is available through the existing `gmail.modify` grant, but changing the
+default would turn every current send workflow into a save-only workflow. This
+amendment keeps the live send contract and adds the smaller structural
+restriction instead. A future separate create-draft tool can add draft-first
+behavior without changing an existing action's effect.

@@ -29,6 +29,7 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import { assertGmailRecipientsAllowed } from "./gmail-recipient-policy";
 
 /**
  * Best-effort Gmail webview URL. Gmail accepts thread ids in the `#all/` path
@@ -265,7 +266,8 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "send_draft",
     riskTier: "high",
-    description: "Prepare or send a Gmail draft after the user approves the proposed message.",
+    description:
+      "Send a Gmail message after the user approves it. Recipients must be the active mailbox or people the user has emailed before.",
     discovery: {
       aliases: ["send email", "reply to email", "draft email"],
       tags: ["email", "communication", "write"],
@@ -284,6 +286,11 @@ export const gmailTools: readonly RegisteredTool[] = [
       // credential; pre-check so the staging records a re-consent failure
       // before making the Gmail send request.
       const credential = await ctx.integrations.google.gmail.sendCredential();
+      await assertGmailRecipientsAllowed({
+        userId: ctx.userId,
+        activeMailbox: credential.accountLabel,
+        input,
+      });
       const sent = await ctx.integrations.google.gmail.sendMessage({
         credentialId: credential.id,
         to: input.to,
