@@ -1,14 +1,25 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Plug, Plus } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
 import { client, type EdenData, API_URL } from "~/lib/eden";
 import { MCP_SECTION } from "./helpers";
+import { McpRecoveryList } from "./mcp-recovery-list";
 import { mcpConnectionStatusText } from "./mcp-server-status";
 
 type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
 type McpConnection = McpConnectionsResponse["connections"][number];
+type McpRecoveryResponse = EdenData<typeof client.api.integrations.mcp.recovery.get>;
+type McpRecoveryOperation = McpRecoveryResponse["operations"][number];
+type McpRecoveryAction =
+  | {
+      kind: "resolve";
+      invocationId: string;
+      decision: "confirmed_succeeded" | "confirmed_not_applied";
+    }
+  | { kind: "successor"; invocationId: string };
 
 export function MCPServerSection() {
+  const queryClient = useQueryClient();
   const connectionQuery = useQuery<ReadonlyArray<McpConnection>>({
     queryKey: ["integrations", "mcp", "connections"],
     queryFn: async () => {
@@ -22,6 +33,36 @@ export function MCPServerSection() {
     refetchOnWindowFocus: true,
   });
   const connections = connectionQuery.data ?? [];
+  const recoveryQuery = useQuery<ReadonlyArray<McpRecoveryOperation>>({
+    queryKey: ["integrations", "mcp", "recovery"],
+    queryFn: async () => {
+      const response = await client.api.integrations.mcp.recovery.get();
+      if (response.error || !response.data) {
+        throw new Error("Could not load MCP recovery operations");
+      }
+      return response.data.operations;
+    },
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+  });
+  const recoveryMutation = useMutation({
+    mutationFn: async (action: McpRecoveryAction) => {
+      const route = client.api.integrations.mcp.recovery({
+        invocationId: action.invocationId,
+      });
+      const response =
+        action.kind === "successor"
+          ? await route.successor.post()
+          : await route.resolve.post({ decision: action.decision });
+      if (response.error || !response.data) {
+        throw new Error("Could not update the MCP recovery operation");
+      }
+      return response.data;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["integrations", "mcp", "recovery"] }),
+  });
+  const recoveryOperations = recoveryQuery.data ?? [];
   const github = connections.find((connection) => connection.canonicalResource.includes("github"));
   const isConnecting = github?.status === "connecting";
   const statusText = connectionQuery.isPending
@@ -79,6 +120,19 @@ export function MCPServerSection() {
           </button>
         </AppCard>
       </div>
+      <McpRecoveryList
+        operations={recoveryOperations}
+        pendingInvocationId={
+          recoveryMutation.isPending ? recoveryMutation.variables.invocationId : null
+        }
+        error={recoveryMutation.isError}
+        onResolve={(invocationId, decision) => {
+          recoveryMutation.mutate({ kind: "resolve", invocationId, decision });
+        }}
+        onRetry={(invocationId) => {
+          recoveryMutation.mutate({ kind: "successor", invocationId });
+        }}
+      />
     </section>
   );
 }

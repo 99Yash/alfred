@@ -1,4 +1,4 @@
-import { Errors } from "@alfred/contracts";
+import { Errors, mcpRecoveryDecisionSchema } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
@@ -16,6 +16,11 @@ import {
   readOwnedConnection,
   updateConnection,
 } from "@alfred/assistant/connections/mcp";
+import {
+  listMcpRecoveryOperations,
+  resolveMcpRecoveryOperation,
+  retryMcpRecoveryOperation,
+} from "@alfred/assistant/tool-runtime/mcp";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
@@ -87,6 +92,43 @@ export const mcpIntegrationRoutes = new Elysia({
         const connections = await listOwnedConnections(user.id);
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
+      .get("/recovery", async ({ user }) => ({
+        operations: await listMcpRecoveryOperations(user.id),
+      }))
+      .post(
+        "/recovery/:invocationId/resolve",
+        async ({ body, params, user }) => {
+          const decision = mcpRecoveryDecisionSchema.safeParse(body.decision);
+          if (!decision.success) throw Errors.BadRequestError("Invalid MCP recovery decision");
+          return resolveMcpRecoveryOperation({
+            userId: user.id,
+            invocationId: params.invocationId,
+            decision: decision.data,
+          });
+        },
+        {
+          params: t.Object({ invocationId: t.String({ minLength: 1 }) }),
+          body: t.Object(
+            {
+              decision: t.String(),
+            },
+            { additionalProperties: false },
+          ),
+        },
+      )
+      .post(
+        "/recovery/:invocationId/successor",
+        async ({ params, request, user }) =>
+          retryMcpRecoveryOperation({
+            userId: user.id,
+            invocationId: params.invocationId,
+            signal: request.signal,
+          }),
+        {
+          params: t.Object({ invocationId: t.String({ minLength: 1 }) }),
+          body: t.Undefined(),
+        },
+      )
       .get("/github/connect", async ({ user, set }) => {
         const connection = await ensureBuiltInConnection(user.id, "github");
         await getMcpConnectionManager().disconnect(connection.id, user.id);

@@ -20,9 +20,8 @@
  *  - `insertInvocation` — the barrier reservation. Inserting the ledger row IS
  *    the reservation; the partial unique index rejects a duplicate unresolved
  *    proposal, surfaced here as `{ ok: false, reason: "barrier" }`.
- *  - `createSuccessorInvocation` — resolve the prior invocation AND mint its
- *    successor in one transaction, so the prior leaves the partial barrier index
- *    exactly as the successor enters it.
+ *  - explicit successor reservation lives in `recovery.ts`, where the invocation
+ *    and action-staging barriers can move in one transaction.
  *  - `reconcileInflightInvocations` — the crash-recovery barrier sweep run at
  *    boot (issue clarification #1).
  */
@@ -42,7 +41,8 @@ import {
   type NewMcpInvocation,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import type { McpResultProvenance } from "@alfred/contracts";
 
 // ===========================================================================
 // Per-tool policy (reviewed effect/retry/tier, bound to a descriptor hash)
@@ -328,66 +328,128 @@ export async function findUnresolvedBarrier(
   return row;
 }
 
-export interface CreateSuccessorInput {
-  /** The prior invocation this successor supersedes. */
-  priorId: string;
-  /** Why the prior is being resolved (e.g. "superseded_by_successor"). */
-  priorResolutionReason: string;
-  /** The successor ledger row. `successorOf` is set here — never by the caller. */
-  successor: Omit<NewMcpInvocation, "successorOf">;
+export async function readReservedMcpSuccessor(
+  input: { userId: string; invocationId: string },
+  runner: DbRunner = db(),
+): Promise<{ invocation: McpInvocation; effectiveInput: unknown } | undefined> {
+  const [row] = await runner
+    .select({
+      invocation: mcpInvocation,
+      proposedInput: actionStagings.proposedInput,
+      decidedInput: actionStagings.decidedInput,
+    })
+    .from(mcpInvocation)
+    .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+    .where(
+      and(
+        eq(mcpInvocation.id, input.invocationId),
+        eq(mcpInvocation.userId, input.userId),
+        eq(actionStagings.userId, input.userId),
+        isNotNull(mcpInvocation.successorOf),
+      ),
+    )
+    .limit(1);
+  return row
+    ? { invocation: row.invocation, effectiveInput: row.decidedInput ?? row.proposedInput }
+    : undefined;
 }
 
-/**
- * Outcome of a successor mint. A successor may only supersede a GENUINELY
- * unresolved prior; if the prior was already resolved (reconciled, raced to a
- * definitive outcome, or a stale id), no successor is minted.
- */
-export type CreateSuccessorResult =
-  | { ok: true; successor: McpInvocation }
-  | { ok: false; reason: "prior_already_resolved" };
-
-/**
- * Resolve the prior invocation AND insert its successor atomically. Only this
- * host-owned path may set `successorOf`; the model cannot mint a successor
- * (issue clarification #4 — authorization is minted at the approval boundary,
- * tied to the prior invocation). Resolving the prior in the same transaction
- * clears the partial barrier index exactly as the successor enters it, so the
- * successor insert does not collide with the row it replaces.
- *
- * The resolve is guarded on its affected-row count: the UPDATE matches only an
- * unresolved prior (`resolvedAt IS NULL`), so a zero-row result means the prior
- * was ALREADY resolved. Minting a successor against a settled prior would open a
- * fresh unresolved barrier for a write that is no longer ambiguous, so this
- * refuses instead — moving the "prior must be unresolved" precondition off an
- * assumed caller and into the transaction.
- */
-export async function createSuccessorInvocation(
-  input: CreateSuccessorInput,
+/** Claim a pre-reserved successor exactly once before its network hop. */
+export async function claimReservedMcpSuccessorDelivery(
+  input: { userId: string; invocationId: string },
   runner: DbRunner = db(),
-): Promise<CreateSuccessorResult> {
-  const run = async (tx: DbRunner): Promise<CreateSuccessorResult> => {
-    const resolvedPrior = await tx
+): Promise<McpInvocation | undefined> {
+  const [claimed] = await runner
+    .update(mcpInvocation)
+    .set({ attemptLifecycle: "delivery_possible", deliveryPossibleAt: new Date() })
+    .where(
+      and(
+        eq(mcpInvocation.id, input.invocationId),
+        eq(mcpInvocation.userId, input.userId),
+        eq(mcpInvocation.attemptLifecycle, "prepared"),
+        isNull(mcpInvocation.resolvedAt),
+        isNotNull(mcpInvocation.successorOf),
+      ),
+    )
+    .returning();
+  return claimed;
+}
+
+export type ReservedMcpSuccessorSettlement =
+  | { kind: "succeeded"; resultProvenance: McpResultProvenance }
+  | { kind: "rejected"; resultProvenance: McpResultProvenance }
+  | { kind: "not_delivered"; lastError: string }
+  | {
+      kind: "ambiguous";
+      lastError: string;
+      resultProvenance?: McpResultProvenance;
+    };
+
+/** Settle the successor invocation and its action-staging barrier together. */
+export async function settleReservedMcpSuccessor(
+  input: { userId: string; invocationId: string; settlement: ReservedMcpSuccessorSettlement },
+  runner: DbRunner = db(),
+): Promise<void> {
+  await runAtomic(runner, async (tx) => {
+    const now = new Date();
+    const ambiguous = input.settlement.kind === "ambiguous";
+    const succeeded = input.settlement.kind === "succeeded";
+    const rejected = input.settlement.kind === "rejected";
+    const provenance =
+      input.settlement.kind === "succeeded" || input.settlement.kind === "rejected"
+        ? input.settlement.resultProvenance
+        : input.settlement.kind === "ambiguous"
+          ? input.settlement.resultProvenance
+          : undefined;
+    const [updated] = await tx
       .update(mcpInvocation)
-      .set({ resolvedAt: sql`now()`, resolutionReason: input.priorResolutionReason })
-      .where(and(eq(mcpInvocation.id, input.priorId), isNull(mcpInvocation.resolvedAt)))
-      .returning({ id: mcpInvocation.id });
-
-    if (resolvedPrior.length === 0) {
-      return { ok: false, reason: "prior_already_resolved" };
-    }
-
-    // Source correlation from the successor's OWN staging row (a fresh
-    // authorization, distinct from the prior's), so its ledger breadcrumbs point
-    // at the trace that minted it — never inherited from the prior and never able
-    // to drift from the row this successor FKs to.
-    const correlation = await stagingCorrelation(input.successor.stagingId, tx);
-    const [successor] = await tx
-      .insert(mcpInvocation)
-      .values({ ...input.successor, ...correlation, successorOf: input.priorId })
-      .returning();
-    return { ok: true, successor: requireRow(successor, "createSuccessorInvocation") };
-  };
-  return runAtomic(runner, run);
+      .set({
+        ...(ambiguous && provenance
+          ? {
+              attemptLifecycle: "response_received" as const,
+              responseReceivedAt: now,
+              resultProvenance: provenance,
+            }
+          : succeeded || rejected
+            ? {
+                attemptLifecycle: "response_received" as const,
+                responseReceivedAt: now,
+                resultProvenance: provenance,
+              }
+            : {}),
+        effectOutcome: succeeded
+          ? "succeeded"
+          : rejected
+            ? "rejected"
+            : ambiguous
+              ? "unknown"
+              : "failed",
+        retryDisposition: ambiguous ? "blocked" : "safe",
+        resolvedAt: ambiguous ? null : now,
+        resolutionReason: input.settlement.kind,
+        ...(input.settlement.kind === "ambiguous" || input.settlement.kind === "not_delivered"
+          ? { lastError: input.settlement.lastError }
+          : {}),
+      })
+      .where(
+        and(
+          eq(mcpInvocation.id, input.invocationId),
+          eq(mcpInvocation.userId, input.userId),
+          isNotNull(mcpInvocation.successorOf),
+        ),
+      )
+      .returning({ stagingId: mcpInvocation.stagingId });
+    const row = requireRow(updated, "settleReservedMcpSuccessor");
+    await tx
+      .update(actionStagings)
+      .set({
+        status: input.settlement.kind === "not_delivered" ? "failed" : "executed",
+        outcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
+        executedAt: now,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+      })
+      .where(and(eq(actionStagings.id, row.stagingId), eq(actionStagings.userId, input.userId)));
+  });
 }
 
 export interface ReconcileSummary {
@@ -431,6 +493,7 @@ export async function reconcileInflightInvocations(
         and(
           ...scope,
           eq(mcpInvocation.attemptLifecycle, "prepared"),
+          isNull(mcpInvocation.successorOf),
           isNull(mcpInvocation.resolvedAt),
         ),
       )
@@ -469,7 +532,24 @@ export async function reconcileInflightInvocations(
           isNull(mcpInvocation.resolvedAt),
         ),
       )
-      .returning({ id: mcpInvocation.id });
+      .returning({ id: mcpInvocation.id, stagingId: mcpInvocation.stagingId });
+
+    if (markedUnknown.length > 0) {
+      await tx
+        .update(actionStagings)
+        .set({
+          status: "executed",
+          outcome: "unknown",
+          executedAt: sql`coalesce(${actionStagings.executedAt}, now())`,
+          rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        })
+        .where(
+          inArray(
+            actionStagings.id,
+            markedUnknown.map((row) => row.stagingId),
+          ),
+        );
+    }
 
     return {
       abandoned: abandoned.length,

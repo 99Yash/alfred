@@ -26,7 +26,6 @@ import {
   updateConnection,
 } from "../../src/connections/mcp/persistence";
 import {
-  createSuccessorInvocation,
   findUnresolvedBarrier,
   insertInvocation,
   reconcileInflightInvocations,
@@ -39,9 +38,10 @@ import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the MCP persistence layer (PRD #540). They exercise the
- * three genuinely-atomic operations the broker rests on — the catalog-revision
- * publish (idempotent insert + pointer advance), the ledger barrier
- * reservation, and the successor mint — plus the boot reconcile sweep. Pure
+ * atomic operations the broker rests on — the catalog-revision publish
+ * (idempotent insert + pointer advance) and the ledger barrier reservation —
+ * plus the boot reconcile sweep. Explicit successor behavior lives in
+ * recovery.test.ts, where both durable barriers can be asserted together. Pure
  * row access is covered incidentally by the fixtures.
  *
  * Opt-in on `DATABASE_URL` (mirrors dispatch/staging.test.ts): seeds throwaway
@@ -617,80 +617,6 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(dup, { ok: false, reason: "duplicate_staging" });
   });
 
-  test("createSuccessorInvocation resolves prior and clears the barrier", async () => {
-    const userId = await seedUser();
-    const connId = await seedConnection(userId);
-    const key = {
-      userId,
-      connectionId: connId,
-      remoteName: "charge_card",
-      argsHash: "sha256:pay1",
-    };
-
-    const prior = await insertInvocation({
-      ...key,
-      stagingId: await seedStaging(userId),
-      effectClass: "write",
-      attemptLifecycle: "delivery_possible",
-      effectOutcome: "unknown",
-    });
-    assert.ok(prior.ok);
-
-    const result = await createSuccessorInvocation({
-      priorId: prior.invocation.id,
-      priorResolutionReason: "superseded_by_successor",
-      successor: { ...key, stagingId: await seedStaging(userId), effectClass: "write" },
-    });
-    assert.ok(result.ok);
-    assert.equal(result.successor.successorOf, prior.invocation.id);
-
-    // Exactly one unresolved row for the key now — the successor.
-    const barrier = await findUnresolvedBarrier(key);
-    assert.equal(barrier?.id, result.successor.id);
-
-    // The prior is resolved.
-    const [priorRow] = await db()
-      .select({ resolvedAt: mcpInvocation.resolvedAt })
-      .from(mcpInvocation)
-      .where(eq(mcpInvocation.id, prior.invocation.id));
-    assert.ok(priorRow?.resolvedAt);
-  });
-
-  test("createSuccessorInvocation refuses when the prior is already resolved", async () => {
-    const userId = await seedUser();
-    const connId = await seedConnection(userId);
-    const key = {
-      userId,
-      connectionId: connId,
-      remoteName: "charge_card",
-      argsHash: "sha256:pay-resolved",
-    };
-
-    // A prior that is already resolved (a definitive success, say): there is no
-    // unresolved ambiguity left to supersede.
-    const prior = await insertInvocation({
-      ...key,
-      stagingId: await seedStaging(userId),
-      effectClass: "write",
-      attemptLifecycle: "response_received",
-      effectOutcome: "succeeded",
-      resolvedAt: new Date(),
-      resolutionReason: "succeeded",
-    });
-    assert.ok(prior.ok);
-
-    const result = await createSuccessorInvocation({
-      priorId: prior.invocation.id,
-      priorResolutionReason: "superseded_by_successor",
-      successor: { ...key, stagingId: await seedStaging(userId), effectClass: "write" },
-    });
-    assert.deepEqual(result, { ok: false, reason: "prior_already_resolved" });
-
-    // No successor was minted — no unresolved barrier for the key.
-    const barrier = await findUnresolvedBarrier(key);
-    assert.equal(barrier, undefined);
-  });
-
   test("reconcile sweeps prepared, read, and effectful in-flight rows", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -713,12 +639,13 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "read",
       attemptLifecycle: "delivery_possible",
     });
+    const writeStagingId = await seedStaging(userId);
     const writeInflight = await insertInvocation({
       userId,
       connectionId: connId,
       remoteName: "c",
       argsHash: "sha256:3",
-      stagingId: await seedStaging(userId),
+      stagingId: writeStagingId,
       effectClass: "write",
       attemptLifecycle: "delivery_possible",
     });
@@ -740,6 +667,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(write?.resolvedAt, null);
     assert.equal(write?.effectOutcome, "unknown");
     assert.equal(write?.retryDisposition, "blocked");
+    const [writeStaging] = await db()
+      .select({ outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, writeStagingId));
+    assert.equal(writeStaging?.outcome, "unknown");
   });
 
   test("a crash after delivery_possible blocks an identical fresh proposal on resume", async () => {
@@ -754,9 +686,10 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     // A process died right after crossing the delivery boundary: a
     // `delivery_possible` write row with no outcome yet.
+    const crashedStagingId = await seedStaging(userId);
     const crashed = await insertInvocation({
       ...key,
-      stagingId: await seedStaging(userId),
+      stagingId: crashedStagingId,
       effectClass: "write",
       attemptLifecycle: "delivery_possible",
     });
@@ -772,6 +705,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(recovered?.effectOutcome, "unknown");
     assert.equal(recovered?.retryDisposition, "blocked");
     assert.equal(recovered?.resolvedAt, null);
+    const [recoveredStaging] = await db()
+      .select({ outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, crashedStagingId));
+    assert.equal(recoveredStaging?.outcome, "unknown");
 
     // On resume a fresh `tool_call_id` (new staging) proposing the identical call
     // is refused by the durable barrier — it cannot bypass the recovered unknown.

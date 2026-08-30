@@ -12,7 +12,7 @@
  */
 
 import { z } from "zod";
-import { jsonObjectSchema } from "./user-model";
+import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
 // ---------------------------------------------------------------------------
 // Connection state machine (durable half). Owned here so the DB column
@@ -84,6 +84,49 @@ export const mcpEffectOutcomeSchema = z.enum(mcpEffectOutcomeValues);
 export const mcpRetryDispositionValues = ["safe", "blocked", "reconcile", "same_key_only"] as const;
 export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
+
+// ---------------------------------------------------------------------------
+// Explicit recovery operations. These are safe product projections: the raw
+// staging proposal and decided input remain server-side.
+// ---------------------------------------------------------------------------
+export const mcpRecoveryDecisionSchema = z.enum(["confirmed_succeeded", "confirmed_not_applied"]);
+export type McpRecoveryDecision = z.infer<typeof mcpRecoveryDecisionSchema>;
+
+export const mcpRecoveryOperationSchema = z
+  .object({
+    invocationId: z.string(),
+    successorOf: z.string().nullable(),
+    connection: z.object({ id: z.string(), label: z.string() }).strict(),
+    remoteName: z.string(),
+    displayInput: jsonValueSchema.nullable(),
+    attemptLifecycle: z.enum(["delivery_possible", "response_received"]),
+    effectOutcome: z.literal("unknown"),
+    retryDisposition: z.literal("blocked"),
+    deliveryPossibleAt: z.coerce.date(),
+    responseReceivedAt: z.coerce.date().nullable(),
+    lastError: z.string().nullable(),
+    traceId: z.string().nullable(),
+    stepId: z.string().nullable(),
+    toolCallId: z.string().nullable(),
+  })
+  .strict();
+export type McpRecoveryOperation = z.infer<typeof mcpRecoveryOperationSchema>;
+
+export const mcpRecoveryMutationStatusSchema = z.enum([
+  "resolved",
+  "completed",
+  "tool_error",
+  "ambiguous",
+  "blocked",
+]);
+export const mcpRecoveryMutationResultSchema = z
+  .object({
+    status: mcpRecoveryMutationStatusSchema,
+    invocationId: z.string(),
+    successorInvocationId: z.string().nullable(),
+  })
+  .strict();
+export type McpRecoveryMutationResult = z.infer<typeof mcpRecoveryMutationResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Content-block kinds (#541). The CLOSED set the MCP `ContentBlock` union

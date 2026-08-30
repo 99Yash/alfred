@@ -21,6 +21,8 @@ export type ActionStagingStatus = z.infer<typeof actionStagingStatusSchema>;
  * `succeeded`. `refused` marks an effect the system refused to attempt — the
  * gate never called the provider, so it must not count as an attempt the way
  * `failed` does.
+ * `superseded` means a fresh, explicit user authorization replaced an ambiguous
+ * attempt. It does not claim the remote effect succeeded or failed.
  */
 export const effectOutcomeSchema = z.enum([
   "planned",
@@ -29,6 +31,7 @@ export const effectOutcomeSchema = z.enum([
   "succeeded",
   "failed",
   "unknown",
+  "superseded",
   "compensated",
   "refused",
 ]);

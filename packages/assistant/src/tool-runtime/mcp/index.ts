@@ -33,6 +33,7 @@ export {
   type McpBrokerBlockReason,
   type McpBrokerCallInput,
   type McpBrokerOutcome,
+  type McpReservedSuccessorInput,
 } from "./broker";
 export {
   reconcileInflightInvocations,
@@ -43,3 +44,8 @@ export {
 } from "./invocations";
 export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "./risk";
 export { getMcpExecutionBroker } from "./runtime";
+export {
+  listMcpRecoveryOperations,
+  resolveMcpRecoveryOperation,
+  retryMcpRecoveryOperation,
+} from "./recovery";
