@@ -684,9 +684,10 @@ export class McpConnectionManager {
       }
       this.#activeRevisionIds.delete(generation.connectionId);
       await generation.client?.close().catch(() => undefined);
-      if (generation.closeIntent === "disconnect") {
+      const selectedIntent = generation.closeIntent;
+      if (selectedIntent === "disconnect") {
         await this.#patch(generation.connectionId, { status: "disconnected" });
-      } else if (generation.closeIntent === "failure") {
+      } else if (selectedIntent === "failure") {
         await this.#persistence.compareAndSetCatalogRevision({
           connectionId: generation.connectionId,
           expectedCurrentRevisionId: null,
@@ -696,6 +697,9 @@ export class McpConnectionManager {
             lastError: generation.closeFailure ?? "The MCP catalog refresh failed",
           },
         });
+        if (generation.closeIntent === "disconnect") {
+          await this.#patch(generation.connectionId, { status: "disconnected" });
+        }
       }
       if (this.#generations.get(generation.connectionId) === generation) {
         this.#generations.delete(generation.connectionId);
