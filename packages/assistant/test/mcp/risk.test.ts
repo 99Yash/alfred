@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { ensureNamedConnection } from "@alfred/assistant/connections/mcp";
+import { createNamedConnection } from "../../src/connections/mcp/persistence";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
 import { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
@@ -41,9 +41,8 @@ async function seedUser(): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await ensureNamedConnection({
+  const conn = await createNamedConnection({
     userId,
-    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://example.test/mcp"),

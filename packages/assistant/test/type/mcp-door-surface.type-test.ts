@@ -46,6 +46,15 @@ type ToolRuntimeDoor = typeof import("@alfred/assistant/tool-runtime/mcp");
 
 type _AssertConnectionsDoorResolves = ConnectionsDoor["getMcpConnectionManager"];
 type _AssertToolRuntimeDoorResolves = ToolRuntimeDoor["getMcpExecutionBroker"];
+type _AssertClosedBuiltInDoor = ConnectionsDoor["ensureBuiltInConnection"];
+
+// Generic creation mints its instance identity inside persistence and is not a
+// package door until the generic owner-scoped HTTP creation operation exists.
+// @ts-expect-error - callers cannot select instance identity through the product barrel.
+type _NoLooseNamedEnsure = ConnectionsDoor["ensureNamedConnection"];
+
+// @ts-expect-error - generic row creation remains inside the connection module.
+type _NoRawNamedCreate = ConnectionsDoor["createNamedConnection"];
 
 // ---------------------------------------------------------------------------
 // Door 1 is TIER 1, and this is what makes it so: `packages/assistant/package.json`

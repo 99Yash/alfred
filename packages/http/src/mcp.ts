@@ -6,11 +6,10 @@ import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connectio
 import {
   authorizeMcpOAuth,
   boundedMcpErrorText,
-  ensureNamedConnection,
+  ensureBuiltInConnection,
   finishMcpOAuth,
   getMcpConnectionManager,
   listOwnedConnections,
-  MCP_OAUTH_PENDING_ISSUER,
   McpOAuthAuthorizationRequiredError,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
@@ -20,7 +19,6 @@ import {
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
-const GITHUB_MCP_ENDPOINT = new URL("https://api.githubcopilot.com/mcp");
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
 
 function connectionResult(
@@ -90,15 +88,7 @@ export const mcpIntegrationRoutes = new Elysia({
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
       .get("/github/connect", async ({ user, set }) => {
-        const connection = await ensureNamedConnection({
-          userId: user.id,
-          instanceKey: "github-default",
-          label: "GitHub MCP",
-          canonicalResource: GITHUB_MCP_ENDPOINT.href,
-          endpoint: GITHUB_MCP_ENDPOINT,
-          authServerIdentity: MCP_OAUTH_PENDING_ISSUER,
-          status: "disconnected",
-        });
+        const connection = await ensureBuiltInConnection(user.id, "github");
         await getMcpConnectionManager().disconnect(connection.id, user.id);
         const authorizationUrl = await beginAuthorization({
           connectionId: connection.id,

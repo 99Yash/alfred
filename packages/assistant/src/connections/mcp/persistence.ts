@@ -8,7 +8,8 @@
  * single-row read, a single-row write, or the one genuinely-atomic multi-row
  * operation that MUST be a transaction to be crash-safe:
  *
- *  - `ensureNamedConnection` — immutable server definition + named instance;
+ *  - named connection creation — immutable server definition + fresh instance;
+ *  - built-in connection ensure — one closed, stable slot per built-in provider;
  *  - `publishCatalogRevision` — idempotent insert of an immutable revision +
  *    advance of the connection's current-revision pointer.
  *
@@ -19,7 +20,7 @@
  */
 
 import { db } from "@alfred/db";
-import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
+import { createId, requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
   mcpConnections,
@@ -54,24 +55,30 @@ export type McpConnectionUpdate = Partial<
   >
 >;
 
-export type McpConnectionWithServer = McpConnection & { readonly server: McpServer };
+type McpServerDefinition = Pick<McpServer, "canonicalResource" | "endpointUrl" | "endpointOrigin">;
 
-export type EnsureNamedMcpConnectionInput = Pick<
-  NewMcpConnection,
-  "userId" | "instanceKey" | "label" | "authServerIdentity" | "status"
-> &
+export type McpConnectionWithServer = McpConnection & {
+  readonly server: McpServerDefinition;
+};
+
+export type CreateNamedMcpConnectionInput = Pick<NewMcpConnection, "userId" | "label"> &
   Pick<NewMcpServer, "canonicalResource"> & {
     endpoint: URL;
+    initialState?: Partial<Pick<NewMcpConnection, "authServerIdentity" | "status">>;
   };
 
 const connectionWithServerSelection = {
   connection: mcpConnections,
-  server: mcpServers,
+  server: {
+    canonicalResource: mcpServers.canonicalResource,
+    endpointUrl: mcpServers.endpointUrl,
+    endpointOrigin: mcpServers.endpointOrigin,
+  },
 };
 
 function joinConnection(input: {
   connection: McpConnection;
-  server: McpServer;
+  server: McpServerDefinition;
 }): McpConnectionWithServer {
   return { ...input.connection, server: input.server };
 }
@@ -102,61 +109,112 @@ async function readServerByResource(
   return row;
 }
 
-/**
- * Create or reuse one owner-scoped server definition and one immutable named
- * instance. A repeated instance key may rename its label, but it cannot replace
- * endpoint identity or connection-specific account state.
- */
-export async function ensureNamedConnection(
-  input: EnsureNamedMcpConnectionInput,
+async function ensureServerDefinition(
+  input: Pick<CreateNamedMcpConnectionInput, "userId" | "canonicalResource" | "endpoint">,
+  runner: DbRunner,
+): Promise<McpServer> {
+  const endpointUrl = input.endpoint.href;
+  const endpointOrigin = input.endpoint.origin;
+  const [insertedServer] = await runner
+    .insert(mcpServers)
+    .values({
+      userId: input.userId,
+      canonicalResource: input.canonicalResource,
+      endpointUrl,
+      endpointOrigin,
+    })
+    .onConflictDoNothing({
+      target: [mcpServers.userId, mcpServers.canonicalResource],
+    })
+    .returning();
+  const server =
+    insertedServer ?? (await readServerByResource(input.userId, input.canonicalResource, runner));
+  if (!server) {
+    throw new Error(
+      `ensureServerDefinition: server vanished for resource ${input.canonicalResource}`,
+    );
+  }
+  if (server.endpointUrl !== endpointUrl || server.endpointOrigin !== endpointOrigin) {
+    throw new Error(
+      `MCP resource '${input.canonicalResource}' already uses endpoint ${server.endpointUrl}`,
+    );
+  }
+  return server;
+}
+
+function connectionInsertValues(
+  input: CreateNamedMcpConnectionInput,
+  serverId: string,
+  instanceKey: string,
+): NewMcpConnection {
+  return {
+    userId: input.userId,
+    serverId,
+    instanceKey,
+    label: input.label,
+    ...(input.initialState?.authServerIdentity !== undefined
+      ? { authServerIdentity: input.initialState.authServerIdentity }
+      : {}),
+    ...(input.initialState?.status !== undefined ? { status: input.initialState.status } : {}),
+  };
+}
+
+/** Create one fresh named instance. The persistence owner mints its immutable identity. */
+export async function createNamedConnection(
+  input: CreateNamedMcpConnectionInput,
   runner: DbRunner = db(),
 ): Promise<McpConnectionWithServer> {
   return runAtomic(runner, async (tx) => {
-    const endpointUrl = input.endpoint.href;
-    const endpointOrigin = input.endpoint.origin;
-    const [insertedServer] = await tx
-      .insert(mcpServers)
-      .values({
-        userId: input.userId,
-        canonicalResource: input.canonicalResource,
-        endpointUrl,
-        endpointOrigin,
-      })
-      .onConflictDoNothing({
-        target: [mcpServers.userId, mcpServers.canonicalResource],
-      })
-      .returning();
-    const server =
-      insertedServer ?? (await readServerByResource(input.userId, input.canonicalResource, tx));
-    if (!server) {
-      throw new Error(
-        `ensureNamedConnection: server vanished for resource ${input.canonicalResource}`,
-      );
-    }
-    if (server.endpointUrl !== endpointUrl || server.endpointOrigin !== endpointOrigin) {
-      throw new Error(
-        `MCP resource '${input.canonicalResource}' already uses endpoint ${server.endpointUrl}`,
-      );
-    }
-
+    const server = await ensureServerDefinition(input, tx);
     const [connection] = await tx
       .insert(mcpConnections)
-      .values({
-        userId: input.userId,
-        serverId: server.id,
-        instanceKey: input.instanceKey,
-        label: input.label,
-        ...(input.authServerIdentity !== undefined
-          ? { authServerIdentity: input.authServerIdentity }
-          : {}),
-        ...(input.status !== undefined ? { status: input.status } : {}),
-      })
+      .values(connectionInsertValues(input, server.id, createId("mcpc")))
+      .returning();
+    return joinConnection({
+      connection: requireRow(connection, "createNamedConnection"),
+      server,
+    });
+  });
+}
+
+const BUILT_IN_CONNECTIONS = {
+  github: {
+    instanceKey: "github-default",
+    label: "GitHub MCP",
+    canonicalResource: "https://api.githubcopilot.com/mcp",
+    endpoint: new URL("https://api.githubcopilot.com/mcp"),
+    initialState: {
+      authServerIdentity: "oauth:pending",
+      status: "disconnected",
+    },
+  },
+} as const satisfies Record<
+  string,
+  Omit<CreateNamedMcpConnectionInput, "userId"> & { instanceKey: string }
+>;
+
+/** Ensure the one stable connection slot owned by a closed built-in provider definition. */
+export async function ensureBuiltInConnection(
+  userId: string,
+  provider: keyof typeof BUILT_IN_CONNECTIONS,
+  runner: DbRunner = db(),
+): Promise<McpConnectionWithServer> {
+  const builtIn = BUILT_IN_CONNECTIONS[provider];
+  return runAtomic(runner, async (tx) => {
+    const input: CreateNamedMcpConnectionInput = { userId, ...builtIn };
+    const server = await ensureServerDefinition(input, tx);
+    const [connection] = await tx
+      .insert(mcpConnections)
+      .values(connectionInsertValues(input, server.id, builtIn.instanceKey))
       .onConflictDoUpdate({
         target: [mcpConnections.userId, mcpConnections.serverId, mcpConnections.instanceKey],
-        set: { label: input.label, updatedAt: new Date() },
+        set: { updatedAt: new Date() },
       })
       .returning();
-    return { ...requireRow(connection, "ensureNamedConnection"), server };
+    return joinConnection({
+      connection: requireRow(connection, "ensureBuiltInConnection"),
+      server,
+    });
   });
 }
 

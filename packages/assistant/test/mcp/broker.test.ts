@@ -19,7 +19,7 @@ import { McpExecutionBroker } from "../../src/tool-runtime/mcp/broker";
 import { McpClientError } from "../../src/connections/mcp/errors";
 import { canonicalArgsHash, descriptorHash } from "../../src/connections/mcp/hash";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import { ensureNamedConnection } from "../../src/connections/mcp/persistence";
+import { createNamedConnection } from "../../src/connections/mcp/persistence";
 import {
   createSuccessorInvocation,
   upsertToolPolicy,
@@ -136,9 +136,8 @@ async function seedStaging(userId: string): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await ensureNamedConnection({
+  const conn = await createNamedConnection({
     userId,
-    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),

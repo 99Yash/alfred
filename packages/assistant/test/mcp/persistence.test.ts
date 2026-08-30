@@ -15,7 +15,8 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import {
   compareAndSetCatalogRevision,
-  ensureNamedConnection,
+  createNamedConnection,
+  ensureBuiltInConnection,
   insertCatalogRevision,
   publishCatalogRevision,
   readConnection,
@@ -100,9 +101,8 @@ async function seedStaging(userId: string): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await ensureNamedConnection({
+  const conn = await createNamedConnection({
     userId,
-    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://example.test/mcp"),
@@ -141,16 +141,14 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const canonicalResource = `mcp://test/${randomUUID()}`;
     const endpoint = new URL("https://shared.example.test/mcp");
 
-    const personal = await ensureNamedConnection({
+    const personal = await createNamedConnection({
       userId,
-      instanceKey: "personal",
       label: "Personal",
       canonicalResource,
       endpoint,
     });
-    const work = await ensureNamedConnection({
+    const work = await createNamedConnection({
       userId,
-      instanceKey: "work",
       label: "Work",
       canonicalResource,
       endpoint,
@@ -182,15 +180,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     });
     await updateConnection(work.id, { credentialId: workCredential.id });
 
-    const renamed = await ensureNamedConnection({
-      userId,
-      instanceKey: "personal",
-      label: "Renamed personal",
-      canonicalResource,
-      endpoint,
-    });
+    await updateConnection(personal.id, { label: "Renamed personal" });
+    const renamed = await readConnection(personal.id);
     const unchangedWork = await readConnection(work.id);
 
+    assert.ok(renamed);
     assert.equal(renamed.id, personal.id);
     assert.equal(renamed.label, "Renamed personal");
     assert.equal(renamed.status, "ready");
@@ -204,9 +198,8 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   test("a connection cannot refer to another owner's server", async () => {
     const ownerId = await seedUser();
     const otherUserId = await seedUser();
-    const owned = await ensureNamedConnection({
+    const owned = await createNamedConnection({
       userId: ownerId,
-      instanceKey: "default",
       label: "Owned server",
       canonicalResource: `mcp://test/${randomUUID()}`,
       endpoint: new URL("https://owned.example.test/mcp"),
@@ -229,24 +222,40 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   test("a server definition cannot be silently retargeted", async () => {
     const userId = await seedUser();
     const canonicalResource = `mcp://test/${randomUUID()}`;
-    await ensureNamedConnection({
+    await createNamedConnection({
       userId,
-      instanceKey: "default",
       label: "Original",
       canonicalResource,
       endpoint: new URL("https://one.example.test/mcp"),
     });
 
     await assert.rejects(
-      ensureNamedConnection({
+      createNamedConnection({
         userId,
-        instanceKey: "second",
         label: "Retarget",
         canonicalResource,
         endpoint: new URL("https://two.example.test/mcp"),
       }),
       /already uses endpoint/,
     );
+  });
+
+  test("the closed GitHub slot reuses its identity without resetting account state", async () => {
+    const userId = await seedUser();
+    const first = await ensureBuiltInConnection(userId, "github");
+    await updateConnection(first.id, {
+      status: "ready",
+      lastError: "preserved",
+      grantedScopes: ["repo"],
+    });
+
+    const replay = await ensureBuiltInConnection(userId, "github");
+
+    assert.equal(replay.id, first.id);
+    assert.equal(replay.instanceKey, "github-default");
+    assert.equal(replay.status, "ready");
+    assert.equal(replay.lastError, "preserved");
+    assert.deepEqual(replay.grantedScopes, ["repo"]);
   });
 
   test("publishCatalogRevision is idempotent and advances the pointer", async () => {

@@ -8,13 +8,19 @@ import {
   McpConnectionManager,
   McpRawClient,
   type McpConnectionManagerPersistence,
-  type McpConnectionWithServer,
   type McpNegotiatedServer,
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
+import type { McpConnectionWithServer } from "../../src/connections/mcp/persistence";
+
+type JoinedServerDefinition = McpConnectionWithServer["server"];
+// @ts-expect-error - consumers receive definition facts, not a second owner identity.
+type _NoJoinedServerOwner = JoinedServerDefinition["userId"];
+// @ts-expect-error - the connection's serverId is authoritative; the nested row does not repeat it.
+type _NoJoinedServerId = JoinedServerDefinition["id"];
 
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[] = [tool("tool_a")];
@@ -419,13 +425,9 @@ function connection(): McpConnectionWithServer {
     createdAt: now,
     updatedAt: now,
     server: {
-      id: "server_lifecycle",
-      userId: "user_lifecycle",
       canonicalResource: "mcp://test/lifecycle",
       endpointUrl: "https://mcp.example.test/mcp",
       endpointOrigin: "https://mcp.example.test",
-      createdAt: now,
-      updatedAt: now,
     },
   };
 }
