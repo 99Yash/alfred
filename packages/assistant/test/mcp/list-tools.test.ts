@@ -9,7 +9,8 @@ import type { Tool } from "@modelcontextprotocol/client";
 import { inArray, like } from "drizzle-orm";
 
 import { inspectMcpToolLocal, searchMcpToolsLocal } from "../../src/connections/mcp";
-import { computeDescriptorHashes } from "../../src/connections/mcp/hash";
+import { MCP_DISCOVERY_SCAN_BUDGET } from "../../src/connections/mcp/discovery-policy";
+import { compareMcpToolNames, computeDescriptorHashes } from "../../src/connections/mcp/hash";
 import {
   createNamedConnection,
   listOwnedCurrentCatalogSlices,
@@ -67,13 +68,14 @@ async function seedConnection(
 }
 
 async function seedRevision(connectionId: string, tools: Tool[]): Promise<string> {
+  const descriptors = [...tools].sort((left, right) => compareMcpToolNames(left.name, right.name));
   const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
   await publishCatalogRevision({
     connectionId,
     revisionHash,
-    descriptors: tools,
-    descriptorHashes: computeDescriptorHashes(tools),
-    toolCount: tools.length,
+    descriptors,
+    descriptorHashes: computeDescriptorHashes(descriptors),
+    toolCount: descriptors.length,
   });
   return revisionHash;
 }
@@ -302,7 +304,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
 
     const descriptorConnection = await seedConnection(userId, { label: "Large catalog" });
     await seedRevision(descriptorConnection.id, [
-      ...Array.from({ length: 200 }, (_, index) =>
+      ...Array.from({ length: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit }, (_, index) =>
         tool(`a_other_${String(index).padStart(3, "0")}`),
       ),
       tool("z_target_descriptor"),
@@ -326,10 +328,10 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     );
   });
 
-  test("the persistence search boundary returns at most 200 descriptors across four catalogs", async () => {
+  test("the persistence search boundary enforces the production scan budget", async () => {
     const userId = await seedUser();
     const connections = await Promise.all(
-      Array.from({ length: 4 }, (_, index) =>
+      Array.from({ length: MCP_DISCOVERY_SCAN_BUDGET.catalogLimit + 1 }, (_, index) =>
         seedConnection(userId, { label: `Bounded catalog ${index}` }),
       ),
     );
@@ -344,13 +346,13 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
 
     const rows = await listOwnedCurrentCatalogSlices({
       userId,
-      catalogLimit: 4,
-      descriptorLimit: 200,
+      catalogLimit: Number.MAX_SAFE_INTEGER,
+      descriptorLimit: Number.MAX_SAFE_INTEGER,
     });
-    assert.equal(rows.length, 4);
+    assert.equal(rows.length, MCP_DISCOVERY_SCAN_BUDGET.catalogLimit);
     assert.equal(
       rows.reduce((count, row) => count + row.descriptors.length, 0),
-      200,
+      MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
       "the database projection, not the JavaScript scanner, owns the descriptor budget",
     );
     assert.ok(rows.every((row) => row.descriptorCount === 1_000));
@@ -371,12 +373,18 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     assert.ok(first && second);
     await seedRevision(
       first.id,
-      Array.from({ length: 201 }, (_, index) => tool(`first_${index}`)),
+      Array.from({ length: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit + 1 }, (_, index) =>
+        tool(`first_${index}`),
+      ),
     );
     await seedRevision(second.id, [
-      ...Array.from({ length: 199 }, (_, index) => tool(`second_${index}`)),
-      tool("cross_budget_target"),
-      ...Array.from({ length: 50 }, (_, index) => tool(`second_tail_${index}`)),
+      ...Array.from({ length: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit - 1 }, (_, index) =>
+        tool(`a_second_${String(index).padStart(3, "0")}`),
+      ),
+      tool("b_cross_budget_target"),
+      ...Array.from({ length: 50 }, (_, index) =>
+        tool(`c_second_tail_${String(index).padStart(3, "0")}`),
+      ),
     ]);
 
     const firstPage = await searchMcpToolsLocal({ userId, query: "cross_budget_target" });
@@ -396,7 +404,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     });
     assert.deepEqual(
       thirdPage.tools.map((hit) => hit.ref.remoteName),
-      ["cross_budget_target"],
+      ["b_cross_budget_target"],
     );
   });
 
@@ -414,15 +422,17 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const second = ordered[1];
     assert.ok(first && second);
     await seedRevision(first.id, [
-      tool("target_first"),
-      ...Array.from({ length: 200 }, (_, index) => tool(`other_${index}`)),
+      tool("a_target_first"),
+      ...Array.from({ length: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit }, (_, index) =>
+        tool(`b_other_${String(index).padStart(3, "0")}`),
+      ),
     ]);
-    await seedRevision(second.id, [tool("target_second")]);
+    await seedRevision(second.id, [tool("a_target_second")]);
 
     const firstPage = await searchMcpToolsLocal({ userId, query: "target", limit: 1 });
     assert.deepEqual(
       firstPage.tools.map((hit) => hit.ref.remoteName),
-      ["target_first"],
+      ["a_target_first"],
     );
     assert.ok(firstPage.nextCursor);
 
@@ -443,7 +453,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     });
     assert.deepEqual(
       thirdPage.tools.map((hit) => hit.ref.remoteName),
-      ["target_second"],
+      ["a_target_second"],
     );
   });
 
