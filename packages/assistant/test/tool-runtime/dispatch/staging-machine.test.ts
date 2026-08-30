@@ -799,7 +799,7 @@ describe("dispatch staging machine (DB-free)", () => {
       requiresApproval: false,
       status: "pending",
     });
-    await store.commitStaging(row.id, {
+    await store.commitStaging(row.id, row, {
       status: "executed",
       outcome: "unknown",
       result: unknownEffectEnvelopeSchema.parse({

@@ -22,7 +22,6 @@ import {
   attemptKeyFor,
   effectKeyFor,
   outcomeForInsert,
-  type StagingCommit,
   type StagingInsertValues,
   type StagingRow,
   type StagingStore,
@@ -225,8 +224,14 @@ export function memoryStagingStore(): MemoryStagingStore {
       return project(row);
     },
 
-    async commitStaging(stagingId: string, commit: StagingCommit) {
+    async commitStaging(stagingId, expected, commit) {
       const row = mustGet(stagingId);
+      const isObservedState = row.status === expected.status && row.outcome === expected.outcome;
+      const isUnenrichedAggregateState =
+        row.status === commit.status &&
+        row.outcome === commit.outcome &&
+        (commit.status === "executed" ? row.executeResult === null : row.executeError === null);
+      if (!isObservedState && !isUnenrichedAggregateState) return false;
       switch (commit.status) {
         case "failed":
           row.status = "failed";
@@ -249,6 +254,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         }
       }
       row.rowVersion += 1;
+      return true;
     },
   };
 }

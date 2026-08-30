@@ -1354,8 +1354,12 @@ async function commitAndPoke(
   ctx: ToolExecuteContext,
   commit: StagingCommit,
 ): Promise<void> {
-  await stagingStore().commitStaging(row.id, commit);
-  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
+  const committed = await stagingStore().commitStaging(
+    row.id,
+    { status: row.status, outcome: row.outcome },
+    commit,
+  );
+  if (committed && row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
 }
 
 async function executeAndCommit(

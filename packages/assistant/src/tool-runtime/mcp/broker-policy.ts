@@ -6,7 +6,9 @@
  * from `@alfred/contracts`.
  */
 export const MCP_BROKER_ADMISSION_CAPACITY = 40;
-export const MCP_SETTLEMENT_REPAIR_BATCH_SIZE = 64;
+// Deliberately smaller than the product recovery page. The progress cursor, not
+// an accidental ratio between these limits, guarantees complete traversal.
+export const MCP_SETTLEMENT_REPAIR_BATCH_SIZE = 8;
 
 export function hasMcpBrokerAdmissionCapacity(input: {
   pendingRepairs: number;

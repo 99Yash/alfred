@@ -59,6 +59,12 @@ import {
   type OwnedMcpConnectionRef,
 } from "./invocations";
 import { hasMcpBrokerAdmissionCapacity, MCP_SETTLEMENT_REPAIR_BATCH_SIZE } from "./broker-policy";
+import {
+  afterMcpRecoveryOrderKey,
+  mcpRecoveryEffectiveAt,
+  mcpRecoveryOrderKey,
+  type McpRecoveryOrderKey,
+} from "./recovery-progress";
 
 const BLOCKED_BARRIER_MESSAGE =
   "A matching write to this MCP tool is already unresolved (it may have been delivered). " +
@@ -629,48 +635,66 @@ export class McpExecutionBroker {
     this.#manager = manager;
   }
 
-  /** Retry local-only repairs before a recovery read. This never calls a provider. */
-  async repairIncompleteSettlements(input: { userId: string }): Promise<void> {
-    const queued: PendingMcpSettlementRepair[] = [];
-    for (const repair of pendingMcpSettlementRepairs.values()) {
-      if (repair.userId !== input.userId) continue;
-      queued.push(repair);
-    }
-    for (const repair of queued) {
-      try {
-        if (await repairMcpSettlement(repair)) {
-          pendingMcpSettlementRepairs.delete(`${repair.userId}:${repair.invocationId}`);
-        }
-      } catch {
-        // A recovery read remains safe and bounded if the database is still
-        // unavailable. The queued repair stays available for a later read.
-      }
-    }
-
-    const effectiveAt = sql<string>`coalesce(${mcpInvocation.deliveryPossibleAt}, ${mcpInvocation.createdAt})`;
-    const marked = await db()
-      .select({ invocationId: mcpInvocation.id, effectiveAt })
+  /**
+   * Retry one broker-owned batch before a recovery read. The returned frontier
+   * is the only key product paging may cross; this keeps repair work bounded
+   * independently from the recovery-card page size.
+   */
+  async repairIncompleteSettlements(input: {
+    userId: string;
+    after?: McpRecoveryOrderKey;
+  }): Promise<{ scannedThrough: McpRecoveryOrderKey | null; hasMore: boolean; repaired: number }> {
+    const queuedIds = [...pendingMcpSettlementRepairs.values()]
+      .filter((repair) => repair.userId === input.userId)
+      .map((repair) => repair.invocationId);
+    const candidates = await db()
+      .select({ invocationId: mcpInvocation.id, effectiveAt: mcpRecoveryEffectiveAt })
       .from(mcpInvocation)
       .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
       .where(
         and(
           eq(mcpInvocation.userId, input.userId),
           eq(actionStagings.userId, input.userId),
-          eq(actionStagings.outcome, "unknown"),
-          inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
-          isNull(mcpInvocation.effectOutcome),
-          isNull(mcpInvocation.retryDisposition),
-          isNull(mcpInvocation.resolvedAt),
+          ...(input.after ? [afterMcpRecoveryOrderKey(input.after)] : []),
+          or(
+            and(
+              eq(actionStagings.outcome, "unknown"),
+              inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+              isNull(mcpInvocation.effectOutcome),
+              isNull(mcpInvocation.retryDisposition),
+              isNull(mcpInvocation.resolvedAt),
+            ),
+            ...(queuedIds.length > 0 ? [inArray(mcpInvocation.id, queuedIds)] : []),
+          ),
         ),
       )
-      .orderBy(asc(effectiveAt), asc(mcpInvocation.id))
-      .limit(MCP_SETTLEMENT_REPAIR_BATCH_SIZE);
-    for (const row of marked) {
-      await normalizeMarkedMcpSettlementFailure({
+      .orderBy(asc(mcpRecoveryEffectiveAt), asc(mcpInvocation.id))
+      .limit(MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
+
+    let scannedThrough: McpRecoveryOrderKey | null = null;
+    let repaired = 0;
+    let processed = 0;
+    for (const row of candidates.slice(0, MCP_SETTLEMENT_REPAIR_BATCH_SIZE)) {
+      const key = `${input.userId}:${row.invocationId}`;
+      const repair = pendingMcpSettlementRepairs.get(key) ?? {
         userId: input.userId,
         invocationId: row.invocationId,
-      });
+      };
+      try {
+        if (!(await repairMcpSettlement(repair))) break;
+      } catch {
+        break;
+      }
+      pendingMcpSettlementRepairs.delete(key);
+      scannedThrough = mcpRecoveryOrderKey(row);
+      repaired += 1;
+      processed += 1;
     }
+    return {
+      scannedThrough,
+      hasMore: processed < candidates.length,
+      repaired,
+    };
   }
 
   /**
