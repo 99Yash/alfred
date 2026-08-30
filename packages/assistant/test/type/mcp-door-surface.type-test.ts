@@ -162,6 +162,21 @@ type _NoRawInvocationInsert = ToolRuntimeLeaf["insertInvocation"];
 // @ts-expect-error - callers cannot patch arbitrary lifecycle or outcome state.
 type _NoRawInvocationUpdate = ToolRuntimeLeaf["updateInvocation"];
 
+// @ts-expect-error - normal reservation is broker-owned, not wildcard-reachable.
+type _NoNormalReservation = ToolRuntimeLeaf["reserveMcpInvocation"];
+
+// @ts-expect-error - the normal delivery claim is broker-owned and aggregate-guarded.
+type _NoNormalDeliveryClaim = ToolRuntimeLeaf["markMcpInvocationDeliveryPossible"];
+
+// @ts-expect-error - not-delivered settlement must also settle its staging barrier.
+type _NoNormalNotDeliveredSettlement = ToolRuntimeLeaf["settleMcpInvocationNotDelivered"];
+
+// @ts-expect-error - ambiguous settlement must also settle its staging barrier.
+type _NoNormalAmbiguousSettlement = ToolRuntimeLeaf["blockMcpInvocationAsAmbiguous"];
+
+// @ts-expect-error - success settlement must also settle its staging barrier.
+type _NoNormalSuccessSettlement = ToolRuntimeLeaf["settleMcpInvocationSucceeded"];
+
 // The wildcard still republishes this leaf, so successor lifecycle primitives
 // must be absent from the module itself. Product code can only call the broker's
 // ID-only `resumeReservedSuccessor` capability.

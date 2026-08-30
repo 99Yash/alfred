@@ -137,6 +137,25 @@ export const mcpRecoveryOperationSchema = z.union([
 ]);
 export type McpRecoveryOperation = z.infer<typeof mcpRecoveryOperationSchema>;
 
+/** Twenty keeps the card-heavy recovery view bounded while showing a useful batch. */
+export const MCP_RECOVERY_PAGE_SIZE = 20;
+export const mcpRecoveryCursorSchema = z.string().min(1);
+export const mcpRecoveryOperationsPageQuerySchema = z
+  .object({ cursor: mcpRecoveryCursorSchema.optional() })
+  .strict();
+export type McpRecoveryOperationsPageQuery = z.infer<typeof mcpRecoveryOperationsPageQuerySchema>;
+export const mcpRecoveryOperationsPageInputSchema = mcpRecoveryOperationsPageQuerySchema
+  .extend({ userId: z.string().min(1) })
+  .strict();
+export type McpRecoveryOperationsPageInput = z.infer<typeof mcpRecoveryOperationsPageInputSchema>;
+export const mcpRecoveryOperationsPageSchema = z
+  .object({
+    operations: z.array(mcpRecoveryOperationSchema).max(MCP_RECOVERY_PAGE_SIZE),
+    nextCursor: z.string().min(1).nullable(),
+  })
+  .strict();
+export type McpRecoveryOperationsPage = z.infer<typeof mcpRecoveryOperationsPageSchema>;
+
 export const mcpRecoveryMutationStatusSchema = z.enum([
   "resolved",
   "completed",

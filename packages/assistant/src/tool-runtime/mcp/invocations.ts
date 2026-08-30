@@ -17,19 +17,16 @@
  * The genuinely-atomic operations here, each of which MUST be a transaction to be
  * crash-safe:
  *
- *  - `reserveMcpInvocation` — the normal-call barrier reservation. Inserting the
- *    ledger row IS the reservation; the partial unique index rejects a duplicate
- *    unresolved proposal, surfaced here as `{ ok: false, reason: "barrier" }`.
+ *  - normal-call reservation and lifecycle transitions live module-private in
+ *    `broker.ts`, where they own the invocation and staging rows together.
  *  - explicit successor reservation lives in `recovery.ts`, where the invocation
  *    and action-staging barriers can move in one transaction.
  *  - `reconcileInflightInvocations` — the crash-recovery barrier sweep run at
  *    boot (issue clarification #1).
  */
 
-import type { McpResultProvenance } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
-import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
   actionStagings,
   mcpCatalogRevisions,
@@ -39,7 +36,6 @@ import {
   type McpConnection,
   type McpInvocation,
   type McpToolPolicyRow,
-  type NewMcpInvocation,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -204,221 +200,6 @@ export async function upsertToolPolicy(
 // Operation ledger
 // ===========================================================================
 
-/** Result of a barrier reservation attempt. */
-export type ReserveMcpInvocationResult =
-  | { ok: true; invocation: McpInvocation }
-  | { ok: false; reason: "barrier" | "duplicate_staging" };
-
-export type ReserveMcpInvocationInput = Pick<
-  NewMcpInvocation,
-  | "stagingId"
-  | "userId"
-  | "connectionId"
-  | "remoteName"
-  | "argsHash"
-  | "catalogRevisionId"
-  | "descriptorHash"
-  | "policyRevision"
-  | "effectClass"
->;
-
-/**
- * The correlation breadcrumbs a ledger row carries so an ambiguous attempt is
- * reconstructable across Alfred's own traces (#541). They are a DENORMALIZED COPY
- * of the authorizing `action_stagings` row (`run_id` / `step_id` / `tool_call_id`),
- * which is the source of truth and already reachable via the 1:1 `staging_id` FK;
- * they live on the ledger only so an operator can pivot from a trace id to the row
- * without the join. Because nothing in the DB enforces the copy stays equal to its
- * staging twin, every production minter copies it from the staging row it owns.
- * Normal reservations use `stagingCorrelation`; recovery successors copy from
- * the successor staging insert in their atomic recovery transaction.
- */
-async function stagingCorrelation(
-  stagingId: string,
-  runner: DbRunner,
-): Promise<{ traceId: string; stepId: string; toolCallId: string }> {
-  const [staging] = await runner
-    .select({
-      traceId: actionStagings.runId,
-      stepId: actionStagings.stepId,
-      toolCallId: actionStagings.toolCallId,
-    })
-    .from(actionStagings)
-    .where(eq(actionStagings.id, stagingId))
-    .limit(1);
-  return requireRow(staging, "stagingCorrelation");
-}
-
-/**
- * Reserve an operation by inserting its ledger row. The row is minted BEFORE
- * network dispatch, so a crash mid-flight still leaves durable evidence. The row
- * insert IS the ambiguity barrier: the partial unique index on
- * `(user, connection, remoteName, argsHash) WHERE resolvedAt IS NULL` rejects a
- * second unresolved proposal identical to an in-flight/blocked one (23505), and
- * the 1:1 `staging_id` index rejects a re-insert for the same staging row. Both
- * are reported as a typed non-throwing result so the broker decides the arm.
- */
-export async function reserveMcpInvocation(
-  values: ReserveMcpInvocationInput,
-  runner: DbRunner = db(),
-): Promise<ReserveMcpInvocationResult> {
-  const correlation = await stagingCorrelation(values.stagingId, runner);
-  try {
-    const [invocation] = await runner
-      .insert(mcpInvocation)
-      .values({
-        stagingId: values.stagingId,
-        userId: values.userId,
-        connectionId: values.connectionId,
-        remoteName: values.remoteName,
-        argsHash: values.argsHash,
-        effectClass: values.effectClass,
-        attemptLifecycle: "prepared",
-        ...(values.catalogRevisionId ? { catalogRevisionId: values.catalogRevisionId } : {}),
-        ...(values.descriptorHash ? { descriptorHash: values.descriptorHash } : {}),
-        ...(values.policyRevision !== undefined ? { policyRevision: values.policyRevision } : {}),
-        ...correlation,
-      })
-      .returning();
-    return { ok: true, invocation: requireRow(invocation, "reserveMcpInvocation") };
-  } catch (err) {
-    // Two distinct outcomes ride on this narrowing, so both `@alfred/db/pg-errors`
-    // helpers are needed: anything that is not a 23505 is a real failure and must
-    // rethrow, while a 23505 whose constraint name the driver omitted defaults to
-    // the barrier. Reading only the constraint name would collapse the first case
-    // into the second.
-    if (!isUniqueViolation(err)) throw err;
-    if (uniqueViolationConstraint(err) === "mcp_invocation_staging_idx") {
-      return { ok: false, reason: "duplicate_staging" };
-    }
-    // The barrier index (or an unnamed unique violation defaulting to barrier).
-    return { ok: false, reason: "barrier" };
-  }
-}
-
-/** Cross the delivery boundary for a normal effectful call. */
-export async function markMcpInvocationDeliveryPossible(
-  input: { id: string; userId: string },
-  runner: DbRunner = db(),
-): Promise<McpInvocation | undefined> {
-  const [row] = await runner
-    .update(mcpInvocation)
-    .set({ attemptLifecycle: "delivery_possible", deliveryPossibleAt: new Date() })
-    .where(
-      and(
-        eq(mcpInvocation.id, input.id),
-        eq(mcpInvocation.userId, input.userId),
-        eq(mcpInvocation.attemptLifecycle, "prepared"),
-        isNull(mcpInvocation.successorOf),
-        isNull(mcpInvocation.effectOutcome),
-        isNull(mcpInvocation.retryDisposition),
-        isNull(mcpInvocation.resolvedAt),
-      ),
-    )
-    .returning();
-  return row;
-}
-
-/** Resolve a normal effectful attempt that is proven not to have left Alfred. */
-export async function settleMcpInvocationNotDelivered(
-  input: { id: string; userId: string; lastError: string },
-  runner: DbRunner = db(),
-): Promise<McpInvocation | undefined> {
-  const [row] = await runner
-    .update(mcpInvocation)
-    .set({
-      effectOutcome: "failed",
-      retryDisposition: "safe",
-      resolvedAt: new Date(),
-      resolutionReason: "not_delivered",
-      lastError: input.lastError,
-    })
-    .where(
-      and(
-        eq(mcpInvocation.id, input.id),
-        eq(mcpInvocation.userId, input.userId),
-        eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
-        isNull(mcpInvocation.successorOf),
-        isNull(mcpInvocation.effectOutcome),
-        isNull(mcpInvocation.retryDisposition),
-        isNull(mcpInvocation.resolvedAt),
-      ),
-    )
-    .returning();
-  return row;
-}
-
-/** Keep a possibly-applied normal effect unresolved and blocked. */
-export async function blockMcpInvocationAsAmbiguous(
-  input: {
-    id: string;
-    userId: string;
-    lastError: string;
-    resultProvenance?: McpResultProvenance;
-  },
-  runner: DbRunner = db(),
-): Promise<McpInvocation | undefined> {
-  const [row] = await runner
-    .update(mcpInvocation)
-    .set({
-      ...(input.resultProvenance
-        ? {
-            attemptLifecycle: "response_received" as const,
-            responseReceivedAt: new Date(),
-            resultProvenance: input.resultProvenance,
-          }
-        : {}),
-      effectOutcome: "unknown",
-      retryDisposition: "blocked",
-      resolutionReason: "ambiguous_delivery",
-      lastError: input.lastError,
-    })
-    .where(
-      and(
-        eq(mcpInvocation.id, input.id),
-        eq(mcpInvocation.userId, input.userId),
-        eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
-        isNull(mcpInvocation.successorOf),
-        isNull(mcpInvocation.effectOutcome),
-        isNull(mcpInvocation.retryDisposition),
-        isNull(mcpInvocation.resolvedAt),
-      ),
-    )
-    .returning();
-  return row;
-}
-
-/** Record a confirmed successful response for a normal effectful call. */
-export async function settleMcpInvocationSucceeded(
-  input: { id: string; userId: string; resultProvenance: McpResultProvenance },
-  runner: DbRunner = db(),
-): Promise<McpInvocation | undefined> {
-  const now = new Date();
-  const [row] = await runner
-    .update(mcpInvocation)
-    .set({
-      attemptLifecycle: "response_received",
-      responseReceivedAt: now,
-      effectOutcome: "succeeded",
-      resolvedAt: now,
-      resolutionReason: "succeeded",
-      resultProvenance: input.resultProvenance,
-    })
-    .where(
-      and(
-        eq(mcpInvocation.id, input.id),
-        eq(mcpInvocation.userId, input.userId),
-        eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
-        isNull(mcpInvocation.successorOf),
-        isNull(mcpInvocation.effectOutcome),
-        isNull(mcpInvocation.retryDisposition),
-        isNull(mcpInvocation.resolvedAt),
-      ),
-    )
-    .returning();
-  return row;
-}
-
 /**
  * The invocation minted for a staging row, if any. The `mcp_invocation_staging_idx`
  * enforces this is at most one. Used by the broker to recover the prior operation
@@ -567,7 +348,7 @@ export async function reconcileInflightInvocations(
           eq(mcpInvocation.retryDisposition, "blocked"),
           isNull(mcpInvocation.resolvedAt),
           or(
-            inArray(actionStagings.outcome, ["planned", "dispatching"]),
+            inArray(actionStagings.outcome, ["planned", "dispatching", "failed"]),
             isNull(actionStagings.outcome),
           ),
         ),

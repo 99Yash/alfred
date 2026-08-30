@@ -6,18 +6,24 @@ export function McpRecoveryList({
   operations,
   loading,
   readError,
+  hasNextPage,
+  loadingMore,
   mutationPending,
   mutationError,
   onReadRetry,
+  onLoadMore,
   onResolve,
   onRetry,
 }: {
   operations: ReadonlyArray<McpRecoveryOperation>;
   loading: boolean;
   readError: boolean;
+  hasNextPage: boolean;
+  loadingMore: boolean;
   mutationPending: boolean;
   mutationError: boolean;
   onReadRetry: () => void;
+  onLoadMore: () => void;
   onResolve: (invocationId: string, decision: McpRecoveryDecision) => void;
   onRetry: (invocationId: string) => void;
 }) {
@@ -125,6 +131,16 @@ export function McpRecoveryList({
           </AppCard>
         );
       })}
+      {hasNextPage ? (
+        <AppButton
+          size="sm"
+          variant="white"
+          disabled={loadingMore || mutationPending}
+          onClick={onLoadMore}
+        >
+          {loadingMore ? "Loading more…" : "Load more"}
+        </AppButton>
+      ) : null}
       {mutationError ? (
         <p className="px-1 text-xs text-red-600">Could not update the recovery operation.</p>
       ) : null}

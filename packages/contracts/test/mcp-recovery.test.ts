@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { mcpRecoveryDecisionSchema, mcpRecoveryOperationSchema } from "../src/mcp";
+import {
+  MCP_RECOVERY_PAGE_SIZE,
+  mcpRecoveryDecisionSchema,
+  mcpRecoveryOperationSchema,
+  mcpRecoveryOperationsPageInputSchema,
+  mcpRecoveryOperationsPageQuerySchema,
+  mcpRecoveryOperationsPageSchema,
+} from "../src/mcp";
 
 const operation = {
   invocationId: "mcpi_1",
@@ -56,6 +63,48 @@ test("MCP recovery exposes a prepared successor without inventing delivery evide
       ...prepared,
       deliveryPossibleAt: "2026-08-30T08:00:00.000Z",
     }).success,
+    false,
+  );
+});
+
+test("MCP recovery pages keep one fixed bound and an opaque nullable cursor", () => {
+  assert.equal(mcpRecoveryOperationsPageQuerySchema.safeParse({}).success, true);
+  assert.equal(
+    mcpRecoveryOperationsPageQuerySchema.safeParse({ cursor: "cursor-2" }).success,
+    true,
+  );
+  assert.equal(mcpRecoveryOperationsPageQuerySchema.safeParse({ cursor: "" }).success, false);
+  assert.equal(
+    mcpRecoveryOperationsPageInputSchema.safeParse({ userId: "user-1", cursor: "cursor-2" })
+      .success,
+    true,
+  );
+  assert.equal(
+    mcpRecoveryOperationsPageInputSchema.safeParse({ cursor: "cursor-2" }).success,
+    false,
+  );
+  assert.equal(
+    mcpRecoveryOperationsPageSchema.safeParse({
+      operations: Array.from({ length: MCP_RECOVERY_PAGE_SIZE }, (_, index) => ({
+        ...operation,
+        invocationId: `mcpi_${index}`,
+      })),
+      nextCursor: "cursor-2",
+    }).success,
+    true,
+  );
+  assert.equal(
+    mcpRecoveryOperationsPageSchema.safeParse({
+      operations: Array.from({ length: MCP_RECOVERY_PAGE_SIZE + 1 }, (_, index) => ({
+        ...operation,
+        invocationId: `mcpi_${index}`,
+      })),
+      nextCursor: null,
+    }).success,
+    false,
+  );
+  assert.equal(
+    mcpRecoveryOperationsPageSchema.safeParse({ operations: [], nextCursor: "" }).success,
     false,
   );
 });

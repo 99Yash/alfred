@@ -22,6 +22,7 @@
  */
 
 import {
+  MCP_RECOVERY_PAGE_SIZE,
   mcpCallInput,
   type McpCallInput,
   type McpEffectClass,
@@ -29,12 +30,14 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { requireRow, runAtomic } from "@alfred/db/helpers";
+import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
   actionStagings,
   mcpConnections,
   mcpInvocation,
   type McpInvocation,
   type McpToolPolicyRow,
+  type NewMcpInvocation,
 } from "@alfred/db/schemas";
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
@@ -51,14 +54,9 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import {
-  blockMcpInvocationAsAmbiguous,
   findUnresolvedBarrier,
-  markMcpInvocationDeliveryPossible,
   readInvocationByStagingId,
-  reserveMcpInvocation,
   resolveMcpToolIdentity,
-  settleMcpInvocationNotDelivered,
-  settleMcpInvocationSucceeded,
   type OwnedMcpConnectionRef,
 } from "./invocations";
 
@@ -127,9 +125,24 @@ function isProvenNotDelivered(err: unknown): boolean {
   return err instanceof McpClientError && isPreDeliveryErrorCode(err.code);
 }
 
-type ReservedMcpSuccessor = { invocation: McpInvocation; effectiveInput: unknown };
+type NormalMcpInvocationReservation = Pick<
+  NewMcpInvocation,
+  | "stagingId"
+  | "userId"
+  | "connectionId"
+  | "remoteName"
+  | "argsHash"
+  | "catalogRevisionId"
+  | "descriptorHash"
+  | "policyRevision"
+  | "effectClass"
+>;
 
-type ReservedMcpSuccessorSettlement =
+type NormalMcpInvocationReservationResult =
+  | { ok: true; invocation: McpInvocation }
+  | { ok: false; reason: "barrier" | "duplicate_staging" };
+
+type McpInvocationSettlement =
   | { kind: "succeeded"; resultProvenance: McpResultProvenance }
   | { kind: "not_delivered"; lastError: string }
   | {
@@ -137,6 +150,225 @@ type ReservedMcpSuccessorSettlement =
       lastError: string;
       resultProvenance?: McpResultProvenance;
     };
+
+interface PendingMcpSettlementRepair {
+  userId: string;
+  invocationId: string;
+  resultProvenance?: McpResultProvenance;
+}
+
+const pendingMcpSettlementRepairs = new Map<string, PendingMcpSettlementRepair>();
+const MAX_PENDING_MCP_SETTLEMENT_REPAIRS = MCP_RECOVERY_PAGE_SIZE * 2;
+let activeMcpSettlementSlots = 0;
+
+function acquireMcpSettlementSlot(): () => void {
+  if (
+    pendingMcpSettlementRepairs.size + activeMcpSettlementSlots >=
+    MAX_PENDING_MCP_SETTLEMENT_REPAIRS
+  ) {
+    throw new McpClientError(
+      "not_connected",
+      "MCP recovery is temporarily busy; retry after pending recovery state is read.",
+    );
+  }
+  activeMcpSettlementSlots += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeMcpSettlementSlots -= 1;
+  };
+}
+
+/**
+ * Module-private normal-call reservation. The reachable invocation leaf has no
+ * insert authority; the broker supplies only normal prepared-state fields and
+ * copies correlation from the exact owner-scoped staging row.
+ */
+async function reserveNormalMcpInvocationDelivery(
+  values: NormalMcpInvocationReservation,
+): Promise<NormalMcpInvocationReservationResult> {
+  try {
+    return await runAtomic(db(), async (tx) => {
+      const [correlation] = await tx
+        .select({
+          traceId: actionStagings.runId,
+          stepId: actionStagings.stepId,
+          toolCallId: actionStagings.toolCallId,
+        })
+        .from(actionStagings)
+        .where(
+          and(
+            eq(actionStagings.id, values.stagingId),
+            eq(actionStagings.userId, values.userId),
+            eq(actionStagings.outcome, "dispatching"),
+          ),
+        )
+        .for("update");
+      if (!correlation) {
+        throw new McpClientError(
+          "invalid_arguments",
+          "The MCP authorization is no longer dispatchable.",
+        );
+      }
+      const [invocation] = await tx
+        .insert(mcpInvocation)
+        .values({
+          stagingId: values.stagingId,
+          userId: values.userId,
+          connectionId: values.connectionId,
+          remoteName: values.remoteName,
+          argsHash: values.argsHash,
+          effectClass: values.effectClass,
+          attemptLifecycle: "delivery_possible",
+          deliveryPossibleAt: new Date(),
+          ...(values.catalogRevisionId ? { catalogRevisionId: values.catalogRevisionId } : {}),
+          ...(values.descriptorHash ? { descriptorHash: values.descriptorHash } : {}),
+          ...(values.policyRevision !== undefined ? { policyRevision: values.policyRevision } : {}),
+          ...correlation,
+        })
+        .returning();
+      return {
+        ok: true,
+        invocation: requireRow(invocation, "reserveNormalMcpInvocationDelivery"),
+      };
+    });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    return uniqueViolationConstraint(error) === "mcp_invocation_staging_idx"
+      ? { ok: false, reason: "duplicate_staging" }
+      : { ok: false, reason: "barrier" };
+  }
+}
+
+/**
+ * Settle the invocation and its authorizing staging row as one aggregate. The
+ * mode closes the only domain distinction: ordinary calls have no predecessor;
+ * recovery successors must have one.
+ */
+async function settleMcpInvocationAggregate(input: {
+  userId: string;
+  invocationId: string;
+  mode: "normal" | "successor";
+  settlement: McpInvocationSettlement;
+}): Promise<void> {
+  await runAtomic(db(), async (tx) => {
+    const now = new Date();
+    const ambiguous = input.settlement.kind === "ambiguous";
+    const succeeded = input.settlement.kind === "succeeded";
+    const provenance =
+      input.settlement.kind === "succeeded"
+        ? input.settlement.resultProvenance
+        : input.settlement.kind === "ambiguous"
+          ? input.settlement.resultProvenance
+          : undefined;
+    const [updated] = await tx
+      .update(mcpInvocation)
+      .set({
+        ...(provenance
+          ? {
+              attemptLifecycle: "response_received" as const,
+              responseReceivedAt: now,
+              resultProvenance: provenance,
+            }
+          : {}),
+        effectOutcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
+        retryDisposition: ambiguous ? "blocked" : "safe",
+        resolvedAt: ambiguous ? null : now,
+        resolutionReason: input.settlement.kind,
+        ...(input.settlement.kind === "ambiguous" || input.settlement.kind === "not_delivered"
+          ? { lastError: input.settlement.lastError }
+          : {}),
+      })
+      .where(
+        and(
+          eq(mcpInvocation.id, input.invocationId),
+          eq(mcpInvocation.userId, input.userId),
+          eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+          isNull(mcpInvocation.effectOutcome),
+          isNull(mcpInvocation.retryDisposition),
+          isNull(mcpInvocation.resolvedAt),
+          input.mode === "successor"
+            ? isNotNull(mcpInvocation.successorOf)
+            : isNull(mcpInvocation.successorOf),
+        ),
+      )
+      .returning({ stagingId: mcpInvocation.stagingId });
+    const row = requireRow(updated, "settleMcpInvocationAggregate guarded invocation");
+    const [staging] = await tx
+      .update(actionStagings)
+      .set({
+        status: input.settlement.kind === "not_delivered" ? "failed" : "executed",
+        outcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
+        executedAt: now,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(actionStagings.id, row.stagingId),
+          eq(actionStagings.userId, input.userId),
+          eq(actionStagings.outcome, "dispatching"),
+        ),
+      )
+      .returning({ id: actionStagings.id });
+    requireRow(staging, "settleMcpInvocationAggregate guarded staging");
+  });
+}
+
+/** Durable proof that the provider phase ended, used only after settlement fails. */
+async function markMcpSettlementIncomplete(input: PendingMcpSettlementRepair): Promise<boolean> {
+  const [row] = await db()
+    .select({ stagingId: mcpInvocation.stagingId })
+    .from(mcpInvocation)
+    .where(
+      and(
+        eq(mcpInvocation.id, input.invocationId),
+        eq(mcpInvocation.userId, input.userId),
+        inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+        isNull(mcpInvocation.effectOutcome),
+        isNull(mcpInvocation.retryDisposition),
+        isNull(mcpInvocation.resolvedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return true;
+  const [marked] = await db()
+    .update(actionStagings)
+    .set({
+      status: "executed",
+      outcome: "unknown",
+      executedAt: sql`coalesce(${actionStagings.executedAt}, now())`,
+      rowVersion: sql`${actionStagings.rowVersion} + 1`,
+    })
+    .where(
+      and(
+        eq(actionStagings.id, row.stagingId),
+        eq(actionStagings.userId, input.userId),
+        or(
+          inArray(actionStagings.outcome, ["planned", "dispatching", "failed"]),
+          isNull(actionStagings.outcome),
+        ),
+      ),
+    )
+    .returning({ id: actionStagings.id });
+  if (marked) return true;
+  const [alreadyMarked] = await db()
+    .select({ id: actionStagings.id })
+    .from(actionStagings)
+    .where(
+      and(
+        eq(actionStagings.id, row.stagingId),
+        eq(actionStagings.userId, input.userId),
+        eq(actionStagings.outcome, "unknown"),
+      ),
+    )
+    .limit(1);
+  return Boolean(alreadyMarked);
+}
+
+type ReservedMcpSuccessor = { invocation: McpInvocation; effectiveInput: unknown };
+
+type ReservedMcpSuccessorSettlement = McpInvocationSettlement;
 
 /**
  * Module-private successor state. The package export wildcard can reach this
@@ -302,142 +534,91 @@ async function settleReservedMcpSuccessor(input: {
   invocationId: string;
   settlement: ReservedMcpSuccessorSettlement;
 }): Promise<void> {
-  await runAtomic(db(), async (tx) => {
-    const now = new Date();
-    const ambiguous = input.settlement.kind === "ambiguous";
-    const succeeded = input.settlement.kind === "succeeded";
-    const provenance =
-      input.settlement.kind === "succeeded"
-        ? input.settlement.resultProvenance
-        : input.settlement.kind === "ambiguous"
-          ? input.settlement.resultProvenance
-          : undefined;
-    const [updated] = await tx
-      .update(mcpInvocation)
-      .set({
-        ...(ambiguous && provenance
-          ? {
-              attemptLifecycle: "response_received" as const,
-              responseReceivedAt: now,
-              resultProvenance: provenance,
-            }
-          : succeeded
-            ? {
-                attemptLifecycle: "response_received" as const,
-                responseReceivedAt: now,
-                resultProvenance: provenance,
-              }
-            : {}),
-        effectOutcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
-        retryDisposition: ambiguous ? "blocked" : "safe",
-        resolvedAt: ambiguous ? null : now,
-        resolutionReason: input.settlement.kind,
-        ...(input.settlement.kind === "ambiguous" || input.settlement.kind === "not_delivered"
-          ? { lastError: input.settlement.lastError }
-          : {}),
-      })
-      .where(
-        and(
-          eq(mcpInvocation.id, input.invocationId),
-          eq(mcpInvocation.userId, input.userId),
-          eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
-          isNull(mcpInvocation.effectOutcome),
-          isNull(mcpInvocation.retryDisposition),
-          isNull(mcpInvocation.resolvedAt),
-          isNotNull(mcpInvocation.successorOf),
-        ),
-      )
-      .returning({ stagingId: mcpInvocation.stagingId });
-    const row = requireRow(updated, "settleReservedMcpSuccessor guarded invocation");
-    const [staging] = await tx
-      .update(actionStagings)
-      .set({
-        status: input.settlement.kind === "not_delivered" ? "failed" : "executed",
-        outcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
-        executedAt: now,
-        rowVersion: sql`${actionStagings.rowVersion} + 1`,
-      })
-      .where(
-        and(
-          eq(actionStagings.id, row.stagingId),
-          eq(actionStagings.userId, input.userId),
-          eq(actionStagings.outcome, "dispatching"),
-        ),
-      )
-      .returning({ id: actionStagings.id });
-    requireRow(staging, "settleReservedMcpSuccessor guarded staging");
-  });
+  await settleMcpInvocationAggregate({ ...input, mode: "successor" });
 }
 
 /**
- * A remote response exists, but the first local settlement did not commit.
- * Convert only that claimed successor into the normal recovery state. This is a
- * local database repair and must never call the MCP provider.
+ * Complete a settlement repair only when the staging row carries durable proof
+ * that the provider phase ended. A live request remains `dispatching`, so it can
+ * never be selected by this repair or the recovery list.
  */
-async function normalizeReservedMcpSuccessorSettlementFailure(input: {
-  userId: string;
-  invocationId: string;
-  resultProvenance: McpResultProvenance;
-}): Promise<boolean> {
+async function normalizeMarkedMcpSettlementFailure(
+  input: PendingMcpSettlementRepair,
+): Promise<boolean> {
   return runAtomic(db(), async (tx) => {
     const now = new Date();
+    const [row] = await tx
+      .select({ stagingId: mcpInvocation.stagingId })
+      .from(mcpInvocation)
+      .where(
+        and(
+          eq(mcpInvocation.id, input.invocationId),
+          eq(mcpInvocation.userId, input.userId),
+          inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+          isNull(mcpInvocation.effectOutcome),
+          isNull(mcpInvocation.retryDisposition),
+          isNull(mcpInvocation.resolvedAt),
+        ),
+      )
+      .for("update");
+    if (!row) return true;
+    const [staging] = await tx
+      .select({ outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(and(eq(actionStagings.id, row.stagingId), eq(actionStagings.userId, input.userId)))
+      .for("update");
+    if (!staging || staging.outcome !== "unknown") return false;
     const [updated] = await tx
       .update(mcpInvocation)
       .set({
-        attemptLifecycle: "response_received",
-        responseReceivedAt: now,
-        resultProvenance: input.resultProvenance,
+        ...(input.resultProvenance
+          ? {
+              attemptLifecycle: "response_received" as const,
+              responseReceivedAt: now,
+              resultProvenance: input.resultProvenance,
+            }
+          : {}),
         effectOutcome: "unknown",
         retryDisposition: "blocked",
         resolutionReason: "settlement_incomplete",
-        lastError: "Alfred received a response but could not record its final disposition.",
+        lastError: "Alfred could not record the final MCP disposition after delivery.",
       })
       .where(
         and(
           eq(mcpInvocation.id, input.invocationId),
           eq(mcpInvocation.userId, input.userId),
-          eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+          inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
           isNull(mcpInvocation.effectOutcome),
           isNull(mcpInvocation.retryDisposition),
           isNull(mcpInvocation.resolvedAt),
-          isNotNull(mcpInvocation.successorOf),
         ),
       )
-      .returning({ stagingId: mcpInvocation.stagingId });
-    if (!updated) return false;
-
-    const [staging] = await tx
-      .select({ outcome: actionStagings.outcome })
-      .from(actionStagings)
-      .where(and(eq(actionStagings.id, updated.stagingId), eq(actionStagings.userId, input.userId)))
-      .for("update");
-    const stagingRow = requireRow(
-      staging,
-      "normalizeReservedMcpSuccessorSettlementFailure staging",
-    );
-    if (stagingRow.outcome === "unknown") return true;
-    const [aligned] = await tx
-      .update(actionStagings)
-      .set({
-        status: "executed",
-        outcome: "unknown",
-        executedAt: sql`coalesce(${actionStagings.executedAt}, now())`,
-        rowVersion: sql`${actionStagings.rowVersion} + 1`,
-      })
-      .where(
-        and(
-          eq(actionStagings.id, updated.stagingId),
-          eq(actionStagings.userId, input.userId),
-          or(
-            inArray(actionStagings.outcome, ["planned", "dispatching"]),
-            isNull(actionStagings.outcome),
-          ),
-        ),
-      )
-      .returning({ id: actionStagings.id });
-    requireRow(aligned, "normalizeReservedMcpSuccessorSettlementFailure guarded staging");
-    return true;
+      .returning({ id: mcpInvocation.id });
+    return Boolean(updated);
   });
+}
+
+function queueMcpSettlementRepair(input: PendingMcpSettlementRepair): void {
+  // Admission reserves one bounded process slot before any provider work. A
+  // completed call transfers that slot here before releasing it.
+  pendingMcpSettlementRepairs.set(`${input.userId}:${input.invocationId}`, input);
+}
+
+async function repairMcpSettlement(input: PendingMcpSettlementRepair): Promise<boolean> {
+  if (!(await markMcpSettlementIncomplete(input))) return false;
+  return normalizeMarkedMcpSettlementFailure(input);
+}
+
+async function bestEffortRepairMcpSettlement(input: PendingMcpSettlementRepair): Promise<void> {
+  queueMcpSettlementRepair(input);
+  try {
+    if (await repairMcpSettlement(input)) {
+      pendingMcpSettlementRepairs.delete(`${input.userId}:${input.invocationId}`);
+    }
+  } catch {
+    // The request must still return an ambiguous envelope. A later recovery read
+    // retries this local-only repair, and boot reconciliation covers a crash.
+  }
 }
 
 export class McpExecutionBroker {
@@ -447,12 +628,56 @@ export class McpExecutionBroker {
     this.#manager = manager;
   }
 
+  /** Retry local-only repairs before a recovery read. This never calls a provider. */
+  async repairIncompleteSettlements(input: { userId: string }): Promise<void> {
+    const queued: PendingMcpSettlementRepair[] = [];
+    for (const repair of pendingMcpSettlementRepairs.values()) {
+      if (repair.userId !== input.userId) continue;
+      queued.push(repair);
+      if (queued.length === MCP_RECOVERY_PAGE_SIZE) break;
+    }
+    for (const repair of queued) {
+      try {
+        if (await repairMcpSettlement(repair)) {
+          pendingMcpSettlementRepairs.delete(`${repair.userId}:${repair.invocationId}`);
+        }
+      } catch {
+        // A recovery read remains safe and bounded if the database is still
+        // unavailable. The queued repair stays available for a later read.
+      }
+    }
+
+    const marked = await db()
+      .select({ invocationId: mcpInvocation.id })
+      .from(mcpInvocation)
+      .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+      .where(
+        and(
+          eq(mcpInvocation.userId, input.userId),
+          eq(actionStagings.userId, input.userId),
+          eq(actionStagings.outcome, "unknown"),
+          inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+          isNull(mcpInvocation.effectOutcome),
+          isNull(mcpInvocation.retryDisposition),
+          isNull(mcpInvocation.resolvedAt),
+        ),
+      )
+      .limit(MCP_RECOVERY_PAGE_SIZE);
+    for (const row of marked) {
+      await normalizeMarkedMcpSettlementFailure({
+        userId: input.userId,
+        invocationId: row.invocationId,
+      });
+    }
+  }
+
   /**
    * Route one authorized `mcp.call` through the ledger. Reads bypass the ledger
    * entirely (idempotent); effectful (`write`/`unknown`) calls mint a barrier
    * reservation BEFORE dispatch and resolve the lifecycle around the network hop.
    */
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
+    const releaseSettlementSlot = acquireMcpSettlementSlot();
     const span = startMcpTraceSpan({
       name: "runtime.mcp.broker_invoke",
       ...(input.traceId ? { traceId: input.traceId } : {}),
@@ -475,6 +700,8 @@ export class McpExecutionBroker {
     } catch (error) {
       span.end({ status: "error", level: "ERROR" });
       throw error;
+    } finally {
+      releaseSettlementSlot();
     }
   }
 
@@ -484,6 +711,15 @@ export class McpExecutionBroker {
    * `prepared` claim is the send-once gate for concurrent or repeated HTTP posts.
    */
   async resumeReservedSuccessor(input: McpReservedSuccessorInput): Promise<McpBrokerOutcome> {
+    const releaseSettlementSlot = acquireMcpSettlementSlot();
+    try {
+      return await this.#resumeReservedSuccessor(input);
+    } finally {
+      releaseSettlementSlot();
+    }
+  }
+
+  async #resumeReservedSuccessor(input: McpReservedSuccessorInput): Promise<McpBrokerOutcome> {
     const reserved = await readReservedMcpSuccessor(input);
     if (!reserved) {
       throw new McpClientError("not_connected", "MCP recovery operation was not found.");
@@ -583,24 +819,45 @@ export class McpExecutionBroker {
       });
     } catch (err) {
       if (isProvenNotDelivered(err)) {
-        await settleReservedMcpSuccessor({
-          userId: input.userId,
-          invocationId: claimed.invocation.id,
-          settlement: { kind: "not_delivered", lastError: boundedMcpErrorText(err) },
-        });
+        try {
+          await settleReservedMcpSuccessor({
+            userId: input.userId,
+            invocationId: claimed.invocation.id,
+            settlement: { kind: "not_delivered", lastError: boundedMcpErrorText(err) },
+          });
+        } catch {
+          await bestEffortRepairMcpSettlement({
+            userId: input.userId,
+            invocationId: claimed.invocation.id,
+          });
+          trace.end({ status: "ambiguous", level: "ERROR" });
+          return {
+            status: "ambiguous",
+            invocationId: claimed.invocation.id,
+            message: AMBIGUOUS_MESSAGE,
+          };
+        }
         trace.end({ status: "error", level: "ERROR" });
         throw err;
       }
       const provenance = err instanceof McpClientError ? err.provenance : undefined;
-      await settleReservedMcpSuccessor({
-        userId: input.userId,
-        invocationId: claimed.invocation.id,
-        settlement: {
-          kind: "ambiguous",
-          lastError: boundedMcpErrorText(err),
+      try {
+        await settleReservedMcpSuccessor({
+          userId: input.userId,
+          invocationId: claimed.invocation.id,
+          settlement: {
+            kind: "ambiguous",
+            lastError: boundedMcpErrorText(err),
+            ...(provenance ? { resultProvenance: provenance } : {}),
+          },
+        });
+      } catch {
+        await bestEffortRepairMcpSettlement({
+          userId: input.userId,
+          invocationId: claimed.invocation.id,
           ...(provenance ? { resultProvenance: provenance } : {}),
-        },
-      });
+        });
+      }
       trace.end({ status: "ambiguous", level: "ERROR" });
       return {
         status: "ambiguous",
@@ -621,29 +878,18 @@ export class McpExecutionBroker {
                 resultProvenance: envelope.provenance,
               },
       });
-    } catch (error) {
-      let normalized = false;
-      try {
-        normalized = await normalizeReservedMcpSuccessorSettlementFailure({
-          userId: input.userId,
-          invocationId: claimed.invocation.id,
-          resultProvenance: envelope.provenance,
-        });
-      } catch {
-        // Preserve the original settlement failure. Boot reconciliation remains
-        // the last-resort local repair if even this guarded normalization cannot
-        // commit.
-      }
-      if (normalized) {
-        trace.end({ status: "ambiguous", level: "ERROR" });
-        return {
-          status: "ambiguous",
-          invocationId: claimed.invocation.id,
-          message: AMBIGUOUS_MESSAGE,
-        };
-      }
-      trace.end({ status: "error", level: "ERROR" });
-      throw error;
+    } catch {
+      await bestEffortRepairMcpSettlement({
+        userId: input.userId,
+        invocationId: claimed.invocation.id,
+        resultProvenance: envelope.provenance,
+      });
+      trace.end({ status: "ambiguous", level: "ERROR" });
+      return {
+        status: "ambiguous",
+        invocationId: claimed.invocation.id,
+        message: AMBIGUOUS_MESSAGE,
+      };
     }
     const outcome: McpBrokerOutcome =
       envelope.outcome === "completed"
@@ -764,7 +1010,7 @@ export class McpExecutionBroker {
 
     // The reservation. Minting the row IS the barrier: the partial unique index
     // rejects a second unresolved proposal identical to an in-flight/blocked one.
-    const minted = await reserveMcpInvocation({
+    const minted = await reserveNormalMcpInvocationDelivery({
       stagingId: input.stagingId,
       userId: input.userId,
       connectionId: ref.connectionId,
@@ -783,7 +1029,7 @@ export class McpExecutionBroker {
       ...(resolved.descriptorHashValue ? { descriptorHash: resolved.descriptorHashValue } : {}),
       ...(resolved.policy ? { policyRevision: resolved.policy.policyRevision } : {}),
       // Correlation breadcrumbs (trace/step/tool-call) are NOT passed here: they
-      // are copied from the authorizing staging row inside `reserveMcpInvocation`, so
+      // are copied from the authorizing staging row inside `reserveNormalMcpInvocationDelivery`, so
       // they cannot drift from the row this reservation points at (#541).
     });
 
@@ -807,11 +1053,6 @@ export class McpExecutionBroker {
     // proposal). A second outbound attempt is legal only via an explicitly
     // reserved recovery successor. Before admitting any wrapper into this path,
     // confirm its retry is disabled or provably pre-delivery.
-    requireRow(
-      await markMcpInvocationDeliveryPossible({ id: invocation.id, userId: input.userId }),
-      "markMcpInvocationDeliveryPossible",
-    );
-
     try {
       const envelope = await resolved.prepared.call(ref, input.arguments, {
         ...(input.signal ? { signal: input.signal } : {}),
@@ -823,14 +1064,20 @@ export class McpExecutionBroker {
         // Deterministic failure that never reached the remote application: resolve
         // the reservation as not-delivered (retry-safe) and rethrow so the dispatch
         // seam records an ordinary `failed` staging row.
-        requireRow(
-          await settleMcpInvocationNotDelivered({
-            id: invocation.id,
+        try {
+          await settleMcpInvocationAggregate({
+            mode: "normal",
+            invocationId: invocation.id,
             userId: input.userId,
-            lastError: boundedMcpErrorText(err),
-          }),
-          "settleMcpInvocationNotDelivered",
-        );
+            settlement: { kind: "not_delivered", lastError: boundedMcpErrorText(err) },
+          });
+        } catch {
+          await bestEffortRepairMcpSettlement({
+            userId: input.userId,
+            invocationId: invocation.id,
+          });
+          return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
+        }
         throw err;
       }
       // Possibly delivered (session_expired, invalid_output, transport/abort). The
@@ -846,15 +1093,24 @@ export class McpExecutionBroker {
       // response arrived (transport/abort/session_expired), provenance is absent
       // and the lifecycle never advances past the delivery boundary.
       const provenance = err instanceof McpClientError ? err.provenance : undefined;
-      requireRow(
-        await blockMcpInvocationAsAmbiguous({
-          id: invocation.id,
+      try {
+        await settleMcpInvocationAggregate({
+          mode: "normal",
+          invocationId: invocation.id,
           userId: input.userId,
-          lastError: boundedMcpErrorText(err),
+          settlement: {
+            kind: "ambiguous",
+            lastError: boundedMcpErrorText(err),
+            ...(provenance ? { resultProvenance: provenance } : {}),
+          },
+        });
+      } catch {
+        await bestEffortRepairMcpSettlement({
+          userId: input.userId,
+          invocationId: invocation.id,
           ...(provenance ? { resultProvenance: provenance } : {}),
-        }),
-        "blockMcpInvocationAsAmbiguous",
-      );
+        });
+      }
       return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
     }
   }
@@ -869,25 +1125,41 @@ export class McpExecutionBroker {
       // the tool applied no effect before it produced the response. Keep the
       // barrier unresolved unless a reviewed provider contract can prove the
       // call was rejected before application.
-      requireRow(
-        await blockMcpInvocationAsAmbiguous({
-          id: invocation.id,
+      try {
+        await settleMcpInvocationAggregate({
+          mode: "normal",
+          invocationId: invocation.id,
           userId: invocation.userId,
-          lastError: MCP_TOOL_ERROR_MESSAGE,
+          settlement: {
+            kind: "ambiguous",
+            lastError: MCP_TOOL_ERROR_MESSAGE,
+            resultProvenance: envelope.provenance,
+          },
+        });
+      } catch {
+        await bestEffortRepairMcpSettlement({
+          userId: invocation.userId,
+          invocationId: invocation.id,
           resultProvenance: envelope.provenance,
-        }),
-        "blockMcpInvocationAsAmbiguous tool_error",
-      );
+        });
+      }
       return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
     }
-    requireRow(
-      await settleMcpInvocationSucceeded({
-        id: invocation.id,
+    try {
+      await settleMcpInvocationAggregate({
+        mode: "normal",
+        invocationId: invocation.id,
         userId: invocation.userId,
+        settlement: { kind: "succeeded", resultProvenance: envelope.provenance },
+      });
+    } catch {
+      await bestEffortRepairMcpSettlement({
+        userId: invocation.userId,
+        invocationId: invocation.id,
         resultProvenance: envelope.provenance,
-      }),
-      "settleMcpInvocationSucceeded",
-    );
+      });
+      return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
+    }
     return { status: "completed", invocationId: invocation.id, envelope };
   }
 

@@ -29,12 +29,12 @@ import {
   findUnresolvedBarrier,
   reconcileInflightInvocations,
   readToolPolicy,
-  reserveMcpInvocation,
   resolveMcpToolIdentity,
   upsertToolPolicy,
 } from "../../src/tool-runtime/mcp/invocations";
 import {
   patchMcpInvocationForTests,
+  reserveMcpInvocationForTests,
   seedMcpInvocationForTests,
 } from "../../src/tool-runtime/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
@@ -344,7 +344,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "read",
       retryContract: "never",
     });
-    const invocation = await reserveMcpInvocation({
+    const invocation = await reserveMcpInvocationForTests({
       userId,
       connectionId: migratedConnectionId,
       remoteName: "search_repositories",
@@ -560,7 +560,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       argsHash: "sha256:args1",
     };
 
-    const first = await reserveMcpInvocation({
+    const first = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
       effectClass: "write",
@@ -568,7 +568,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(first.ok, true);
 
     // A second, distinct staging with the SAME barrier key is rejected.
-    const second = await reserveMcpInvocation({
+    const second = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
       effectClass: "write",
@@ -585,7 +585,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       resolvedAt: new Date(),
       resolutionReason: "succeeded",
     });
-    const third = await reserveMcpInvocation({
+    const third = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
       effectClass: "write",
@@ -598,7 +598,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const connId = await seedConnection(userId);
     const stagingId = await seedStaging(userId);
 
-    const first = await reserveMcpInvocation({
+    const first = await reserveMcpInvocationForTests({
       userId,
       connectionId: connId,
       remoteName: "t",
@@ -609,7 +609,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(first.ok, true);
 
     // Same staging id, different barrier key → the 1:1 staging index fires.
-    const dup = await reserveMcpInvocation({
+    const dup = await reserveMcpInvocationForTests({
       userId,
       connectionId: connId,
       remoteName: "t",
@@ -714,7 +714,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     // On resume a fresh `tool_call_id` (new staging) proposing the identical call
     // is refused by the durable barrier — it cannot bypass the recovered unknown.
-    const resumed = await reserveMcpInvocation({
+    const resumed = await reserveMcpInvocationForTests({
       ...key,
       stagingId: await seedStaging(userId),
       effectClass: "write",
@@ -790,7 +790,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 });
 
 /**
- * The ONE branch of `reserveMcpInvocation` no live database can reach, and the one the
+ * The ONE branch of the test reservation helper no live database can reach, and the one the
  * move changed. The barrier classification used to run on a hand-rolled 23505
  * narrowing whose return distinguished three cases by `undefined` vs `""`; it now
  * runs on `@alfred/db`'s canonical `isUniqueViolation` + `uniqueViolationConstraint`
@@ -804,14 +804,16 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
  * injected runner. That is also what makes it worth a test: the case is invisible
  * to every DB-backed assertion in this file.
  */
-describe("reserveMcpInvocation unique-violation classification", () => {
+describe("test reservation unique-violation classification", () => {
   /**
    * A minimal drizzle-shaped runner: `stagingCorrelation`'s select resolves, and
    * the ledger insert rejects with `err`. The cast is the test's, not production
    * code's — `DbRunner` is drizzle's full builder surface and only these two
    * chains are reached.
    */
-  function runnerThatRejectsInsertWith(err: unknown): Parameters<typeof reserveMcpInvocation>[1] {
+  function runnerThatRejectsInsertWith(
+    err: unknown,
+  ): Parameters<typeof reserveMcpInvocationForTests>[1] {
     const correlation = [{ traceId: "run_fake", stepId: "step_fake", toolCallId: "tc_fake" }];
     // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     return {
@@ -819,7 +821,7 @@ describe("reserveMcpInvocation unique-violation classification", () => {
         from: () => ({ where: () => ({ limit: () => Promise.resolve(correlation) }) }),
       }),
       insert: () => ({ values: () => ({ returning: () => Promise.reject(err) }) }),
-    } as unknown as Parameters<typeof reserveMcpInvocation>[1];
+    } as unknown as Parameters<typeof reserveMcpInvocationForTests>[1];
   }
 
   /** A wrapped driver error, the shape drizzle actually throws. */
@@ -834,11 +836,11 @@ describe("reserveMcpInvocation unique-violation classification", () => {
     stagingId: "stg_fake",
     remoteName: "do_thing",
     argsHash: "sha256:fake",
-  } as unknown as Parameters<typeof reserveMcpInvocation>[0];
+  } as unknown as Parameters<typeof reserveMcpInvocationForTests>[0];
   /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
 
   test("an unnamed unique violation still defaults to the barrier", async () => {
-    const result = await reserveMcpInvocation(
+    const result = await reserveMcpInvocationForTests(
       values,
       runnerThatRejectsInsertWith(wrappedPgError({ code: "23505" })),
     );
@@ -846,7 +848,7 @@ describe("reserveMcpInvocation unique-violation classification", () => {
   });
 
   test("a named staging-index violation is still distinguished", async () => {
-    const result = await reserveMcpInvocation(
+    const result = await reserveMcpInvocationForTests(
       values,
       runnerThatRejectsInsertWith(
         wrappedPgError({ code: "23505", constraint: "mcp_invocation_staging_idx" }),
@@ -857,7 +859,10 @@ describe("reserveMcpInvocation unique-violation classification", () => {
 
   test("a non-unique-violation error is rethrown, not classified", async () => {
     await assert.rejects(
-      reserveMcpInvocation(values, runnerThatRejectsInsertWith(wrappedPgError({ code: "23503" }))),
+      reserveMcpInvocationForTests(
+        values,
+        runnerThatRejectsInsertWith(wrappedPgError({ code: "23503" })),
+      ),
       // The ORIGINAL wrapper is rethrown untouched — not re-wrapped, and not
       // swallowed into a typed result. A foreign-key violation is a real failure.
       /Failed query/,

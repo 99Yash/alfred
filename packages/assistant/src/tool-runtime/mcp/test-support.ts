@@ -25,16 +25,64 @@
 
 import { db } from "@alfred/db";
 import { requireRow, type DbRunner } from "@alfred/db/helpers";
+import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
   actionStagings,
   mcpInvocation,
   type McpInvocation,
   type NewMcpInvocation,
 } from "@alfred/db/schemas";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export { upsertToolPolicy } from "./invocations";
 export { _setMcpExecutionBrokerForTests } from "./runtime";
+
+type TestInvocationReservation = Pick<
+  NewMcpInvocation,
+  | "stagingId"
+  | "userId"
+  | "connectionId"
+  | "remoteName"
+  | "argsHash"
+  | "catalogRevisionId"
+  | "descriptorHash"
+  | "policyRevision"
+  | "effectClass"
+>;
+
+/** Reproduce a normal reservation for persistence fixtures only. */
+export async function reserveMcpInvocationForTests(
+  values: TestInvocationReservation,
+  runner: DbRunner = db(),
+): Promise<
+  { ok: true; invocation: McpInvocation } | { ok: false; reason: "barrier" | "duplicate_staging" }
+> {
+  const [staging] = await runner
+    .select({
+      traceId: actionStagings.runId,
+      stepId: actionStagings.stepId,
+      toolCallId: actionStagings.toolCallId,
+    })
+    .from(actionStagings)
+    .where(and(eq(actionStagings.id, values.stagingId), eq(actionStagings.userId, values.userId)))
+    .limit(1);
+  try {
+    const [invocation] = await runner
+      .insert(mcpInvocation)
+      .values({
+        ...values,
+        attemptLifecycle: "prepared",
+        ...requireRow(staging, "reserveMcpInvocationForTests staging"),
+      })
+      .returning();
+    return { ok: true, invocation: requireRow(invocation, "reserveMcpInvocationForTests") };
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    return uniqueViolationConstraint(error) === "mcp_invocation_staging_idx"
+      ? { ok: false, reason: "duplicate_staging" }
+      : { ok: false, reason: "barrier" };
+  }
+}
 
 /** Seed an exact ledger state for persistence and crash-recovery tests only. */
 export async function seedMcpInvocationForTests(

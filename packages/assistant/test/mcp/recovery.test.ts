@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { canonicalArgsHash } from "@alfred/assistant/connections/mcp";
+import { MCP_RECOVERY_PAGE_SIZE } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
@@ -21,7 +22,7 @@ const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-mcprec-";
 const createdUserIds: string[] = [];
 
-async function seedAmbiguousOperation(options: { splitBarrier?: boolean } = {}) {
+async function seedAmbiguousOperation(options: { splitBarrier?: "dispatching" | "failed" } = {}) {
   const userId = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(userId);
   await db()
@@ -70,8 +71,13 @@ async function seedAmbiguousOperation(options: { splitBarrier?: boolean } = {}) 
       attemptKey: `eff:${runId}:recovery:1`,
       requestHash: `req:${randomUUID()}`,
       requiresApproval: true,
-      status: options.splitBarrier ? "approved" : "executed",
-      outcome: options.splitBarrier ? "dispatching" : "unknown",
+      status:
+        options.splitBarrier === "dispatching"
+          ? "approved"
+          : options.splitBarrier === "failed"
+            ? "failed"
+            : "executed",
+      outcome: options.splitBarrier ?? "unknown",
     });
   const inserted = await seedMcpInvocationForTests({
     stagingId,
@@ -81,12 +87,12 @@ async function seedAmbiguousOperation(options: { splitBarrier?: boolean } = {}) 
     argsHash: canonicalArgsHash(argumentsValue),
     effectClass: "write",
     attemptLifecycle: "delivery_possible",
-    effectOutcome: "unknown",
-    retryDisposition: "blocked",
+    effectOutcome: options.splitBarrier ? null : "unknown",
+    retryDisposition: options.splitBarrier ? null : "blocked",
     deliveryPossibleAt: new Date(),
     lastError: "socket closed after request",
   });
-  return { userId, stagingId, invocationId: inserted.id };
+  return { userId, runId, connectionId: connection.id, stagingId, invocationId: inserted.id };
 }
 
 describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
@@ -107,7 +113,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     const seeded = await seedAmbiguousOperation();
     const other = await seedAmbiguousOperation();
 
-    const operations = await listMcpRecoveryOperations(seeded.userId);
+    const operations = (await listMcpRecoveryOperations({ userId: seeded.userId })).operations;
 
     assert.equal(operations.length, 1);
     assert.equal(operations[0]?.invocationId, seeded.invocationId);
@@ -115,6 +121,70 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     assert.equal(operations[0]?.connection.label, "Recovery MCP");
     assert.ok(!JSON.stringify(operations).includes(other.invocationId));
     assert.ok(!("proposedInput" in (operations[0] ?? {})));
+  });
+
+  test("pages by effective timestamp and invocation id without gaps or duplicates", async () => {
+    const seeded = await seedAmbiguousOperation();
+    const effectiveAt = new Date("2026-08-30T12:00:00.000Z");
+    await db()
+      .update(mcpInvocation)
+      .set({ deliveryPossibleAt: effectiveAt })
+      .where(eq(mcpInvocation.id, seeded.invocationId));
+
+    for (let index = 0; index < MCP_RECOVERY_PAGE_SIZE; index += 1) {
+      const stagingId = `as_${randomUUID().slice(0, 12)}`;
+      await db()
+        .insert(actionStagings)
+        .values({
+          id: stagingId,
+          userId: seeded.userId,
+          runId: seeded.runId,
+          stepId: "dispatch-tools",
+          toolCallId: `tc_${randomUUID().slice(0, 8)}`,
+          toolName: "mcp.call",
+          integration: "mcp",
+          riskTier: "high",
+          proposedInput: {},
+          displayInput: { index },
+          proposedInputHash: randomUUID(),
+          effectKey: `eff:${seeded.runId}:page:${index}`,
+          attemptKey: `eff:${seeded.runId}:page:${index}:1`,
+          requestHash: `req:${randomUUID()}`,
+          requiresApproval: true,
+          status: "executed",
+          outcome: "unknown",
+        });
+      await seedMcpInvocationForTests({
+        stagingId,
+        userId: seeded.userId,
+        connectionId: seeded.connectionId,
+        remoteName: `send_invoice_${index}`,
+        argsHash: `sha256:page:${index}`,
+        effectClass: "write",
+        attemptLifecycle: "delivery_possible",
+        effectOutcome: "unknown",
+        retryDisposition: "blocked",
+        deliveryPossibleAt: effectiveAt,
+      });
+    }
+
+    const first = await listMcpRecoveryOperations({ userId: seeded.userId });
+    assert.equal(first.operations.length, MCP_RECOVERY_PAGE_SIZE);
+    assert.ok(first.nextCursor);
+    const second = await listMcpRecoveryOperations({
+      userId: seeded.userId,
+      cursor: first.nextCursor!,
+    });
+    assert.equal(second.operations.length, 1);
+    assert.equal(second.nextCursor, null);
+    const ids = [...first.operations, ...second.operations].map((row) => row.invocationId);
+    assert.equal(new Set(ids).size, MCP_RECOVERY_PAGE_SIZE + 1);
+    assert.deepEqual(ids, [...ids].sort(), "the id tiebreaker is stable at one timestamp");
+
+    await assert.rejects(
+      listMcpRecoveryOperations({ userId: seeded.userId, cursor: "not-a-cursor" }),
+      /Invalid MCP recovery cursor/,
+    );
   });
 
   test("a confirmed outcome resolves both durable barriers atomically", async () => {
@@ -144,7 +214,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     assert.ok(invocation?.resolvedAt);
     assert.equal(staging?.outcome, "failed");
     assert.equal(staging?.status, "failed");
-    assert.equal((await listMcpRecoveryOperations(seeded.userId)).length, 0);
+    assert.equal((await listMcpRecoveryOperations({ userId: seeded.userId })).operations.length, 0);
   });
 
   test("an ownership miss cannot resolve another user's operation", async () => {
@@ -162,10 +232,17 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("boot alignment makes a post-broker crash resolvable without another send", async () => {
-    const seeded = await seedAmbiguousOperation({ splitBarrier: true });
+    const seeded = await seedAmbiguousOperation({ splitBarrier: "dispatching" });
+
+    const livePage = await listMcpRecoveryOperations({ userId: seeded.userId });
+    assert.equal(
+      livePage.operations.length,
+      0,
+      "a delivery_possible row with a live dispatching staging is not exposed",
+    );
 
     const boot = await reconcileInflightInvocations(seeded.userId);
-    assert.equal(boot.markedUnknown, 0);
+    assert.equal(boot.markedUnknown, 1);
     assert.equal(boot.alignedStagingBarriers, 1);
     const result = await resolveMcpRecoveryOperation({
       userId: seeded.userId,
@@ -179,6 +256,20 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       .from(actionStagings)
       .where(eq(actionStagings.id, seeded.stagingId));
     assert.deepEqual(staging, { status: "executed", outcome: "succeeded" });
+  });
+
+  test("boot aligns a dispatcher failed staging row before recovery resolution", async () => {
+    const seeded = await seedAmbiguousOperation({ splitBarrier: "failed" });
+
+    const boot = await reconcileInflightInvocations(seeded.userId);
+    assert.equal(boot.markedUnknown, 1);
+    assert.equal(boot.alignedStagingBarriers, 1);
+    const result = await resolveMcpRecoveryOperation({
+      userId: seeded.userId,
+      invocationId: seeded.invocationId,
+      decision: "confirmed_not_applied",
+    });
+    assert.equal(result.status, "resolved");
   });
 
   test("catalog drift fails before either ambiguity barrier changes", async () => {
