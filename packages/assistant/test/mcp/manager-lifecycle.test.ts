@@ -15,6 +15,7 @@ import {
   type McpProtocolPage,
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
+import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
 
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[] = [tool("tool_a")];
@@ -153,7 +154,8 @@ function managerWith(
       new McpRawClient({
         connectionId: row.id,
         endpoint: new URL(row.endpointUrl),
-        endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+        expectedOrigin: row.endpointOrigin,
+        endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
         ...(now ? { now } : {}),
       }),

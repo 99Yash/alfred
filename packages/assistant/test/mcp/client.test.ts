@@ -10,6 +10,7 @@ import {
   type McpProtocolServer,
 } from "../../src/connections/mcp";
 import { isPreDeliveryErrorCode } from "../../src/connections/mcp/errors";
+import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 
 type FakePage = Omit<McpProtocolPage, "ttlMs" | "cacheScope"> &
   Partial<Pick<McpProtocolPage, "ttlMs" | "cacheScope">>;
@@ -103,9 +104,8 @@ function makeClient(
   return new McpRawClient({
     connectionId: "conn_1",
     endpoint: new URL("https://mcp.example.test/mcp"),
-    endpointAuthorization: {
-      authorize: async (endpoint) => new URL(endpoint.href),
-    },
+    expectedOrigin: "https://mcp.example.test",
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
     protocolFactory: () => protocol,
     ...overrides,
   });
@@ -126,10 +126,17 @@ describe("McpRawClient catalog", () => {
     const events: string[] = [];
     const protocol = new FakeProtocol([{ tools: [] }]);
     const client = makeClient(protocol, {
-      endpointAuthorization: {
-        authorize: async (endpoint) => {
+      endpointAuthorizer: {
+        authorize: async (candidate) => {
+          const endpoint = new URL(String(candidate.endpoint));
           events.push(`authorize:${endpoint.href}`);
-          return new URL(endpoint.href);
+          return {
+            endpoint,
+            oauthResource: new URL(endpoint.href),
+            fetch: globalThis.fetch,
+            protocolFetch: globalThis.fetch,
+            close: async () => undefined,
+          };
         },
       },
       protocolFactory: () => {
@@ -153,6 +160,37 @@ describe("McpRawClient catalog", () => {
 
     assert.equal(protocol.closedWithTerminate, false);
     await assertMcpError(client.refreshCatalog(), "not_connected");
+  });
+
+  test("reauthorizes the endpoint after close before reconnecting", async () => {
+    const protocol = new FakeProtocol([{ tools: [] }]);
+    let authorizations = 0;
+    let closedAuthorizations = 0;
+    const fallback = permissiveMcpEndpointAuthorizerForTests();
+    const client = makeClient(protocol, {
+      endpointAuthorizer: {
+        authorize: async (candidate) => {
+          authorizations += 1;
+          const authorized = await fallback.authorize(candidate);
+          return {
+            ...authorized,
+            close: async () => {
+              closedAuthorizations += 1;
+              await authorized.close();
+            },
+          };
+        },
+      },
+    });
+
+    await client.connect();
+    await client.close();
+    await client.connect();
+
+    assert.equal(authorizations, 2);
+    assert.equal(closedAuthorizations, 1);
+    await client.close();
+    assert.equal(closedAuthorizations, 2);
   });
 
   test("allows the 2025-11-25 and 2026-07-28 revisions, and rejects other versions", async () => {

@@ -237,6 +237,7 @@ describe("MCP OAuth provider", () => {
           code: "must-not-be-redeemed",
           iss: "https://attacker.example.test/",
         }),
+        { fetch: async () => new Response(null, { status: 500 }) },
       ),
       (error: unknown) =>
         error instanceof IssuerMismatchError && error.kind === "authorization_response",

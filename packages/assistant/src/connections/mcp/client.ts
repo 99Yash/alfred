@@ -13,12 +13,16 @@ import type {
   CacheScope,
   JsonSchemaType,
   JsonSchemaValidator,
-  OAuthClientProvider,
   Tool,
 } from "@modelcontextprotocol/client";
 import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
+import type {
+  McpAuthorizedEndpoint,
+  McpEndpointAuthorizer,
+  McpOAuthProviderFactory,
+} from "./endpoint-authorization";
 import { sha256Canonical } from "./hash";
 import {
   authorizeMcpOAuth,
@@ -78,14 +82,6 @@ export interface McpPreparedToolCall {
   ): Promise<McpCallEnvelope>;
 }
 
-export interface McpEndpointAuthorization {
-  /**
-   * Resolve a configured URL to the exact canonical endpoint Alfred may use.
-   * The owner must enforce HTTPS, redirects, DNS/IP policy, and origin pinning.
-   */
-  authorize(endpoint: URL): Promise<URL>;
-}
-
 /**
  * What a remote server is allowed to cost Alfred: how long one request may take
  * and how large a catalog it may present. Named as a group because it is ONE
@@ -105,19 +101,19 @@ export interface McpClientLimits {
 
 export interface McpRawClientOptions extends McpClientLimits {
   connectionId: string;
-  endpoint: URL;
-  endpointAuthorization: McpEndpointAuthorization;
+  endpoint: unknown;
+  expectedOrigin: unknown;
+  endpointAuthorizer: McpEndpointAuthorizer;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
   /**
    * Full OAuth provider used only before connect. The HTTP transport receives a
    * token-only projection so it cannot refresh and replay `tools/call`.
    */
-  oauthProvider?: OAuthClientProvider;
+  oauthProviderFactory?: McpOAuthProviderFactory;
   onAuthorizationRequired?: () => void | Promise<void>;
   onInsufficientScope?: (requiredScopes: string[]) => void | Promise<void>;
-  fetch?: SdkMcpProtocolClientOptions["fetch"];
   now?: () => number;
-  protocolFactory?: (endpoint: URL) => McpProtocolClient;
+  protocolFactory?: (authorized: McpAuthorizedEndpoint) => McpProtocolClient;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -153,14 +149,16 @@ export class McpRawClient {
   #inputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
   #outputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
   #authorizationBlocked: McpClientError | null = null;
+  #authorizedEndpoint: McpAuthorizedEndpoint | null = null;
+  #oauthProvider: ReturnType<McpOAuthProviderFactory> | null = null;
 
   constructor(options: McpRawClientOptions) {
     // The destructure IS the split: bounds get their defaults, everything else is
-    // wiring. `endpoint` is re-copied so a caller mutating theirs cannot move ours.
+    // wiring. URL values are re-copied so a caller mutating theirs cannot move ours.
     const { requestTimeoutMs, maxCatalogPages, maxCatalogTools, now, ...wiring } = options;
     this.#options = {
       ...wiring,
-      endpoint: new URL(options.endpoint.href),
+      endpoint: options.endpoint instanceof URL ? new URL(options.endpoint.href) : options.endpoint,
       now: now ?? Date.now,
     };
     this.#limits = {
@@ -193,28 +191,43 @@ export class McpRawClient {
 
   async connect(trace?: McpTraceContext): Promise<void> {
     if (this.#protocol) return;
-    const endpoint = await this.#options.endpointAuthorization.authorize(
-      new URL(this.#options.endpoint.href),
-    );
-    if (this.#options.oauthProvider) {
-      await authorizeMcpOAuth(this.#options.oauthProvider, endpoint);
-    }
-    const protocol = this.#options.protocolFactory
-      ? this.#options.protocolFactory(endpoint)
-      : new SdkMcpProtocolClient({
-          endpoint,
-          requestTimeoutMs: this.#limits.requestTimeoutMs,
-          ...(this.#options.oauthProvider
-            ? {
-                authProvider: {
-                  token: async () => (await this.#options.oauthProvider?.tokens())?.access_token,
-                },
-              }
-            : this.#options.authProvider
-              ? { authProvider: this.#options.authProvider }
-              : {}),
-          ...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
+    const authorized = await this.#options.endpointAuthorizer.authorize({
+      endpoint:
+        this.#options.endpoint instanceof URL
+          ? new URL(this.#options.endpoint.href)
+          : this.#options.endpoint,
+      expectedOrigin: this.#options.expectedOrigin,
+    });
+    const oauthProvider = this.#options.oauthProviderFactory?.(authorized.oauthResource) ?? null;
+    this.#authorizedEndpoint = authorized;
+    this.#oauthProvider = oauthProvider;
+    let protocol: McpProtocolClient;
+    try {
+      if (oauthProvider) {
+        await authorizeMcpOAuth(oauthProvider, authorized.oauthResource, {
+          fetch: authorized.fetch,
         });
+      }
+      protocol = this.#options.protocolFactory
+        ? this.#options.protocolFactory(authorized)
+        : new SdkMcpProtocolClient({
+            endpoint: authorized.endpoint,
+            fetch: authorized.protocolFetch,
+            requestTimeoutMs: this.#limits.requestTimeoutMs,
+            ...(oauthProvider
+              ? {
+                  authProvider: {
+                    token: async () => (await oauthProvider.tokens())?.access_token,
+                  },
+                }
+              : this.#options.authProvider
+                ? { authProvider: this.#options.authProvider }
+                : {}),
+          });
+    } catch (error) {
+      await this.#closeAuthorization(this.#takeAuthorization());
+      throw error;
+    }
     protocol.onToolsChanged(() => {
       this.#announceCatalogInvalidated();
     });
@@ -226,9 +239,15 @@ export class McpRawClient {
       if (this.#protocol === protocol) {
         this.#protocol = null;
         this.#negotiatedServer = null;
+        const authorization = this.#takeAuthorization();
+        void protocol
+          .close(false)
+          .catch(() => undefined)
+          .then(() => this.#closeAuthorization(authorization));
+      } else {
+        void protocol.close(false).catch(() => undefined);
       }
       this.#announceCatalogInvalidated();
-      void protocol.close(false).catch(() => undefined);
     });
     try {
       const server = await protocol.connect(trace);
@@ -251,7 +270,9 @@ export class McpRawClient {
       this.#negotiatedServer = negotiated;
     } catch (err) {
       connectFinished = true;
+      const authorization = this.#takeAuthorization();
       await protocol.close(false).catch(() => undefined);
+      await this.#closeAuthorization(authorization);
       throw err;
     }
     this.#protocol = protocol;
@@ -262,8 +283,13 @@ export class McpRawClient {
     const protocol = this.#protocol;
     this.#protocol = null;
     this.#negotiatedServer = null;
+    const authorization = this.#takeAuthorization();
     this.#invalidateCatalog();
-    if (protocol) await protocol.close(options.terminateSession === true);
+    try {
+      if (protocol) await protocol.close(options.terminateSession === true);
+    } finally {
+      await this.#closeAuthorization(authorization);
+    }
   }
 
   async refreshCatalog(signal?: AbortSignal, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
@@ -410,9 +436,15 @@ export class McpRawClient {
     signal?: AbortSignal,
     trace?: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
-    if (this.#options.oauthProvider) {
+    if (this.#oauthProvider) {
       try {
-        await refreshMcpOAuthIfNeeded(this.#options.oauthProvider, this.#options.endpoint);
+        const authorized = this.#authorizedEndpoint;
+        if (!authorized) {
+          throw new McpClientError("not_connected", "The MCP endpoint is not authorized");
+        }
+        await refreshMcpOAuthIfNeeded(this.#oauthProvider, authorized.oauthResource, {
+          fetch: authorized.fetch,
+        });
       } catch (error) {
         if (error instanceof McpOAuthAuthorizationRequiredError) {
           await this.#options.onAuthorizationRequired?.();
@@ -576,13 +608,28 @@ export class McpRawClient {
     if (this.#protocol === protocol) {
       this.#protocol = null;
       this.#negotiatedServer = null;
+      const authorization = this.#takeAuthorization();
       this.#invalidateCatalog();
+      await protocol.close(false).catch(() => undefined);
+      await this.#closeAuthorization(authorization);
+    } else {
+      await protocol.close(false).catch(() => undefined);
     }
-    await protocol.close(false).catch(() => undefined);
     throw new McpClientError(
       "session_expired",
       "The MCP session expired; reconnect and refresh the catalog before retrying",
     );
+  }
+
+  #takeAuthorization(): McpAuthorizedEndpoint | null {
+    const authorization = this.#authorizedEndpoint;
+    this.#authorizedEndpoint = null;
+    this.#oauthProvider = null;
+    return authorization;
+  }
+
+  async #closeAuthorization(authorization: McpAuthorizedEndpoint | null): Promise<void> {
+    await authorization?.close().catch(() => undefined);
   }
 }
 

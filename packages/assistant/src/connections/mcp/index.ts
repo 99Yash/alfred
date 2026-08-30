@@ -41,6 +41,11 @@ export {
   type McpPreparedToolCall,
 } from "./client";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+export {
+  HostedMcpEndpointAuthorizer,
+  type McpAuthorizedEndpoint,
+  type McpEndpointAuthorizer,
+} from "./endpoint-authorization";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
 export { listMcpToolsLocal, type McpListToolsResult, type McpToolSummary } from "./list-tools";
 export {

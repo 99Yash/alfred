@@ -94,7 +94,7 @@ export interface McpProtocolClient {
 export interface SdkMcpProtocolClientOptions {
   endpoint: URL;
   authProvider?: AuthProvider;
-  fetch?: StreamableHTTPClientTransportOptions["fetch"];
+  fetch: NonNullable<StreamableHTTPClientTransportOptions["fetch"]>;
   requestTimeoutMs: number;
 }
 
@@ -130,7 +130,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         },
       },
     );
-    const fetchFn = options.fetch ?? globalThis.fetch;
+    const fetchFn = options.fetch;
     this.#transport = new StreamableHTTPClientTransport(options.endpoint, {
       // Token reads are safe before each request. Transport-owned recovery is
       // not: both 401 refresh and insufficient-scope step-up resend the same
