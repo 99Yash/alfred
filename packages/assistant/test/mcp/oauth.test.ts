@@ -4,13 +4,7 @@ import { createCredentialVault } from "@alfred/db/credential-vault";
 import type { McpOauthAuthorizationAttempt, McpOauthCredential } from "@alfred/db/schemas";
 import { IssuerMismatchError, type OAuthDiscoveryState } from "@modelcontextprotocol/client";
 import { createHash, randomBytes } from "node:crypto";
-import {
-  authorizeMcpOAuth,
-  finishMcpOAuth,
-  McpOAuthProvider,
-  refreshMcpOAuthIfNeeded,
-  type McpOAuthCredentialStore,
-} from "../../src/connections/mcp/oauth";
+import { McpOAuthProvider, type McpOAuthCredentialStore } from "../../src/connections/mcp/oauth";
 import { HostedMcpEndpointAuthorizer } from "../../src/connections/mcp/endpoint-authorization";
 import { permissiveMcpOAuthAuthorizationForTests } from "../../src/connections/mcp/test-support";
 
@@ -243,9 +237,7 @@ describe("MCP OAuth provider", () => {
     await oauth.saveCodeVerifier("verifier");
 
     await assert.rejects(
-      finishMcpOAuth(
-        oauth,
-        endpointAuthorization,
+      oauth.finishAuthorization(
         new URLSearchParams({
           code: "must-not-be-redeemed",
           iss: "https://attacker.example.test/",
@@ -277,6 +269,19 @@ describe("MCP OAuth provider", () => {
 
     assert.equal(await first.codeVerifier(), "verifier-one");
     assert.equal(await second.codeVerifier(), "verifier-two");
+  });
+
+  test("does not share an authorization flight across endpoint generations", async () => {
+    const store = new MemoryStore();
+    const first = provider(store, undefined, authorization());
+    const second = provider(store, undefined, authorization());
+    await first.saveDiscoveryState(DISCOVERY);
+
+    const firstFlight = first.authorize();
+    const secondFlight = second.authorize();
+
+    assert.notEqual(firstFlight, secondFlight);
+    await Promise.allSettled([firstFlight, secondFlight]);
   });
 
   test("rejects an expired authorization attempt", async () => {
@@ -345,7 +350,7 @@ describe("MCP OAuth provider", () => {
     );
     assert.ok(store.row);
     store.row.lastAuthorizedAt = new Date(Date.now() - 120_000);
-    await refreshMcpOAuthIfNeeded(oauth, endpointAuthorization);
+    await oauth.refreshIfNeeded();
 
     assert.equal(tokenRequests, 1);
     assert.equal((await oauth.tokens())?.access_token, "fresh-access");
@@ -393,7 +398,7 @@ describe("MCP OAuth provider", () => {
       };
 
       await assert.rejects(
-        refreshMcpOAuthIfNeeded(oauth, authorized.oauth),
+        oauth.refreshIfNeeded(),
         /Persisted MCP OAuth discovery state is invalid/,
       );
       assert.deepEqual(requests, []);
@@ -422,10 +427,7 @@ describe("MCP OAuth provider", () => {
         },
       };
 
-      await assert.rejects(
-        authorizeMcpOAuth(oauth, authorized.oauth),
-        /Persisted MCP OAuth discovery state is invalid/,
-      );
+      await assert.rejects(oauth.authorize(), /Persisted MCP OAuth discovery state is invalid/);
       assert.equal(store.attempts.size, 0);
     } finally {
       await authorized.close();
@@ -454,7 +456,7 @@ describe("MCP OAuth provider", () => {
     const oauth = provider(store, undefined, endpointAuthorization);
 
     await assert.rejects(
-      authorizeMcpOAuth(oauth, endpointAuthorization, { timeoutMs: 5 }),
+      oauth.authorize({ timeoutMs: 5 }),
       (error: unknown) => error instanceof DOMException && error.name === "TimeoutError",
     );
   });

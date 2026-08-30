@@ -36,6 +36,11 @@ describe("mcpIntegrationRoutes", () => {
         events.push("discovery");
         return { authorizationServerUrl: "https://auth.example.test/" };
       },
+      finishAuthorization: async (params: URLSearchParams) => {
+        events.push("finish");
+        assert.equal(params.get("code"), "valid-code");
+        assert.ok(providerAuthorization);
+      },
     };
 
     await completeMcpOAuthCallback({
@@ -65,12 +70,6 @@ describe("mcpIntegrationRoutes", () => {
           events.push("provider");
           providerAuthorization = input.authorization;
           return provider;
-        },
-        finishAuthorization: async (callbackProvider, authorization, params) => {
-          events.push("finish");
-          assert.equal(callbackProvider, provider);
-          assert.equal(authorization, providerAuthorization);
-          assert.equal(params.get("code"), "valid-code");
         },
         getReadyClient: async () => {
           events.push("ready");

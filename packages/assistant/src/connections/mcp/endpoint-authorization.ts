@@ -1,4 +1,4 @@
-import type { FetchLike, OAuthClientProvider } from "@modelcontextprotocol/client";
+import type { FetchLike } from "@modelcontextprotocol/client";
 import {
   createGuardedFetch,
   createOriginPinnedFetch,
@@ -167,5 +167,3 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     });
   }
 }
-
-export type McpOAuthProviderFactory = (authorization: McpAuthorizedOAuth) => OAuthClientProvider;
