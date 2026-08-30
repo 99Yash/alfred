@@ -10,10 +10,8 @@ applyServerEnvFixtures({
   redisUrl: "redis://localhost:6379",
 });
 
-const [{ Elysia }, { errorHandler, mcpIntegrationRoutes }] = await Promise.all([
-  import("elysia"),
-  import("@alfred/http"),
-]);
+const [{ Elysia }, { errorHandler, mcpIntegrationRoutes }, { loadMcpRecoveryPage }] =
+  await Promise.all([import("elysia"), import("@alfred/http"), import("../src/mcp")]);
 
 describe("mcpIntegrationRoutes", () => {
   test("keeps the OAuth callback public and maps an invalid callback through errorHandler", async () => {
@@ -48,6 +46,42 @@ describe("mcpIntegrationRoutes", () => {
       const response = await app.handle(request);
       assert.equal(response.status, 401);
     }
+  });
+
+  test("publishes only the optional recovery cursor and forwards it to the page loader", async () => {
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+    const route = app.routes.find(
+      (candidate) =>
+        candidate.method === "GET" && candidate.path === "/api/integrations/mcp/recovery",
+    );
+    assert.ok(route);
+
+    const validationProbe = new Elysia().get("/recovery", ({ query }) => query, {
+      query: route.hooks.query,
+    });
+    const accepted = await validationProbe.handle(
+      new Request("http://localhost/recovery?cursor=cursor-2"),
+    );
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(await accepted.json(), { cursor: "cursor-2" });
+
+    for (const query of ["cursor=", "extra=value"]) {
+      const rejected = await validationProbe.handle(
+        new Request(`http://localhost/recovery?${query}`),
+      );
+      assert.equal(rejected.status, 422);
+    }
+
+    let received: unknown;
+    const page = await loadMcpRecoveryPage(
+      { userId: "user-1", cursor: "cursor-2" },
+      async (input) => {
+        received = input;
+        return { operations: [], nextCursor: null };
+      },
+    );
+    assert.deepEqual(received, { userId: "user-1", cursor: "cursor-2" });
+    assert.deepEqual(page, { operations: [], nextCursor: null });
   });
 
   test("publishes the canonical closed recovery decision at the HTTP boundary", () => {

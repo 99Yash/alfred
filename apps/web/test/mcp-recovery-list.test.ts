@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { client } from "../src/lib/eden";
 import { McpRecoveryList } from "../src/routes/-integrations/mcp-recovery-list";
+import { flattenMcpRecoveryPages } from "../src/routes/-integrations/mcp-server-section";
 
 type McpRecoveryRoute = ReturnType<typeof client.api.integrations.mcp.recovery>;
 type McpResolveBody = Parameters<McpRecoveryRoute["resolve"]["post"]>[0];
@@ -55,9 +56,12 @@ const preparedSuccessor: McpRecoveryOperation = {
 const baseProps = {
   loading: false,
   readError: false,
+  hasNextPage: false,
+  loadingMore: false,
   mutationPending: false,
   mutationError: false,
   onReadRetry() {},
+  onLoadMore() {},
   onResolve() {},
   onRetry() {},
 };
@@ -144,4 +148,37 @@ test("MCP recovery read error binds the retry action", () => {
   assert.ok(isValidElement<{ onClick?: () => void }>(retry));
   retry.props.onClick?.();
   assert.equal(retries, 1);
+});
+
+test("MCP recovery accumulates operations from every loaded page", () => {
+  const operations = flattenMcpRecoveryPages([
+    { operations: [operation], nextCursor: "cursor-2" },
+    { operations: [secondOperation, preparedSuccessor], nextCursor: null },
+  ]);
+
+  assert.deepEqual(
+    operations.map((item) => item.invocationId),
+    ["mcpi_1", "mcpi_2", "mcpi_successor"],
+  );
+});
+
+test("MCP recovery binds the explicit load-more control", () => {
+  let loads = 0;
+  const tree = McpRecoveryList({
+    ...baseProps,
+    operations: [operation],
+    hasNextPage: true,
+    onLoadMore() {
+      loads += 1;
+    },
+  });
+
+  assert.ok(isValidElement<{ children?: ReactNode }>(tree));
+  const loadMore = Children.toArray(tree.props.children).find(
+    (child) =>
+      isValidElement<{ children?: ReactNode }>(child) && child.props.children === "Load more",
+  );
+  assert.ok(isValidElement<{ onClick?: () => void }>(loadMore));
+  loadMore.props.onClick?.();
+  assert.equal(loads, 1);
 });

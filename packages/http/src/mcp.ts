@@ -1,4 +1,12 @@
-import { Errors, type McpRecoveryDecision, mcpRecoveryDecisionSchema } from "@alfred/contracts";
+import {
+  Errors,
+  type McpRecoveryDecision,
+  type McpRecoveryOperationsPageInput,
+  mcpRecoveryDecisionSchema,
+  mcpRecoveryOperationsPageInputSchema,
+  mcpRecoveryOperationsPageQuerySchema,
+  mcpRecoveryOperationsPageSchema,
+} from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
@@ -39,6 +47,15 @@ const mcpRecoveryDecisionBody = t.Object(
   },
   { additionalProperties: false },
 );
+
+export async function loadMcpRecoveryPage(
+  input: McpRecoveryOperationsPageInput,
+  load: typeof listMcpRecoveryOperations = listMcpRecoveryOperations,
+) {
+  return mcpRecoveryOperationsPageSchema.parse(
+    await load(mcpRecoveryOperationsPageInputSchema.parse(input)),
+  );
+}
 
 function connectionResult(
   connection: NonNullable<Awaited<ReturnType<typeof readOwnedConnection>>>,
@@ -106,9 +123,15 @@ export const mcpIntegrationRoutes = new Elysia({
         const connections = await listOwnedConnections(user.id);
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
-      .get("/recovery", async ({ user }) => ({
-        operations: await listMcpRecoveryOperations(user.id),
-      }))
+      .get(
+        "/recovery",
+        async ({ query, user }) =>
+          loadMcpRecoveryPage({
+            userId: user.id,
+            ...(query.cursor ? { cursor: query.cursor } : {}),
+          }),
+        { query: mcpRecoveryOperationsPageQuerySchema },
+      )
       .post(
         "/recovery/:invocationId/resolve",
         async ({ body, params, user }) => {

@@ -48,4 +48,5 @@ export {
   listMcpRecoveryOperations,
   resolveMcpRecoveryOperation,
   retryMcpRecoveryOperation,
+  type McpRecoveryOperationsPageInput,
 } from "./recovery";

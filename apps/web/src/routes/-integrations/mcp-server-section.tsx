@@ -1,5 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { McpRecoveryDecision } from "@alfred/contracts";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+  McpRecoveryDecision,
+  McpRecoveryOperation,
+  McpRecoveryOperationsPage,
+} from "@alfred/contracts";
 import { AlertTriangle, Plug, Plus } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
 import { client, type EdenData, API_URL } from "~/lib/eden";
@@ -9,8 +13,6 @@ import { mcpConnectionStatusText } from "./mcp-server-status";
 
 type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
 type McpConnection = McpConnectionsResponse["connections"][number];
-type McpRecoveryResponse = EdenData<typeof client.api.integrations.mcp.recovery.get>;
-type McpRecoveryOperation = McpRecoveryResponse["operations"][number];
 type McpRecoveryAction =
   | {
       kind: "resolve";
@@ -18,6 +20,14 @@ type McpRecoveryAction =
       decision: McpRecoveryDecision;
     }
   | { kind: "successor"; invocationId: string };
+
+const FIRST_RECOVERY_PAGE: string | null = null;
+
+export function flattenMcpRecoveryPages(
+  pages: ReadonlyArray<McpRecoveryOperationsPage> | undefined,
+): ReadonlyArray<McpRecoveryOperation> {
+  return pages?.flatMap((page) => page.operations) ?? [];
+}
 
 export function MCPServerSection() {
   const queryClient = useQueryClient();
@@ -34,15 +44,19 @@ export function MCPServerSection() {
     refetchOnWindowFocus: true,
   });
   const connections = connectionQuery.data ?? [];
-  const recoveryQuery = useQuery<ReadonlyArray<McpRecoveryOperation>>({
+  const recoveryQuery = useInfiniteQuery({
     queryKey: ["integrations", "mcp", "recovery"],
-    queryFn: async () => {
-      const response = await client.api.integrations.mcp.recovery.get();
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
+      const response = await client.api.integrations.mcp.recovery.get({
+        query: pageParam ? { cursor: pageParam } : {},
+      });
       if (response.error || !response.data) {
         throw new Error("Could not load MCP recovery operations");
       }
-      return response.data.operations;
+      return response.data;
     },
+    initialPageParam: FIRST_RECOVERY_PAGE,
+    getNextPageParam: (lastPage: McpRecoveryOperationsPage) => lastPage.nextCursor,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
@@ -63,7 +77,7 @@ export function MCPServerSection() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["integrations", "mcp", "recovery"] }),
   });
-  const recoveryOperations = recoveryQuery.data ?? [];
+  const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
   const github = connections.find((connection) => connection.canonicalResource.includes("github"));
   const isConnecting = github?.status === "connecting";
   const statusText = connectionQuery.isPending
@@ -125,10 +139,15 @@ export function MCPServerSection() {
         operations={recoveryOperations}
         loading={recoveryQuery.isPending}
         readError={recoveryQuery.isError}
+        hasNextPage={recoveryQuery.hasNextPage}
+        loadingMore={recoveryQuery.isFetchingNextPage}
         mutationPending={recoveryMutation.isPending}
         mutationError={recoveryMutation.isError}
         onReadRetry={() => {
           void recoveryQuery.refetch();
+        }}
+        onLoadMore={() => {
+          void recoveryQuery.fetchNextPage();
         }}
         onResolve={(invocationId, decision) => {
           recoveryMutation.mutate({ kind: "resolve", invocationId, decision });
