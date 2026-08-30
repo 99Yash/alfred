@@ -31,7 +31,7 @@ import {
   type NewMcpConnection,
   type NewMcpServer,
 } from "@alfred/db/schemas";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, or } from "drizzle-orm";
 
 // ===========================================================================
 // Connections
@@ -244,6 +244,120 @@ export async function listOwnedConnections(
     .orderBy(desc(mcpConnections.updatedAt))
     .limit(100);
   return rows.map(joinConnection);
+}
+
+/**
+ * One owned connection and the exact immutable catalog revision it currently
+ * points at. The renamed fields are projections of the named Drizzle row types;
+ * no parallel database shape is maintained here.
+ */
+export type OwnedCurrentCatalogRow = Pick<McpConnection, "instanceKey" | "label"> & {
+  namespace: McpServer["id"];
+  connectionId: McpConnection["id"];
+  revisionId: McpCatalogRevision["id"];
+} & Pick<McpCatalogRevision, "revisionHash" | "descriptors">;
+
+export type OwnedCurrentCatalogPosition = Pick<
+  OwnedCurrentCatalogRow,
+  "namespace" | "instanceKey" | "connectionId"
+>;
+
+export type ReadOwnedCurrentCatalogInput = Pick<McpConnection, "userId"> & {
+  connectionId: McpConnection["id"];
+};
+
+export type ListOwnedCurrentCatalogsInput = Pick<McpConnection, "userId"> & {
+  namespace?: McpServer["id"];
+  connectionId?: McpConnection["id"];
+  /** Exclusive stable-order position from the last catalog row already scanned. */
+  after?: OwnedCurrentCatalogPosition;
+  /** Required so a caller cannot accidentally issue an unbounded catalog scan. */
+  limit: number;
+};
+
+const ownedCurrentCatalogSelection = {
+  namespace: mcpServers.id,
+  connectionId: mcpConnections.id,
+  instanceKey: mcpConnections.instanceKey,
+  label: mcpConnections.label,
+  revisionId: mcpCatalogRevisions.id,
+  revisionHash: mcpCatalogRevisions.revisionHash,
+  descriptors: mcpCatalogRevisions.descriptors,
+} as const;
+
+function afterOwnedCurrentCatalog(position: OwnedCurrentCatalogPosition | undefined) {
+  if (!position) return undefined;
+  return or(
+    gt(mcpServers.id, position.namespace),
+    and(
+      eq(mcpServers.id, position.namespace),
+      gt(mcpConnections.instanceKey, position.instanceKey),
+    ),
+    and(
+      eq(mcpServers.id, position.namespace),
+      eq(mcpConnections.instanceKey, position.instanceKey),
+      gt(mcpConnections.id, position.connectionId),
+    ),
+  );
+}
+
+/** Read one owned connection's exact current catalog in one joined query. */
+export async function readOwnedCurrentCatalog(
+  input: ReadOwnedCurrentCatalogInput,
+  runner: DbRunner = db(),
+): Promise<OwnedCurrentCatalogRow | undefined> {
+  const [row] = await runner
+    .select(ownedCurrentCatalogSelection)
+    .from(mcpConnections)
+    .innerJoin(
+      mcpServers,
+      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
+    )
+    .innerJoin(
+      mcpCatalogRevisions,
+      and(
+        eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
+        eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+      ),
+    )
+    .where(and(eq(mcpConnections.userId, input.userId), eq(mcpConnections.id, input.connectionId)))
+    .limit(1);
+  return row;
+}
+
+/**
+ * Read a bounded stable-order batch of owned current catalogs. Namespace and
+ * connection filters are exact and combine with AND. The revision join follows
+ * the connection's current pointer, so no per-connection revision read occurs.
+ */
+export async function listOwnedCurrentCatalogs(
+  input: ListOwnedCurrentCatalogsInput,
+  runner: DbRunner = db(),
+): Promise<OwnedCurrentCatalogRow[]> {
+  return runner
+    .select(ownedCurrentCatalogSelection)
+    .from(mcpConnections)
+    .innerJoin(
+      mcpServers,
+      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
+    )
+    .innerJoin(
+      mcpCatalogRevisions,
+      and(
+        eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
+        eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+      ),
+    )
+    .where(
+      and(
+        eq(mcpConnections.userId, input.userId),
+        input.namespace !== undefined ? eq(mcpServers.id, input.namespace) : undefined,
+        input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
+        afterOwnedCurrentCatalog(input.after),
+      ),
+    )
+    .orderBy(asc(mcpServers.id), asc(mcpConnections.instanceKey), asc(mcpConnections.id))
+    .limit(input.limit);
 }
 
 export async function updateConnection(

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { hashToolInput, hashToolRequest } from "@alfred/contracts";
+import { hashToolInput, hashToolRequest, isRecord } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import {
   actionStagings,
@@ -57,8 +57,9 @@ import { dbBackedSkip } from "../../support/db-backed";
  *     — even for a user whose policy is autonomy — and only routes through the
  *     durable broker AFTER approval, threading the staging-row id as `ctx.stagingId`
  *     so the broker's ledger row is 1:1 with the staging row.
- *   - `mcp.list_tools` is a bounded LOCAL read: it takes the fast path, writes NO
- *     staging row, and returns the catalog summaries.
+ *   - `mcp.list_tools` is a bounded cross-connection LOCAL read: it takes the
+ *     fast path, writes NO staging row, and returns exact remote refs without
+ *     calling the execution provider.
  *
  * The broker itself is exercised offline against a fake protocol elsewhere
  * (`test/mcp/broker.test.ts`); here it is replaced with a capturing fake via
@@ -168,10 +169,14 @@ async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
   return { userId, runId };
 }
 
-async function seedConnectionWithCatalog(userId: string, tools: Tool[]): Promise<string> {
+async function seedConnectionWithCatalog(
+  userId: string,
+  label: string,
+  tools: Tool[],
+): Promise<string> {
   const conn = await createNamedConnection({
     userId,
-    label: "Test MCP",
+    label,
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
@@ -692,9 +697,14 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     }
   });
 
-  test("mcp.list_tools takes the fast path — no staging row, returns catalog summaries", async () => {
+  test("mcp.list_tools searches across connections on the fast path without provider state", async () => {
+    const broker = new CapturingBroker();
+    _setMcpExecutionBrokerForTests(asBroker(broker));
     const { userId, runId } = await seedUserAndRun();
-    const connId = await seedConnectionWithCatalog(userId, [
+    const firstConnectionId = await seedConnectionWithCatalog(userId, "Work MCP", [
+      { name: "search", inputSchema: { type: "object", additionalProperties: true } },
+    ]);
+    const secondConnectionId = await seedConnectionWithCatalog(userId, "Personal MCP", [
       { name: "search", inputSchema: { type: "object", additionalProperties: true } },
     ]);
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
@@ -705,7 +715,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       toolCallId,
       toolName: "mcp.list_tools",
       activeTools: ["mcp.list_tools"],
-      input: { connectionId: connId },
+      input: {},
       userId,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
@@ -720,12 +730,22 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     );
     const rows = await stagingRowsFor(runId, toolCallId);
     assert.equal(rows.length, 0, "mcp.list_tools never stages");
+    assert.equal(broker.calls, 0, "local discovery never calls the MCP execution provider");
 
     const toolResult = result.kind === "executed" ? result.toolResult : undefined;
-    assert.equal((toolResult as { status?: string })?.status, "tools");
+    assert.ok(isRecord(toolResult));
+    assert.equal(toolResult.status, "tools");
+    assert.ok(Array.isArray(toolResult.tools));
     assert.deepEqual(
-      (toolResult as { tools?: { name: string }[] })?.tools?.map((summary) => summary.name),
-      ["search"],
+      new Set(
+        toolResult.tools.map((hit) => {
+          assert.ok(isRecord(hit));
+          assert.ok(isRecord(hit.ref));
+          assert.equal(hit.ref.remoteName, "search");
+          return hit.ref.connectionId;
+        }),
+      ),
+      new Set([firstConnectionId, secondConnectionId]),
     );
   });
 });
