@@ -19,7 +19,7 @@
  * one-way on purpose: nothing in this module may reach the invocation half.
  */
 
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import { createId, requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
@@ -31,7 +31,7 @@ import {
   type NewMcpConnection,
   type NewMcpServer,
 } from "@alfred/db/schemas";
-import { and, asc, desc, eq, gt, isNull, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 
 // ===========================================================================
 // Connections
@@ -255,24 +255,45 @@ export type OwnedCurrentCatalogRow = Pick<McpConnection, "instanceKey" | "label"
   namespace: McpServer["id"];
   connectionId: McpConnection["id"];
   revisionId: McpCatalogRevision["id"];
-} & Pick<McpCatalogRevision, "revisionHash" | "descriptors">;
+  descriptorCount: McpCatalogRevision["toolCount"];
+} & Pick<McpCatalogRevision, "revisionHash">;
+
+export type OwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & {
+  /** Absolute zero-based position of the first projected descriptor. */
+  descriptorOffset: number;
+  /** A database-projected slice. The complete persisted JSONB array never crosses this boundary. */
+  descriptors: unknown[];
+};
+
+export type OwnedCurrentCatalogDescriptorRow = OwnedCurrentCatalogRow & {
+  /** The exact selected descriptor, or null when the current catalog has no such name. */
+  descriptor: unknown | null;
+};
 
 export type OwnedCurrentCatalogPosition = Pick<
   OwnedCurrentCatalogRow,
   "namespace" | "instanceKey" | "connectionId"
 >;
 
-export type ReadOwnedCurrentCatalogInput = Pick<McpConnection, "userId"> & {
+export type ReadOwnedCurrentCatalogSliceInput = Pick<McpConnection, "userId"> & {
   connectionId: McpConnection["id"];
+  descriptorOffset: number;
+  descriptorLimit: number;
 };
 
-export type ListOwnedCurrentCatalogsInput = Pick<McpConnection, "userId"> & {
+export type ReadOwnedCurrentCatalogDescriptorInput = Pick<McpConnection, "userId"> & {
+  connectionId: McpConnection["id"];
+  remoteName: string;
+};
+
+export type ListOwnedCurrentCatalogSlicesInput = Pick<McpConnection, "userId"> & {
   namespace?: McpServer["id"];
   connectionId?: McpConnection["id"];
   /** Exclusive stable-order position from the last catalog row already scanned. */
   after?: OwnedCurrentCatalogPosition;
-  /** Required so a caller cannot accidentally issue an unbounded catalog scan. */
-  limit: number;
+  /** Both limits are clamped again here so no caller can issue an unbounded scan. */
+  catalogLimit: number;
+  descriptorLimit: number;
 };
 
 const ownedCurrentCatalogSelection = {
@@ -282,8 +303,42 @@ const ownedCurrentCatalogSelection = {
   label: mcpConnections.label,
   revisionId: mcpCatalogRevisions.id,
   revisionHash: mcpCatalogRevisions.revisionHash,
-  descriptors: mcpCatalogRevisions.descriptors,
+  descriptorCount: sql<number>`jsonb_array_length(${mcpCatalogRevisions.descriptors})`.mapWith(
+    Number,
+  ),
 } as const;
+
+const MAX_DISCOVERY_CATALOGS = 4;
+const MAX_DISCOVERY_DESCRIPTORS = 200;
+
+function boundedLimit(value: number, maximum: number): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `MCP catalog projection limit must be a non-negative integer; received ${value}`,
+    );
+  }
+  return Math.min(value, maximum);
+}
+
+function descriptorSlice(offset: number, limit: number) {
+  return sql<unknown>`coalesce((
+    select jsonb_agg(projected.descriptor order by projected.ordinality)
+     from jsonb_array_elements(${mcpCatalogRevisions.descriptors})
+           with ordinality as projected(descriptor, ordinality)
+     where projected.ordinality > ${offset}::bigint
+       and projected.ordinality <= (${offset}::bigint + ${limit}::bigint)
+  ), '[]'::jsonb)`;
+}
+
+function toCatalogSliceRow(
+  row: OwnedCurrentCatalogRow & { descriptors: unknown },
+  descriptorOffset: number,
+): OwnedCurrentCatalogSliceRow {
+  if (!Array.isArray(row.descriptors)) {
+    throw new Error("MCP catalog descriptor slice is not a JSON array");
+  }
+  return { ...row, descriptorOffset, descriptors: row.descriptors };
+}
 
 function afterOwnedCurrentCatalog(position: OwnedCurrentCatalogPosition | undefined) {
   if (!position) return undefined;
@@ -301,13 +356,55 @@ function afterOwnedCurrentCatalog(position: OwnedCurrentCatalogPosition | undefi
   );
 }
 
-/** Read one owned connection's exact current catalog in one joined query. */
-export async function readOwnedCurrentCatalog(
-  input: ReadOwnedCurrentCatalogInput,
+/** Read one bounded slice from an owned connection's exact current catalog. */
+export async function readOwnedCurrentCatalogSlice(
+  input: ReadOwnedCurrentCatalogSliceInput,
   runner: DbRunner = db(),
-): Promise<OwnedCurrentCatalogRow | undefined> {
+): Promise<OwnedCurrentCatalogSliceRow | undefined> {
+  const descriptorOffset = boundedLimit(input.descriptorOffset, Number.MAX_SAFE_INTEGER);
+  const descriptorLimit = boundedLimit(input.descriptorLimit, MAX_DISCOVERY_DESCRIPTORS);
   const [row] = await runner
-    .select(ownedCurrentCatalogSelection)
+    .select({
+      ...ownedCurrentCatalogSelection,
+      descriptors: descriptorSlice(descriptorOffset, descriptorLimit),
+    })
+    .from(mcpConnections)
+    .innerJoin(
+      mcpServers,
+      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
+    )
+    .innerJoin(
+      mcpCatalogRevisions,
+      and(
+        eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
+        eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+      ),
+    )
+    .where(and(eq(mcpConnections.userId, input.userId), eq(mcpConnections.id, input.connectionId)))
+    .limit(1);
+  return row ? toCatalogSliceRow(row, descriptorOffset) : undefined;
+}
+
+/**
+ * Read one exact descriptor from an owned connection's current catalog. The
+ * scalar subquery projects at most one JSONB value; the complete array is never
+ * returned to node-postgres.
+ */
+export async function readOwnedCurrentCatalogDescriptor(
+  input: ReadOwnedCurrentCatalogDescriptorInput,
+  runner: DbRunner = db(),
+): Promise<OwnedCurrentCatalogDescriptorRow | undefined> {
+  const [row] = await runner
+    .select({
+      ...ownedCurrentCatalogSelection,
+      descriptor: sql<unknown>`(
+        select projected.descriptor
+          from jsonb_array_elements(${mcpCatalogRevisions.descriptors})
+               as projected(descriptor)
+         where projected.descriptor ->> 'name' = ${input.remoteName}
+         limit 1
+      )`,
+    })
     .from(mcpConnections)
     .innerJoin(
       mcpServers,
@@ -325,39 +422,82 @@ export async function readOwnedCurrentCatalog(
   return row;
 }
 
+type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { descriptors: unknown };
+
 /**
- * Read a bounded stable-order batch of owned current catalogs. Namespace and
- * connection filters are exact and combine with AND. The revision join follows
- * the connection's current pointer, so no per-connection revision read occurs.
+ * Read a stable-order batch of owned current catalogs in one query. PostgreSQL
+ * allocates one descriptor budget across the selected catalog rows before the
+ * JSONB values cross the driver boundary. Namespace and connection filters are
+ * exact and combine with AND; the current-revision join is still one batched
+ * query rather than one revision read per connection.
  */
-export async function listOwnedCurrentCatalogs(
-  input: ListOwnedCurrentCatalogsInput,
+export async function listOwnedCurrentCatalogSlices(
+  input: ListOwnedCurrentCatalogSlicesInput,
   runner: DbRunner = db(),
-): Promise<OwnedCurrentCatalogRow[]> {
-  return runner
-    .select(ownedCurrentCatalogSelection)
-    .from(mcpConnections)
-    .innerJoin(
-      mcpServers,
-      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
+): Promise<OwnedCurrentCatalogSliceRow[]> {
+  const catalogLimit = boundedLimit(input.catalogLimit, MAX_DISCOVERY_CATALOGS);
+  const descriptorLimit = boundedLimit(input.descriptorLimit, MAX_DISCOVERY_DESCRIPTORS);
+  if (catalogLimit === 0) return [];
+
+  const ownedAndPositioned = and(
+    eq(mcpConnections.userId, input.userId),
+    input.namespace !== undefined ? eq(mcpServers.id, input.namespace) : undefined,
+    input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
+    afterOwnedCurrentCatalog(input.after),
+  );
+  const result = await runner.execute(sql`
+    with selected_catalogs as materialized (
+      select ${mcpServers.id} as "namespace",
+             ${mcpConnections.id} as "connectionId",
+             ${mcpConnections.instanceKey} as "instanceKey",
+             ${mcpConnections.label} as "label",
+             ${mcpCatalogRevisions.id} as "revisionId",
+             ${mcpCatalogRevisions.revisionHash} as "revisionHash",
+             jsonb_array_length(${mcpCatalogRevisions.descriptors}) as "descriptorCount",
+             ${mcpCatalogRevisions.descriptors} as "catalogDescriptors"
+        from ${mcpConnections}
+        inner join ${mcpServers}
+          on ${mcpServers.id} = ${mcpConnections.serverId}
+         and ${mcpServers.userId} = ${input.userId}
+        inner join ${mcpCatalogRevisions}
+          on ${mcpCatalogRevisions.connectionId} = ${mcpConnections.id}
+         and ${mcpCatalogRevisions.id} = ${mcpConnections.currentCatalogRevisionId}
+       where ${ownedAndPositioned}
+       order by ${mcpServers.id}, ${mcpConnections.instanceKey}, ${mcpConnections.id}
+       limit ${catalogLimit}
+    ), budgeted_catalogs as (
+      select selected_catalogs.*,
+             coalesce(
+               sum("descriptorCount") over (
+                 order by "namespace", "instanceKey", "connectionId"
+                 rows between unbounded preceding and 1 preceding
+               ),
+               0
+             )::integer as "descriptorsBefore"
+        from selected_catalogs
     )
-    .innerJoin(
-      mcpCatalogRevisions,
-      and(
-        eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
-        eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
-      ),
-    )
-    .where(
-      and(
-        eq(mcpConnections.userId, input.userId),
-        input.namespace !== undefined ? eq(mcpServers.id, input.namespace) : undefined,
-        input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
-        afterOwnedCurrentCatalog(input.after),
-      ),
-    )
-    .orderBy(asc(mcpServers.id), asc(mcpConnections.instanceKey), asc(mcpConnections.id))
-    .limit(input.limit);
+    select "namespace",
+           "connectionId",
+           "instanceKey",
+           "label",
+           "revisionId",
+           "revisionHash",
+           "descriptorCount",
+           coalesce((
+             select jsonb_agg(projected.descriptor order by projected.ordinality)
+               from jsonb_array_elements("catalogDescriptors")
+                    with ordinality as projected(descriptor, ordinality)
+              where projected.ordinality <= greatest(
+                least(${descriptorLimit} - "descriptorsBefore", "descriptorCount"),
+                0
+              )
+           ), '[]'::jsonb) as "descriptors"
+      from budgeted_catalogs
+     order by "namespace", "instanceKey", "connectionId"
+  `);
+  return rowsFromExecute<RawOwnedCurrentCatalogSliceRow>(result).map((row) =>
+    toCatalogSliceRow(row, 0),
+  );
 }
 
 export async function updateConnection(

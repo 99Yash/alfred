@@ -38,7 +38,7 @@ export { McpRawClient, type McpCallEnvelope, type McpPreparedToolCall } from "./
 export type { ExternalToolRef } from "@alfred/contracts";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
-export { inspectMcpToolLocal, searchMcpToolsLocal } from "./list-tools";
+export { inspectMcpToolLocal, listMcpToolsLocal, searchMcpToolsLocal } from "./list-tools";
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 export {
   authorizeMcpOAuth,

@@ -12,7 +12,9 @@ import { inspectMcpToolLocal, searchMcpToolsLocal } from "../../src/connections/
 import { computeDescriptorHashes } from "../../src/connections/mcp/hash";
 import {
   createNamedConnection,
+  listOwnedCurrentCatalogSlices,
   publishCatalogRevision,
+  readOwnedCurrentCatalogDescriptor,
 } from "../../src/connections/mcp/persistence";
 import { dbBackedSkip } from "../support/db-backed";
 
@@ -322,6 +324,151 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       secondDescriptorBatch.tools.map((hit) => hit.ref.remoteName),
       ["z_target_descriptor"],
     );
+  });
+
+  test("the persistence search boundary returns at most 200 descriptors across four catalogs", async () => {
+    const userId = await seedUser();
+    const connections = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        seedConnection(userId, { label: `Bounded catalog ${index}` }),
+      ),
+    );
+    for (const [catalogIndex, connection] of connections.entries()) {
+      await seedRevision(
+        connection.id,
+        Array.from({ length: 1_000 }, (_, descriptorIndex) =>
+          tool(`catalog_${catalogIndex}_tool_${descriptorIndex}`),
+        ),
+      );
+    }
+
+    const rows = await listOwnedCurrentCatalogSlices({
+      userId,
+      catalogLimit: 4,
+      descriptorLimit: 200,
+    });
+    assert.equal(rows.length, 4);
+    assert.equal(
+      rows.reduce((count, row) => count + row.descriptors.length, 0),
+      200,
+      "the database projection, not the JavaScript scanner, owns the descriptor budget",
+    );
+    assert.ok(rows.every((row) => row.descriptorCount === 1_000));
+  });
+
+  test("a descriptor budget resumes inside the next catalog without skipping its boundary", async () => {
+    const userId = await seedUser();
+    const resource = randomUUID();
+    const connections = await Promise.all([
+      seedConnection(userId, { label: "Budget first", resource }),
+      seedConnection(userId, { label: "Budget second", resource }),
+    ]);
+    const ordered = [...connections].sort((left, right) =>
+      left.instanceKey < right.instanceKey ? -1 : left.instanceKey > right.instanceKey ? 1 : 0,
+    );
+    const first = ordered[0];
+    const second = ordered[1];
+    assert.ok(first && second);
+    await seedRevision(
+      first.id,
+      Array.from({ length: 201 }, (_, index) => tool(`first_${index}`)),
+    );
+    await seedRevision(second.id, [
+      ...Array.from({ length: 199 }, (_, index) => tool(`second_${index}`)),
+      tool("cross_budget_target"),
+      ...Array.from({ length: 50 }, (_, index) => tool(`second_tail_${index}`)),
+    ]);
+
+    const firstPage = await searchMcpToolsLocal({ userId, query: "cross_budget_target" });
+    assert.deepEqual(firstPage.tools, []);
+    assert.ok(firstPage.nextCursor);
+    const secondPage = await searchMcpToolsLocal({
+      userId,
+      query: "cross_budget_target",
+      cursor: firstPage.nextCursor ?? undefined,
+    });
+    assert.deepEqual(secondPage.tools, []);
+    assert.ok(secondPage.nextCursor, "the second page stops inside the second catalog");
+    const thirdPage = await searchMcpToolsLocal({
+      userId,
+      query: "cross_budget_target",
+      cursor: secondPage.nextCursor ?? undefined,
+    });
+    assert.deepEqual(
+      thirdPage.tools.map((hit) => hit.ref.remoteName),
+      ["cross_budget_target"],
+    );
+  });
+
+  test("a full resumed slice keeps a cursor for a following catalog", async () => {
+    const userId = await seedUser();
+    const resource = randomUUID();
+    const connections = await Promise.all([
+      seedConnection(userId, { label: "Exact budget first", resource }),
+      seedConnection(userId, { label: "Exact budget second", resource }),
+    ]);
+    const ordered = [...connections].sort((left, right) =>
+      left.instanceKey < right.instanceKey ? -1 : left.instanceKey > right.instanceKey ? 1 : 0,
+    );
+    const first = ordered[0];
+    const second = ordered[1];
+    assert.ok(first && second);
+    await seedRevision(first.id, [
+      tool("target_first"),
+      ...Array.from({ length: 200 }, (_, index) => tool(`other_${index}`)),
+    ]);
+    await seedRevision(second.id, [tool("target_second")]);
+
+    const firstPage = await searchMcpToolsLocal({ userId, query: "target", limit: 1 });
+    assert.deepEqual(
+      firstPage.tools.map((hit) => hit.ref.remoteName),
+      ["target_first"],
+    );
+    assert.ok(firstPage.nextCursor);
+
+    const secondPage = await searchMcpToolsLocal({
+      userId,
+      query: "target",
+      limit: 1,
+      cursor: firstPage.nextCursor ?? undefined,
+    });
+    assert.deepEqual(secondPage.tools, []);
+    assert.ok(secondPage.nextCursor, "the later catalog remains unscanned");
+
+    const thirdPage = await searchMcpToolsLocal({
+      userId,
+      query: "target",
+      limit: 1,
+      cursor: secondPage.nextCursor ?? undefined,
+    });
+    assert.deepEqual(
+      thirdPage.tools.map((hit) => hit.ref.remoteName),
+      ["target_second"],
+    );
+  });
+
+  test("the persistence inspection boundary returns only the exact selected descriptor", async () => {
+    const userId = await seedUser();
+    const connection = await seedConnection(userId, { label: "Projected inspection" });
+    await seedRevision(connection.id, [
+      ...Array.from({ length: 999 }, (_, index) => tool(`other_${index}`)),
+      tool("selected_tool", { description: "Only this descriptor crosses the boundary" }),
+    ]);
+
+    const row = await readOwnedCurrentCatalogDescriptor({
+      userId,
+      connectionId: connection.id,
+      remoteName: "selected_tool",
+    });
+    assert.ok(row);
+    assert.equal(row.descriptorCount, 1_000);
+    assert.deepEqual(
+      row.descriptor,
+      tool("selected_tool", {
+        description: "Only this descriptor crosses the boundary",
+      }),
+    );
+    assert.equal("descriptors" in row, false, "the full catalog is not part of the boundary shape");
   });
 
   test("malformed, filter-mismatched, and stale-revision cursors fail visibly", async () => {

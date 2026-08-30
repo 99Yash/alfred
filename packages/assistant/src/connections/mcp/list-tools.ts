@@ -14,9 +14,11 @@ import {
   mcpToolDiscoveryPageSchema,
   mcpToolInspectionResultSchema,
   mcpToolSearchInputSchema,
+  parseMcpListToolsOperation,
   summarizeBody,
   type ExternalToolRef,
   type McpDiscoveryConnection,
+  type McpListToolsInput,
   type McpListToolsDetail,
   type McpToolDiscoveryHit,
   type McpToolDiscoveryPage,
@@ -26,10 +28,12 @@ import {
 import { z } from "zod";
 import { sha256Canonical } from "./hash";
 import {
-  listOwnedCurrentCatalogs,
-  readOwnedCurrentCatalog,
+  listOwnedCurrentCatalogSlices,
+  readOwnedCurrentCatalogDescriptor,
+  readOwnedCurrentCatalogSlice,
   type OwnedCurrentCatalogPosition,
   type OwnedCurrentCatalogRow,
+  type OwnedCurrentCatalogSliceRow,
 } from "./persistence";
 
 const MAX_SUMMARY_DESCRIPTION_CHARS = 240;
@@ -128,10 +132,6 @@ function encodeCursor(
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
-function descriptors(row: OwnedCurrentCatalogRow): unknown[] {
-  return Array.isArray(row.descriptors) ? row.descriptors : [];
-}
-
 /** Project one persisted, previously validated descriptor into visible bounded text. */
 function toSummary(descriptor: unknown): Summary | undefined {
   const parsed = jsonObjectSchema.safeParse(descriptor);
@@ -193,20 +193,23 @@ async function rowsForSearch(input: {
   namespace?: string;
   connectionId?: string;
   cursor: DiscoveryCursor | null;
-}): Promise<{ rows: OwnedCurrentCatalogRow[]; firstOffset: number; fullBatch: boolean }> {
+}): Promise<{ rows: OwnedCurrentCatalogSliceRow[]; fullBatch: boolean }> {
   if (!input.cursor) {
-    const rows = await listOwnedCurrentCatalogs({
+    const rows = await listOwnedCurrentCatalogSlices({
       userId: input.userId,
       ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
       ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
-      limit: MAX_CATALOGS_SCANNED,
+      catalogLimit: MAX_CATALOGS_SCANNED,
+      descriptorLimit: MAX_DESCRIPTORS_SCANNED,
     });
-    return { rows, firstOffset: 0, fullBatch: rows.length === MAX_CATALOGS_SCANNED };
+    return { rows, fullBatch: rows.length === MAX_CATALOGS_SCANNED };
   }
 
-  const current = await readOwnedCurrentCatalog({
+  const current = await readOwnedCurrentCatalogSlice({
     userId: input.userId,
     connectionId: input.cursor.position.connectionId,
+    descriptorOffset: input.cursor.position.descriptorOffset,
+    descriptorLimit: MAX_DESCRIPTORS_SCANNED,
   });
   if (
     !current ||
@@ -220,22 +223,23 @@ async function rowsForSearch(input: {
   if (current.revisionHash !== input.cursor.position.catalogRevision) {
     cursorError("catalog revision changed");
   }
-  if (input.cursor.position.descriptorOffset > descriptors(current).length) {
+  if (input.cursor.position.descriptorOffset > current.descriptorCount) {
     cursorError("descriptor position is outside the catalog");
   }
 
-  const remainingBudget = MAX_CATALOGS_SCANNED - 1;
-  const following = await listOwnedCurrentCatalogs({
+  const remainingCatalogBudget = MAX_CATALOGS_SCANNED - 1;
+  const remainingDescriptorBudget = MAX_DESCRIPTORS_SCANNED - current.descriptors.length;
+  const following = await listOwnedCurrentCatalogSlices({
     userId: input.userId,
     ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
     ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
     after: positionOf(current),
-    limit: remainingBudget,
+    catalogLimit: remainingCatalogBudget,
+    descriptorLimit: remainingDescriptorBudget,
   });
   return {
     rows: [current, ...following],
-    firstOffset: input.cursor.position.descriptorOffset,
-    fullBatch: following.length === remainingBudget,
+    fullBatch: following.length === remainingCatalogBudget,
   };
 }
 
@@ -247,7 +251,7 @@ export async function searchMcpToolsLocal(
   const normalized = normalizeSearch(parsed);
   const expectedFilterHash = filterHash(normalized);
   const cursor = decodeCursor(parsed.cursor, expectedFilterHash);
-  const { rows, firstOffset, fullBatch } = await rowsForSearch({
+  const { rows, fullBatch } = await rowsForSearch({
     userId,
     ...(normalized.namespace === undefined ? {} : { namespace: normalized.namespace }),
     ...(normalized.connectionId === undefined ? {} : { connectionId: normalized.connectionId }),
@@ -260,34 +264,43 @@ export async function searchMcpToolsLocal(
   let lastOffset = 0;
 
   for (const [rowIndex, row] of rows.entries()) {
-    const catalog = descriptors(row);
-    const start = rowIndex === 0 ? firstOffset : 0;
+    const catalog = row.descriptors;
+    const start = row.descriptorOffset;
     lastRow = row;
     lastOffset = start;
 
-    for (let index = start; index < catalog.length; index += 1) {
+    for (let localIndex = 0; localIndex < catalog.length; localIndex += 1) {
+      const descriptorOffset = start + localIndex;
       if (scanned >= MAX_DESCRIPTORS_SCANNED) {
         return mcpToolDiscoveryPageSchema.parse({
           status: "tools",
           tools,
-          nextCursor: encodeCursor(expectedFilterHash, row, index),
+          nextCursor: encodeCursor(expectedFilterHash, row, descriptorOffset),
         });
       }
       scanned += 1;
-      lastOffset = index + 1;
-      const summary = toSummary(catalog[index]);
+      lastOffset = descriptorOffset + 1;
+      const summary = toSummary(catalog[localIndex]);
       if (summary && matches(summary, row, normalized.query)) {
         tools.push(hit(row, summary, normalized.detail));
       }
       if (tools.length >= normalized.limit) {
         const hasUnscannedScope =
-          index + 1 < catalog.length || rowIndex + 1 < rows.length || fullBatch;
+          lastOffset < row.descriptorCount || rowIndex + 1 < rows.length || fullBatch;
         return mcpToolDiscoveryPageSchema.parse({
           status: "tools",
           tools,
-          nextCursor: hasUnscannedScope ? encodeCursor(expectedFilterHash, row, index + 1) : null,
+          nextCursor: hasUnscannedScope ? encodeCursor(expectedFilterHash, row, lastOffset) : null,
         });
       }
+    }
+
+    if (lastOffset < row.descriptorCount) {
+      return mcpToolDiscoveryPageSchema.parse({
+        status: "tools",
+        tools,
+        nextCursor: encodeCursor(expectedFilterHash, row, lastOffset),
+      });
     }
   }
 
@@ -303,9 +316,10 @@ export async function inspectMcpToolLocal(input: {
   ref: ExternalToolRef;
 }): Promise<McpToolInspectionResult> {
   const ref = mcpExternalToolRefSchema.parse(input.ref);
-  const row = await readOwnedCurrentCatalog({
+  const row = await readOwnedCurrentCatalogDescriptor({
     userId: input.userId,
     connectionId: ref.connectionId,
+    remoteName: ref.remoteName,
   });
   if (!row) {
     return mcpToolInspectionResultSchema.parse({
@@ -322,10 +336,8 @@ export async function inspectMcpToolLocal(input: {
     });
   }
 
-  const tool = descriptors(row)
-    .map((descriptor) => jsonObjectSchema.safeParse(descriptor))
-    .find((descriptor) => descriptor.success && descriptor.data.name === ref.remoteName);
-  if (!tool?.success) {
+  const tool = jsonObjectSchema.safeParse(row.descriptor);
+  if (!tool.success || tool.data.name !== ref.remoteName) {
     return mcpToolInspectionResultSchema.parse({
       status: "not_found",
       ref,
@@ -338,4 +350,18 @@ export async function inspectMcpToolLocal(input: {
     connection: connection(row),
     tool: tool.data,
   });
+}
+
+/** Own the strict search-or-inspect operation rule behind one local adapter door. */
+export async function listMcpToolsLocal(input: {
+  userId: string;
+  request: McpListToolsInput;
+}): Promise<McpToolDiscoveryPage | McpToolInspectionResult> {
+  const operation = parseMcpListToolsOperation(input.request);
+  switch (operation.operation) {
+    case "inspect":
+      return inspectMcpToolLocal({ userId: input.userId, ref: operation.input.ref });
+    case "search":
+      return searchMcpToolsLocal({ userId: input.userId, ...operation.input });
+  }
 }
