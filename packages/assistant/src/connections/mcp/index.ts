@@ -58,11 +58,13 @@ export {
   type McpConnectionManagerPersistence,
 } from "./manager";
 export {
-  authorizeMcpOAuth,
-  finishMcpOAuth,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
+  McpOAuthProvider,
   McpOAuthAuthorizationRequiredError,
+  type McpBoundOAuthSession,
+  type McpOAuthProviderForConnectionInput,
+  type McpOAuthSessionFactory,
 } from "./oauth";
 export {
   insertConnection,

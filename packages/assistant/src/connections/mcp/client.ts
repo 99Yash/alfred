@@ -22,13 +22,12 @@ import type {
   McpAuthorizedEndpoint,
   McpAuthorizedProtocol,
   McpEndpointAuthorizer,
-  McpOAuthProviderFactory,
 } from "./endpoint-authorization";
 import { sha256Canonical } from "./hash";
 import {
-  authorizeMcpOAuth,
   McpOAuthAuthorizationRequiredError,
-  refreshMcpOAuthIfNeeded,
+  type McpBoundOAuthSession,
+  type McpOAuthSessionFactory,
 } from "./oauth";
 import type { McpTraceContext } from "./trace";
 import {
@@ -110,7 +109,7 @@ export interface McpRawClientOptions extends McpClientLimits {
    * Full OAuth provider used only before connect. The HTTP transport receives a
    * token-only projection so it cannot refresh and replay `tools/call`.
    */
-  oauthProviderFactory?: McpOAuthProviderFactory;
+  oauthProviderFactory?: McpOAuthSessionFactory;
   onAuthorizationRequired?: () => void | Promise<void>;
   onInsufficientScope?: (requiredScopes: string[]) => void | Promise<void>;
   now?: () => number;
@@ -127,6 +126,15 @@ const MAX_SCHEMA_NODES = 5_000;
 const MAX_SCHEMA_REGEX_CHARS = 2_048;
 const encoder = new TextEncoder();
 
+interface McpClientGeneration {
+  readonly authorization: McpAuthorizedEndpoint;
+  readonly protocol: McpProtocolClient;
+  readonly oauth: McpBoundOAuthSession | null;
+  negotiated: McpNegotiatedServer | null;
+  unhealthy: Error | null;
+  closeFlight: Promise<void> | null;
+}
+
 /**
  * Model-agnostic MCP client: lifecycle, revisioned catalog, exact-schema input
  * validation, and bounded results. It deliberately knows nothing about model
@@ -140,8 +148,7 @@ export class McpRawClient {
   /** The same bounds with every default already applied — no `??` at the use site. */
   readonly #limits: Required<McpClientLimits>;
   readonly #schemaValidator = new AjvJsonSchemaValidator();
-  #protocol: McpProtocolClient | null = null;
-  #negotiatedServer: McpNegotiatedServer | null = null;
+  #generation: McpClientGeneration | null = null;
   #catalog: McpCatalogSnapshot | null = null;
   #catalogExpiresAt = 0;
   #catalogGeneration = 0;
@@ -150,9 +157,8 @@ export class McpRawClient {
   #inputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
   #outputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
   #authorizationBlocked: McpClientError | null = null;
-  #authorizedEndpoint: McpAuthorizedEndpoint | null = null;
-  #oauthProvider: ReturnType<McpOAuthProviderFactory> | null = null;
   #lifecycleTail: Promise<void> = Promise.resolve();
+  #cleanupTail: Promise<void> = Promise.resolve();
 
   constructor(options: McpRawClientOptions) {
     // The destructure IS the split: bounds get their defaults, everything else is
@@ -175,7 +181,7 @@ export class McpRawClient {
   }
 
   get negotiatedServer(): McpNegotiatedServer | null {
-    return this.#negotiatedServer;
+    return this.#generation?.negotiated ?? null;
   }
 
   onCatalogInvalidated(handler: () => void): void {
@@ -196,10 +202,11 @@ export class McpRawClient {
   }
 
   async #connect(trace?: McpTraceContext): Promise<void> {
-    if (this.#protocol) return;
+    await this.#drainCleanup();
+    if (this.#generation) return;
     let authorized: McpAuthorizedEndpoint | null = null;
     let protocol: McpProtocolClient | undefined;
-    let oauthProvider: ReturnType<McpOAuthProviderFactory> | null = null;
+    let oauth: McpBoundOAuthSession | null = null;
     try {
       authorized = await this.#options.endpointAuthorizer.authorize({
         endpoint:
@@ -208,57 +215,50 @@ export class McpRawClient {
             : this.#options.endpoint,
         expectedOrigin: this.#options.expectedOrigin,
       });
-      oauthProvider = this.#options.oauthProviderFactory?.(authorized.oauth) ?? null;
-      if (oauthProvider) {
-        await authorizeMcpOAuth(oauthProvider, authorized.oauth);
-      }
-      const tokenProvider = oauthProvider;
+      oauth = this.#options.oauthProviderFactory?.(authorized.oauth) ?? null;
+      if (oauth) await oauth.authorize();
+      const boundOAuth = oauth;
       protocol = this.#options.protocolFactory
         ? this.#options.protocolFactory(authorized.protocol)
         : new SdkMcpProtocolClient({
             authorization: authorized.protocol,
             requestTimeoutMs: this.#limits.requestTimeoutMs,
-            ...(tokenProvider
+            ...(boundOAuth
               ? {
                   authProvider: {
-                    token: async () => (await tokenProvider.tokens())?.access_token,
+                    token: () => boundOAuth.accessToken(),
                   },
                 }
               : this.#options.authProvider
                 ? { authProvider: this.#options.authProvider }
                 : {}),
           });
-      this.#authorizedEndpoint = authorized;
-      this.#oauthProvider = oauthProvider;
     } catch (error) {
       if (protocol) await protocol.close(false).catch(() => undefined);
       await this.#closeAuthorization(authorized);
       throw error;
     }
-    const connectedProtocol = protocol;
-    connectedProtocol.onToolsChanged(() => {
-      this.#announceCatalogInvalidated();
+    const generation: McpClientGeneration = {
+      authorization: authorized,
+      protocol,
+      oauth,
+      negotiated: null,
+      unhealthy: null,
+      closeFlight: null,
+    };
+    protocol.onToolsChanged(() => {
+      if (this.#generation === generation) this.#announceCatalogInvalidated();
     });
-    let connectionUnhealthy: Error | null = null;
-    let connectFinished = false;
-    connectedProtocol.onConnectionUnhealthy((error) => {
-      if (connectFinished && this.#protocol !== connectedProtocol) return;
-      connectionUnhealthy = error;
-      if (this.#protocol === connectedProtocol) {
-        this.#protocol = null;
-        this.#negotiatedServer = null;
-        const authorization = this.#takeAuthorization();
-        void connectedProtocol
-          .close(false)
-          .catch(() => undefined)
-          .then(() => this.#closeAuthorization(authorization));
-      } else {
-        void connectedProtocol.close(false).catch(() => undefined);
-      }
-      this.#announceCatalogInvalidated();
+    protocol.onConnectionUnhealthy((error) => {
+      generation.unhealthy = error;
+      const wasCurrent = this.#generation === generation;
+      if (wasCurrent) this.#generation = null;
+      const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
+      this.#registerCleanup(cleanup);
+      if (wasCurrent) this.#announceCatalogInvalidated();
     });
     try {
-      const server = await connectedProtocol.connect(trace);
+      const server = await protocol.connect(trace);
       let negotiated: McpNegotiatedServer;
       try {
         negotiated = parseMcpNegotiatedServer(server);
@@ -268,23 +268,19 @@ export class McpRawClient {
           err instanceof Error ? err.message : "MCP protocol negotiation failed",
         );
       }
-      if (connectionUnhealthy) throw connectionUnhealthy;
+      if (generation.unhealthy) throw generation.unhealthy;
       if (!negotiated.hasTools) {
         throw new McpClientError(
           "missing_tools_capability",
           "The MCP server did not advertise the tools capability",
         );
       }
-      this.#negotiatedServer = negotiated;
+      generation.negotiated = negotiated;
     } catch (err) {
-      connectFinished = true;
-      const authorization = this.#takeAuthorization();
-      await connectedProtocol.close(false).catch(() => undefined);
-      await this.#closeAuthorization(authorization);
+      await this.#closeGeneration(generation, false).catch(() => undefined);
       throw err;
     }
-    this.#protocol = connectedProtocol;
-    connectFinished = true;
+    this.#generation = generation;
   }
 
   close(options: { terminateSession?: boolean } = {}): Promise<void> {
@@ -292,20 +288,16 @@ export class McpRawClient {
   }
 
   async #close(options: { terminateSession?: boolean }): Promise<void> {
-    const protocol = this.#protocol;
-    this.#protocol = null;
-    this.#negotiatedServer = null;
-    const authorization = this.#takeAuthorization();
+    await this.#drainCleanup();
+    const generation = this.#generation;
+    this.#generation = null;
     this.#invalidateCatalog();
-    try {
-      if (protocol) await protocol.close(options.terminateSession === true);
-    } finally {
-      await this.#closeAuthorization(authorization);
-    }
+    if (generation) await this.#closeGeneration(generation, options.terminateSession === true);
   }
 
   async refreshCatalog(signal?: AbortSignal, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
-    const protocol = this.#requireProtocol();
+    const generation = this.#requireGeneration();
+    const protocol = generation.protocol;
     if (this.#catalog && this.#options.now() < this.#catalogExpiresAt) {
       return this.#catalog;
     }
@@ -327,7 +319,7 @@ export class McpRawClient {
       }
       const page: McpProtocolPage = await protocol
         .listTools(cursor, signal, trace)
-        .catch((err: unknown) => this.#throwProtocolError(err, protocol));
+        .catch((err: unknown) => this.#throwProtocolError(err, generation));
       if (pageNumber === 1) {
         ttlMs = page.ttlMs;
         cacheScope = page.cacheScope;
@@ -448,13 +440,10 @@ export class McpRawClient {
     signal?: AbortSignal,
     trace?: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
-    if (this.#oauthProvider) {
+    const generation = this.#requireGeneration();
+    if (generation.oauth) {
       try {
-        const authorized = this.#authorizedEndpoint;
-        if (!authorized) {
-          throw new McpClientError("not_connected", "The MCP endpoint is not authorized");
-        }
-        await refreshMcpOAuthIfNeeded(this.#oauthProvider, authorized.oauth);
+        await generation.oauth.refreshIfNeeded();
       } catch (error) {
         if (error instanceof McpOAuthAuthorizationRequiredError) {
           await this.#options.onAuthorizationRequired?.();
@@ -481,7 +470,8 @@ export class McpRawClient {
     args: unknown,
     options: { signal?: AbortSignal; trace?: McpTraceContext },
   ): Promise<McpCallEnvelope> {
-    const protocol = this.#requireProtocol();
+    const generation = this.#requireGeneration();
+    const protocol = generation.protocol;
     if (this.#authorizationBlocked) throw this.#authorizationBlocked;
     if (catalogGeneration !== this.#catalogGeneration || this.#catalog !== catalog) {
       throw new McpClientError(
@@ -521,7 +511,7 @@ export class McpRawClient {
 
     const result: McpProtocolCallResult = await protocol
       .callTool(tool, validated.data, options.signal, options.trace)
-      .catch((err: unknown) => this.#throwProtocolError(err, protocol));
+      .catch((err: unknown) => this.#throwProtocolError(err, generation));
     const isToolError = isRecord(result) && result.isError === true;
     const outputValidator = this.#outputValidators.get(tool.name);
     let outputSchemaValidated = false;
@@ -563,11 +553,11 @@ export class McpRawClient {
     };
   }
 
-  #requireProtocol(): McpProtocolClient {
-    if (!this.#protocol) {
+  #requireGeneration(): McpClientGeneration {
+    if (!this.#generation) {
       throw new McpClientError("not_connected", "The MCP client is not connected");
     }
-    return this.#protocol;
+    return this.#generation;
   }
 
   #invalidateCatalog(): void {
@@ -584,7 +574,7 @@ export class McpRawClient {
     this.#catalogInvalidatedHandler?.();
   }
 
-  async #throwProtocolError(err: unknown, protocol: McpProtocolClient): Promise<never> {
+  async #throwProtocolError(err: unknown, generation: McpClientGeneration): Promise<never> {
     if (err instanceof InsufficientScopeError) {
       const requiredScopes =
         err.requiredScope
@@ -609,37 +599,47 @@ export class McpRawClient {
         "The MCP server rejected the admitted tool descriptor; refresh and reselect it",
       );
     }
-    if (
-      this.#negotiatedServer?.protocolEra !== "pre_2026_07_28" ||
-      !isMcpSessionExpiredError(err)
-    ) {
+    if (generation.negotiated?.protocolEra !== "pre_2026_07_28" || !isMcpSessionExpiredError(err)) {
       throw err;
     }
-    if (this.#protocol === protocol) {
-      this.#protocol = null;
-      this.#negotiatedServer = null;
-      const authorization = this.#takeAuthorization();
+    if (this.#generation === generation) {
+      this.#generation = null;
       this.#invalidateCatalog();
-      await protocol.close(false).catch(() => undefined);
-      await this.#closeAuthorization(authorization);
-    } else {
-      await protocol.close(false).catch(() => undefined);
     }
+    const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
+    this.#registerCleanup(cleanup);
+    await cleanup;
     throw new McpClientError(
       "session_expired",
       "The MCP session expired; reconnect and refresh the catalog before retrying",
     );
   }
 
-  #takeAuthorization(): McpAuthorizedEndpoint | null {
-    const authorization = this.#authorizedEndpoint;
-    this.#authorizedEndpoint = null;
-    this.#oauthProvider = null;
-    return authorization;
+  #closeGeneration(generation: McpClientGeneration, terminateSession: boolean): Promise<void> {
+    return (generation.closeFlight ??= (async () => {
+      try {
+        await generation.protocol.close(terminateSession);
+      } finally {
+        await this.#closeAuthorization(generation.authorization);
+      }
+    })());
   }
 
   async #closeAuthorization(authorization: McpAuthorizedEndpoint | null): Promise<void> {
     await authorization?.close().catch(() => undefined);
+  }
+
+  #registerCleanup(cleanup: Promise<void>): void {
+    const prior = this.#cleanupTail;
+    this.#cleanupTail = Promise.all([prior, cleanup]).then(() => undefined);
+  }
+
+  async #drainCleanup(): Promise<void> {
+    for (;;) {
+      const cleanup = this.#cleanupTail;
+      await cleanup;
+      if (cleanup === this.#cleanupTail) return;
+    }
   }
 
   #runLifecycle<T>(operation: () => Promise<T>): Promise<T> {

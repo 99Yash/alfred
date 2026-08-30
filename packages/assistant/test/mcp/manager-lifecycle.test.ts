@@ -78,6 +78,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   readonly revisions = new Map<string, string[]>();
   publications = 0;
   onPublish: (() => void | Promise<void>) | null = null;
+  onUpdate: ((patch: Partial<McpConnection>) => void | Promise<void>) | null = null;
   onActivate:
     | ((
         input: Parameters<McpConnectionManagerPersistence["compareAndSetCatalogRevision"]>[0],
@@ -95,6 +96,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
 
   updateConnection: McpConnectionManagerPersistence["updateConnection"] = async (id, patch) => {
     if (id !== this.connection.id) return undefined;
+    await this.onUpdate?.(patch);
     Object.assign(this.connection, patch, { updatedAt: new Date() });
     return this.connection;
   };
@@ -337,7 +339,7 @@ describe("mcp connection manager lifecycle", () => {
     );
   });
 
-  test("disconnect drains a refresh that races with its ownership check", async () => {
+  test("disconnect cancels publication from a refresh that races with its ownership check", async () => {
     const protocol = new FakeProtocol();
     const persistence = new MemoryPersistence();
     const manager = managerWith(protocol, persistence);
@@ -347,15 +349,40 @@ describe("mcp connection manager lifecycle", () => {
     await protocol.emitToolsChanged();
     await disconnect;
 
-    assert.equal(
-      protocol.listCount,
-      2,
-      "the admitted refresh must finish before disconnect returns",
-    );
+    assert.equal(protocol.listCount, 1, "the closing generation must not fetch or publish again");
+    assert.equal(persistence.publications, 1);
     assert.equal(persistence.connection.status, "disconnected");
   });
 
-  test("closeAll waits for and closes a client startup already in progress", async () => {
+  test("disconnect rejects new admission until its closing tombstone is removed", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    await manager.getReadyClient(persistence.connection.id);
+    const disconnectedPatchStarted = deferred();
+    const releaseDisconnectedPatch = deferred();
+    persistence.onUpdate = async (patch) => {
+      if (patch.status !== "disconnected") return;
+      disconnectedPatchStarted.resolve();
+      await releaseDisconnectedPatch.promise;
+    };
+
+    const disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
+    await disconnectedPatchStarted.promise;
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+    assert.equal(protocol.connectCount, 1);
+
+    releaseDisconnectedPatch.resolve();
+    await disconnect;
+    persistence.onUpdate = null;
+    await manager.getReadyClient(persistence.connection.id);
+    assert.equal(protocol.connectCount, 2);
+  });
+
+  test("closeAll rejects admission and prevents a pending startup from publishing", async () => {
     const protocol = new FakeProtocol();
     const persistence = new MemoryPersistence();
     const manager = managerWith(protocol, persistence);
@@ -369,12 +396,25 @@ describe("mcp connection manager lifecycle", () => {
     const startup = manager.getReadyClient(persistence.connection.id);
     await connectStarted.promise;
     const close = manager.closeAll();
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
     releaseConnect.resolve();
-    await startup;
+    await assert.rejects(
+      startup,
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
     await close;
+
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
 
     assert.equal(protocol.connectCount, 1);
     assert.equal(protocol.closeCount, 1);
+    assert.equal(persistence.publications, 0);
   });
 
   test("disconnect refuses a connection owned by another user before mutation", async () => {

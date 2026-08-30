@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import {
-  ProtocolError,
-  SdkErrorCode,
-  SdkHttpError,
-  type OAuthClientProvider,
-  type Tool,
-} from "@modelcontextprotocol/client";
+import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import {
   McpClientError,
   McpRawClient,
@@ -41,6 +35,7 @@ class FakeProtocol implements McpProtocolClient {
   };
   callError: Error | null = null;
   listHook: (() => void | Promise<void>) | null = null;
+  closeHook: (() => void | Promise<void>) | null = null;
   #toolsChanged: (() => void | Promise<void>) | null = null;
   #connectionUnhealthy: ((error: Error) => void | Promise<void>) | null = null;
 
@@ -62,6 +57,7 @@ class FakeProtocol implements McpProtocolClient {
   async close(terminateSession: boolean): Promise<void> {
     this.closeCalls += 1;
     this.closedWithTerminate = terminateSession;
+    await this.closeHook?.();
   }
 
   async listTools(cursor: string | undefined): Promise<McpProtocolPage> {
@@ -286,47 +282,19 @@ describe("McpRawClient catalog", () => {
     });
     let oauthCapability: object | null = null;
     let protocolCapability: object | null = null;
-    const oauthProvider: OAuthClientProvider = {
-      redirectUrl: new URL("https://alfred.example.test/callback"),
-      clientMetadata: {
-        redirect_uris: ["https://alfred.example.test/callback"],
-        grant_types: ["authorization_code", "refresh_token"],
-      },
-      discoveryState: async () => ({
-        authorizationServerUrl: "https://auth.example.test/",
-        resourceMetadata: {
-          resource: "https://mcp.example.test/mcp",
-          authorization_servers: ["https://auth.example.test/"],
-        },
-        authorizationServerMetadata: {
-          issuer: "https://auth.example.test/",
-          authorization_endpoint: "https://auth.example.test/authorize",
-          token_endpoint: "https://auth.example.test/token",
-          response_types_supported: ["code"],
-        },
-      }),
-      clientInformation: async () => ({
-        client_id: "client-id",
-        issuer: "https://auth.example.test/",
-      }),
-      tokens: async () => ({
-        access_token: "old",
-        refresh_token: "refresh-secret",
-        token_type: "Bearer",
-        issuer: "https://auth.example.test/",
-      }),
-      saveCodeVerifier: async () => undefined,
-      codeVerifier: async () => "verifier",
-      saveTokens: async () => undefined,
-      redirectToAuthorization: async () => {
-        throw new Error("authorization redirect was not expected");
-      },
-    };
     const client = makeClient(protocol, {
       endpointAuthorizer,
       oauthProviderFactory: (authorization) => {
         oauthCapability = authorization;
-        return oauthProvider;
+        return {
+          authorize: async () => {
+            await authorization.fetch("https://auth.example.test/token");
+            return "AUTHORIZED" as const;
+          },
+          refreshIfNeeded: async () => undefined,
+          finishAuthorization: async () => undefined,
+          accessToken: async () => "fresh",
+        };
       },
       protocolFactory: (authorization) => {
         protocolCapability = authorization;
@@ -791,6 +759,65 @@ describe("McpRawClient catalog", () => {
     assert.equal(client.catalog, null);
     assert.equal(client.negotiatedServer, null);
     await assertMcpError(client.refreshCatalog(), "not_connected");
+  });
+
+  test("close and reconnect join unhealthy generation cleanup before authorizing again", async () => {
+    const firstProtocol = new FakeProtocol([{ tools: [] }]);
+    const secondProtocol = new FakeProtocol([{ tools: [] }]);
+    const releaseProtocolClose = deferred<void>();
+    const protocolCloseStarted = deferred<void>();
+    const events: string[] = [];
+    firstProtocol.closeHook = async () => {
+      events.push("protocol-a-close");
+      protocolCloseStarted.resolve();
+      await releaseProtocolClose.promise;
+    };
+    const fallback = permissiveMcpEndpointAuthorizerForTests();
+    let authorizationCount = 0;
+    let protocolCount = 0;
+    const client = makeClient(firstProtocol, {
+      endpointAuthorizer: {
+        authorize: async (candidate) => {
+          authorizationCount += 1;
+          const authorizationNumber = authorizationCount;
+          events.push(`authorize-${authorizationNumber}`);
+          const authorized = await fallback.authorize(candidate);
+          return {
+            ...authorized,
+            close: async () => {
+              events.push(`authorization-${authorizationNumber}-close`);
+              await authorized.close();
+            },
+          };
+        },
+      },
+      protocolFactory: () => {
+        protocolCount += 1;
+        return protocolCount === 1 ? firstProtocol : secondProtocol;
+      },
+    });
+
+    await client.connect();
+    await firstProtocol.emitConnectionUnhealthy();
+    await protocolCloseStarted.promise;
+    const close = client.close();
+    const reconnect = client.connect();
+    await Promise.resolve();
+
+    assert.equal(authorizationCount, 1, "generation B must wait for generation A cleanup");
+    releaseProtocolClose.resolve();
+    await close;
+    await reconnect;
+
+    assert.equal(firstProtocol.closeCalls, 1);
+    assert.equal(secondProtocol.connectCalls, 1);
+    assert.deepEqual(events.slice(0, 4), [
+      "authorize-1",
+      "protocol-a-close",
+      "authorization-1-close",
+      "authorize-2",
+    ]);
+    await client.close();
   });
 });
 
