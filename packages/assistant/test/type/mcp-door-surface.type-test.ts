@@ -47,6 +47,12 @@ type ToolRuntimeDoor = typeof import("@alfred/assistant/tool-runtime/mcp");
 type _AssertConnectionsDoorResolves = ConnectionsDoor["getMcpConnectionManager"];
 type _AssertToolRuntimeDoorResolves = ToolRuntimeDoor["getMcpExecutionBroker"];
 type _AssertClosedBuiltInDoor = ConnectionsDoor["ensureBuiltInConnection"];
+type ConnectionPatch = Parameters<ConnectionsDoor["updateConnection"]>[1];
+
+const _validConnectionPatch = { status: "ready" } satisfies ConnectionPatch;
+
+// @ts-expect-error - OAuth owns credential attachment; the generic row patch cannot select one.
+const _noCredentialSelection: ConnectionPatch = { credentialId: "mcpo_sibling" };
 
 // Generic creation mints its instance identity inside persistence and is not a
 // package door until the generic owner-scoped HTTP creation operation exists.

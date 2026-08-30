@@ -127,7 +127,14 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
     const [row] = await db()
       .select({ credential: mcpOauthCredentials })
       .from(mcpConnections)
-      .innerJoin(mcpOauthCredentials, eq(mcpOauthCredentials.id, mcpConnections.credentialId))
+      .innerJoin(
+        mcpOauthCredentials,
+        and(
+          eq(mcpOauthCredentials.id, mcpConnections.credentialId),
+          eq(mcpOauthCredentials.connectionId, mcpConnections.id),
+          eq(mcpOauthCredentials.userId, mcpConnections.userId),
+        ),
+      )
       .where(and(eq(mcpConnections.id, connectionId), eq(mcpConnections.userId, userId)))
       .limit(1);
     return row?.credential;
