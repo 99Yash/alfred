@@ -9,6 +9,7 @@ import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schem
 import { eq, inArray, like } from "drizzle-orm";
 
 import { createNamedConnection } from "../../src/connections/mcp/persistence";
+import { MCP_SETTLEMENT_REPAIR_BATCH_SIZE } from "../../src/tool-runtime/mcp/broker-policy";
 import { reconcileInflightInvocations } from "../../src/tool-runtime/mcp/invocations";
 import {
   listMcpRecoveryOperations,
@@ -22,7 +23,9 @@ const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-mcprec-";
 const createdUserIds: string[] = [];
 
-async function seedAmbiguousOperation(options: { splitBarrier?: "dispatching" | "failed" } = {}) {
+async function seedAmbiguousOperation(
+  options: { splitBarrier?: "dispatching" | "failed" | "succeeded" } = {},
+) {
   const userId = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(userId);
   await db()
@@ -187,6 +190,71 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
+  test("repairs more than one broker batch and pages every marked settlement exactly once", async () => {
+    const seeded = await seedAmbiguousOperation();
+    const effectiveAt = new Date("2026-08-30T12:30:00.000Z");
+    await db()
+      .update(mcpInvocation)
+      .set({
+        deliveryPossibleAt: effectiveAt,
+        effectOutcome: null,
+        retryDisposition: null,
+        resolutionReason: null,
+      })
+      .where(eq(mcpInvocation.id, seeded.invocationId));
+
+    const expectedIds = [seeded.invocationId];
+    for (let index = 1; index < MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1; index += 1) {
+      const stagingId = `as_${randomUUID().slice(0, 12)}`;
+      await db()
+        .insert(actionStagings)
+        .values({
+          id: stagingId,
+          userId: seeded.userId,
+          runId: seeded.runId,
+          stepId: "dispatch-tools",
+          toolCallId: `tc_${randomUUID().slice(0, 8)}`,
+          toolName: "mcp.call",
+          integration: "mcp",
+          riskTier: "high",
+          proposedInput: {},
+          displayInput: { index },
+          proposedInputHash: randomUUID(),
+          effectKey: `eff:${seeded.runId}:marked:${index}`,
+          attemptKey: `eff:${seeded.runId}:marked:${index}:1`,
+          requestHash: `req:${randomUUID()}`,
+          requiresApproval: true,
+          status: "executed",
+          outcome: "unknown",
+        });
+      const invocation = await seedMcpInvocationForTests({
+        stagingId,
+        userId: seeded.userId,
+        connectionId: seeded.connectionId,
+        remoteName: `send_marked_${index}`,
+        argsHash: `sha256:marked:${index}`,
+        effectClass: "write",
+        attemptLifecycle: "delivery_possible",
+        deliveryPossibleAt: effectiveAt,
+      });
+      expectedIds.push(invocation.id);
+    }
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await listMcpRecoveryOperations({ userId: seeded.userId, cursor });
+      for (const operation of page.operations) {
+        assert.ok(!seen.includes(operation.invocationId), "a repaired row must not repeat");
+        seen.push(operation.invocationId);
+      }
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+
+    assert.equal(seen.length, MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
+    assert.deepEqual([...seen].sort(), expectedIds.sort());
+  });
+
   test("a confirmed outcome resolves both durable barriers atomically", async () => {
     const seeded = await seedAmbiguousOperation();
 
@@ -268,6 +336,20 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       userId: seeded.userId,
       invocationId: seeded.invocationId,
       decision: "confirmed_not_applied",
+    });
+    assert.equal(result.status, "resolved");
+  });
+
+  test("boot aligns the legacy succeeded state produced by an ordinary duplicate result", async () => {
+    const seeded = await seedAmbiguousOperation({ splitBarrier: "succeeded" });
+
+    const boot = await reconcileInflightInvocations(seeded.userId);
+    assert.equal(boot.markedUnknown, 1);
+    assert.equal(boot.alignedStagingBarriers, 1);
+    const result = await resolveMcpRecoveryOperation({
+      userId: seeded.userId,
+      invocationId: seeded.invocationId,
+      decision: "confirmed_succeeded",
     });
     assert.equal(result.status, "resolved");
   });

@@ -2,27 +2,46 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
+import { hashToolInput, hashToolRequest } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { actionStagings, agentRuns, user, userActionPolicies } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  mcpInvocation,
+  user,
+  userActionPolicies,
+} from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
-import { computeDescriptorHashes, type McpCallEnvelope } from "@alfred/assistant/connections/mcp";
+import {
+  computeDescriptorHashes,
+  descriptorHash,
+  McpRawClient,
+  type McpCallEnvelope,
+  type McpNegotiatedServer,
+  type McpProtocolCallResult,
+  type McpProtocolClient,
+  type McpProtocolPage,
+} from "@alfred/assistant/connections/mcp";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
 import { createNamedConnection } from "../../../src/connections/mcp/persistence";
-import {
-  type McpBrokerCallInput,
-  type McpBrokerOutcome,
-  type McpExecutionBroker,
-} from "@alfred/assistant/tool-runtime/mcp";
+import { type McpBrokerCallInput, type McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
 import {
   _setMcpExecutionBrokerForTests,
   upsertToolPolicy,
 } from "@alfred/assistant/tool-runtime/mcp/test-support";
 import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool-runtime";
 import { mcpTools } from "../../../src/tool-runtime/internal/tools/mcp";
+import { McpConnectionManager } from "../../../src/connections/mcp/manager";
+import { McpExecutionBroker } from "../../../src/tool-runtime/mcp/broker";
+import { reconcileInflightInvocations } from "../../../src/tool-runtime/mcp/invocations";
+import {
+  listMcpRecoveryOperations,
+  retryMcpRecoveryOperation,
+} from "../../../src/tool-runtime/mcp/recovery";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../../support/db-backed";
 
@@ -78,6 +97,44 @@ class CapturingBroker {
     };
     return { status: "completed", invocationId: `inv_${randomUUID().slice(0, 8)}`, envelope };
   }
+}
+
+class PausedFirstCallProtocol implements McpProtocolClient {
+  readonly firstCallStarted = Promise.withResolvers<void>();
+  readonly releaseFirstCall = Promise.withResolvers<void>();
+  calls = 0;
+
+  constructor(readonly tools: Tool[]) {}
+
+  async connect(): Promise<McpNegotiatedServer> {
+    return {
+      protocolEra: "pre_2026_07_28",
+      protocolVersion: "2025-11-25",
+      serverName: "paused-test",
+      serverVersion: "1",
+      hasTools: true,
+      toolsListChanged: true,
+    };
+  }
+
+  async close(): Promise<void> {}
+
+  async listTools(): Promise<McpProtocolPage> {
+    return { tools: this.tools, ttlMs: 0, cacheScope: "private" };
+  }
+
+  async callTool(): Promise<McpProtocolCallResult> {
+    this.calls += 1;
+    if (this.calls === 1) {
+      this.firstCallStarted.resolve();
+      await this.releaseFirstCall.promise;
+      throw new Error("first worker crashed after delivery");
+    }
+    return { content: [{ type: "text", text: "successor applied" }] };
+  }
+
+  onToolsChanged(): void {}
+  onConnectionUnhealthy(): void {}
 }
 
 function asBroker(fake: CapturingBroker): McpExecutionBroker {
@@ -344,6 +401,141 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       status: "completed",
       result: { ok: true },
     });
+  });
+
+  test("same-staging re-dispatch preserves ambiguity through boot and an explicit successor", async () => {
+    const { userId, runId } = await seedUserAndRun();
+    await seedAutonomyPolicy(userId);
+    const remoteTool: Tool = {
+      name: "create_issue",
+      inputSchema: { type: "object", additionalProperties: true },
+    };
+    const connection = await createNamedConnection({
+      userId,
+      label: "Paused MCP",
+      canonicalResource: `mcp://paused/${randomUUID()}`,
+      endpoint: new URL("https://paused.example.test/mcp"),
+    });
+    const protocol = new PausedFirstCallProtocol([remoteTool]);
+    const manager = new McpConnectionManager({
+      clientFactory: (owned) =>
+        new McpRawClient({
+          connectionId: owned.id,
+          endpoint: new URL(owned.server.endpointUrl),
+          endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+          protocolFactory: () => protocol,
+        }),
+    });
+    const client = await manager.getReadyClient(connection.id);
+    const catalogRevision = client.catalog?.revision;
+    assert.ok(catalogRevision);
+    await upsertToolPolicy({
+      userId,
+      connectionId: connection.id,
+      remoteName: remoteTool.name,
+      descriptorHash: descriptorHash(remoteTool),
+      riskTier: "low",
+      effectClass: "write",
+      retryContract: "never",
+    });
+
+    const broker = new McpExecutionBroker(manager);
+    _setMcpExecutionBrokerForTests(broker);
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+    const input = {
+      connectionId: connection.id,
+      remoteName: remoteTool.name,
+      catalogRevision,
+      arguments: { title: "one effect" },
+    };
+    const stagingId = `as_${randomUUID().slice(0, 12)}`;
+    await db()
+      .insert(actionStagings)
+      .values({
+        id: stagingId,
+        userId,
+        runId,
+        stepId: "dispatch-tools",
+        toolCallId,
+        toolName: "mcp.call",
+        integration: "mcp",
+        riskTier: "low",
+        proposedInput: input,
+        displayInput: input,
+        proposedInputHash: hashToolInput("mcp.call", input),
+        effectKey: `eff:${runId}:${toolCallId}`,
+        attemptKey: `eff:${runId}:${toolCallId}:1`,
+        requestHash: hashToolRequest("mcp.call", input, undefined),
+        requiresApproval: false,
+        status: "pending",
+        outcome: "dispatching",
+      });
+    const ref = {
+      kind: "mcp" as const,
+      connectionId: connection.id,
+      remoteName: remoteTool.name,
+      catalogRevision,
+    };
+    const firstWorker = broker.callTool({
+      userId,
+      stagingId,
+      ref,
+      arguments: input.arguments,
+    });
+    await protocol.firstCallStarted.promise;
+
+    const repeated = await dispatchToolCall({
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "mcp.call",
+      activeTools: ["mcp.call"],
+      input,
+      userId,
+      caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
+      fence: { generation: 0 },
+    });
+    assert.equal(repeated.kind, "executed");
+    assert.deepEqual(repeated.kind === "executed" ? repeated.toolResult : null, {
+      status: "unknown",
+      retry: "blocked",
+      message:
+        "This exact call was already recorded and may have been delivered. Its outcome must be checked before it can be attempted again.",
+    });
+    const [afterRepeat] = await db()
+      .select({ outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+    assert.equal(afterRepeat?.outcome, "unknown");
+    assert.equal(protocol.calls, 1, "the same-staging re-dispatch never sends again");
+
+    const boot = await reconcileInflightInvocations(userId);
+    assert.equal(boot.markedUnknown, 1);
+    assert.equal(boot.alignedStagingBarriers, 0, "the dispatcher already aligned staging");
+    const visible = await listMcpRecoveryOperations({ userId });
+    assert.equal(visible.operations.length, 1);
+
+    const successor = await retryMcpRecoveryOperation({
+      userId,
+      invocationId: visible.operations[0]!.invocationId,
+    });
+    assert.equal(successor.status, "completed");
+    assert.ok(successor.successorInvocationId);
+    assert.equal(protocol.calls, 2, "only the explicit successor creates another send");
+
+    protocol.releaseFirstCall.resolve();
+    const abandonedWorker = await firstWorker;
+    assert.equal(abandonedWorker.status, "ambiguous");
+    const [prior] = await db()
+      .select({
+        resolvedAt: mcpInvocation.resolvedAt,
+        resolutionReason: mcpInvocation.resolutionReason,
+      })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.stagingId, stagingId));
+    assert.ok(prior?.resolvedAt);
+    assert.equal(prior?.resolutionReason, "superseded_by_user_successor");
   });
 
   test("mcp.list_tools takes the fast path — no staging row, returns catalog summaries", async () => {
