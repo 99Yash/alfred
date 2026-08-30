@@ -37,6 +37,10 @@ import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool
 import { mcpTools } from "../../../src/tool-runtime/internal/tools/mcp";
 import { McpConnectionManager } from "../../../src/connections/mcp/manager";
 import { McpExecutionBroker } from "../../../src/tool-runtime/mcp/broker";
+import {
+  _setStagingStoreForTests,
+  postgresStagingStore,
+} from "../../../src/tool-runtime/internal/dispatch/staging-store";
 import { reconcileInflightInvocations } from "../../../src/tool-runtime/mcp/invocations";
 import {
   listMcpRecoveryOperations,
@@ -104,7 +108,10 @@ class PausedFirstCallProtocol implements McpProtocolClient {
   readonly releaseFirstCall = Promise.withResolvers<void>();
   calls = 0;
 
-  constructor(readonly tools: Tool[]) {}
+  constructor(
+    readonly tools: Tool[],
+    readonly firstOutcome: "ambiguous" | "succeeded" = "ambiguous",
+  ) {}
 
   async connect(): Promise<McpNegotiatedServer> {
     return {
@@ -128,7 +135,10 @@ class PausedFirstCallProtocol implements McpProtocolClient {
     if (this.calls === 1) {
       this.firstCallStarted.resolve();
       await this.releaseFirstCall.promise;
-      throw new Error("first worker crashed after delivery");
+      if (this.firstOutcome === "ambiguous") {
+        throw new Error("first worker crashed after delivery");
+      }
+      return { content: [{ type: "text", text: "first worker applied" }] };
     }
     return { content: [{ type: "text", text: "successor applied" }] };
   }
@@ -536,6 +546,150 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       .where(eq(mcpInvocation.stagingId, stagingId));
     assert.ok(prior?.resolvedAt);
     assert.equal(prior?.resolutionReason, "superseded_by_user_successor");
+  });
+
+  test("a stale duplicate dispatcher cannot reopen staging after broker success", async () => {
+    const { userId, runId } = await seedUserAndRun();
+    await seedAutonomyPolicy(userId);
+    const remoteTool: Tool = {
+      name: "create_issue",
+      inputSchema: { type: "object", additionalProperties: true },
+    };
+    const connection = await createNamedConnection({
+      userId,
+      label: "Paused MCP",
+      canonicalResource: `mcp://paused-success/${randomUUID()}`,
+      endpoint: new URL("https://paused-success.example.test/mcp"),
+    });
+    const protocol = new PausedFirstCallProtocol([remoteTool], "succeeded");
+    const manager = new McpConnectionManager({
+      clientFactory: (owned) =>
+        new McpRawClient({
+          connectionId: owned.id,
+          endpoint: new URL(owned.server.endpointUrl),
+          endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+          protocolFactory: () => protocol,
+        }),
+    });
+    const client = await manager.getReadyClient(connection.id);
+    const catalogRevision = client.catalog?.revision;
+    assert.ok(catalogRevision);
+    await upsertToolPolicy({
+      userId,
+      connectionId: connection.id,
+      remoteName: remoteTool.name,
+      descriptorHash: descriptorHash(remoteTool),
+      riskTier: "low",
+      effectClass: "write",
+      retryContract: "never",
+    });
+
+    const broker = new McpExecutionBroker(manager);
+    _setMcpExecutionBrokerForTests(broker);
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+    const input = {
+      connectionId: connection.id,
+      remoteName: remoteTool.name,
+      catalogRevision,
+      arguments: { title: "one effect" },
+    };
+    const stagingId = `as_${randomUUID().slice(0, 12)}`;
+    await db()
+      .insert(actionStagings)
+      .values({
+        id: stagingId,
+        userId,
+        runId,
+        stepId: "dispatch-tools",
+        toolCallId,
+        toolName: "mcp.call",
+        integration: "mcp",
+        riskTier: "low",
+        proposedInput: input,
+        displayInput: input,
+        proposedInputHash: hashToolInput("mcp.call", input),
+        effectKey: `eff:${runId}:${toolCallId}`,
+        attemptKey: `eff:${runId}:${toolCallId}:1`,
+        requestHash: hashToolRequest("mcp.call", input, undefined),
+        requiresApproval: false,
+        status: "pending",
+        outcome: "dispatching",
+      });
+    const dispatchInput = {
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "mcp.call" as const,
+      activeTools: ["mcp.call" as const],
+      input,
+      userId,
+      caller: "boss" as const,
+      runContext: { caller: "boss", interaction: "background" } as const,
+      fence: { generation: 0 } as const,
+    };
+    const firstWorker = dispatchToolCall(dispatchInput);
+    await protocol.firstCallStarted.promise;
+
+    const staleCommitStarted = Promise.withResolvers<void>();
+    const releaseStaleCommit = Promise.withResolvers<void>();
+    const restoreStore = _setStagingStoreForTests({
+      ...postgresStagingStore,
+      async commitStaging(id, expected, commit) {
+        if (id === stagingId && commit.status === "executed" && commit.outcome === "unknown") {
+          staleCommitStarted.resolve();
+          await releaseStaleCommit.promise;
+        }
+        return postgresStagingStore.commitStaging(id, expected, commit);
+      },
+    });
+    try {
+      const repeatedWorker = dispatchToolCall(dispatchInput);
+      await staleCommitStarted.promise;
+
+      protocol.releaseFirstCall.resolve();
+      const first = await firstWorker;
+      assert.equal(first.kind, "executed");
+      assert.equal(protocol.calls, 1);
+
+      const [settledInvocation] = await db()
+        .select({ effectOutcome: mcpInvocation.effectOutcome })
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.stagingId, stagingId));
+      const [settledStaging] = await db()
+        .select({ outcome: actionStagings.outcome, result: actionStagings.executeResult })
+        .from(actionStagings)
+        .where(eq(actionStagings.id, stagingId));
+      assert.equal(settledInvocation?.effectOutcome, "succeeded");
+      assert.equal(settledStaging?.outcome, "succeeded");
+      assert.ok(settledStaging?.result, "the matching outer commit enriches the aggregate result");
+
+      releaseStaleCommit.resolve();
+      const repeated = await repeatedWorker;
+      assert.equal(repeated.kind, "executed");
+
+      const [afterInvocation] = await db()
+        .select({ effectOutcome: mcpInvocation.effectOutcome })
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.stagingId, stagingId));
+      const [afterStaging] = await db()
+        .select({ outcome: actionStagings.outcome })
+        .from(actionStagings)
+        .where(eq(actionStagings.id, stagingId));
+      assert.equal(afterInvocation?.effectOutcome, "succeeded");
+      assert.equal(afterStaging?.outcome, "succeeded");
+      assert.equal(
+        await postgresStagingStore.findUnresolvedUnknown({
+          userId,
+          requestHash: hashToolRequest("mcp.call", input, undefined),
+        }),
+        null,
+      );
+      assert.equal((await listMcpRecoveryOperations({ userId })).operations.length, 0);
+    } finally {
+      releaseStaleCommit.resolve();
+      protocol.releaseFirstCall.resolve();
+      restoreStore();
+    }
   });
 
   test("mcp.list_tools takes the fast path — no staging row, returns catalog summaries", async () => {

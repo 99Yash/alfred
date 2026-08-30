@@ -9,7 +9,7 @@ import {
 
 test("broker admission and repair limits are independent of product recovery paging", () => {
   assert.equal(MCP_BROKER_ADMISSION_CAPACITY, 40);
-  assert.equal(MCP_SETTLEMENT_REPAIR_BATCH_SIZE, 64);
+  assert.equal(MCP_SETTLEMENT_REPAIR_BATCH_SIZE, 8);
   assert.equal(hasMcpBrokerAdmissionCapacity({ pendingRepairs: 20, activeSettlements: 19 }), true);
   assert.equal(hasMcpBrokerAdmissionCapacity({ pendingRepairs: 20, activeSettlements: 20 }), false);
 });

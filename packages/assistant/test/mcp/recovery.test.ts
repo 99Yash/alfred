@@ -190,7 +190,11 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  test("repairs more than one broker batch and pages every marked settlement exactly once", async () => {
+  test("a repair batch smaller than the product page continues every hidden settlement exactly once", async () => {
+    assert.ok(
+      MCP_SETTLEMENT_REPAIR_BATCH_SIZE < MCP_RECOVERY_PAGE_SIZE,
+      "the regression must not rely on repair work exceeding one product page",
+    );
     const seeded = await seedAmbiguousOperation();
     const effectiveAt = new Date("2026-08-30T12:30:00.000Z");
     await db()
@@ -241,9 +245,11 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     }
 
     const seen: string[] = [];
+    const pageSizes: number[] = [];
     let cursor: string | undefined;
     do {
       const page = await listMcpRecoveryOperations({ userId: seeded.userId, cursor });
+      pageSizes.push(page.operations.length);
       for (const operation of page.operations) {
         assert.ok(!seen.includes(operation.invocationId), "a repaired row must not repeat");
         seen.push(operation.invocationId);
@@ -253,6 +259,11 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(seen.length, MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
     assert.deepEqual([...seen].sort(), expectedIds.sort());
+    assert.deepEqual(
+      pageSizes,
+      [MCP_SETTLEMENT_REPAIR_BATCH_SIZE, 1],
+      "repair progress, not a full product page, keeps traversal alive",
+    );
   });
 
   test("a confirmed outcome resolves both durable barriers atomically", async () => {

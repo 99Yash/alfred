@@ -34,6 +34,13 @@ import { canonicalArgsHash } from "@alfred/assistant/connections/mcp";
 import { getMcpExecutionBroker } from "./runtime";
 import { resolveMcpToolIdentity } from "./invocations";
 import type { McpBrokerOutcome } from "./broker";
+import {
+  afterMcpRecoveryOrderKey,
+  atOrBeforeMcpRecoveryOrderKey,
+  mcpRecoveryEffectiveAt,
+  mcpRecoveryOrderKey,
+  mcpRecoveryOrderKeySchema,
+} from "./recovery-progress";
 
 const RESOLUTION_REASONS = {
   confirmed_succeeded: "user_confirmed_succeeded",
@@ -45,7 +52,10 @@ type ReservedSuccessor = { priorId: string; successor: McpInvocation };
 export type { McpRecoveryOperationsPageInput } from "@alfred/contracts";
 
 const recoveryCursorSchema = z
-  .object({ timestamp: z.string().datetime(), invocationId: z.string() })
+  .object({
+    visibleAfter: mcpRecoveryOrderKeySchema.nullable(),
+    repairAfter: mcpRecoveryOrderKeySchema.nullable(),
+  })
   .strict();
 
 function decodeRecoveryCursor(
@@ -70,9 +80,12 @@ export async function listMcpRecoveryOperations(
   runner: DbRunner = db(),
 ): Promise<McpRecoveryOperationsPage> {
   const ownedInput = mcpRecoveryOperationsPageInputSchema.parse(input);
-  await getMcpExecutionBroker().repairIncompleteSettlements({ userId: ownedInput.userId });
   const cursor = decodeRecoveryCursor(ownedInput.cursor);
-  const effectiveAt = sql<string>`coalesce(${mcpInvocation.deliveryPossibleAt}, ${mcpInvocation.createdAt})`;
+  const repair = await getMcpExecutionBroker().repairIncompleteSettlements({
+    userId: ownedInput.userId,
+    ...(cursor?.repairAfter ? { after: cursor.repairAfter } : {}),
+  });
+  const repairFrontier = repair.scannedThrough ?? cursor?.repairAfter ?? null;
   const rows = await runner
     .select({
       invocationId: mcpInvocation.id,
@@ -89,7 +102,7 @@ export async function listMcpRecoveryOperations(
       traceId: mcpInvocation.traceId,
       stepId: mcpInvocation.stepId,
       toolCallId: mcpInvocation.toolCallId,
-      effectiveAt,
+      effectiveAt: mcpRecoveryEffectiveAt,
     })
     .from(mcpInvocation)
     .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
@@ -115,30 +128,26 @@ export async function listMcpRecoveryOperations(
             isNull(mcpInvocation.deliveryPossibleAt),
           ),
         ),
-        ...(cursor
-          ? [
-              sql`(${effectiveAt}, ${mcpInvocation.id}) > (${new Date(cursor.timestamp)}, ${cursor.invocationId})`,
-            ]
+        ...(cursor?.visibleAfter ? [afterMcpRecoveryOrderKey(cursor.visibleAfter)] : []),
+        ...(repair.hasMore
+          ? [repairFrontier ? atOrBeforeMcpRecoveryOrderKey(repairFrontier) : sql`false`]
           : []),
       ),
     )
-    .orderBy(asc(effectiveAt), asc(mcpInvocation.id))
+    .orderBy(asc(mcpRecoveryEffectiveAt), asc(mcpInvocation.id))
     .limit(MCP_RECOVERY_PAGE_SIZE + 1);
 
   const hasNextPage = rows.length > MCP_RECOVERY_PAGE_SIZE;
   const pageRows = rows.slice(0, MCP_RECOVERY_PAGE_SIZE);
   const last = pageRows.at(-1);
+  const visibleAfter = last ? mcpRecoveryOrderKey(last) : (cursor?.visibleAfter ?? null);
+  const repairAfter = repair.scannedThrough ?? cursor?.repairAfter ?? null;
   return mcpRecoveryOperationsPageSchema.parse({
     operations: pageRows.map(({ effectiveAt: _effectiveAt, ...row }) =>
       mcpRecoveryOperationSchema.parse(row),
     ),
     nextCursor:
-      hasNextPage && last
-        ? encodeRecoveryCursor({
-            timestamp: new Date(last.effectiveAt).toISOString(),
-            invocationId: last.invocationId,
-          })
-        : null,
+      hasNextPage || repair.hasMore ? encodeRecoveryCursor({ visibleAfter, repairAfter }) : null,
   });
 }
 
