@@ -25,7 +25,7 @@ import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 
 import { canonicalArgsHash } from "@alfred/assistant/connections/mcp";
 import { getMcpExecutionBroker } from "./runtime";
-import { insertInvocation, resolveMcpToolIdentity } from "./invocations";
+import { resolveMcpToolIdentity } from "./invocations";
 import type { McpBrokerOutcome } from "./broker";
 
 const RESOLUTION_REASONS = {
@@ -297,14 +297,15 @@ async function reserveMcpRecoverySuccessor(
         decidedAt: now,
       })
       .returning();
-    requireRow(successorStaging, "reserveMcpRecoverySuccessor staging");
+    const successorStagingRow = requireRow(successorStaging, "reserveMcpRecoverySuccessor staging");
 
     await tx
       .update(mcpInvocation)
       .set({ resolvedAt: now, resolutionReason: "superseded_by_user_successor" })
       .where(eq(mcpInvocation.id, prior.id));
-    const inserted = await insertInvocation(
-      {
+    const [successor] = await tx
+      .insert(mcpInvocation)
+      .values({
         stagingId,
         userId: input.userId,
         connectionId: call.data.connectionId,
@@ -316,13 +317,15 @@ async function reserveMcpRecoverySuccessor(
         effectClass: liveEffectClass,
         attemptLifecycle: "prepared",
         successorOf: prior.id,
-      },
-      tx,
-    );
-    if (!inserted.ok) {
-      throw Errors.ConflictError("A matching MCP recovery operation is already reserved");
-    }
-    return { priorId: prior.id, successor: inserted.invocation };
+        traceId: successorStagingRow.runId,
+        stepId: successorStagingRow.stepId,
+        toolCallId: successorStagingRow.toolCallId,
+      })
+      .returning();
+    return {
+      priorId: prior.id,
+      successor: requireRow(successor, "reserveMcpRecoverySuccessor invocation"),
+    };
   });
 }
 

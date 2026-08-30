@@ -17,15 +17,16 @@
  * The genuinely-atomic operations here, each of which MUST be a transaction to be
  * crash-safe:
  *
- *  - `insertInvocation` — the barrier reservation. Inserting the ledger row IS
- *    the reservation; the partial unique index rejects a duplicate unresolved
- *    proposal, surfaced here as `{ ok: false, reason: "barrier" }`.
+ *  - `reserveMcpInvocation` — the normal-call barrier reservation. Inserting the
+ *    ledger row IS the reservation; the partial unique index rejects a duplicate
+ *    unresolved proposal, surfaced here as `{ ok: false, reason: "barrier" }`.
  *  - explicit successor reservation lives in `recovery.ts`, where the invocation
  *    and action-staging barriers can move in one transaction.
  *  - `reconcileInflightInvocations` — the crash-recovery barrier sweep run at
  *    boot (issue clarification #1).
  */
 
+import type { McpResultProvenance } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
@@ -204,9 +205,22 @@ export async function upsertToolPolicy(
 // ===========================================================================
 
 /** Result of a barrier reservation attempt. */
-export type InsertInvocationResult =
+export type ReserveMcpInvocationResult =
   | { ok: true; invocation: McpInvocation }
   | { ok: false; reason: "barrier" | "duplicate_staging" };
+
+export type ReserveMcpInvocationInput = Pick<
+  NewMcpInvocation,
+  | "stagingId"
+  | "userId"
+  | "connectionId"
+  | "remoteName"
+  | "argsHash"
+  | "catalogRevisionId"
+  | "descriptorHash"
+  | "policyRevision"
+  | "effectClass"
+>;
 
 /**
  * The correlation breadcrumbs a ledger row carries so an ambiguous attempt is
@@ -215,9 +229,9 @@ export type InsertInvocationResult =
  * which is the source of truth and already reachable via the 1:1 `staging_id` FK;
  * they live on the ledger only so an operator can pivot from a trace id to the row
  * without the join. Because nothing in the DB enforces the copy stays equal to its
- * staging twin, EVERY minter sources it HERE — from the staging row it is about to
- * point at — rather than from a separately-threaded dispatch ctx that could drift.
- * Sourcing it at the single insert choke point IS that enforcement.
+ * staging twin, every production minter copies it from the staging row it owns.
+ * Normal reservations use `stagingCorrelation`; recovery successors copy from
+ * the successor staging insert in their atomic recovery transaction.
  */
 async function stagingCorrelation(
   stagingId: string,
@@ -244,17 +258,29 @@ async function stagingCorrelation(
  * the 1:1 `staging_id` index rejects a re-insert for the same staging row. Both
  * are reported as a typed non-throwing result so the broker decides the arm.
  */
-export async function insertInvocation(
-  values: NewMcpInvocation,
+export async function reserveMcpInvocation(
+  values: ReserveMcpInvocationInput,
   runner: DbRunner = db(),
-): Promise<InsertInvocationResult> {
+): Promise<ReserveMcpInvocationResult> {
   const correlation = await stagingCorrelation(values.stagingId, runner);
   try {
     const [invocation] = await runner
       .insert(mcpInvocation)
-      .values({ ...values, ...correlation })
+      .values({
+        stagingId: values.stagingId,
+        userId: values.userId,
+        connectionId: values.connectionId,
+        remoteName: values.remoteName,
+        argsHash: values.argsHash,
+        effectClass: values.effectClass,
+        attemptLifecycle: "prepared",
+        ...(values.catalogRevisionId ? { catalogRevisionId: values.catalogRevisionId } : {}),
+        ...(values.descriptorHash ? { descriptorHash: values.descriptorHash } : {}),
+        ...(values.policyRevision !== undefined ? { policyRevision: values.policyRevision } : {}),
+        ...correlation,
+      })
       .returning();
-    return { ok: true, invocation: requireRow(invocation, "insertInvocation") };
+    return { ok: true, invocation: requireRow(invocation, "reserveMcpInvocation") };
   } catch (err) {
     // Two distinct outcomes ride on this narrowing, so both `@alfred/db/pg-errors`
     // helpers are needed: anything that is not a 23505 is a real failure and must
@@ -270,35 +296,125 @@ export async function insertInvocation(
   }
 }
 
-/** Fields the broker patches onto a ledger row as an operation progresses. */
-export type McpInvocationUpdate = Partial<
-  Pick<
-    NewMcpInvocation,
-    | "attemptLifecycle"
-    | "effectOutcome"
-    | "retryDisposition"
-    | "descriptorHash"
-    | "policyRevision"
-    | "catalogRevisionId"
-    | "effectClass"
-    | "resolvedAt"
-    | "resolutionReason"
-    | "lastError"
-    | "resultProvenance"
-    | "deliveryPossibleAt"
-    | "responseReceivedAt"
-  >
->;
-
-export async function updateInvocation(
-  id: string,
-  patch: McpInvocationUpdate,
+/** Cross the delivery boundary for a normal effectful call. */
+export async function markMcpInvocationDeliveryPossible(
+  input: { id: string; userId: string },
   runner: DbRunner = db(),
 ): Promise<McpInvocation | undefined> {
   const [row] = await runner
     .update(mcpInvocation)
-    .set(patch)
-    .where(eq(mcpInvocation.id, id))
+    .set({ attemptLifecycle: "delivery_possible", deliveryPossibleAt: new Date() })
+    .where(
+      and(
+        eq(mcpInvocation.id, input.id),
+        eq(mcpInvocation.userId, input.userId),
+        eq(mcpInvocation.attemptLifecycle, "prepared"),
+        isNull(mcpInvocation.successorOf),
+        isNull(mcpInvocation.effectOutcome),
+        isNull(mcpInvocation.retryDisposition),
+        isNull(mcpInvocation.resolvedAt),
+      ),
+    )
+    .returning();
+  return row;
+}
+
+/** Resolve a normal effectful attempt that is proven not to have left Alfred. */
+export async function settleMcpInvocationNotDelivered(
+  input: { id: string; userId: string; lastError: string },
+  runner: DbRunner = db(),
+): Promise<McpInvocation | undefined> {
+  const [row] = await runner
+    .update(mcpInvocation)
+    .set({
+      effectOutcome: "failed",
+      retryDisposition: "safe",
+      resolvedAt: new Date(),
+      resolutionReason: "not_delivered",
+      lastError: input.lastError,
+    })
+    .where(
+      and(
+        eq(mcpInvocation.id, input.id),
+        eq(mcpInvocation.userId, input.userId),
+        eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+        isNull(mcpInvocation.successorOf),
+        isNull(mcpInvocation.effectOutcome),
+        isNull(mcpInvocation.retryDisposition),
+        isNull(mcpInvocation.resolvedAt),
+      ),
+    )
+    .returning();
+  return row;
+}
+
+/** Keep a possibly-applied normal effect unresolved and blocked. */
+export async function blockMcpInvocationAsAmbiguous(
+  input: {
+    id: string;
+    userId: string;
+    lastError: string;
+    resultProvenance?: McpResultProvenance;
+  },
+  runner: DbRunner = db(),
+): Promise<McpInvocation | undefined> {
+  const [row] = await runner
+    .update(mcpInvocation)
+    .set({
+      ...(input.resultProvenance
+        ? {
+            attemptLifecycle: "response_received" as const,
+            responseReceivedAt: new Date(),
+            resultProvenance: input.resultProvenance,
+          }
+        : {}),
+      effectOutcome: "unknown",
+      retryDisposition: "blocked",
+      resolutionReason: "ambiguous_delivery",
+      lastError: input.lastError,
+    })
+    .where(
+      and(
+        eq(mcpInvocation.id, input.id),
+        eq(mcpInvocation.userId, input.userId),
+        eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+        isNull(mcpInvocation.successorOf),
+        isNull(mcpInvocation.effectOutcome),
+        isNull(mcpInvocation.retryDisposition),
+        isNull(mcpInvocation.resolvedAt),
+      ),
+    )
+    .returning();
+  return row;
+}
+
+/** Record a confirmed successful response for a normal effectful call. */
+export async function settleMcpInvocationSucceeded(
+  input: { id: string; userId: string; resultProvenance: McpResultProvenance },
+  runner: DbRunner = db(),
+): Promise<McpInvocation | undefined> {
+  const now = new Date();
+  const [row] = await runner
+    .update(mcpInvocation)
+    .set({
+      attemptLifecycle: "response_received",
+      responseReceivedAt: now,
+      effectOutcome: "succeeded",
+      resolvedAt: now,
+      resolutionReason: "succeeded",
+      resultProvenance: input.resultProvenance,
+    })
+    .where(
+      and(
+        eq(mcpInvocation.id, input.id),
+        eq(mcpInvocation.userId, input.userId),
+        eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+        isNull(mcpInvocation.successorOf),
+        isNull(mcpInvocation.effectOutcome),
+        isNull(mcpInvocation.retryDisposition),
+        isNull(mcpInvocation.resolvedAt),
+      ),
+    )
     .returning();
   return row;
 }

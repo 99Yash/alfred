@@ -47,8 +47,8 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
         outcome.envelope,
       );
     case "tool_error":
-      // The remote server received the call and returned a tool-level error. It is
-      // a definitive rejection (no effect), distinct from an ambiguous write.
+      // Only idempotent reads can reach this arm. Effectful tool errors remain
+      // ambiguous because MCP `isError` does not prove that no effect occurred.
       return withTruncation(
         { status: "tool_error", result: outcome.envelope.result },
         outcome.envelope,

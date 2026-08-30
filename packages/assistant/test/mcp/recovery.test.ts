@@ -8,15 +8,13 @@ import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schem
 import { eq, inArray, like } from "drizzle-orm";
 
 import { createNamedConnection } from "../../src/connections/mcp/persistence";
-import {
-  insertInvocation,
-  reconcileInflightInvocations,
-} from "../../src/tool-runtime/mcp/invocations";
+import { reconcileInflightInvocations } from "../../src/tool-runtime/mcp/invocations";
 import {
   listMcpRecoveryOperations,
   resolveMcpRecoveryOperation,
   retryMcpRecoveryOperation,
 } from "../../src/tool-runtime/mcp/recovery";
+import { seedMcpInvocationForTests } from "../../src/tool-runtime/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
@@ -75,7 +73,7 @@ async function seedAmbiguousOperation(options: { splitBarrier?: boolean } = {}) 
       status: options.splitBarrier ? "approved" : "executed",
       outcome: options.splitBarrier ? "dispatching" : "unknown",
     });
-  const inserted = await insertInvocation({
+  const inserted = await seedMcpInvocationForTests({
     stagingId,
     userId,
     connectionId: connection.id,
@@ -88,8 +86,7 @@ async function seedAmbiguousOperation(options: { splitBarrier?: boolean } = {}) 
     deliveryPossibleAt: new Date(),
     lastError: "socket closed after request",
   });
-  assert.ok(inserted.ok);
-  return { userId, stagingId, invocationId: inserted.invocation.id };
+  return { userId, stagingId, invocationId: inserted.id };
 }
 
 describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {

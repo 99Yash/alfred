@@ -187,7 +187,7 @@ export const mcpContentKindSchema = z.enum(mcpContentKindValues);
 // the join of the two.
 // ---------------------------------------------------------------------------
 export const mcpResultProvenanceSchema = z.object({
-  /** The server's own `isError` signal — a tool-level rejection, not transport. */
+  /** The server reported a tool problem after execution; this does not prove no effect. */
   isError: z.boolean(),
   /** The raw result carried a `structuredContent` field at all. */
   hasStructuredContent: z.boolean(),

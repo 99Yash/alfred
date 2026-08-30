@@ -36,7 +36,7 @@ import {
   type McpInvocation,
   type McpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
   boundedMcpErrorText,
   canonicalArgsHash,
@@ -51,12 +51,15 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import {
+  blockMcpInvocationAsAmbiguous,
   findUnresolvedBarrier,
-  insertInvocation,
+  markMcpInvocationDeliveryPossible,
   readInvocationByStagingId,
+  reserveMcpInvocation,
   resolveMcpToolIdentity,
+  settleMcpInvocationNotDelivered,
+  settleMcpInvocationSucceeded,
   type OwnedMcpConnectionRef,
-  updateInvocation,
 } from "./invocations";
 
 const BLOCKED_BARRIER_MESSAGE =
@@ -70,6 +73,9 @@ const BLOCKED_RECORDED_MESSAGE =
 const AMBIGUOUS_MESSAGE =
   "The remote MCP write may have completed, but Alfred did not receive a confirmation. " +
   "It will not be repeated automatically until its state is checked.";
+
+const MCP_TOOL_ERROR_MESSAGE =
+  "The remote MCP tool reported an error after delivery, but its effect may still have been applied.";
 
 export interface McpBrokerCallInput {
   userId: string;
@@ -98,10 +104,12 @@ export type McpBrokerBlockReason = "ambiguity_barrier" | "already_recorded";
  * `failed` staging row. These four are the outcomes that must ride durably in the
  * `execute_result` envelope instead:
  *
- *  - `completed` / `tool_error`: a clean response was received.
+ *  - `completed`: a clean successful response was received.
+ *  - `tool_error`: an idempotent read reported an MCP tool error.
  *  - `blocked`: the barrier refused the reservation; NOTHING was dispatched.
- *  - `ambiguous`: a possibly-delivered failure; the write may have happened and
- *    the ledger row stays unresolved so an identical repeat keeps being blocked.
+ *  - `ambiguous`: a possibly-delivered failure or an effectful MCP tool error;
+ *    the write may have happened and the ledger row stays unresolved so an
+ *    identical repeat keeps being blocked.
  */
 export type McpBrokerOutcome =
   | { status: "completed"; invocationId: string | null; envelope: McpCallEnvelope }
@@ -123,7 +131,6 @@ type ReservedMcpSuccessor = { invocation: McpInvocation; effectiveInput: unknown
 
 type ReservedMcpSuccessorSettlement =
   | { kind: "succeeded"; resultProvenance: McpResultProvenance }
-  | { kind: "rejected"; resultProvenance: McpResultProvenance }
   | { kind: "not_delivered"; lastError: string }
   | {
       kind: "ambiguous";
@@ -299,9 +306,8 @@ async function settleReservedMcpSuccessor(input: {
     const now = new Date();
     const ambiguous = input.settlement.kind === "ambiguous";
     const succeeded = input.settlement.kind === "succeeded";
-    const rejected = input.settlement.kind === "rejected";
     const provenance =
-      input.settlement.kind === "succeeded" || input.settlement.kind === "rejected"
+      input.settlement.kind === "succeeded"
         ? input.settlement.resultProvenance
         : input.settlement.kind === "ambiguous"
           ? input.settlement.resultProvenance
@@ -315,20 +321,14 @@ async function settleReservedMcpSuccessor(input: {
               responseReceivedAt: now,
               resultProvenance: provenance,
             }
-          : succeeded || rejected
+          : succeeded
             ? {
                 attemptLifecycle: "response_received" as const,
                 responseReceivedAt: now,
                 resultProvenance: provenance,
               }
             : {}),
-        effectOutcome: succeeded
-          ? "succeeded"
-          : rejected
-            ? "rejected"
-            : ambiguous
-              ? "unknown"
-              : "failed",
+        effectOutcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
         retryDisposition: ambiguous ? "blocked" : "safe",
         resolvedAt: ambiguous ? null : now,
         resolutionReason: input.settlement.kind,
@@ -366,6 +366,77 @@ async function settleReservedMcpSuccessor(input: {
       )
       .returning({ id: actionStagings.id });
     requireRow(staging, "settleReservedMcpSuccessor guarded staging");
+  });
+}
+
+/**
+ * A remote response exists, but the first local settlement did not commit.
+ * Convert only that claimed successor into the normal recovery state. This is a
+ * local database repair and must never call the MCP provider.
+ */
+async function normalizeReservedMcpSuccessorSettlementFailure(input: {
+  userId: string;
+  invocationId: string;
+  resultProvenance: McpResultProvenance;
+}): Promise<boolean> {
+  return runAtomic(db(), async (tx) => {
+    const now = new Date();
+    const [updated] = await tx
+      .update(mcpInvocation)
+      .set({
+        attemptLifecycle: "response_received",
+        responseReceivedAt: now,
+        resultProvenance: input.resultProvenance,
+        effectOutcome: "unknown",
+        retryDisposition: "blocked",
+        resolutionReason: "settlement_incomplete",
+        lastError: "Alfred received a response but could not record its final disposition.",
+      })
+      .where(
+        and(
+          eq(mcpInvocation.id, input.invocationId),
+          eq(mcpInvocation.userId, input.userId),
+          eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+          isNull(mcpInvocation.effectOutcome),
+          isNull(mcpInvocation.retryDisposition),
+          isNull(mcpInvocation.resolvedAt),
+          isNotNull(mcpInvocation.successorOf),
+        ),
+      )
+      .returning({ stagingId: mcpInvocation.stagingId });
+    if (!updated) return false;
+
+    const [staging] = await tx
+      .select({ outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(and(eq(actionStagings.id, updated.stagingId), eq(actionStagings.userId, input.userId)))
+      .for("update");
+    const stagingRow = requireRow(
+      staging,
+      "normalizeReservedMcpSuccessorSettlementFailure staging",
+    );
+    if (stagingRow.outcome === "unknown") return true;
+    const [aligned] = await tx
+      .update(actionStagings)
+      .set({
+        status: "executed",
+        outcome: "unknown",
+        executedAt: sql`coalesce(${actionStagings.executedAt}, now())`,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(actionStagings.id, updated.stagingId),
+          eq(actionStagings.userId, input.userId),
+          or(
+            inArray(actionStagings.outcome, ["planned", "dispatching"]),
+            isNull(actionStagings.outcome),
+          ),
+        ),
+      )
+      .returning({ id: actionStagings.id });
+    requireRow(aligned, "normalizeReservedMcpSuccessorSettlementFailure guarded staging");
+    return true;
   });
 }
 
@@ -541,20 +612,47 @@ export class McpExecutionBroker {
       await settleReservedMcpSuccessor({
         userId: input.userId,
         invocationId: claimed.invocation.id,
-        settlement: {
-          kind: envelope.outcome === "completed" ? "succeeded" : "rejected",
-          resultProvenance: envelope.provenance,
-        },
+        settlement:
+          envelope.outcome === "completed"
+            ? { kind: "succeeded", resultProvenance: envelope.provenance }
+            : {
+                kind: "ambiguous",
+                lastError: MCP_TOOL_ERROR_MESSAGE,
+                resultProvenance: envelope.provenance,
+              },
       });
     } catch (error) {
+      let normalized = false;
+      try {
+        normalized = await normalizeReservedMcpSuccessorSettlementFailure({
+          userId: input.userId,
+          invocationId: claimed.invocation.id,
+          resultProvenance: envelope.provenance,
+        });
+      } catch {
+        // Preserve the original settlement failure. Boot reconciliation remains
+        // the last-resort local repair if even this guarded normalization cannot
+        // commit.
+      }
+      if (normalized) {
+        trace.end({ status: "ambiguous", level: "ERROR" });
+        return {
+          status: "ambiguous",
+          invocationId: claimed.invocation.id,
+          message: AMBIGUOUS_MESSAGE,
+        };
+      }
       trace.end({ status: "error", level: "ERROR" });
       throw error;
     }
-    const outcome: McpBrokerOutcome = {
-      status: envelope.outcome === "completed" ? "completed" : "tool_error",
-      invocationId: claimed.invocation.id,
-      envelope,
-    };
+    const outcome: McpBrokerOutcome =
+      envelope.outcome === "completed"
+        ? { status: "completed", invocationId: claimed.invocation.id, envelope }
+        : {
+            status: "ambiguous",
+            invocationId: claimed.invocation.id,
+            message: AMBIGUOUS_MESSAGE,
+          };
     trace.end({ status: outcome.status });
     return outcome;
   }
@@ -666,14 +764,13 @@ export class McpExecutionBroker {
 
     // The reservation. Minting the row IS the barrier: the partial unique index
     // rejects a second unresolved proposal identical to an in-flight/blocked one.
-    const minted = await insertInvocation({
+    const minted = await reserveMcpInvocation({
       stagingId: input.stagingId,
       userId: input.userId,
       connectionId: ref.connectionId,
       remoteName: ref.remoteName,
       argsHash,
       effectClass: resolved.effectClass,
-      attemptLifecycle: "prepared",
       // Conditional spread, like everywhere else in this repo — `exactOptionalPropertyTypes`
       // is off (#552), so a plain `key: maybeUndefined` is unenforced style rather than a
       // typed distinction. Here the distinction is also load-bearing: drizzle's insert walks
@@ -686,7 +783,7 @@ export class McpExecutionBroker {
       ...(resolved.descriptorHashValue ? { descriptorHash: resolved.descriptorHashValue } : {}),
       ...(resolved.policy ? { policyRevision: resolved.policy.policyRevision } : {}),
       // Correlation breadcrumbs (trace/step/tool-call) are NOT passed here: they
-      // are copied from the authorizing staging row inside `insertInvocation`, so
+      // are copied from the authorizing staging row inside `reserveMcpInvocation`, so
       // they cannot drift from the row this reservation points at (#541).
     });
 
@@ -710,10 +807,10 @@ export class McpExecutionBroker {
     // proposal). A second outbound attempt is legal only via an explicitly
     // reserved recovery successor. Before admitting any wrapper into this path,
     // confirm its retry is disabled or provably pre-delivery.
-    await updateInvocation(invocation.id, {
-      attemptLifecycle: "delivery_possible",
-      deliveryPossibleAt: new Date(),
-    });
+    requireRow(
+      await markMcpInvocationDeliveryPossible({ id: invocation.id, userId: input.userId }),
+      "markMcpInvocationDeliveryPossible",
+    );
 
     try {
       const envelope = await resolved.prepared.call(ref, input.arguments, {
@@ -726,13 +823,14 @@ export class McpExecutionBroker {
         // Deterministic failure that never reached the remote application: resolve
         // the reservation as not-delivered (retry-safe) and rethrow so the dispatch
         // seam records an ordinary `failed` staging row.
-        await updateInvocation(invocation.id, {
-          effectOutcome: "failed",
-          retryDisposition: "safe",
-          resolvedAt: new Date(),
-          resolutionReason: "not_delivered",
-          lastError: boundedMcpErrorText(err),
-        });
+        requireRow(
+          await settleMcpInvocationNotDelivered({
+            id: invocation.id,
+            userId: input.userId,
+            lastError: boundedMcpErrorText(err),
+          }),
+          "settleMcpInvocationNotDelivered",
+        );
         throw err;
       }
       // Possibly delivered (session_expired, invalid_output, transport/abort). The
@@ -748,52 +846,48 @@ export class McpExecutionBroker {
       // response arrived (transport/abort/session_expired), provenance is absent
       // and the lifecycle never advances past the delivery boundary.
       const provenance = err instanceof McpClientError ? err.provenance : undefined;
-      await updateInvocation(invocation.id, {
-        ...(provenance
-          ? {
-              attemptLifecycle: "response_received",
-              responseReceivedAt: new Date(),
-              resultProvenance: provenance,
-            }
-          : {}),
-        effectOutcome: "unknown",
-        retryDisposition: "blocked",
-        resolutionReason: "ambiguous_delivery",
-        lastError: boundedMcpErrorText(err),
-      });
+      requireRow(
+        await blockMcpInvocationAsAmbiguous({
+          id: invocation.id,
+          userId: input.userId,
+          lastError: boundedMcpErrorText(err),
+          ...(provenance ? { resultProvenance: provenance } : {}),
+        }),
+        "blockMcpInvocationAsAmbiguous",
+      );
       return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
     }
   }
 
-  /** A clean response arrived: the outcome is definitive, so the row resolves. */
+  /** A clean response arrived. Only a confirmed success resolves an effectful call. */
   async #resolveResponse(
     invocation: McpInvocation,
     envelope: McpCallEnvelope,
   ): Promise<McpBrokerOutcome> {
     if (envelope.outcome === "tool_error") {
-      // The server received and definitively REJECTED the call — no effect, safe
-      // to attempt again as a fresh intent. The provenance envelope is persisted
-      // even for a rejection: a tool-level error still carries content the audit
-      // view reconstructs from (#541).
-      await updateInvocation(invocation.id, {
-        attemptLifecycle: "response_received",
-        responseReceivedAt: new Date(),
-        effectOutcome: "rejected",
-        retryDisposition: "safe",
-        resolvedAt: new Date(),
-        resolutionReason: "rejected",
-        resultProvenance: envelope.provenance,
-      });
-      return { status: "tool_error", invocationId: invocation.id, envelope };
+      // MCP `isError` says the tool reported a problem. It does not prove that
+      // the tool applied no effect before it produced the response. Keep the
+      // barrier unresolved unless a reviewed provider contract can prove the
+      // call was rejected before application.
+      requireRow(
+        await blockMcpInvocationAsAmbiguous({
+          id: invocation.id,
+          userId: invocation.userId,
+          lastError: MCP_TOOL_ERROR_MESSAGE,
+          resultProvenance: envelope.provenance,
+        }),
+        "blockMcpInvocationAsAmbiguous tool_error",
+      );
+      return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
     }
-    await updateInvocation(invocation.id, {
-      attemptLifecycle: "response_received",
-      responseReceivedAt: new Date(),
-      effectOutcome: "succeeded",
-      resolvedAt: new Date(),
-      resolutionReason: "succeeded",
-      resultProvenance: envelope.provenance,
-    });
+    requireRow(
+      await settleMcpInvocationSucceeded({
+        id: invocation.id,
+        userId: invocation.userId,
+        resultProvenance: envelope.provenance,
+      }),
+      "settleMcpInvocationSucceeded",
+    );
     return { status: "completed", invocationId: invocation.id, envelope };
   }
 

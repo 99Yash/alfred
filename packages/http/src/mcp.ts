@@ -30,13 +30,12 @@ const [firstMcpRecoveryDecision, ...remainingMcpRecoveryDecisions] =
 if (!firstMcpRecoveryDecision) {
   throw new Error("MCP recovery decisions must not be empty");
 }
-const mcpRecoveryDecisionValues: [McpRecoveryDecision, ...McpRecoveryDecision[]] = [
-  firstMcpRecoveryDecision,
-  ...remainingMcpRecoveryDecisions,
-];
 const mcpRecoveryDecisionBody = t.Object(
   {
-    decision: t.UnionEnum(mcpRecoveryDecisionValues),
+    decision: t.Union([
+      t.Literal(firstMcpRecoveryDecision),
+      ...remainingMcpRecoveryDecisions.map((decision) => t.Literal(decision)),
+    ]),
   },
   { additionalProperties: false },
 );
