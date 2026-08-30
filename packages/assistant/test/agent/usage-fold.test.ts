@@ -5,11 +5,14 @@ import { foldModelUsage, type ModelUsageGroup } from "@alfred/assistant/executio
 
 /** Postgres hands back `sum`/`count` as strings; the fixtures keep that shape. */
 const group = (over: Partial<ModelUsageGroup>): ModelUsageGroup => ({
+  kind: "llm",
+  role: "boss",
   model: "claude-sonnet-4-6",
   subId: null,
   inputTokens: "0",
   outputTokens: "0",
   cachedInputTokens: "0",
+  modelLatencyMs: "0",
   costUsd: "0",
   calls: "0",
   ...over,
@@ -18,11 +21,19 @@ const group = (over: Partial<ModelUsageGroup>): ModelUsageGroup => ({
 describe("foldModelUsage", () => {
   test("sums the turn across boss and sub-agent groups", () => {
     const usage = foldModelUsage([
-      group({ subId: null, inputTokens: "100", outputTokens: "20", costUsd: "0.10", calls: "2" }),
+      group({
+        subId: null,
+        inputTokens: "100",
+        outputTokens: "20",
+        modelLatencyMs: "2000",
+        costUsd: "0.10",
+        calls: "2",
+      }),
       group({
         subId: "research",
         inputTokens: "900",
         outputTokens: "80",
+        modelLatencyMs: "6000",
         costUsd: "0.40",
         calls: "6",
       }),
@@ -30,6 +41,7 @@ describe("foldModelUsage", () => {
 
     assert.equal(usage.inputTokens, 1000);
     assert.equal(usage.outputTokens, 100);
+    assert.equal(usage.modelLatencyMs, 8000);
     assert.equal(usage.calls, 8);
     assert.ok(Math.abs(usage.costUsd - 0.5) < 1e-9);
   });
@@ -91,5 +103,25 @@ describe("foldModelUsage", () => {
     assert.equal(usage.calls, 0);
     assert.deepEqual(usage.models, []);
     assert.deepEqual(usage.agents, []);
+  });
+
+  test("excludes background calls that only share the turn run id", () => {
+    const usage = foldModelUsage([
+      group({ outputTokens: "20", modelLatencyMs: "2000", calls: "1" }),
+      group({
+        role: null,
+        model: "gemini-2.5-flash-lite",
+        inputTokens: "86",
+        outputTokens: "4",
+        modelLatencyMs: "1006",
+        costUsd: "0.0001",
+        calls: "1",
+      }),
+    ]);
+
+    assert.equal(usage.outputTokens, 20);
+    assert.equal(usage.modelLatencyMs, 2000);
+    assert.equal(usage.calls, 1);
+    assert.deepEqual(usage.models, [{ model: "claude-sonnet-4-6", calls: 1 }]);
   });
 });

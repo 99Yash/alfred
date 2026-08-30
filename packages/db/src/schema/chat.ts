@@ -136,10 +136,11 @@ export const chatMessages = pgTable(
      */
     narration: jsonb("narration").$type<ChatMessageNarration[]>(),
     /**
-     * Token usage + cost for this assistant turn, aggregated from the run's
-     * `api_call_log` rows at finalize. Null on user rows and on assistant rows
-     * written before this column. Powers a dev-gated usage readout under the
-     * reply. We control the write, so the `.$type<>()` shape is truthful.
+     * Token usage, model latency, and cost for this assistant turn, aggregated
+     * from the run's `api_call_log` rows at finalize. Null on user rows and on
+     * assistant rows written before this column. Powers a dev-gated usage
+     * readout under the reply. We control the write, so the `.$type<>()` shape
+     * is truthful.
      */
     usage: jsonb("usage").$type<ChatMessageUsage>(),
     /** The agent run servicing this turn (set on both the user turn and its reply). */

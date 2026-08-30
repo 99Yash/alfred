@@ -22,7 +22,8 @@
  *     was written by an early build that omitted the `models` array (the model
  *     chips render off `usage.models`, so those turns show the token/cost line
  *     but no model — the whole point of the readout), OR usage predates the
- *     per-agent split and therefore still holds a boss-only total;
+ *     per-agent split and therefore still holds a boss-only total, OR usage
+ *     predates `modelLatencyMs` and therefore cannot show output throughput;
  *   - sub-agent child runs are folded into the turn that spawned them, and
  *     labeled by their `subId` in the split, because a delegating turn spends
  *     most of its money in its children;
@@ -51,6 +52,7 @@ const SUB_ID = sql<
 >`case when ${apiCallLog.runId} = ${chatMessages.runId} then null else coalesce(${agentRuns.metadata}->'subAgent'->>'subId', 'sub-agent') end`;
 
 const MODEL = sql<string>`coalesce(${apiCallLog.model}, 'unknown')`;
+const CALL_ROLE = sql<string | null>`${apiCallLog.requestMeta}->>'role'`;
 
 /**
  * One `api_call_log` group per (message, agent, model), summed across every run
@@ -67,11 +69,14 @@ const MODEL = sql<string>`coalesce(${apiCallLog.model}, 'unknown')`;
 async function loadGroups(): Promise<
   Array<{
     messageId: string;
+    kind: string;
+    role: string | null;
     subId: string | null;
     model: string;
     inputTokens: string;
     outputTokens: string;
     cachedInputTokens: string;
+    modelLatencyMs: string;
     costUsd: string;
     calls: string;
   }>
@@ -79,11 +84,20 @@ async function loadGroups(): Promise<
   return db()
     .select({
       messageId: chatMessages.id,
+      kind: apiCallLog.kind,
+      role: CALL_ROLE,
       subId: SUB_ID,
       model: MODEL,
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
+      modelLatencyMs: sql<string>`coalesce(sum(case
+        when ${apiCallLog.kind} = 'llm'
+          and ${apiCallLog.error} is null
+          and ${apiCallLog.outputTokens} is not null
+        then ${apiCallLog.latencyMs}
+        else 0
+      end), 0)`,
       costUsd: sql<string>`coalesce(sum(${apiCallLog.costUsd}), 0)`,
       calls: sql<string>`count(*)`,
     })
@@ -94,14 +108,15 @@ async function loadGroups(): Promise<
       and(
         eq(chatMessages.role, "assistant"),
         isNotNull(chatMessages.runId),
-        // null usage OR usage present but missing the `models` breakdown OR
-        // missing the per-agent split (boss-only totals from an older build).
+        // Null usage, or a rollup missing the model breakdown, per-agent split,
+        // or model latency needed for output throughput.
         sql`(${chatMessages.usage} is null
           or coalesce(jsonb_array_length(${chatMessages.usage} -> 'models'), 0) = 0
-          or coalesce(jsonb_array_length(${chatMessages.usage} -> 'agents'), 0) = 0)`,
+          or coalesce(jsonb_array_length(${chatMessages.usage} -> 'agents'), 0) = 0
+          or not (${chatMessages.usage} ? 'modelLatencyMs'))`,
       ),
     )
-    .groupBy(chatMessages.id, SUB_ID, MODEL);
+    .groupBy(chatMessages.id, apiCallLog.kind, CALL_ROLE, SUB_ID, MODEL);
 }
 
 /**
