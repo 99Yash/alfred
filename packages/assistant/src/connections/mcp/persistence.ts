@@ -31,7 +31,7 @@ import {
   type NewMcpConnection,
   type NewMcpServer,
 } from "@alfred/db/schemas";
-import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames } from "./hash";
@@ -342,7 +342,28 @@ function descriptorSlice(offset: number, limit: number) {
   ), '[]'::jsonb)`;
 }
 
-const descriptorHashesSchema = z.record(z.string(), z.string());
+const descriptorHashesSchema = z.unknown().transform((value, context) => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    context.addIssue({ code: "custom", message: "Expected a descriptor hash record" });
+    return z.NEVER;
+  }
+
+  const hashes: Record<string, string> = {};
+  for (const [name, candidate] of Object.entries(value)) {
+    const hash = z.string().safeParse(candidate);
+    if (!hash.success) {
+      context.addIssue({ code: "custom", message: `Expected a string hash for '${name}'` });
+      return z.NEVER;
+    }
+    Object.defineProperty(hashes, name, {
+      configurable: true,
+      enumerable: true,
+      value: hash.data,
+      writable: true,
+    });
+  }
+  return hashes;
+});
 
 function descriptorIndexFromHashes(descriptorHashes: unknown, remoteName: string): number | null {
   const parsed = descriptorHashesSchema.safeParse(descriptorHashes);
@@ -365,18 +386,17 @@ function toCatalogSliceRow(
 
 function afterOwnedCurrentCatalog(position: OwnedCurrentCatalogPosition | undefined) {
   if (!position) return undefined;
-  return or(
-    gt(mcpServers.id, position.namespace),
-    and(
-      eq(mcpServers.id, position.namespace),
-      gt(mcpConnections.instanceKey, position.instanceKey),
-    ),
-    and(
-      eq(mcpServers.id, position.namespace),
-      eq(mcpConnections.instanceKey, position.instanceKey),
-      gt(mcpConnections.id, position.connectionId),
-    ),
-  );
+  // `(user_id, server_id, instance_key)` is unique. Under the fixed owner
+  // predicate there can be no connection-id tie, so this two-column keyset is
+  // equivalent to the public three-field order and maps directly to the owning
+  // index instead of filtering or sorting the already-scanned prefix.
+  return sql`(
+    ${mcpConnections.serverId},
+    ${mcpConnections.instanceKey}
+  ) > (
+    ${position.namespace},
+    ${position.instanceKey}
+  )`;
 }
 
 /** Read one bounded slice from an owned connection's exact current catalog. */
@@ -484,32 +504,38 @@ export async function listOwnedCurrentCatalogSlices(
   );
   if (catalogLimit === 0) return [];
 
-  const ownedAndPositioned = and(
+  const ownedCurrentAndPositioned = and(
     eq(mcpConnections.userId, input.userId),
-    input.namespace !== undefined ? eq(mcpServers.id, input.namespace) : undefined,
+    sql`${mcpConnections.currentCatalogRevisionId} is not null`,
+    input.namespace !== undefined ? eq(mcpConnections.serverId, input.namespace) : undefined,
     input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
     afterOwnedCurrentCatalog(input.after),
   );
   const result = await runner.execute(sql`
-    with selected_catalogs as materialized (
-      select ${mcpServers.id} as "namespace",
+    with selected_connections as materialized (
+      select ${mcpConnections.serverId} as "namespace",
              ${mcpConnections.id} as "connectionId",
              ${mcpConnections.instanceKey} as "instanceKey",
              ${mcpConnections.label} as "label",
+             ${mcpConnections.currentCatalogRevisionId} as "revisionId"
+        from ${mcpConnections}
+       where ${ownedCurrentAndPositioned}
+       order by ${mcpConnections.serverId},
+                ${mcpConnections.instanceKey}
+       limit ${catalogLimit}
+    ), selected_catalogs as materialized (
+      select selected_connections."namespace",
+             selected_connections."connectionId",
+             selected_connections."instanceKey",
+             selected_connections."label",
              ${mcpCatalogRevisions.id} as "revisionId",
              ${mcpCatalogRevisions.revisionHash} as "revisionHash",
              jsonb_array_length(${mcpCatalogRevisions.descriptors}) as "descriptorCount",
              ${mcpCatalogRevisions.descriptors} as "catalogDescriptors"
-        from ${mcpConnections}
-        inner join ${mcpServers}
-          on ${mcpServers.id} = ${mcpConnections.serverId}
-         and ${mcpServers.userId} = ${input.userId}
+        from selected_connections
         inner join ${mcpCatalogRevisions}
-          on ${mcpCatalogRevisions.connectionId} = ${mcpConnections.id}
-         and ${mcpCatalogRevisions.id} = ${mcpConnections.currentCatalogRevisionId}
-       where ${ownedAndPositioned}
-       order by ${mcpServers.id}, ${mcpConnections.instanceKey}, ${mcpConnections.id}
-       limit ${catalogLimit}
+          on ${mcpCatalogRevisions.connectionId} = selected_connections."connectionId"
+         and ${mcpCatalogRevisions.id} = selected_connections."revisionId"
     ), budgeted_catalogs as (
       select selected_catalogs.*,
              coalesce(
