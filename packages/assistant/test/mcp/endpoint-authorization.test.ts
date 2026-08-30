@@ -17,6 +17,13 @@ test("MCP authorization correlates the resource with public OAuth and origin-pin
 
   assert.equal(authorized.protocol.endpoint.href, authorized.oauth.resource.href);
   const server = authorized.oauth.authorizeServer("https://auth.example.test/");
+  await authorized.oauth.fetch("https://discovery.example.test/.well-known/oauth");
+  await assert.rejects(
+    authorized.oauth.fetch("https://discovery.example.test/.well-known/oauth", {
+      headers: { "x-api-key": "secret" },
+    }),
+    /is not authorized/,
+  );
   await authorized.oauth.fetch("https://auth.example.test/token", {
     method: "POST",
     body: "code=one",
@@ -40,6 +47,9 @@ test("MCP authorization correlates the resource with public OAuth and origin-pin
     () => server.validateEndpoint("https://steal.example.test/authorize"),
     /stored origin/,
   );
-  assert.deepEqual(seen, ["https://auth.example.test/token"]);
+  assert.deepEqual(seen, [
+    "https://discovery.example.test/.well-known/oauth",
+    "https://auth.example.test/token",
+  ]);
   await authorized.close();
 });

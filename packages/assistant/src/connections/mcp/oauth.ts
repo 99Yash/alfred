@@ -15,6 +15,7 @@ import {
   StreamableHTTPClientTransport,
   validateClientMetadataUrl,
   type AuthorizationServerMetadata,
+  type AuthOptions,
   type AuthResult,
   type FetchLike,
   type OAuthClientInformationContext,
@@ -426,15 +427,12 @@ export interface McpOAuthProviderOptions {
   vault?: CredentialVault;
 }
 
-export interface McpOAuthAuthorizeOptions {
-  forceReauthorization?: boolean;
-  scope?: string;
-  timeoutMs?: number;
-}
-
 export interface McpOAuthRequestOptions {
   timeoutMs?: number;
 }
+
+export type McpOAuthAuthorizeOptions = Pick<AuthOptions, "forceReauthorization" | "scope"> &
+  McpOAuthRequestOptions;
 
 /** OAuth authority bound to one endpoint authorization generation. */
 export interface McpBoundOAuthSession {

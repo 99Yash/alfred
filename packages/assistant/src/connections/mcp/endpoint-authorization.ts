@@ -4,6 +4,7 @@ import {
   createOriginPinnedFetch,
   createPinnedDispatcher,
   HostedEndpointError,
+  isHostedEndpointSensitiveHeader,
   validatePinnedHttpsEndpoint,
   validatePublicWebUrl,
   type DnsLookupAll,
@@ -69,16 +70,6 @@ export interface HostedMcpEndpointAuthorizerDependencies {
   requester?: GuardedFetchRequester;
 }
 
-const OAUTH_SENSITIVE_HEADERS = new Set([
-  "authorization",
-  "cookie",
-  "proxy-authorization",
-  "mcp-session-id",
-  "traceparent",
-  "tracestate",
-  "x-api-key",
-]);
-
 function validatePublicHttpsEndpoint(input: unknown): URL {
   const publicUrl = validatePublicWebUrl(input);
   return validatePinnedHttpsEndpoint(publicUrl, publicUrl.origin);
@@ -95,7 +86,7 @@ function oauthRequestFacts(input: Parameters<FetchLike>[0], init: Parameters<Fet
     credentialFreeDiscovery:
       (method === "GET" || method === "HEAD") &&
       body == null &&
-      [...headers.keys()].every((name) => !OAUTH_SENSITIVE_HEADERS.has(name.toLowerCase())),
+      [...headers.keys()].every((name) => !isHostedEndpointSensitiveHeader(name)),
   };
 }
 

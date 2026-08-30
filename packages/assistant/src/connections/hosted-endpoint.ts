@@ -4,6 +4,23 @@ import { Agent, type Dispatcher } from "undici";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_REDIRECTS = 5;
+const HOSTED_ENDPOINT_SENSITIVE_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+  "mcp-session-id",
+  "traceparent",
+  "tracestate",
+  "x-api-key",
+]);
+
+export function isHostedEndpointSensitiveHeader(name: string): boolean {
+  return HOSTED_ENDPOINT_SENSITIVE_HEADERS.has(name.toLowerCase());
+}
+
+function stripHostedEndpointSensitiveHeaders(headers: Headers): void {
+  for (const name of HOSTED_ENDPOINT_SENSITIVE_HEADERS) headers.delete(name);
+}
 
 export type HostedEndpointErrorCode =
   | "malformed_url"
@@ -425,17 +442,7 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
       }
       const next = validate(new URL(location, current));
       if (next.origin !== current.origin) {
-        for (const name of [
-          "authorization",
-          "cookie",
-          "proxy-authorization",
-          "mcp-session-id",
-          "traceparent",
-          "tracestate",
-          "x-api-key",
-        ]) {
-          headers.delete(name);
-        }
+        stripHostedEndpointSensitiveHeaders(headers);
       }
       current = next;
     }
