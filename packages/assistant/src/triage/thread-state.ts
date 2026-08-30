@@ -1,6 +1,16 @@
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
+import {
+  extractGmailDocumentBody,
+  parseGmailDocumentMetadata,
+  type GmailDocumentMetadata,
+} from "@alfred/contracts";
 import { and, eq, ne, sql } from "drizzle-orm";
+import {
+  TRIAGE_RECENT_MESSAGE_LIMIT,
+  TRIAGE_RECENT_MESSAGE_MAX_CHARS,
+  TRIAGE_THREAD_STATE_ROW_LIMIT,
+} from "./constants";
 import { gmailSentSql } from "./sent-mail";
 
 /**
@@ -51,31 +61,21 @@ const EMPTY: ThreadState = {
   recentMessages: [],
 };
 
-const THREAD_STATE_ROW_LIMIT = 500;
-/** How many recent prior messages to excerpt; bounds the token cost of the fed context. */
-const RECENT_MESSAGE_LIMIT = 6;
-/** Per-message excerpt cap — a lede, not the whole body. */
-const RECENT_SNIPPET_MAX = 220;
-
-// Our stored Gmail `content` prepends an RFC-822-ish header block
-// ("From:/To:/Subject:/Date:" lines). Strip it so the excerpt leads with the
-// actual body, where the ask/assignment lives.
-const HEADER_LINE_RE = /^(?:from|to|cc|bcc|reply-to|sender|subject|date):/i;
-
 /** Body lede for the fed thread context: drop the leading header block, collapse whitespace, cap length. PURE. */
 export function buildThreadSnippet(
   title: string | null,
   content: string | null,
+  metadata: GmailDocumentMetadata,
   max: number,
 ): string {
-  const lines = (content ?? "").split("\n");
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i]?.trim() ?? "";
-    if (line !== "" && !HEADER_LINE_RE.test(line)) break;
-    i++;
-  }
-  const body = lines.slice(i).join(" ").replace(/\s+/g, " ").trim();
+  const body = extractGmailDocumentBody(content, {
+    from: metadata.from,
+    to: metadata.to,
+    cc: metadata.cc,
+    subject: title,
+  })
+    .replace(/\s+/g, " ")
+    .trim();
   const base = body || (title ?? "").trim();
   return base.length > max ? `${base.slice(0, max).trimEnd()}…` : base;
 }
@@ -124,7 +124,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     // two messages sharing an authoredAt (same-second replies) resolve the
     // "newest" slot identically every run. `documents_thread_idx` supports it.
     .orderBy(newestFirst)
-    .limit(THREAD_STATE_ROW_LIMIT);
+    .limit(TRIAGE_THREAD_STATE_ROW_LIMIT);
 
   const siblings = rows;
   if (siblings.length === 0) return EMPTY;
@@ -150,18 +150,24 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
       authoredAt: documents.authoredAt,
       title: documents.title,
       content: documents.content,
+      metadata: documents.metadata,
       isSent: gmailSentSql(),
     })
     .from(documents)
     .where(threadWhere)
     .orderBy(newestFirst)
-    .limit(RECENT_MESSAGE_LIMIT);
+    .limit(TRIAGE_RECENT_MESSAGE_LIMIT);
 
   const recentMessages: ThreadMessageContext[] = recentRows
     .map((r) => ({
       direction: r.isSent ? ("sent" as const) : ("received" as const),
       authoredAt: r.authoredAt,
-      snippet: buildThreadSnippet(r.title, r.content, RECENT_SNIPPET_MAX),
+      snippet: buildThreadSnippet(
+        r.title,
+        r.content,
+        parseGmailDocumentMetadata(r.metadata),
+        TRIAGE_RECENT_MESSAGE_MAX_CHARS,
+      ),
     }))
     .filter((m) => m.snippet.length > 0);
 
