@@ -10,6 +10,8 @@ import {
   clamp01,
   collabActivitySchema,
   confidenceSchema,
+  extractGmailDocumentBody,
+  isPassiveCollabActivity,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type CollabActivityKind,
@@ -17,7 +19,6 @@ import {
   type IanaTimezone,
   type SenderContext,
   type TodoDecisionOutcome,
-  trackerSenderKey,
   toMessage,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
@@ -35,7 +36,6 @@ import {
 import { createHedgeBudget, hedgeCeilingFor, runHedged, type HedgeBudget } from "./hedge";
 import type { Observations } from "./observations";
 import { MAX_RATIONALE_LEN, truncateRationale } from "./rationale";
-import { stripLeadingEmailHeaders } from "./thread-state";
 
 // Re-exported for the public triage surface (the barrel, `deepen.ts`) — the
 // definitions live in the leaf `rationale.ts` to avoid a `classify ↔ floors` cycle.
@@ -196,7 +196,7 @@ export interface ClassifyEmailArgs {
 
 /** Why the conditional second cheap pass fired (ADR-0051 §4b, Phase 3 seed). */
 export interface TriageConflict {
-  kind: "under_classification" | "over_classification";
+  kind: "under_classification" | "over_classification" | "loop_state";
   /** Human-readable conflict spelled out into the second-pass prompt + audit. */
   message: string;
 }
@@ -250,6 +250,7 @@ const STRONG_BULK_MIN_SHARE = 0.8;
 const SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
 const SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
 const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
+const TRIAGE_BODY_MAX_CHARS = 6_000;
 
 export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
@@ -306,7 +307,7 @@ Rules:
     - 0.7-0.9: clear category but with some overlap.
     - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
     - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
-14. Rationale: 1-2 sentences grounded in concrete evidence. Cite one exact or close subject/body phrase AND, when supplied context supports or counters it, the decisive observation (thread message/state, sender relationship/kind, or sender prior). If two categories apply, explain why the chosen one dominates. A rule number or email type alone is not evidence. Never invent contact history, ownership, or relationship strength: do not call a sender known/strong/two-way/cold unless the Observations block says so. If the sender relationship affects the todo decision, name the exact observation ("no prior contact", "weak one-way", "strong two-way", etc.).
+14. Rationale: 1-2 sentences grounded in concrete cues: cite subject/body phrasing and any decisive observation you used (sender relationship, recent-thread message, sender prior, or content flag). Do not merely restate the rule. Never invent contact history, ownership, or relationship strength: do not call a sender known/strong/two-way/cold unless the Observations block says so. If the sender relationship affects the todo decision, name the exact observation ("no prior contact", "weak one-way", "strong two-way", etc.).
 15. Self-initiated authentication mail is the EXPECTED ECHO of an action the user just took → fyi, not action_needed and not urgent. This covers sign-in / magic links, one-time login codes AND step-up / sudo / re-authentication codes ("Sudo email verification code", "your verification code is 123456"), email-address verification the user just requested, and transient same-flow confirmations that do NOT add/change future account access ("security verification completed"). The user is mid-flow; codes expire harmlessly and transient confirmations are moot by the time they surface — nothing to track, nothing to remember (rule 16c). DO NOT extend this demotion to persistent account-access grants or auth settings such as "passkey created", "two-factor authentication enabled/disabled", "OAuth application added", recovery email/phone updated, or login method added/changed: the email alone cannot prove the user initiated them, and these changes affect future account access. Keep those surfaced at 'action_needed' (not 'urgent' absent an explicit same-day compromise signal). Reserve urgent for the unsolicited inverse: an unrecognized sign-in, a "was this you?" challenge, account compromised, password/2FA changed without the user, or any body that says to secure the account immediately.
 16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
     Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
@@ -431,7 +432,6 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   const lines: string[] = [];
   const meta = args.document.metadata;
   const { from, to, cc } = meta;
-  const tracker = trackerSenderKey(from);
 
   lines.push("=== SenderContext ===");
   lines.push(JSON.stringify(args.senderContext));
@@ -454,40 +454,32 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   if (from) lines.push(`From: ${from}`);
   if (to) lines.push(`To: ${to}`);
   if (cc) lines.push(`Cc: ${cc}`);
-  if (!tracker && args.document.title) lines.push(`Subject: ${args.document.title}`);
   if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
   lines.push("");
 
-  const body = stripLeadingEmailHeaders(args.document.content);
-
-  if (tracker) {
-    lines.push(`=== Tracker notification (${tracker}) ===`);
-    lines.push("Item/notification subject — does not prove user ownership:");
-    lines.push(args.document.title?.trim() || "(no subject)");
-    lines.push("");
-    lines.push("=== Activity body ===");
-    if (/\bdone\.\s*created\b/i.test(body)) {
-      lines.push(
-        'Interpretation note (not email content): "Done. Created [task]" means filing finished, not the task, and is never category done. Check the earlier thread context below before choosing fyi; an unanswered user-owned ask keeps the loop action_needed or awaiting_reply.',
-      );
-    }
-  } else {
-    lines.push("=== Body ===");
-  }
+  lines.push("=== Subject — context, not proof of user ownership ===");
+  lines.push(args.document.title?.trim() || "(no subject)");
+  lines.push("");
+  lines.push("=== Body ===");
+  const body = extractGmailDocumentBody(args.document.content, {
+    from,
+    to,
+    cc,
+    subject: args.document.title,
+  });
   // Cap to keep token budget bounded — most emails fit easily; the rare long
   // thread gets truncated, which is fine for triage (the lede usually suffices).
-  const content = body.length > 6_000 ? body.slice(0, 6_000) + "\n[…truncated]" : body;
+  const content =
+    body.length > TRIAGE_BODY_MAX_CHARS
+      ? body.slice(0, TRIAGE_BODY_MAX_CHARS) + "\n[…truncated]"
+      : body;
   lines.push(content);
 
   lines.push("");
-  lines.push(
-    tracker
-      ? "=== Earlier thread context — use this to decide current ownership ==="
-      : "=== Earlier thread context — use this to decide current loop state ===",
-  );
+  lines.push("=== Earlier thread context — use this to decide loop state and ownership ===");
   lines.push(...renderThreadObservation(args.observations));
   lines.push(
-    "An unanswered user-owned ask in this earlier context stays open despite a later low-signal activity line.",
+    "Final loop-state check: if the earlier context shows an unanswered user-owned assignment or ask, you MUST keep action_needed/awaiting_reply. A passive current message cannot demote that open loop.",
   );
 
   if (conflict) {
@@ -540,9 +532,23 @@ function priorActionShare(categoryCounts: Record<string, number>): ActionShare {
 }
 
 /**
- * Detect a hard deterministic conflict between the model's output and a strong
- * expectation (ADR-0051 §4b, Phase 3 seed — two tightly-gated nets). Returns the
- * conflict to spell into a single second cheap pass, or null. PURE.
+ * True when the bounded thread context contains a received message that may be
+ * newer than the user's last reply. This does not decide whether the message is
+ * an ask; it only identifies the ambiguity that merits one focused second pass.
+ */
+function hasPossiblyUnansweredReceivedContext(observations: Observations): boolean {
+  const lastReply = observations.thread.lastUserReplyAt;
+  return observations.thread.recentMessages.some(
+    (message) =>
+      message.direction === "received" &&
+      (lastReply == null || message.authoredAt == null || message.authoredAt > lastReply),
+  );
+}
+
+/**
+ * Detect a tightly-gated conflict between the model's output and typed evidence
+ * (ADR-0051 §4b). Returns the conflict to spell into one second cheap pass, or
+ * null. PURE.
  *
  * `floorMatches` is the override-floor predicate result — passed in so the
  * under-classification net doesn't fire a redundant second pass when the floor
@@ -564,6 +570,27 @@ export function detectConflict(
     return {
       kind: "under_classification",
       message: `A security-related signal was detected in the body, but you classified this as "${classification.category}" (a passive category). Security/account signals usually warrant urgent or action_needed unless this is clearly self-initiated auth or routine advisory bot noise.`,
+    };
+  }
+
+  // Loop-state ambiguity: the model read the current collaboration event as
+  // passive, but a received prior message may still contain an unanswered ask.
+  // Re-ask once with the time/order obligation explicit. This is not a forced
+  // category rule: the second pass may keep the passive answer after it checks
+  // the prior message. It replaces the phrase-specific "Done. Created" prompt
+  // branch with one general condition over typed model output + thread order.
+  const collabActivity = classification.collabActivity ?? null;
+  if (
+    PASSIVE_CATEGORIES.has(classification.category) &&
+    collabActivity != null &&
+    isPassiveCollabActivity(collabActivity) &&
+    hasPossiblyUnansweredReceivedContext(observations)
+  ) {
+    return {
+      kind: "loop_state",
+      message:
+        `You classified the current collaboration event as passive ${classification.category}/${collabActivity}, ` +
+        "but an earlier received thread message may be newer than the user's last reply. Re-read the earlier message for an assignment or direct ask owned by the user. Keep the passive category only when that context contains no unanswered user-owned work; otherwise keep the open loop action_needed/awaiting_reply.",
     };
   }
 

@@ -6,6 +6,7 @@ import {
   USAGE_ACTIVITY_MAX_PAGE_SIZE,
   encodeInboxCursor,
   Errors,
+  extractGmailDocumentBody,
   getPath,
   isUsageRunCategory,
   parseGmailDocumentMetadata,
@@ -228,24 +229,12 @@ export interface MeMeetingItem {
 }
 
 /**
- * `documents.content` for Gmail is `buildContent(extracted)` output:
+ * `documents.content` for Gmail is `buildGmailDocumentContent(...)` output:
  *   `From: …\nTo: …\nSubject: …\nDate: …\n\n<body>`
  * The header block is redundant with `metadata.from` / `.to` / `.subject`
  * and the `authoredAt` column, so strip it before returning to the reader
  * — the UI renders those fields from structured columns instead.
  */
-function stripContentHeaders(content: string): string {
-  if (!content) return "";
-  // The synthetic block ends at the first blank line. If we never wrote a
-  // header (some shapes had no parseable fields), `buildContent` returns
-  // the body verbatim — recognize that by checking the prefix.
-  if (!/^(From|To|Cc|Subject|Date):/m.test(content.slice(0, 200))) {
-    return content;
-  }
-  const blank = content.indexOf("\n\n");
-  return blank < 0 ? "" : content.slice(blank + 2);
-}
-
 /**
  * Detects common shapes of raw HTML hiding inside a `text/plain` body —
  * GitHub notifications, mail-list digests, and a handful of newsletters
@@ -271,9 +260,12 @@ const HTML_TAG_RE =
  * untouched so a future re-ingest with smarter extraction is free to take
  * over without a migration.
  */
-function normalizeBodyForReader(content: string): string {
+function normalizeBodyForReader(
+  content: string,
+  envelope: Parameters<typeof extractGmailDocumentBody>[1],
+): string {
   if (!content) return "";
-  const stripped = stripContentHeaders(content);
+  const stripped = extractGmailDocumentBody(content, envelope);
   let body = stripped.replace(/\r\n/g, "\n");
   body = body.replace(/<!--[\s\S]*?-->/g, "");
   body = body.replace(/<style[\s\S]*?<\/style>/gi, "");
@@ -579,7 +571,12 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               cc: meta.cc ?? null,
               subject: row.subject ?? null,
               snippet: meta.snippet ?? null,
-              body: normalizeBodyForReader(row.content ?? ""),
+              body: normalizeBodyForReader(row.content ?? "", {
+                from: meta.from,
+                to: meta.to,
+                cc: meta.cc,
+                subject: row.subject,
+              }),
               htmlBody: sanitizeEmailHtml(rawHtml),
               authoredAt: row.authoredAt?.toISOString() ?? null,
               unread: labelIds.includes("UNREAD"),
