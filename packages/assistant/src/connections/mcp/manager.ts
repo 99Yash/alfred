@@ -105,11 +105,11 @@ function liveClientFactory(): McpClientFactory {
       endpointAuthorizer,
       ...(usesOAuth
         ? {
-            oauthProviderFactory: (resource: URL) =>
+            oauthProviderFactory: (authorization) =>
               mcpOAuthProviderForConnection({
                 connectionId: connection.id,
                 userId: connection.userId,
-                endpoint: resource,
+                authorization,
               }),
             onAuthorizationRequired: async () => {
               await updateConnection(connection.id, {
@@ -289,9 +289,12 @@ export class McpConnectionManager {
 
   /** Drop all live clients (e.g. on shutdown). Does not touch persisted rows. */
   async closeAll(): Promise<void> {
-    for (const connectionId of this.#clients.keys()) {
+    for (const connectionId of new Set([...this.#clientStarts.keys(), ...this.#clients.keys()])) {
       this.#closingConnections.add(connectionId);
     }
+    await Promise.all(
+      [...this.#clientStarts.values()].map((start) => start.catch(() => undefined)),
+    );
     while (this.#catalogRefreshes.size > 0) {
       await Promise.all([...this.#catalogRefreshes.values()].map((state) => state.promise));
     }

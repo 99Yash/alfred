@@ -43,7 +43,11 @@ export {
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
 export {
   HostedMcpEndpointAuthorizer,
+  withMcpEndpointAuthorization,
   type McpAuthorizedEndpoint,
+  type McpAuthorizedOAuth,
+  type McpAuthorizedOAuthServer,
+  type McpAuthorizedProtocol,
   type McpEndpointAuthorizer,
 } from "./endpoint-authorization";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";

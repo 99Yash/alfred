@@ -11,6 +11,8 @@ import {
   refreshMcpOAuthIfNeeded,
   type McpOAuthCredentialStore,
 } from "../../src/connections/mcp/oauth";
+import { HostedMcpEndpointAuthorizer } from "../../src/connections/mcp/endpoint-authorization";
+import { permissiveMcpOAuthAuthorizationForTests } from "../../src/connections/mcp/test-support";
 
 class MemoryStore implements McpOAuthCredentialStore {
   row: McpOauthCredential | undefined;
@@ -115,11 +117,21 @@ class MemoryStore implements McpOAuthCredentialStore {
   }
 }
 
-function provider(store: MemoryStore, vault = createCredentialVault(randomBytes(32))) {
+const RESOURCE = new URL("https://mcp.example.test/mcp");
+
+function authorization(fetch: typeof globalThis.fetch = globalThis.fetch) {
+  return permissiveMcpOAuthAuthorizationForTests(RESOURCE, fetch);
+}
+
+function provider(
+  store: MemoryStore,
+  vault = createCredentialVault(randomBytes(32)),
+  endpointAuthorization = authorization(),
+) {
   return new McpOAuthProvider({
     connectionId: "conn_test",
     userId: "user_test",
-    endpoint: new URL("https://mcp.example.test/mcp"),
+    authorization: endpointAuthorization,
     redirectUrl: new URL("https://alfred.example.test/api/integrations/mcp/callback"),
     clientMetadataUrl: "https://alfred.example.test/api/integrations/mcp/client-metadata",
     clientMetadata: {
@@ -211,7 +223,8 @@ describe("MCP OAuth provider", () => {
 
   test("passes callback parameters to SDK iss validation before token exchange", async () => {
     const store = new MemoryStore();
-    const oauth = provider(store);
+    const endpointAuthorization = authorization(async () => new Response(null, { status: 500 }));
+    const oauth = provider(store, undefined, endpointAuthorization);
     await oauth.saveDiscoveryState(DISCOVERY);
     await oauth.saveClientInformation(
       {
@@ -232,12 +245,11 @@ describe("MCP OAuth provider", () => {
     await assert.rejects(
       finishMcpOAuth(
         oauth,
-        new URL("https://mcp.example.test/mcp"),
+        endpointAuthorization,
         new URLSearchParams({
           code: "must-not-be-redeemed",
           iss: "https://attacker.example.test/",
         }),
-        { fetch: async () => new Response(null, { status: 500 }) },
       ),
       (error: unknown) =>
         error instanceof IssuerMismatchError && error.kind === "authorization_response",
@@ -301,7 +313,21 @@ describe("MCP OAuth provider", () => {
 
   test("refreshes a known-expired token before MCP dispatch", async () => {
     const store = new MemoryStore();
-    const oauth = provider(store);
+    let tokenRequests = 0;
+    const endpointAuthorization = authorization(async (input) => {
+      assert.equal(String(input), "https://auth.example.test/token");
+      tokenRequests += 1;
+      return new Response(
+        JSON.stringify({
+          access_token: "fresh-access",
+          refresh_token: "refresh-two",
+          token_type: "Bearer",
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const oauth = provider(store, undefined, endpointAuthorization);
     await oauth.saveDiscoveryState(DISCOVERY);
     await oauth.saveClientInformation(
       { client_id: "client-id", issuer: "https://auth.example.test/" },
@@ -319,31 +345,95 @@ describe("MCP OAuth provider", () => {
     );
     assert.ok(store.row);
     store.row.lastAuthorizedAt = new Date(Date.now() - 120_000);
-    let tokenRequests = 0;
-
-    await refreshMcpOAuthIfNeeded(oauth, new URL("https://mcp.example.test/mcp"), {
-      fetch: async (input) => {
-        assert.equal(String(input), "https://auth.example.test/token");
-        tokenRequests += 1;
-        return new Response(
-          JSON.stringify({
-            access_token: "fresh-access",
-            refresh_token: "refresh-two",
-            token_type: "Bearer",
-            expires_in: 3600,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      },
-    });
+    await refreshMcpOAuthIfNeeded(oauth, endpointAuthorization);
 
     assert.equal(tokenRequests, 1);
     assert.equal((await oauth.tokens())?.access_token, "fresh-access");
   });
 
+  test("blocks an installed-SDK refresh before a hostile token endpoint receives secrets", async () => {
+    const requests: string[] = [];
+    const authorized = await new HostedMcpEndpointAuthorizer({
+      requester: async (input) => {
+        requests.push(String(input));
+        return new Response(null, { status: 500 });
+      },
+    }).authorize({
+      endpoint: RESOURCE,
+      expectedOrigin: RESOURCE.origin,
+    });
+    try {
+      const store = new MemoryStore();
+      const oauth = provider(store, undefined, authorized.oauth);
+      await oauth.saveDiscoveryState(DISCOVERY);
+      await oauth.saveClientInformation(
+        { client_id: "client-id", issuer: "https://auth.example.test/" },
+        { issuer: "https://auth.example.test/" },
+      );
+      await oauth.saveTokens(
+        {
+          access_token: "expired-access",
+          refresh_token: "refresh-secret",
+          token_type: "Bearer",
+          expires_in: 1,
+          issuer: "https://auth.example.test/",
+        },
+        { issuer: "https://auth.example.test/" },
+      );
+      assert.ok(store.row);
+      store.row.lastAuthorizedAt = new Date(Date.now() - 120_000);
+      const metadata = DISCOVERY.authorizationServerMetadata;
+      assert.ok(metadata);
+      store.row.discoveryState = {
+        ...DISCOVERY,
+        authorizationServerMetadata: {
+          ...metadata,
+          token_endpoint: "https://steal.example.test/token",
+        },
+      };
+
+      await assert.rejects(
+        refreshMcpOAuthIfNeeded(oauth, authorized.oauth),
+        /Persisted MCP OAuth discovery state is invalid/,
+      );
+      assert.deepEqual(requests, []);
+    } finally {
+      await authorized.close();
+    }
+  });
+
+  test("blocks an installed-SDK authorization flow before a private browser redirect", async () => {
+    const authorized = await new HostedMcpEndpointAuthorizer().authorize({
+      endpoint: RESOURCE,
+      expectedOrigin: RESOURCE.origin,
+    });
+    try {
+      const store = new MemoryStore();
+      const oauth = provider(store, undefined, authorized.oauth);
+      await oauth.saveDiscoveryState(DISCOVERY);
+      assert.ok(store.row);
+      const metadata = DISCOVERY.authorizationServerMetadata;
+      assert.ok(metadata);
+      store.row.discoveryState = {
+        ...DISCOVERY,
+        authorizationServerMetadata: {
+          ...metadata,
+          authorization_endpoint: "http://127.0.0.1/authorize",
+        },
+      };
+
+      await assert.rejects(
+        authorizeMcpOAuth(oauth, authorized.oauth),
+        /Persisted MCP OAuth discovery state is invalid/,
+      );
+      assert.equal(store.attempts.size, 0);
+    } finally {
+      await authorized.close();
+    }
+  });
+
   test("aborts OAuth discovery at the configured deadline", async () => {
     const store = new MemoryStore();
-    const oauth = provider(store);
     const hangingFetch: typeof fetch = async (_input, init) =>
       new Promise((_resolve, reject) => {
         const fuse = setTimeout(
@@ -360,11 +450,11 @@ describe("MCP OAuth provider", () => {
         );
       });
 
+    const endpointAuthorization = authorization(hangingFetch);
+    const oauth = provider(store, undefined, endpointAuthorization);
+
     await assert.rejects(
-      authorizeMcpOAuth(oauth, new URL("https://mcp.example.test/mcp"), {
-        fetch: hangingFetch,
-        timeoutMs: 5,
-      }),
+      authorizeMcpOAuth(oauth, endpointAuthorization, { timeoutMs: 5 }),
       (error: unknown) => error instanceof DOMException && error.name === "TimeoutError",
     );
   });

@@ -20,6 +20,7 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/
 import { McpClientError } from "./errors";
 import type {
   McpAuthorizedEndpoint,
+  McpAuthorizedProtocol,
   McpEndpointAuthorizer,
   McpOAuthProviderFactory,
 } from "./endpoint-authorization";
@@ -113,7 +114,7 @@ export interface McpRawClientOptions extends McpClientLimits {
   onAuthorizationRequired?: () => void | Promise<void>;
   onInsufficientScope?: (requiredScopes: string[]) => void | Promise<void>;
   now?: () => number;
-  protocolFactory?: (authorized: McpAuthorizedEndpoint) => McpProtocolClient;
+  protocolFactory?: (authorization: McpAuthorizedProtocol) => McpProtocolClient;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -151,6 +152,7 @@ export class McpRawClient {
   #authorizationBlocked: McpClientError | null = null;
   #authorizedEndpoint: McpAuthorizedEndpoint | null = null;
   #oauthProvider: ReturnType<McpOAuthProviderFactory> | null = null;
+  #lifecycleTail: Promise<void> = Promise.resolve();
 
   constructor(options: McpRawClientOptions) {
     // The destructure IS the split: bounds get their defaults, everything else is
@@ -189,68 +191,74 @@ export class McpRawClient {
     this.#invalidateCatalog();
   }
 
-  async connect(trace?: McpTraceContext): Promise<void> {
+  connect(trace?: McpTraceContext): Promise<void> {
+    return this.#runLifecycle(() => this.#connect(trace));
+  }
+
+  async #connect(trace?: McpTraceContext): Promise<void> {
     if (this.#protocol) return;
-    const authorized = await this.#options.endpointAuthorizer.authorize({
-      endpoint:
-        this.#options.endpoint instanceof URL
-          ? new URL(this.#options.endpoint.href)
-          : this.#options.endpoint,
-      expectedOrigin: this.#options.expectedOrigin,
-    });
-    const oauthProvider = this.#options.oauthProviderFactory?.(authorized.oauthResource) ?? null;
-    this.#authorizedEndpoint = authorized;
-    this.#oauthProvider = oauthProvider;
-    let protocol: McpProtocolClient;
+    let authorized: McpAuthorizedEndpoint | null = null;
+    let protocol: McpProtocolClient | undefined;
+    let oauthProvider: ReturnType<McpOAuthProviderFactory> | null = null;
     try {
+      authorized = await this.#options.endpointAuthorizer.authorize({
+        endpoint:
+          this.#options.endpoint instanceof URL
+            ? new URL(this.#options.endpoint.href)
+            : this.#options.endpoint,
+        expectedOrigin: this.#options.expectedOrigin,
+      });
+      oauthProvider = this.#options.oauthProviderFactory?.(authorized.oauth) ?? null;
       if (oauthProvider) {
-        await authorizeMcpOAuth(oauthProvider, authorized.oauthResource, {
-          fetch: authorized.fetch,
-        });
+        await authorizeMcpOAuth(oauthProvider, authorized.oauth);
       }
+      const tokenProvider = oauthProvider;
       protocol = this.#options.protocolFactory
-        ? this.#options.protocolFactory(authorized)
+        ? this.#options.protocolFactory(authorized.protocol)
         : new SdkMcpProtocolClient({
-            endpoint: authorized.endpoint,
-            fetch: authorized.protocolFetch,
+            authorization: authorized.protocol,
             requestTimeoutMs: this.#limits.requestTimeoutMs,
-            ...(oauthProvider
+            ...(tokenProvider
               ? {
                   authProvider: {
-                    token: async () => (await oauthProvider.tokens())?.access_token,
+                    token: async () => (await tokenProvider.tokens())?.access_token,
                   },
                 }
               : this.#options.authProvider
                 ? { authProvider: this.#options.authProvider }
                 : {}),
           });
+      this.#authorizedEndpoint = authorized;
+      this.#oauthProvider = oauthProvider;
     } catch (error) {
-      await this.#closeAuthorization(this.#takeAuthorization());
+      if (protocol) await protocol.close(false).catch(() => undefined);
+      await this.#closeAuthorization(authorized);
       throw error;
     }
-    protocol.onToolsChanged(() => {
+    const connectedProtocol = protocol;
+    connectedProtocol.onToolsChanged(() => {
       this.#announceCatalogInvalidated();
     });
     let connectionUnhealthy: Error | null = null;
     let connectFinished = false;
-    protocol.onConnectionUnhealthy((error) => {
-      if (connectFinished && this.#protocol !== protocol) return;
+    connectedProtocol.onConnectionUnhealthy((error) => {
+      if (connectFinished && this.#protocol !== connectedProtocol) return;
       connectionUnhealthy = error;
-      if (this.#protocol === protocol) {
+      if (this.#protocol === connectedProtocol) {
         this.#protocol = null;
         this.#negotiatedServer = null;
         const authorization = this.#takeAuthorization();
-        void protocol
+        void connectedProtocol
           .close(false)
           .catch(() => undefined)
           .then(() => this.#closeAuthorization(authorization));
       } else {
-        void protocol.close(false).catch(() => undefined);
+        void connectedProtocol.close(false).catch(() => undefined);
       }
       this.#announceCatalogInvalidated();
     });
     try {
-      const server = await protocol.connect(trace);
+      const server = await connectedProtocol.connect(trace);
       let negotiated: McpNegotiatedServer;
       try {
         negotiated = parseMcpNegotiatedServer(server);
@@ -271,15 +279,19 @@ export class McpRawClient {
     } catch (err) {
       connectFinished = true;
       const authorization = this.#takeAuthorization();
-      await protocol.close(false).catch(() => undefined);
+      await connectedProtocol.close(false).catch(() => undefined);
       await this.#closeAuthorization(authorization);
       throw err;
     }
-    this.#protocol = protocol;
+    this.#protocol = connectedProtocol;
     connectFinished = true;
   }
 
-  async close(options: { terminateSession?: boolean } = {}): Promise<void> {
+  close(options: { terminateSession?: boolean } = {}): Promise<void> {
+    return this.#runLifecycle(() => this.#close(options));
+  }
+
+  async #close(options: { terminateSession?: boolean }): Promise<void> {
     const protocol = this.#protocol;
     this.#protocol = null;
     this.#negotiatedServer = null;
@@ -442,9 +454,7 @@ export class McpRawClient {
         if (!authorized) {
           throw new McpClientError("not_connected", "The MCP endpoint is not authorized");
         }
-        await refreshMcpOAuthIfNeeded(this.#oauthProvider, authorized.oauthResource, {
-          fetch: authorized.fetch,
-        });
+        await refreshMcpOAuthIfNeeded(this.#oauthProvider, authorized.oauth);
       } catch (error) {
         if (error instanceof McpOAuthAuthorizationRequiredError) {
           await this.#options.onAuthorizationRequired?.();
@@ -630,6 +640,15 @@ export class McpRawClient {
 
   async #closeAuthorization(authorization: McpAuthorizedEndpoint | null): Promise<void> {
     await authorization?.close().catch(() => undefined);
+  }
+
+  #runLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.#lifecycleTail.then(operation, operation);
+    this.#lifecycleTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 }
 

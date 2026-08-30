@@ -20,9 +20,11 @@ import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/conne
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[] = [tool("tool_a")];
   connectCount = 0;
+  closeCount = 0;
   listCount = 0;
   ttlMs = 0;
   onListTools: (() => void | Promise<void>) | null = null;
+  onConnect: (() => void | Promise<void>) | null = null;
   connectTrace: McpTraceContext | undefined;
   listTraces: Array<McpTraceContext | undefined> = [];
   #toolsChanged: (() => void | Promise<void>) | null = null;
@@ -30,6 +32,7 @@ class FakeProtocol implements McpProtocolClient {
   async connect(trace?: McpTraceContext): Promise<McpNegotiatedServer> {
     this.connectCount += 1;
     this.connectTrace = trace;
+    await this.onConnect?.();
     return {
       protocolEra: "pre_2026_07_28",
       protocolVersion: "2025-11-25",
@@ -40,7 +43,9 @@ class FakeProtocol implements McpProtocolClient {
     };
   }
 
-  async close(): Promise<void> {}
+  async close(): Promise<void> {
+    this.closeCount += 1;
+  }
 
   async listTools(
     _cursor?: string,
@@ -160,6 +165,14 @@ function managerWith(
         ...(now ? { now } : {}),
       }),
   });
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
 }
 
 describe("mcp connection manager lifecycle", () => {
@@ -340,6 +353,28 @@ describe("mcp connection manager lifecycle", () => {
       "the admitted refresh must finish before disconnect returns",
     );
     assert.equal(persistence.connection.status, "disconnected");
+  });
+
+  test("closeAll waits for and closes a client startup already in progress", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    const connectStarted = deferred();
+    const releaseConnect = deferred();
+    protocol.onConnect = async () => {
+      connectStarted.resolve();
+      await releaseConnect.promise;
+    };
+
+    const startup = manager.getReadyClient(persistence.connection.id);
+    await connectStarted.promise;
+    const close = manager.closeAll();
+    releaseConnect.resolve();
+    await startup;
+    await close;
+
+    assert.equal(protocol.connectCount, 1);
+    assert.equal(protocol.closeCount, 1);
   });
 
   test("disconnect refuses a connection owned by another user before mutation", async () => {
