@@ -23,5 +23,50 @@
  * lands it becomes the fence it reads as.
  */
 
+import { db } from "@alfred/db";
+import { requireRow, type DbRunner } from "@alfred/db/helpers";
+import {
+  actionStagings,
+  mcpInvocation,
+  type McpInvocation,
+  type NewMcpInvocation,
+} from "@alfred/db/schemas";
+import { eq } from "drizzle-orm";
+
 export { upsertToolPolicy } from "./invocations";
 export { _setMcpExecutionBrokerForTests } from "./runtime";
+
+/** Seed an exact ledger state for persistence and crash-recovery tests only. */
+export async function seedMcpInvocationForTests(
+  values: NewMcpInvocation,
+  runner: DbRunner = db(),
+): Promise<McpInvocation> {
+  const [staging] = await runner
+    .select({
+      traceId: actionStagings.runId,
+      stepId: actionStagings.stepId,
+      toolCallId: actionStagings.toolCallId,
+    })
+    .from(actionStagings)
+    .where(eq(actionStagings.id, values.stagingId))
+    .limit(1);
+  const [row] = await runner
+    .insert(mcpInvocation)
+    .values({ ...values, ...requireRow(staging, "seedMcpInvocationForTests staging") })
+    .returning();
+  return requireRow(row, "seedMcpInvocationForTests");
+}
+
+/** Patch an exact ledger state for persistence fixtures only. */
+export async function patchMcpInvocationForTests(
+  id: string,
+  patch: Partial<NewMcpInvocation>,
+  runner: DbRunner = db(),
+): Promise<McpInvocation | undefined> {
+  const [row] = await runner
+    .update(mcpInvocation)
+    .set(patch)
+    .where(eq(mcpInvocation.id, id))
+    .returning();
+  return row;
+}

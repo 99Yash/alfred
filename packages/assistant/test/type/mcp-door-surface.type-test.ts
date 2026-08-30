@@ -156,6 +156,12 @@ type _NoBrokerSetterOnToolRuntime = ToolRuntimeDoor["_setMcpExecutionBrokerForTe
 type ToolRuntimeLeaf = typeof import("@alfred/assistant/tool-runtime/mcp/invocations");
 type _AssertToolRuntimeLeafStillResolves = ToolRuntimeLeaf["resolveMcpToolIdentity"];
 
+// @ts-expect-error - callers cannot mint arbitrary lifecycle or successor state.
+type _NoRawInvocationInsert = ToolRuntimeLeaf["insertInvocation"];
+
+// @ts-expect-error - callers cannot patch arbitrary lifecycle or outcome state.
+type _NoRawInvocationUpdate = ToolRuntimeLeaf["updateInvocation"];
+
 // The wildcard still republishes this leaf, so successor lifecycle primitives
 // must be absent from the module itself. Product code can only call the broker's
 // ID-only `resumeReservedSuccessor` capability.

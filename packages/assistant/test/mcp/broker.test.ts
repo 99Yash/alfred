@@ -403,11 +403,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.ok(row?.resolvedAt);
   });
 
-  test("a definitive tool_error resolves rejected and stays retry-safe", async () => {
+  test("a tool_error after application stays ambiguous and blocks an ordinary repeat", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("create_issue")]);
     protocol.behavior = { kind: "tool_error" };
+    let appliedEffects = 0;
+    protocol.beforeReturn = async () => {
+      appliedEffects += 1;
+    };
     const revision = await liveRevision(protocol, connId);
 
     const broker = brokerWith(protocol);
@@ -421,14 +425,29 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         remoteName: "create_issue",
         catalogRevision: revision,
       },
-      arguments: {},
+      arguments: { title: "x" },
     });
 
-    assert.equal(outcome.status, "tool_error");
+    assert.equal(outcome.status, "ambiguous");
+    assert.equal(appliedEffects, 1, "the provider applied the effect before returning isError");
     const [row] = await invocationsForStaging(stagingId);
-    assert.equal(row?.effectOutcome, "rejected");
-    assert.equal(row?.retryDisposition, "safe");
-    assert.ok(row?.resolvedAt);
+    assert.equal(row?.effectOutcome, "unknown");
+    assert.equal(row?.retryDisposition, "blocked");
+    assert.equal(row?.resolvedAt, null);
+
+    const repeated = await broker.callTool({
+      userId,
+      stagingId: await seedStaging(userId),
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "create_issue",
+        catalogRevision: revision,
+      },
+      arguments: { title: "x" },
+    });
+    assert.equal(repeated.status, "blocked");
+    assert.equal(appliedEffects, 1, "an ordinary model repeat cannot apply the effect again");
   });
 
   test("a possibly-delivered failure resolves ambiguous and blocks an identical repeat", async () => {
@@ -712,6 +731,42 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     }
   });
 
+  test("a recovery successor tool_error stays ambiguous after the provider applies an effect", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "tool_error" };
+    let appliedEffects = 0;
+    protocol.beforeReturn = async () => {
+      appliedEffects += 1;
+    };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      const recovered = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(recovered.status, "ambiguous");
+      assert.equal(appliedEffects, 1);
+      const [successor] = await db()
+        .select()
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
+      assert.equal(successor?.attemptLifecycle, "response_received");
+      assert.equal(successor?.effectOutcome, "unknown");
+      assert.equal(successor?.retryDisposition, "blocked");
+      assert.equal(successor?.resolvedAt, null);
+
+      const repeated = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(repeated.status, "blocked");
+      assert.equal(appliedEffects, 1, "the ambiguous successor cannot be sent again");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+  });
+
   test("a pre-claim failure stays visible and only a fresh explicit post resumes it", async () => {
     const protocol = new FakeProtocol([tool("charge_card")]);
     const seeded = await seedRecoverableWrite(protocol);
@@ -951,6 +1006,52 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, 2, "the guarded failure cannot cause a second send");
   });
 
+  test("a post-response settlement failure is immediately visible without another send", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "ok" };
+    protocol.beforeReturn = async () => {
+      const [successor] = await db()
+        .select({ stagingId: mcpInvocation.stagingId })
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+      assert.ok(successor);
+      // Force the first settlement transaction's staging guard to fail after
+      // the provider has returned. The broker's local fallback must align this
+      // split state without calling the provider again.
+      await db()
+        .update(actionStagings)
+        .set({ outcome: "planned" })
+        .where(eq(actionStagings.id, successor.stagingId));
+    };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      const result = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(result.status, "ambiguous");
+      assert.equal(protocol.calls, 2, "the authorized successor was sent exactly once");
+
+      const operations = await listMcpRecoveryOperations(seeded.userId);
+      assert.equal(operations.length, 1, "the unsettled response is visible before boot");
+      const visible = operations[0];
+      assert.equal(visible?.invocationId, result.successorInvocationId);
+      assert.equal(visible?.attemptLifecycle, "response_received");
+      assert.equal(visible?.effectOutcome, "unknown");
+      assert.equal(visible?.retryDisposition, "blocked");
+
+      const repeated = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(repeated.status, "blocked");
+      assert.equal(protocol.calls, 2, "recovery visibility does not create a resend");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+  });
+
   test("recovery descriptor drift fails before either prior barrier changes", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1124,7 +1225,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
   // #541: the broker persists a payload-free result-provenance envelope onto the
   // ledger row, separately from the sanitized model projection, whenever a
-  // response is received — for a clean success AND a definitive tool_error.
+  // response is received — for a clean success AND an ambiguous tool_error.
   test("a received response persists the result-provenance envelope on the ledger row", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1169,7 +1270,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { title: "y" },
     });
-    assert.equal(errOutcome.status, "tool_error");
+    assert.equal(errOutcome.status, "ambiguous");
     const [errRow] = await invocationsForStaging(errStaging);
     assert.equal(errRow?.resultProvenance?.isError, true);
     assert.deepEqual(errRow?.resultProvenance?.contentKinds, { text: 1 });
