@@ -384,19 +384,80 @@ function toCatalogSliceRow(
   return { ...row, descriptorOffset, descriptors: row.descriptors };
 }
 
-function afterOwnedCurrentCatalog(position: OwnedCurrentCatalogPosition | undefined) {
-  if (!position) return undefined;
-  // `(user_id, server_id, instance_key)` is unique. Under the fixed owner
-  // predicate there can be no connection-id tie, so this two-column keyset is
-  // equivalent to the public three-field order and maps directly to the owning
-  // index instead of filtering or sorting the already-scanned prefix.
-  return sql`(
-    ${mcpConnections.serverId},
-    ${mcpConnections.instanceKey}
-  ) > (
-    ${position.namespace},
-    ${position.instanceKey}
-  )`;
+function ownedCurrentCatalogPredicate(input: ListOwnedCurrentCatalogSlicesInput) {
+  return and(
+    eq(mcpConnections.userId, input.userId),
+    sql`${mcpConnections.currentCatalogRevisionId} is not null`,
+    input.namespace !== undefined ? eq(mcpConnections.serverId, input.namespace) : undefined,
+    input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
+  );
+}
+
+function firstOwnedCurrentCatalogKey(input: ListOwnedCurrentCatalogSlicesInput) {
+  const ownedCurrentCatalog = ownedCurrentCatalogPredicate(input);
+  return sql`
+    select first_server."namespace",
+           (
+             select min(${mcpConnections.instanceKey})
+               from ${mcpConnections}
+              where ${and(
+                ownedCurrentCatalog,
+                sql`${mcpConnections.serverId} = first_server."namespace"`,
+              )}
+           ) as "instanceKey"
+      from lateral (
+        select min(${mcpConnections.serverId}) as "namespace"
+          from ${mcpConnections}
+         where ${ownedCurrentCatalog}
+      ) first_server
+  `;
+}
+
+function nextOwnedCurrentCatalogKey(
+  input: ListOwnedCurrentCatalogSlicesInput,
+  namespace: ReturnType<typeof sql>,
+  instanceKey: ReturnType<typeof sql>,
+) {
+  const ownedCurrentCatalog = ownedCurrentCatalogPredicate(input);
+  return sql`
+    select selected_server."namespace",
+           coalesce(
+             same_server."instanceKey",
+             (
+               select min(${mcpConnections.instanceKey})
+                 from ${mcpConnections}
+                where ${and(
+                  ownedCurrentCatalog,
+                  sql`${mcpConnections.serverId} = selected_server."namespace"`,
+                )}
+             )
+           ) as "instanceKey"
+      from lateral (
+        select min(${mcpConnections.instanceKey}) as "instanceKey"
+          from ${mcpConnections}
+         where ${and(
+           ownedCurrentCatalog,
+           sql`${mcpConnections.serverId} = ${namespace}`,
+           sql`${mcpConnections.instanceKey} > ${instanceKey}`,
+         )}
+         offset 0
+      ) same_server
+      cross join lateral (
+        select coalesce(
+                 case
+                   when same_server."instanceKey" is not null then ${namespace}
+                 end,
+                 (
+                   select min(${mcpConnections.serverId})
+                     from ${mcpConnections}
+                    where ${and(
+                      ownedCurrentCatalog,
+                      sql`${mcpConnections.serverId} > ${namespace}`,
+                    )}
+                 )
+               ) as "namespace"
+      ) selected_server
+  `;
 }
 
 /** Read one bounded slice from an owned connection's exact current catalog. */
@@ -489,9 +550,12 @@ type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { descriptors: un
 /**
  * Read a stable-order batch of owned current catalogs in one query. PostgreSQL
  * allocates one descriptor budget across the selected catalog rows before the
- * JSONB values cross the driver boundary. Namespace and connection filters are
- * exact and combine with AND; the current-revision join is still one batched
- * query rather than one revision read per connection.
+ * JSONB values cross the driver boundary. MIN probes walk the owning
+ * `(user_id, server_id, instance_key)` index one current key at a time, including
+ * after a cursor. Each selected pointer then uses a range seek plus an equality
+ * fence on `(connection_id, id)`: PostgreSQL cannot flatten the fixed number of
+ * exact revision reads into a catalog-table scan. Namespace and connection
+ * filters remain exact and combine with AND.
  */
 export async function listOwnedCurrentCatalogSlices(
   input: ListOwnedCurrentCatalogSlicesInput,
@@ -504,38 +568,111 @@ export async function listOwnedCurrentCatalogSlices(
   );
   if (catalogLimit === 0) return [];
 
-  const ownedCurrentAndPositioned = and(
-    eq(mcpConnections.userId, input.userId),
-    sql`${mcpConnections.currentCatalogRevisionId} is not null`,
-    input.namespace !== undefined ? eq(mcpConnections.serverId, input.namespace) : undefined,
-    input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
-    afterOwnedCurrentCatalog(input.after),
+  const initialCatalogKey = input.after
+    ? nextOwnedCurrentCatalogKey(
+        input,
+        sql`${input.after.namespace}`,
+        sql`${input.after.instanceKey}`,
+      )
+    : firstOwnedCurrentCatalogKey(input);
+  const followingCatalogKey = nextOwnedCurrentCatalogKey(
+    input,
+    sql`selected_keys."namespace"`,
+    sql`selected_keys."instanceKey"`,
   );
   const result = await runner.execute(sql`
-    with selected_connections as materialized (
-      select ${mcpConnections.serverId} as "namespace",
-             ${mcpConnections.id} as "connectionId",
-             ${mcpConnections.instanceKey} as "instanceKey",
-             ${mcpConnections.label} as "label",
-             ${mcpConnections.currentCatalogRevisionId} as "revisionId"
-        from ${mcpConnections}
-       where ${ownedCurrentAndPositioned}
-       order by ${mcpConnections.serverId},
-                ${mcpConnections.instanceKey}
-       limit ${catalogLimit}
+    with recursive selected_keys as materialized (
+      select initial_key."namespace",
+             initial_key."instanceKey",
+             1 as "ordinal"
+        from lateral (${initialCatalogKey}) initial_key
+       where initial_key."namespace" is not null
+         and initial_key."instanceKey" is not null
+
+      union all
+
+      select next_key."namespace",
+             next_key."instanceKey",
+             selected_keys."ordinal" + 1
+        from selected_keys
+        cross join lateral (${followingCatalogKey}) next_key
+       where selected_keys."ordinal" < ${catalogLimit}
+         and next_key."namespace" is not null
+         and next_key."instanceKey" is not null
+    ), selected_connections as materialized (
+      select exact_connection."namespace",
+             exact_connection."connectionId",
+             exact_connection."instanceKey",
+             exact_connection."label",
+             exact_connection."revisionId"
+        from selected_keys
+        cross join lateral (
+          select candidate."namespace",
+                 candidate."connectionId",
+                 candidate."instanceKey",
+                 candidate."label",
+                 candidate."revisionId"
+            from (
+              select ${mcpConnections.userId} as "userId",
+                     ${mcpConnections.serverId} as "namespace",
+                     ${mcpConnections.id} as "connectionId",
+                     ${mcpConnections.instanceKey} as "instanceKey",
+                     ${mcpConnections.label} as "label",
+                     ${mcpConnections.currentCatalogRevisionId} as "revisionId"
+                from ${mcpConnections}
+               where (
+                       ${mcpConnections.userId},
+                       ${mcpConnections.serverId},
+                       ${mcpConnections.instanceKey}
+                     ) >= (
+                       ${input.userId},
+                       selected_keys."namespace",
+                       selected_keys."instanceKey"
+                     )
+               order by ${mcpConnections.userId},
+                        ${mcpConnections.serverId},
+                        ${mcpConnections.instanceKey}
+               limit 1
+            ) candidate
+           where candidate."userId" = ${input.userId}
+             and candidate."namespace" = selected_keys."namespace"
+             and candidate."instanceKey" = selected_keys."instanceKey"
+             and candidate."revisionId" is not null
+        ) exact_connection
     ), selected_catalogs as materialized (
       select selected_connections."namespace",
              selected_connections."connectionId",
              selected_connections."instanceKey",
              selected_connections."label",
-             ${mcpCatalogRevisions.id} as "revisionId",
-             ${mcpCatalogRevisions.revisionHash} as "revisionHash",
-             jsonb_array_length(${mcpCatalogRevisions.descriptors}) as "descriptorCount",
-             ${mcpCatalogRevisions.descriptors} as "catalogDescriptors"
+             exact_revision."revisionId",
+             exact_revision."revisionHash",
+             jsonb_array_length(exact_revision."catalogDescriptors") as "descriptorCount",
+             exact_revision."catalogDescriptors"
         from selected_connections
-        inner join ${mcpCatalogRevisions}
-          on ${mcpCatalogRevisions.connectionId} = selected_connections."connectionId"
-         and ${mcpCatalogRevisions.id} = selected_connections."revisionId"
+        cross join lateral (
+          select candidate."revisionId",
+                 candidate."revisionHash",
+                 candidate."catalogDescriptors"
+            from (
+              select ${mcpCatalogRevisions.connectionId} as "connectionId",
+                     ${mcpCatalogRevisions.id} as "revisionId",
+                     ${mcpCatalogRevisions.revisionHash} as "revisionHash",
+                     ${mcpCatalogRevisions.descriptors} as "catalogDescriptors"
+                from ${mcpCatalogRevisions}
+               where (
+                       ${mcpCatalogRevisions.connectionId},
+                       ${mcpCatalogRevisions.id}
+                     ) >= (
+                       selected_connections."connectionId",
+                       selected_connections."revisionId"
+                     )
+               order by ${mcpCatalogRevisions.connectionId},
+                        ${mcpCatalogRevisions.id}
+               limit 1
+            ) candidate
+           where candidate."connectionId" = selected_connections."connectionId"
+             and candidate."revisionId" = selected_connections."revisionId"
+        ) exact_revision
     ), budgeted_catalogs as (
       select selected_catalogs.*,
              coalesce(
