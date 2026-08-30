@@ -18,7 +18,8 @@
 
 import { mcpCallInput, mcpListToolsInput, unknownEffectEnvelopeSchema } from "@alfred/contracts";
 import {
-  listMcpToolsLocal,
+  inspectMcpToolLocal,
+  searchMcpToolsLocal,
   type ExternalToolRef,
   type McpCallEnvelope,
 } from "@alfred/assistant/connections/mcp";
@@ -138,7 +139,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "list_tools",
     riskTier: "no_risk",
     description:
-      "List the tools available on a connected MCP server. Returns compact summaries (name, title, short description) for the connection's current catalog, filtered by an optional `query` and paginated with `limit`/`cursor`. Pass `detail:\"names\"` to survey a wide catalog by name alone, then narrow with `query`. Pass `remoteName` to get the one tool's full descriptor (including its argument schema) before calling it. This is a local read of Alfred's validated catalog — it never dumps the whole catalog and never hits the network.",
+      'Search the tools in all of your connected MCP catalogs without first knowing a connection. Returns compact hits with an exact `ref`, namespace, and connection identity. Narrow with optional `query`, `namespace`, or `connectionId`, and continue bounded scans with `cursor`. Pass `detail:"names"` to omit prose. To inspect one full descriptor, pass only a previously returned `ref`. This is a local read of Alfred\'s validated catalogs and never hits the network.',
     discovery: {
       aliases: ["list mcp tools", "mcp catalog", "what mcp tools", "connected tools"],
       tags: ["mcp", "integration", "discovery"],
@@ -161,6 +162,17 @@ export const mcpTools: readonly RegisteredTool[] = [
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpListToolsInput,
-    execute: async (input, ctx) => listMcpToolsLocal(input, ctx.userId),
+    execute: async (input, ctx) =>
+      input.ref !== undefined
+        ? inspectMcpToolLocal({ userId: ctx.userId, ref: input.ref })
+        : searchMcpToolsLocal({
+            userId: ctx.userId,
+            query: input.query,
+            namespace: input.namespace,
+            connectionId: input.connectionId,
+            detail: input.detail,
+            cursor: input.cursor,
+            limit: input.limit,
+          }),
   }),
 ];

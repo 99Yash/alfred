@@ -5,6 +5,7 @@ import {
   jsonObjectSchema,
   mcpContentKindValues,
   type BoundedPassthroughBody,
+  type ExternalToolRef,
   type JsonValue,
   type McpContentKind,
   type McpResultProvenance,
@@ -37,13 +38,6 @@ import {
   type McpProtocolPage,
   type SdkMcpProtocolClientOptions,
 } from "./protocol";
-
-export interface ExternalToolRef {
-  kind: "mcp";
-  connectionId: string;
-  remoteName: string;
-  catalogRevision: string;
-}
 
 export interface McpCatalogSnapshot {
   connectionId: string;
