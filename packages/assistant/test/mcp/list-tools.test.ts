@@ -10,7 +10,7 @@ import { inArray, like } from "drizzle-orm";
 import { listMcpToolsLocal } from "../../src/connections/mcp";
 import { computeDescriptorHashes } from "../../src/connections/mcp/hash";
 import {
-  ensureNamedConnection,
+  createNamedConnection,
   publishCatalogRevision,
 } from "../../src/connections/mcp/persistence";
 import { dbBackedSkip } from "../support/db-backed";
@@ -46,9 +46,8 @@ async function seedUser(): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await ensureNamedConnection({
+  const conn = await createNamedConnection({
     userId,
-    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),

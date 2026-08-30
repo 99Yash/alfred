@@ -78,7 +78,6 @@ const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
 };
 
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
-export const MCP_OAUTH_PENDING_ISSUER = "oauth:pending";
 
 interface CatalogRefreshState {
   dirty: boolean;

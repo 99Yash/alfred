@@ -15,7 +15,7 @@ import {
   type McpProtocolPage,
 } from "../../src/connections/mcp";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import { ensureNamedConnection, readConnection } from "../../src/connections/mcp/persistence";
+import { createNamedConnection, readConnection } from "../../src/connections/mcp/persistence";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
@@ -83,9 +83,8 @@ async function seedConnection(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
-  const conn = await ensureNamedConnection({
+  const conn = await createNamedConnection({
     userId,
-    instanceKey: randomUUID(),
     label: "Test MCP",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
