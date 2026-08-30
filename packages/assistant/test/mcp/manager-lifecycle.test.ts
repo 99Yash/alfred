@@ -491,6 +491,46 @@ describe("mcp connection manager lifecycle", () => {
     assert.equal(persistence.updates.filter((patch) => patch.status === "failed").length, 0);
   });
 
+  test("disconnect overrides failure after its terminal compare-and-set starts", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    await manager.getReadyClient(persistence.connection.id);
+    const failureWriteStarted = deferred();
+    const releaseFailureWrite = deferred();
+    const ownershipRead = deferred();
+    const terminalWrites: Array<Partial<McpConnection>["status"]> = [];
+    const compareAndSetCatalogRevision = persistence.compareAndSetCatalogRevision;
+    persistence.compareAndSetCatalogRevision = async (input) => {
+      terminalWrites.push(input.patch.status);
+      if (input.patch.status === "failed") {
+        failureWriteStarted.resolve();
+        await releaseFailureWrite.promise;
+      }
+      return compareAndSetCatalogRevision(input);
+    };
+    persistence.onReadOwned = () => ownershipRead.resolve();
+    protocol.onListTools = () => {
+      throw new Error("replacement catalog failed");
+    };
+
+    await protocol.emitToolsChanged();
+    await failureWriteStarted.promise;
+    const disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
+    await ownershipRead.promise;
+    await Promise.resolve();
+    releaseFailureWrite.resolve();
+
+    assert.equal(await disconnect, true);
+    assert.equal(persistence.connection.status, "disconnected");
+    assert.deepEqual(
+      persistence.updates.map((patch) => patch.status).filter((status) => status !== undefined),
+      ["connecting", "disconnected"],
+    );
+    assert.deepEqual(terminalWrites, ["stale", "failed"]);
+    assert.equal(protocol.closeCount, 1);
+  });
+
   test("disconnect intent survives closeAll in either call order", async () => {
     for (const disconnectFirst of [false, true]) {
       const protocol = new FakeProtocol();
