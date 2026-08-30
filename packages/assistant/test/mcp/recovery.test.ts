@@ -7,8 +7,11 @@ import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
-import { ensureNamedConnection } from "../../src/connections/mcp/persistence";
-import { insertInvocation } from "../../src/tool-runtime/mcp/invocations";
+import { createNamedConnection } from "../../src/connections/mcp/persistence";
+import {
+  insertInvocation,
+  reconcileInflightInvocations,
+} from "../../src/tool-runtime/mcp/invocations";
 import {
   listMcpRecoveryOperations,
   resolveMcpRecoveryOperation,
@@ -20,7 +23,7 @@ const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-mcprec-";
 const createdUserIds: string[] = [];
 
-async function seedAmbiguousOperation() {
+async function seedAmbiguousOperation(options: { splitBarrier?: boolean } = {}) {
   const userId = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(userId);
   await db()
@@ -37,9 +40,8 @@ async function seedAmbiguousOperation() {
     workflowSlug: "chat",
     currentStep: "dispatch-tools",
   });
-  const connection = await ensureNamedConnection({
+  const connection = await createNamedConnection({
     userId,
-    instanceKey: randomUUID(),
     label: "Recovery MCP",
     canonicalResource: `mcp://recovery/${randomUUID()}`,
     endpoint: new URL("https://recovery.example.test/mcp"),
@@ -70,8 +72,8 @@ async function seedAmbiguousOperation() {
       attemptKey: `eff:${runId}:recovery:1`,
       requestHash: `req:${randomUUID()}`,
       requiresApproval: true,
-      status: "executed",
-      outcome: "unknown",
+      status: options.splitBarrier ? "approved" : "executed",
+      outcome: options.splitBarrier ? "dispatching" : "unknown",
     });
   const inserted = await insertInvocation({
     stagingId,
@@ -160,6 +162,26 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       }),
       /MCP recovery operation not found/,
     );
+  });
+
+  test("boot alignment makes a post-broker crash resolvable without another send", async () => {
+    const seeded = await seedAmbiguousOperation({ splitBarrier: true });
+
+    const boot = await reconcileInflightInvocations(seeded.userId);
+    assert.equal(boot.markedUnknown, 0);
+    assert.equal(boot.alignedStagingBarriers, 1);
+    const result = await resolveMcpRecoveryOperation({
+      userId: seeded.userId,
+      invocationId: seeded.invocationId,
+      decision: "confirmed_succeeded",
+    });
+
+    assert.equal(result.status, "resolved");
+    const [staging] = await db()
+      .select({ status: actionStagings.status, outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, seeded.stagingId));
+    assert.deepEqual(staging, { status: "executed", outcome: "succeeded" });
   });
 
   test("catalog drift fails before either ambiguity barrier changes", async () => {

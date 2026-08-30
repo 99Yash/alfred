@@ -48,4 +48,27 @@ describe("mcpIntegrationRoutes", () => {
       assert.equal(response.status, 401);
     }
   });
+
+  test("publishes the canonical closed recovery decision at the HTTP boundary", () => {
+    const app = new Elysia().use(errorHandler).use(mcpIntegrationRoutes);
+    const route = app.routes.find(
+      (candidate) =>
+        candidate.method === "POST" &&
+        candidate.path === "/api/integrations/mcp/recovery/:invocationId/resolve",
+    );
+
+    assert.ok(route);
+    assert.deepEqual(JSON.parse(JSON.stringify(route.hooks.body)), {
+      additionalProperties: false,
+      type: "object",
+      required: ["decision"],
+      properties: {
+        decision: {
+          default: "confirmed_succeeded",
+          type: "string",
+          enum: ["confirmed_succeeded", "confirmed_not_applied"],
+        },
+      },
+    });
+  });
 });

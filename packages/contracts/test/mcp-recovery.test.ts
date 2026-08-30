@@ -37,3 +37,25 @@ test("MCP recovery projection rejects raw staging fields", () => {
     false,
   );
 });
+
+test("MCP recovery exposes a prepared successor without inventing delivery evidence", () => {
+  const prepared = {
+    ...operation,
+    invocationId: "mcpi_successor",
+    successorOf: "mcpi_1",
+    attemptLifecycle: "prepared",
+    effectOutcome: null,
+    retryDisposition: null,
+    deliveryPossibleAt: null,
+    responseReceivedAt: null,
+  };
+
+  assert.equal(mcpRecoveryOperationSchema.safeParse(prepared).success, true);
+  assert.equal(
+    mcpRecoveryOperationSchema.safeParse({
+      ...prepared,
+      deliveryPossibleAt: "2026-08-30T08:00:00.000Z",
+    }).success,
+    false,
+  );
+});

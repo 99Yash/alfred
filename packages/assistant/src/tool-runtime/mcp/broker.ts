@@ -21,8 +21,22 @@
  * proposal (clarification #4).
  */
 
-import { mcpCallInput, type McpEffectClass } from "@alfred/contracts";
-import type { McpInvocation, McpToolPolicyRow } from "@alfred/db/schemas";
+import {
+  mcpCallInput,
+  type McpCallInput,
+  type McpEffectClass,
+  type McpResultProvenance,
+} from "@alfred/contracts";
+import { db } from "@alfred/db";
+import { requireRow, runAtomic } from "@alfred/db/helpers";
+import {
+  actionStagings,
+  mcpConnections,
+  mcpInvocation,
+  type McpInvocation,
+  type McpToolPolicyRow,
+} from "@alfred/db/schemas";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   boundedMcpErrorText,
   canonicalArgsHash,
@@ -37,13 +51,10 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import {
-  claimReservedMcpSuccessorDelivery,
   findUnresolvedBarrier,
   insertInvocation,
   readInvocationByStagingId,
-  readReservedMcpSuccessor,
   resolveMcpToolIdentity,
-  settleReservedMcpSuccessor,
   type OwnedMcpConnectionRef,
   updateInvocation,
 } from "./invocations";
@@ -106,6 +117,256 @@ export type McpBrokerOutcome =
 /** True only for a deterministic pre-delivery `McpClientError` (provably not delivered). */
 function isProvenNotDelivered(err: unknown): boolean {
   return err instanceof McpClientError && isPreDeliveryErrorCode(err.code);
+}
+
+type ReservedMcpSuccessor = { invocation: McpInvocation; effectiveInput: unknown };
+
+type ReservedMcpSuccessorSettlement =
+  | { kind: "succeeded"; resultProvenance: McpResultProvenance }
+  | { kind: "rejected"; resultProvenance: McpResultProvenance }
+  | { kind: "not_delivered"; lastError: string }
+  | {
+      kind: "ambiguous";
+      lastError: string;
+      resultProvenance?: McpResultProvenance;
+    };
+
+/**
+ * Module-private successor state. The package export wildcard can reach this
+ * file, so raw read/claim/settle operations must not be exported from any leaf.
+ * The class's ID-only `resumeReservedSuccessor` method is the sole product door.
+ */
+async function readReservedMcpSuccessor(input: {
+  userId: string;
+  invocationId: string;
+}): Promise<ReservedMcpSuccessor | undefined> {
+  const [row] = await db()
+    .select({
+      invocation: mcpInvocation,
+      proposedInput: actionStagings.proposedInput,
+      decidedInput: actionStagings.decidedInput,
+    })
+    .from(mcpInvocation)
+    .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+    .where(
+      and(
+        eq(mcpInvocation.id, input.invocationId),
+        eq(mcpInvocation.userId, input.userId),
+        eq(actionStagings.userId, input.userId),
+        isNotNull(mcpInvocation.successorOf),
+      ),
+    )
+    .limit(1);
+  return row
+    ? { invocation: row.invocation, effectiveInput: row.decidedInput ?? row.proposedInput }
+    : undefined;
+}
+
+/**
+ * Revalidate and claim a prepared successor in one authority-locked transaction.
+ * The connection row serializes catalog-pointer, ownership, and policy changes.
+ * The invocation/staging locks bind the exact persisted input to the transition.
+ */
+async function claimReservedMcpSuccessorDelivery(input: {
+  userId: string;
+  invocationId: string;
+  expectedCall: McpCallInput;
+  liveDescriptorHash: string;
+}): Promise<{ invocation: McpInvocation; call: McpCallInput } | undefined> {
+  return runAtomic(db(), async (tx) => {
+    const [lockedConnection] = await tx
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(
+        and(
+          eq(mcpConnections.id, input.expectedCall.connectionId),
+          eq(mcpConnections.userId, input.userId),
+        ),
+      )
+      .for("update");
+    if (!lockedConnection) {
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP recovery connection changed before delivery.",
+      );
+    }
+
+    const [invocation] = await tx
+      .select()
+      .from(mcpInvocation)
+      .where(and(eq(mcpInvocation.id, input.invocationId), eq(mcpInvocation.userId, input.userId)))
+      .for("update");
+    if (
+      !invocation ||
+      invocation.attemptLifecycle !== "prepared" ||
+      invocation.resolvedAt ||
+      !invocation.successorOf
+    ) {
+      return undefined;
+    }
+
+    const [staging] = await tx
+      .select({
+        proposedInput: actionStagings.proposedInput,
+        decidedInput: actionStagings.decidedInput,
+      })
+      .from(actionStagings)
+      .where(
+        and(
+          eq(actionStagings.id, invocation.stagingId),
+          eq(actionStagings.userId, input.userId),
+          eq(actionStagings.outcome, "dispatching"),
+        ),
+      )
+      .for("update");
+    if (!staging) {
+      throw new McpClientError(
+        "invalid_arguments",
+        "Stored MCP recovery authorization is no longer dispatchable.",
+      );
+    }
+
+    const parsed = mcpCallInput.safeParse(staging.decidedInput ?? staging.proposedInput);
+    if (!parsed.success) {
+      throw new McpClientError("invalid_arguments", "Stored MCP recovery input is invalid.");
+    }
+    const call = parsed.data;
+    if (
+      call.connectionId !== input.expectedCall.connectionId ||
+      call.remoteName !== input.expectedCall.remoteName ||
+      call.catalogRevision !== input.expectedCall.catalogRevision ||
+      canonicalArgsHash(call.arguments) !== canonicalArgsHash(input.expectedCall.arguments) ||
+      call.connectionId !== invocation.connectionId ||
+      call.remoteName !== invocation.remoteName ||
+      canonicalArgsHash(call.arguments) !== invocation.argsHash
+    ) {
+      throw new McpClientError("invalid_arguments", "Stored MCP recovery input has drifted.");
+    }
+
+    const identity = await resolveMcpToolIdentity(
+      {
+        userId: input.userId,
+        connectionId: call.connectionId,
+        remoteName: call.remoteName,
+        catalogRevision: call.catalogRevision,
+      },
+      tx,
+    );
+    const liveEffectClass =
+      identity.status === "resolved" ? identity.policy?.effectClass : undefined;
+    if (
+      identity.status !== "resolved" ||
+      !identity.connection.currentCatalogRevisionId ||
+      identity.connection.currentCatalogRevisionId !== invocation.catalogRevisionId ||
+      identity.descriptorHash !== invocation.descriptorHash ||
+      input.liveDescriptorHash !== invocation.descriptorHash ||
+      (identity.policy?.policyRevision ?? null) !== invocation.policyRevision ||
+      (liveEffectClass ?? "unknown") !== invocation.effectClass ||
+      liveEffectClass === "read"
+    ) {
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP recovery contract changed before delivery.",
+      );
+    }
+
+    const [claimed] = await tx
+      .update(mcpInvocation)
+      .set({ attemptLifecycle: "delivery_possible", deliveryPossibleAt: new Date() })
+      .where(
+        and(
+          eq(mcpInvocation.id, invocation.id),
+          eq(mcpInvocation.userId, input.userId),
+          eq(mcpInvocation.attemptLifecycle, "prepared"),
+          isNull(mcpInvocation.effectOutcome),
+          isNull(mcpInvocation.retryDisposition),
+          isNull(mcpInvocation.resolvedAt),
+          isNotNull(mcpInvocation.successorOf),
+        ),
+      )
+      .returning();
+    return claimed ? { invocation: claimed, call } : undefined;
+  });
+}
+
+/** Settle both successor barriers only from the one unresolved delivery state. */
+async function settleReservedMcpSuccessor(input: {
+  userId: string;
+  invocationId: string;
+  settlement: ReservedMcpSuccessorSettlement;
+}): Promise<void> {
+  await runAtomic(db(), async (tx) => {
+    const now = new Date();
+    const ambiguous = input.settlement.kind === "ambiguous";
+    const succeeded = input.settlement.kind === "succeeded";
+    const rejected = input.settlement.kind === "rejected";
+    const provenance =
+      input.settlement.kind === "succeeded" || input.settlement.kind === "rejected"
+        ? input.settlement.resultProvenance
+        : input.settlement.kind === "ambiguous"
+          ? input.settlement.resultProvenance
+          : undefined;
+    const [updated] = await tx
+      .update(mcpInvocation)
+      .set({
+        ...(ambiguous && provenance
+          ? {
+              attemptLifecycle: "response_received" as const,
+              responseReceivedAt: now,
+              resultProvenance: provenance,
+            }
+          : succeeded || rejected
+            ? {
+                attemptLifecycle: "response_received" as const,
+                responseReceivedAt: now,
+                resultProvenance: provenance,
+              }
+            : {}),
+        effectOutcome: succeeded
+          ? "succeeded"
+          : rejected
+            ? "rejected"
+            : ambiguous
+              ? "unknown"
+              : "failed",
+        retryDisposition: ambiguous ? "blocked" : "safe",
+        resolvedAt: ambiguous ? null : now,
+        resolutionReason: input.settlement.kind,
+        ...(input.settlement.kind === "ambiguous" || input.settlement.kind === "not_delivered"
+          ? { lastError: input.settlement.lastError }
+          : {}),
+      })
+      .where(
+        and(
+          eq(mcpInvocation.id, input.invocationId),
+          eq(mcpInvocation.userId, input.userId),
+          eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+          isNull(mcpInvocation.effectOutcome),
+          isNull(mcpInvocation.retryDisposition),
+          isNull(mcpInvocation.resolvedAt),
+          isNotNull(mcpInvocation.successorOf),
+        ),
+      )
+      .returning({ stagingId: mcpInvocation.stagingId });
+    const row = requireRow(updated, "settleReservedMcpSuccessor guarded invocation");
+    const [staging] = await tx
+      .update(actionStagings)
+      .set({
+        status: input.settlement.kind === "not_delivered" ? "failed" : "executed",
+        outcome: succeeded ? "succeeded" : ambiguous ? "unknown" : "failed",
+        executedAt: now,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(actionStagings.id, row.stagingId),
+          eq(actionStagings.userId, input.userId),
+          eq(actionStagings.outcome, "dispatching"),
+        ),
+      )
+      .returning({ id: actionStagings.id });
+    requireRow(staging, "settleReservedMcpSuccessor guarded staging");
+  });
 }
 
 export class McpExecutionBroker {
@@ -210,7 +471,17 @@ export class McpExecutionBroker {
       );
     }
 
-    const claimed = await claimReservedMcpSuccessorDelivery(input);
+    if (!liveDescriptorHash) {
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP recovery contract changed before delivery.",
+      );
+    }
+    const claimed = await claimReservedMcpSuccessorDelivery({
+      ...input,
+      expectedCall: call,
+      liveDescriptorHash,
+    });
     if (!claimed) {
       return {
         status: "blocked",
@@ -221,43 +492,29 @@ export class McpExecutionBroker {
     }
     const ref: ExternalToolRef = {
       kind: "mcp",
-      connectionId: call.connectionId,
-      remoteName: call.remoteName,
-      catalogRevision: call.catalogRevision,
+      connectionId: claimed.call.connectionId,
+      remoteName: claimed.call.remoteName,
+      catalogRevision: claimed.call.catalogRevision,
     };
     const trace = startMcpTraceSpan({
       name: "runtime.mcp.broker_invoke",
       metadata: {
-        invocationId: claimed.id,
-        successorOf: claimed.successorOf,
+        invocationId: claimed.invocation.id,
+        successorOf: claimed.invocation.successorOf,
         recovery: true,
       },
     });
+    let envelope: McpCallEnvelope;
     try {
-      const envelope = await prepared.call(ref, call.arguments, {
+      envelope = await prepared.call(ref, claimed.call.arguments, {
         ...(input.signal ? { signal: input.signal } : {}),
         trace: trace.context,
       });
-      await settleReservedMcpSuccessor({
-        userId: input.userId,
-        invocationId: claimed.id,
-        settlement: {
-          kind: envelope.outcome === "completed" ? "succeeded" : "rejected",
-          resultProvenance: envelope.provenance,
-        },
-      });
-      const outcome: McpBrokerOutcome = {
-        status: envelope.outcome === "completed" ? "completed" : "tool_error",
-        invocationId: claimed.id,
-        envelope,
-      };
-      trace.end({ status: outcome.status });
-      return outcome;
     } catch (err) {
       if (isProvenNotDelivered(err)) {
         await settleReservedMcpSuccessor({
           userId: input.userId,
-          invocationId: claimed.id,
+          invocationId: claimed.invocation.id,
           settlement: { kind: "not_delivered", lastError: boundedMcpErrorText(err) },
         });
         trace.end({ status: "error", level: "ERROR" });
@@ -266,7 +523,7 @@ export class McpExecutionBroker {
       const provenance = err instanceof McpClientError ? err.provenance : undefined;
       await settleReservedMcpSuccessor({
         userId: input.userId,
-        invocationId: claimed.id,
+        invocationId: claimed.invocation.id,
         settlement: {
           kind: "ambiguous",
           lastError: boundedMcpErrorText(err),
@@ -274,8 +531,32 @@ export class McpExecutionBroker {
         },
       });
       trace.end({ status: "ambiguous", level: "ERROR" });
-      return { status: "ambiguous", invocationId: claimed.id, message: AMBIGUOUS_MESSAGE };
+      return {
+        status: "ambiguous",
+        invocationId: claimed.invocation.id,
+        message: AMBIGUOUS_MESSAGE,
+      };
     }
+    try {
+      await settleReservedMcpSuccessor({
+        userId: input.userId,
+        invocationId: claimed.invocation.id,
+        settlement: {
+          kind: envelope.outcome === "completed" ? "succeeded" : "rejected",
+          resultProvenance: envelope.provenance,
+        },
+      });
+    } catch (error) {
+      trace.end({ status: "error", level: "ERROR" });
+      throw error;
+    }
+    const outcome: McpBrokerOutcome = {
+      status: envelope.outcome === "completed" ? "completed" : "tool_error",
+      invocationId: claimed.invocation.id,
+      envelope,
+    };
+    trace.end({ status: outcome.status });
+    return outcome;
   }
 
   async #callTool(input: McpBrokerCallInput, trace: McpTraceContext): Promise<McpBrokerOutcome> {

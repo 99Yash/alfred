@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { McpRecoveryDecision } from "@alfred/contracts";
 import { AlertTriangle, Plug, Plus } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
 import { client, type EdenData, API_URL } from "~/lib/eden";
@@ -14,7 +15,7 @@ type McpRecoveryAction =
   | {
       kind: "resolve";
       invocationId: string;
-      decision: "confirmed_succeeded" | "confirmed_not_applied";
+      decision: McpRecoveryDecision;
     }
   | { kind: "successor"; invocationId: string };
 
@@ -122,10 +123,13 @@ export function MCPServerSection() {
       </div>
       <McpRecoveryList
         operations={recoveryOperations}
-        pendingInvocationId={
-          recoveryMutation.isPending ? recoveryMutation.variables.invocationId : null
-        }
-        error={recoveryMutation.isError}
+        loading={recoveryQuery.isPending}
+        readError={recoveryQuery.isError}
+        mutationPending={recoveryMutation.isPending}
+        mutationError={recoveryMutation.isError}
+        onReadRetry={() => {
+          void recoveryQuery.refetch();
+        }}
         onResolve={(invocationId, decision) => {
           recoveryMutation.mutate({ kind: "resolve", invocationId, decision });
         }}

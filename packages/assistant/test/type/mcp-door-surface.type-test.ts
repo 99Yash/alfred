@@ -156,6 +156,18 @@ type _NoBrokerSetterOnToolRuntime = ToolRuntimeDoor["_setMcpExecutionBrokerForTe
 type ToolRuntimeLeaf = typeof import("@alfred/assistant/tool-runtime/mcp/invocations");
 type _AssertToolRuntimeLeafStillResolves = ToolRuntimeLeaf["resolveMcpToolIdentity"];
 
+// The wildcard still republishes this leaf, so successor lifecycle primitives
+// must be absent from the module itself. Product code can only call the broker's
+// ID-only `resumeReservedSuccessor` capability.
+// @ts-expect-error - raw successor reads are module-private inside the broker owner.
+type _NoRawSuccessorRead = ToolRuntimeLeaf["readReservedMcpSuccessor"];
+
+// @ts-expect-error - raw successor delivery claims are module-private inside the broker owner.
+type _NoRawSuccessorClaim = ToolRuntimeLeaf["claimReservedMcpSuccessorDelivery"];
+
+// @ts-expect-error - raw successor settlement is module-private and guarded in the broker owner.
+type _NoRawSuccessorSettlement = ToolRuntimeLeaf["settleReservedMcpSuccessor"];
+
 // The extensioned target means only the EXTENSIONLESS specifier above resolves.
 // Pinning this keeps the pair honest: if the target ever loses its `.ts`, the
 // spellings swap and this directive goes unused.

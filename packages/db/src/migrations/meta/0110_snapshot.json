@@ -1,6 +1,6 @@
 {
-  "id": "497c2cbb-f14e-4927-ad14-5512004b40ec",
-  "prevId": "2ded4ec1-0d0b-4268-9288-e4c93bf9772e",
+  "id": "c6dea3d2-15ff-4cdd-b335-a00599e04b1c",
+  "prevId": "497c2cbb-f14e-4927-ad14-5512004b40ec",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5724,6 +5724,22 @@
           ],
           "isUnique": true,
           "where": "\"mcp_invocation\".\"resolved_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "mcp_invocation_successor_once_idx": {
+          "name": "mcp_invocation_successor_once_idx",
+          "columns": [
+            {
+              "expression": "successor_of",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"mcp_invocation\".\"successor_of\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
