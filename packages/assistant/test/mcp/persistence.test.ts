@@ -111,6 +111,13 @@ async function seedConnection(userId: string): Promise<string> {
   return conn.id;
 }
 
+async function selectCredentialForTest(connectionId: string, credentialId: string): Promise<void> {
+  await db()
+    .update(mcpConnections)
+    .set({ credentialId })
+    .where(eq(mcpConnections.id, connectionId));
+}
+
 describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     await db()
@@ -175,11 +182,9 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       .returning();
     assert.ok(personalCredential);
     assert.ok(workCredential);
-    await updateConnection(personal.id, {
-      credentialId: personalCredential.id,
-      status: "ready",
-    });
-    await updateConnection(work.id, { credentialId: workCredential.id });
+    await selectCredentialForTest(personal.id, personalCredential.id);
+    await updateConnection(personal.id, { status: "ready" });
+    await selectCredentialForTest(work.id, workCredential.id);
 
     await updateConnection(personal.id, { label: "Renamed personal" });
     const renamed = await readConnection(personal.id);
@@ -194,6 +199,33 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(unchangedWork?.label, "Work");
     assert.equal(unchangedWork?.credentialId, workCredential.id);
     assert.equal(unchangedWork?.currentCatalogRevisionId, null);
+  });
+
+  test("a same-owner connection cannot select a sibling OAuth credential", async () => {
+    const userId = await seedUser();
+    const personalId = await seedConnection(userId);
+    const workId = await seedConnection(userId);
+    const [workCredential] = await db()
+      .insert(mcpOauthCredentials)
+      .values({
+        userId,
+        connectionId: workId,
+        issuer: "https://auth.work.example.test",
+      })
+      .returning();
+    assert.ok(workCredential);
+
+    await assert.rejects(
+      db()
+        .update(mcpConnections)
+        .set({ credentialId: workCredential.id })
+        .where(eq(mcpConnections.id, personalId)),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.cause instanceof Error &&
+        error.cause.message.includes("mcp_connections_credential_connection_fk"),
+    );
+    assert.equal((await readConnection(personalId))?.credentialId, null);
   });
 
   test("a connection cannot refer to another owner's server", async () => {
@@ -292,7 +324,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       })
       .returning();
     assert.ok(credential);
-    await updateConnection(migratedConnectionId, { credentialId: credential.id });
+    await selectCredentialForTest(migratedConnectionId, credential.id);
     const revision = await publishCatalogRevision({
       connectionId: migratedConnectionId,
       revisionHash: "sha256:migrated-github",

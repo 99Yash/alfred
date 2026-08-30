@@ -150,6 +150,7 @@ export const mcpOauthCredentials = pgTable(
   (t) => [
     uniqueIndex("mcp_oauth_credentials_connection_idx").on(t.connectionId),
     uniqueIndex("mcp_oauth_credentials_id_user_idx").on(t.id, t.userId),
+    uniqueIndex("mcp_oauth_credentials_id_connection_idx").on(t.id, t.connectionId),
     index("mcp_oauth_credentials_user_issuer_idx").on(t.userId, t.issuer),
   ],
 );
@@ -222,6 +223,11 @@ export const mcpConnections = pgTable(
       columns: [t.credentialId, t.userId],
       foreignColumns: [mcpOauthCredentials.id, mcpOauthCredentials.userId],
       name: "mcp_connections_credential_owner_fk",
+    }),
+    foreignKey({
+      columns: [t.credentialId, t.id],
+      foreignColumns: [mcpOauthCredentials.id, mcpOauthCredentials.connectionId],
+      name: "mcp_connections_credential_connection_fk",
     }),
     foreignKey({
       columns: [t.id, t.currentCatalogRevisionId],

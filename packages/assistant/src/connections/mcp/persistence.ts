@@ -49,7 +49,6 @@ export type McpConnectionUpdate = Partial<
     | "lastConnectedAt"
     | "lastError"
     | "authServerIdentity"
-    | "credentialId"
     | "grantedScopes"
     | "requiredScopes"
   >
