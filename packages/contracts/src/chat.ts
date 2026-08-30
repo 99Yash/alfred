@@ -93,10 +93,10 @@ export const chatMessageAgentUsageSchema = z.object({
 export type ChatMessageAgentUsage = z.infer<typeof chatMessageAgentUsageSchema>;
 
 /**
- * Token usage + cost for one assistant turn, aggregated at finalize from the
- * turn's `api_call_log` rows. The totals cover the whole turn: the boss run
- * plus every sub-agent run the boss spawned, because delegation moves most of
- * a turn's spend into the children (see
+ * Token usage, model latency, and cost for one assistant turn, aggregated at
+ * finalize from the turn's `api_call_log` rows. The totals cover the whole
+ * turn: the boss run plus every sub-agent run the boss spawned, because
+ * delegation moves most of a turn's spend into the children (see
  * `.lessons/model-cost-recompute-from-tokens.md`, where a boss-only number hid
  * the majority of the cost). `agents` carries the same money split per agent.
  * Surfaced only in a dev-gated readout under the reply; the numbers already
@@ -108,6 +108,13 @@ export const chatMessageUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
   cachedInputTokens: z.number().int().nonnegative(),
+  /**
+   * Sum of successful LLM request-to-stream-end durations for this turn. It
+   * excludes tool execution and other workflow time, so outputTokens divided
+   * by this value is model output throughput. Defaulted for durable messages
+   * written before the field existed.
+   */
+  modelLatencyMs: z.number().int().nonnegative().default(0),
   costUsd: z.number().nonnegative(),
   /** How many LLM calls this turn made (one per generation / tool round). */
   calls: z.number().int().nonnegative(),
