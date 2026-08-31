@@ -32,7 +32,7 @@ const SUBSCRIBED_EVENTS = new Set(["pull_request", "push", "issues", "pull_reque
 export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: "typebox" }).post(
   "/github",
   async ({ body, headers, set }) => {
-    const raw = typeof body === "string" ? body : "";
+    const raw = body;
     if (!verifyWebhookSignature(raw, headers["x-hub-signature-256"] ?? null)) {
       // Bad signature → 401. GitHub surfaces this in the App's "Recent
       // Deliveries" tab; it won't spin retries forever the way Pub/Sub does.
@@ -48,7 +48,7 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
     if (!SUBSCRIBED_EVENTS.has(eventType)) return { ok: true, ignored: eventType };
     if (!deliveryId) return { ok: true, ignored: "no-delivery-id" };
 
-    let payload: Record<string, unknown>;
+    let payload: unknown;
     try {
       const parsed: unknown = JSON.parse(raw);
       if (!isRecord(parsed)) return { ok: true, ignored: "bad-json" };

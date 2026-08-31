@@ -213,6 +213,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
       const heartbeat = setInterval(() => {
         write(": heartbeat\n\n");
       }, HEARTBEAT_INTERVAL_MS);
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- platform capability check: Node's setInterval returns an object with unref, browsers return a number; not domain parsing
       if (typeof heartbeat === "object" && "unref" in heartbeat) {
         heartbeat.unref();
       }
