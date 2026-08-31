@@ -8,6 +8,7 @@
     "check-types": "turbo run check-types && tsc -p scripts/tsconfig.json",
     "dev:web": "turbo run dev --filter=web",
     "dev:server": "turbo run dev --filter=server",
+    "dev:stop": "node scripts/dev-stop.mjs",
     "check:architecture": "node scripts/check-module-architecture.mjs",
     "check:web-boundaries": "node scripts/check-web-boundaries.mjs",
     "check:web-bundle-graph": "node scripts/check-web-bundle-graph.mjs",
