@@ -1,14 +1,10 @@
-import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { SYNC_MODEL, type IDBKeys, type SyncedEntity } from "@alfred/sync";
 import { asc, eq, sql } from "drizzle-orm";
 import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "./cvr";
 import { SYNC_ENTITIES } from "./read";
-import type { ReplicacheModel } from "./model";
-
-const POSTGRES_INTEGER_MAX = 2_147_483_647;
-const MAX_ACCEPTED_COOKIE_ORDER = POSTGRES_INTEGER_MAX - 1;
+import { ReplicacheModel } from "./model";
 
 type PatchOp =
   | { op: "put"; key: string; value: SyncedEntity }
@@ -35,22 +31,13 @@ export interface PullResponse {
  * Postgres integer range. Pull increments an accepted cookie order before
  * storing it, so accepting `2147483647` (or an unsafe JSON number) would turn a
  * malformed cookie into a DB range failure instead of a cold-sync fallback.
+ *
+ * Validated via a Zod schema at the boundary rather than ad-hoc `typeof`
+ * checks, so the check is schema-derived and `no-runtime-typeof` clean.
  */
 function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
-  if (!isRecord(raw)) return null;
-  const obj = raw;
-  if (
-    typeof obj.order !== "number" ||
-    !Number.isSafeInteger(obj.order) ||
-    obj.order < 0 ||
-    obj.order > MAX_ACCEPTED_COOKIE_ORDER
-  ) {
-    return null;
-  }
-  if (typeof obj.clientGroupID !== "string" || obj.clientGroupID.length === 0) {
-    return null;
-  }
-  return { order: obj.order, clientGroupID: obj.clientGroupID };
+  const parsed = ReplicacheModel.pullCookieSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
 
 export async function handlePull(

@@ -62,7 +62,7 @@ type GmailWebhookQueue = {
     name: "gmail.poll_recent",
     data: Extract<IngestionJobData, { kind: "gmail.poll_recent" }>,
     options: { deduplication: { id: string; ttl: number } },
-  ) => Promise<unknown>;
+  ) => Promise<void>;
 };
 
 /**
