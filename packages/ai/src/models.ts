@@ -1,3 +1,4 @@
+import { isIndexable } from "@alfred/contracts";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 
@@ -273,14 +274,21 @@ export function normalizeProvider(raw: string): string {
 /**
  * Resolve `{ provider, modelId }` from an AI SDK `LanguageModel`. The SDK's
  * `LanguageModel` includes gateway strings and versioned model objects. Every
- * object member exposes `provider` + `modelId`, so a plain `typeof === "object"`
- * narrows without the old `"provider" in model` duck-typing. The single home
- * for this logic — `prices.ts` and the metering wrappers both call it instead
- * of re-implementing provider-head splitting.
+ * object member exposes `provider` + `modelId`, so we read the two fields off
+ * the runtime object rather than treating the SDK handle as JSON. `isIndexable`
+ * is the correct guard for a class/SDK instance — `isRecord` rejects it on
+ * prototype — and the `Reflect.get` reads keep the instance opaque.
+ * The single home for this logic — `prices.ts` and the metering wrappers both
+ * call it instead of re-implementing provider-head splitting.
  */
 export function identifyLanguageModel(model: LanguageModel): ModelIdentifiers {
-  if (typeof model === "object" && model !== null) {
-    return { provider: normalizeProvider(model.provider), modelId: model.modelId };
+  if (isIndexable(model)) {
+    const provider = Reflect.get(model, "provider");
+    const modelId = Reflect.get(model, "modelId");
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- SDK object field check, not JSON boundary parsing; `isIndexable` already proved indexability
+    if (typeof provider === "string" && typeof modelId === "string") {
+      return { provider: normalizeProvider(provider), modelId };
+    }
   }
   return { provider: "unknown", modelId: String(model) };
 }
