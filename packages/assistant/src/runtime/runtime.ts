@@ -4,6 +4,7 @@ import {
   stopPolicyBustSubscriber,
 } from "@alfred/assistant/action-policies";
 import {
+  getWorkflowsQueue,
   scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,
   seedBuiltinWorkflowsForUser,
@@ -13,12 +14,14 @@ import {
 } from "@alfred/assistant/automation";
 import {
   closeBriefingQueue,
+  getBriefingQueue,
   scheduleRepeatableBriefingJobs,
   startBriefingWorker,
   stopBriefingWorker,
 } from "@alfred/assistant/briefings";
 import {
   closeIngestionQueue,
+  getIngestionQueue,
   scheduleRepeatableIngestionJobs,
   startIngestionWorker,
   stopIngestionWorker,
@@ -50,6 +53,8 @@ import {
   startMemoryWorker,
   stopMemoryWorker,
 } from "@alfred/assistant/knowledge";
+import { getMemoryQueue } from "@alfred/assistant/knowledge/queue";
+import { scheduledJobsEnabled } from "@alfred/env/server";
 import {
   closeEventBridge,
   closeReplicachePokeBridge,
@@ -117,6 +122,40 @@ export async function runShutdownStep(label: string, step: () => Promise<void>):
 }
 
 /**
+ * Delete every repeatable job scheduler persisted on the cron queues, and report
+ * how many were removed.
+ *
+ * Skipping `scheduleRepeatable*` is not enough on its own, because BullMQ stores
+ * a scheduler in Redis and it keeps firing across restarts — the ingestion module
+ * says so in its own doc comment ("The schedulers survive restarts in Redis").
+ * So a process that once ran with schedules enabled leaves live timers behind,
+ * and the next process picks the jobs straight back up even though it registered
+ * nothing. Measured: a boot with schedules off still ran the briefing tick, both
+ * Gmail sweeps, and the memory sweep off nine schedulers a prior run had left.
+ *
+ * Reads the live scheduler set rather than a hand-maintained list of ids, so a
+ * scheduler added later is covered without anyone remembering to register it
+ * here — the failure this whole gate exists to prevent is the one nobody
+ * remembered.
+ */
+async function clearPersistedJobSchedulers(): Promise<number> {
+  const queues = [getIngestionQueue(), getMemoryQueue(), getBriefingQueue(), getWorkflowsQueue()];
+  let removed = 0;
+  for (const queue of queues) {
+    // Never let cleanup of a dev convenience take down boot.
+    try {
+      for (const scheduler of await queue.getJobSchedulers()) {
+        await queue.removeJobScheduler(scheduler.key);
+        removed += 1;
+      }
+    } catch (err) {
+      console.error(`[runtime] could not clear schedulers on ${queue.name}:`, toMessage(err));
+    }
+  }
+  return removed;
+}
+
+/**
  * Build the assistant runtime for one host process.
  *
  * The returned object owns registration order, worker start order, and the reverse
@@ -180,10 +219,29 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       await startApprovalNotificationWorker();
       await startApprovalExpiryWorker();
 
-      await scheduleRepeatableIngestionJobs();
-      await scheduleRepeatableMemoryJobs();
-      await scheduleRepeatableBriefingJobs();
-      await scheduleRepeatableWorkflowsJobs();
+      // The repeatable schedules are the only jobs a *timer* enqueues, so they
+      // are the only ones that spend money and send mail with nobody watching.
+      // Off outside production unless asked for: `pnpm dev` runs this process
+      // under a `tsx watch` supervisor that listens on no port, so it outlives
+      // its terminal, hides from a port check, and respawns the child on every
+      // file change. An orphan like that once ran for three days.
+      //
+      // The workers above stay running either way. A worker only acts on a job
+      // somebody enqueued, and locally that somebody is the developer, so gating
+      // them would break interactive work while fixing nothing.
+      if (scheduledJobsEnabled()) {
+        await scheduleRepeatableIngestionJobs();
+        await scheduleRepeatableMemoryJobs();
+        await scheduleRepeatableBriefingJobs();
+        await scheduleRepeatableWorkflowsJobs();
+      } else {
+        const removed = await clearPersistedJobSchedulers();
+        console.log(
+          `[runtime] scheduled jobs are OFF — workers still run, but no cron will fire${
+            removed > 0 ? `; removed ${removed} scheduler(s) a previous run left in Redis` : ""
+          }. Set ALFRED_RUN_SCHEDULED_JOBS=true to enable them.`,
+        );
+      }
     },
 
     async stop(): Promise<void> {
