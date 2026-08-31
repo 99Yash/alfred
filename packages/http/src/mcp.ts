@@ -1,6 +1,6 @@
 import { Errors } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { Elysia, t } from "elysia";
+import { Elysia, t, type Context } from "elysia";
 import { z } from "zod";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import {
@@ -67,8 +67,28 @@ async function beginAuthorization(input: {
       });
       return error.authorizationUrl;
     }
+    // Anything else is a real failure of the authorization attempt — a server
+    // that cannot register a client, an unreachable endpoint, a rejected
+    // discovery document. Record it on the connection so the integrations card
+    // can state the reason, instead of letting it escape as a bare 500.
+    await updateConnection(connection.id, {
+      status: "failed",
+      lastError: boundedMcpErrorText(error),
+    });
     throw error;
   }
+}
+
+/**
+ * Both connect entrypoints are BROWSER navigations, so an escaping error renders
+ * the API error page and strands the user off the integrations surface. The
+ * reason is already durable on the connection by the time we get here, so send
+ * the browser back to the card that renders it.
+ */
+function redirectToIntegrations(set: Context["set"], query: string): null {
+  set.status = 302;
+  set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/integrations?${query}`;
+  return null;
 }
 
 /**
@@ -90,39 +110,47 @@ export const mcpIntegrationRoutes = new Elysia({
       .get("/github/connect", async ({ user, set }) => {
         const connection = await ensureBuiltInConnection(user.id, "github");
         await getMcpConnectionManager().disconnect(connection.id, user.id);
-        const authorizationUrl = await beginAuthorization({
-          connectionId: connection.id,
-          userId: user.id,
-        });
+        let authorizationUrl: URL | null;
+        try {
+          authorizationUrl = await beginAuthorization({
+            connectionId: connection.id,
+            userId: user.id,
+          });
+        } catch {
+          // `beginAuthorization` already persisted the reason on the connection.
+          return redirectToIntegrations(set, "mcp_error=github");
+        }
         if (authorizationUrl) {
           set.status = 302;
           set.headers["Location"] = authorizationUrl.href;
           return null;
         }
         await getMcpConnectionManager().getReadyClient(connection.id);
-        set.status = 302;
-        set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/integrations?mcp_connected=github`;
-        return null;
+        return redirectToIntegrations(set, "mcp_connected=github");
       })
       .get(
         "/connections/:id/reconsent",
         async ({ params, user, set }) => {
           const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
           if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
-          const authorizationUrl = await beginAuthorization({
-            connectionId: params.id,
-            userId: user.id,
-            forceReauthorization: true,
-          });
+          let authorizationUrl: URL | null;
+          try {
+            authorizationUrl = await beginAuthorization({
+              connectionId: params.id,
+              userId: user.id,
+              forceReauthorization: true,
+            });
+          } catch {
+            // `beginAuthorization` already persisted the reason on the connection.
+            return redirectToIntegrations(set, "mcp_error=1");
+          }
           if (authorizationUrl) {
             set.status = 302;
             set.headers["Location"] = authorizationUrl.href;
             return null;
           }
           await getMcpConnectionManager().getReadyClient(params.id);
-          set.status = 302;
-          set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/integrations?mcp_connected=1`;
-          return null;
+          return redirectToIntegrations(set, "mcp_connected=1");
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       ),
