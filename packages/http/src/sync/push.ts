@@ -12,7 +12,12 @@ import {
 import { toMessage } from "@alfred/contracts";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
-import { serverMutators, type MutatorFollowUp, type MutatorResult, type ServerMutatorCtx } from "./write";
+import {
+  serverMutators,
+  type MutatorFollowUp,
+  type MutatorResult,
+  type ServerMutatorCtx,
+} from "./write";
 import type { DbTransaction } from "@alfred/db";
 
 export type PushRequestBody = ReplicacheModel.Push;
