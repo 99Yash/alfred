@@ -1,6 +1,7 @@
 import type { BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
+import { eq } from "drizzle-orm";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
 import { startRun } from "@alfred/assistant/execution";
@@ -99,6 +100,31 @@ interface TickResult {
 }
 
 /**
+ * The users an hourly tick is allowed to fan out to.
+ *
+ * Scoped to a **verified** email, because the tick is the one place that turns
+ * a bare `user` row into paid LLM work and an outbound email. An unverified
+ * address is one nobody has proven they control, so a recurring briefing must
+ * never go there. Google social sign-in is the only way to create a real Alfred
+ * user and Better Auth marks it verified from the provider's `email_verified`
+ * claim, so no real user is excluded.
+ *
+ * This is defense in depth, not the primary fix: rows seeded by a test that
+ * forgets to clean up (`user` carries no `test` flag to key on) were fanned out
+ * to for real — 83 leftover `@example.test` users each drew an evening briefing
+ * every hour, which alone exceeded the AI-gateway rate limit and billed real
+ * tokens against addresses nobody owns. Tests own their cleanup; this predicate
+ * makes the blast radius of a missed cleanup zero instead of unbounded.
+ *
+ * Exported as its own seam so the predicate is assertable against a real
+ * database without standing up Redis and the whole BullMQ worker that
+ * {@link handleTick} needs.
+ */
+export async function selectBriefingFanoutUsers(): Promise<Array<{ id: string }>> {
+  return db().select({ id: userTable.id }).from(userTable).where(eq(userTable.emailVerified, true));
+}
+
+/**
  * Hourly fan-out. For each user, resolve their tz + delivery hour and
  * compare to "now in their local time." The actual no-double-send
  * guard is the slot-scoped `briefings` unique index plus the
@@ -107,7 +133,7 @@ interface TickResult {
  * the same terminal briefing row.
  */
 async function handleTick(now: Date = new Date()): Promise<TickResult> {
-  const users = await db().select({ id: userTable.id }).from(userTable);
+  const users = await selectBriefingFanoutUsers();
 
   let enqueued = 0;
   let skipped = 0;
