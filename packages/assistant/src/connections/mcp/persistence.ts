@@ -176,22 +176,34 @@ export async function createNamedConnection(
   });
 }
 
-const BUILT_IN_CONNECTIONS = {
-  github: {
-    // Migration 0108 gives every historic server its one server-scoped built-in slot.
-    instanceKey: "default",
-    label: "GitHub MCP",
-    canonicalResource: "https://api.githubcopilot.com/mcp",
-    endpoint: new URL("https://api.githubcopilot.com/mcp"),
-    initialState: {
-      authServerIdentity: "oauth:pending",
-      status: "disconnected",
-    },
-  },
-} as const satisfies Record<
-  string,
-  Omit<CreateNamedMcpConnectionInput, "userId"> & { instanceKey: string }
->;
+export { GITHUB_MCP_ISSUER, GITHUB_MCP_ENDPOINT_HREF, type BuiltInOAuthConfig } from "./built-ins";
+import {
+  BUILT_IN_REGISTRY as BUILT_IN_CONNECTIONS,
+  getBuiltInStaticOAuthConfig,
+  getBuiltInStaticOAuthConfigForEndpoint,
+  type BuiltInOAuthConfig,
+  type BuiltInProvider,
+} from "./built-ins";
+
+/**
+ * Pre-registered OAuth client for a built-in provider, if the environment
+ * supplies one. GitHub's authorization server supports neither RFC 7591 DCR nor
+ * URL-based client IDs, so the SDK would otherwise throw at registration (#934).
+ * When this returns a value, the caller should seed
+ * `mcp_oauth_credentials.client_information` for the discovered issuer so the
+ * SDK skips registration.
+ *
+ * Delegates to the shared `BUILT_IN_REGISTRY` so adding a second built-in
+ * touches one site and `process.env` is read lazily inside the factory (per-test
+ * overrides still work).
+ */
+export function builtInStaticOAuthClient(provider: BuiltInProvider): BuiltInOAuthConfig | undefined {
+  return getBuiltInStaticOAuthConfig(provider);
+}
+
+export function builtInStaticOAuthClientForEndpoint(endpoint: URL): BuiltInOAuthConfig | undefined {
+  return getBuiltInStaticOAuthConfigForEndpoint(endpoint);
+}
 
 /** Ensure the one stable connection slot owned by a closed built-in provider definition. */
 export async function ensureBuiltInConnection(
