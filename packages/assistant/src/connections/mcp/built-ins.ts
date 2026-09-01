@@ -9,12 +9,16 @@
  *
  * Environment reads stay lazy inside the factories so per-test `process.env`
  * overrides still work (same reason `packages/integrations/src/integrations.ts`
- * reads inside `resolve()`).
+ * reads inside `resolve()`). The read goes through `envFieldValue()` — a
+ * per-field `serverEnvSchema` parse that validates via `optionalSecret` on
+ * every call and does not cache the whole environment — plus it is
+ * parameterized by the registry entry's `env` keys so a second provider does
+ * not copy hard-coded `GITHUB_MCP_*` names.
  */
 
-import { GITHUB_MCP_ENDPOINT_HREF, GITHUB_MCP_ISSUER } from "./constants";
+import { envFieldValue } from "@alfred/env/server";
 
-export { GITHUB_MCP_ENDPOINT_HREF, GITHUB_MCP_ISSUER } from "./constants";
+import { GITHUB_MCP_ENDPOINT_HREF, GITHUB_MCP_ISSUER } from "./constants";
 
 export type BuiltInOAuthConfig = {
   readonly issuer: string;
@@ -28,6 +32,10 @@ export type BuiltInOAuthConfig = {
  * it into a `CreateNamedMcpConnectionInput` without adaptation. `oauth` is kept
  * as the single place that declares the provider needs a human-registered client
  * (`client_information` seeded for its issuer, SDK skips DCR).
+ *
+ * `endpointHref` is the single wire/storage truth; a `URL` is derived at the
+ * use site via `new URL(...)` so the two cannot drift. `env` parameterizes
+ * which environment variables own this entry's credentials.
  */
 export const BUILT_IN_REGISTRY = {
   github: {
@@ -35,9 +43,12 @@ export const BUILT_IN_REGISTRY = {
     instanceKey: "default",
     label: "GitHub MCP",
     canonicalResource: GITHUB_MCP_ENDPOINT_HREF,
-    endpoint: new URL(GITHUB_MCP_ENDPOINT_HREF),
     endpointHref: GITHUB_MCP_ENDPOINT_HREF,
     issuer: GITHUB_MCP_ISSUER,
+    env: {
+      clientIdKey: "GITHUB_MCP_CLIENT_ID" as const,
+      clientSecretKey: "GITHUB_MCP_CLIENT_SECRET" as const,
+    },
     initialState: {
       authServerIdentity: "oauth:pending",
       status: "disconnected" as const,
@@ -50,114 +61,100 @@ export const BUILT_IN_REGISTRY = {
 
 export type BuiltInProvider = keyof typeof BUILT_IN_REGISTRY;
 
-function canonicalIssuer(value: string): string {
-  return new URL(value).href;
-}
-
-function normalizeEndpointHref(href: string): string {
-  // Collapse the trailing-slash duplicate:
-  // "https://api.githubcopilot.com/mcp/" -> "https://api.githubcopilot.com/mcp"
-  return href.endsWith("/") ? href.slice(0, -1) : href;
-}
-
-function readBuiltInEnv(): { clientId: string | undefined; clientSecret: string | undefined } {
-  const rawId = process.env.GITHUB_MCP_CLIENT_ID; // drift-ok - reads optional GitHub MCP id without full env validation
-  const clientId = typeof rawId === "string" && rawId.trim() !== "" ? rawId.trim() : undefined;
-  const rawSecret = process.env.GITHUB_MCP_CLIENT_SECRET; // drift-ok - same fallback for secret
-  const clientSecret =
-    typeof rawSecret === "string" && rawSecret.trim() !== "" ? rawSecret.trim() : undefined;
+function readEnvForEntry(
+  entry: (typeof BUILT_IN_REGISTRY)[BuiltInProvider],
+): { clientId: string | undefined; clientSecret: string | undefined } {
+  const clientId = envFieldValue(entry.env.clientIdKey) as string | undefined;
+  const clientSecret = envFieldValue(entry.env.clientSecretKey) as string | undefined;
   return { clientId, clientSecret };
 }
 
-export function isBuiltInEndpoint(endpoint: URL): boolean {
-  const normalized = normalizeEndpointHref(endpoint.href);
-  return (Object.values(BUILT_IN_REGISTRY) as ReadonlyArray<(typeof BUILT_IN_REGISTRY)[BuiltInProvider]>).some(
-    (def) => normalized === def.endpointHref,
-  );
-}
-
-function findBuiltInEntryForEndpoint(
+function findBuiltInEntryByEndpoint(
   endpoint: URL,
 ): [BuiltInProvider, (typeof BUILT_IN_REGISTRY)[BuiltInProvider]] | undefined {
-  const normalized = normalizeEndpointHref(endpoint.href);
+  // Query and fragment are not part of the canonical built-in resource.
+  // Treat `https://api.githubcopilot.com/mcp?foo=1` or `#frag` as NOT built-in
+  // so an attacker-supplied URL cannot inherit the pre-registered client.
+  // This uses the URL substrate (origin + pathname) instead of the hand-rolled
+  // `endsWith("/")` string check that the review flagged.
+  if (endpoint.search !== "" || endpoint.hash !== "") return undefined;
+  let endpointOrigin: string;
+  let endpointPath: string;
+  try {
+    endpointOrigin = endpoint.origin;
+    endpointPath = endpoint.pathname.replace(/\/+$/, "");
+    if (endpointPath === "") endpointPath = "/";
+  } catch {
+    return undefined;
+  }
   for (const entry of Object.entries(BUILT_IN_REGISTRY) as Array<
     [BuiltInProvider, (typeof BUILT_IN_REGISTRY)[BuiltInProvider]]
   >) {
-    if (normalized === entry[1].endpointHref) return entry;
+    const defUrl = new URL(entry[1].endpointHref);
+    const defPath = defUrl.pathname.replace(/\/+$/, "");
+    const normalizedDefPath = defPath === "" ? "/" : defPath;
+    const normalizedEndpointPath = endpointPath === "" ? "/" : endpointPath;
+    if (endpointOrigin === defUrl.origin && normalizedEndpointPath === normalizedDefPath) {
+      return entry;
+    }
   }
   return undefined;
 }
 
-function findBuiltInEntryForProvider(
+function findBuiltInEntryByProvider(
   provider: string,
 ): [BuiltInProvider, (typeof BUILT_IN_REGISTRY)[BuiltInProvider]] | undefined {
-  const entry = (BUILT_IN_REGISTRY as Record<string, (typeof BUILT_IN_REGISTRY)[BuiltInProvider]>)[provider];
+  const entry = (BUILT_IN_REGISTRY as Record<string, (typeof BUILT_IN_REGISTRY)[BuiltInProvider]>)[
+    provider
+  ];
   return entry ? [provider as BuiltInProvider, entry] : undefined;
 }
 
-/** Lazy env read inside factory — see module header. */
-export function getBuiltInStaticOAuthConfig(provider: BuiltInProvider): BuiltInOAuthConfig | undefined {
-  const found = findBuiltInEntryForProvider(provider);
-  if (!found) return undefined;
-  const [, def] = found;
-  const { clientId, clientSecret } = readBuiltInEnv();
-  if (!clientId) return undefined;
-  return {
-    issuer: def.issuer,
-    clientId,
-    ...(clientSecret ? { clientSecret } : {}),
-  };
-}
-
-/** Endpoint-aware variant: collapses trailing-slash duplicate in one place. */
-export function getBuiltInStaticOAuthConfigForEndpoint(endpoint: URL): BuiltInOAuthConfig | undefined {
-  const found = findBuiltInEntryForEndpoint(endpoint);
-  if (!found) return undefined;
-  const [provider] = found;
-  return getBuiltInStaticOAuthConfig(provider);
+export function isBuiltInEndpoint(endpoint: URL): boolean {
+  return !!findBuiltInEntryByEndpoint(endpoint);
 }
 
 /**
- * Issuer-hint-aware variant for `McpOAuthProvider#staticBuiltInClient`.
- * Validates the hint's origin against the built-in's issuer origin, mirroring
- * the previous per-site check in `oauth.ts:700`, and canonicalizes the issuer
- * to `new URL(hint).href` when a hint is supplied.
+ * Single joint for “static client for this built-in, optionally bound to
+ * issuerHint”. Collapses the previous four doors
+ * (`getBuiltInStaticOAuthConfig`, `...ForEndpoint`, `...WithIssuerHint`,
+ * `getBuiltInClientSecretForEndpoint`) into one — a second built-in touches
+ * one registry entry and no call site needs to choose which of four names to
+ * call.
+ *
+ * Presence is decided by `clientId`; a `clientSecret` alone (secret-only env)
+ * does not make the built-in present, so the secret-only `token_endpoint_auth_method`
+ * patch and the `clientInformation` fallback agree.
  */
-export function getBuiltInStaticOAuthConfigWithIssuerHint(
-  endpoint: URL,
-  issuerHint?: string,
+export function resolveBuiltInClient(
+  input: { endpoint: URL; issuerHint?: string | undefined } | { provider: BuiltInProvider },
 ): BuiltInOAuthConfig | undefined {
-  const found = findBuiltInEntryForEndpoint(endpoint);
+  const found =
+    "endpoint" in input
+      ? findBuiltInEntryByEndpoint(input.endpoint)
+      : findBuiltInEntryByProvider(input.provider);
   if (!found) return undefined;
   const [, def] = found;
-  const { clientId, clientSecret } = readBuiltInEnv();
+  const { clientId, clientSecret } = readEnvForEntry(def);
   if (!clientId) return undefined;
-  if (issuerHint) {
+  if ("endpoint" in input && input.issuerHint) {
     try {
-      const hintOrigin = new URL(canonicalIssuer(issuerHint)).origin;
+      const hintHref = new URL(input.issuerHint).href;
+      const hintOrigin = new URL(hintHref).origin;
       const expectedOrigin = new URL(def.issuer).origin;
       if (hintOrigin !== expectedOrigin) return undefined;
+      return {
+        issuer: hintHref,
+        clientId,
+        ...(clientSecret ? { clientSecret } : {}),
+      };
     } catch {
       return undefined;
     }
-    const issuer = canonicalIssuer(issuerHint);
-    return {
-      issuer,
-      clientId,
-      ...(clientSecret ? { clientSecret } : {}),
-    };
   }
   return {
     issuer: def.issuer,
     clientId,
     ...(clientSecret ? { clientSecret } : {}),
   };
-}
-
-/** Whether the endpoint belongs to a built-in that currently carries a client_secret. */
-export function getBuiltInClientSecretForEndpoint(endpoint: URL): string | undefined {
-  const found = findBuiltInEntryForEndpoint(endpoint);
-  if (!found) return undefined;
-  const { clientSecret } = readBuiltInEnv();
-  return clientSecret;
 }
