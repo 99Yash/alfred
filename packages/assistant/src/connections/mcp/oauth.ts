@@ -28,6 +28,10 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { rememberOAuthNonce, signOAuthState } from "@alfred/assistant/connections";
+import {
+  getBuiltInClientSecretForEndpoint,
+  getBuiltInStaticOAuthConfigWithIssuerHint,
+} from "./built-ins";
 
 const oauthMetadataSchema = z.looseObject({
   issuer: z.string().url(),
@@ -401,14 +405,26 @@ export class McpOAuthProvider implements OAuthClientProvider {
   readonly redirectUrl: URL;
   readonly clientMetadataUrl?: string;
   readonly clientMetadata: OAuthClientMetadata;
+  readonly #endpoint: URL;
 
   constructor(options: McpOAuthProviderOptions) {
     this.#connectionId = options.connectionId;
     this.#userId = options.userId;
     this.#store = options.store ?? DEFAULT_STORE;
     this.#vault = options.vault ?? credentialVault();
+    this.#endpoint = new URL(options.endpoint.href);
     this.redirectUrl = new URL(options.redirectUrl.href);
-    this.clientMetadata = options.clientMetadata;
+    let metadata = options.clientMetadata;
+    // GitHub OAuth Apps that ship a secret need a confidential auth method;
+    // the global `mcpOAuthClientConfiguration()` advertises `none` for the
+    // generic case, so patch it here when the built-in GitHub client carries
+    // a secret (#934). Registry collapses the trailing-slash duplicate and
+    // keeps the lazy `process.env` read inside the factory.
+    const builtInSecret = getBuiltInClientSecretForEndpoint(this.#endpoint);
+    if (builtInSecret) {
+      metadata = { ...metadata, token_endpoint_auth_method: "client_secret_post" };
+    }
+    this.clientMetadata = metadata;
     if (options.clientMetadataUrl) {
       validateClientMetadataUrl(options.clientMetadataUrl);
       this.clientMetadataUrl = options.clientMetadataUrl;
@@ -444,15 +460,31 @@ export class McpOAuthProvider implements OAuthClientProvider {
     ctx?: OAuthClientInformationContext,
   ): Promise<StoredOAuthClientInformation | undefined> {
     const credential = await this.#credentialForIssuer(ctx?.issuer);
-    if (!credential?.clientInformation) return undefined;
-    const parsed = clientInformationSchema.safeParse(credential.clientInformation);
-    if (!parsed.success) throw new Error("Persisted MCP OAuth client information is invalid");
-    const secret = credential.clientSecret ? this.#vault.open(credential.clientSecret) : undefined;
-    return {
-      ...parsed.data,
-      issuer: credential.issuer,
-      ...(secret ? { client_secret: secret } : {}),
-    };
+    if (credential?.clientInformation) {
+      const parsed = clientInformationSchema.safeParse(credential.clientInformation);
+      if (!parsed.success) throw new Error("Persisted MCP OAuth client information is invalid");
+      const secret = credential.clientSecret
+        ? this.#vault.open(credential.clientSecret)
+        : undefined;
+      return {
+        ...parsed.data,
+        issuer: credential.issuer,
+        ...(secret ? { client_secret: secret } : {}),
+      };
+    }
+    // Built-in providers whose authorization server has no DCR (#934). When
+    // `GITHUB_MCP_CLIENT_ID` is set, return it so the SDK skips
+    // `registerClient` entirely. This is the in-memory fallback; the durable
+    // row is seeded in `saveDiscoveryState` below so the value survives restarts.
+    const staticClient = this.#staticBuiltInClient(ctx?.issuer ?? credential?.issuer);
+    if (staticClient) {
+      return {
+        client_id: staticClient.clientId,
+        issuer: staticClient.issuer,
+        ...(staticClient.clientSecret ? { client_secret: staticClient.clientSecret } : {}),
+      };
+    }
+    return undefined;
   }
 
   async saveClientInformation(
@@ -548,6 +580,24 @@ export class McpOAuthProvider implements OAuthClientProvider {
       issuer,
       discoveryState: parsed,
     });
+    // Seed the pre-registered client for built-ins that cannot use DCR. The
+    // provider's `clientInformation` already has an in-memory fallback, but
+    // persisting here makes the value durable and matches the issue's "seed
+    // client_information for its issuer when the connection is created" path.
+    const staticClient = this.#staticBuiltInClient(issuer);
+    if (!staticClient) return;
+    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+    if (!credential || credential.clientInformation) return;
+    // Use the persisted credential issuer (canonical) so the row's `issuer`
+    // column and the `clientInformation.issuer` field agree.
+    await this.saveClientInformation(
+      {
+        client_id: staticClient.clientId,
+        issuer: credential.issuer,
+        ...(staticClient.clientSecret ? { client_secret: staticClient.clientSecret } : {}),
+      },
+      { issuer: credential.issuer },
+    );
   }
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
@@ -626,6 +676,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
   #requireAttemptStateHash(): string {
     if (!this.#attemptStateHash) throw new Error("MCP OAuth authorization attempt is missing");
     return this.#attemptStateHash;
+  }
+
+  #staticBuiltInClient(
+    issuerHint?: string,
+  ): { clientId: string; clientSecret?: string; issuer: string } | undefined {
+    return getBuiltInStaticOAuthConfigWithIssuerHint(this.#endpoint, issuerHint);
   }
 }
 
