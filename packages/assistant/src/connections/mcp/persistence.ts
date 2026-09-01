@@ -176,11 +176,9 @@ export async function createNamedConnection(
   });
 }
 
-export { GITHUB_MCP_ISSUER, GITHUB_MCP_ENDPOINT_HREF, type BuiltInOAuthConfig } from "./built-ins";
 import {
   BUILT_IN_REGISTRY as BUILT_IN_CONNECTIONS,
-  getBuiltInStaticOAuthConfig,
-  getBuiltInStaticOAuthConfigForEndpoint,
+  resolveBuiltInClient,
   type BuiltInOAuthConfig,
   type BuiltInProvider,
 } from "./built-ins";
@@ -198,11 +196,11 @@ import {
  * overrides still work).
  */
 export function builtInStaticOAuthClient(provider: BuiltInProvider): BuiltInOAuthConfig | undefined {
-  return getBuiltInStaticOAuthConfig(provider);
+  return resolveBuiltInClient({ provider });
 }
 
 export function builtInStaticOAuthClientForEndpoint(endpoint: URL): BuiltInOAuthConfig | undefined {
-  return getBuiltInStaticOAuthConfigForEndpoint(endpoint);
+  return resolveBuiltInClient({ endpoint });
 }
 
 /** Ensure the one stable connection slot owned by a closed built-in provider definition. */
@@ -213,7 +211,13 @@ export async function ensureBuiltInConnection(
 ): Promise<McpConnectionWithServer> {
   const builtIn = BUILT_IN_CONNECTIONS[provider];
   return runAtomic(runner, async (tx) => {
-    const input: CreateNamedMcpConnectionInput = { userId, ...builtIn };
+    const input: CreateNamedMcpConnectionInput = {
+      userId,
+      label: builtIn.label,
+      canonicalResource: builtIn.canonicalResource,
+      endpoint: new URL(builtIn.endpointHref),
+      ...(builtIn.initialState ? { initialState: builtIn.initialState } : {}),
+    };
     const server = await ensureServerDefinition(input, tx);
     const [connection] = await tx
       .insert(mcpConnections)

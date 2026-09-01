@@ -28,10 +28,7 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { rememberOAuthNonce, signOAuthState } from "@alfred/assistant/connections";
-import {
-  getBuiltInClientSecretForEndpoint,
-  getBuiltInStaticOAuthConfigWithIssuerHint,
-} from "./built-ins";
+import { resolveBuiltInClient } from "./built-ins";
 
 const oauthMetadataSchema = z.looseObject({
   issuer: z.string().url(),
@@ -304,10 +301,6 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
 const DEFAULT_STORE = new DbMcpOAuthCredentialStore();
 const authorizationFlights = new Map<string, Promise<AuthResult>>();
 
-function canonicalIssuer(value: string): string {
-  return new URL(value).href;
-}
-
 function stateHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -418,10 +411,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
     // GitHub OAuth Apps that ship a secret need a confidential auth method;
     // the global `mcpOAuthClientConfiguration()` advertises `none` for the
     // generic case, so patch it here when the built-in GitHub client carries
-    // a secret (#934). Registry collapses the trailing-slash duplicate and
-    // keeps the lazy `process.env` read inside the factory.
-    const builtInSecret = getBuiltInClientSecretForEndpoint(this.#endpoint);
-    if (builtInSecret) {
+    // a secret (#934). Single registry joint `resolveBuiltInClient` keeps the
+    // lazy env read and the trailing-slash normalization in one place.
+    const builtInConfig = resolveBuiltInClient({ endpoint: this.#endpoint });
+    if (builtInConfig?.clientSecret) {
       metadata = { ...metadata, token_endpoint_auth_method: "client_secret_post" };
     }
     this.clientMetadata = metadata;
@@ -492,7 +485,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     ctx?: OAuthClientInformationContext,
   ): Promise<void> {
     const parsed = clientInformationSchema.parse(value);
-    const issuer = canonicalIssuer(ctx?.issuer ?? parsed.issuer ?? "");
+    const issuer = new URL(ctx?.issuer ?? parsed.issuer ?? "").href;
     const credential = await this.#requireCredential(issuer);
     const { client_secret: clientSecret, ...publicInformation } = parsed;
     await this.#store.update(credential.id, this.#userId, {
@@ -519,7 +512,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async saveTokens(value: StoredOAuthTokens, ctx?: OAuthClientInformationContext): Promise<void> {
     const parsed = oauthTokensSchema.parse(value);
-    const issuer = canonicalIssuer(ctx?.issuer ?? parsed.issuer ?? "");
+    const issuer = new URL(ctx?.issuer ?? parsed.issuer ?? "").href;
     const credential = await this.#requireCredential(issuer);
     const vault = this.#vault;
     await this.#store.update(credential.id, this.#userId, {
@@ -571,9 +564,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
     const parsed = parseDiscoveryState(state);
-    const issuer = canonicalIssuer(
+    const issuer = new URL(
       parsed.authorizationServerMetadata?.issuer ?? parsed.authorizationServerUrl,
-    );
+    ).href;
     await this.#store.attachDiscovery({
       connectionId: this.#connectionId,
       userId: this.#userId,
@@ -664,7 +657,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
     if (!credential || !issuer) return credential;
-    return credential.issuer === canonicalIssuer(issuer) ? credential : undefined;
+    return credential.issuer === new URL(issuer).href ? credential : undefined;
   }
 
   async #requireCredential(issuer?: string): Promise<McpOauthCredential> {
@@ -681,7 +674,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   #staticBuiltInClient(
     issuerHint?: string,
   ): { clientId: string; clientSecret?: string; issuer: string } | undefined {
-    return getBuiltInStaticOAuthConfigWithIssuerHint(this.#endpoint, issuerHint);
+    return resolveBuiltInClient({ endpoint: this.#endpoint, issuerHint });
   }
 }
 
