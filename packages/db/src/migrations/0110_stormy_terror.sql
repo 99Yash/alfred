@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "mcp_invocation_successor_once_idx" ON "mcp_invocation" USING btree ("successor_of") WHERE "mcp_invocation"."successor_of" IS NOT NULL;

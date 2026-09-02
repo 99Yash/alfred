@@ -3,7 +3,15 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  mcpConnections,
+  mcpInvocation,
+  user,
+  type NewActionStaging,
+} from "@alfred/db/schemas";
+import type { McpCallInput } from "@alfred/contracts";
 import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
@@ -17,14 +25,20 @@ import {
 } from "../../src/connections/mcp";
 import { McpExecutionBroker } from "../../src/tool-runtime/mcp/broker";
 import { McpClientError } from "../../src/connections/mcp/errors";
-import { canonicalArgsHash, descriptorHash } from "../../src/connections/mcp/hash";
+import { descriptorHash } from "../../src/connections/mcp/hash";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import { ensureConnection } from "../../src/connections/mcp/persistence";
+import { ensureConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
 import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import {
-  createSuccessorInvocation,
+  reconcileInflightInvocations,
   upsertToolPolicy,
 } from "../../src/tool-runtime/mcp/invocations";
+import {
+  listMcpRecoveryOperations,
+  resolveMcpRecoveryOperation,
+  retryMcpRecoveryOperation,
+} from "../../src/tool-runtime/mcp/recovery";
+import { _setMcpExecutionBrokerForTests } from "../../src/tool-runtime/mcp/runtime";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
@@ -47,6 +61,8 @@ class FakeProtocol implements McpProtocolClient {
   tools: Tool[];
   behavior: CallBehavior = { kind: "ok" };
   calls = 0;
+  connectError: unknown;
+  beforeReturn: (() => Promise<void>) | undefined;
   negotiated: McpNegotiatedServer = {
     protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
@@ -61,6 +77,7 @@ class FakeProtocol implements McpProtocolClient {
   }
 
   async connect(): Promise<McpNegotiatedServer> {
+    if (this.connectError) throw this.connectError;
     return this.negotiated;
   }
   async close(): Promise<void> {}
@@ -69,6 +86,7 @@ class FakeProtocol implements McpProtocolClient {
   }
   async callTool(): Promise<McpProtocolCallResult> {
     this.calls += 1;
+    await this.beforeReturn?.();
     if (this.behavior.kind === "throw") throw this.behavior.error;
     if (this.behavior.kind === "tool_error") {
       return { content: [{ type: "text", text: "nope" }], isError: true };
@@ -105,7 +123,23 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-async function seedStaging(userId: string): Promise<string> {
+/**
+ * The exact `mcp.call` input a staging row stores. The tool schema is strict and
+ * omits `kind`, so a spread of the whole `ExternalToolRef` is not a valid row.
+ */
+function stagedCallInput(ref: ExternalToolRef, args: McpCallInput["arguments"]): McpCallInput {
+  return {
+    connectionId: ref.connectionId,
+    remoteName: ref.remoteName,
+    catalogRevision: ref.catalogRevision,
+    arguments: args,
+  };
+}
+
+async function seedStaging(
+  userId: string,
+  proposedInput: NewActionStaging["proposedInput"] = {},
+): Promise<string> {
   const [run] = await db()
     .select({ id: agentRuns.id })
     .from(agentRuns)
@@ -125,13 +159,16 @@ async function seedStaging(userId: string): Promise<string> {
       toolName: "mcp.call",
       integration: "mcp",
       riskTier: "high",
-      proposedInput: {},
+      proposedInput,
+      displayInput: proposedInput,
       proposedInputHash: randomUUID(),
       // #559a: the ledger's NOT NULL effect identity and canonical request hash.
       effectKey: `eff:${run.id}:${toolCallId}`,
       attemptKey: `eff:${run.id}:${toolCallId}:1`,
       requestHash: `req_seed_${randomUUID()}`,
       requiresApproval: true,
+      status: "approved",
+      outcome: "dispatching",
     });
   return stagingId;
 }
@@ -179,6 +216,67 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
 
 async function invocationsForStaging(stagingId: string) {
   return db().select().from(mcpInvocation).where(eq(mcpInvocation.stagingId, stagingId));
+}
+
+async function seedRecoverableWrite(protocol: FakeProtocol) {
+  const userId = await seedUser();
+  const connId = await seedConnection(userId);
+  const [servedTool] = protocol.tools;
+  assert.ok(servedTool, "seed recovery tool missing");
+  const remoteName = servedTool.name;
+  const revision = await liveRevision(protocol, connId);
+  const ref: ExternalToolRef = {
+    kind: "mcp",
+    connectionId: connId,
+    remoteName,
+    catalogRevision: revision,
+  };
+  const argumentsValue = { amount: 4200 };
+  const exactInput = stagedCallInput(ref, argumentsValue);
+  protocol.behavior = { kind: "throw", error: new Error("connection reset mid-send") };
+  const stagingId = await seedStaging(userId, exactInput);
+  const first = await brokerWith(protocol).callTool({
+    userId,
+    stagingId,
+    ref,
+    arguments: argumentsValue,
+  });
+  assert.equal(first.status, "ambiguous");
+  if (first.status !== "ambiguous") throw new Error("unreachable");
+  await db()
+    .update(actionStagings)
+    .set({ status: "executed", outcome: "unknown" })
+    .where(eq(actionStagings.id, stagingId));
+  return {
+    userId,
+    connId,
+    stagingId,
+    invocationId: first.invocationId,
+    ref,
+    argumentsValue,
+  };
+}
+
+async function assertPriorRecoveryBarriersUnchanged(input: {
+  invocationId: string;
+  stagingId: string;
+}): Promise<void> {
+  const [prior] = await db()
+    .select()
+    .from(mcpInvocation)
+    .where(eq(mcpInvocation.id, input.invocationId));
+  const [staging] = await db()
+    .select()
+    .from(actionStagings)
+    .where(eq(actionStagings.id, input.stagingId));
+  const successors = await db()
+    .select({ id: mcpInvocation.id })
+    .from(mcpInvocation)
+    .where(eq(mcpInvocation.successorOf, input.invocationId));
+  assert.equal(prior?.resolvedAt, null);
+  assert.equal(prior?.effectOutcome, "unknown");
+  assert.equal(staging?.outcome, "unknown");
+  assert.equal(successors.length, 0);
 }
 
 describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
@@ -321,11 +419,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.ok(row?.resolvedAt);
   });
 
-  test("a definitive tool_error resolves rejected and stays retry-safe", async () => {
+  test("a tool_error after application stays ambiguous and blocks an ordinary repeat", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("create_issue")]);
     protocol.behavior = { kind: "tool_error" };
+    let appliedEffects = 0;
+    protocol.beforeReturn = async () => {
+      appliedEffects += 1;
+    };
     const revision = await liveRevision(protocol, connId);
 
     const broker = brokerWith(protocol);
@@ -339,14 +441,29 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         remoteName: "create_issue",
         catalogRevision: revision,
       },
-      arguments: {},
+      arguments: { title: "x" },
     });
 
-    assert.equal(outcome.status, "tool_error");
+    assert.equal(outcome.status, "ambiguous");
+    assert.equal(appliedEffects, 1, "the provider applied the effect before returning isError");
     const [row] = await invocationsForStaging(stagingId);
-    assert.equal(row?.effectOutcome, "rejected");
-    assert.equal(row?.retryDisposition, "safe");
-    assert.ok(row?.resolvedAt);
+    assert.equal(row?.effectOutcome, "unknown");
+    assert.equal(row?.retryDisposition, "blocked");
+    assert.equal(row?.resolvedAt, null);
+
+    const repeated = await broker.callTool({
+      userId,
+      stagingId: await seedStaging(userId),
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "create_issue",
+        catalogRevision: revision,
+      },
+      arguments: { title: "x" },
+    });
+    assert.equal(repeated.status, "blocked");
+    assert.equal(appliedEffects, 1, "an ordinary model repeat cannot apply the effect again");
   });
 
   test("a possibly-delivered failure resolves ambiguous and blocks an identical repeat", async () => {
@@ -547,28 +664,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(second.priorInvocationId, firstOutcome.invocationId);
     assert.equal(protocol.calls, 1, "reconnect must not replay a possibly-delivered write");
 
-    // Only the host-owned successor path may authorize a second attempt. It
-    // resolves the prior and mints exactly one tied successor; a fresh model
-    // proposal still cannot self-authorize (it now collides with the successor).
-    const successorResult = await createSuccessorInvocation({
-      priorId: firstOutcome.invocationId,
-      priorResolutionReason: "superseded_by_successor",
-      successor: {
-        stagingId: await seedStaging(userId),
-        userId,
-        connectionId: connId,
-        remoteName: "charge_card",
-        argsHash: canonicalArgsHash(args),
-      },
-    });
-    assert.ok(successorResult.ok);
-    assert.equal(successorResult.successor.successorOf, firstOutcome.invocationId);
-    const [prior] = await db()
-      .select()
-      .from(mcpInvocation)
-      .where(eq(mcpInvocation.id, firstOutcome.invocationId));
-    assert.ok(prior?.resolvedAt, "the successor path resolves the prior invocation");
-
+    // A model proposal cannot authorize the explicit recovery path.
     const stillBlocked = await reconnectedBroker.callTool({
       userId,
       stagingId: await seedStaging(userId),
@@ -577,6 +673,605 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     });
     assert.equal(stillBlocked.status, "blocked");
     assert.equal(protocol.calls, 1, "a model proposal can never self-authorize a successor");
+  });
+
+  test("an explicit recovery successor sends once and a repeated post only reads it", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const revision = await liveRevision(protocol, connId);
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connId,
+      remoteName: "charge_card",
+      catalogRevision: revision,
+    };
+    const args = { amount: 4200 };
+    const exactInput = stagedCallInput(ref, args);
+    protocol.behavior = {
+      kind: "throw",
+      error: new SdkHttpError(
+        SdkErrorCode.ClientHttpFailedToOpenStream,
+        "session expired mid-call",
+        { status: 404 },
+      ),
+    };
+    const firstBroker = brokerWith(protocol);
+    const stagingId = await seedStaging(userId, exactInput);
+    const first = await firstBroker.callTool({ userId, stagingId, ref, arguments: args });
+    assert.equal(first.status, "ambiguous");
+    if (first.status !== "ambiguous") throw new Error("unreachable");
+    await db()
+      .update(actionStagings)
+      .set({ status: "executed", outcome: "unknown" })
+      .where(eq(actionStagings.id, stagingId));
+
+    protocol.behavior = { kind: "ok" };
+    const recoveryBroker = brokerWith(protocol);
+    _setMcpExecutionBrokerForTests(recoveryBroker);
+    try {
+      const recovered = await retryMcpRecoveryOperation({
+        userId,
+        invocationId: first.invocationId,
+      });
+      assert.equal(recovered.status, "completed");
+      assert.ok(recovered.successorInvocationId);
+      assert.equal(protocol.calls, 2, "the user-authorized successor sends once");
+
+      const repeated = await retryMcpRecoveryOperation({
+        userId,
+        invocationId: first.invocationId,
+      });
+      assert.equal(repeated.status, "blocked");
+      assert.equal(repeated.successorInvocationId, recovered.successorInvocationId);
+      assert.equal(protocol.calls, 2, "a repeated HTTP post cannot send the successor again");
+
+      const [prior] = await db()
+        .select()
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.id, first.invocationId));
+      const [successor] = await db()
+        .select()
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
+      const [successorStaging] = await db()
+        .select()
+        .from(actionStagings)
+        .where(eq(actionStagings.id, successor?.stagingId ?? "missing"));
+      assert.equal(prior?.resolutionReason, "superseded_by_user_successor");
+      assert.equal(successor?.successorOf, prior?.id);
+      assert.equal(successor?.effectOutcome, "succeeded");
+      assert.equal(successorStaging?.outcome, "succeeded");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+  });
+
+  test("a recovery successor tool_error stays ambiguous after the provider applies an effect", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "tool_error" };
+    let appliedEffects = 0;
+    protocol.beforeReturn = async () => {
+      appliedEffects += 1;
+    };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      const recovered = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(recovered.status, "ambiguous");
+      assert.equal(appliedEffects, 1);
+      const [successor] = await db()
+        .select()
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
+      assert.equal(successor?.attemptLifecycle, "response_received");
+      assert.equal(successor?.effectOutcome, "unknown");
+      assert.equal(successor?.retryDisposition, "blocked");
+      assert.equal(successor?.resolvedAt, null);
+
+      const repeated = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(repeated.status, "blocked");
+      assert.equal(appliedEffects, 1, "the ambiguous successor cannot be sent again");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+  });
+
+  test("a pre-claim failure stays visible and only a fresh explicit post resumes it", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    const callsAfterAmbiguousAttempt = protocol.calls;
+
+    protocol.behavior = { kind: "ok" };
+    protocol.connectError = new Error("recovery connect failed before claim");
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      await assert.rejects(
+        retryMcpRecoveryOperation({
+          userId: seeded.userId,
+          invocationId: seeded.invocationId,
+        }),
+        /recovery connect failed before claim/,
+      );
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+
+    assert.equal(
+      protocol.calls,
+      callsAfterAmbiguousAttempt,
+      "a failure before the prepared claim cannot send",
+    );
+    const operationsAfterFailure = (await listMcpRecoveryOperations({ userId: seeded.userId }))
+      .operations;
+    assert.equal(operationsAfterFailure.length, 1);
+    const prepared = operationsAfterFailure[0];
+    assert.ok(prepared);
+    assert.equal(prepared.successorOf, seeded.invocationId);
+    assert.equal(prepared.attemptLifecycle, "prepared");
+    assert.equal(prepared.effectOutcome, null);
+    assert.equal(prepared.deliveryPossibleAt, null);
+
+    const boot = await reconcileInflightInvocations(seeded.userId);
+    assert.equal(boot.abandoned, 0, "boot keeps the user-authorized reservation");
+    assert.equal(
+      protocol.calls,
+      callsAfterAmbiguousAttempt,
+      "boot reconciliation never delivers a successor",
+    );
+
+    protocol.connectError = undefined;
+    const refreshedRevision = await liveRevision(protocol, seeded.connId);
+    assert.equal(refreshedRevision, seeded.ref.catalogRevision);
+    assert.equal(
+      protocol.calls,
+      callsAfterAmbiguousAttempt,
+      "catalog reconnect is a read and does not deliver the prepared successor",
+    );
+    const reconnectedBroker = brokerWith(protocol);
+    assert.equal(
+      protocol.calls,
+      callsAfterAmbiguousAttempt,
+      "constructing a reconnected broker does not deliver",
+    );
+    _setMcpExecutionBrokerForTests(reconnectedBroker);
+    try {
+      const resumed = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: prepared.invocationId,
+      });
+      assert.equal(resumed.status, "completed");
+      assert.equal(resumed.invocationId, seeded.invocationId);
+      assert.equal(resumed.successorInvocationId, prepared.invocationId);
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+    assert.equal(protocol.calls, callsAfterAmbiguousAttempt + 1, "the fresh post sends once");
+    assert.equal((await listMcpRecoveryOperations({ userId: seeded.userId })).operations.length, 0);
+  });
+
+  test("a concurrent catalog publication is observed before either prior barrier moves", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "ok" };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    let retryPromise: ReturnType<typeof retryMcpRecoveryOperation> | undefined;
+    try {
+      await db().transaction(async (tx) => {
+        await tx
+          .select({ id: mcpConnections.id })
+          .from(mcpConnections)
+          .where(eq(mcpConnections.id, seeded.connId))
+          .for("update");
+        retryPromise = retryMcpRecoveryOperation({
+          userId: seeded.userId,
+          invocationId: seeded.invocationId,
+        });
+        const changedTool = { ...tool("charge_card"), description: "changed authority" };
+        await publishCatalogRevision(
+          {
+            connectionId: seeded.connId,
+            revisionHash: `sha256:${randomUUID()}`,
+            descriptors: [changedTool],
+            descriptorHashes: { charge_card: descriptorHash(changedTool) },
+            toolCount: 1,
+          },
+          tx,
+        );
+      });
+      assert.ok(retryPromise);
+      await assert.rejects(retryPromise, /MCP tool changed/);
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+    await assertPriorRecoveryBarriersUnchanged(seeded);
+    assert.equal(protocol.calls, 1, "catalog drift is rejected before a successor send");
+  });
+
+  test("a concurrent first policy publication is observed before either prior barrier moves", async () => {
+    const servedTool = tool("charge_card");
+    const protocol = new FakeProtocol([servedTool]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "ok" };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    let retryPromise: ReturnType<typeof retryMcpRecoveryOperation> | undefined;
+    try {
+      await db().transaction(async (tx) => {
+        await tx
+          .select({ id: mcpConnections.id })
+          .from(mcpConnections)
+          .where(eq(mcpConnections.id, seeded.connId))
+          .for("update");
+        retryPromise = retryMcpRecoveryOperation({
+          userId: seeded.userId,
+          invocationId: seeded.invocationId,
+        });
+        await upsertToolPolicy(
+          {
+            userId: seeded.userId,
+            connectionId: seeded.connId,
+            remoteName: "charge_card",
+            descriptorHash: descriptorHash(servedTool),
+            policyRevision: 1,
+            riskTier: "high",
+            effectClass: "write",
+            retryContract: "never",
+          },
+          tx,
+        );
+      });
+      assert.ok(retryPromise);
+      await assert.rejects(retryPromise, /MCP tool changed/);
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+    await assertPriorRecoveryBarriersUnchanged(seeded);
+    assert.equal(protocol.calls, 1, "policy drift is rejected before a successor send");
+  });
+
+  test("a concurrent ownership transfer is observed before either prior barrier moves", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    const attackerId = await seedUser();
+    const attackerConnection = await ensureConnection({
+      userId: attackerId,
+      label: "Attacker MCP",
+      instanceKey: "default",
+      canonicalResource: `mcp://attacker/${randomUUID()}`,
+      endpoint: new URL("https://attacker.example.test/mcp"),
+    });
+    protocol.behavior = { kind: "ok" };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    let retryPromise: ReturnType<typeof retryMcpRecoveryOperation> | undefined;
+    try {
+      await db().transaction(async (tx) => {
+        await tx
+          .select({ id: mcpConnections.id })
+          .from(mcpConnections)
+          .where(eq(mcpConnections.id, seeded.connId))
+          .for("update");
+        retryPromise = retryMcpRecoveryOperation({
+          userId: seeded.userId,
+          invocationId: seeded.invocationId,
+        });
+        // The attacker already holds `default` on this server, and
+        // `(user_id, server_id, instance_key)` is unique, so the transferred row
+        // takes its own instance key.
+        await tx
+          .update(mcpConnections)
+          .set({
+            userId: attackerId,
+            serverId: attackerConnection.serverId,
+            instanceKey: "transferred",
+          })
+          .where(eq(mcpConnections.id, seeded.connId));
+      });
+      assert.ok(retryPromise);
+      await assert.rejects(retryPromise, /MCP recovery operation not found/);
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+    await assertPriorRecoveryBarriersUnchanged(seeded);
+    assert.equal(protocol.calls, 1, "ownership drift is rejected before a successor send");
+  });
+
+  test("successor settlement cannot overwrite an already-settled state", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "ok" };
+    protocol.beforeReturn = async () => {
+      const [successor] = await db()
+        .select()
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+      assert.ok(successor);
+      const now = new Date();
+      await db().transaction(async (tx) => {
+        await tx
+          .update(mcpInvocation)
+          .set({
+            attemptLifecycle: "response_received",
+            effectOutcome: "succeeded",
+            retryDisposition: "safe",
+            resolvedAt: now,
+            resolutionReason: "concurrent_settlement",
+          })
+          .where(eq(mcpInvocation.id, successor.id));
+        await tx
+          .update(actionStagings)
+          .set({ status: "executed", outcome: "succeeded", executedAt: now })
+          .where(eq(actionStagings.id, successor.stagingId));
+      });
+    };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      const result = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(result.status, "ambiguous");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+
+    const [successor] = await db()
+      .select()
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+    assert.equal(successor?.effectOutcome, "succeeded");
+    assert.equal(successor?.resolutionReason, "concurrent_settlement");
+    assert.equal(protocol.calls, 2, "the guarded failure cannot cause a second send");
+  });
+
+  test("a post-response settlement failure is immediately visible without another send", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "ok" };
+    protocol.beforeReturn = async () => {
+      const [successor] = await db()
+        .select({ stagingId: mcpInvocation.stagingId })
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+      assert.ok(successor);
+      // Force the first settlement transaction's staging guard to fail after
+      // the provider has returned. The broker's local fallback must align this
+      // split state without calling the provider again.
+      await db()
+        .update(actionStagings)
+        .set({ outcome: "planned" })
+        .where(eq(actionStagings.id, successor.stagingId));
+    };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      const result = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(result.status, "ambiguous");
+      assert.equal(protocol.calls, 2, "the authorized successor was sent exactly once");
+
+      const operations = (await listMcpRecoveryOperations({ userId: seeded.userId })).operations;
+      assert.equal(operations.length, 1, "the unsettled response is visible before boot");
+      const visible = operations[0];
+      assert.equal(visible?.invocationId, result.successorInvocationId);
+      assert.equal(visible?.attemptLifecycle, "response_received");
+      assert.equal(visible?.effectOutcome, "unknown");
+      assert.equal(visible?.retryDisposition, "blocked");
+
+      const repeated = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(repeated.status, "blocked");
+      assert.equal(protocol.calls, 2, "recovery visibility does not create a resend");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+  });
+
+  test("normal provider effect and settlement failure stay recoverable through dispatcher and boot", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("create_issue")]);
+    const revision = await liveRevision(protocol, connId);
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connId,
+      remoteName: "create_issue",
+      catalogRevision: revision,
+    };
+    const stagingId = await seedStaging(userId, stagedCallInput(ref, { title: "one" }));
+    let appliedEffects = 0;
+    protocol.beforeReturn = async () => {
+      appliedEffects += 1;
+      await db()
+        .update(actionStagings)
+        .set({ outcome: "planned" })
+        .where(eq(actionStagings.id, stagingId));
+    };
+    const broker = brokerWith(protocol);
+    const outcome = await broker.callTool({
+      userId,
+      stagingId,
+      ref,
+      arguments: { title: "one" },
+    });
+    assert.equal(outcome.status, "ambiguous");
+    assert.equal(appliedEffects, 1);
+
+    // This is the generic dispatcher's terminal commit after the broker returns.
+    await db()
+      .update(actionStagings)
+      .set({ status: "executed", outcome: "unknown" })
+      .where(eq(actionStagings.id, stagingId));
+    const visibleWithoutBoot = (await listMcpRecoveryOperations({ userId })).operations;
+    assert.equal(visibleWithoutBoot.length, 1);
+    assert.equal(visibleWithoutBoot[0]?.invocationId, outcome.invocationId);
+
+    const boot = await reconcileInflightInvocations(userId);
+    assert.equal(boot.markedUnknown, 0);
+    assert.equal(boot.alignedStagingBarriers, 0);
+    const resolved = await resolveMcpRecoveryOperation({
+      userId,
+      invocationId: outcome.invocationId!,
+      decision: "confirmed_not_applied",
+    });
+    assert.equal(resolved.status, "resolved");
+    assert.equal(protocol.calls, 1, "repair, list, boot, and resolution never resend");
+  });
+
+  test("a successor provider throw plus settlement failure is visible and never resent", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "throw", error: new Error("reset after provider effect") };
+    protocol.beforeReturn = async () => {
+      const [successor] = await db()
+        .select({ stagingId: mcpInvocation.stagingId })
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+      assert.ok(successor);
+      await db()
+        .update(actionStagings)
+        .set({ outcome: "planned" })
+        .where(eq(actionStagings.id, successor.stagingId));
+    };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      const result = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(result.status, "ambiguous");
+      const operations = (await listMcpRecoveryOperations({ userId: seeded.userId })).operations;
+      assert.equal(operations.length, 1);
+      assert.equal(operations[0]?.invocationId, result.successorInvocationId);
+      const repeated = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(repeated.status, "blocked");
+      assert.equal(protocol.calls, 2, "the possibly-delivered successor is not resent");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+  });
+
+  test("a failed local settlement repair is counted by the pure read and retried by the drain", async () => {
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const seeded = await seedRecoverableWrite(protocol);
+    protocol.behavior = { kind: "ok" };
+    let successorStagingId = "";
+    protocol.beforeReturn = async () => {
+      const [successor] = await db()
+        .select({ stagingId: mcpInvocation.stagingId })
+        .from(mcpInvocation)
+        .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+      assert.ok(successor);
+      successorStagingId = successor.stagingId;
+      // `refused` is not a value the aggregate settle or the incomplete mark
+      // accepts, so the first repair genuinely fails and the row stays queued.
+      await db()
+        .update(actionStagings)
+        .set({ status: "failed", outcome: "refused" })
+        .where(eq(actionStagings.id, successor.stagingId));
+    };
+    const broker = brokerWith(protocol);
+    _setMcpExecutionBrokerForTests(broker);
+    try {
+      const result = await retryMcpRecoveryOperation({
+        userId: seeded.userId,
+        invocationId: seeded.invocationId,
+      });
+      assert.equal(result.status, "ambiguous");
+      assert.ok(successorStagingId);
+
+      const callsBeforeGet = protocol.calls;
+      const counted = await listMcpRecoveryOperations({ userId: seeded.userId });
+      assert.deepEqual(counted.operations, [], "an unsettled successor is not projected");
+      assert.equal(counted.awaitingRepair, 1, "the read reports it instead");
+      assert.equal(protocol.calls, callsBeforeGet, "the read never calls a provider");
+
+      // The dispatcher-shaped terminal value the repair accepts.
+      await db()
+        .update(actionStagings)
+        .set({ status: "failed", outcome: "failed" })
+        .where(eq(actionStagings.id, successorStagingId));
+      const drained = await broker.drainPendingSettlementRepairs();
+      assert.deepEqual(drained, { repaired: 1, remaining: 0 });
+
+      const page = await listMcpRecoveryOperations({ userId: seeded.userId });
+      assert.equal(page.awaitingRepair, 0);
+      assert.equal(page.operations[0]?.invocationId, result.successorInvocationId);
+      assert.equal(protocol.calls, callsBeforeGet, "repair is local only");
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+  });
+
+  test("recovery descriptor drift fails before either prior barrier changes", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const revision = await liveRevision(protocol, connId);
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connId,
+      remoteName: "charge_card",
+      catalogRevision: revision,
+    };
+    const exactInput = stagedCallInput(ref, { amount: 4200 });
+    protocol.behavior = { kind: "throw", error: new Error("connection reset mid-send") };
+    const stagingId = await seedStaging(userId, exactInput);
+    const first = await brokerWith(protocol).callTool({
+      userId,
+      stagingId,
+      ref,
+      arguments: exactInput.arguments,
+    });
+    assert.equal(first.status, "ambiguous");
+    if (first.status !== "ambiguous") throw new Error("unreachable");
+    await db()
+      .update(actionStagings)
+      .set({ status: "executed", outcome: "unknown" })
+      .where(eq(actionStagings.id, stagingId));
+    await db()
+      .update(mcpInvocation)
+      .set({ descriptorHash: "sha256:drift" })
+      .where(eq(mcpInvocation.id, first.invocationId));
+
+    protocol.behavior = { kind: "ok" };
+    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    try {
+      await assert.rejects(
+        retryMcpRecoveryOperation({ userId, invocationId: first.invocationId }),
+        /MCP tool changed/,
+      );
+    } finally {
+      _setMcpExecutionBrokerForTests(undefined);
+    }
+
+    const [prior] = await db()
+      .select()
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.id, first.invocationId));
+    const [staging] = await db()
+      .select()
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+    const successors = await db()
+      .select({ id: mcpInvocation.id })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.successorOf, first.invocationId));
+    assert.equal(prior?.resolvedAt, null);
+    assert.equal(staging?.outcome, "unknown");
+    assert.equal(successors.length, 0);
+    assert.equal(protocol.calls, 1);
   });
 
   // Invalid/malformed output after possible delivery is NOT a proven non-delivery:
@@ -692,7 +1387,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
   // #541: the broker persists a payload-free result-provenance envelope onto the
   // ledger row, separately from the sanitized model projection, whenever a
-  // response is received — for a clean success AND a definitive tool_error.
+  // response is received — for a clean success AND an ambiguous tool_error.
   test("a received response persists the result-provenance envelope on the ledger row", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -737,7 +1432,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { title: "y" },
     });
-    assert.equal(errOutcome.status, "tool_error");
+    assert.equal(errOutcome.status, "ambiguous");
     const [errRow] = await invocationsForStaging(errStaging);
     assert.equal(errRow?.resultProvenance?.isError, true);
     assert.deepEqual(errRow?.resultProvenance?.contentKinds, { text: 1 });

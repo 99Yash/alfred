@@ -1,4 +1,8 @@
-import { Errors } from "@alfred/contracts";
+import {
+  Errors,
+  mcpRecoveryDecisionBodySchema,
+  mcpRecoveryOperationsPageQuerySchema,
+} from "@alfred/contracts";
 import type { McpConnection } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t, type Context } from "elysia";
@@ -23,6 +27,11 @@ import {
   type McpEndpointNetworkPolicy,
   type McpOAuthProviderForConnectionInput,
 } from "@alfred/assistant/connections/mcp";
+import {
+  listMcpRecoveryOperations,
+  resolveMcpRecoveryOperation,
+  retryMcpRecoveryOperation,
+} from "@alfred/assistant/tool-runtime/mcp";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
@@ -182,6 +191,47 @@ export const mcpIntegrationRoutes = new Elysia({
         const connections = await listOwnedConnections(user.id);
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
+      // The recovery read is pure: it never repairs a row, so a focus refetch
+      // costs one query pair and no broker construction.
+      .get(
+        "/recovery",
+        async ({ query, user }) =>
+          listMcpRecoveryOperations({
+            userId: user.id,
+            ...(query.cursor ? { cursor: query.cursor } : {}),
+          }),
+        { query: mcpRecoveryOperationsPageQuerySchema },
+      )
+      .post(
+        "/recovery/:invocationId/resolve",
+        async ({ body, params, user }) =>
+          resolveMcpRecoveryOperation({
+            userId: user.id,
+            invocationId: params.invocationId,
+            decision: body.decision,
+          }),
+        {
+          params: t.Object({ invocationId: t.String({ minLength: 1 }) }),
+          // The same Zod schema the contract publishes, validated once by Elysia,
+          // exactly as the GET above validates its `query`.
+          body: mcpRecoveryDecisionBodySchema,
+        },
+      )
+      // The request signal is deliberately NOT threaded into the successor send.
+      // A closed tab must not abort a write that is already `delivery_possible`;
+      // the broker's own request timeout is the only bound.
+      .post(
+        "/recovery/:invocationId/successor",
+        async ({ params, user }) =>
+          retryMcpRecoveryOperation({
+            userId: user.id,
+            invocationId: params.invocationId,
+          }),
+        {
+          params: t.Object({ invocationId: t.String({ minLength: 1 }) }),
+          body: t.Undefined(),
+        },
+      )
       .get("/github/connect", async ({ user, set }) => {
         let authorizationUrl: URL | null;
         try {

@@ -18,6 +18,26 @@
  *
  * The in-memory adapter deliberately lives in `test/`, not here — a fake in
  * `src/` is a runtime someone can select in production.
+ *
+ * `action_stagings` has a SECOND owner, and it is declared here so it is not a
+ * hidden one: `tool-runtime/mcp`. The MCP broker settles an invocation and its
+ * staging row as one aggregate, because the two rows are one ambiguity barrier
+ * and must move together. Its writers, all outside this port:
+ *
+ *   - `mcp/broker.ts` — the aggregate settle after a `tools/call`, and the
+ *     `unknown` mark a failed settlement leaves behind for a later repair;
+ *   - `mcp/invocations.ts` — boot reconciliation aligns a split barrier;
+ *   - `mcp/recovery.ts` — a user decision resolves the row, and an explicit
+ *     successor supersedes it and mints the next attempt of the SAME effect
+ *     (same `effect_key`, next `attempt_key`).
+ *
+ * The second WHERE arm in `commitStaging` exists for that owner: when the
+ * broker's aggregate has already written the terminal outcome the dispatcher is
+ * about to commit, the dispatcher's commit must still land its result payload
+ * instead of reading as a lost update. A `tx`-accepting `settleEffect` /
+ * `supersede` pair on this port would fold the MCP writers back into the one
+ * minter; that is the shape to reach for when this port gains a transaction
+ * parameter.
  */
 
 import type {
@@ -41,7 +61,7 @@ import {
   type ActionStaging,
   type NewActionStaging,
 } from "@alfred/db/schemas";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 
@@ -190,8 +210,17 @@ export interface StagingStore {
     promotion: PendingApprovalPromotion,
   ): Promise<StagingRow | null>;
 
-  /** Terminal commit onto an existing row. Bumps `row_version`. */
-  commitStaging(stagingId: string, commit: StagingCommit): Promise<void>;
+  /**
+   * Terminal commit onto the exact state the dispatcher observed, or enrich the
+   * same terminal outcome after the broker aggregate advanced it without a
+   * model-facing result. Returns false for a different terminal outcome, so a
+   * stale outer dispatch cannot reopen only the staging half of a settled effect.
+   */
+  commitStaging(
+    stagingId: string,
+    expected: Pick<StagingRow, "status" | "outcome">,
+    commit: StagingCommit,
+  ): Promise<boolean>;
 }
 
 const STAGING_COLUMNS = {
@@ -395,18 +424,33 @@ export const postgresStagingStore: StagingStore = {
     return row ? parseStagingRow(row) : null;
   },
 
-  async commitStaging(stagingId, commit) {
-    // The single-threaded-per-run executor model (one worker holds the lease)
-    // is what guarantees no other process can interleave a status flip between
-    // the tool's return and this UPDATE; if that invariant ever changes, add
-    // `AND status IN ('pending', 'approved')` here.
-    await db()
+  async commitStaging(stagingId, expected, commit) {
+    const [updated] = await db()
       .update(actionStagings)
       .set({
         ...commitColumns(commit),
         rowVersion: sql`${actionStagings.rowVersion} + 1`,
       })
-      .where(eq(actionStagings.id, stagingId));
+      .where(
+        and(
+          eq(actionStagings.id, stagingId),
+          or(
+            and(
+              eq(actionStagings.status, expected.status),
+              eq(actionStagings.outcome, expected.outcome),
+            ),
+            and(
+              eq(actionStagings.status, commit.status),
+              eq(actionStagings.outcome, commit.outcome),
+              commit.status === "executed"
+                ? isNull(actionStagings.executeResult)
+                : isNull(actionStagings.executeError),
+            ),
+          ),
+        ),
+      )
+      .returning({ id: actionStagings.id });
+    return Boolean(updated);
   },
 };
 

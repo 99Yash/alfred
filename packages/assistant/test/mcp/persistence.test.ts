@@ -26,22 +26,25 @@ import {
   updateConnection,
 } from "../../src/connections/mcp/persistence";
 import {
-  createSuccessorInvocation,
   findUnresolvedBarrier,
-  insertInvocation,
   reconcileInflightInvocations,
   readToolPolicy,
   resolveMcpToolIdentity,
-  updateInvocation,
   upsertToolPolicy,
 } from "../../src/tool-runtime/mcp/invocations";
+import {
+  patchMcpInvocationForTests,
+  reserveMcpInvocationForTests,
+  seedMcpInvocationForTests,
+} from "../../src/tool-runtime/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the MCP persistence layer (PRD #540). They exercise the
- * three genuinely-atomic operations the broker rests on — the catalog-revision
- * publish (idempotent insert + pointer advance), the ledger barrier
- * reservation, and the successor mint — plus the boot reconcile sweep. Pure
+ * atomic operations the broker rests on — the catalog-revision publish
+ * (idempotent insert + pointer advance) and the ledger barrier reservation —
+ * plus the boot reconcile sweep. Explicit successor behavior lives in
+ * recovery.test.ts, where both durable barriers can be asserted together. Pure
  * row access is covered incidentally by the fixtures.
  *
  * Opt-in on `DATABASE_URL` (mirrors dispatch/staging.test.ts): seeds throwaway
@@ -350,7 +353,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "read",
       retryContract: "never",
     });
-    const invocation = await insertInvocation({
+    const invocation = await reserveMcpInvocationForTests({
       userId,
       connectionId: migratedConnectionId,
       remoteName: "search_repositories",
@@ -477,6 +480,23 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal((await readCurrentRevision(connId))?.id, revB.id);
     // The old revision is still readable (append-only history).
     assert.ok(await readRevisionByHash(connId, "sha256:aaa"));
+  });
+
+  test("catalog publication rejects a descriptor order outside the canonical shape", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+
+    await assert.rejects(
+      () =>
+        publishCatalogRevision({
+          connectionId: connId,
+          revisionHash: "sha256:unsorted",
+          descriptors: [{ name: "tool_b" }, { name: "tool_a" }],
+          descriptorHashes: { tool_a: "sha256:h_a", tool_b: "sha256:h_b" },
+          toolCount: 2,
+        }),
+      /canonical tool-name order/,
+    );
   });
 
   test("catalog pointer compare-and-swap rejects a stale publisher", async () => {
@@ -612,7 +632,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       argsHash: "sha256:args1",
     };
 
-    const first = await insertInvocation({
+    const first = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
       effectClass: "write",
@@ -620,7 +640,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(first.ok, true);
 
     // A second, distinct staging with the SAME barrier key is rejected.
-    const second = await insertInvocation({
+    const second = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
       effectClass: "write",
@@ -633,11 +653,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     // Resolving the prior frees the barrier — an identical insert now succeeds.
     assert.ok(first.ok);
-    await updateInvocation(first.invocation.id, {
+    await patchMcpInvocationForTests(first.invocation.id, {
       resolvedAt: new Date(),
       resolutionReason: "succeeded",
     });
-    const third = await insertInvocation({
+    const third = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
       effectClass: "write",
@@ -650,7 +670,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const connId = await seedConnection(userId);
     const stagingId = await seedStaging(userId);
 
-    const first = await insertInvocation({
+    const first = await reserveMcpInvocationForTests({
       userId,
       connectionId: connId,
       remoteName: "t",
@@ -661,7 +681,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(first.ok, true);
 
     // Same staging id, different barrier key → the 1:1 staging index fires.
-    const dup = await insertInvocation({
+    const dup = await reserveMcpInvocationForTests({
       userId,
       connectionId: connId,
       remoteName: "t",
@@ -672,85 +692,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(dup, { ok: false, reason: "duplicate_staging" });
   });
 
-  test("createSuccessorInvocation resolves prior and clears the barrier", async () => {
-    const userId = await seedUser();
-    const connId = await seedConnection(userId);
-    const key = {
-      userId,
-      connectionId: connId,
-      remoteName: "charge_card",
-      argsHash: "sha256:pay1",
-    };
-
-    const prior = await insertInvocation({
-      ...key,
-      stagingId: await seedStaging(userId),
-      effectClass: "write",
-      attemptLifecycle: "delivery_possible",
-      effectOutcome: "unknown",
-    });
-    assert.ok(prior.ok);
-
-    const result = await createSuccessorInvocation({
-      priorId: prior.invocation.id,
-      priorResolutionReason: "superseded_by_successor",
-      successor: { ...key, stagingId: await seedStaging(userId), effectClass: "write" },
-    });
-    assert.ok(result.ok);
-    assert.equal(result.successor.successorOf, prior.invocation.id);
-
-    // Exactly one unresolved row for the key now — the successor.
-    const barrier = await findUnresolvedBarrier(key);
-    assert.equal(barrier?.id, result.successor.id);
-
-    // The prior is resolved.
-    const [priorRow] = await db()
-      .select({ resolvedAt: mcpInvocation.resolvedAt })
-      .from(mcpInvocation)
-      .where(eq(mcpInvocation.id, prior.invocation.id));
-    assert.ok(priorRow?.resolvedAt);
-  });
-
-  test("createSuccessorInvocation refuses when the prior is already resolved", async () => {
-    const userId = await seedUser();
-    const connId = await seedConnection(userId);
-    const key = {
-      userId,
-      connectionId: connId,
-      remoteName: "charge_card",
-      argsHash: "sha256:pay-resolved",
-    };
-
-    // A prior that is already resolved (a definitive success, say): there is no
-    // unresolved ambiguity left to supersede.
-    const prior = await insertInvocation({
-      ...key,
-      stagingId: await seedStaging(userId),
-      effectClass: "write",
-      attemptLifecycle: "response_received",
-      effectOutcome: "succeeded",
-      resolvedAt: new Date(),
-      resolutionReason: "succeeded",
-    });
-    assert.ok(prior.ok);
-
-    const result = await createSuccessorInvocation({
-      priorId: prior.invocation.id,
-      priorResolutionReason: "superseded_by_successor",
-      successor: { ...key, stagingId: await seedStaging(userId), effectClass: "write" },
-    });
-    assert.deepEqual(result, { ok: false, reason: "prior_already_resolved" });
-
-    // No successor was minted — no unresolved barrier for the key.
-    const barrier = await findUnresolvedBarrier(key);
-    assert.equal(barrier, undefined);
-  });
-
   test("reconcile sweeps prepared, read, and effectful in-flight rows", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
 
-    const prepared = await insertInvocation({
+    const prepared = await seedMcpInvocationForTests({
       userId,
       connectionId: connId,
       remoteName: "a",
@@ -759,7 +705,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "write",
       attemptLifecycle: "prepared",
     });
-    const readInflight = await insertInvocation({
+    const readInflight = await seedMcpInvocationForTests({
       userId,
       connectionId: connId,
       remoteName: "b",
@@ -768,33 +714,39 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "read",
       attemptLifecycle: "delivery_possible",
     });
-    const writeInflight = await insertInvocation({
+    const writeStagingId = await seedStaging(userId);
+    const writeInflight = await seedMcpInvocationForTests({
       userId,
       connectionId: connId,
       remoteName: "c",
       argsHash: "sha256:3",
-      stagingId: await seedStaging(userId),
+      stagingId: writeStagingId,
       effectClass: "write",
       attemptLifecycle: "delivery_possible",
     });
-    assert.ok(prepared.ok && readInflight.ok && writeInflight.ok);
-
+    assert.equal(readInflight.attemptLifecycle, "delivery_possible");
     const summary = await reconcileInflightInvocations(userId);
     assert.equal(summary.abandoned, 1);
     assert.equal(summary.resolvedReads, 1);
     assert.equal(summary.markedUnknown, 1);
+    assert.equal(summary.alignedStagingBarriers, 1);
 
     // prepared + read are resolved; the effectful write stays BLOCKED (unresolved).
     const rows = await db()
       .select()
       .from(mcpInvocation)
-      .where(inArray(mcpInvocation.id, [prepared.invocation.id, writeInflight.invocation.id]));
+      .where(inArray(mcpInvocation.id, [prepared.id, writeInflight.id]));
     const byId = new Map(rows.map((r) => [r.id, r]));
-    assert.ok(byId.get(prepared.invocation.id)?.resolvedAt);
-    const write = byId.get(writeInflight.invocation.id);
+    assert.ok(byId.get(prepared.id)?.resolvedAt);
+    const write = byId.get(writeInflight.id);
     assert.equal(write?.resolvedAt, null);
     assert.equal(write?.effectOutcome, "unknown");
     assert.equal(write?.retryDisposition, "blocked");
+    const [writeStaging] = await db()
+      .select({ outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, writeStagingId));
+    assert.equal(writeStaging?.outcome, "unknown");
   });
 
   test("a crash after delivery_possible blocks an identical fresh proposal on resume", async () => {
@@ -809,33 +761,75 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     // A process died right after crossing the delivery boundary: a
     // `delivery_possible` write row with no outcome yet.
-    const crashed = await insertInvocation({
+    const crashedStagingId = await seedStaging(userId);
+    const crashed = await seedMcpInvocationForTests({
       ...key,
-      stagingId: await seedStaging(userId),
+      stagingId: crashedStagingId,
       effectClass: "write",
       attemptLifecycle: "delivery_possible",
     });
-    assert.ok(crashed.ok);
-
     // Boot reconcile normalizes the possibly-delivered write to unknown/blocked
     // WITHOUT resolving it — the barrier must survive the crash.
     await reconcileInflightInvocations(userId);
     const [recovered] = await db()
       .select()
       .from(mcpInvocation)
-      .where(eq(mcpInvocation.id, crashed.invocation.id));
+      .where(eq(mcpInvocation.id, crashed.id));
     assert.equal(recovered?.effectOutcome, "unknown");
     assert.equal(recovered?.retryDisposition, "blocked");
     assert.equal(recovered?.resolvedAt, null);
+    const [recoveredStaging] = await db()
+      .select({ outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, crashedStagingId));
+    assert.equal(recoveredStaging?.outcome, "unknown");
 
     // On resume a fresh `tool_call_id` (new staging) proposing the identical call
     // is refused by the durable barrier — it cannot bypass the recovered unknown.
-    const resumed = await insertInvocation({
+    const resumed = await reserveMcpInvocationForTests({
       ...key,
       stagingId: await seedStaging(userId),
       effectClass: "write",
     });
     assert.deepEqual(resumed, { ok: false, reason: "barrier" });
+  });
+
+  test("boot repairs an unknown invocation whose staging barrier stayed dispatching", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const stagingId = await seedStaging(userId);
+    await db()
+      .update(actionStagings)
+      .set({ status: "approved", outcome: "dispatching" })
+      .where(eq(actionStagings.id, stagingId));
+    const crashed = await seedMcpInvocationForTests({
+      userId,
+      connectionId: connId,
+      remoteName: "send_invoice",
+      argsHash: "sha256:post-broker-crash",
+      stagingId,
+      effectClass: "write",
+      attemptLifecycle: "delivery_possible",
+      effectOutcome: "unknown",
+      retryDisposition: "blocked",
+      deliveryPossibleAt: new Date(),
+    });
+    const firstBoot = await reconcileInflightInvocations(userId);
+    assert.equal(firstBoot.markedUnknown, 0, "the broker had already recorded ambiguity");
+    assert.equal(firstBoot.alignedStagingBarriers, 1);
+    const [staging] = await db()
+      .select({ status: actionStagings.status, outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+    assert.deepEqual(staging, { status: "executed", outcome: "unknown" });
+
+    const secondBoot = await reconcileInflightInvocations(userId);
+    assert.equal(secondBoot.alignedStagingBarriers, 0, "the repair is idempotent");
+    const [invocation] = await db()
+      .select({ resolvedAt: mcpInvocation.resolvedAt })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.id, crashed.id));
+    assert.equal(invocation?.resolvedAt, null, "repair keeps the no-replay barrier unresolved");
   });
 
   test("a connection cannot point at another connection's catalog revision", async () => {
@@ -868,7 +862,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 });
 
 /**
- * The ONE branch of `insertInvocation` no live database can reach, and the one the
+ * The ONE branch of the test reservation helper no live database can reach, and the one the
  * move changed. The barrier classification used to run on a hand-rolled 23505
  * narrowing whose return distinguished three cases by `undefined` vs `""`; it now
  * runs on `@alfred/db`'s canonical `isUniqueViolation` + `uniqueViolationConstraint`
@@ -882,14 +876,16 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
  * injected runner. That is also what makes it worth a test: the case is invisible
  * to every DB-backed assertion in this file.
  */
-describe("insertInvocation unique-violation classification", () => {
+describe("test reservation unique-violation classification", () => {
   /**
    * A minimal drizzle-shaped runner: `stagingCorrelation`'s select resolves, and
    * the ledger insert rejects with `err`. The cast is the test's, not production
    * code's — `DbRunner` is drizzle's full builder surface and only these two
    * chains are reached.
    */
-  function runnerThatRejectsInsertWith(err: unknown): Parameters<typeof insertInvocation>[1] {
+  function runnerThatRejectsInsertWith(
+    err: unknown,
+  ): Parameters<typeof reserveMcpInvocationForTests>[1] {
     const correlation = [{ traceId: "run_fake", stepId: "step_fake", toolCallId: "tc_fake" }];
     // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     return {
@@ -897,7 +893,7 @@ describe("insertInvocation unique-violation classification", () => {
         from: () => ({ where: () => ({ limit: () => Promise.resolve(correlation) }) }),
       }),
       insert: () => ({ values: () => ({ returning: () => Promise.reject(err) }) }),
-    } as unknown as Parameters<typeof insertInvocation>[1];
+    } as unknown as Parameters<typeof reserveMcpInvocationForTests>[1];
   }
 
   /** A wrapped driver error, the shape drizzle actually throws. */
@@ -912,11 +908,11 @@ describe("insertInvocation unique-violation classification", () => {
     stagingId: "stg_fake",
     remoteName: "do_thing",
     argsHash: "sha256:fake",
-  } as unknown as Parameters<typeof insertInvocation>[0];
+  } as unknown as Parameters<typeof reserveMcpInvocationForTests>[0];
   /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
 
   test("an unnamed unique violation still defaults to the barrier", async () => {
-    const result = await insertInvocation(
+    const result = await reserveMcpInvocationForTests(
       values,
       runnerThatRejectsInsertWith(wrappedPgError({ code: "23505" })),
     );
@@ -924,7 +920,7 @@ describe("insertInvocation unique-violation classification", () => {
   });
 
   test("a named staging-index violation is still distinguished", async () => {
-    const result = await insertInvocation(
+    const result = await reserveMcpInvocationForTests(
       values,
       runnerThatRejectsInsertWith(
         wrappedPgError({ code: "23505", constraint: "mcp_invocation_staging_idx" }),
@@ -935,7 +931,10 @@ describe("insertInvocation unique-violation classification", () => {
 
   test("a non-unique-violation error is rethrown, not classified", async () => {
     await assert.rejects(
-      insertInvocation(values, runnerThatRejectsInsertWith(wrappedPgError({ code: "23503" }))),
+      reserveMcpInvocationForTests(
+        values,
+        runnerThatRejectsInsertWith(wrappedPgError({ code: "23503" })),
+      ),
       // The ORIGINAL wrapper is rethrown untouched — not re-wrapped, and not
       // swallowed into a typed result. A foreign-key violation is a real failure.
       /Failed query/,
