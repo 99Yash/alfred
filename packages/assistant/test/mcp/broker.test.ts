@@ -152,8 +152,7 @@ function brokerWith(protocol: FakeProtocol): McpExecutionBroker {
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: new URL(connection.endpointUrl),
-        expectedOrigin: connection.endpointOrigin,
+        endpoint: connection,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
@@ -167,8 +166,7 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: new URL(connection.endpointUrl),
-        expectedOrigin: connection.endpointOrigin,
+        endpoint: connection,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),

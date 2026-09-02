@@ -19,10 +19,12 @@
  *     sanitizer (ADR-0070) strips any residual before persist.
  *
  * SSRF safety — connect-time, not string-deep. Every socket is opened through a
- * custom DNS lookup ({@link pinningLookup}) that resolves the host, rejects the
- * request if *any* resolved address falls in a loopback / link-local / private /
- * CGNAT / multicast / IPv4-mapped range ({@link isBlockedIp}), and pins the
- * connection to that validated address. Because the pin happens at the socket,
+ * pinned dispatcher ({@link createPinnedDispatcher}) whose DNS lookup resolves
+ * the host, rejects the request if *any* resolved address falls in a loopback /
+ * link-local / private / CGNAT / multicast / IPv4-mapped range, and pins the
+ * connection to that validated address. The classifiers and the lookup live in
+ * `connections/hosted-endpoint.ts`, shared with the MCP endpoint guard; this tool
+ * owns only the model-facing sentence. Because the pin happens at the socket,
  * it covers DNS names that resolve to private space (`127.0.0.1.nip.io`),
  * IPv4-mapped IPv6, and — since redirects are followed *manually*, one validated
  * hop at a time ({@link safeRequest}) — a redirect into internal space. SNI and
@@ -50,16 +52,10 @@ import { request as undiciRequest, type Dispatcher } from "undici";
 import {
   createPinnedDispatcher,
   HostedEndpointError,
-  isBlockedHost,
-  isBlockedIp,
+  hostedEndpointErrorFrom,
   isCredentialParamName,
-  pinningLookup,
   validatePublicWebUrl,
-  type DnsLookupAll,
 } from "../../../connections";
-
-export { isBlockedHost, isBlockedIp, pinningLookup };
-export type { DnsLookupAll };
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
 /** Stop reading (and tear down the socket) once a body passes this many bytes. */
@@ -399,7 +395,14 @@ export class FetchError extends Error {
 
 let sharedDispatcher: Dispatcher | undefined;
 function safeDispatcher(): Dispatcher {
-  sharedDispatcher ??= createPinnedDispatcher();
+  // One page read: every phase is bounded by the tool's own deadline.
+  sharedDispatcher ??= createPinnedDispatcher({
+    timeouts: {
+      headersMs: FETCH_TIMEOUT_MS,
+      bodyMs: FETCH_TIMEOUT_MS,
+      connectMs: FETCH_TIMEOUT_MS,
+    },
+  });
   return sharedDispatcher;
 }
 
@@ -485,15 +488,51 @@ function validateUrl(raw: string): URL {
     return validatePublicWebUrl(parsed);
   } catch (error) {
     if (!(error instanceof HostedEndpointError)) throw error;
-    const reason =
-      error.code === "blocked_port"
-        ? "blocked_port"
-        : error.code === "credential_url"
-          ? "credential_url"
-          : error.code === "malformed_url"
-            ? "fetch_failed"
-            : "blocked_host";
-    throw new FetchError(reason, error.message, redactCredentialUrl(parsed.href));
+    throw refusalFor(error, parsed);
+  }
+}
+
+/**
+ * The guard owns codes; this tool owns the sentence the model reads. The text
+ * names the host, port, or scheme from the URL in hand, because "the endpoint
+ * host is private" tells the model nothing about which of its URLs to fix.
+ */
+function refusalFor(error: HostedEndpointError, url: URL): FetchError {
+  const shown = redactCredentialUrl(url.href);
+  switch (error.code) {
+    case "blocked_scheme":
+      return new FetchError(
+        "blocked_host",
+        `Only http(s) URLs can be read; '${url.protocol}' is not supported.`,
+        shown,
+      );
+    case "blocked_host":
+      return new FetchError(
+        "blocked_host",
+        `'${url.hostname}' is a private or internal host and cannot be read.`,
+        shown,
+      );
+    case "blocked_port":
+      return new FetchError(
+        "blocked_port",
+        `Only default web ports are read; port ${url.port} on '${url.hostname}' is not.`,
+        shown,
+      );
+    case "credential_url":
+      return new FetchError(
+        "credential_url",
+        "URLs that carry credentials in the query string are not read.",
+        shown,
+      );
+    case "malformed_url":
+      return new FetchError("fetch_failed", "The URL is malformed.", shown);
+    // The public-URL check never pins an origin or follows a redirect; these
+    // codes belong to the MCP guard and reach here only if that check grows.
+    case "invalid_origin":
+    case "origin_mismatch":
+    case "redirect_refused":
+    case "too_many_redirects":
+      return new FetchError("fetch_failed", error.message, shown);
   }
 }
 
@@ -644,13 +683,11 @@ export async function safeRequest(
       });
     } catch (err) {
       const chain = redirectChain.length > 0 ? [...redirectChain] : undefined;
-      // SAFETY: the throw site above tags the blocked-host error with this
-      // exact `code` via ErrnoException.
-      if ((err as NodeJS.ErrnoException)?.code === "EBLOCKEDHOST") {
-        // SAFETY: the classifier above matched the errno-style error this
-        // module minted (an Error carrying message), so `.message` reads the
-        // same object's own field.
-        const e = new FetchError("blocked_host", (err as Error).message, parsed.toString());
+      // The pinned lookup refused an address at connect time. Its message names
+      // the host and the address it resolved to, which is what the model needs.
+      const hosted = hostedEndpointErrorFrom(err);
+      if (hosted?.code === "blocked_host") {
+        const e = new FetchError("blocked_host", hosted.message, parsed.toString());
         e.redirects = chain;
         throw e;
       }

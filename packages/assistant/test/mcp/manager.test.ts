@@ -99,8 +99,7 @@ function managerWith(protocol: FakeProtocol): McpConnectionManager {
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: new URL(connection.endpointUrl),
-        expectedOrigin: connection.endpointOrigin,
+        endpoint: connection,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
