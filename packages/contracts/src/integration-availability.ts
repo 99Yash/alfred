@@ -1,5 +1,5 @@
 import type { SupportedIntegrationSlug } from "./passthrough";
-import type { LoadableIntegrationSlug } from "./tools";
+import type { LoadableIntegrationSlug } from "./integrations";
 
 export interface ProviderAvailability {
   credentialId: string;

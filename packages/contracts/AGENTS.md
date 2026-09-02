@@ -22,5 +22,6 @@
 - `parseEmailAddress` is the single normalizer and the single source of self-mail matching. Do not hand-parse `Name <addr>` headers or lowercase addresses inline.
 - Canonicalize identity values with `canonicalizeIdentityValue` before comparison, deduplication, or stable-ID minting; reducers and mint chokepoints must share that one normalization rule.
 - Display identifier slugs with `humanizeSlug` and complete tool names with `humanizeToolName`; do not scatter underscore replacement and title-casing across server and web surfaces. An integration's name comes from `INTEGRATION_DISPLAY_NAMES[slug]` (or `integrationDisplayName` for an unchecked string), never from `humanizeSlug`.
+- Read every per-integration fact off the registry entry `INTEGRATIONS[slug]` in `src/integrations.ts` (ADR-0093). Derive a slug-keyed table from the record or key it `satisfies Record<…Slug, T>` on a derived union; do not hand-type a `Partial<Record<IntegrationSlug, …>>`.
 - Narrow dynamic or persisted tool-name strings with `isToolName` before indexing `ToolName` records or dispatching; do not assert them with `as ToolName`.
 - Preserve the documented semantics of canonical serialization and hashing; those operations may intentionally support values beyond plain JSON records.

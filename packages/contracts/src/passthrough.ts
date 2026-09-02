@@ -16,103 +16,31 @@
  * config, and the result shaper — lives beside the curated tools in
  * `@alfred/api` (`modules/tools/passthrough`). The Settings UI reads the
  * coverage/preference exports here so there is no third provider list.
+ *
+ * Which integrations the tier covers, and with which transport, are facts about
+ * the integration, so they live on the registry entry
+ * (`INTEGRATIONS[slug].passthrough` in `./integrations`, ADR-0093). This module
+ * derives the tool names and preference keys from that.
  */
 
 import { z } from "zod";
-import { enumGuard } from "./guards";
 import {
-  isToolName,
-  LOADABLE_INTEGRATION_SLUGS,
-  type LoadableIntegrationSlug,
-  type ToolName,
-} from "./tools";
+  PASSTHROUGH_TRANSPORT,
+  SUPPORTED_PASSTHROUGH_SLUGS,
+  type PassthroughTransportKind,
+  type SupportedPassthroughSlug,
+} from "./integrations";
+import { isToolName, type ToolName } from "./tools";
 
 /**
- * Whether the general tier covers an integration. Exhaustive by construction:
- * {@link GENERAL_INVOCATION_COVERAGE} is `Record<LoadableIntegrationSlug, …>`,
- * so adding a slug to {@link LOADABLE_INTEGRATION_SLUGS} without classifying it
- * here is a compile error — coverage can never silently drift from the canonical
- * slug list.
+ * The slugs the general tier serves: every live provider whose registry entry
+ * has a non-null `passthrough`. The registry name is
+ * {@link SupportedPassthroughSlug}; this alias keeps the older import working.
+ * The API-side handler registry is keyed by it, so giving an entry a
+ * `passthrough` is a compile error until its config, gate, transport, tool
+ * action, and preference are wired.
  */
-export type CoverageDecision = "supported" | "deferred" | "not_applicable";
-
-/**
- * The single source of truth for which integrations the general tier serves.
- *
- * - `supported`: has a live integration client, so a passthrough tool ships.
- * - `deferred`: no live integration client yet (Slack, Linear).
- * - `not_applicable`: no provider API to pass through (iMessage is ingest-only).
- */
-export const GENERAL_INVOCATION_COVERAGE = {
-  gmail: "supported",
-  calendar: "supported",
-  drive: "supported",
-  docs: "supported",
-  sheets: "supported",
-  slides: "supported",
-  slack: "deferred",
-  linear: "deferred",
-  github: "supported",
-  notion: "supported",
-  railway: "supported",
-  vercel: "supported",
-  imessage: "not_applicable",
-} as const satisfies Record<LoadableIntegrationSlug, CoverageDecision>;
-
-/**
- * The type-level subset of integrations marked `supported`. The API-side handler
- * registry is keyed by this, so flipping a coverage decision to `supported` is a
- * compile error until its config, gate, transport, tool action, and preference
- * are wired.
- */
-export type SupportedIntegrationSlug = {
-  [K in LoadableIntegrationSlug]: (typeof GENERAL_INVOCATION_COVERAGE)[K] extends "supported"
-    ? K
-    : never;
-}[LoadableIntegrationSlug];
-
-/** Runtime list of the supported slugs, derived from (and pinned to) the coverage map. */
-export const SUPPORTED_PASSTHROUGH_SLUGS: readonly SupportedIntegrationSlug[] =
-  LOADABLE_INTEGRATION_SLUGS.filter(
-    (slug): slug is SupportedIntegrationSlug => GENERAL_INVOCATION_COVERAGE[slug] === "supported",
-  );
-
-export const isSupportedPassthroughSlug = enumGuard(SUPPORTED_PASSTHROUGH_SLUGS);
-
-/**
- * Transport shape per supported integration. REST providers take a
- * method/path/query/body request; Railway takes a GraphQL document. Keyed by the
- * supported subset so a new supported slug must declare its transport.
- */
-export type PassthroughTransportKind = "rest" | "graphql";
-
-export const PASSTHROUGH_TRANSPORT = {
-  gmail: "rest",
-  calendar: "rest",
-  drive: "rest",
-  docs: "rest",
-  sheets: "rest",
-  slides: "rest",
-  github: "rest",
-  notion: "rest",
-  vercel: "rest",
-  railway: "graphql",
-} as const satisfies Record<SupportedIntegrationSlug, PassthroughTransportKind>;
-
-/** Supported slugs whose transport is REST. */
-export type SupportedRestSlug = {
-  [K in SupportedIntegrationSlug]: (typeof PASSTHROUGH_TRANSPORT)[K] extends "rest" ? K : never;
-}[SupportedIntegrationSlug];
-
-/** Supported slugs whose transport is GraphQL. */
-export type SupportedGraphqlSlug = {
-  [K in SupportedIntegrationSlug]: (typeof PASSTHROUGH_TRANSPORT)[K] extends "graphql" ? K : never;
-}[SupportedIntegrationSlug];
-
-export const SUPPORTED_REST_PASSTHROUGH_SLUGS: readonly SupportedRestSlug[] =
-  SUPPORTED_PASSTHROUGH_SLUGS.filter(
-    (slug): slug is SupportedRestSlug => PASSTHROUGH_TRANSPORT[slug] === "rest",
-  );
+export type SupportedIntegrationSlug = SupportedPassthroughSlug;
 
 /**
  * The tool `action` each transport registers: REST providers expose

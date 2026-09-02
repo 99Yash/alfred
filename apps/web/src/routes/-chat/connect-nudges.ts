@@ -42,7 +42,8 @@ export interface PersistedToolCallSplit {
  * Pull the repair offers out of a persisted turn's tool-call log, deduped by
  * integration under the same rule as the live stream state's map:
  * first-appearance order, last offer wins — so a reload renders exactly what
- * the turn streamed. Everything else in the log is a
+ * the turn streamed. A bounce whose repair the registry no longer recognizes
+ * is dropped outright. Everything else in the log is a
  * drawable card and passes through untouched, so callers feed `cards` to the
  * trail exactly as they fed the raw list before — a bounced entry must never
  * draw as a failed step, inflate the run summary, or leak into source
@@ -58,6 +59,9 @@ export function splitPersistedToolCalls(
       cards.push(call);
       continue;
     }
+    // A bounce whose persisted repair no longer parses (see the sync schema):
+    // neither a card nor an offer.
+    if (call.connectNudge === null) continue;
     offers.set(call.connectNudge.integration, call.connectNudge);
   }
   return { cards, nudges: [...offers.values()] };

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { syncedChatToolCallSchema } from "@alfred/sync";
+
 import type { IntegrationStatus } from "../../src/lib/integrations/integrations";
 import {
   presentConnectNudges,
@@ -70,6 +72,40 @@ describe("splitPersistedToolCalls", () => {
     ]);
     // Every bounced entry stays out of the drawable trail.
     assert.deepEqual(cards, []);
+  });
+
+  test("a persisted nudge the registry no longer knows drops; the cards and the other offers stay", () => {
+    // The durable row is parsed by the sync schema before it reaches this
+    // module. A foreign slug (here NUL-bearing, the ADR-0070 poison shape) must
+    // not fail the whole message: the entry reads `null` and is neither a card
+    // nor an offer (plan section 8 item 6).
+    const persisted = [
+      { toolCallId: "t1", toolName: "calendar.list_events", status: "succeeded", segmentIndex: 0 },
+      {
+        toolCallId: "t2",
+        toolName: "github.request",
+        status: "failed",
+        segmentIndex: 1,
+        connectNudge: { integration: "gith\u0000ub", action: "connect" },
+      },
+      {
+        toolCallId: "t3",
+        toolName: "gmail.search",
+        status: "failed",
+        segmentIndex: 2,
+        connectNudge: { integration: "gmail", action: "connect" },
+      },
+    ];
+    const parsed = persisted.map((row) => syncedChatToolCallSchema.parse(row));
+    assert.equal(parsed[1]?.connectNudge, null);
+    assert.deepEqual(parsed[2]?.connectNudge, { integration: "gmail", action: "connect" });
+
+    const { cards, nudges } = splitPersistedToolCalls(parsed);
+    assert.deepEqual(
+      cards.map((c) => c.toolCallId),
+      ["t1"],
+    );
+    assert.deepEqual(nudges, [{ integration: "gmail", action: "connect" }]);
   });
 });
 

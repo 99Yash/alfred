@@ -196,11 +196,15 @@ type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
 
 ### `packages/contracts`
 
-- `tools.ts` keeps `INTEGRATION_SLUGS` (the id space) and `INTEGRATION_ACTIONS` (per tool, not
-  per integration). `INTEGRATION_SLUGS` becomes the flat tuple of fifteen. `LOADABLE_INTEGRATION_SLUGS`
-  is derived from the record by `filter`, no longer the primitive the tuple spreads. The record
-  cannot both satisfy `Record<IntegrationSlug, ...>` and define the slug list; the tuple is the
-  one primitive. `INTEGRATION_DISPLAY_NAMES` moves to the registry file and is re-exported.
+- `integrations.ts` owns `INTEGRATION_SLUGS` (the id space), `IntegrationSlug`, and
+  `isIntegrationSlug`. `INTEGRATION_SLUGS` becomes the flat tuple of fifteen.
+  `LOADABLE_INTEGRATION_SLUGS` is derived from the record by `filter`, no longer the primitive the
+  tuple spreads. The record cannot both satisfy `Record<IntegrationSlug, ...>` and define the slug
+  list; the tuple is the one primitive. `INTEGRATION_DISPLAY_NAMES` moves to the registry file.
+  `tools.ts` keeps `INTEGRATION_ACTIONS` (per tool, not per integration) and imports the tuple.
+  _Deviation recorded in PR 1:_ an earlier draft kept the tuple in `tools.ts`. That is a cycle:
+  `tools.ts` reads `INTEGRATION_DISPLAY_NAMES` for `integrationDisplayName`, and the registry file
+  needs the tuple. The root exports of `@alfred/contracts` are unchanged.
 - `credentials.ts` keeps `credentialRowSchema` and `rowToCredentialWire`. `CREDENTIAL_SHAPE`,
   `BearerProvider`, `BEARER_PROVIDER_SLUGS`, `isBearerProvider` become re-exports of registry
   derivations. `credentialShapeForSlug` stays for the one dynamic caller and reads the registry.

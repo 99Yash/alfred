@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { attentionBandSchema } from "./attention";
 import { triageCategorySchema } from "./triage";
-import { isIntegrationSlug, type IntegrationSlug } from "./tools";
+import { isIntegrationSlug, type IntegrationSlug } from "./integrations";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
 

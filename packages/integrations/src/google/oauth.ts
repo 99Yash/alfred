@@ -1,8 +1,13 @@
-import { isRecord, type AccountPersona } from "@alfred/contracts";
+import {
+  GOOGLE_FEATURE_SCOPES,
+  isRecord,
+  toMessage,
+  type AccountPersona,
+  type GoogleFeature,
+} from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
-import { toMessage } from "@alfred/contracts";
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
 export type { AccountPersona } from "@alfred/contracts";
@@ -28,72 +33,27 @@ const TOKEN_BASE = "https://oauth2.googleapis.com/token";
 const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email"] as const;
 
 /**
- * Per-feature Google scopes. A feature's full required set is the
- * identity scopes plus its entry here.
- *
- *   briefing     — gmail.readonly + calendar.readonly: open-loop orientation with calendar anchoring
- *   triage       — gmail.modify: write Alfred/<Cat> labels onto messages
- *   reply_draft  — gmail.send: outbound mail when alfred drafts on behalf
- *   calendar     — calendar.events: read events and create/update events
- *   drive        — drive: full read/write across the user's Drive
- *   docs         — documents: read + write structured Doc content (headings, tables)
- *   sheets       — spreadsheets: read + write cell ranges, create spreadsheets
- *   slides       — presentations: read + write decks, create presentations
- *
- * Triage's `gmail.modify` already implies read access, but listing
- * `gmail.readonly` separately keeps each feature's scope row honest:
- * Google's consent screen will dedupe overlapping scopes for the user.
- *
- * The Calendar and Workspace (Drive/Docs/Sheets/Slides) features live
- * alongside Gmail features because a user connects "Google" once and we
- * layer capability grants on top via `include_granted_scopes=true`.
- * Asking for `?features=docs` from the connect endpoint requests only
- * identity + docs, and Google merges it into the existing grant rather
- * than re-prompting for Gmail. The onboarding connect (no `?features`)
- * requests every feature in one consent — Alfred operates as a single
- * Production-unverified tenant (ADR-0044, amended 2026-06-08), so there is
- * no verification surface to minimize and no scope tier to dodge: the one
- * owner clicks through the unverified-app warning once and grants the lot.
- *
- * The scopes are full read/write across Gmail (`gmail.modify` + `gmail.send`),
- * Calendar (`calendar.events`), Drive (`drive`), and the Workspace editors
- * (`documents` / `spreadsheets` / `presentations`). Full `drive` already
- * covers list/download/upload of any file; the per-app editor scopes add
- * structured read/write of Docs/Sheets/Slides content. The full mailbox
- * scope (`https://mail.google.com/`, IMAP + permanent delete) is the one
- * deliberate omission — no tool needs it and it maximizes breach radius.
- *
- * Individual scope URLs are named below so callers can reference a
- * capability by intent (`GMAIL_MODIFY_SCOPE`) instead of by position in
- * a feature tuple — reordering a tuple then can't silently repoint a
- * scope check at the wrong grant.
+ * The scope vocabulary — the nine scope URLs, {@link GOOGLE_FEATURE_SCOPES},
+ * and {@link GoogleFeature} — lives in `@alfred/contracts/google-scopes` so the
+ * integration registry can name the scopes that prove a Google product is
+ * connected (ADR-0093). Re-exported here so no consumer changes an import; the
+ * OAuth mechanics below stay in this package.
  */
-export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
-export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
-export const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
-export const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
-/** Full read/write Drive — list/download/upload + manage any file. */
-export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
-/** Full read/write Docs — read + edit structured Doc content. */
-export const DOCS_SCOPE = "https://www.googleapis.com/auth/documents";
-/** Full read/write Sheets — create + edit spreadsheets. */
-export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-/** Full read/write Slides — create + edit presentations. */
-export const SLIDES_SCOPE = "https://www.googleapis.com/auth/presentations";
-
-export const GOOGLE_FEATURE_SCOPES = {
-  briefing: [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE],
-  triage: [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE],
-  reply_draft: [GMAIL_SEND_SCOPE],
-  calendar: [CALENDAR_EVENTS_SCOPE],
-  drive: [DRIVE_SCOPE],
-  docs: [DOCS_SCOPE],
-  sheets: [SHEETS_SCOPE],
-  slides: [SLIDES_SCOPE],
-} as const satisfies Record<string, readonly string[]>;
-
-export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;
+export {
+  CALENDAR_EVENTS_SCOPE,
+  CALENDAR_READONLY_SCOPE,
+  DOCS_SCOPE,
+  DRIVE_SCOPE,
+  GMAIL_MODIFY_SCOPE,
+  GMAIL_READONLY_SCOPE,
+  GMAIL_SEND_SCOPE,
+  GOOGLE_FEATURE_SCOPES,
+  GOOGLE_SCOPES,
+  SHEETS_SCOPE,
+  SLIDES_SCOPE,
+  type GoogleFeature,
+  type GoogleScope,
+} from "@alfred/contracts";
 
 const ALL_FEATURES =
   // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`, so

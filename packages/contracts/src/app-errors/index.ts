@@ -29,7 +29,11 @@
  */
 import { z } from "zod";
 import { enumGuard, isRecord } from "../guards";
-import { INTEGRATION_DISPLAY_NAMES, INTEGRATION_SLUGS, type IntegrationSlug } from "../tools";
+import {
+  INTEGRATION_DISPLAY_NAMES,
+  INTEGRATION_SLUGS,
+  type IntegrationSlug,
+} from "../integrations";
 
 const integrationSlug = z.enum(INTEGRATION_SLUGS);
 
