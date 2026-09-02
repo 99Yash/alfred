@@ -4,6 +4,7 @@ import {
   mcpConnections,
   mcpOauthAuthorizationAttempts,
   mcpOauthCredentials,
+  type McpConnection,
   type McpOauthAuthorizationAttempt,
   type McpOauthCredential,
   type NewMcpOauthCredential,
@@ -14,6 +15,7 @@ import {
   StreamableHTTPClientTransport,
   validateClientMetadataUrl,
   type AuthorizationServerMetadata,
+  type AuthOptions,
   type AuthResult,
   type FetchLike,
   type OAuthClientInformationContext,
@@ -28,6 +30,7 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { rememberOAuthNonce, signOAuthState } from "@alfred/assistant/connections";
+import type { McpAuthorizedOAuth, McpAuthorizedOAuthServer } from "./endpoint-authorization";
 
 const oauthMetadataSchema = z.looseObject({
   issuer: z.string().url(),
@@ -291,8 +294,6 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
 }
 
 const DEFAULT_STORE = new DbMcpOAuthCredentialStore();
-const authorizationFlights = new Map<string, Promise<AuthResult>>();
-
 function canonicalIssuer(value: string): string {
   return new URL(value).href;
 }
@@ -305,16 +306,26 @@ function scopeList(scope: string | undefined): string[] {
   return scope?.split(/\s+/).filter(Boolean) ?? [];
 }
 
-function parseAuthorizationServerMetadata(value: unknown): AuthorizationServerMetadata {
+function parseAuthorizationServerMetadata(
+  value: unknown,
+  server: McpAuthorizedOAuthServer,
+): AuthorizationServerMetadata {
   const parsed = oauthMetadataSchema.parse(value);
+  const issuer = server.validateEndpoint(parsed.issuer);
+  if (issuer.href !== server.issuer) {
+    throw new Error("MCP OAuth metadata issuer changed the authorization server");
+  }
+  const authorizationEndpoint = server.validateEndpoint(parsed.authorization_endpoint);
+  const tokenEndpoint = server.validateEndpoint(parsed.token_endpoint);
+  const registrationEndpoint = parsed.registration_endpoint
+    ? server.validateEndpoint(parsed.registration_endpoint)
+    : undefined;
   return {
-    issuer: parsed.issuer,
-    authorization_endpoint: parsed.authorization_endpoint,
-    token_endpoint: parsed.token_endpoint,
+    issuer: issuer.href,
+    authorization_endpoint: authorizationEndpoint.href,
+    token_endpoint: tokenEndpoint.href,
     response_types_supported: parsed.response_types_supported,
-    ...(parsed.registration_endpoint
-      ? { registration_endpoint: parsed.registration_endpoint }
-      : {}),
+    ...(registrationEndpoint ? { registration_endpoint: registrationEndpoint.href } : {}),
     ...(parsed.client_id_metadata_document_supported !== undefined
       ? {
           client_id_metadata_document_supported: parsed.client_id_metadata_document_supported,
@@ -329,30 +340,68 @@ function parseAuthorizationServerMetadata(value: unknown): AuthorizationServerMe
   };
 }
 
-function parseProtectedResourceMetadata(value: unknown): OAuthProtectedResourceMetadata {
+function parseProtectedResourceMetadata(
+  value: unknown,
+  authorization: McpAuthorizedOAuth,
+  server: McpAuthorizedOAuthServer,
+): OAuthProtectedResourceMetadata {
   const parsed = protectedResourceMetadataSchema.parse(value);
+  const resource = authorization.validateResourceEndpoint(parsed.resource);
+  if (resource.href !== authorization.resource.href) {
+    throw new Error("MCP OAuth resource metadata changed the protected resource");
+  }
+  const authorizationServers = parsed.authorization_servers?.map((candidate) =>
+    authorization.validateDiscoveryEndpoint(candidate),
+  );
+  if (
+    authorizationServers &&
+    !authorizationServers.some((candidate) => candidate.href === server.issuer)
+  ) {
+    throw new Error("MCP OAuth resource metadata does not authorize the selected server");
+  }
   return {
-    resource: parsed.resource,
-    ...(parsed.authorization_servers
-      ? { authorization_servers: parsed.authorization_servers }
+    resource: resource.href,
+    ...(authorizationServers
+      ? { authorization_servers: authorizationServers.map((candidate) => candidate.href) }
       : {}),
   };
 }
 
-function parseDiscoveryState(value: unknown): OAuthDiscoveryState {
+function parseDiscoveryState(
+  value: unknown,
+  authorization: McpAuthorizedOAuth,
+  expectedIssuer?: string,
+): OAuthDiscoveryState {
   const parsed = discoveryStateSchema.parse(value);
+  const authorizationServerUrl = authorization.validateDiscoveryEndpoint(
+    parsed.authorizationServerUrl,
+  );
+  const server = authorization.authorizeServer(authorizationServerUrl);
+  if (expectedIssuer && canonicalIssuer(expectedIssuer) !== server.issuer) {
+    throw new Error("MCP OAuth credential issuer changed the authorization server");
+  }
+  const resourceMetadataUrl = parsed.resourceMetadataUrl
+    ? authorization.validateResourceEndpoint(parsed.resourceMetadataUrl)
+    : undefined;
   return {
-    authorizationServerUrl: parsed.authorizationServerUrl,
-    ...(parsed.resourceMetadataUrl ? { resourceMetadataUrl: parsed.resourceMetadataUrl } : {}),
+    authorizationServerUrl: authorizationServerUrl.href,
+    ...(resourceMetadataUrl ? { resourceMetadataUrl: resourceMetadataUrl.href } : {}),
     ...(parsed.authorizationServerMetadata
       ? {
           authorizationServerMetadata: parseAuthorizationServerMetadata(
             parsed.authorizationServerMetadata,
+            server,
           ),
         }
       : {}),
     ...(parsed.resourceMetadata
-      ? { resourceMetadata: parseProtectedResourceMetadata(parsed.resourceMetadata) }
+      ? {
+          resourceMetadata: parseProtectedResourceMetadata(
+            parsed.resourceMetadata,
+            authorization,
+            server,
+          ),
+        }
       : {}),
   };
 }
@@ -370,13 +419,33 @@ export class McpOAuthAuthorizationRequiredError extends Error {
 export interface McpOAuthProviderOptions {
   connectionId: string;
   userId: string;
-  endpoint: URL;
+  authorization: McpAuthorizedOAuth;
   redirectUrl: URL;
   clientMetadataUrl?: string;
   clientMetadata: OAuthClientMetadata;
   store?: McpOAuthCredentialStore;
   vault?: CredentialVault;
 }
+
+export interface McpOAuthRequestOptions {
+  timeoutMs?: number;
+}
+
+export type McpOAuthAuthorizeOptions = Pick<AuthOptions, "forceReauthorization" | "scope"> &
+  McpOAuthRequestOptions;
+
+/** OAuth authority bound to one endpoint authorization generation. */
+export interface McpBoundOAuthSession {
+  authorize(options?: McpOAuthAuthorizeOptions): Promise<AuthResult>;
+  refreshIfNeeded(options?: McpOAuthRequestOptions): Promise<void>;
+  finishAuthorization(
+    callbackParams: URLSearchParams,
+    options?: McpOAuthRequestOptions,
+  ): Promise<void>;
+  accessToken(): Promise<string | undefined>;
+}
+
+export type McpOAuthSessionFactory = (authorization: McpAuthorizedOAuth) => McpBoundOAuthSession;
 
 /**
  * SDK OAuth provider backed by Alfred's issuer-keyed encrypted credential row.
@@ -385,11 +454,13 @@ export interface McpOAuthProviderOptions {
  * HTTP transport receives a token-only projection, so transport recovery cannot
  * refresh or replay an in-flight `tools/call`.
  */
-export class McpOAuthProvider implements OAuthClientProvider {
+export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSession {
   readonly #connectionId: string;
   readonly #userId: string;
   readonly #store: McpOAuthCredentialStore;
   readonly #vault: CredentialVault;
+  readonly #authorization: McpAuthorizedOAuth;
+  readonly #authorizationFlights = new Map<string, Promise<AuthResult>>();
   #attemptStateHash: string | null = null;
   readonly redirectUrl: URL;
   readonly clientMetadataUrl?: string;
@@ -400,16 +471,13 @@ export class McpOAuthProvider implements OAuthClientProvider {
     this.#userId = options.userId;
     this.#store = options.store ?? DEFAULT_STORE;
     this.#vault = options.vault ?? credentialVault();
+    this.#authorization = options.authorization;
     this.redirectUrl = new URL(options.redirectUrl.href);
     this.clientMetadata = options.clientMetadata;
     if (options.clientMetadataUrl) {
       validateClientMetadataUrl(options.clientMetadataUrl);
       this.clientMetadataUrl = options.clientMetadataUrl;
     }
-  }
-
-  get authorizationKey(): string {
-    return `${this.#userId}:${this.#connectionId}`;
   }
 
   async state(): Promise<string> {
@@ -507,7 +575,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<never> {
-    throw new McpOAuthAuthorizationRequiredError(authorizationUrl);
+    const discovery = await this.discoveryState();
+    if (!discovery) throw new Error("MCP OAuth discovery state is missing");
+    const server = this.#authorization.authorizeServer(discovery.authorizationServerUrl);
+    throw new McpOAuthAuthorizationRequiredError(server.validateEndpoint(authorizationUrl));
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {
@@ -531,7 +602,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
-    const parsed = parseDiscoveryState(state);
+    const parsed = parseDiscoveryState(state, this.#authorization);
     const issuer = canonicalIssuer(
       parsed.authorizationServerMetadata?.issuer ?? parsed.authorizationServerUrl,
     );
@@ -547,7 +618,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
     if (!credential?.discoveryState) return undefined;
     try {
-      return parseDiscoveryState(credential.discoveryState);
+      return parseDiscoveryState(credential.discoveryState, this.#authorization, credential.issuer);
     } catch {
       throw new Error("Persisted MCP OAuth discovery state is invalid");
     }
@@ -604,6 +675,59 @@ export class McpOAuthProvider implements OAuthClientProvider {
     return expiresAt <= now + MCP_OAUTH_REFRESH_SKEW_MS;
   }
 
+  /** Run discovery, refresh, or consent through this generation's guarded fetch. */
+  authorize(options: McpOAuthAuthorizeOptions = {}): Promise<AuthResult> {
+    const fetchFn = timeoutBoundFetch(
+      this.#authorization.fetch,
+      options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
+    );
+    const flightKey = [
+      this.#authorization.resource.href,
+      options.forceReauthorization ? "force" : "normal",
+      options.scope ?? "",
+    ].join(":");
+    const existing = this.#authorizationFlights.get(flightKey);
+    if (existing) return existing;
+    const flight = auth(this, {
+      serverUrl: this.#authorization.resource,
+      fetchFn,
+      ...(options.forceReauthorization ? { forceReauthorization: true } : {}),
+      ...(options.scope ? { scope: options.scope } : {}),
+    }).finally(() => {
+      if (this.#authorizationFlights.get(flightKey) === flight) {
+        this.#authorizationFlights.delete(flightKey);
+      }
+    });
+    this.#authorizationFlights.set(flightKey, flight);
+    return flight;
+  }
+
+  /** Refresh before a known expiry, while the call is still pre-delivery. */
+  async refreshIfNeeded(options: McpOAuthRequestOptions = {}): Promise<void> {
+    if (!(await this.authorizationNeedsRefresh())) return;
+    await this.authorize(options);
+  }
+
+  /** Complete the callback through the exact authorization generation that discovered it. */
+  async finishAuthorization(
+    callbackParams: URLSearchParams,
+    options: McpOAuthRequestOptions = {},
+  ): Promise<void> {
+    const transport = new StreamableHTTPClientTransport(this.#authorization.resource, {
+      authProvider: this,
+      onInsufficientScope: "throw",
+      fetch: timeoutBoundFetch(
+        this.#authorization.fetch,
+        options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
+      ),
+    });
+    await transport.finishAuth(callbackParams);
+  }
+
+  async accessToken(): Promise<string | undefined> {
+    return (await this.tokens())?.access_token;
+  }
+
   async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
     if (!credential || !issuer) return credential;
@@ -651,13 +775,17 @@ export function mcpOAuthClientConfiguration(): McpOAuthClientConfiguration {
   };
 }
 
-export function mcpOAuthProviderForConnection(input: {
-  connectionId: string;
-  userId: string;
-  endpoint: URL;
-}): McpOAuthProvider {
+export type McpOAuthProviderForConnectionInput = Pick<McpConnection, "id" | "userId"> & {
+  authorization: McpAuthorizedOAuth;
+};
+
+export function mcpOAuthProviderForConnection(
+  input: McpOAuthProviderForConnectionInput,
+): McpOAuthProvider {
   return new McpOAuthProvider({
-    ...input,
+    connectionId: input.id,
+    userId: input.userId,
+    authorization: input.authorization,
     ...mcpOAuthClientConfiguration(),
   });
 }
@@ -668,76 +796,4 @@ function timeoutBoundFetch(fetchFn: FetchLike, timeoutMs: number): FetchLike {
     const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
     return fetchFn(input, { ...init, signal });
   };
-}
-
-/** Run refresh/discovery/consent before constructing the token-only transport. */
-export function authorizeMcpOAuth(
-  provider: OAuthClientProvider,
-  endpoint: URL,
-  options: {
-    forceReauthorization?: boolean;
-    scope?: string;
-    fetch?: FetchLike;
-    timeoutMs?: number;
-  } = {},
-): Promise<AuthResult> {
-  const fetchFn = timeoutBoundFetch(
-    options.fetch ?? globalThis.fetch,
-    options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
-  );
-  const run = () =>
-    auth(provider, {
-      serverUrl: endpoint,
-      fetchFn,
-      ...(options.forceReauthorization ? { forceReauthorization: true } : {}),
-      ...(options.scope ? { scope: options.scope } : {}),
-    });
-  if (!(provider instanceof McpOAuthProvider)) return run();
-  const flightKey = [
-    provider.authorizationKey,
-    options.forceReauthorization ? "force" : "normal",
-    options.scope ?? "",
-  ].join(":");
-  const existing = authorizationFlights.get(flightKey);
-  if (existing) return existing;
-  const flight = run().finally(() => {
-    if (authorizationFlights.get(flightKey) === flight) {
-      authorizationFlights.delete(flightKey);
-    }
-  });
-  authorizationFlights.set(flightKey, flight);
-  return flight;
-}
-
-/** Refresh before a known expiry, while the call is still pre-delivery. */
-export async function refreshMcpOAuthIfNeeded(
-  provider: OAuthClientProvider,
-  endpoint: URL,
-  options: { fetch?: FetchLike; timeoutMs?: number } = {},
-): Promise<void> {
-  if (!(provider instanceof McpOAuthProvider)) return;
-  if (!(await provider.authorizationNeedsRefresh())) return;
-  await authorizeMcpOAuth(provider, endpoint, options);
-}
-
-/**
- * Complete the callback through the SDK's URLSearchParams overload. It validates
- * `iss` against persisted discovery before it reads callback error text or
- * redeems the code.
- */
-export async function finishMcpOAuth(
-  provider: OAuthClientProvider,
-  endpoint: URL,
-  callbackParams: URLSearchParams,
-  options: { fetch?: FetchLike; timeoutMs?: number } = {},
-): Promise<void> {
-  const transport = new StreamableHTTPClientTransport(endpoint, {
-    authProvider: provider,
-    onInsufficientScope: "throw",
-    fetch: timeoutBoundFetch(
-      options.fetch ?? globalThis.fetch,
-      options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
-    ),
-  });
-  await transport.finishAuth(callbackParams);
 }

@@ -29,8 +29,6 @@
  * the `Host` header keep the original hostname, so TLS still validates.
  */
 
-import dns from "node:dns";
-import { isIP, type LookupFunction } from "node:net";
 import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import {
@@ -48,7 +46,20 @@ import {
   REALTIME_PDF_EXTRACTION_LIMITS,
   type Extraction,
 } from "@alfred/extraction";
-import { Agent, request as undiciRequest } from "undici";
+import { request as undiciRequest, type Dispatcher } from "undici";
+import {
+  createPinnedDispatcher,
+  HostedEndpointError,
+  isBlockedHost,
+  isBlockedIp,
+  isCredentialParamName,
+  pinningLookup,
+  validatePublicWebUrl,
+  type DnsLookupAll,
+} from "../../../connections";
+
+export { isBlockedHost, isBlockedIp, pinningLookup };
+export type { DnsLookupAll };
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
 /** Stop reading (and tear down the socket) once a body passes this many bytes. */
@@ -140,164 +151,6 @@ export interface FetchUrlArgs {
 }
 
 /* ── host safety ──────────────────────────────────────────────────────── */
-
-type V4Cidr = readonly [base: string, prefixBits: number];
-
-const BLOCKED_V4_CIDRS: readonly V4Cidr[] = [
-  ["0.0.0.0", 8], // current network
-  ["10.0.0.0", 8], // private
-  ["100.64.0.0", 10], // CGNAT
-  ["127.0.0.0", 8], // loopback
-  ["169.254.0.0", 16], // link-local incl. 169.254.169.254 metadata
-  ["172.16.0.0", 12], // private
-  ["192.0.0.0", 24], // IETF protocol assignments
-  ["192.0.2.0", 24], // documentation
-  ["192.31.196.0", 24], // AS112
-  ["192.52.193.0", 24], // AMT
-  ["192.88.99.0", 24], // deprecated 6to4 relay anycast
-  ["192.168.0.0", 16], // private
-  ["192.175.48.0", 24], // AS112
-  ["198.18.0.0", 15], // benchmarking
-  ["198.51.100.0", 24], // documentation
-  ["203.0.113.0", 24], // documentation
-  ["224.0.0.0", 4], // multicast
-  ["240.0.0.0", 4], // reserved / broadcast
-];
-
-function ipv4ToInt(ip: string): number | null {
-  const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!m) return null;
-  const parts = m.slice(1).map(Number);
-  if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
-  const [a = 0, b = 0, c = 0, d = 0] = parts;
-  return a * 2 ** 24 + b * 2 ** 16 + c * 2 ** 8 + d;
-}
-
-function ipv4InCidr(value: number, base: string, prefixBits: number): boolean {
-  const baseValue = ipv4ToInt(base);
-  if (baseValue === null) return false;
-  const divisor = 2 ** (32 - prefixBits);
-  return Math.floor(value / divisor) === Math.floor(baseValue / divisor);
-}
-
-function isBlockedV4(ip: string): boolean {
-  const value = ipv4ToInt(ip);
-  if (value === null) return true;
-  for (const [base, prefixBits] of BLOCKED_V4_CIDRS) {
-    if (ipv4InCidr(value, base, prefixBits)) return true;
-  }
-  return false;
-}
-
-function expandDottedV4Tail(host: string): string {
-  const dotted = host.match(/^(.*:)((?:\d{1,3}\.){3}\d{1,3})$/);
-  if (!dotted?.[1] || !dotted[2]) return host;
-  const parts = dotted[2].split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => part < 0 || part > 255)) return host;
-  const hi = ((parts[0]! << 8) | parts[1]!).toString(16);
-  const lo = ((parts[2]! << 8) | parts[3]!).toString(16);
-  return `${dotted[1]}${hi}:${lo}`;
-}
-
-function ipv6ToBigInt(ip: string): bigint | null {
-  const host = expandDottedV4Tail(ip);
-  const pieces = host.split("::");
-  if (pieces.length > 2) return null;
-
-  const left = pieces[0] ? pieces[0].split(":") : [];
-  const right = pieces.length === 2 && pieces[1] ? pieces[1].split(":") : [];
-  if (left.length + right.length > 8) return null;
-
-  const fill = pieces.length === 2 ? Array(8 - left.length - right.length).fill("0") : [];
-  const hextets = [...left, ...fill, ...right];
-  if (hextets.length !== 8) return null;
-
-  let value = 0n;
-  for (const part of hextets) {
-    if (!/^[0-9a-f]{1,4}$/i.test(part)) return null;
-    value = (value << 16n) + BigInt(Number.parseInt(part, 16));
-  }
-  return value;
-}
-
-function ipv6InRange(value: bigint, prefix: string, prefixBits: number): boolean {
-  const base = ipv6ToBigInt(prefix);
-  if (base === null) return false;
-  const shift = 128n - BigInt(prefixBits);
-  return value >> shift === base >> shift;
-}
-
-function isBlockedV6(host: string): boolean {
-  const value = ipv6ToBigInt(host);
-  if (value === null) return true;
-
-  // Deprecated IPv4-compatible IPv6: ::7f00:1 / ::127.0.0.1. Block the whole
-  // special prefix rather than trying to make URL literals in it useful.
-  if (ipv6InRange(value, "::", 96)) return true;
-
-  // IPv4-mapped IPv6: ::ffff:7f00:1 -> 127.0.0.1.
-  if (ipv6InRange(value, "::ffff:0:0", 96)) {
-    const v4 = Number(value & 0xffffffffn);
-    return isBlockedV4(
-      `${(v4 >>> 24) & 0xff}.${(v4 >>> 16) & 0xff}.${(v4 >>> 8) & 0xff}.${v4 & 0xff}`,
-    );
-  }
-
-  return (
-    value === 0n || // ::/128 unspecified
-    value === 1n || // ::1/128 loopback
-    ipv6InRange(value, "fc00::", 7) || // unique-local
-    ipv6InRange(value, "fe80::", 10) || // link-local
-    ipv6InRange(value, "fec0::", 10) || // deprecated site-local
-    ipv6InRange(value, "ff00::", 8) || // multicast
-    ipv6InRange(value, "64:ff9b:1::", 48) || // local-use NAT64 translation
-    ipv6InRange(value, "100::", 64) || // discard-only
-    ipv6InRange(value, "2001::", 23) || // IETF protocol assignments
-    ipv6InRange(value, "2001:db8::", 32) || // documentation
-    ipv6InRange(value, "2002::", 16) || // 6to4 tunnel addresses can embed private IPv4
-    ipv6InRange(value, "3fff::", 20) || // documentation
-    ipv6InRange(value, "64:ff9b::", 96) // well-known NAT64 IPv4 translation prefix
-  );
-}
-
-/**
- * Classify a resolved IP literal. Refuses non-public special-use ranges:
- * loopback, link-local (incl. the `169.254.169.254` cloud-metadata IP),
- * private IPv4/IPv6, CGNAT, benchmarking/documentation ranges, multicast,
- * reserved space, and IPv4-mapped / compatible IPv6 private forms. This is the
- * connect-time boundary used by {@link pinningLookup}.
- */
-export function isBlockedIp(ip: string): boolean {
-  const host = ip
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "") // strip IPv6 brackets
-    .replace(/%.*$/, ""); // strip zone id
-
-  // Plain IPv4 literal.
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) return isBlockedV4(host);
-
-  if (host.includes(":")) {
-    if (isIP(host) !== 6) return true;
-    return isBlockedV6(host);
-  }
-
-  return false; // not an IP literal
-}
-
-/**
- * Reject hosts before we even open a socket: loopback / internal names and any
- * IP *literal* in a private range. A bare DNS name (e.g. `127.0.0.1.nip.io`)
- * passes here and is caught at connect time by {@link pinningLookup} once it
- * resolves.
- */
-export function isBlockedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host.endsWith(".internal") || host.endsWith(".local")) return true;
-
-  return isBlockedIp(host);
-}
 
 /* ── HTML → text ──────────────────────────────────────────────────────── */
 
@@ -514,7 +367,7 @@ export type HttpRequester = (
   opts: {
     method: string;
     headers: Record<string, string>;
-    dispatcher?: Agent;
+    dispatcher?: Dispatcher;
     signal: AbortSignal;
   },
 ) => Promise<UndiciResponseLike>;
@@ -544,104 +397,10 @@ export class FetchError extends Error {
   }
 }
 
-/**
- * The slice of `dns.lookup` (its `all: true` form) that {@link pinningLookup}
- * depends on. Injectable so tests can drive the connect-time pin with a fake
- * resolver — a resolver returning a private address must surface `EBLOCKEDHOST`
- * — without touching real DNS or opening a socket.
- */
-export type DnsLookupAll = (
-  hostname: string,
-  options: dns.LookupAllOptions,
-  // `addresses` is absent on the error path — `dns.lookup` calls back with just
-  // the error there, and the pin only reads addresses when `err` is null.
-  callback: (err: NodeJS.ErrnoException | null, addresses?: dns.LookupAddress[]) => void,
-) => void;
-
-/**
- * Custom DNS lookup for the undici connector: resolve the host, refuse if *any*
- * address is private/internal, and hand back only validated addresses so the
- * socket connects to one of them (connect-time pinning). Supports both the
- * `all:true` (array) and single-address callback shapes Node uses. The resolver
- * is injectable (defaults to `dns.lookup`) purely so the pin is unit-testable.
- */
-export function pinningLookup(
-  hostname: string,
-  options: dns.LookupOneOptions | dns.LookupAllOptions,
-  callback: (
-    err: NodeJS.ErrnoException | null,
-    address?: string | dns.LookupAddress[],
-    family?: number,
-  ) => void,
-  // SAFETY: `dns.lookup`'s declared overloads don't include an `all`-first
-  // signature, but the runtime callback delivers the full address array.
-  resolve: DnsLookupAll = dns.lookup as DnsLookupAll,
-): void {
-  resolve(
-    hostname,
-    {
-      all: true,
-      family: options.family ?? 0,
-      hints: options.hints,
-      verbatim: true,
-    },
-    (err, addresses) => {
-      if (err) {
-        callback(err);
-        return;
-      }
-      // `all: true` always calls back with an array on the success path.
-      const list = addresses ?? [];
-      const blocked = list.find((a) => isBlockedIp(a.address));
-      if (blocked) {
-        // SAFETY: minting an errno-style error; `code` is the field Node
-        // conventions attach to it.
-        const e = new Error(
-          `'${hostname}' resolves to a private or internal address (${blocked.address}).`,
-        ) as NodeJS.ErrnoException;
-        e.code = "EBLOCKEDHOST";
-        callback(e);
-        return;
-      }
-      const first = list[0];
-      if (!first) {
-        // SAFETY: errno-style mint, same as the EBLOCKEDHOST site above.
-        const e = new Error(`'${hostname}' did not resolve.`) as NodeJS.ErrnoException;
-        e.code = "ENOTFOUND";
-        callback(e);
-        return;
-      }
-      // SAFETY: undici passes LookupAllOptions here (it requests `all`);
-      // `.all` exists on that half of the union.
-      if ((options as dns.LookupAllOptions).all) {
-        callback(null, list);
-      } else {
-        callback(null, first.address, first.family);
-      }
-    },
-  );
-}
-
-/** Adapt `pinningLookup` to the `LookupFunction` shape the undici connector expects. */
-function asLookupFunction(fn: typeof pinningLookup): LookupFunction {
-  return (hostname, options, callback) =>
-    fn(hostname, options, (err, address, family) => {
-      if (err) {
-        callback(err, "");
-        return;
-      }
-      callback(null, address ?? "", family);
-    });
-}
-
-let sharedAgent: Agent | undefined;
-function safeAgent(): Agent {
-  sharedAgent ??= new Agent({
-    connect: { lookup: asLookupFunction(pinningLookup), timeout: FETCH_TIMEOUT_MS },
-    headersTimeout: FETCH_TIMEOUT_MS,
-    bodyTimeout: FETCH_TIMEOUT_MS,
-  });
-  return sharedAgent;
+let sharedDispatcher: Dispatcher | undefined;
+function safeDispatcher(): Dispatcher {
+  sharedDispatcher ??= createPinnedDispatcher();
+  return sharedDispatcher;
 }
 
 /* ── credential-bearing URLs (#293) ───────────────────────────────────── */
@@ -653,75 +412,6 @@ function safeAgent(): Agent {
  * `?key=`/`?code=` blocks, but `sort_key`/`country_code`/`promo_code` (where the
  * stem is only a *fragment* of a larger word) pass — see {@link CREDENTIAL_SEGMENT_STEMS}.
  */
-const CREDENTIAL_EXACT_NAMES = new Set([
-  "token",
-  "access_token",
-  "refresh_token",
-  "id_token",
-  "auth",
-  "authorization",
-  "signature",
-  "sig",
-  "x-amz-signature",
-  "x-goog-signature",
-  "jwt",
-  "secret",
-  "client_secret",
-  "api_key",
-  "apikey",
-  "key",
-  "code",
-]);
-
-/**
- * Stems that block when they appear as a *whole segment* of a param name.
- * `session-token`, `auth.code`, `X-Amz-Signature`, `accessToken` all split into a
- * segment that hits this set; `monkey`, `keyword`, `authenticationMode` do not
- * (their segments are `monkey` / `keyword` / `authentication`+`mode`). Narrower
- * than {@link CREDENTIAL_EXACT_NAMES}: `key`/`code` are deliberately absent so
- * compound `*_key`/`*_code` params survive.
- */
-const CREDENTIAL_SEGMENT_STEMS = new Set(["token", "secret", "signature", "sig", "auth", "jwt"]);
-
-/**
- * Split a param name into lowercase segments on non-alphanumeric boundaries
- * *and* camelCase transitions (`accessToken` → `access`,`token`; `XMLToken` →
- * `xml`,`token`). Segment-aware matching is what keeps `country_code` and
- * `monkey` out of the credential net while still catching `session-token`.
- * The broad separator is intentional: URLSearchParams decodes both `%20` and
- * `+` to a space, so `access%20token` / `access+token` must split too.
- */
-function segmentParamName(decoded: string): string[] {
-  const boundary = "\u0000";
-  return (
-    decoded
-      .replace(/([a-z0-9])([A-Z])/g, `$1${boundary}$2`) // lower→Upper camelCase boundary
-      .replace(/([A-Z]+)([A-Z][a-z])/g, `$1${boundary}$2`) // ACRONYMWord boundary (URLToken)
-      // oxlint-disable-next-line no-control-regex -- the U+0000 boundary marker inserted just above
-      .split(/[\u0000\W_]+/)
-      .map((segment) => segment.toLowerCase())
-      .filter((segment) => segment.length > 0)
-  );
-}
-
-/**
- * Whether a single (already percent-decoded, as `URLSearchParams` yields) param
- * name looks credential-bearing. Exact-name match first, then whole-segment stem
- * match. Never a broad substring test — that's the whole point of the segmenter.
- */
-function isCredentialParamName(decodedName: string): boolean {
-  if (CREDENTIAL_EXACT_NAMES.has(decodedName.toLowerCase())) return true;
-  return segmentParamName(decodedName).some((segment) => CREDENTIAL_SEGMENT_STEMS.has(segment));
-}
-
-/** True when any query param name on `u` is credential-bearing. */
-function hasCredentialQuery(u: URL): boolean {
-  for (const name of u.searchParams.keys()) {
-    if (isCredentialParamName(name)) return true;
-  }
-  return false;
-}
-
 /** Redact credential-bearing `key=value` pairs in a raw `a=b&c=d` segment. */
 function redactQuerySegment(segment: string): string {
   return segment
@@ -776,60 +466,35 @@ function redactUrlUserinfo(base: string): string {
   return `${base.slice(0, authorityStart)}[REDACTED]@${authority.slice(atIdx + 1)}${base.slice(authorityEnd)}`;
 }
 
-/**
- * #292: only the scheme's default web port is read. The WHATWG `URL` parser
- * normalizes an explicit `:80`/`:443` that matches the scheme to `""`, so a bare
- * `u.port` is already the default; any non-empty `u.port` is an explicit port and
- * must match the scheme (an `http://h:443` / `https://h:80` mismatch is refused).
- * Closes the SSRF surface where a non-default port reaches an internal service
- * (admin panel, metadata sidecar) on an otherwise-public host.
- */
-function hasAllowedDefaultPort(u: URL): boolean {
-  if (u.port === "") return true;
-  return (
-    (u.protocol === "http:" && u.port === "80") || (u.protocol === "https:" && u.port === "443")
-  );
-}
-
 /** Validate one hop's URL string-deep, before any socket is opened. */
 function validateUrl(raw: string): URL {
-  let u: URL;
+  let parsed: URL;
   try {
-    u = new URL(raw);
+    parsed = new URL(raw);
   } catch {
     throw new FetchError("fetch_failed", "The URL is malformed.");
   }
-  if (u.protocol !== "http:" && u.protocol !== "https:") {
+  if (parsed.username || parsed.password) {
     throw new FetchError(
       "blocked_host",
-      `Only http(s) URLs can be read; '${u.protocol}' is not supported.`,
+      "URLs that embed credentials are not read.",
+      redactCredentialUrl(parsed.href),
     );
   }
-  if (u.username || u.password) {
-    throw new FetchError("blocked_host", "URLs that embed credentials are not read.", u.toString());
+  try {
+    return validatePublicWebUrl(parsed);
+  } catch (error) {
+    if (!(error instanceof HostedEndpointError)) throw error;
+    const reason =
+      error.code === "blocked_port"
+        ? "blocked_port"
+        : error.code === "credential_url"
+          ? "credential_url"
+          : error.code === "malformed_url"
+            ? "fetch_failed"
+            : "blocked_host";
+    throw new FetchError(reason, error.message, redactCredentialUrl(parsed.href));
   }
-  if (isBlockedHost(u.hostname)) {
-    throw new FetchError(
-      "blocked_host",
-      `'${u.hostname}' is a private or internal host and cannot be read.`,
-      u.toString(),
-    );
-  }
-  if (!hasAllowedDefaultPort(u)) {
-    throw new FetchError(
-      "blocked_port",
-      `Only default web ports are read; port ${u.port} on '${u.hostname}' is not.`,
-      redactCredentialUrl(u.toString()),
-    );
-  }
-  if (hasCredentialQuery(u)) {
-    throw new FetchError(
-      "credential_url",
-      "URLs that carry credentials in the query string are not read.",
-      redactCredentialUrl(u.toString()),
-    );
-  }
-  return u;
 }
 
 function headerValue(h: string | string[] | undefined): string | undefined {
@@ -945,7 +610,7 @@ export function decodeResponseBody(
  * return the final response with its body still streaming. The requester is
  * injectable (defaults to undici) so the manual-redirect re-validation — the
  * property that a 302 into private space is refused — is unit-testable without
- * a socket; production always pins via {@link safeAgent}.
+ * a socket; production always pins via {@link safeDispatcher}.
  */
 export async function safeRequest(
   initialUrl: string,
@@ -973,7 +638,7 @@ export async function safeRequest(
           "accept-encoding": ACCEPT_ENCODING,
           "accept-language": "en-US,en;q=0.9",
         },
-        dispatcher: safeAgent(),
+        dispatcher: safeDispatcher(),
         signal,
         // No maxRedirections → undici does NOT auto-follow; we chase 3xx ourselves.
       });
