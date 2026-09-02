@@ -9,10 +9,15 @@ import {
   enqueueChatStorageCleanup,
   enqueueTriageRelabel,
 } from "@alfred/assistant/connections/ingestion";
-import { isRecord, toMessage } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
-import { serverMutators, type MutatorFollowUp, type ServerMutatorCtx } from "./write";
+import {
+  serverMutators,
+  type MutatorFollowUp,
+  type MutatorResult,
+  type ServerMutatorCtx,
+} from "./write";
 import type { DbTransaction } from "@alfred/db";
 
 export type PushRequestBody = ReplicacheModel.Push;
@@ -29,9 +34,9 @@ function isKnownMutator(name: string): name is MutatorName {
 // pooled `db()` handle.
 type MutationOutcome = { applied: boolean; followUps: MutatorFollowUp[] };
 
-function didMutatorApply(result: unknown): boolean {
-  if (!isRecord(result)) return true;
-  return typeof result.applied === "boolean" ? result.applied : true;
+function didMutatorApply(result: MutatorResult | undefined): boolean {
+  if (!result) return true;
+  return result.applied ?? true;
 }
 
 /**
@@ -57,7 +62,7 @@ async function applyMutation<K extends MutatorName>(
     return outcome;
   }
 
-  let mutatorResult: unknown;
+  let mutatorResult: MutatorResult | undefined;
   try {
     // Savepoint isolates mutator failures so one bad mutation doesn't
     // poison the whole batch.

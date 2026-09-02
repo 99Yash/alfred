@@ -105,7 +105,7 @@ export function resolvePullRequestAuthor(
 ): string {
   if (author !== "@me") return author;
   if (!accountLogin) {
-    throw new AppError("github_connection_required");
+    throw new AppError("reauth_required", { integration: "github" });
   }
   return accountLogin;
 }

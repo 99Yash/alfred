@@ -34,18 +34,35 @@
  * read-only names that only a test reaches.
  */
 
-export { McpRawClient, type McpCallEnvelope, type McpPreparedToolCall } from "./client";
+export {
+  MCP_DEFAULT_REQUEST_TIMEOUT_MS,
+  McpRawClient,
+  type McpCallEnvelope,
+  type McpPreparedToolCall,
+} from "./client";
 export type { ExternalToolRef } from "@alfred/contracts";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+export {
+  HostedMcpEndpointAuthorizer,
+  withMcpEndpointAuthorization,
+  type McpAuthorizedEndpoint,
+  type McpAuthorizedOAuth,
+  type McpAuthorizedOAuthServer,
+  type McpAuthorizedProtocol,
+  type McpEndpointAuthorizer,
+  type McpEndpointConnection,
+  type McpEndpointNetworkPolicy,
+} from "./endpoint-authorization";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
 export { listMcpToolsLocal } from "./list-tools";
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 export {
-  authorizeMcpOAuth,
-  finishMcpOAuth,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
   McpOAuthAuthorizationRequiredError,
+  type McpBoundOAuthSession,
+  type McpOAuthProviderForConnectionInput,
+  type McpOAuthSessionFactory,
 } from "./oauth";
 export {
   ensureBuiltInConnection,

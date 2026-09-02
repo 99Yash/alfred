@@ -26,8 +26,8 @@ import type {
 } from "@alfred/contracts";
 import {
   buildToolName,
-  humanizeSlug,
   INTEGRATION_ACTIONS,
+  INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
   isLoadableIntegrationSlug,
   isSupportedPassthroughSlug,
@@ -366,7 +366,7 @@ function evaluateSnapshotGates(
   snapshot: IntegrationAvailabilitySnapshot,
   tool: RegisteredTool,
 ): ToolAvailabilityResult {
-  const name = humanizeSlug(tool.integration);
+  const name = INTEGRATION_DISPLAY_NAMES[tool.integration];
 
   if (tool.availability?.passthrough) {
     const enabled =

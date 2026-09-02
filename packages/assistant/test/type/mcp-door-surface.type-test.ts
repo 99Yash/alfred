@@ -134,6 +134,9 @@ type _NoPublishOnConnections = ConnectionsDoor["publishCatalogRevision"];
 // @ts-expect-error - replacing the session cache does not invalidate the broker; test-support only.
 type _NoManagerSetterOnConnections = ConnectionsDoor["_setMcpConnectionManagerForTests"];
 
+// @ts-expect-error - callers receive the canonical provider factory, not its constructor.
+type _NoOAuthProviderConstructor = ConnectionsDoor["McpOAuthProvider"];
+
 // @ts-expect-error - the reviewed-downgrade mint is test-support, not product surface.
 type _NoPolicyMintOnToolRuntime = ToolRuntimeDoor["upsertToolPolicy"];
 

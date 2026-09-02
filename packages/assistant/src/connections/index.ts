@@ -37,6 +37,19 @@
 
 export * from "./availability";
 export * from "./google-credential-lifecycle";
+export {
+  createPinnedDispatcher,
+  hasCredentialQuery,
+  HostedEndpointError,
+  hostedEndpointErrorFrom,
+  isBlockedHost,
+  isBlockedIp,
+  isCredentialParamName,
+  pinningLookup,
+  validatePublicWebUrl,
+  type DnsLookupAll,
+  type HostedDispatcherTimeouts,
+} from "./hosted-endpoint";
 export * from "./object-state";
 export {
   consumeOAuthNonce,

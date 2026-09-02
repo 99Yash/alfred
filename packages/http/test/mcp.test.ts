@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { McpAuthorizedOAuth } from "@alfred/assistant/connections/mcp";
 import { mcpRecoveryDecisionBodySchema, type McpRecoveryDecision } from "@alfred/contracts";
 import { applyServerEnvFixtures } from "./support/server-env";
 
@@ -10,9 +11,18 @@ applyServerEnvFixtures({
   redisUrl: "redis://localhost:6379",
 });
 
-const [{ Elysia }, { errorHandler, mcpIntegrationRoutes }] = await Promise.all([
+const [
+  { Elysia },
+  { errorHandler, mcpIntegrationRoutes },
+  { McpRawClient },
+  { permissiveMcpEndpointAuthorizerForTests },
+  { completeMcpOAuthCallback },
+] = await Promise.all([
   import("elysia"),
   import("@alfred/http"),
+  import("@alfred/assistant/connections/mcp"),
+  import("@alfred/assistant/connections/mcp/test-support"),
+  import("../src/mcp"),
 ]);
 
 describe("mcpIntegrationRoutes", () => {
@@ -159,5 +169,88 @@ describe("mcpIntegrationRoutes", () => {
       : true;
     const invalidDecisionStaysOutsideContract: InvalidDecisionStaysOutsideContract = true;
     assert.equal(invalidDecisionStaysOutsideContract, true);
+  });
+
+  test("keeps one authorized OAuth capability through a valid callback and reconnect", async () => {
+    const events: string[] = [];
+    const fallback = permissiveMcpEndpointAuthorizerForTests();
+    let providerAuthorization: McpAuthorizedOAuth | null = null;
+    const readyClient = new McpRawClient({
+      connectionId: "conn_test",
+      endpoint: {
+        endpointUrl: "https://mcp.example.test/mcp",
+        endpointOrigin: "https://mcp.example.test",
+      },
+      endpointAuthorizer: fallback,
+      protocolFactory: () => {
+        throw new Error("the callback must not open a second protocol client");
+      },
+    });
+    const connectionManager = {
+      events,
+      async getReadyClient() {
+        this.events.push("ready");
+        return readyClient;
+      },
+    };
+    const provider = {
+      matchesState: async (state: string) => {
+        events.push(`state:${state}`);
+        return true;
+      },
+      discoveryState: async () => {
+        events.push("discovery");
+        return { authorizationServerUrl: "https://auth.example.test/" };
+      },
+      finishAuthorization: async (params: URLSearchParams) => {
+        events.push("finish");
+        assert.equal(params.get("code"), "valid-code");
+        assert.ok(providerAuthorization);
+      },
+    };
+
+    await completeMcpOAuthCallback({
+      connection: {
+        id: "conn_test",
+        userId: "user_test",
+        server: {
+          endpointUrl: "https://mcp.example.test/mcp",
+          endpointOrigin: "https://mcp.example.test",
+        },
+      },
+      state: "valid-state",
+      params: new URLSearchParams({ code: "valid-code", state: "valid-state" }),
+      dependencies: {
+        endpointAuthorizer: {
+          authorize: async (connection, network) => {
+            events.push("authorize");
+            const authorized = await fallback.authorize(connection, network);
+            return {
+              ...authorized,
+              close: async () => {
+                events.push("close");
+                await authorized.close();
+              },
+            };
+          },
+        },
+        providerForConnection: (input) => {
+          events.push("provider");
+          providerAuthorization = input.authorization;
+          return provider;
+        },
+        connectionManager,
+      },
+    });
+
+    assert.deepEqual(events, [
+      "authorize",
+      "provider",
+      "state:valid-state",
+      "discovery",
+      "finish",
+      "ready",
+      "close",
+    ]);
   });
 });
