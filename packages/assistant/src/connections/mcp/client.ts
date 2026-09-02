@@ -22,6 +22,7 @@ import type {
   McpAuthorizedEndpoint,
   McpAuthorizedProtocol,
   McpEndpointAuthorizer,
+  McpEndpointConnection,
 } from "./endpoint-authorization";
 import { sha256Canonical } from "./hash";
 import {
@@ -101,8 +102,8 @@ export interface McpClientLimits {
 
 export interface McpRawClientOptions extends McpClientLimits {
   connectionId: string;
-  endpoint: unknown;
-  expectedOrigin: unknown;
+  /** The persisted endpoint row projection; the authorizer validates it on every connect. */
+  endpoint: McpEndpointConnection;
   endpointAuthorizer: McpEndpointAuthorizer;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
   /**
@@ -116,7 +117,12 @@ export interface McpRawClientOptions extends McpClientLimits {
   protocolFactory?: (authorization: McpAuthorizedProtocol) => McpProtocolClient;
 }
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * The default per-request budget. Exported because the OAuth start/callback
+ * routes authorize an endpoint without a raw client and must name the same
+ * number rather than invent a second one.
+ */
+export const MCP_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_CATALOG_PAGES = 100;
 const DEFAULT_MAX_CATALOG_TOOLS = 1_000;
 const MAX_CATALOG_BYTES = 1024 * 1024;
@@ -162,15 +168,18 @@ export class McpRawClient {
 
   constructor(options: McpRawClientOptions) {
     // The destructure IS the split: bounds get their defaults, everything else is
-    // wiring. URL values are re-copied so a caller mutating theirs cannot move ours.
+    // wiring. The endpoint projection is copied so a caller mutating theirs cannot move ours.
     const { requestTimeoutMs, maxCatalogPages, maxCatalogTools, now, ...wiring } = options;
     this.#options = {
       ...wiring,
-      endpoint: options.endpoint instanceof URL ? new URL(options.endpoint.href) : options.endpoint,
+      endpoint: {
+        endpointUrl: options.endpoint.endpointUrl,
+        endpointOrigin: options.endpoint.endpointOrigin,
+      },
       now: now ?? Date.now,
     };
     this.#limits = {
-      requestTimeoutMs: requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs: requestTimeoutMs ?? MCP_DEFAULT_REQUEST_TIMEOUT_MS,
       maxCatalogPages: maxCatalogPages ?? DEFAULT_MAX_CATALOG_PAGES,
       maxCatalogTools: maxCatalogTools ?? DEFAULT_MAX_CATALOG_TOOLS,
     };
@@ -208,12 +217,8 @@ export class McpRawClient {
     let protocol: McpProtocolClient | undefined;
     let oauth: McpBoundOAuthSession | null = null;
     try {
-      authorized = await this.#options.endpointAuthorizer.authorize({
-        endpoint:
-          this.#options.endpoint instanceof URL
-            ? new URL(this.#options.endpoint.href)
-            : this.#options.endpoint,
-        expectedOrigin: this.#options.expectedOrigin,
+      authorized = await this.#options.endpointAuthorizer.authorize(this.#options.endpoint, {
+        requestTimeoutMs: this.#limits.requestTimeoutMs,
       });
       oauth = this.#options.oauthProviderFactory?.(authorized.oauth) ?? null;
       if (oauth) await oauth.authorize();

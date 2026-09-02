@@ -4,6 +4,7 @@ import {
   toMessage,
   type McpResultProvenance,
 } from "@alfred/contracts";
+import { hostedEndpointErrorFrom } from "../hosted-endpoint";
 
 export const MCP_CLIENT_ERROR_CODES = [
   "not_connected",
@@ -56,6 +57,28 @@ export function isPreDeliveryErrorCode(code: McpClientErrorCode): boolean {
 
 /** Cap on error text persisted to an MCP row (connection `lastError`, ledger row). */
 const MAX_MCP_ERROR_CHARS = 500;
+/** How many `Error.cause` links the durable text keeps. */
+const MAX_MCP_ERROR_CAUSES = 3;
+
+/**
+ * The text of an error AND its cause chain. Node's `fetch` reports every
+ * socket-level failure as a bare `TypeError: fetch failed` and hides the reason
+ * (`ECONNREFUSED`, `ENOTFOUND`, this module's own `EBLOCKEDHOST`) on `cause`;
+ * `toMessage` alone would persist "fetch failed" for a DNS-rebinding refusal,
+ * which is the one case an operator most needs to see. A hosted-endpoint
+ * refusal wins outright so both of its encodings land as the same sentence.
+ */
+function causeChainText(err: unknown): string {
+  const hosted = hostedEndpointErrorFrom(err);
+  if (hosted) return hosted.message;
+  const parts = [toMessage(err)];
+  let cause: unknown = err instanceof Error ? err.cause : undefined;
+  for (let depth = 0; depth < MAX_MCP_ERROR_CAUSES && cause !== undefined; depth += 1) {
+    parts.push(toMessage(cause));
+    cause = cause instanceof Error ? cause.cause : undefined;
+  }
+  return parts.join(": ");
+}
 
 /**
  * The one funnel every MCP failure passes through before it reaches a durable
@@ -76,7 +99,7 @@ const MAX_MCP_ERROR_CHARS = 500;
  * there first is exactly how one of them ends up unbounded.
  */
 export function boundedMcpErrorText(err: unknown): string {
-  return summarizeBody(sanitizeErrorMessage(toMessage(err)), MAX_MCP_ERROR_CHARS);
+  return summarizeBody(sanitizeErrorMessage(causeChainText(err)), MAX_MCP_ERROR_CHARS);
 }
 
 /** A deterministic client/broker rejection, safe for callers to branch on. */

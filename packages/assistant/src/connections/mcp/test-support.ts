@@ -58,10 +58,8 @@ export function permissiveMcpEndpointAuthorizerForTests(
   fetch: typeof globalThis.fetch = globalThis.fetch,
 ): McpEndpointAuthorizer {
   return {
-    authorize: async ({ endpoint }) => {
-      const authorizedEndpoint = new URL(
-        endpoint instanceof URL ? endpoint.href : String(endpoint),
-      );
+    authorize: async ({ endpointUrl }) => {
+      const authorizedEndpoint = new URL(endpointUrl);
       return {
         oauth: permissiveMcpOAuthAuthorizationForTests(authorizedEndpoint, fetch),
         protocol: { endpoint: authorizedEndpoint, fetch },

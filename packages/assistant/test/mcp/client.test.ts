@@ -119,8 +119,10 @@ function makeClient(
 ) {
   return new McpRawClient({
     connectionId: "conn_1",
-    endpoint: new URL("https://mcp.example.test/mcp"),
-    expectedOrigin: "https://mcp.example.test",
+    endpoint: {
+      endpointUrl: "https://mcp.example.test/mcp",
+      endpointOrigin: "https://mcp.example.test",
+    },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
     protocolFactory: () => protocol,
     ...overrides,
@@ -143,10 +145,9 @@ describe("McpRawClient catalog", () => {
     const protocol = new FakeProtocol([{ tools: [] }]);
     const client = makeClient(protocol, {
       endpointAuthorizer: {
-        authorize: async (candidate) => {
-          const endpoint = new URL(String(candidate.endpoint));
-          events.push(`authorize:${endpoint.href}`);
-          return permissiveMcpEndpointAuthorizerForTests().authorize(candidate);
+        authorize: async (connection, network) => {
+          events.push(`authorize:${connection.endpointUrl}`);
+          return permissiveMcpEndpointAuthorizerForTests().authorize(connection, network);
         },
       },
       protocolFactory: () => {
@@ -178,8 +179,8 @@ describe("McpRawClient catalog", () => {
     let authorizationCloses = 0;
     const client = makeClient(protocol, {
       endpointAuthorizer: {
-        authorize: async (candidate) => {
-          const authorized = await fallback.authorize(candidate);
+        authorize: async (connection, network) => {
+          const authorized = await fallback.authorize(connection, network);
           return {
             ...authorized,
             close: async () => {
@@ -229,10 +230,13 @@ describe("McpRawClient catalog", () => {
     await authorizationStarted.promise;
     const close = client.close();
     pendingAuthorization.resolve(
-      await permissiveMcpEndpointAuthorizerForTests().authorize({
-        endpoint: "https://mcp.example.test/mcp",
-        expectedOrigin: "https://mcp.example.test",
-      }),
+      await permissiveMcpEndpointAuthorizerForTests().authorize(
+        {
+          endpointUrl: "https://mcp.example.test/mcp",
+          endpointOrigin: "https://mcp.example.test",
+        },
+        { requestTimeoutMs: 30_000 },
+      ),
     );
     await Promise.all([connect, close]);
 
@@ -249,9 +253,9 @@ describe("McpRawClient catalog", () => {
     let protocolFactories = 0;
     const client = makeClient(protocol, {
       endpointAuthorizer: {
-        authorize: async (candidate) => {
+        authorize: async (connection, network) => {
           authorizations += 1;
-          return fallback.authorize(candidate);
+          return fallback.authorize(connection, network);
         },
       },
       protocolFactory: () => {
@@ -319,9 +323,9 @@ describe("McpRawClient catalog", () => {
     const fallback = permissiveMcpEndpointAuthorizerForTests();
     const client = makeClient(protocol, {
       endpointAuthorizer: {
-        authorize: async (candidate) => {
+        authorize: async (connection, network) => {
           authorizations += 1;
-          const authorized = await fallback.authorize(candidate);
+          const authorized = await fallback.authorize(connection, network);
           return {
             ...authorized,
             close: async () => {
@@ -777,11 +781,11 @@ describe("McpRawClient catalog", () => {
     let protocolCount = 0;
     const client = makeClient(firstProtocol, {
       endpointAuthorizer: {
-        authorize: async (candidate) => {
+        authorize: async (connection, network) => {
           authorizationCount += 1;
           const authorizationNumber = authorizationCount;
           events.push(`authorize-${authorizationNumber}`);
-          const authorized = await fallback.authorize(candidate);
+          const authorized = await fallback.authorize(connection, network);
           return {
             ...authorized,
             close: async () => {
