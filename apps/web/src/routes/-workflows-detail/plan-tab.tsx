@@ -1,7 +1,7 @@
 import {
   enumGuard,
   EVENT_TYPES_BY_SOURCE,
-  humanizeSlug,
+  integrationDisplayName,
   isIanaTimezone,
   LOADABLE_INTEGRATION_SLUGS,
   type LoadableIntegrationSlug,
@@ -45,10 +45,6 @@ const isAuthorableEventSource = enumGuard(AUTHORABLE_EVENT_SOURCE_VALUES);
 
 function eventTypeLabel(type: string): string {
   return type.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function integrationLabel(slug: string): string {
-  return humanizeSlug(slug);
 }
 
 interface Draft {
@@ -338,7 +334,7 @@ export function PlanTab({
                     onClick={() => toggleAllowed(slug)}
                     className={cn(!selected && "opacity-70")}
                   >
-                    {integrationLabel(slug)}
+                    {integrationDisplayName(slug)}
                   </AppPill>
                 );
               })}
@@ -350,8 +346,9 @@ export function PlanTab({
       {eventCapViolation ? (
         <div className="flex items-center gap-2 rounded-xl bg-app-amber-1 px-3 py-2 text-xs text-app-amber-4">
           <AlertTriangle size={13} />
-          Add <strong>{integrationLabel(draft.eventSource)}</strong> to the allowed integrations, or
-          clear the cap. An event workflow must be allowed to use its own trigger source.
+          Add <strong>{integrationDisplayName(draft.eventSource)}</strong> to the allowed
+          integrations, or clear the cap. An event workflow must be allowed to use its own trigger
+          source.
         </div>
       ) : null}
 

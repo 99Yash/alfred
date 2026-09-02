@@ -6,6 +6,7 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { isRecord } from "@alfred/contracts";
 import { z } from "zod";
 import { McpRawClient } from "@alfred/assistant/connections/mcp";
+import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
 
 let endpoint: URL;
 let closeServer: (() => Promise<void>) | null = null;
@@ -183,11 +184,10 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   }> = [];
   const client = new McpRawClient({
     connectionId: "conn_http_test",
-    endpoint,
+    endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     // Production supplies the hardened URL/SSRF authorizer. This explicit test
     // policy is the only place loopback HTTP is admitted.
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
-    fetch: async (input, init) => {
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
       if (isRecord(body) && typeof body.method === "string") {
         wire.push({
@@ -217,7 +217,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
         }
       }
       return response;
-    },
+    }),
   });
 
   await client.connect(TEST_TRACE);
@@ -289,8 +289,8 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
 test("McpRawClient applies its request deadline to the connect handshake", async () => {
   const client = new McpRawClient({
     connectionId: "conn_connect_timeout_test",
-    endpoint: new URL("/slow-mcp", endpoint),
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
+    endpoint: { endpointUrl: new URL("/slow-mcp", endpoint).href, endpointOrigin: endpoint.origin },
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
     requestTimeoutMs: 20,
   });
 
@@ -300,8 +300,11 @@ test("McpRawClient applies its request deadline to the connect handshake", async
 test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () => {
   const client = new McpRawClient({
     connectionId: "conn_legacy_http_test",
-    endpoint: new URL("/legacy-mcp", endpoint),
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
+    endpoint: {
+      endpointUrl: new URL("/legacy-mcp", endpoint).href,
+      endpointOrigin: endpoint.origin,
+    },
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
   });
 
   await client.connect();
@@ -349,9 +352,8 @@ test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () 
 test("modern connect fails when the advertised list-change subscription cannot open", async () => {
   const client = new McpRawClient({
     connectionId: "conn_modern_subscription_failure_test",
-    endpoint,
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
-    fetch: async (input, init) => {
+    endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
       if (isRecord(body) && body.method === "subscriptions/listen") {
         return Response.json(
@@ -364,7 +366,7 @@ test("modern connect fails when the advertised list-change subscription cannot o
         );
       }
       return fetch(input, init);
-    },
+    }),
   });
 
   await assert.rejects(client.connect(), /list-change subscription/i);
@@ -374,8 +376,11 @@ test("modern connect fails when the advertised list-change subscription cannot o
 test("the real SDK cannot bypass Alfred's catalog page limit", async () => {
   const client = new McpRawClient({
     connectionId: "conn_legacy_page_limit_test",
-    endpoint: new URL("/legacy-mcp", endpoint),
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
+    endpoint: {
+      endpointUrl: new URL("/legacy-mcp", endpoint).href,
+      endpointOrigin: endpoint.origin,
+    },
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
     maxCatalogPages: 1,
   });
 
@@ -393,15 +398,14 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   let unauthorizedRefreshes = 0;
   const unauthorizedClient = new McpRawClient({
     connectionId: "conn_no_auth_replay_test",
-    endpoint,
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
+    endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     authProvider: {
       token: async () => "test-token",
       onUnauthorized: async () => {
         unauthorizedRefreshes += 1;
       },
     },
-    fetch: async (input, init) => {
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
       if (isRecord(body) && body.method === "tools/call") {
         unauthorizedCalls += 1;
@@ -411,7 +415,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
         });
       }
       return fetch(input, init);
-    },
+    }),
   });
   await unauthorizedClient.connect();
   const unauthorizedCatalog = await unauthorizedClient.refreshCatalog();
@@ -434,13 +438,12 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   const requiredScopes: string[][] = [];
   const insufficientScopeClient = new McpRawClient({
     connectionId: "conn_no_scope_replay_test",
-    endpoint,
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
+    endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     authProvider: { token: async () => "test-token" },
     onInsufficientScope: (scopes) => {
       requiredScopes.push(scopes);
     },
-    fetch: async (input, init) => {
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
       if (isRecord(body) && body.method === "tools/call") {
         insufficientScopeCalls += 1;
@@ -452,7 +455,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
         });
       }
       return fetch(input, init);
-    },
+    }),
   });
   await insufficientScopeClient.connect();
   const insufficientScopeCatalog = await insufficientScopeClient.refreshCatalog();
@@ -494,9 +497,8 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   let mismatchCalls = 0;
   const mismatchClient = new McpRawClient({
     connectionId: "conn_no_header_replay_test",
-    endpoint,
-    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
-    fetch: async (input, init) => {
+    endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
+    endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
       if (isRecord(body) && body.method === "tools/call") {
         mismatchCalls += 1;
@@ -510,7 +512,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
         );
       }
       return fetch(input, init);
-    },
+    }),
   });
   await mismatchClient.connect();
   const mismatchCatalog = await mismatchClient.refreshCatalog();

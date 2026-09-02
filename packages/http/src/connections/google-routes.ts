@@ -54,7 +54,7 @@ import { requireOnboarded } from "../middleware/onboarding";
  * failure here must not bounce the user to an OAuth error page, so each is
  * swallowed with a warn.
  */
-async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<void> {
+async function bestEffort(label: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (err) {
@@ -341,14 +341,14 @@ export const googleIntegrationRoutes = new Elysia({
       // job is idempotent — a re-connect with no new messages fans no
       // triage runs. Capped tight (8 msgs) so first-run LLM cost stays in
       // pennies; bulk historical re-ingest still skips triage.
-      await bestEffort(`failed to enqueue initial-sync for ${credentialId}`, () =>
-        getIngestionQueue().add("gmail.ingest_recent", {
+      await bestEffort(`failed to enqueue initial-sync for ${credentialId}`, async () => {
+        await getIngestionQueue().add("gmail.ingest_recent", {
           kind: "gmail.ingest_recent",
           credentialId,
           maxMessages: 8,
           triageInsertedDocs: true,
-        }),
-      );
+        });
+      });
 
       // Install the Gmail watch so realtime ingestion (ADR-0037: pub/sub →
       // poll_recent → triage) starts immediately. Without this a new account
@@ -356,12 +356,12 @@ export const googleIntegrationRoutes = new Elysia({
       // fallback — the source of the multi-minute tag latency. Enqueued (not
       // inline) to keep the OAuth redirect snappy; best-effort, and the
       // watch-renew cron keeps it alive thereafter.
-      await bestEffort(`failed to enqueue watch install for ${credentialId}`, () =>
-        getIngestionQueue().add("gmail.watch_install", {
+      await bestEffort(`failed to enqueue watch install for ${credentialId}`, async () => {
+        await getIngestionQueue().add("gmail.watch_install", {
           kind: "gmail.watch_install",
           credentialId,
-        }),
-      );
+        });
+      });
 
       // Publish the connection occurrence through the generic trigger path.
       // Cold-start research is one consumer today; future consumers do not

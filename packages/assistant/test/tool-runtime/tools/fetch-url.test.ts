@@ -10,13 +10,9 @@ import {
   decodeResponseBody,
   FetchError,
   htmlToText,
-  isBlockedHost,
-  isBlockedIp,
-  pinningLookup,
   redactCredentialUrl,
   runFetchUrl,
   safeRequest,
-  type DnsLookupAll,
   type HttpRequester,
   type RawResponse,
   type Transport,
@@ -25,7 +21,7 @@ import {
 
 /**
  * Pins the pure surface of `system.fetch_url` (#286, ADR-0071 honest read-in):
- * HTML→text extraction, entity decoding, the SSRF IP/host classifiers, and the
+ * HTML→text extraction, entity decoding, the model-facing refusal text, and the
  * content-type / size / binary-sniff handling in `runFetchUrl` (with the network
  * transport stubbed). The live connect-time pinning + redirect path is covered by
  * smoke-fetch-url.ts.
@@ -71,89 +67,6 @@ describe("htmlToText", () => {
     const text = htmlToText("a\u0000\u0007b\nc");
     assert.equal(text, "ab\nc");
   });
-});
-
-describe("isBlockedIp", () => {
-  for (const ip of [
-    "127.0.0.1",
-    "10.1.2.3",
-    "172.16.0.1",
-    "172.31.255.255",
-    "192.168.0.1",
-    "169.254.169.254", // cloud metadata
-    "100.64.0.1", // CGNAT
-    "0.0.0.0",
-    "192.0.0.1", // IETF protocol assignments
-    "192.0.2.1", // documentation
-    "192.31.196.1", // AS112
-    "192.52.193.1", // AMT
-    "192.88.99.1", // deprecated 6to4 relay anycast
-    "192.175.48.1", // AS112
-    "198.18.0.1", // benchmarking
-    "198.19.255.255", // benchmarking
-    "198.51.100.1", // documentation
-    "203.0.113.1", // documentation
-    "240.0.0.1", // reserved
-    "255.255.255.255", // broadcast
-    "::1",
-    "::",
-    "::7f00:1", // IPv4-compatible loopback (hex)
-    "::127.0.0.1", // IPv4-compatible loopback (dotted)
-    "fc00::1",
-    "fd12:3456::1",
-    "fe80::1",
-    "fec0::1",
-    "ff00::1",
-    "ff02::1",
-    "64:ff9b:1::1",
-    "100::1",
-    "2001:2::1",
-    "2001:db8::1",
-    "2002:7f00:1::", // 6to4 embedding 127.0.0.1
-    "3fff::1",
-    "64:ff9b::7f00:1", // NAT64 embedding 127.0.0.1
-    "239.0.0.1", // multicast
-    "::ffff:127.0.0.1", // IPv4-mapped loopback (dotted)
-    "::ffff:7f00:1", // IPv4-mapped loopback (hex)
-    "::ffff:169.254.169.254", // IPv4-mapped metadata
-    "::ffff:198.18.0.1", // IPv4-mapped benchmarking range
-  ]) {
-    test(`blocks ${ip}`, () => assert.equal(isBlockedIp(ip), true));
-  }
-
-  for (const ip of ["8.8.8.8", "172.32.0.1", "1.1.1.1", "2606:4700::1", "::ffff:1.1.1.1"]) {
-    test(`allows ${ip}`, () => assert.equal(isBlockedIp(ip), false));
-  }
-});
-
-describe("isBlockedHost", () => {
-  for (const host of [
-    "localhost",
-    "foo.localhost",
-    "service.internal",
-    "printer.local",
-    "127.0.0.1",
-    "192.168.0.1",
-    "198.18.0.1",
-    "203.0.113.1",
-    "[::1]",
-    "[::7f00:1]",
-    "[::ffff:127.0.0.1]",
-  ]) {
-    test(`blocks ${host}`, () => assert.equal(isBlockedHost(host), true));
-  }
-
-  // A public name that *resolves* to a private IP (e.g. 127.0.0.1.nip.io) passes
-  // the string check and is caught at connect time — not here.
-  for (const host of [
-    "example.com",
-    "www.yashk.xyz",
-    "8.8.8.8",
-    "github.com",
-    "127.0.0.1.nip.io",
-  ]) {
-    test(`allows ${host}`, () => assert.equal(isBlockedHost(host), false));
-  }
 });
 
 describe("runFetchUrl (stubbed transport)", () => {
@@ -213,10 +126,13 @@ describe("runFetchUrl (stubbed transport)", () => {
     if (!r.ok) assert.equal(r.reason, "blocked_host");
   });
 
-  test("rejects a private host before any socket", async () => {
+  test("rejects a private host before any socket and names the host", async () => {
     const r = await runFetchUrl({ url: "http://192.168.1.1/admin" });
     assert.equal(r.ok, false);
-    if (!r.ok) assert.equal(r.reason, "blocked_host");
+    if (!r.ok) {
+      assert.equal(r.reason, "blocked_host");
+      assert.match(r.message, /'192\.168\.1\.1'/);
+    }
   });
 
   test("rejects a URL that embeds credentials before any socket", async () => {
@@ -240,7 +156,10 @@ describe("runFetchUrl (stubbed transport)", () => {
     test(`#292 rejects non-default port ${url} before any socket`, async () => {
       const r = await runFetchUrl({ url });
       assert.equal(r.ok, false);
-      if (!r.ok) assert.equal(r.reason, "blocked_port");
+      if (!r.ok) {
+        assert.equal(r.reason, "blocked_port");
+        assert.match(r.message, new RegExp(`port ${new URL(url).port} on 'example\\.com'`));
+      }
     });
   }
 
@@ -791,59 +710,6 @@ describe("decodeResponseBody", () => {
         ),
       (e) => e instanceof FetchError && e.reason === "fetch_failed",
     );
-  });
-});
-
-describe("pinningLookup (connect-time IP pin)", () => {
-  const opts = { all: true } as Parameters<typeof pinningLookup>[1];
-
-  function run(
-    hostname: string,
-    resolve: DnsLookupAll,
-  ): Promise<{
-    err: NodeJS.ErrnoException | null;
-    address?: string | { address: string }[] | undefined;
-  }> {
-    return new Promise((res) => {
-      pinningLookup(hostname, opts, (err, address) => res({ err, address }), resolve);
-    });
-  }
-
-  test("refuses EBLOCKEDHOST when the host resolves to a private address", async () => {
-    const resolve: DnsLookupAll = (_h, _o, cb) => cb(null, [{ address: "10.0.0.5", family: 4 }]);
-    const { err } = await run("rebind.example", resolve);
-    assert.equal(err?.code, "EBLOCKEDHOST");
-  });
-
-  test("refuses EBLOCKEDHOST when ANY resolved address is private", async () => {
-    const resolve: DnsLookupAll = (_h, _o, cb) =>
-      cb(null, [
-        { address: "93.184.216.34", family: 4 },
-        { address: "127.0.0.1", family: 4 },
-      ]);
-    const { err } = await run("mixed.example", resolve);
-    assert.equal(err?.code, "EBLOCKEDHOST");
-  });
-
-  test("passes validated public addresses through (all:true array shape)", async () => {
-    const resolve: DnsLookupAll = (_h, _o, cb) =>
-      cb(null, [{ address: "93.184.216.34", family: 4 }]);
-    const { err, address } = await run("example.com", resolve);
-    assert.equal(err, null);
-    assert.ok(Array.isArray(address));
-  });
-
-  test("surfaces ENOTFOUND when nothing resolves", async () => {
-    const resolve: DnsLookupAll = (_h, _o, cb) => cb(null, []);
-    const { err } = await run("void.example", resolve);
-    assert.equal(err?.code, "ENOTFOUND");
-  });
-
-  test("propagates a resolver error verbatim", async () => {
-    const boom = Object.assign(new Error("dns down"), { code: "EAI_AGAIN" });
-    const resolve: DnsLookupAll = (_h, _o, cb) => cb(boom);
-    const { err } = await run("flaky.example", resolve);
-    assert.equal(err?.code, "EAI_AGAIN");
   });
 });
 

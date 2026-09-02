@@ -1,4 +1,8 @@
-import { SUPPORTED_PASSTHROUGH_SLUGS, type SupportedIntegrationSlug } from "@alfred/contracts";
+import {
+  INTEGRATION_DISPLAY_NAMES,
+  SUPPORTED_PASSTHROUGH_SLUGS,
+  type SupportedIntegrationSlug,
+} from "@alfred/contracts";
 import {
   AlertCircle,
   CalendarDays,
@@ -23,7 +27,6 @@ import type { BackgroundAgentDef } from "./helpers";
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
 interface PassthroughMeta {
-  label: string;
   helper: string;
   icon: LucideIcon;
   tint: AppTint;
@@ -31,67 +34,58 @@ interface PassthroughMeta {
 
 // Presentation only. The row LIST is driven by SUPPORTED_PASSTHROUGH_SLUGS
 // (contracts) so a newly-supported integration can't ship without a toggle;
-// this exhaustive Record forces it to also declare how it renders.
+// this exhaustive Record forces it to also declare how it renders. The label
+// comes from INTEGRATION_DISPLAY_NAMES, the one home for an integration's name.
 const PASSTHROUGH_META = {
   gmail: {
-    label: "Gmail",
     helper:
       "Raw read-only Gmail API — list labels, read message metadata beyond the curated tools.",
     icon: Mail,
     tint: "green",
   },
   calendar: {
-    label: "Calendar",
     helper:
       "Raw read-only Calendar API — calendar lists, settings, and event fields we never modeled.",
     icon: CalendarDays,
     tint: "sky",
   },
   drive: {
-    label: "Drive",
     helper: "Raw read-only Drive API — file metadata, permissions, and revisions.",
     icon: HardDrive,
     tint: "amber",
   },
   docs: {
-    label: "Docs",
     helper:
       "Raw read-only Docs API — document structure and metadata (content stays in the curated tools).",
     icon: FileText,
     tint: "sky",
   },
   sheets: {
-    label: "Sheets",
     helper: "Raw read-only Sheets API — spreadsheet structure, named ranges, and metadata.",
     icon: Table2,
     tint: "green",
   },
   slides: {
-    label: "Slides",
     helper: "Raw read-only Slides API — presentation structure and metadata.",
     icon: Presentation,
     tint: "orange",
   },
   github: {
-    label: "GitHub",
     helper: "Raw read-only GitHub REST — workflow runs, commits, releases, branches, and contents.",
     icon: GitBranch,
     tint: "purple",
   },
   notion: {
-    label: "Notion",
     helper: "Raw read-only Notion API — database schema, page properties, and search.",
     icon: NotebookText,
     tint: "pink",
   },
   railway: {
-    label: "Railway",
     helper: "Raw read-only Railway GraphQL — service, deployment, and environment fields.",
     icon: TrainFront,
     tint: "purple",
   },
   vercel: {
-    label: "Vercel",
     helper: "Raw read-only Vercel REST — project and deployment detail.",
     icon: Triangle,
     tint: "amber",
@@ -146,7 +140,7 @@ export function PassthroughSection() {
             const meta = PASSTHROUGH_META[slug];
             const agent: BackgroundAgentDef = {
               id: `passthrough-${slug}`,
-              label: meta.label,
+              label: INTEGRATION_DISPLAY_NAMES[slug],
               helper: meta.helper,
               icon: meta.icon,
               tint: meta.tint,

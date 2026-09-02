@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AppError, toPublicAppError } from "@alfred/contracts/app-errors";
+import { AppError, publicAppError, toPublicAppError } from "@alfred/contracts/app-errors";
 import { createLogger, safeErrorDiagnostic, serializeError } from "../src/logger";
 
 const RAW_SQL = 'Failed query: insert into "artifacts" ("user_id") values ($1) params: usr_private';
@@ -10,15 +10,21 @@ test("unknown errors become a closed generic public error", () => {
   assert.deepEqual(result, {
     code: "tool_execution_failed",
     message: "The tool failed unexpectedly. Please try again.",
+    fix: { kind: "retry" },
   });
   assert.ok(!JSON.stringify(result).includes("usr_private"));
 });
 
 test("partial tool failures use an explicit safe fallback without exposing their cause", () => {
-  const result = toPublicAppError(new Error(RAW_SQL), "calendar_account_read_failed");
+  const result = toPublicAppError(
+    new Error(RAW_SQL),
+    publicAppError("account_read_failed", { integration: "calendar" }),
+  );
   assert.deepEqual(result, {
-    code: "calendar_account_read_failed",
-    message: "A connected Calendar account could not be read. Reconnect it in settings.",
+    code: "account_read_failed",
+    params: { integration: "calendar" },
+    message: "A connected Calendar account could not be read.",
+    fix: { kind: "reconnect", integration: "calendar" },
   });
   assert.ok(!JSON.stringify(result).includes("usr_private"));
 });
@@ -30,6 +36,7 @@ test("registered errors keep their public code without exposing their cause", ()
   assert.deepEqual(result, {
     code: "artifact_create_failed",
     message: "Saving the artifact failed; nothing was created.",
+    fix: { kind: "retry" },
   });
 });
 

@@ -1,7 +1,9 @@
 import { t } from "elysia";
+import { z } from "zod";
 import {
   HARD_MUTATION_LIMIT as SYNC_HARD_LIMIT,
   MAX_MUTATIONS as SYNC_MAX_MUTATIONS,
+  MAX_ACCEPTED_COOKIE_ORDER,
 } from "./constants";
 
 export namespace ReplicacheModel {
@@ -14,11 +16,17 @@ export namespace ReplicacheModel {
    * Cookie identifies the client's previous CVR snapshot. Embeds
    * `clientGroupID` so a stale cookie from a different group is detected
    * and treated as a cold sync rather than silently missing the CVR cache.
+   *
+   * Source-of-truth schema: `PullCookie` is `z.infer` of `pullCookieSchema`,
+   * so the type never drifts from the bounds (`0..MAX_ACCEPTED_COOKIE_ORDER`,
+   * safe integer, non-empty `clientGroupID`). `constants.ts` owns the numeric
+   * caps; this file owns the cookie contract.
    */
-  export type PullCookie = {
-    order: number;
-    clientGroupID: string;
-  };
+  export const pullCookieSchema = z.object({
+    order: z.number().int().min(0).max(MAX_ACCEPTED_COOKIE_ORDER).refine(Number.isSafeInteger),
+    clientGroupID: z.string().min(1),
+  });
+  export type PullCookie = z.infer<typeof pullCookieSchema>;
 
   /**
    * Body schema for `/replicache/pull`. `cookie` is typed as `t.Unknown`
