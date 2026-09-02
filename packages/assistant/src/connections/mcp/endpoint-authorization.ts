@@ -1,4 +1,4 @@
-import type { McpConnection } from "@alfred/db/schemas";
+import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {
   createGuardedFetch,
@@ -14,10 +14,12 @@ import {
 } from "../hosted-endpoint";
 
 /**
- * The two columns an authorization reads, typed as the row projection so a
- * caller passes the row (or its `Pick`) and cannot swap the URL and the origin.
+ * The two columns an authorization reads, typed as the server-definition row
+ * projection so a caller passes `connection.server` (or its `Pick`) and cannot
+ * swap the URL and the origin. The endpoint is a fact of the server definition,
+ * not of the connection instance.
  */
-export type McpEndpointConnection = Pick<McpConnection, "endpointUrl" | "endpointOrigin">;
+export type McpEndpointConnection = Pick<McpServer, "endpointUrl" | "endpointOrigin">;
 
 /**
  * What the owner of a connection is willing to wait for one request. The raw

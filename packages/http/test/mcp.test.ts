@@ -65,8 +65,10 @@ describe("mcpIntegrationRoutes", () => {
       connection: {
         id: "conn_test",
         userId: "user_test",
-        endpointUrl: "https://mcp.example.test/mcp",
-        endpointOrigin: "https://mcp.example.test",
+        server: {
+          endpointUrl: "https://mcp.example.test/mcp",
+          endpointOrigin: "https://mcp.example.test",
+        },
       },
       state: "valid-state",
       params: new URLSearchParams({ code: "valid-code", state: "valid-state" }),

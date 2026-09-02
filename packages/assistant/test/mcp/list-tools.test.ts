@@ -9,7 +9,7 @@ import { inArray, like } from "drizzle-orm";
 
 import { listMcpToolsLocal } from "../../src/connections/mcp";
 import { computeDescriptorHashes } from "../../src/connections/mcp/hash";
-import { insertConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
+import { ensureConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
@@ -43,12 +43,12 @@ async function seedUser(): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await insertConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
-    endpointUrl: "https://mcp.example.test/mcp",
-    endpointOrigin: "https://mcp.example.test",
+    endpoint: new URL("https://mcp.example.test/mcp"),
   });
   return conn.id;
 }

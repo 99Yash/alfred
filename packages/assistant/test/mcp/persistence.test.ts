@@ -3,12 +3,21 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  mcpConnections,
+  mcpInvocation,
+  mcpOauthCredentials,
+  mcpServers,
+  user,
+} from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import {
   compareAndSetCatalogRevision,
-  insertConnection,
+  ensureBuiltInConnection,
+  ensureConnection,
   insertCatalogRevision,
   publishCatalogRevision,
   readConnection,
@@ -93,14 +102,21 @@ async function seedStaging(userId: string): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await insertConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
-    endpointUrl: "https://example.test/mcp",
-    endpointOrigin: "https://example.test",
+    endpoint: new URL("https://example.test/mcp"),
   });
   return conn.id;
+}
+
+async function selectCredentialForTest(connectionId: string, credentialId: string): Promise<void> {
+  await db()
+    .update(mcpConnections)
+    .set({ credentialId })
+    .where(eq(mcpConnections.id, connectionId));
 }
 
 describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
@@ -127,6 +143,301 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     const updated = await updateConnection(connId, { status: "ready", lastError: null });
     assert.equal(updated?.status, "ready");
+  });
+
+  test("named connection instances share one server and keep separate state", async () => {
+    const userId = await seedUser();
+    const canonicalResource = `mcp://test/${randomUUID()}`;
+    const endpoint = new URL("https://shared.example.test/mcp");
+
+    const personal = await ensureConnection({
+      userId,
+      label: "Personal",
+      instanceKey: "personal",
+      canonicalResource,
+      endpoint,
+    });
+    const work = await ensureConnection({
+      userId,
+      label: "Work",
+      instanceKey: "work",
+      canonicalResource,
+      endpoint,
+    });
+
+    assert.notEqual(personal.id, work.id);
+    assert.equal(personal.serverId, work.serverId);
+    assert.deepEqual(personal.server, work.server);
+
+    const revision = await publishCatalogRevision({
+      connectionId: personal.id,
+      revisionHash: "sha256:personal",
+      descriptors: [{ name: "personal_tool" }],
+      descriptorHashes: { personal_tool: "sha256:personal_tool" },
+      toolCount: 1,
+    });
+    const [personalCredential, workCredential] = await db()
+      .insert(mcpOauthCredentials)
+      .values([
+        { userId, connectionId: personal.id, issuer: "https://auth.personal.example.test" },
+        { userId, connectionId: work.id, issuer: "https://auth.work.example.test" },
+      ])
+      .returning();
+    assert.ok(personalCredential);
+    assert.ok(workCredential);
+    await selectCredentialForTest(personal.id, personalCredential.id);
+    await updateConnection(personal.id, { status: "ready" });
+    await selectCredentialForTest(work.id, workCredential.id);
+
+    await updateConnection(personal.id, { label: "Renamed personal" });
+    const renamed = await readConnection(personal.id);
+    const unchangedWork = await readConnection(work.id);
+
+    assert.ok(renamed);
+    assert.equal(renamed.id, personal.id);
+    assert.equal(renamed.label, "Renamed personal");
+    assert.equal(renamed.status, "ready");
+    assert.equal(renamed.credentialId, personalCredential.id);
+    assert.equal(renamed.currentCatalogRevisionId, revision.id);
+    assert.equal(unchangedWork?.label, "Work");
+    assert.equal(unchangedWork?.credentialId, workCredential.id);
+    assert.equal(unchangedWork?.currentCatalogRevisionId, null);
+  });
+
+  test("a same-owner connection cannot select a sibling OAuth credential", async () => {
+    const userId = await seedUser();
+    const personalId = await seedConnection(userId);
+    const workId = await seedConnection(userId);
+    const [workCredential] = await db()
+      .insert(mcpOauthCredentials)
+      .values({
+        userId,
+        connectionId: workId,
+        issuer: "https://auth.work.example.test",
+      })
+      .returning();
+    assert.ok(workCredential);
+
+    await assert.rejects(
+      db()
+        .update(mcpConnections)
+        .set({ credentialId: workCredential.id })
+        .where(eq(mcpConnections.id, personalId)),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.cause instanceof Error &&
+        error.cause.message.includes("mcp_connections_credential_connection_fk"),
+    );
+    assert.equal((await readConnection(personalId))?.credentialId, null);
+  });
+
+  test("a connection cannot refer to another owner's server", async () => {
+    const ownerId = await seedUser();
+    const otherUserId = await seedUser();
+    const owned = await ensureConnection({
+      userId: ownerId,
+      label: "Owned server",
+      instanceKey: "default",
+      canonicalResource: `mcp://test/${randomUUID()}`,
+      endpoint: new URL("https://owned.example.test/mcp"),
+    });
+
+    await assert.rejects(
+      db().insert(mcpConnections).values({
+        userId: otherUserId,
+        serverId: owned.serverId,
+        instanceKey: "cross-owner",
+        label: "Invalid",
+      }),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.cause instanceof Error &&
+        error.cause.message.includes("mcp_connections_server_owner_fk"),
+    );
+  });
+
+  test("a server definition cannot be silently retargeted", async () => {
+    const userId = await seedUser();
+    const canonicalResource = `mcp://test/${randomUUID()}`;
+    await ensureConnection({
+      userId,
+      label: "Original",
+      instanceKey: "default",
+      canonicalResource,
+      endpoint: new URL("https://one.example.test/mcp"),
+    });
+
+    await assert.rejects(
+      ensureConnection({
+        userId,
+        label: "Retarget",
+        instanceKey: "second",
+        canonicalResource,
+        endpoint: new URL("https://two.example.test/mcp"),
+      }),
+      /already uses endpoint/,
+    );
+  });
+
+  test("the closed GitHub slot reuses its identity without resetting account state", async () => {
+    const userId = await seedUser();
+    const first = await ensureBuiltInConnection(userId, "github");
+    await updateConnection(first.id, {
+      status: "ready",
+      lastError: "preserved",
+      grantedScopes: ["repo"],
+    });
+
+    const replay = await ensureBuiltInConnection(userId, "github");
+
+    assert.equal(replay.id, first.id);
+    assert.equal(replay.instanceKey, "default");
+    assert.equal(replay.status, "ready");
+    assert.equal(replay.lastError, "preserved");
+    assert.deepEqual(replay.grantedScopes, ["repo"]);
+  });
+
+  test("concurrent first use reuses the GitHub row backfilled by migration 0108", async () => {
+    const userId = await seedUser();
+    // Migration 0108 keeps the connection id and derives the server id from it
+    // by swapping the `mcpc_` prefix for `mcps_`, so the fixture mirrors both.
+    const migratedConnectionId = `mcpc_migrated_${randomUUID()}`;
+    const migratedServerId = migratedConnectionId.replace(/^mcpc_/, "mcps_");
+    const endpoint = new URL("https://api.githubcopilot.com/mcp");
+    await db().insert(mcpServers).values({
+      id: migratedServerId,
+      userId,
+      canonicalResource: endpoint.href,
+      endpointUrl: endpoint.href,
+      endpointOrigin: endpoint.origin,
+    });
+    await db()
+      .insert(mcpConnections)
+      .values({
+        id: migratedConnectionId,
+        userId,
+        serverId: migratedServerId,
+        instanceKey: "default",
+        label: "GitHub MCP",
+        authServerIdentity: "oauth:legacy",
+        status: "ready",
+        grantedScopes: ["repo"],
+        lastError: "legacy-state",
+      });
+    const [credential] = await db()
+      .insert(mcpOauthCredentials)
+      .values({
+        userId,
+        connectionId: migratedConnectionId,
+        issuer: "https://github.com/login/oauth",
+      })
+      .returning();
+    assert.ok(credential);
+    await selectCredentialForTest(migratedConnectionId, credential.id);
+    const revision = await publishCatalogRevision({
+      connectionId: migratedConnectionId,
+      revisionHash: "sha256:migrated-github",
+      descriptors: [{ name: "search_repositories" }],
+      descriptorHashes: { search_repositories: "sha256:migrated-search" },
+      toolCount: 1,
+    });
+    const policy = await upsertToolPolicy({
+      userId,
+      connectionId: migratedConnectionId,
+      remoteName: "search_repositories",
+      descriptorHash: "sha256:migrated-search",
+      riskTier: "low",
+      effectClass: "read",
+      retryContract: "never",
+    });
+    const invocation = await insertInvocation({
+      userId,
+      connectionId: migratedConnectionId,
+      remoteName: "search_repositories",
+      argsHash: "sha256:migrated-args",
+      stagingId: await seedStaging(userId),
+      effectClass: "read",
+    });
+    assert.ok(invocation.ok);
+
+    const [first, second] = await Promise.all([
+      ensureBuiltInConnection(userId, "github"),
+      ensureBuiltInConnection(userId, "github"),
+    ]);
+
+    assert.equal(first.id, migratedConnectionId);
+    assert.equal(second.id, migratedConnectionId);
+    assert.equal(first.instanceKey, "default");
+    assert.equal(first.credentialId, credential.id);
+    assert.equal(first.authServerIdentity, "oauth:legacy");
+    assert.equal(first.currentCatalogRevisionId, revision.id);
+    assert.equal(first.status, "ready");
+    assert.equal(first.lastError, "legacy-state");
+    assert.deepEqual(first.grantedScopes, ["repo"]);
+    assert.equal(
+      (await readToolPolicy(migratedConnectionId, "search_repositories", "sha256:migrated-search"))
+        ?.id,
+      policy.id,
+    );
+    const [preservedInvocation] = await db()
+      .select({ id: mcpInvocation.id, connectionId: mcpInvocation.connectionId })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.id, invocation.invocation.id));
+    assert.deepEqual(preservedInvocation, {
+      id: invocation.invocation.id,
+      connectionId: migratedConnectionId,
+    });
+    const rows = await db()
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(eq(mcpConnections.userId, userId));
+    assert.deepEqual(rows, [{ id: migratedConnectionId }]);
+  });
+
+  test("a replayed ensure on one instance key keeps the row and its state", async () => {
+    const userId = await seedUser();
+    const canonicalResource = `mcp://test/${randomUUID()}`;
+    const endpoint = new URL("https://replay.example.test/mcp");
+
+    const first = await ensureConnection({
+      userId,
+      label: "Replayed",
+      instanceKey: "slot-a",
+      canonicalResource,
+      endpoint,
+    });
+    await updateConnection(first.id, { status: "ready", lastError: "preserved" });
+
+    const replay = await ensureConnection({
+      userId,
+      label: "Replayed",
+      instanceKey: "slot-a",
+      canonicalResource,
+      endpoint,
+    });
+
+    assert.equal(replay.id, first.id);
+    assert.equal(replay.status, "ready");
+    assert.equal(replay.lastError, "preserved");
+  });
+
+  test("a built-in retargets its pinned endpoint instead of failing for ever", async () => {
+    const userId = await seedUser();
+    const seeded = await ensureBuiltInConnection(userId, "github");
+    // Stand in for a registry URL that moved after the user first connected.
+    await db()
+      .update(mcpServers)
+      .set({
+        endpointUrl: "https://old.githubcopilot.example.test/mcp",
+        endpointOrigin: "https://old.githubcopilot.example.test",
+      })
+      .where(eq(mcpServers.id, seeded.serverId));
+
+    const reconciled = await ensureBuiltInConnection(userId, "github");
+
+    assert.equal(reconciled.id, seeded.id);
+    assert.equal(reconciled.server.endpointUrl, "https://api.githubcopilot.com/mcp");
+    assert.equal(reconciled.server.endpointOrigin, "https://api.githubcopilot.com");
   });
 
   test("publishCatalogRevision is idempotent and advances the pointer", async () => {

@@ -27,7 +27,6 @@
  * connection-creation slice actually wires it.
  */
 
-import type { McpConnection } from "@alfred/db/schemas";
 import {
   McpRawClient,
   type ExternalToolRef,
@@ -44,13 +43,14 @@ import {
   readConnection,
   readOwnedConnection,
   updateConnection,
+  type McpConnectionWithServer,
   type McpConnectionUpdate,
 } from "./persistence";
 import type { McpNegotiatedServer } from "./protocol";
 import { McpOAuthAuthorizationRequiredError, mcpOAuthProviderForConnection } from "./oauth";
 import { startMcpTraceSpan, type McpTraceContext } from "./trace";
 
-export type McpClientFactory = (connection: McpConnection) => McpRawClient;
+export type McpClientFactory = (connection: McpConnectionWithServer) => McpRawClient;
 
 export interface McpConnectionManagerPersistence {
   readConnection: typeof readConnection;
@@ -74,7 +74,6 @@ const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
 };
 
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
-export const MCP_OAUTH_PENDING_ISSUER = "oauth:pending";
 
 interface CatalogRefreshState {
   dirty: boolean;
@@ -113,7 +112,7 @@ function liveClientFactory(): McpClientFactory {
     const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
     return new McpRawClient({
       connectionId: connection.id,
-      endpoint: connection,
+      endpoint: connection.server,
       endpointAuthorizer,
       ...(usesOAuth
         ? {
