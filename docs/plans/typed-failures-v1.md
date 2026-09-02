@@ -187,7 +187,7 @@ Three rules make this safe, and each is a type, not a comment:
   source; both become projections of `fix`.
 - **`params` are closed enums or numbers, never free strings.** This is the hazard rule.
   The registry is closed so that exception text and NUL bytes cannot reach the transcript
-  or the `execute_error` column (ADR-0070 §1.3). A parametrized message reopens that door
+  or the `execute_error` column (the transcript-side twin of the ADR-0070 persistence rail). A parametrized message reopens that door
   unless the parameter type shuts it. `integration` is a slug enum. `feature` is a Google
   feature enum. A scope list from Google is **not** a valid param. If a message needs
   upstream text, the entry must not exist.
@@ -339,7 +339,21 @@ public shape is `{ code, params?, message, fix }`; `message` is a branded string
 catalog can mint, which keeps the old literal-union property (`{ code, message: err.message }`
 does not type-check) now that messages are templates. `INTEGRATION_DISPLAY_NAMES` in
 `contracts/tools.ts` supplies the label; the web integration catalog still owns its own
-`name` field, which PR 3 can point at the shared map.
+`name` field, which PR 3 can point at the shared map. The slug-keyed label sites that used
+`humanizeSlug` (the availability gate in `registry.ts`, `recovery-navigation.ts`,
+`humanizeToolName`, the web plan tab, mention palette, and passthrough toggles) read the
+shared map now, and `humanizeSlug(x.integration)` is a consolidation gate.
+
+Two more deviations, from the PR 1 review. First, the catalog does not trust the typed
+constructors alone. `AppErrorArgs` and the `publicAppError` tuple collapse for a widened
+`AppErrorCode`, so `new AppError(code, { cause })` and `publicAppError(code)` compile with
+no params. Each parametrized entry is built by `withParams(schema, { message, why, fix })`,
+which ties the callbacks to the schema's output type and parses `params` at mint; a
+failing parse throws a `TypeError` that names only the code. Second, the folded messages
+lost their recovery prose ("Reconnect X in settings"). The plan said "no behavior change
+for the model except `fix`"; the model now reads the recovery from `fix.kind` and the
+message states only the fact. That is the design's intent, recorded here because it is a
+copy change the model sees before PR 3 wires `fix` into the web.
 
 **PR 5 — the HTTP bridge (optional).** The error-handler maps `AppError` to `ApiError`
 through `fix.kind`. Fold the route messages that repeat three or more times

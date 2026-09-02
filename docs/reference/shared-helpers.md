@@ -91,14 +91,20 @@ column carries. A public failure is `{ code, params?, message, fix }`. Consumers
 - `new AppError(code, params?, options?)` — throw from a tool body. A parametrized code
   (`connection_required`, `reauth_required`, `account_read_failed`,
   `integration_unavailable`) takes `{ integration }` first. `params` are closed enums or
-  numbers, never free strings; the catalog type rejects a `z.string()` param.
+  numbers, never free strings; the catalog type rejects a `z.string()` param, and the
+  entry's own schema parses `params` at mint, so a widened code with bad params throws a
+  `TypeError` that names only the code.
 - `publicAppError(code, params?)` — mint a failure with no thrown error.
 - `toPublicAppError(err, fallback?)` — project a caught value; anything that is not an
   `AppError` becomes the fallback, so exception text never crosses the boundary.
 - `publicAppErrorFromStored(row)` — replay a persisted `execute_error`; re-validates
   `params` with the entry's schema and re-derives `message` and `fix`.
-- `Fix`, `FIX_KINDS` — the closed remediation union. Switch with a `never` default.
-- `INTEGRATION_DISPLAY_NAMES` (in `src/tools.ts`) — the name a message uses for a slug.
+- `Fix`, `FIX_KINDS`, `isFixKind` — the closed remediation union. Switch with a `never`
+  default. `FIX_KINDS` is derived from a record over `Fix["kind"]`, so it cannot lag the type.
+- `INTEGRATION_DISPLAY_NAMES` (in `src/tools.ts`) — the name every surface uses for a slug,
+  indexed with a typed `IntegrationSlug`. `integrationDisplayName(value)` takes an unchecked
+  string and falls back to `humanizeSlug`. `humanizeSlug(x.integration)` is a consolidation
+  gate: it renders `github` as "Github".
 - A code with no producer in `src/` fails `packages/contracts/test/app-errors.test.ts`.
 
 ### HTTP failures — `@alfred/contracts` (`src/api-errors.ts`)
