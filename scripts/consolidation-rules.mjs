@@ -50,6 +50,16 @@
  *                                {@link isScannedPath}.
  */
 
+/**
+ * The slug and provider unions the integration registry derives (ADR-0093):
+ * `IntegrationSlug` and every `*IntegrationSlug`, the status and kind unions,
+ * the credential-shape unions, the passthrough unions, and the two provider
+ * unions. `SupportedIntegrationSlug` and `BearerProvider` are the transition
+ * aliases PR 4 of the registry plan deletes. Exported for the self-test, which
+ * proves every `export type …Slug` in `slugs.ts` matches it.
+ */
+export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
+
 /** @type {ConsolidationRule[]} */
 export const RULES = [
   {
@@ -66,7 +76,16 @@ export const RULES = [
     // a table keyed by integration slug that the compiler cannot prove complete.
     // Three web tables shipped without `notion`/`railway`/`vercel` rows this way
     // (PR #943); the registry (ADR-0093) exists so a missing row is a type error.
-    re: /Partial<Record<(?:Loadable)?IntegrationSlug\b|new Map<(?:string|IntegrationSlug),\s*(?:Loadable)?IntegrationSlug\b/,
+    // Every union the registry derives (`packages/contracts/src/integrations/slugs.ts`)
+    // and its two transition aliases are the same bug as the key of a Partial,
+    // or as the key or value of a Map written as a literal (`new Map<…>([`).
+    // A Map filled at request time is a lookup index, not a table, and is left
+    // alone; so is a union that is not an integration slug (`GatherSourceSlug`).
+    // The self-test reads `slugs.ts` and fails when a union there escapes
+    // REGISTRY_UNION, so this alternation cannot lag the registry.
+    re: new RegExp(
+      String.raw`Partial<Record<${REGISTRY_UNION}\b|new Map<${REGISTRY_UNION},.*?>\(\[|new Map<string,\s*${REGISTRY_UNION}\b.*?>\(\[`,
+    ),
     severity: "gate",
     fix: "Derive the table from INTEGRATIONS in @alfred/contracts (a projection over the record), or key it `satisfies Record<…Slug, T>` on a derived union (LiveProviderSlug, CatalogSlug, SupportedPassthroughSlug) so a missing integration is a compile error. If an absent slug genuinely means something (a sparse per-user override), append `// drift-ok: <what absence means>`.",
   },

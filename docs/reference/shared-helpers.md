@@ -101,31 +101,40 @@ column carries. A public failure is `{ code, params?, message, fix }`. Consumers
   `params` with the entry's schema and re-derives `message` and `fix`.
 - `Fix`, `FIX_KINDS`, `isFixKind` — the closed remediation union. Switch with a `never`
   default. `FIX_KINDS` is derived from a record over `Fix["kind"]`, so it cannot lag the type.
-- `INTEGRATION_DISPLAY_NAMES` (in `src/integrations.ts`) — the name every surface uses for a slug,
+- `INTEGRATION_DISPLAY_NAMES` (in `src/integrations/projections.ts`) — the name every surface uses for a slug,
   indexed with a typed `IntegrationSlug`. `integrationDisplayName(value)` takes an unchecked
   string and falls back to `humanizeSlug`. `humanizeSlug(x.integration)` is a consolidation
   gate: it renders `github` as "Github".
 - A code with no producer in `src/` fails `packages/contracts/test/app-errors.test.ts`.
 
-### Integration registry — `@alfred/contracts` (`src/integrations.ts`)
+### Integration registry — `@alfred/contracts` (`src/integrations/`)
 
-One record per integration (ADR-0093). Every per-integration fact is a field on
-`INTEGRATIONS[slug]`; every table keyed by an integration is a projection of it or an exhaustive
-sibling keyed by a union derived from it. `pnpm check` fails on
-`Partial<Record<IntegrationSlug, …>>` (rule `partial-integration-slug-record`).
+One record per integration (ADR-0093), in four files: `types.ts` (entry shapes), `registry.ts`
+(the record; its keys are the slug space, so `IntegrationSlug` is `keyof` the record), `slugs.ts`
+(derived unions and lists), `projections.ts` (slug-keyed tables built from the record). Every
+per-integration fact, the tool actions included, is a field on `INTEGRATIONS[slug]`; every table
+keyed by an integration is a projection of it or an exhaustive sibling keyed by a union derived
+from it. `pnpm check` fails on a `Partial<Record<…Slug, …>>` over a registry union or a literal
+`Map` keyed by or valued as one (rule `partial-integration-slug-record`).
 
 - `INTEGRATIONS`, `integrationEntry(slug)` — the record and its typed index:
   `integrationEntry("github").credential.shape` is `"github_app"`.
-- `liveProviders()` — the live entries with their slug attached, in registry order. The one loop
-  the assistant and the web iterate.
+- `LIVE_PROVIDERS` — the live entries with their slug and credential provider attached, in
+  registry order. The one loop the assistant and the web iterate.
 - Derived unions (`LiveProviderSlug`, `PlannedSlug`, `CatalogSlug`, `LoadableIntegrationSlug`,
   `BearerSlug`, `GoogleSlug`, `CredentialProvider`, `SupportedPassthroughSlug`,
   `IntegrationBrandKey`) are mapped conditionals over the record, never hand-listed. Where a
   union has a runtime list (`LIVE_PROVIDER_SLUGS`, `CATALOG_SLUGS`, `BEARER_PROVIDER_SLUGS`,
   `CREDENTIAL_PROVIDERS`, …), the list is a `filter` over the tuple and its `is*` guard is an
   `enumGuard` of that list, so the two cannot disagree.
+- `INTEGRATION_ACTIONS` — each entry's `actions` tuple under its slug; `ActionSlug` and
+  `ToolName` in `src/tools.ts` derive from it.
+- `credentialProviderOf(slug)` — the credential provider of a live slug: `google` for a Google
+  product, the slug itself otherwise. There is no `provider` field, so a slug cannot be paired
+  with another slug's route family.
 - `CREDENTIAL_SHAPE`, `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT` — transitional
-  projections. Read the entry field instead in new code; PR 4 of the registry plan deletes them.
+  projections, tagged `@deprecated`. Read the entry field instead in new code; PR 4 of the
+  registry plan deletes them.
 - `src/google-scopes.ts` — the nine Google scope URLs, `GOOGLE_SCOPES`, `GOOGLE_FEATURE_SCOPES`.
   `@alfred/integrations/google` re-exports them beside the OAuth mechanics.
 
