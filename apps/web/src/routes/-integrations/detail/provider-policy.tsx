@@ -1,21 +1,12 @@
-import type { LoadableIntegrationSlug, PolicyMode } from "@alfred/contracts";
+import { isLoadableIntegrationSlug, type PolicyMode } from "@alfred/contracts";
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import {
+  integrationSlugForProvider,
+  type IntegrationProvider,
+} from "~/lib/integrations/integrations";
 import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
 import { SectionHeading } from "./section-heading";
-
-const PROVIDER_TO_SLUG = new Map<string, LoadableIntegrationSlug>([
-  ["google_gmail", "gmail"],
-  ["google_calendar", "calendar"],
-  ["google_drive", "drive"],
-  ["google_docs", "docs"],
-  ["google_sheets", "sheets"],
-  ["google_slides", "slides"],
-  ["github", "github"],
-  ["slack", "slack"],
-  ["linear", "linear"],
-]);
 
 const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
   { value: "autonomy", label: "Full autonomy", icon: <Zap size={13} aria-hidden /> },
@@ -25,7 +16,10 @@ const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
 export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) {
-  const slug = PROVIDER_TO_SLUG.get(provider.id);
+  // Only loadable slugs have a policy row; the catalog can also describe a
+  // slug with no gate, and that page simply has no control.
+  const candidate = integrationSlugForProvider(provider.id);
+  const slug = isLoadableIntegrationSlug(candidate) ? candidate : undefined;
   const { modeFor, setIntegrationMode, loading, error, retry } = useActionPolicy();
 
   if (!slug) return null;

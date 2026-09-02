@@ -10,7 +10,7 @@ import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { cn } from "~/lib/utils";
 import { ApprovalCard, type ApprovalDecision } from "~/components/approvals/approval-card";
-import { brandForIntegration } from "~/components/approvals/tool-icon";
+import { brandForIntegration } from "~/lib/integrations/integrations";
 
 /** How many cards to render before "Show more" — windowing over the bounded
  * (24h-expiring) synced queue, not server pagination (ADR-0034 amendment). */

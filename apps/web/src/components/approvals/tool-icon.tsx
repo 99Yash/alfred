@@ -1,37 +1,20 @@
 import type { IntegrationSlug } from "@alfred/contracts";
 import { MessageSquare, Settings2, type LucideIcon } from "lucide-react";
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import { IntegrationIcon } from "~/lib/integrations/integration-icons";
+import { brandForIntegration } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 
 /**
- * Maps an integration slug to its real brand mark. Slugs without a brand
- * (internal `system` tools, `imessage`) fall back to a neutral glyph tile so
- * every staged tool still renders an icon.
+ * Slugs without a catalog brand (internal `system` tools, `imessage`) fall
+ * back to a neutral glyph tile so every staged tool still renders an icon.
  */
-const SLUG_TO_BRAND = new Map<IntegrationSlug, IntegrationBrand>([
-  ["gmail", "gmail"],
-  ["calendar", "google_calendar"],
-  ["drive", "google_drive"],
-  ["docs", "google_docs"],
-  ["sheets", "google_sheets"],
-  ["slides", "google_slides"],
-  ["slack", "slack"],
-  ["linear", "linear"],
-  ["github", "github"],
-]);
-
-/** Brand mark for an integration slug, or `undefined` for brandless slugs. */
-export function brandForIntegration(integration: IntegrationSlug): IntegrationBrand | undefined {
-  return SLUG_TO_BRAND.get(integration);
-}
-
 const GLYPH_FALLBACK = new Map<IntegrationSlug, LucideIcon>([
   ["system", Settings2],
   ["imessage", MessageSquare],
 ]);
 
 export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
-  const brand = SLUG_TO_BRAND.get(integration);
+  const brand = brandForIntegration(integration);
   if (brand) {
     return <IntegrationIcon brand={brand} size="md" title={integration} />;
   }

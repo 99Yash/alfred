@@ -1,3 +1,4 @@
+import { INTEGRATION_SLUGS, isIntegrationSlug, type IntegrationSlug } from "@alfred/contracts";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 export type IntegrationStatus = "connected" | "available" | "soon";
@@ -300,33 +301,62 @@ export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
   "Your Integrations",
 ];
 
-const SHORT_SLUG_ALIASES = new Map<string, string>([
-  ["gmail", "google_gmail"],
-  ["calendar", "google_calendar"],
-  ["drive", "google_drive"],
-  ["docs", "google_docs"],
-  ["sheets", "google_sheets"],
-  ["slides", "google_slides"],
-]);
+/**
+ * The one map from a `@alfred/contracts` integration slug to its catalog
+ * provider id. Google slugs de-prefix (`gmail` -> `google_gmail`); every
+ * other catalog id equals its slug; `null` marks a slug with no catalog page
+ * (internal `system` tools, the `mcp` projection, the `imessage` channel).
+ * `satisfies` forces a row per slug, so a new slug without a decision here is
+ * a type error instead of a silently brandless tile. Every slug-keyed web
+ * lookup (brand, policy control, connect nudge) derives from this table.
+ */
+const CATALOG_ID_BY_SLUG = {
+  system: null,
+  mcp: null,
+  gmail: "google_gmail",
+  calendar: "google_calendar",
+  drive: "google_drive",
+  docs: "google_docs",
+  sheets: "google_sheets",
+  slides: "google_slides",
+  slack: "slack",
+  linear: "linear",
+  github: "github",
+  notion: "notion",
+  railway: "railway",
+  vercel: "vercel",
+  imessage: null,
+} as const satisfies Record<IntegrationSlug, string | null>;
 
 export function getIntegrationProvider(id: string): IntegrationProvider | undefined {
-  const canonical = SHORT_SLUG_ALIASES.get(id) ?? id;
+  const canonical = isIntegrationSlug(id) ? (CATALOG_ID_BY_SLUG[id] ?? id) : id;
   return INTEGRATION_PROVIDERS.find((provider) => provider.id === canonical);
 }
 
 /**
- * Reverse of `SHORT_SLUG_ALIASES`: maps a catalog provider id (e.g.
- * `google_gmail`) to the `@alfred/contracts` integration slug (e.g.
- * `gmail`) the tool registry keys on. Google providers de-prefix; every
- * other provider's id already equals its slug. Returns `undefined` for
- * unknown ids so callers can skip the registry lookup.
+ * Reverse of `CATALOG_ID_BY_SLUG`: maps a catalog provider id (e.g.
+ * `google_gmail`) to the integration slug (e.g. `gmail`) the tool registry
+ * keys on. Unknown ids pass through unchanged so callers can skip the
+ * registry lookup.
  */
-const PROVIDER_ID_TO_SLUG: Readonly<Record<string, string>> = Object.fromEntries(
-  [...SHORT_SLUG_ALIASES].map(([slug, id]) => [id, slug]),
+const PROVIDER_ID_TO_SLUG: ReadonlyMap<string, IntegrationSlug> = new Map(
+  INTEGRATION_SLUGS.flatMap((slug) => {
+    const id = CATALOG_ID_BY_SLUG[slug];
+    return id === null ? [] : [[id, slug] as const];
+  }),
 );
 
 export function integrationSlugForProvider(providerId: string): string {
-  return PROVIDER_ID_TO_SLUG[providerId] ?? providerId;
+  return PROVIDER_ID_TO_SLUG.get(providerId) ?? providerId;
+}
+
+/**
+ * Brand mark for an integration slug, read off its catalog entry, or
+ * `undefined` for slugs without a page. Every catalog entry carries a brand,
+ * so a slug with a page always renders its own mark.
+ */
+export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined {
+  return getIntegrationProvider(slug)?.brand;
 }
 
 export function getRelatedProviders(provider: IntegrationProvider): IntegrationProvider[] {

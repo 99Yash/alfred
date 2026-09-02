@@ -1,4 +1,4 @@
-import type { GatherSourceSlug } from "@alfred/contracts";
+import { isIntegrationSlug, type GatherSourceSlug } from "@alfred/contracts";
 import {
   Activity,
   CalendarClock,
@@ -8,7 +8,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
-import { PROVIDER_BRAND, PROVIDER_COLOR } from "./source-meta-utils";
+import { brandForIntegration } from "~/lib/integrations/integrations";
+import { PROVIDER_COLOR } from "./source-meta-utils";
 
 /**
  * Display metadata for a briefing's gather sources (ADR-0049). The source slug
@@ -40,21 +41,16 @@ export function SourceIcon({ source }: { source: GatherSourceSlug }) {
 
 /**
  * Inline brand mark for an integration-activity provider. Falls back to a
- * generic Activity icon for providers without a brand glyph (system, imessage).
+ * generic Activity icon when the provider is not a known slug or has no
+ * catalog brand (system, imessage).
  */
 export function ProviderGlyph({ provider, size = 14 }: { provider: string; size?: number }) {
-  // SAFETY: provider is open-ended; the `!brand` guard below answers the
-  // unknown-key case this index admits.
-  const brand = PROVIDER_BRAND[provider as keyof typeof PROVIDER_BRAND];
+  if (!isIntegrationSlug(provider)) {
+    return <Activity size={size} aria-hidden className="text-app-fg-2" />;
+  }
+  const brand = brandForIntegration(provider);
   if (!brand) return <Activity size={size} aria-hidden className="text-app-fg-2" />;
   return (
-    <IntegrationGlyph
-      brand={brand}
-      size={size}
-      colorOverride={
-        // SAFETY: same open-key lookup as the brand map above.
-        PROVIDER_COLOR[provider as keyof typeof PROVIDER_COLOR]
-      }
-    />
+    <IntegrationGlyph brand={brand} size={size} colorOverride={PROVIDER_COLOR.get(provider)} />
   );
 }
