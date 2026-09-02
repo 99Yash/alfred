@@ -26,10 +26,7 @@ import { McpExecutionBroker } from "../../src/tool-runtime/mcp/broker";
 import { McpClientError } from "../../src/connections/mcp/errors";
 import { descriptorHash } from "../../src/connections/mcp/hash";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import {
-  createNamedConnection,
-  publishCatalogRevision,
-} from "../../src/connections/mcp/persistence";
+import { ensureConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
 import {
   reconcileInflightInvocations,
   upsertToolPolicy,
@@ -162,9 +159,10 @@ async function seedStaging(
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await createNamedConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
@@ -926,9 +924,10 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const protocol = new FakeProtocol([tool("charge_card")]);
     const seeded = await seedRecoverableWrite(protocol);
     const attackerId = await seedUser();
-    const attackerConnection = await createNamedConnection({
+    const attackerConnection = await ensureConnection({
       userId: attackerId,
       label: "Attacker MCP",
+      instanceKey: "default",
       canonicalResource: `mcp://attacker/${randomUUID()}`,
       endpoint: new URL("https://attacker.example.test/mcp"),
     });

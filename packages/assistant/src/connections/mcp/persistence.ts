@@ -8,8 +8,8 @@
  * single-row read, a single-row write, or the one genuinely-atomic multi-row
  * operation that MUST be a transaction to be crash-safe:
  *
- *  - named connection creation — immutable server definition + fresh instance;
- *  - built-in connection ensure — one closed, stable slot per built-in provider;
+ *  - `ensureConnection` — server definition + one connection instance, keyed by
+ *    the caller's instance key;
  *  - `publishCatalogRevision` — idempotent insert of an immutable revision +
  *    advance of the connection's current-revision pointer.
  *
@@ -20,7 +20,7 @@
  */
 
 import { db } from "@alfred/db";
-import { createId, requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
+import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
   mcpConnections,
@@ -32,6 +32,8 @@ import {
   type NewMcpServer,
 } from "@alfred/db/schemas";
 import { and, desc, eq, isNull } from "drizzle-orm";
+
+import { BUILT_IN_REGISTRY, type BuiltInProvider } from "./built-ins";
 
 // ===========================================================================
 // Connections
@@ -60,9 +62,24 @@ export type McpConnectionWithServer = McpConnection & {
   readonly server: McpServerDefinition;
 };
 
-export type CreateNamedMcpConnectionInput = Pick<NewMcpConnection, "userId" | "label"> &
+/**
+ * One connection ensure. `instanceKey` is the caller's idempotency key inside
+ * one server definition: the same key returns the same row, and a different key
+ * mints a second instance on the same endpoint. The caller always supplies it,
+ * so the column carries one meaning — a built-in passes its stable slot, and the
+ * connection-create operation will pass the key that identifies the click.
+ */
+export type EnsureMcpConnectionInput = Pick<NewMcpConnection, "userId" | "label" | "instanceKey"> &
   Pick<NewMcpServer, "canonicalResource"> & {
     endpoint: URL;
+    /**
+     * Who owns the endpoint of this server definition. `"caller"` refuses to
+     * retarget a resource that already points elsewhere. `"registry"` says the
+     * built-in table in `built-ins.ts` is the source of truth, so a pinned URL
+     * that moves in code retargets the stored row instead of throwing for every
+     * user who already connected.
+     */
+    endpointAuthority?: "caller" | "registry";
     initialState?: Partial<Pick<NewMcpConnection, "authServerIdentity" | "status">>;
   };
 
@@ -109,7 +126,10 @@ async function readServerByResource(
 }
 
 async function ensureServerDefinition(
-  input: Pick<CreateNamedMcpConnectionInput, "userId" | "canonicalResource" | "endpoint">,
+  input: Pick<
+    EnsureMcpConnectionInput,
+    "userId" | "canonicalResource" | "endpoint" | "endpointAuthority"
+  >,
   runner: DbRunner,
 ): Promise<McpServer> {
   const endpointUrl = input.endpoint.href;
@@ -133,89 +153,85 @@ async function ensureServerDefinition(
       `ensureServerDefinition: server vanished for resource ${input.canonicalResource}`,
     );
   }
-  if (server.endpointUrl !== endpointUrl || server.endpointOrigin !== endpointOrigin) {
+  if (server.endpointUrl === endpointUrl && server.endpointOrigin === endpointOrigin) {
+    return server;
+  }
+  if (input.endpointAuthority !== "registry") {
     throw new Error(
       `MCP resource '${input.canonicalResource}' already uses endpoint ${server.endpointUrl}`,
     );
   }
-  return server;
+  const [retargeted] = await runner
+    .update(mcpServers)
+    .set({ endpointUrl, endpointOrigin })
+    .where(eq(mcpServers.id, server.id))
+    .returning();
+  return requireRow(retargeted, "ensureServerDefinition");
 }
 
-function connectionInsertValues(
-  input: CreateNamedMcpConnectionInput,
-  serverId: string,
-  instanceKey: string,
-): NewMcpConnection {
-  return {
-    userId: input.userId,
-    serverId,
-    instanceKey,
-    label: input.label,
-    ...(input.initialState?.authServerIdentity !== undefined
-      ? { authServerIdentity: input.initialState.authServerIdentity }
-      : {}),
-    ...(input.initialState?.status !== undefined ? { status: input.initialState.status } : {}),
-  };
-}
-
-/** Create one fresh named instance. The persistence owner mints its immutable identity. */
-export async function createNamedConnection(
-  input: CreateNamedMcpConnectionInput,
+/**
+ * Ensure one connection instance and the server definition it points at.
+ *
+ * The insert conflicts on `(userId, serverId, instanceKey)`, so a replay returns
+ * the SAME row and touches only `updatedAt`. Account state — status, last error,
+ * granted scopes, the credential, the catalog pointer — survives a replay,
+ * because the caller that reconnects is not the caller that knows whether the
+ * account is still good.
+ */
+export async function ensureConnection(
+  input: EnsureMcpConnectionInput,
   runner: DbRunner = db(),
 ): Promise<McpConnectionWithServer> {
   return runAtomic(runner, async (tx) => {
     const server = await ensureServerDefinition(input, tx);
     const [connection] = await tx
       .insert(mcpConnections)
-      .values(connectionInsertValues(input, server.id, createId("mcpc")))
-      .returning();
-    return joinConnection({
-      connection: requireRow(connection, "createNamedConnection"),
-      server,
-    });
-  });
-}
-
-const BUILT_IN_CONNECTIONS = {
-  github: {
-    // Migration 0108 gives every historic server its one server-scoped built-in slot.
-    instanceKey: "default",
-    label: "GitHub MCP",
-    canonicalResource: "https://api.githubcopilot.com/mcp",
-    endpoint: new URL("https://api.githubcopilot.com/mcp"),
-    initialState: {
-      authServerIdentity: "oauth:pending",
-      status: "disconnected",
-    },
-  },
-} as const satisfies Record<
-  string,
-  Omit<CreateNamedMcpConnectionInput, "userId"> & { instanceKey: string }
->;
-
-/** Ensure the one stable connection slot owned by a closed built-in provider definition. */
-export async function ensureBuiltInConnection(
-  userId: string,
-  provider: keyof typeof BUILT_IN_CONNECTIONS,
-  runner: DbRunner = db(),
-): Promise<McpConnectionWithServer> {
-  const builtIn = BUILT_IN_CONNECTIONS[provider];
-  return runAtomic(runner, async (tx) => {
-    const input: CreateNamedMcpConnectionInput = { userId, ...builtIn };
-    const server = await ensureServerDefinition(input, tx);
-    const [connection] = await tx
-      .insert(mcpConnections)
-      .values(connectionInsertValues(input, server.id, builtIn.instanceKey))
+      .values({
+        userId: input.userId,
+        serverId: server.id,
+        instanceKey: input.instanceKey,
+        label: input.label,
+        ...(input.initialState?.authServerIdentity !== undefined
+          ? { authServerIdentity: input.initialState.authServerIdentity }
+          : {}),
+        ...(input.initialState?.status !== undefined ? { status: input.initialState.status } : {}),
+      })
       .onConflictDoUpdate({
         target: [mcpConnections.userId, mcpConnections.serverId, mcpConnections.instanceKey],
         set: { updatedAt: new Date() },
       })
       .returning();
     return joinConnection({
-      connection: requireRow(connection, "ensureBuiltInConnection"),
+      connection: requireRow(connection, "ensureConnection"),
       server,
     });
   });
+}
+
+/**
+ * Ensure the one stable slot a closed built-in provider owns. This is the only
+ * creation door the HTTP layer may open until the endpoint-authorizer slice
+ * admits arbitrary URLs, so the registry — not a request — supplies the
+ * endpoint, the canonical resource and the instance key.
+ */
+export async function ensureBuiltInConnection(
+  userId: string,
+  provider: BuiltInProvider,
+  runner: DbRunner = db(),
+): Promise<McpConnectionWithServer> {
+  const builtIn = BUILT_IN_REGISTRY[provider];
+  return ensureConnection(
+    {
+      userId,
+      label: builtIn.label,
+      instanceKey: builtIn.instanceKey,
+      canonicalResource: builtIn.canonicalResource,
+      endpoint: new URL(builtIn.endpointHref),
+      endpointAuthority: "registry",
+      initialState: builtIn.initialState,
+    },
+    runner,
+  );
 }
 
 export async function readOwnedConnection(

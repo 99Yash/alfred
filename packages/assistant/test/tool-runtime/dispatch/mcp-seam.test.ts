@@ -27,7 +27,7 @@ import {
   type McpProtocolPage,
 } from "@alfred/assistant/connections/mcp";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
-import { createNamedConnection } from "../../../src/connections/mcp/persistence";
+import { ensureConnection } from "../../../src/connections/mcp/persistence";
 import { type McpBrokerCallInput, type McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
 import {
   _setMcpExecutionBrokerForTests,
@@ -169,9 +169,10 @@ async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
 }
 
 async function seedConnectionWithCatalog(userId: string, tools: Tool[]): Promise<string> {
-  const conn = await createNamedConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
@@ -199,9 +200,10 @@ async function seedOwnedCatalog(
   revisionHash: string;
   descriptorHashes: Record<string, string>;
 }> {
-  const conn = await createNamedConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
@@ -420,9 +422,10 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       name: "create_issue",
       inputSchema: { type: "object", additionalProperties: true },
     };
-    const connection = await createNamedConnection({
+    const connection = await ensureConnection({
       userId,
       label: "Paused MCP",
+      instanceKey: "default",
       canonicalResource: `mcp://paused/${randomUUID()}`,
       endpoint: new URL("https://paused.example.test/mcp"),
     });
@@ -555,9 +558,10 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       name: "create_issue",
       inputSchema: { type: "object", additionalProperties: true },
     };
-    const connection = await createNamedConnection({
+    const connection = await ensureConnection({
       userId,
       label: "Paused MCP",
+      instanceKey: "default",
       canonicalResource: `mcp://paused-success/${randomUUID()}`,
       endpoint: new URL("https://paused-success.example.test/mcp"),
     });
