@@ -5,8 +5,15 @@ export interface ServerMutatorCtx {
   userId: string;
 }
 
+/** What a mutator may return: most are `void`, one (`triageTagOverride`) signals whether the row existed. */
+export type MutatorResult = void | { applied: boolean };
+
 /** Signature of one server mutator's executor, generic over its validated args. */
-export type MutatorRun<A> = (tx: DbTransaction, args: A, ctx: ServerMutatorCtx) => Promise<unknown>;
+export type MutatorRun<A> = (
+  tx: DbTransaction,
+  args: A,
+  ctx: ServerMutatorCtx,
+) => Promise<MutatorResult>;
 
 /**
  * Post-commit work a mutator hands back to the push handler. The DB write

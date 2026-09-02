@@ -22,6 +22,7 @@ const sweepTimer = setInterval(() => {
     if (entry.expiresAt <= now) tokenCache.delete(key);
   }
 }, 60_000);
+// eslint-disable-next-line anti-slop/no-runtime-typeof -- platform capability check: Node's setInterval returns an object with unref, browsers return a number; not domain parsing
 if (typeof sweepTimer === "object" && "unref" in sweepTimer) sweepTimer.unref();
 
 const SESSION_COOKIE_NAMES = new Set([

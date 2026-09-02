@@ -35,21 +35,34 @@
  */
 
 export {
+  MCP_DEFAULT_REQUEST_TIMEOUT_MS,
   McpRawClient,
   type ExternalToolRef,
   type McpCallEnvelope,
   type McpPreparedToolCall,
 } from "./client";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+export {
+  HostedMcpEndpointAuthorizer,
+  withMcpEndpointAuthorization,
+  type McpAuthorizedEndpoint,
+  type McpAuthorizedOAuth,
+  type McpAuthorizedOAuthServer,
+  type McpAuthorizedProtocol,
+  type McpEndpointAuthorizer,
+  type McpEndpointConnection,
+  type McpEndpointNetworkPolicy,
+} from "./endpoint-authorization";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
 export { listMcpToolsLocal, type McpListToolsResult, type McpToolSummary } from "./list-tools";
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 export {
-  authorizeMcpOAuth,
-  finishMcpOAuth,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
   McpOAuthAuthorizationRequiredError,
+  type McpBoundOAuthSession,
+  type McpOAuthProviderForConnectionInput,
+  type McpOAuthSessionFactory,
 } from "./oauth";
 export {
   ensureBuiltInConnection,

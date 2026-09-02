@@ -34,6 +34,29 @@ export const INTEGRATION_SLUGS = ["system", "mcp", ...LOADABLE_INTEGRATION_SLUGS
 export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
 
 /**
+ * The display name of every integration, for prose a user or the model reads
+ * (a failure message, a connect nudge). `satisfies` forces an entry per slug, so
+ * a new slug without a name is a type error rather than an `undefined` in copy.
+ */
+export const INTEGRATION_DISPLAY_NAMES = {
+  system: "Alfred",
+  mcp: "MCP",
+  gmail: "Gmail",
+  calendar: "Calendar",
+  drive: "Drive",
+  docs: "Docs",
+  sheets: "Sheets",
+  slides: "Slides",
+  slack: "Slack",
+  linear: "Linear",
+  github: "GitHub",
+  notion: "Notion",
+  railway: "Railway",
+  vercel: "Vercel",
+  imessage: "iMessage",
+} as const satisfies Record<IntegrationSlug, string>;
+
+/**
  * The single registry of every tool action, keyed by integration slug. The
  * `satisfies` clause forces an entry for each {@link IntegrationSlug}, so adding
  * a slug without its actions is a type error. Per-integration arrays live inline
@@ -288,10 +311,23 @@ export function hashToolRequest(
 
 /**
  * Title-case a snake/underscore slug for display: `send_draft` → `Send Draft`.
- * Shared so the email worker and the approvals card never drift.
+ * Shared so the email worker and the approvals card never drift. Not for an
+ * integration slug: `github` would render as "Github". Index
+ * {@link INTEGRATION_DISPLAY_NAMES} with a typed slug, or call
+ * {@link integrationDisplayName} with an unchecked string.
  */
 export function humanizeSlug(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+/**
+ * The display name for a string that may be an integration slug. A known slug
+ * reads from {@link INTEGRATION_DISPLAY_NAMES}; anything else (a tool-name
+ * prefix that is not registered, a legacy value) falls back to
+ * {@link humanizeSlug} so the caller still has something to show.
+ */
+export function integrationDisplayName(value: string): string {
+  return isIntegrationSlug(value) ? INTEGRATION_DISPLAY_NAMES[value] : humanizeSlug(value);
 }
 
 /**
@@ -806,8 +842,8 @@ export function humanizeToolName(toolName: string): string {
   const integration = separator > 0 ? toolName.slice(0, separator) : toolName;
   const action = separator > 0 ? toolName.slice(separator + 1) : "";
   return action
-    ? `${humanizeSlug(action)} in ${humanizeSlug(integration)}`
-    : humanizeSlug(integration);
+    ? `${humanizeSlug(action)} in ${integrationDisplayName(integration)}`
+    : integrationDisplayName(integration);
 }
 
 /**

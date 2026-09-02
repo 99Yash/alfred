@@ -10,10 +10,10 @@ import {
   type CacheScope,
   type ClientCapabilities,
   type ProtocolEra,
-  type StreamableHTTPClientTransportOptions,
   type Tool,
   type Transport,
 } from "@modelcontextprotocol/client";
+import type { McpAuthorizedProtocol } from "./endpoint-authorization";
 import type { McpTraceContext } from "./trace";
 
 const HEADER_MISMATCH_ERROR_CODE = -32020;
@@ -92,9 +92,8 @@ export interface McpProtocolClient {
 }
 
 export interface SdkMcpProtocolClientOptions {
-  endpoint: URL;
+  authorization: McpAuthorizedProtocol;
   authProvider?: AuthProvider;
-  fetch?: StreamableHTTPClientTransportOptions["fetch"];
   requestTimeoutMs: number;
 }
 
@@ -130,8 +129,8 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         },
       },
     );
-    const fetchFn = options.fetch ?? globalThis.fetch;
-    this.#transport = new StreamableHTTPClientTransport(options.endpoint, {
+    const fetchFn = options.authorization.fetch;
+    this.#transport = new StreamableHTTPClientTransport(options.authorization.endpoint, {
       // Token reads are safe before each request. Transport-owned recovery is
       // not: both 401 refresh and insufficient-scope step-up resend the same
       // JSON-RPC message below Alfred's invocation ledger.

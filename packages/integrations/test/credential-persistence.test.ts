@@ -17,7 +17,7 @@ import { account, integrationCredentials, user } from "@alfred/db/schemas";
 import { getGithubAccessToken, upsertGithubCredential } from "../src/github/index";
 import { getFreshAccessToken, listCredentials, upsertCredential } from "../src/google/index";
 import { getActiveBearerCredential, upsertBearerCredential } from "../src/shared/index";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
@@ -58,11 +58,24 @@ function ensureCredentialTestEnv(): void {
   ).toString("base64url");
 }
 
+/**
+ * Every `user` row this file seeds, so the teardown can remove them.
+ *
+ * Not optional bookkeeping: a leaked `user` row is not inert. Background crons
+ * fan out over the `user` table, so a forgotten `@example.test` row keeps
+ * drawing scheduled LLM work and outbound email for as long as it exists. This
+ * suite once left 56 of them behind, which is what made the hourly briefing
+ * tick exceed the AI-gateway rate limit and bill real tokens against addresses
+ * nobody owns.
+ */
+const seededUserIds: string[] = [];
+
 async function seedUser(prefix: string): Promise<string> {
   const userId = `${prefix}-${randomUUID()}`;
   await db()
     .insert(user)
     .values({ id: userId, name: "Vault Test", email: `${userId}@example.test` });
+  seededUserIds.push(userId);
   return userId;
 }
 
@@ -81,9 +94,20 @@ async function rawIntegrationTokens(credentialId: string) {
 }
 
 // One teardown for the file: a second `closeConnections()` would run against an
-// already-ended pool.
+// already-ended pool. The seeded-user delete runs FIRST, for the same reason —
+// once the pool is closed there is no connection left to clean up with.
+//
+// Deleting the `user` row is enough on its own: every child table refers to it
+// with `ON DELETE CASCADE`, so the accounts and credentials each case seeds go
+// with it. An empty list (the skipped-suite case) issues no query at all.
 after(async () => {
-  await closeConnections();
+  try {
+    if (seededUserIds.length > 0) {
+      await db().delete(user).where(inArray(user.id, seededUserIds));
+    }
+  } finally {
+    await closeConnections();
+  }
 });
 
 describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP }, () => {
