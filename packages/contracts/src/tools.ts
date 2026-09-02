@@ -311,10 +311,23 @@ export function hashToolRequest(
 
 /**
  * Title-case a snake/underscore slug for display: `send_draft` → `Send Draft`.
- * Shared so the email worker and the approvals card never drift.
+ * Shared so the email worker and the approvals card never drift. Not for an
+ * integration slug: `github` would render as "Github". Index
+ * {@link INTEGRATION_DISPLAY_NAMES} with a typed slug, or call
+ * {@link integrationDisplayName} with an unchecked string.
  */
 export function humanizeSlug(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+/**
+ * The display name for a string that may be an integration slug. A known slug
+ * reads from {@link INTEGRATION_DISPLAY_NAMES}; anything else (a tool-name
+ * prefix that is not registered, a legacy value) falls back to
+ * {@link humanizeSlug} so the caller still has something to show.
+ */
+export function integrationDisplayName(value: string): string {
+  return isIntegrationSlug(value) ? INTEGRATION_DISPLAY_NAMES[value] : humanizeSlug(value);
 }
 
 /**
@@ -829,8 +842,8 @@ export function humanizeToolName(toolName: string): string {
   const integration = separator > 0 ? toolName.slice(0, separator) : toolName;
   const action = separator > 0 ? toolName.slice(separator + 1) : "";
   return action
-    ? `${humanizeSlug(action)} in ${humanizeSlug(integration)}`
-    : humanizeSlug(integration);
+    ? `${humanizeSlug(action)} in ${integrationDisplayName(integration)}`
+    : integrationDisplayName(integration);
 }
 
 /**

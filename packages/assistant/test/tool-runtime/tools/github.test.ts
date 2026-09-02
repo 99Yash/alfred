@@ -1,3 +1,4 @@
+import { AppError } from "@alfred/contracts/app-errors";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
@@ -86,9 +87,14 @@ describe("buildGithubSearchQuery", () => {
     assert.equal(resolvePullRequestAuthor("@me", "99Yash"), "99Yash");
     assert.equal(resolvePullRequestAuthor("octocat", "99Yash"), "octocat");
     assert.equal(resolvePullRequestAuthor("octocat", null), "octocat");
+    // The failure is a catalog code with a machine-readable fix, not message text.
     assert.throws(
       () => resolvePullRequestAuthor("@me", null, "user_1"),
-      /GitHub account details are unavailable/,
+      (err: unknown) =>
+        err instanceof AppError &&
+        err.code === "reauth_required" &&
+        err.public.fix.kind === "reconnect" &&
+        err.public.fix.integration === "github",
     );
   });
 

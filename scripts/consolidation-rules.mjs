@@ -53,6 +53,14 @@
 /** @type {ConsolidationRule[]} */
 export const RULES = [
   {
+    id: "humanize-integration-slug",
+    // `humanizeSlug(tool.integration)` / `humanizeSlug(integration)` — title-casing
+    // an integration slug renders `github` as "Github" and `imessage` as "Imessage".
+    re: /\bhumanizeSlug\(\s*[\w.]*\bintegration\b/,
+    severity: "gate",
+    fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. humanizeSlug is for action and field slugs, not integration names.",
+  },
+  {
     id: "as-string-array",
     // `x as string[]` — the unchecked element-type assertion. `as string[] | ...`
     // (a union) is a different, narrower shape and is left alone.
