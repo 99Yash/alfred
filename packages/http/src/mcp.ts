@@ -1,13 +1,13 @@
 import { Errors } from "@alfred/contracts";
+import type { McpConnection } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import {
-  authorizeMcpOAuth,
   boundedMcpErrorText,
-  finishMcpOAuth,
   getMcpConnectionManager,
+  HostedMcpEndpointAuthorizer,
   listOwnedConnections,
   MCP_OAUTH_PENDING_ISSUER,
   McpOAuthAuthorizationRequiredError,
@@ -16,12 +16,72 @@ import {
   readOwnedConnection,
   updateConnection,
   upsertConnection,
+  withMcpEndpointAuthorization,
+  type McpConnectionManager,
+  type McpEndpointAuthorizer,
+  type McpOAuthProviderForConnectionInput,
 } from "@alfred/assistant/connections/mcp";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
 const GITHUB_MCP_ENDPOINT = new URL("https://api.githubcopilot.com/mcp");
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
+const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
+
+type McpOAuthCallbackProvider = Pick<
+  ReturnType<typeof mcpOAuthProviderForConnection>,
+  "matchesState" | "discoveryState" | "finishAuthorization"
+>;
+type McpOAuthCallbackConnection = Pick<
+  McpConnection,
+  "id" | "userId" | "endpointUrl" | "endpointOrigin"
+>;
+
+interface McpOAuthCallbackDependencies {
+  endpointAuthorizer: McpEndpointAuthorizer;
+  providerForConnection(input: McpOAuthProviderForConnectionInput): McpOAuthCallbackProvider;
+  connectionManager: Pick<McpConnectionManager, "getReadyClient">;
+}
+
+/** Keep one callback authorization capability alive through token exchange and reconnect. */
+export async function completeMcpOAuthCallback(input: {
+  connection: McpOAuthCallbackConnection;
+  state: string;
+  params: URLSearchParams;
+  dependencies: McpOAuthCallbackDependencies;
+}): Promise<void> {
+  const { connection, dependencies } = input;
+  return withMcpEndpointAuthorization(
+    dependencies.endpointAuthorizer,
+    {
+      endpoint: connection.endpointUrl,
+      expectedOrigin: connection.endpointOrigin,
+    },
+    async (authorized) => {
+      const provider = dependencies.providerForConnection({
+        id: connection.id,
+        userId: connection.userId,
+        authorization: authorized.oauth,
+      });
+      if (!(await provider.matchesState(input.state))) {
+        throw Errors.BadRequestError("Invalid or expired OAuth state");
+      }
+      if (!(await provider.discoveryState())) {
+        throw Errors.BadRequestError("MCP OAuth discovery state is missing");
+      }
+      try {
+        await provider.finishAuthorization(input.params);
+        await dependencies.connectionManager.getReadyClient(connection.id);
+      } catch (error) {
+        await updateConnection(connection.id, {
+          status: "failed",
+          lastError: boundedMcpErrorText(error),
+        });
+        throw Errors.BadRequestError("MCP authorization callback was rejected");
+      }
+    },
+  );
+}
 
 function connectionResult(
   connection: NonNullable<Awaited<ReturnType<typeof readOwnedConnection>>>,
@@ -47,30 +107,41 @@ async function beginAuthorization(input: {
 }): Promise<URL | null> {
   const connection = await readOwnedConnection(input.connectionId, input.userId);
   if (!connection) throw Errors.NotFoundError("MCP connection not found");
-  const provider = mcpOAuthProviderForConnection({
-    connectionId: connection.id,
-    userId: connection.userId,
-    endpoint: new URL(connection.endpointUrl),
-  });
-  const scope = [...new Set([...connection.grantedScopes, ...connection.requiredScopes])].join(" ");
-  try {
-    await authorizeMcpOAuth(provider, new URL(connection.endpointUrl), {
-      ...(input.forceReauthorization ? { forceReauthorization: true } : {}),
-      ...(scope ? { scope } : {}),
-    });
-    return null;
-  } catch (error) {
-    if (error instanceof McpOAuthAuthorizationRequiredError) {
-      await updateConnection(connection.id, {
-        status: "auth_required",
-        lastError: input.forceReauthorization
-          ? "Additional permissions require your consent."
-          : "Authorization is required to connect this MCP server.",
+  return withMcpEndpointAuthorization(
+    endpointAuthorizer,
+    {
+      endpoint: connection.endpointUrl,
+      expectedOrigin: connection.endpointOrigin,
+    },
+    async (authorized) => {
+      const provider = mcpOAuthProviderForConnection({
+        id: connection.id,
+        userId: connection.userId,
+        authorization: authorized.oauth,
       });
-      return error.authorizationUrl;
-    }
-    throw error;
-  }
+      const scope = [...new Set([...connection.grantedScopes, ...connection.requiredScopes])].join(
+        " ",
+      );
+      try {
+        await provider.authorize({
+          ...(input.forceReauthorization ? { forceReauthorization: true } : {}),
+          ...(scope ? { scope } : {}),
+        });
+        return null;
+      } catch (error) {
+        if (error instanceof McpOAuthAuthorizationRequiredError) {
+          await updateConnection(connection.id, {
+            status: "auth_required",
+            lastError: input.forceReauthorization
+              ? "Additional permissions require your consent."
+              : "Authorization is required to connect this MCP server.",
+          });
+          return error.authorizationUrl;
+        }
+        throw error;
+      }
+    },
+  );
 }
 
 /**
@@ -150,29 +221,18 @@ export const mcpIntegrationRoutes = new Elysia({
     }
     const connection = await readOwnedConnection(decoded.connectionId, decoded.userId);
     if (!connection) throw Errors.BadRequestError("MCP connection no longer exists");
-    const provider = mcpOAuthProviderForConnection({
-      connectionId: connection.id,
-      userId: connection.userId,
-      endpoint: new URL(connection.endpointUrl),
+    await completeMcpOAuthCallback({
+      connection,
+      state: parsed.data.state,
+      params,
+      dependencies: {
+        endpointAuthorizer,
+        providerForConnection: mcpOAuthProviderForConnection,
+        // The URLSearchParams overload validates `iss` before it reads any
+        // callback error text or redeems the authorization code.
+        connectionManager: getMcpConnectionManager(),
+      },
     });
-    if (!(await provider.matchesState(parsed.data.state))) {
-      throw Errors.BadRequestError("Invalid or expired OAuth state");
-    }
-    if (!(await provider.discoveryState())) {
-      throw Errors.BadRequestError("MCP OAuth discovery state is missing");
-    }
-    try {
-      // The URLSearchParams overload validates `iss` before it reads any
-      // callback error text or redeems the authorization code.
-      await finishMcpOAuth(provider, new URL(connection.endpointUrl), params);
-      await getMcpConnectionManager().getReadyClient(connection.id);
-    } catch (error) {
-      await updateConnection(connection.id, {
-        status: "failed",
-        lastError: boundedMcpErrorText(error),
-      });
-      throw Errors.BadRequestError("MCP authorization callback was rejected");
-    }
     set.status = 302;
     set.headers["Location"] =
       `${serverEnv().CORS_ORIGIN}/integrations?mcp_connected=${encodeURIComponent(connection.label)}`;

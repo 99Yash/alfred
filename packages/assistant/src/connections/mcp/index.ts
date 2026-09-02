@@ -41,6 +41,15 @@ export {
   type McpPreparedToolCall,
 } from "./client";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+export {
+  HostedMcpEndpointAuthorizer,
+  withMcpEndpointAuthorization,
+  type McpAuthorizedEndpoint,
+  type McpAuthorizedOAuth,
+  type McpAuthorizedOAuthServer,
+  type McpAuthorizedProtocol,
+  type McpEndpointAuthorizer,
+} from "./endpoint-authorization";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
 export { listMcpToolsLocal, type McpListToolsResult, type McpToolSummary } from "./list-tools";
 export {
@@ -49,11 +58,12 @@ export {
   type McpConnectionManagerPersistence,
 } from "./manager";
 export {
-  authorizeMcpOAuth,
-  finishMcpOAuth,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
   McpOAuthAuthorizationRequiredError,
+  type McpBoundOAuthSession,
+  type McpOAuthProviderForConnectionInput,
+  type McpOAuthSessionFactory,
 } from "./oauth";
 export {
   insertConnection,
