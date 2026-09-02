@@ -80,14 +80,15 @@ async function beginAuthorization(input: {
 }
 
 /**
- * Both connect entrypoints are BROWSER navigations, so an escaping error renders
- * the API error page and strands the user off the integrations surface. The
- * reason is already durable on the connection by the time we get here, so send
- * the browser back to the card that renders it.
+ * Both connect entrypoints and the callback are BROWSER navigations, so an
+ * escaping error renders the API error page and strands the user off the
+ * integrations surface. Send the browser back to the card instead. The card
+ * reads `status` and `lastError` from the connection list, so the redirect
+ * carries no query parameter: the durable row is the only report.
  */
-function redirectToIntegrations(set: Context["set"], query: string): null {
+function redirectToIntegrations(set: Context["set"]): null {
   set.status = 302;
-  set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/integrations?${query}`;
+  set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/integrations`;
   return null;
 }
 
@@ -108,25 +109,28 @@ export const mcpIntegrationRoutes = new Elysia({
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
       .get("/github/connect", async ({ user, set }) => {
-        const connection = await ensureBuiltInConnection(user.id, "github");
-        await getMcpConnectionManager().disconnect(connection.id, user.id);
         let authorizationUrl: URL | null;
         try {
+          // The ensure sits INSIDE the guard. It reaches the database and it
+          // reconciles the pinned built-in endpoint, so it can fail on its own,
+          // and a browser navigation must not meet a bare 500 page for it.
+          const connection = await ensureBuiltInConnection(user.id, "github");
+          await getMcpConnectionManager().disconnect(connection.id, user.id);
           authorizationUrl = await beginAuthorization({
             connectionId: connection.id,
             userId: user.id,
           });
+          if (!authorizationUrl) await getMcpConnectionManager().getReadyClient(connection.id);
         } catch {
-          // `beginAuthorization` already persisted the reason on the connection.
-          return redirectToIntegrations(set, "mcp_error=github");
+          // `beginAuthorization` already persisted every reason it can name.
+          return redirectToIntegrations(set);
         }
         if (authorizationUrl) {
           set.status = 302;
           set.headers["Location"] = authorizationUrl.href;
           return null;
         }
-        await getMcpConnectionManager().getReadyClient(connection.id);
-        return redirectToIntegrations(set, "mcp_connected=github");
+        return redirectToIntegrations(set);
       })
       .get(
         "/connections/:id/reconsent",
@@ -141,8 +145,8 @@ export const mcpIntegrationRoutes = new Elysia({
               forceReauthorization: true,
             });
           } catch {
-            // `beginAuthorization` already persisted the reason on the connection.
-            return redirectToIntegrations(set, "mcp_error=1");
+            // `beginAuthorization` already persisted every reason it can name.
+            return redirectToIntegrations(set);
           }
           if (authorizationUrl) {
             set.status = 302;
@@ -150,7 +154,7 @@ export const mcpIntegrationRoutes = new Elysia({
             return null;
           }
           await getMcpConnectionManager().getReadyClient(params.id);
-          return redirectToIntegrations(set, "mcp_connected=1");
+          return redirectToIntegrations(set);
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       ),
@@ -191,8 +195,5 @@ export const mcpIntegrationRoutes = new Elysia({
       });
       throw Errors.BadRequestError("MCP authorization callback was rejected");
     }
-    set.status = 302;
-    set.headers["Location"] =
-      `${serverEnv().CORS_ORIGIN}/integrations?mcp_connected=${encodeURIComponent(connection.label)}`;
-    return null;
+    return redirectToIntegrations(set);
   });
