@@ -9,6 +9,16 @@ import { sha256Canonical } from "@alfred/db/hash";
 export { sha256Canonical };
 
 /**
+ * Stable UTF-16 code-unit order. This EQUALS the default `Array.prototype.sort`
+ * order for strings and is a named truth so the client, publication, and every
+ * persisted hash-key order agree. Do not replace it with `localeCompare`: that
+ * order differs and would reorder every persisted catalog.
+ */
+export function compareMcpToolNames(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
  * Per-tool descriptor hash. Binds an approval/downgrade to the EXACT reviewed
  * descriptor, so an unrelated tool changing (which bumps the whole catalog
  * revision) need not churn a downgrade of a different tool, and a change to THIS
@@ -21,7 +31,18 @@ export function descriptorHash(tool: Tool): string {
 /** `{ [remoteName]: descriptorHash }` for a whole catalog snapshot. */
 export function computeDescriptorHashes(tools: readonly Tool[]): Record<string, string> {
   const hashes: Record<string, string> = {};
-  for (const tool of tools) hashes[tool.name] = descriptorHash(tool);
+  for (const tool of tools) {
+    // Remote tool names are untrusted data. Defining an own data property makes
+    // every admitted name, including `__proto__`, a key instead of invoking an
+    // inherited Object.prototype setter. Keep the normal prototype because the
+    // Drizzle insert encoder expects ordinary record values.
+    Object.defineProperty(hashes, tool.name, {
+      configurable: true,
+      enumerable: true,
+      value: descriptorHash(tool),
+      writable: true,
+    });
+  }
   return hashes;
 }
 

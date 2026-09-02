@@ -5,6 +5,7 @@ import {
   jsonObjectSchema,
   mcpContentKindValues,
   type BoundedPassthroughBody,
+  type ExternalToolRef,
   type JsonValue,
   type McpContentKind,
   type McpResultProvenance,
@@ -19,7 +20,7 @@ import type {
 import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
-import { sha256Canonical } from "./hash";
+import { compareMcpToolNames, sha256Canonical } from "./hash";
 import {
   authorizeMcpOAuth,
   McpOAuthAuthorizationRequiredError,
@@ -37,13 +38,6 @@ import {
   type McpProtocolPage,
   type SdkMcpProtocolClientOptions,
 } from "./protocol";
-
-export interface ExternalToolRef {
-  kind: "mcp";
-  connectionId: string;
-  remoteName: string;
-  catalogRevision: string;
-}
 
 export interface McpCatalogSnapshot {
   connectionId: string;
@@ -341,7 +335,7 @@ export class McpRawClient {
         // the same tool set could otherwise hash differently per environment.
         // Names are already de-duplicated, so this total order over distinct
         // strings is all that's needed.
-        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+        .sort((a, b) => compareMcpToolNames(a.name, b.name)),
     );
     const revision = sha256Canonical(sortedTools);
     const nextToolsByName = new Map(sortedTools.map((tool) => [tool.name, tool]));

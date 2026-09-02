@@ -257,22 +257,32 @@ export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;
 // external ref lives in args, `canonicalJson(input)` folds it into the generic
 // staging input hash for free, so a catalog-drifted re-proposal re-stages.
 // ---------------------------------------------------------------------------
-export const mcpCallInput = z.object({
-  connectionId: z.string().min(1),
-  remoteName: z.string().min(1),
-  /**
-   * The catalog revision the model selected this tool under. A mismatch against
-   * the live catalog is a VISIBLE re-resolve signal (the raw client throws
-   * `catalog_stale`), not a silent Zod strip.
-   */
-  catalogRevision: z.string().min(1),
-  /**
-   * Opaque MCP arguments — a JSON object, unreshaped. `z.record` keeps all
-   * string keys (no stripping) so nothing a JSON-Schema-valid MCP call needs is
-   * lost crossing dispatch's envelope re-parse.
-   */
-  arguments: jsonObjectSchema,
-});
+export const mcpExternalToolRefSchema = z
+  .object({
+    kind: z.literal("mcp"),
+    connectionId: z.string().min(1),
+    remoteName: z.string().min(1),
+    /**
+     * The catalog revision the model selected this tool under. A mismatch against
+     * the live catalog is a VISIBLE re-resolve signal (the raw client throws
+     * `catalog_stale`), not a silent Zod strip.
+     */
+    catalogRevision: z.string().min(1),
+  })
+  .strict();
+export type ExternalToolRef = z.infer<typeof mcpExternalToolRefSchema>;
+
+export const mcpCallInput = z
+  .object({
+    ...mcpExternalToolRefSchema.omit({ kind: true }).shape,
+    /**
+     * Opaque MCP arguments — a JSON object, unreshaped. `z.record` keeps all
+     * string keys (no stripping) so nothing a JSON-Schema-valid MCP call needs is
+     * lost crossing dispatch's envelope re-parse.
+     */
+    arguments: jsonObjectSchema,
+  })
+  .strict();
 export type McpCallInput = z.infer<typeof mcpCallInput>;
 
 /**
@@ -299,18 +309,159 @@ export const mcpListToolsDetailValues = ["names", "summary"] as const;
 export type McpListToolsDetail = (typeof mcpListToolsDetailValues)[number];
 export const mcpListToolsDetailSchema = z.enum(mcpListToolsDetailValues);
 
-export const mcpListToolsInput = z.object({
-  connectionId: z.string().min(1),
-  /** Free-text filter over tool name/description. Untrusted data, not instructions. */
-  query: z.string().max(200).optional(),
-  /** Page density; see {@link mcpListToolsDetailValues}. Defaults to `summary`. */
-  detail: mcpListToolsDetailSchema.optional(),
-  /** Opaque pagination cursor returned by a prior page. */
-  cursor: z.string().max(512).optional(),
-  limit: z.coerce.number().int().positive().max(MCP_LIST_TOOLS_MAX_LIMIT).optional(),
-  /** When set, return the bounded full descriptor for just this one tool. */
-  remoteName: z.string().min(1).optional(),
-  /** Echoed-back revision for drift detection; discovery returns the current view. */
-  catalogRevision: z.string().optional(),
-});
+export const mcpToolSearchInputSchema = z
+  .object({
+    /** Free-text filter over visible tool fields: name, title, description. Never the connection label. */
+    query: z.string().max(200).optional(),
+    /** Exact owned MCP server id. */
+    namespace: z.string().min(1).optional(),
+    /** Exact owned named-connection id. */
+    connectionId: z.string().min(1).optional(),
+    /** Page density; see {@link mcpListToolsDetailValues}. Defaults to `summary`. */
+    detail: mcpListToolsDetailSchema.optional(),
+    /** Opaque pagination cursor returned by a prior page. */
+    cursor: z.string().max(512).optional(),
+    limit: z.coerce.number().int().positive().max(MCP_LIST_TOOLS_MAX_LIMIT).optional(),
+  })
+  .strict();
+export type McpToolSearchInput = z.infer<typeof mcpToolSearchInputSchema>;
+
+export const mcpToolInspectInputSchema = z
+  .object({
+    ref: mcpExternalToolRefSchema,
+  })
+  .strict();
+export type McpToolInspectInput = z.infer<typeof mcpToolInspectInputSchema>;
+
+/**
+ * The same strict search-or-inspect union, represented as one top-level object
+ * because model providers require every tool input JSON Schema to declare
+ * `type: "object"` at the root.
+ */
+export const mcpListToolsInput = z
+  .object({
+    ...mcpToolSearchInputSchema.shape,
+    ref: mcpExternalToolRefSchema.optional(),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    const inputKeys = Object.keys(input);
+    if (!inputKeys.includes("ref")) return;
+    if (input.ref === undefined || inputKeys.some((key) => key !== "ref")) {
+      ctx.addIssue({
+        code: "custom",
+        message: "MCP tool inspection accepts only an exact ref",
+      });
+    }
+  });
 export type McpListToolsInput = z.infer<typeof mcpListToolsInput>;
+
+export type McpListToolsOperation =
+  | { operation: "inspect"; input: McpToolInspectInput }
+  | { operation: "search"; input: McpToolSearchInput };
+
+/** Parse the provider-compatible root object into its strict domain operation. */
+export function parseMcpListToolsOperation(input: unknown): McpListToolsOperation {
+  const parsed = mcpListToolsInput.parse(input);
+  if (parsed.ref !== undefined) {
+    return { operation: "inspect", input: { ref: parsed.ref } };
+  }
+  return { operation: "search", input: mcpToolSearchInputSchema.parse(parsed) };
+}
+
+export const mcpDiscoveryConnectionSchema = z
+  .object({
+    id: z.string().min(1),
+    instanceKey: z.string().min(1),
+    label: z.string().min(1),
+  })
+  .strict();
+export type McpDiscoveryConnection = z.infer<typeof mcpDiscoveryConnectionSchema>;
+
+function enforceConnectionRefIdentity(
+  input: { ref: ExternalToolRef; connection: McpDiscoveryConnection },
+  ctx: z.RefinementCtx,
+): void {
+  if (input.connection.id !== input.ref.connectionId) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["connection", "id"],
+      message: "MCP discovery connection id must match the tool reference",
+    });
+  }
+}
+
+function enforceInspectionIdentity(
+  input: {
+    ref: ExternalToolRef;
+    connection: McpDiscoveryConnection;
+    tool: z.infer<typeof jsonObjectSchema>;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  enforceConnectionRefIdentity(input, ctx);
+  if (input.tool.name !== input.ref.remoteName) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["tool", "name"],
+      message: "MCP inspected tool name must match the tool reference",
+    });
+  }
+}
+
+export const mcpToolDiscoveryHitSchema = z
+  .object({
+    ref: mcpExternalToolRefSchema,
+    namespace: z.string().min(1),
+    connection: mcpDiscoveryConnectionSchema,
+    title: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .strict()
+  .superRefine(enforceConnectionRefIdentity);
+export type McpToolDiscoveryHit = z.infer<typeof mcpToolDiscoveryHitSchema>;
+
+export const mcpToolDiscoveryPageSchema = z
+  .object({
+    status: z.literal("tools"),
+    tools: z.array(mcpToolDiscoveryHitSchema).max(MCP_LIST_TOOLS_MAX_LIMIT),
+    nextCursor: z.string().min(1).nullable(),
+  })
+  .strict();
+export type McpToolDiscoveryPage = z.infer<typeof mcpToolDiscoveryPageSchema>;
+
+export const mcpToolInspectionSuccessSchema = z
+  .object({
+    status: z.literal("tool"),
+    ref: mcpExternalToolRefSchema,
+    connection: mcpDiscoveryConnectionSchema,
+    tool: jsonObjectSchema,
+  })
+  .strict()
+  .superRefine(enforceInspectionIdentity);
+export type McpToolInspectionSuccess = z.infer<typeof mcpToolInspectionSuccessSchema>;
+
+export const mcpToolInspectionNotFoundSchema = z
+  .object({
+    status: z.literal("not_found"),
+    ref: mcpExternalToolRefSchema,
+    message: z.string(),
+  })
+  .strict();
+export type McpToolInspectionNotFound = z.infer<typeof mcpToolInspectionNotFoundSchema>;
+
+export const mcpToolInspectionCatalogStaleSchema = z
+  .object({
+    status: z.literal("catalog_stale"),
+    ref: mcpExternalToolRefSchema,
+    message: z.string(),
+  })
+  .strict();
+export type McpToolInspectionCatalogStale = z.infer<typeof mcpToolInspectionCatalogStaleSchema>;
+
+export const mcpToolInspectionResultSchema = z.union([
+  mcpToolInspectionSuccessSchema,
+  mcpToolInspectionNotFoundSchema,
+  mcpToolInspectionCatalogStaleSchema,
+]);
+export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSchema>;

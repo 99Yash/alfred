@@ -34,15 +34,11 @@
  * read-only names that only a test reaches.
  */
 
-export {
-  McpRawClient,
-  type ExternalToolRef,
-  type McpCallEnvelope,
-  type McpPreparedToolCall,
-} from "./client";
+export { McpRawClient, type McpCallEnvelope, type McpPreparedToolCall } from "./client";
+export type { ExternalToolRef } from "@alfred/contracts";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
-export { listMcpToolsLocal, type McpListToolsResult, type McpToolSummary } from "./list-tools";
+export { listMcpToolsLocal } from "./list-tools";
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 export {
   authorizeMcpOAuth,
