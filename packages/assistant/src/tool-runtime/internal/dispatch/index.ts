@@ -48,7 +48,6 @@ import {
   integrationFromToolName,
   inputMatchesWorkflowResourceScope,
   isIntegrationSlug,
-  isRecord,
   isTerminalStatus,
   isToolName,
   isToolRiskTier,
@@ -82,9 +81,8 @@ import {
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
 import {
-  APP_ERROR_REGISTRY,
-  isAppErrorCode,
   publicAppError,
+  publicAppErrorFromStored,
   toPublicAppError,
   type PublicAppError,
 } from "@alfred/contracts/app-errors";
@@ -783,7 +781,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       // not have been validated there.
       const reparsed = tool.inputSchema.safeParse(useInput);
       if (!reparsed.success) {
-        const error = toPublicAppError(undefined, "tool_input_invalid");
+        const error = publicAppError("tool_input_invalid");
         await commitAndPoke(row, ctx, {
           status: "failed",
           outcome: "failed",
@@ -884,7 +882,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       // the agent loop turns them into a tool result the boss can
       // reason about.
       const diagnostic = `dispatcher saw unexpected staging status '${row.status}'`;
-      const error = toPublicAppError(undefined);
+      const error = publicAppError("tool_execution_failed");
       recordRejection({
         dispatch: args,
         outcome: "failed",
@@ -1539,10 +1537,10 @@ function synthesizeRejection(
 }
 
 function extractStoredError(stored: unknown): PublicAppError {
-  const code = isRecord(stored) ? stored.code : undefined;
-  if (isAppErrorCode(code)) return { code, message: APP_ERROR_REGISTRY[code].message };
-  // Legacy rows may contain raw exception text. Never replay it to the model.
-  return toPublicAppError(undefined);
+  // Legacy rows may contain raw exception text or a deleted code, and a
+  // parametrized row may carry a poisoned param. The catalog re-validates and
+  // re-renders; nothing stored is replayed to the model as text.
+  return publicAppErrorFromStored(stored);
 }
 
 function validateScratchToolAccess(args: {

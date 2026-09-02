@@ -82,6 +82,25 @@ shows up as `undefined`.
 - `isHttpError`, `httpErrorFromResponse`
 - We deliberately do **not** use Effect here — see the shared-error-primitives decision.
 
+### Public failure catalog — `@alfred/contracts/app-errors` (`src/app-errors/index.ts`)
+
+The one owner of every failure that a tool result, a tool card, or the `execute_error`
+column carries. A public failure is `{ code, params?, message, fix }`. Consumers branch on
+`fix.kind`, never on the message. Design: `docs/plans/typed-failures-v1.md`.
+
+- `new AppError(code, params?, options?)` — throw from a tool body. A parametrized code
+  (`connection_required`, `reauth_required`, `account_read_failed`,
+  `integration_unavailable`) takes `{ integration }` first. `params` are closed enums or
+  numbers, never free strings; the catalog type rejects a `z.string()` param.
+- `publicAppError(code, params?)` — mint a failure with no thrown error.
+- `toPublicAppError(err, fallback?)` — project a caught value; anything that is not an
+  `AppError` becomes the fallback, so exception text never crosses the boundary.
+- `publicAppErrorFromStored(row)` — replay a persisted `execute_error`; re-validates
+  `params` with the entry's schema and re-derives `message` and `fix`.
+- `Fix`, `FIX_KINDS` — the closed remediation union. Switch with a `never` default.
+- `INTEGRATION_DISPLAY_NAMES` (in `src/tools.ts`) — the name a message uses for a slug.
+- A code with no producer in `src/` fails `packages/contracts/test/app-errors.test.ts`.
+
 ### HTTP failures — `@alfred/contracts` (`src/api-errors.ts`)
 
 One class, one code table, one door. `HttpError` above is the _inbound_ failure of a
