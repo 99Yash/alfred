@@ -169,8 +169,7 @@ function managerWith(
     clientFactory: (row) =>
       new McpRawClient({
         connectionId: row.id,
-        endpoint: new URL(row.endpointUrl),
-        expectedOrigin: row.endpointOrigin,
+        endpoint: row,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
         ...(now ? { now } : {}),

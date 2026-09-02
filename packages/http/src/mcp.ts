@@ -9,6 +9,7 @@ import {
   getMcpConnectionManager,
   HostedMcpEndpointAuthorizer,
   listOwnedConnections,
+  MCP_DEFAULT_REQUEST_TIMEOUT_MS,
   MCP_OAUTH_PENDING_ISSUER,
   McpOAuthAuthorizationRequiredError,
   mcpOAuthClientConfiguration,
@@ -19,6 +20,7 @@ import {
   withMcpEndpointAuthorization,
   type McpConnectionManager,
   type McpEndpointAuthorizer,
+  type McpEndpointNetworkPolicy,
   type McpOAuthProviderForConnectionInput,
 } from "@alfred/assistant/connections/mcp";
 import { authMacro } from "./middleware/auth";
@@ -27,6 +29,10 @@ import { requireOnboarded } from "./middleware/onboarding";
 const GITHUB_MCP_ENDPOINT = new URL("https://api.githubcopilot.com/mcp");
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
 const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
+/** OAuth start and callback have no raw client, so they name the client's default budget. */
+const OAUTH_NETWORK: McpEndpointNetworkPolicy = {
+  requestTimeoutMs: MCP_DEFAULT_REQUEST_TIMEOUT_MS,
+};
 
 type McpOAuthCallbackProvider = Pick<
   ReturnType<typeof mcpOAuthProviderForConnection>,
@@ -53,10 +59,8 @@ export async function completeMcpOAuthCallback(input: {
   const { connection, dependencies } = input;
   return withMcpEndpointAuthorization(
     dependencies.endpointAuthorizer,
-    {
-      endpoint: connection.endpointUrl,
-      expectedOrigin: connection.endpointOrigin,
-    },
+    connection,
+    OAUTH_NETWORK,
     async (authorized) => {
       const provider = dependencies.providerForConnection({
         id: connection.id,
@@ -109,10 +113,8 @@ async function beginAuthorization(input: {
   if (!connection) throw Errors.NotFoundError("MCP connection not found");
   return withMcpEndpointAuthorization(
     endpointAuthorizer,
-    {
-      endpoint: connection.endpointUrl,
-      expectedOrigin: connection.endpointOrigin,
-    },
+    connection,
+    OAUTH_NETWORK,
     async (authorized) => {
       const provider = mcpOAuthProviderForConnection({
         id: connection.id,
