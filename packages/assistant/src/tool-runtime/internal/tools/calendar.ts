@@ -12,7 +12,12 @@ import {
   type CalendarEvent,
 } from "@alfred/integrations/google";
 import type { z } from "zod";
-import { AppError, toPublicAppError, type PublicAppError } from "@alfred/contracts/app-errors";
+import {
+  AppError,
+  publicAppError,
+  toPublicAppError,
+  type PublicAppError,
+} from "@alfred/contracts/app-errors";
 import { logger } from "@alfred/logging";
 import { addDays, inZone } from "@alfred/assistant/time";
 import { runRestPassthrough } from "./passthrough";
@@ -196,7 +201,7 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
   const window = resolveCalendarListWindow(input, ctx.timezone);
   const credentials = await ctx.integrations.google.calendar.readCredentials();
   if (credentials.length === 0) {
-    throw new AppError("calendar_read_connection_required");
+    throw new AppError("connection_required", { integration: "calendar" });
   }
 
   const events: CompactCalendarEvent[] = [];
@@ -213,7 +218,10 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
       });
       for (const event of result.events) events.push(compactEvent(credential, event));
     } catch (err) {
-      const failure = toPublicAppError(err, "calendar_account_read_failed");
+      const failure = toPublicAppError(
+        err,
+        publicAppError("account_read_failed", { integration: "calendar" }),
+      );
       logger.error(
         {
           err,
@@ -231,7 +239,7 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
   }
 
   if (allReadsFailed(events, failures, credentials)) {
-    throw new AppError("calendar_unavailable");
+    throw new AppError("integration_unavailable", { integration: "calendar" });
   }
 
   return {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { AppError } from "@alfred/contracts/app-errors";
 import { describe, test } from "node:test";
 
 import {
@@ -340,6 +341,14 @@ function proj(id: string, name = id): RailwayProject {
 
 const authz = (): RailwayGraphqlError => new RailwayGraphqlError([{ message: "Not Authorized" }]);
 
+/** The fan-out's all-failed door: a catalog code, never a message match. */
+function isRailwayUnavailable(error: unknown): boolean {
+  assert.ok(error instanceof AppError, `expected an AppError, got ${String(error)}`);
+  assert.equal(error.code, "integration_unavailable");
+  assert.deepEqual(error.public.fix, { kind: "reconnect", integration: "railway" });
+  return true;
+}
+
 describe("Railway credential fan-out", () => {
   test("pickCredential defaults to the sole connection when none is named", () => {
     assert.equal(pickCredential([cred("a", "A")]).id, "a");
@@ -394,7 +403,8 @@ describe("Railway credential fan-out", () => {
     assert.equal(projects[0]?.credentialId, "ok");
     assert.equal(failures.length, 1);
     assert.equal(failures[0]?.credentialId, "dead");
-    assert.equal(failures[0]?.code, "railway_account_read_failed");
+    assert.equal(failures[0]?.code, "account_read_failed");
+    assert.deepEqual(failures[0]?.fix, { kind: "reconnect", integration: "railway" });
     assert.doesNotMatch(JSON.stringify(failures[0]), /Not Authorized/);
   });
 
@@ -418,7 +428,7 @@ describe("Railway credential fan-out", () => {
         listProjectsForCredentials([cred("a", "A"), cred("b", "B")], async () => {
           throw authz();
         }),
-      /Railway projects could not be read/,
+      isRailwayUnavailable,
     );
   });
 
@@ -428,7 +438,7 @@ describe("Railway credential fan-out", () => {
         listProjectsForCredentials([cred("only", "Only")], async () => {
           throw authz();
         }),
-      /Railway projects could not be read/,
+      isRailwayUnavailable,
     );
   });
 
@@ -438,7 +448,7 @@ describe("Railway credential fan-out", () => {
         listProjectsForCredentials([cred("only", "Only")], async () => {
           throw new Error("network down");
         }),
-      /Railway projects could not be read/,
+      isRailwayUnavailable,
     );
   });
 
@@ -457,7 +467,8 @@ describe("Railway credential fan-out", () => {
     assert.equal(projects[0]?.credentialId, "ok");
     assert.equal(failures.length, 1);
     assert.equal(failures[0]?.credentialId, "flaky");
-    assert.equal(failures[0]?.code, "railway_account_read_failed");
+    assert.equal(failures[0]?.code, "account_read_failed");
+    assert.deepEqual(failures[0]?.fix, { kind: "reconnect", integration: "railway" });
     assert.doesNotMatch(JSON.stringify(failures[0]), /network down/);
   });
 });
@@ -575,7 +586,8 @@ describe("Railway recent-deployment fan-out", () => {
     );
     assert.equal(failures.length, 1);
     assert.equal(failures[0]?.credentialId, "a");
-    assert.equal(failures[0]?.code, "railway_account_read_failed");
+    assert.equal(failures[0]?.code, "account_read_failed");
+    assert.deepEqual(failures[0]?.fix, { kind: "reconnect", integration: "railway" });
     // The raw provider message must never leak into the surfaced failure.
     assert.doesNotMatch(JSON.stringify(failures[0]), /Not Authorized/);
   });
