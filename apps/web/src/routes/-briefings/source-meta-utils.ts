@@ -1,5 +1,4 @@
 import type { IntegrationSlug } from "@alfred/contracts";
-import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 /**
  * Activity panel subtitles arrive as `provider · [repo ·] kind` from the
@@ -21,23 +20,8 @@ export function parseActivitySubtitle(subtitle: string): ParsedActivitySubtitle 
   return { provider, detail };
 }
 
-/** Map a connected-integration slug to a brand glyph, where one exists. */
-export const PROVIDER_BRAND = {
-  gmail: "gmail",
-  calendar: "google_calendar",
-  drive: "google_drive",
-  docs: "google_docs",
-  sheets: "google_sheets",
-  slides: "google_slides",
-  slack: "slack",
-  linear: "linear",
-  github: "github",
-} satisfies Partial<Record<IntegrationSlug, IntegrationBrand>>;
-
 /** Monochrome brand marks need a visible color on the white panel. */
-export const PROVIDER_COLOR = {
-  github: "#181925",
-} satisfies Partial<Record<IntegrationSlug, string>>;
+export const PROVIDER_COLOR = new Map<IntegrationSlug, string>([["github", "#181925"]]);
 
 /**
  * Format a calendar panel subtitle (`<startISO> - <endISO>`) into a human time
