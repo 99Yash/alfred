@@ -1,4 +1,4 @@
-import { humanizeSlug, type WorkflowRecoveryNavigation } from "@alfred/contracts";
+import { INTEGRATION_DISPLAY_NAMES, type WorkflowRecoveryNavigation } from "@alfred/contracts";
 import type { WorkflowReadinessProblem } from "./readiness";
 
 const GOOGLE_INTEGRATIONS = new Set(["gmail", "calendar", "drive", "docs", "sheets", "slides"]);
@@ -28,7 +28,7 @@ export function workflowRecoveryNavigation(args: {
     const verb = action.kind === "reauthorize" ? "Reconnect" : "Connect";
     return {
       kind: "oauth",
-      label: `${verb} ${humanizeSlug(action.integration)}`,
+      label: `${verb} ${INTEGRATION_DISPLAY_NAMES[action.integration]}`,
       path: `/api/integrations/google/connect?${query.toString()}`,
     };
   }

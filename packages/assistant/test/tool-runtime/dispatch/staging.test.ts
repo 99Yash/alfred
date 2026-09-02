@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { publicAppError } from "@alfred/contracts/app-errors";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
@@ -277,10 +278,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(result, {
       kind: "failed",
       stagingId: result.stagingId,
-      error: {
-        code: "tool_execution_failed",
-        message: "The tool failed unexpectedly. Please try again.",
-      },
+      error: publicAppError("tool_execution_failed"),
     });
 
     const [row] = await db()
@@ -332,19 +330,13 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(result, {
       kind: "failed",
       stagingId: result.kind === "failed" ? result.stagingId : null,
-      error: {
-        code: "tool_input_invalid",
-        message: "The tool input is invalid. Correct it and try again.",
-      },
+      error: publicAppError("tool_input_invalid"),
     });
     const [row] = await db()
       .select({ executeError: actionStagings.executeError })
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
-    assert.deepEqual(row?.executeError, {
-      code: "tool_input_invalid",
-      message: "The tool input is invalid. Correct it and try again.",
-    });
+    assert.deepEqual(row?.executeError, publicAppError("tool_input_invalid"));
     assert.doesNotMatch(JSON.stringify(row?.executeError), /edited-private-value|slug|42/);
   });
 
