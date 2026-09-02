@@ -363,10 +363,10 @@ describe("MCP OAuth provider", () => {
         requests.push(String(input));
         return new Response(null, { status: 500 });
       },
-    }).authorize({
-      endpoint: RESOURCE,
-      expectedOrigin: RESOURCE.origin,
-    });
+    }).authorize(
+      { endpointUrl: RESOURCE.href, endpointOrigin: RESOURCE.origin },
+      { requestTimeoutMs: 5_000 },
+    );
     try {
       const store = new MemoryStore();
       const oauth = provider(store, undefined, authorized.oauth);
@@ -408,10 +408,10 @@ describe("MCP OAuth provider", () => {
   });
 
   test("blocks an installed-SDK authorization flow before a private browser redirect", async () => {
-    const authorized = await new HostedMcpEndpointAuthorizer().authorize({
-      endpoint: RESOURCE,
-      expectedOrigin: RESOURCE.origin,
-    });
+    const authorized = await new HostedMcpEndpointAuthorizer().authorize(
+      { endpointUrl: RESOURCE.href, endpointOrigin: RESOURCE.origin },
+      { requestTimeoutMs: 5_000 },
+    );
     try {
       const store = new MemoryStore();
       const oauth = provider(store, undefined, authorized.oauth);

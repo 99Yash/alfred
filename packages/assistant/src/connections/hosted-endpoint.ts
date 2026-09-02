@@ -2,8 +2,9 @@ import dns from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
 import { Agent, type Dispatcher } from "undici";
 
-const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_REDIRECTS = 5;
+/** How far `hostedEndpointErrorFrom` follows an `Error.cause` chain. */
+const MAX_CAUSE_DEPTH = 4;
 const HOSTED_ENDPOINT_SENSITIVE_HEADERS = new Set([
   "authorization",
   "cookie",
@@ -28,6 +29,7 @@ export type HostedEndpointErrorCode =
   | "blocked_host"
   | "blocked_port"
   | "credential_url"
+  | "invalid_origin"
   | "origin_mismatch"
   | "redirect_refused"
   | "too_many_redirects";
@@ -40,6 +42,32 @@ export class HostedEndpointError extends Error {
     super(message);
     this.name = "HostedEndpointError";
   }
+}
+
+const BLOCKED_HOST_ERRNO = "EBLOCKEDHOST";
+
+/**
+ * Recover the hosted-endpoint refusal behind whatever wrapped it. A URL-level
+ * refusal is thrown as a {@link HostedEndpointError} directly. A DNS-level
+ * refusal is minted by `pinningLookup` as a Node errno error (`EBLOCKEDHOST`)
+ * because undici's connector only understands that shape, and `fetch` then
+ * buries it as the `cause` of a bare `TypeError: fetch failed`. Both are the
+ * same fact — this host is blocked — so both come back as `blocked_host`.
+ *
+ * Returns `null` for anything else so callers keep their own generic text.
+ */
+export function hostedEndpointErrorFrom(err: unknown): HostedEndpointError | null {
+  let current: unknown = err;
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current instanceof Error; depth += 1) {
+    if (current instanceof HostedEndpointError) return current;
+    // SAFETY: `code` is the errno field Node puts on network errors; reading it
+    // off an `Error` is a presence check, not a shape assertion.
+    if ((current as NodeJS.ErrnoException).code === BLOCKED_HOST_ERRNO) {
+      return new HostedEndpointError("blocked_host", current.message);
+    }
+    current = current.cause;
+  }
+  return null;
 }
 
 type V4Cidr = readonly [base: string, prefixBits: number];
@@ -240,23 +268,24 @@ export function validatePublicWebUrl(input: unknown): URL {
   return url;
 }
 
-function parseExpectedOrigin(input: unknown): string {
-  if (typeof input !== "string") {
-    throw new HostedEndpointError("origin_mismatch", "The stored origin is invalid.");
-  }
+/**
+ * A malformed stored origin is a bad column value, not a mismatch: it gets its
+ * own code so an operator can tell "the row is corrupt" from "the endpoint moved".
+ */
+function parseExpectedOrigin(input: string): string {
   let origin: URL;
   try {
     origin = new URL(input);
   } catch {
-    throw new HostedEndpointError("origin_mismatch", "The stored origin is invalid.");
+    throw new HostedEndpointError("invalid_origin", "The stored origin is invalid.");
   }
   if (origin.href !== `${origin.origin}/`) {
-    throw new HostedEndpointError("origin_mismatch", "The stored origin is not an origin.");
+    throw new HostedEndpointError("invalid_origin", "The stored origin is not an origin.");
   }
   return origin.origin;
 }
 
-export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: unknown): URL {
+export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: string): URL {
   const url = validatePublicWebUrl(input);
   if (url.protocol !== "https:") {
     throw new HostedEndpointError("blocked_scheme", "Hosted MCP endpoints must use HTTPS.");
@@ -311,7 +340,7 @@ export function pinningLookup(
         const blockedError = new Error(
           `'${hostname}' resolves to a private or internal address (${blocked.address}).`,
         ) as NodeJS.ErrnoException;
-        blockedError.code = "EBLOCKEDHOST";
+        blockedError.code = BLOCKED_HOST_ERRNO;
         callback(blockedError);
         return;
       }
@@ -342,40 +371,93 @@ function asLookupFunction(resolve: DnsLookupAll): LookupFunction {
     );
 }
 
-export function createPinnedDispatcher(deps: { lookup?: DnsLookupAll } = {}): Dispatcher {
+/**
+ * The socket-level time policy of one pinned dispatcher. It is a required part
+ * of the bind, with no default, because the right numbers differ per owner:
+ * `fetch_url` reads one page and bounds every phase at its own deadline; an MCP
+ * bundle holds a long-lived list-change stream, so its body timeout must be off
+ * (`0`) and the SDK request deadline owns request time instead. A shared
+ * constant here silently handed one owner the other's policy.
+ */
+export interface HostedDispatcherTimeouts {
+  /** Time to receive complete response headers. */
+  headersMs: number;
+  /** Time between body chunks; `0` disables the bound (undici semantics). */
+  bodyMs: number;
+  /** Time to establish the TCP/TLS connection. */
+  connectMs: number;
+}
+
+export function createPinnedDispatcher(deps: {
+  lookup?: DnsLookupAll;
+  timeouts: HostedDispatcherTimeouts;
+}): Dispatcher {
   return new Agent({
     connect: {
       lookup: asLookupFunction(deps.lookup ?? systemLookupAll),
-      timeout: DEFAULT_TIMEOUT_MS,
+      timeout: deps.timeouts.connectMs,
     },
-    headersTimeout: DEFAULT_TIMEOUT_MS,
-    bodyTimeout: DEFAULT_TIMEOUT_MS,
+    headersTimeout: deps.timeouts.headersMs,
+    bodyTimeout: deps.timeouts.bodyMs,
   });
 }
 
-type RequestWithDispatcher = Omit<RequestInit, "dispatcher"> & {
-  dispatcher?: unknown;
-  duplex?: "half";
-};
+/**
+ * The init the guard hands its requester: standard `RequestInit` plus the
+ * stream-body flag. `dispatcher` is omitted because @types/node declares it
+ * against `undici-types`, which is not assignable from the `undici` package's
+ * own `Dispatcher`; {@link dispatcherRequester} re-adds it at the send.
+ */
+export type GuardedRequestInit = Omit<RequestInit, "dispatcher"> & { duplex?: "half" };
 
-export type GuardedFetchRequester = (
-  input: string | URL | Request,
-  init?: RequestWithDispatcher,
-) => Promise<Response>;
+/**
+ * Sends one already-validated hop. Production binds this to a pinned dispatcher
+ * via {@link dispatcherRequester}; tests pass a fake and never open a socket.
+ */
+export type GuardedFetchRequester = (input: string, init: GuardedRequestInit) => Promise<Response>;
 
 export interface GuardedFetchOptions {
+  requester: GuardedFetchRequester;
   expectedOrigin?: string;
-  lookup?: DnsLookupAll;
-  dispatcher?: Dispatcher;
-  requester?: GuardedFetchRequester;
   maxRedirects?: number;
 }
 
-const defaultRequester: GuardedFetchRequester = (input, init) => {
-  // SAFETY: Node's Fetch implementation accepts Undici's runtime `dispatcher`
-  // extension; the DOM `RequestInit` declaration omits only that extra key.
-  return globalThis.fetch(input, init as RequestInit);
-};
+/** Route every hop through `dispatcher`, so its DNS pin and timeouts apply. */
+export function dispatcherRequester(dispatcher: Dispatcher): GuardedFetchRequester {
+  return (input, init) => {
+    const withDispatcher: GuardedRequestInit & { dispatcher: unknown } = { ...init, dispatcher };
+    // SAFETY: Node's Fetch implementation accepts Undici's runtime `dispatcher`
+    // extension; the DOM `RequestInit` declaration omits only that extra key.
+    return globalThis.fetch(input, withDispatcher as RequestInit);
+  };
+}
+
+export interface HostedRequestFacts {
+  url: string;
+  method: string;
+  headers: Headers;
+  body: RequestInit["body"];
+}
+
+/**
+ * Flatten the two ways a fetch caller can spell one request (`Request` object
+ * or `input + init`) into the facts a policy check reads. `init` wins over the
+ * `Request` on every field, matching Fetch's own precedence.
+ */
+export function requestFacts(
+  input: string | URL | Request,
+  init: RequestInit | undefined,
+): HostedRequestFacts {
+  const request = input instanceof Request ? input : null;
+  const headers = new Headers(request?.headers);
+  if (init?.headers) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  return {
+    url: request?.url ?? (input instanceof URL ? input.href : String(input)),
+    method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
+    headers,
+    body: init?.body ?? request?.body ?? undefined,
+  };
+}
 
 async function cancelResponse(response: Response): Promise<void> {
   try {
@@ -385,20 +467,20 @@ async function cancelResponse(response: Response): Promise<void> {
   }
 }
 
+/**
+ * A `fetch` that validates every hop before it is sent. With `expectedOrigin`
+ * the whole chain is pinned to one stored origin (MCP protocol traffic);
+ * without it any public HTTPS origin is allowed and credentials are stripped
+ * when a redirect leaves the current origin (OAuth discovery).
+ */
 export function createGuardedFetch(options: GuardedFetchOptions): typeof globalThis.fetch {
   const expectedOrigin =
     options.expectedOrigin === undefined ? null : parseExpectedOrigin(options.expectedOrigin);
-  const dispatcher =
-    options.dispatcher ?? createPinnedDispatcher(options.lookup ? { lookup: options.lookup } : {});
-  const requester = options.requester ?? defaultRequester;
+  const { requester } = options;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
 
   return async (input, init) => {
-    const inputRequest = input instanceof Request ? input : null;
-    const method = (init?.method ?? inputRequest?.method ?? "GET").toUpperCase();
-    const headers = new Headers(inputRequest?.headers);
-    if (init?.headers) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-    const body = init?.body ?? inputRequest?.body ?? undefined;
+    const { url, method, headers, body } = requestFacts(input, init);
     const validate = (candidate: unknown): URL => {
       if (expectedOrigin !== null) return validatePinnedHttpsEndpoint(candidate, expectedOrigin);
       const url = validatePublicWebUrl(candidate);
@@ -410,16 +492,15 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
       }
       return url;
     };
-    let current = validate(inputRequest?.url ?? (input instanceof URL ? input.href : input));
+    let current = validate(url);
 
     for (let hop = 0; hop <= maxRedirects; hop += 1) {
-      const requestInit: RequestWithDispatcher = {
+      const requestInit: GuardedRequestInit = {
         ...init,
         method,
         headers,
         ...(body != null ? { body, duplex: "half" } : {}),
         redirect: "manual",
-        dispatcher,
       };
       const response = await requester(current.href, requestInit);
       const location = response.headers.get("location");
@@ -445,42 +526,6 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         stripHostedEndpointSensitiveHeaders(headers);
       }
       current = next;
-    }
-    throw new HostedEndpointError("too_many_redirects", "The endpoint redirected too many times.");
-  };
-}
-
-/** Tighten a public guarded fetch to one persisted origin for MCP protocol traffic. */
-export function createOriginPinnedFetch(
-  guardedFetch: typeof globalThis.fetch,
-  expectedOrigin: string,
-): typeof globalThis.fetch {
-  const origin = parseExpectedOrigin(expectedOrigin);
-  return async (input, init) => {
-    const inputRequest = input instanceof Request ? input : null;
-    const method = (init?.method ?? inputRequest?.method ?? "GET").toUpperCase();
-    let current = validatePinnedHttpsEndpoint(
-      inputRequest?.url ?? (input instanceof URL ? input.href : input),
-      origin,
-    );
-    for (let hop = 0; hop <= DEFAULT_MAX_REDIRECTS; hop += 1) {
-      const response = await guardedFetch(current, { ...init, redirect: "manual" });
-      const location = response.headers.get("location");
-      if (response.status < 300 || response.status >= 400 || !location) return response;
-      await cancelResponse(response);
-      if (method !== "GET" && method !== "HEAD") {
-        throw new HostedEndpointError(
-          "redirect_refused",
-          `A redirected ${method} request is not replayed.`,
-        );
-      }
-      if (hop === DEFAULT_MAX_REDIRECTS) {
-        throw new HostedEndpointError(
-          "too_many_redirects",
-          "The endpoint redirected too many times.",
-        );
-      }
-      current = validatePinnedHttpsEndpoint(new URL(location, current), origin);
     }
     throw new HostedEndpointError("too_many_redirects", "The endpoint redirected too many times.");
   };

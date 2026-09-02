@@ -29,8 +29,10 @@ describe("mcpIntegrationRoutes", () => {
     let providerAuthorization: McpAuthorizedOAuth | null = null;
     const readyClient = new McpRawClient({
       connectionId: "conn_test",
-      endpoint: new URL("https://mcp.example.test/mcp"),
-      expectedOrigin: "https://mcp.example.test",
+      endpoint: {
+        endpointUrl: "https://mcp.example.test/mcp",
+        endpointOrigin: "https://mcp.example.test",
+      },
       endpointAuthorizer: fallback,
       protocolFactory: () => {
         throw new Error("the callback must not open a second protocol client");
@@ -70,9 +72,9 @@ describe("mcpIntegrationRoutes", () => {
       params: new URLSearchParams({ code: "valid-code", state: "valid-state" }),
       dependencies: {
         endpointAuthorizer: {
-          authorize: async (candidate) => {
+          authorize: async (connection, network) => {
             events.push("authorize");
-            const authorized = await fallback.authorize(candidate);
+            const authorized = await fallback.authorize(connection, network);
             return {
               ...authorized,
               close: async () => {

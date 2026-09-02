@@ -113,8 +113,7 @@ function liveClientFactory(): McpClientFactory {
     const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
     return new McpRawClient({
       connectionId: connection.id,
-      endpoint: connection.endpointUrl,
-      expectedOrigin: connection.endpointOrigin,
+      endpoint: connection,
       endpointAuthorizer,
       ...(usesOAuth
         ? {
