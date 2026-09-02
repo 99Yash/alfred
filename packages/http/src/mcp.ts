@@ -1,11 +1,7 @@
 import {
   Errors,
-  type McpRecoveryDecision,
-  type McpRecoveryOperationsPageInput,
-  mcpRecoveryDecisionSchema,
-  mcpRecoveryOperationsPageInputSchema,
+  mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
-  mcpRecoveryOperationsPageSchema,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t, type Context } from "elysia";
@@ -33,29 +29,6 @@ import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
-const [firstMcpRecoveryDecision, ...remainingMcpRecoveryDecisions] =
-  mcpRecoveryDecisionSchema.options;
-if (!firstMcpRecoveryDecision) {
-  throw new Error("MCP recovery decisions must not be empty");
-}
-const mcpRecoveryDecisionBody = t.Object(
-  {
-    decision: t.Union([
-      t.Literal(firstMcpRecoveryDecision),
-      ...remainingMcpRecoveryDecisions.map((decision) => t.Literal(decision)),
-    ]),
-  },
-  { additionalProperties: false },
-);
-
-export async function loadMcpRecoveryPage(
-  input: McpRecoveryOperationsPageInput,
-  load: typeof listMcpRecoveryOperations = listMcpRecoveryOperations,
-) {
-  return mcpRecoveryOperationsPageSchema.parse(
-    await load(mcpRecoveryOperationsPageInputSchema.parse(input)),
-  );
-}
 
 function connectionResult(
   connection: NonNullable<Awaited<ReturnType<typeof readOwnedConnection>>>,
@@ -144,10 +117,12 @@ export const mcpIntegrationRoutes = new Elysia({
         const connections = await listOwnedConnections(user.id);
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
+      // The recovery read is pure: it never repairs a row, so a focus refetch
+      // costs one query pair and no broker construction.
       .get(
         "/recovery",
         async ({ query, user }) =>
-          loadMcpRecoveryPage({
+          listMcpRecoveryOperations({
             userId: user.id,
             ...(query.cursor ? { cursor: query.cursor } : {}),
           }),
@@ -155,28 +130,28 @@ export const mcpIntegrationRoutes = new Elysia({
       )
       .post(
         "/recovery/:invocationId/resolve",
-        async ({ body, params, user }) => {
-          const decision = mcpRecoveryDecisionSchema.safeParse(body.decision);
-          if (!decision.success) throw Errors.BadRequestError("Invalid MCP recovery decision");
-          const parsedDecision: McpRecoveryDecision = decision.data;
-          return resolveMcpRecoveryOperation({
+        async ({ body, params, user }) =>
+          resolveMcpRecoveryOperation({
             userId: user.id,
             invocationId: params.invocationId,
-            decision: parsedDecision,
-          });
-        },
+            decision: body.decision,
+          }),
         {
           params: t.Object({ invocationId: t.String({ minLength: 1 }) }),
-          body: mcpRecoveryDecisionBody,
+          // The same Zod schema the contract publishes, validated once by Elysia,
+          // exactly as the GET above validates its `query`.
+          body: mcpRecoveryDecisionBodySchema,
         },
       )
+      // The request signal is deliberately NOT threaded into the successor send.
+      // A closed tab must not abort a write that is already `delivery_possible`;
+      // the broker's own request timeout is the only bound.
       .post(
         "/recovery/:invocationId/successor",
-        async ({ params, request, user }) =>
+        async ({ params, user }) =>
           retryMcpRecoveryOperation({
             userId: user.id,
             invocationId: params.invocationId,
-            signal: request.signal,
           }),
         {
           params: t.Object({ invocationId: t.String({ minLength: 1 }) }),

@@ -6,9 +6,10 @@
  * from `@alfred/contracts`.
  */
 export const MCP_BROKER_ADMISSION_CAPACITY = 40;
-// Deliberately smaller than the product recovery page. The progress cursor, not
-// an accidental ratio between these limits, guarantees complete traversal.
+/** How many queued settlement repairs one drain pass retries before it yields. */
 export const MCP_SETTLEMENT_REPAIR_BATCH_SIZE = 8;
+/** Delay before the broker retries a settlement repair that failed locally. */
+export const MCP_SETTLEMENT_REPAIR_RETRY_MS = 5_000;
 
 export function hasMcpBrokerAdmissionCapacity(input: {
   pendingRepairs: number;

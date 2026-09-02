@@ -151,6 +151,12 @@ type _NoBrokerSetterOnToolRuntime = ToolRuntimeDoor["_setMcpExecutionBrokerForTe
 // and point at the line to change.
 // ---------------------------------------------------------------------------
 
+// A successor resume must not share an HTTP request's lifetime, so its input
+// type has no `signal`. If one is added, this line stops compiling.
+type SuccessorResumeInput = import("@alfred/assistant/tool-runtime/mcp").McpReservedSuccessorInput;
+type _NoSignalOnSuccessorResume = "signal" extends keyof SuccessorResumeInput ? never : true;
+const _successorResumeHasNoSignal: _NoSignalOnSuccessorResume = true;
+
 type ToolRuntimeLeaf = typeof import("@alfred/assistant/tool-runtime/mcp/invocations");
 type _AssertToolRuntimeLeafStillResolves = ToolRuntimeLeaf["resolveMcpToolIdentity"];
 
