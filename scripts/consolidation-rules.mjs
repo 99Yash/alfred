@@ -61,6 +61,16 @@ export const RULES = [
     fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. humanizeSlug is for action and field slugs, not integration names.",
   },
   {
+    id: "partial-integration-slug-record",
+    // `Partial<Record<IntegrationSlug, …>>` / `new Map<string, LoadableIntegrationSlug>` —
+    // a table keyed by integration slug that the compiler cannot prove complete.
+    // Three web tables shipped without `notion`/`railway`/`vercel` rows this way
+    // (PR #943); the registry (ADR-0093) exists so a missing row is a type error.
+    re: /Partial<Record<(?:Loadable)?IntegrationSlug\b|new Map<(?:string|IntegrationSlug),\s*(?:Loadable)?IntegrationSlug\b/,
+    severity: "gate",
+    fix: "Derive the table from INTEGRATIONS in @alfred/contracts (a projection over the record), or key it `satisfies Record<…Slug, T>` on a derived union (LiveProviderSlug, CatalogSlug, SupportedPassthroughSlug) so a missing integration is a compile error. If an absent slug genuinely means something (a sparse per-user override), append `// drift-ok: <what absence means>`.",
+  },
+  {
     id: "as-string-array",
     // `x as string[]` — the unchecked element-type assertion. `as string[] | ...`
     // (a union) is a different, narrower shape and is left alone.

@@ -276,6 +276,26 @@ const LINE_CASES = [
     caught: false,
     code: `export class GoogleCredentialNotFoundError extends Error {`,
   },
+  {
+    name: "partial-integration-slug-record — a sparse slug-keyed table (the PR #943 shape)",
+    caught: true,
+    code: `const BRAND_BY_SLUG = { gmail: "gmail" } satisfies Partial<Record<IntegrationSlug, string>>;`,
+  },
+  {
+    name: "partial-integration-slug-record — a Map from a catalog id to a loadable slug",
+    caught: true,
+    code: `const PROVIDER_ID_TO_SLUG = new Map<string, LoadableIntegrationSlug>([`,
+  },
+  {
+    name: "an exhaustive slug-keyed table is the intended form",
+    caught: false,
+    code: `} as const satisfies Record<IntegrationSlug, string>;`,
+  },
+  {
+    name: "a partial record keyed by something other than a slug is not this rule's business",
+    caught: false,
+    code: `  toolOverrides?: Partial<Record<ToolName, PolicyMode>>;`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
