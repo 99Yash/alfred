@@ -18,6 +18,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, rowsFromExecute } from "../index";
 import { modelPrices } from "../schema/metering";
+import { auditedMetadataEqual, pricesEqual } from "./sync-prices-compare";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const MODELS_DEV_FETCH_TIMEOUT_MS = 30_000;
@@ -228,55 +229,6 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
     }
   }
   return rows;
-}
-
-function pricesEqual(
-  a: {
-    inputPerMtok: number;
-    outputPerMtok: number;
-    cachedInputPerMtok: number | null;
-    cacheWriteInputPerMtok: number | null;
-    perCallUsd: number | null;
-    contextWindow: number | null;
-  },
-  b: {
-    inputPerMtok: number;
-    outputPerMtok: number;
-    cachedInputPerMtok: number | null;
-    cacheWriteInputPerMtok: number | null;
-    perCallUsd: number | null;
-    contextWindow: number | null;
-  },
-): boolean {
-  return (
-    a.inputPerMtok === b.inputPerMtok &&
-    a.outputPerMtok === b.outputPerMtok &&
-    a.cachedInputPerMtok === b.cachedInputPerMtok &&
-    a.cacheWriteInputPerMtok === b.cacheWriteInputPerMtok &&
-    a.perCallUsd === b.perCallUsd &&
-    a.contextWindow === b.contextWindow
-  );
-}
-
-/**
- * Compare pricing dimensions and the audited capability subset stored in
- * metadata. Folded into change detection so tier/TTL or capability changes
- * insert a fresh snapshot even when the flat columns are unchanged.
- */
-function auditedMetadataEqual(
-  latestMetadata: unknown,
-  incoming: Record<string, unknown> | undefined,
-): boolean {
-  const pick = (meta: unknown) => {
-    const metadata = isRecord(meta) ? meta : {};
-    const caps = isRecord(metadata.capabilities) ? metadata.capabilities : {};
-    return JSON.stringify({
-      pricing: metadata.pricing ?? null,
-      reasoningOptions: caps?.reasoningOptions ?? null,
-      temperature: caps?.temperature ?? null,
-    });
-  };
-  return pick(latestMetadata) === pick(incoming);
 }
 
 function safeErrorMessage(err: unknown): string {
