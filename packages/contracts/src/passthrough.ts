@@ -35,7 +35,8 @@ import { isToolName, type ToolName } from "./tools";
 /**
  * The slugs the general tier serves: every live provider whose registry entry
  * has a non-null `passthrough`. The registry name is
- * {@link SupportedPassthroughSlug}; this alias keeps the older import working.
+ * {@link SupportedPassthroughSlug}; this alias keeps the older import working
+ * and is deleted in PR 4 of the registry plan with the other transition names.
  * The API-side handler registry is keyed by it, so giving an entry a
  * `passthrough` is a compile error until its config, gate, transport, tool
  * action, and preference are wired.

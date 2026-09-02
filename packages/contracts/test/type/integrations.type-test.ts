@@ -7,8 +7,9 @@
  * an unused directive into TS2578, so a widened type fails the build.
  *
  * Mutation-tested on 2026-09-02 by removing every directive and reading each
- * probe's own error code, then by making `credential` and `domain` optional on
- * their entry types and reading TS2578 on the matching probe. See the PR body.
+ * probe's own error code, then by widening the source four ways (`displayName`
+ * optional, `credential` on a planned entry, `domain` optional, an action on
+ * `slack`) and reading TS2578 on exactly the matching probe. See the PR body.
  */
 import {
   INTEGRATION_ACTIONS,
@@ -89,6 +90,14 @@ export const systemIsNotLoadable: LoadableIntegrationSlug = "system";
 // A planned provider registers no tool action (plan section 6 item 1).
 // ---------------------------------------------------------------------------
 
+declare const planned: PlannedSlug;
+
+// The union is real (otherwise the two lines after it hold vacuously)…
+export const thereArePlannedSlugs: IsNever<PlannedSlug> = false;
+// …and no planned entry registers a tool action.
+export const plannedActionsAreNever: IsNever<ActionSlug<PlannedSlug>> = true;
+// @ts-expect-error every planned row is the empty tuple, so it has no element to read.
+export const plannedRowHasNoFirstAction = INTEGRATION_ACTIONS[planned][0];
+
 export const slackHasNoActions: readonly [] = INTEGRATION_ACTIONS["slack"];
 export const linearHasNoActions: readonly [] = INTEGRATION_ACTIONS["linear"];
-export const plannedActionsAreNever: IsNever<ActionSlug<PlannedSlug>> = true;

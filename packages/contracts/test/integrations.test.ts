@@ -24,6 +24,7 @@ import {
   PLANNED_SLUGS,
   SUPPORTED_PASSTHROUGH_SLUGS,
   SUPPORTED_REST_PASSTHROUGH_SLUGS,
+  type IntegrationSlug,
 } from "@alfred/contracts";
 
 /**
@@ -250,6 +251,6 @@ describe("integration registry — the derived lists agree with the record", () 
   });
 });
 
-function bySlugOrder(a: string, b: string): number {
-  return INTEGRATION_SLUGS.indexOf(a as never) - INTEGRATION_SLUGS.indexOf(b as never);
+function bySlugOrder(a: IntegrationSlug, b: IntegrationSlug): number {
+  return INTEGRATION_SLUGS.indexOf(a) - INTEGRATION_SLUGS.indexOf(b);
 }

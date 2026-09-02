@@ -272,11 +272,12 @@ export const syncedChatToolCallSchema = z.object({
    * the persisted trail entirely.
    *
    * `null` is the replay door's own value, never written by a producer: the
-   * row carried a nudge this build cannot read (a slug the registry no longer
-   * knows, a corrupt value). The entry is still a bounce, so it must not draw
-   * as a failed card, but there is no repair to offer. Without the `catch`
-   * one foreign slug would fail the whole message's parse and the sync model
-   * would drop the message (`scan` skips a row that fails `safeParse`).
+   * row carried a nudge this build cannot read — a slug the registry no longer
+   * knows, or any other field the schema rejects. The entry is still a bounce,
+   * so it must not draw as a failed card, but there is no repair to offer.
+   * Without the `catch` one unreadable nudge would fail the whole message's
+   * parse and the sync model would drop the message (`scan` skips a row that
+   * fails `safeParse`). `.nullable()` exists so `null` is a legal catch value.
    */
   connectNudge: chatConnectNudgeSchema.nullable().optional().catch(null),
 });

@@ -44,8 +44,11 @@ const toolCallLogSchema = z.object({
   nonExecution: z.boolean().optional(),
   // Set only when that rejection was connection health (#378 item 3): the one
   // non-execution that persists to the message row, so a reload re-offers the
-  // repair. Optional so checkpoints written before this field still parse.
-  connectNudge: chatConnectNudgeSchema.optional(),
+  // repair. Optional so checkpoints written before this field still parse. The
+  // slug is a closed enum, so a checkpoint written by a build whose registry
+  // knew a slug this one does not must read as "no nudge" (the bounce then
+  // stays internal plumbing) rather than fail the whole run-state parse.
+  connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
   segmentIndex: z.number().int().nonnegative().default(0),
 });
 

@@ -42,8 +42,8 @@ Every rule below is a compile error or a `pnpm check` gate, not a convention.
 
 ## 3. The record
 
-File: `packages/contracts/src/integrations.ts`. Browser-safe. Imports only `./tools` (the slug
-tuple and `INTEGRATION_ACTIONS`) and `./guards`.
+File: `packages/contracts/src/integrations.ts`. Browser-safe. Imports only `./google-scopes` and
+`./guards`. It owns the slug tuple (section 4); `./tools` imports it, not the reverse.
 
 ### 3.1 Entry shape
 
@@ -319,6 +319,8 @@ none of it is a fact about the integration entity.
 2. **Consolidation rule** `partial-integration-slug-record`, severity `gate`:
    `/Partial<Record<(Loadable)?IntegrationSlug\b/` and `/new Map<(string|IntegrationSlug),\s*(Loadable)?IntegrationSlug\b/`.
    Fix text: derive from `INTEGRATIONS` in `@alfred/contracts` or make the record exhaustive.
+   One sanctioned exception, marked `// drift-ok` on its line: `IntegrationRules` in `tools.ts`,
+   a user's per-integration policy overrides, where an absent slug means the default mode.
 3. **Value-equality tests** in PR 1. The pre-change literal tables are copied into the test file
    as fixtures. The test asserts deep equality with the derived projections. This is the proof
    that PR 1 changes no value.
@@ -355,13 +357,17 @@ runtime value. PR 2 and PR 3 are independent of each other and both depend on PR
 - Delete the tables listed in section 4.
 - Route rename with the legacy redirect.
 - Onboarding, mentions, evidence, detail header derive.
+- Behavior change to record in the PR body: `CONNECT_PATHS` had no entry for `drive`, `docs`,
+  `sheets`, `slides`, so their detail pages had no connect action. Their registry entries carry
+  `features` (added in PR 1, unread until now), so `connectPathFor` makes them connectable.
 - A test that walks `CatalogSlug` and asserts a page, a brand icon, and a connect path (or a
   token form) for every live entry, and no connect path for a planned one.
 
 ### PR 4 — delete the transition projections
 
 - Remove `CREDENTIAL_SHAPE`, `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT`,
-  `credentialShapeForSlug`, and `LEGACY_PAGE_IDS` once no consumer reads them.
+  `credentialShapeForSlug`, the aliases `BearerProvider` and `SupportedIntegrationSlug`, and
+  `LEGACY_PAGE_IDS` once no consumer reads them.
 - Update `docs/reference/shared-helpers.md` and `packages/contracts/AGENTS.md`.
 
 ## 8. Down-proofs the PRs must carry

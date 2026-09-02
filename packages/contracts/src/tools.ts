@@ -168,7 +168,6 @@ export interface IntegrationRule {
   toolOverrides?: Partial<Record<ToolName, PolicyMode>>;
 }
 
-/** A user's policy rules are sparse by design: an absent slug means "use the default mode". */
 export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>; // drift-ok: sparse per-user overrides; absence is the default mode
 
 /**

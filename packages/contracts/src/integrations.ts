@@ -430,9 +430,10 @@ function projectSlugs<K extends string, T>(
   slugs: readonly K[],
   project: (slug: K) => T,
 ): Readonly<Record<K, T>> {
-  // SAFETY: the entries are built by mapping `slugs` — the same closed list the
-  // key union derives from — so the fromEntries result has exactly those keys;
-  // Object.fromEntries' string index erases that, and this cast restores it.
+  // SAFETY: the result has exactly the keys in `slugs`; Object.fromEntries'
+  // string index erases that and this cast restores it. The signature cannot
+  // prove `slugs` holds every member of K — each caller passes the derived list
+  // its K is defined from, and `test/integrations.test.ts` pins every key set.
   return Object.fromEntries(slugs.map((slug) => [slug, project(slug)])) as Record<K, T>;
 }
 
