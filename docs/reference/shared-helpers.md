@@ -118,10 +118,12 @@ sibling keyed by a union derived from it. `pnpm check` fails on
   `integrationEntry("github").credential.shape` is `"github_app"`.
 - `liveProviders()` — the live entries with their slug attached, in registry order. The one loop
   the assistant and the web iterate.
-- Derived unions: `LiveProviderSlug`, `PlannedSlug`, `CatalogSlug`, `LoadableIntegrationSlug`,
+- Derived unions (`LiveProviderSlug`, `PlannedSlug`, `CatalogSlug`, `LoadableIntegrationSlug`,
   `BearerSlug`, `GoogleSlug`, `CredentialProvider`, `SupportedPassthroughSlug`,
-  `IntegrationBrandKey`. Each has a runtime list and an `is*` guard built by `filter` over the
-  tuple, so the list and the union cannot disagree.
+  `IntegrationBrandKey`) are mapped conditionals over the record, never hand-listed. Where a
+  union has a runtime list (`LIVE_PROVIDER_SLUGS`, `CATALOG_SLUGS`, `BEARER_PROVIDER_SLUGS`,
+  `CREDENTIAL_PROVIDERS`, …), the list is a `filter` over the tuple and its `is*` guard is an
+  `enumGuard` of that list, so the two cannot disagree.
 - `CREDENTIAL_SHAPE`, `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT` — transitional
   projections. Read the entry field instead in new code; PR 4 of the registry plan deletes them.
 - `src/google-scopes.ts` — the nine Google scope URLs, `GOOGLE_SCOPES`, `GOOGLE_FEATURE_SCOPES`.

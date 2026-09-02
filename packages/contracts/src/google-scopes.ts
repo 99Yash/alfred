@@ -2,7 +2,7 @@
  * The Google OAuth scope vocabulary: nine scope URLs and the feature names that
  * group them. Plain strings, browser-safe, so the integration registry
  * (`./integrations`) can name the scopes that prove a Google product is
- * connected and the web can build a `?features=` query from a typed list.
+ * connected and the features its connect route asks for.
  *
  * The OAuth mechanics (identity scopes, `scopesForFeatures`, the authorize URL,
  * token exchange and refresh) stay in `@alfred/integrations/google`, which

@@ -3,8 +3,10 @@
  * route returns, plus the one dynamic reader of the credential-shape
  * projection. How each integration's credential is stored and how "connected"
  * is proved is a fact about the integration, so it lives on the registry entry
- * (`INTEGRATIONS[slug].credential` in `./integrations`, ADR-0093); the names
- * below that used to be hand-typed tables here are re-exported derivations.
+ * (`INTEGRATIONS[slug].credential` in `./integrations`, ADR-0093). The tables
+ * this module used to hand-type (`CREDENTIAL_SHAPE`, `BEARER_PROVIDER_SLUGS`,
+ * `isBearerProvider`) are projections there and reach consumers through the
+ * root barrel; only the `BearerProvider` alias stays here.
  */
 
 import { z } from "zod";
@@ -19,7 +21,8 @@ import {
 /**
  * The slugs whose access is a single long-lived bearer token — the domain of
  * the shared bearer persistence layer in `@alfred/integrations`. The registry
- * name is {@link BearerSlug}; this alias keeps the older import working.
+ * name is {@link BearerSlug}; this alias keeps the older import working and is
+ * deleted in PR 4 of the registry plan with the other transition names.
  */
 export type BearerProvider = BearerSlug;
 
