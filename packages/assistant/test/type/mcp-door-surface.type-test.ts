@@ -46,6 +46,19 @@ type ToolRuntimeDoor = typeof import("@alfred/assistant/tool-runtime/mcp");
 
 type _AssertConnectionsDoorResolves = ConnectionsDoor["getMcpConnectionManager"];
 type _AssertToolRuntimeDoorResolves = ToolRuntimeDoor["getMcpExecutionBroker"];
+type _AssertClosedBuiltInDoor = ConnectionsDoor["ensureBuiltInConnection"];
+type ConnectionPatch = Parameters<ConnectionsDoor["updateConnection"]>[1];
+
+const _validConnectionPatch = { status: "ready" } satisfies ConnectionPatch;
+
+// @ts-expect-error - OAuth owns credential attachment; the generic row patch cannot select one.
+const _noCredentialSelection: ConnectionPatch = { credentialId: "mcpo_sibling" };
+
+// Generic creation takes a caller-chosen endpoint AND a caller-chosen instance
+// key, so it stays inside the connection module until the endpoint-authorizer
+// slice admits arbitrary URLs. Only the closed built-in ensure above is a door.
+// @ts-expect-error - `ensureConnection` is not on the product barrel.
+type _NoGenericEnsure = ConnectionsDoor["ensureConnection"];
 
 // ---------------------------------------------------------------------------
 // Door 1 is TIER 1, and this is what makes it so: `packages/assistant/package.json`

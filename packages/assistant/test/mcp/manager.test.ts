@@ -15,7 +15,7 @@ import {
   type McpProtocolPage,
 } from "../../src/connections/mcp";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import { insertConnection, readConnection } from "../../src/connections/mcp/persistence";
+import { ensureConnection, readConnection } from "../../src/connections/mcp/persistence";
 import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
@@ -84,12 +84,12 @@ async function seedConnection(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
-  const conn = await insertConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
-    endpointUrl: "https://mcp.example.test/mcp",
-    endpointOrigin: "https://mcp.example.test",
+    endpoint: new URL("https://mcp.example.test/mcp"),
   });
   return conn.id;
 }
@@ -99,7 +99,7 @@ function managerWith(protocol: FakeProtocol): McpConnectionManager {
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: connection,
+        endpoint: connection.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),

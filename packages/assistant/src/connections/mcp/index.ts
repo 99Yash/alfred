@@ -55,11 +55,7 @@ export {
 } from "./endpoint-authorization";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
 export { listMcpToolsLocal, type McpListToolsResult, type McpToolSummary } from "./list-tools";
-export {
-  MCP_OAUTH_PENDING_ISSUER,
-  McpConnectionManager,
-  type McpConnectionManagerPersistence,
-} from "./manager";
+export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 export {
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
@@ -69,11 +65,10 @@ export {
   type McpOAuthSessionFactory,
 } from "./oauth";
 export {
-  insertConnection,
+  ensureBuiltInConnection,
   listOwnedConnections,
   readOwnedConnection,
   updateConnection,
-  upsertConnection,
 } from "./persistence";
 export {
   MCP_CLIENT_CAPABILITIES,

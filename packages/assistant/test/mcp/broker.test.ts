@@ -19,7 +19,7 @@ import { McpExecutionBroker } from "../../src/tool-runtime/mcp/broker";
 import { McpClientError } from "../../src/connections/mcp/errors";
 import { canonicalArgsHash, descriptorHash } from "../../src/connections/mcp/hash";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import { insertConnection } from "../../src/connections/mcp/persistence";
+import { ensureConnection } from "../../src/connections/mcp/persistence";
 import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import {
   createSuccessorInvocation,
@@ -137,12 +137,12 @@ async function seedStaging(userId: string): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await insertConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
-    endpointUrl: "https://mcp.example.test/mcp",
-    endpointOrigin: "https://mcp.example.test",
+    endpoint: new URL("https://mcp.example.test/mcp"),
   });
   return conn.id;
 }
@@ -152,7 +152,7 @@ function brokerWith(protocol: FakeProtocol): McpExecutionBroker {
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: connection,
+        endpoint: connection.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
@@ -166,7 +166,7 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: connection,
+        endpoint: connection.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),

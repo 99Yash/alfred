@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { McpConnection } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
 
 import {
@@ -16,6 +15,13 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
+import type { McpConnectionWithServer } from "../../src/connections/mcp/persistence";
+
+type JoinedServerDefinition = McpConnectionWithServer["server"];
+// @ts-expect-error - consumers receive definition facts, not a second owner identity.
+type _NoJoinedServerOwner = JoinedServerDefinition["userId"];
+// @ts-expect-error - the connection's serverId is authoritative; the nested row does not repeat it.
+type _NoJoinedServerId = JoinedServerDefinition["id"];
 
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[] = [tool("tool_a")];
@@ -169,7 +175,7 @@ function managerWith(
     clientFactory: (row) =>
       new McpRawClient({
         connectionId: row.id,
-        endpoint: row,
+        endpoint: row.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
         ...(now ? { now } : {}),
@@ -662,15 +668,14 @@ function tool(name: string): Tool {
   };
 }
 
-function connection(): McpConnection {
+function connection(): McpConnectionWithServer {
   const now = new Date();
   return {
     id: "conn_lifecycle",
     userId: "user_lifecycle",
+    serverId: "server_lifecycle",
+    instanceKey: "default",
     label: "Lifecycle test",
-    canonicalResource: "mcp://test/lifecycle",
-    endpointUrl: "https://mcp.example.test/mcp",
-    endpointOrigin: "https://mcp.example.test",
     authServerIdentity: null,
     credentialId: null,
     grantedScopes: [],
@@ -682,5 +687,10 @@ function connection(): McpConnection {
     lastError: null,
     createdAt: now,
     updatedAt: now,
+    server: {
+      canonicalResource: "mcp://test/lifecycle",
+      endpointUrl: "https://mcp.example.test/mcp",
+      endpointOrigin: "https://mcp.example.test",
+    },
   };
 }
