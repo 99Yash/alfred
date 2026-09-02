@@ -1,183 +1,379 @@
 /**
- * `mcp.list_tools` — a bounded, LOCAL read of a connection's already-validated
- * catalog (issue #540 clarification #5). It never touches the network and never
- * dumps the raw client's 1 MB / 1,000-tool ceiling into one result: compact
- * summaries by default, paginated, with a bounded single full descriptor only
- * when the caller names one tool — and a `detail:"names"` tier below the default
- * for surveying a wide catalog without paying for its prose.
- *
- * The catalog is read from the persisted current revision (`persistence.ts`), not
- * a live fetch, and is scoped to the calling user — a model-supplied
- * `connectionId` that is not owned by the caller reads as "not found", never
- * another user's catalog.
+ * Bounded, local discovery over persisted MCP catalogs. This module owns the
+ * scan budget and cursor semantics; it never reaches a live MCP client.
  */
 
 import {
+  Errors,
   getStringPath,
-  isRecord,
+  isApiError,
+  jsonObjectSchema,
   MCP_LIST_TOOLS_DEFAULT_LIMIT,
   MCP_LIST_TOOLS_MAX_LIMIT,
+  mcpExternalToolRefSchema,
+  mcpToolDiscoveryPageSchema,
+  mcpToolInspectionResultSchema,
+  mcpToolSearchInputSchema,
+  parseMcpListToolsOperation,
   summarizeBody,
-  type McpListToolsDetail,
+  type ExternalToolRef,
+  type McpDiscoveryConnection,
   type McpListToolsInput,
+  type McpListToolsDetail,
+  type McpToolDiscoveryHit,
+  type McpToolDiscoveryPage,
+  type McpToolInspectionResult,
+  type McpToolSearchInput,
 } from "@alfred/contracts";
-import { readConnection, readRevisionById } from "./persistence";
+import { z } from "zod";
+import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
+import { sha256Canonical } from "./hash";
+import {
+  listOwnedCurrentCatalogSlices,
+  readOwnedCurrentCatalogDescriptor,
+  readOwnedCurrentCatalogSlice,
+  type OwnedCurrentCatalogPosition,
+  type OwnedCurrentCatalogRow,
+  type OwnedCurrentCatalogSliceRow,
+} from "./persistence";
 
 const MAX_SUMMARY_DESCRIPTION_CHARS = 240;
 
-export interface McpToolSummary {
-  name: string;
+const cursorPositionSchema = z
+  .object({
+    namespace: z.string().min(1),
+    instanceKey: z.string().min(1),
+    connectionId: z.string().min(1),
+    catalogRevision: z.string().min(1),
+    descriptorOffset: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const discoveryCursorSchema = z
+  .object({
+    v: z.literal(1),
+    filterHash: z.string().min(1),
+    position: cursorPositionSchema,
+  })
+  .strict();
+
+type DiscoveryCursor = z.infer<typeof discoveryCursorSchema>;
+
+interface Summary {
+  remoteName: string;
   title?: string;
   description?: string;
 }
 
-export type McpListToolsResult =
-  | {
-      status: "not_found";
-      connectionId: string;
-      message: string;
-    }
-  | {
-      status: "empty";
-      connectionId: string;
-      message: string;
-    }
-  | {
-      status: "tool";
-      connectionId: string;
-      catalogRevision: string;
-      /** The bounded full descriptor for the one named tool (already ≤128 KB at ingest). */
-      tool: unknown;
-      /** True when the caller's echoed revision no longer matches the live view. */
-      catalogChanged: boolean;
-    }
-  | {
-      status: "tools";
-      connectionId: string;
-      catalogRevision: string;
-      toolCount: number;
-      tools: McpToolSummary[];
-      /** Opaque offset cursor for the next page, when more remain. */
-      nextCursor?: string;
-      catalogChanged: boolean;
-    };
+interface NormalizedSearch {
+  query: string;
+  namespace?: string;
+  connectionId?: string;
+  detail: McpListToolsDetail;
+  limit: number;
+}
 
-/** Narrow a persisted descriptor (`unknown` jsonb) to a compact, bounded summary. */
-function toSummary(descriptor: unknown): McpToolSummary | undefined {
-  if (!isRecord(descriptor)) return undefined;
-  const name = descriptor.name;
-  if (typeof name !== "string" || name.length === 0) return undefined;
-  const title = getStringPath(descriptor, "title");
-  const description = getStringPath(descriptor, "description");
+function normalizeSearch(input: McpToolSearchInput): NormalizedSearch {
   return {
-    name,
-    ...(title ? { title } : {}),
-    ...(description
-      ? { description: summarizeBody(description, MAX_SUMMARY_DESCRIPTION_CHARS) }
-      : {}),
+    query: input.query?.trim().toLowerCase() ?? "",
+    ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
+    ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
+    detail: input.detail ?? "summary",
+    limit: Math.min(input.limit ?? MCP_LIST_TOOLS_DEFAULT_LIMIT, MCP_LIST_TOOLS_MAX_LIMIT),
   };
+}
+
+function filterHash(input: NormalizedSearch): string {
+  return sha256Canonical({
+    query: input.query,
+    namespace: input.namespace ?? null,
+    connectionId: input.connectionId ?? null,
+    detail: input.detail,
+  });
+}
+
+function cursorError(message: string): never {
+  throw Errors.BadRequestError(`Invalid MCP discovery cursor: ${message}`);
+}
+
+function decodeCursor(
+  encoded: string | undefined,
+  expectedFilterHash: string,
+): DiscoveryCursor | null {
+  if (!encoded) return null;
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    const cursor = discoveryCursorSchema.parse(decoded);
+    if (cursor.filterHash !== expectedFilterHash) cursorError("filters changed");
+    return cursor;
+  } catch (error) {
+    if (isApiError(error, "BAD_REQUEST")) throw error;
+    return cursorError("malformed value");
+  }
+}
+
+function encodeCursor(
+  filter: string,
+  row: OwnedCurrentCatalogRow,
+  descriptorOffset: number,
+): string {
+  const cursor: DiscoveryCursor = {
+    v: 1,
+    filterHash: filter,
+    position: {
+      namespace: row.namespace,
+      instanceKey: row.instanceKey,
+      connectionId: row.connectionId,
+      catalogRevision: row.revisionHash,
+      descriptorOffset,
+    },
+  };
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+/** Project one database-built `{ name, title, description }` summary into visible bounded text. */
+function toSummary(descriptor: unknown): Summary | undefined {
+  const parsed = jsonObjectSchema.safeParse(descriptor);
+  if (!parsed.success) return undefined;
+  const remoteName = getStringPath(parsed.data, "name");
+  if (!remoteName) return undefined;
+  const title = getStringPath(parsed.data, "title");
+  const rawDescription = getStringPath(parsed.data, "description");
+  const description = rawDescription
+    ? summarizeBody(rawDescription, MAX_SUMMARY_DESCRIPTION_CHARS)
+    : undefined;
+  return {
+    remoteName,
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+  };
+}
+
+function connection(row: OwnedCurrentCatalogRow): McpDiscoveryConnection {
+  return { id: row.connectionId, instanceKey: row.instanceKey, label: row.label };
 }
 
 /**
- * Narrow a summary to the requested detail tier. `names` keeps the one field a
- * caller needs to select a tool and drops the prose, which is what actually
- * costs tokens on a wide catalog (a 90-tool server spends most of a page on
- * descriptions the model discards).
+ * `query` finds a TOOL, so it reads tool fields only. The connection label is
+ * deliberately not a match target: a query that equals a label would fill the
+ * page with every tool on that connection. `namespace` and `connectionId` are
+ * the doors that scope a search to one connection.
  */
-function project(
-  detail: McpListToolsDetail | undefined,
-): (summary: McpToolSummary) => McpToolSummary {
-  return detail === "names" ? (summary) => ({ name: summary.name }) : (summary) => summary;
-}
-
-/** Parse the opaque cursor to a non-negative offset; anything invalid → 0. */
-function parseCursor(cursor: string | undefined): number {
-  if (!cursor) return 0;
-  const parsed = Number.parseInt(cursor, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
-}
-
-export async function listMcpToolsLocal(
-  input: McpListToolsInput,
-  userId: string,
-): Promise<McpListToolsResult> {
-  const connection = await readConnection(input.connectionId);
-  // Ownership scope: a connection the caller does not own is indistinguishable
-  // from one that does not exist.
-  if (!connection || connection.userId !== userId) {
-    return {
-      status: "not_found",
-      connectionId: input.connectionId,
-      message: `No connected MCP server '${input.connectionId}'.`,
-    };
-  }
-
-  // Reuse the connection already in hand rather than re-reading it via
-  // `readCurrentRevision` (which would refetch the same row).
-  const revision = connection.currentCatalogRevisionId
-    ? await readRevisionById(connection.currentCatalogRevisionId)
-    : undefined;
-  if (!revision) {
-    return {
-      status: "empty",
-      connectionId: input.connectionId,
-      message: "This MCP connection has no catalog yet — connect and refresh it first.",
-    };
-  }
-
-  const descriptors = Array.isArray(revision.descriptors) ? revision.descriptors : [];
-  const catalogChanged = Boolean(
-    input.catalogRevision && input.catalogRevision !== revision.revisionHash,
+function matches(summary: Summary, query: string): boolean {
+  if (!query) return true;
+  return [summary.remoteName, summary.title, summary.description].some((value) =>
+    value?.toLowerCase().includes(query),
   );
+}
 
-  // Single-tool detail: the one bounded full descriptor.
-  if (input.remoteName) {
-    const match = descriptors.find(
-      (descriptor) => isRecord(descriptor) && descriptor.name === input.remoteName,
-    );
-    if (!match) {
-      return {
-        status: "not_found",
-        connectionId: input.connectionId,
-        message: `MCP tool '${input.remoteName}' is not in the current catalog.`,
-      };
-    }
-    return {
-      status: "tool",
-      connectionId: input.connectionId,
-      catalogRevision: revision.revisionHash,
-      tool: match,
-      catalogChanged,
-    };
+function hit(
+  row: OwnedCurrentCatalogRow,
+  summary: Summary,
+  detail: McpListToolsDetail,
+): McpToolDiscoveryHit {
+  return {
+    ref: {
+      kind: "mcp",
+      connectionId: row.connectionId,
+      remoteName: summary.remoteName,
+      catalogRevision: row.revisionHash,
+    },
+    namespace: row.namespace,
+    connection: connection(row),
+    ...(detail === "summary" && summary.title ? { title: summary.title } : {}),
+    ...(detail === "summary" && summary.description ? { description: summary.description } : {}),
+  };
+}
+
+function positionOf(row: OwnedCurrentCatalogRow): OwnedCurrentCatalogPosition {
+  return {
+    namespace: row.namespace,
+    instanceKey: row.instanceKey,
+    connectionId: row.connectionId,
+  };
+}
+
+async function rowsForSearch(input: {
+  userId: string;
+  namespace?: string;
+  connectionId?: string;
+  cursor: DiscoveryCursor | null;
+}): Promise<{ rows: OwnedCurrentCatalogSliceRow[]; hasMore: boolean }> {
+  if (!input.cursor) {
+    return listOwnedCurrentCatalogSlices({
+      userId: input.userId,
+      ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
+      ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
+      catalogLimit: MCP_DISCOVERY_SCAN_BUDGET.catalogLimit,
+      descriptorLimit: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
+    });
   }
 
-  // Compact, filtered, paginated summaries.
-  const query = input.query?.trim().toLowerCase();
-  const summaries = descriptors
-    .map(toSummary)
-    .filter((summary): summary is McpToolSummary => summary !== undefined)
-    .filter((summary) =>
-      query
-        ? summary.name.toLowerCase().includes(query) ||
-          (summary.description?.toLowerCase().includes(query) ?? false)
-        : true,
-    );
+  const current = await readOwnedCurrentCatalogSlice({
+    userId: input.userId,
+    connectionId: input.cursor.position.connectionId,
+    descriptorOffset: input.cursor.position.descriptorOffset,
+    descriptorLimit: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
+  });
+  if (
+    !current ||
+    current.namespace !== input.cursor.position.namespace ||
+    current.instanceKey !== input.cursor.position.instanceKey ||
+    (input.namespace !== undefined && current.namespace !== input.namespace) ||
+    (input.connectionId !== undefined && current.connectionId !== input.connectionId)
+  ) {
+    cursorError("catalog position is no longer available");
+  }
+  if (current.revisionHash !== input.cursor.position.catalogRevision) {
+    cursorError("catalog revision changed");
+  }
+  if (input.cursor.position.descriptorOffset > current.descriptorCount) {
+    cursorError("descriptor position is outside the catalog");
+  }
 
-  const limit = Math.min(input.limit ?? MCP_LIST_TOOLS_DEFAULT_LIMIT, MCP_LIST_TOOLS_MAX_LIMIT);
-  const offset = parseCursor(input.cursor);
-  // Project AFTER filtering, never before: `query` matches against the full
-  // summary in every tier, so a names-only page returns the same tools a
-  // summary page would — just without the prose.
-  const page = summaries.slice(offset, offset + limit).map(project(input.detail));
-  const nextOffset = offset + page.length;
+  const remainingDescriptorBudget =
+    MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit - current.summaries.length;
+  // A full current slice leaves no summary budget for a later catalog, so the
+  // follow-up read projects nothing and only answers whether one exists.
+  const remainingCatalogBudget =
+    remainingDescriptorBudget === 0 ? 0 : MCP_DISCOVERY_SCAN_BUDGET.catalogLimit - 1;
+  const following = await listOwnedCurrentCatalogSlices({
+    userId: input.userId,
+    ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
+    ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
+    after: positionOf(current),
+    catalogLimit: remainingCatalogBudget,
+    descriptorLimit: remainingDescriptorBudget,
+  });
+  return { rows: [current, ...following.rows], hasMore: following.hasMore };
+}
 
-  return {
+/**
+ * The two halves below are exported for the test tree only. The dispatcher's
+ * one door is {@link listMcpToolsLocal}; the package barrel exports nothing else.
+ */
+export async function searchMcpToolsLocal(
+  input: McpToolSearchInput & { userId: string },
+): Promise<McpToolDiscoveryPage> {
+  const { userId, ...searchInput } = input;
+  const parsed = mcpToolSearchInputSchema.parse(searchInput);
+  const normalized = normalizeSearch(parsed);
+  const expectedFilterHash = filterHash(normalized);
+  const cursor = decodeCursor(parsed.cursor, expectedFilterHash);
+  const { rows, hasMore } = await rowsForSearch({
+    userId,
+    ...(normalized.namespace === undefined ? {} : { namespace: normalized.namespace }),
+    ...(normalized.connectionId === undefined ? {} : { connectionId: normalized.connectionId }),
+    cursor,
+  });
+
+  const tools: McpToolDiscoveryHit[] = [];
+  let scanned = 0;
+  let lastRow: OwnedCurrentCatalogRow | undefined;
+  let lastOffset = 0;
+
+  for (const [rowIndex, row] of rows.entries()) {
+    const catalog = row.summaries;
+    const start = row.descriptorOffset;
+    lastRow = row;
+    lastOffset = start;
+
+    for (let localIndex = 0; localIndex < catalog.length; localIndex += 1) {
+      const descriptorOffset = start + localIndex;
+      if (scanned >= MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit) {
+        return mcpToolDiscoveryPageSchema.parse({
+          status: "tools",
+          tools,
+          nextCursor: encodeCursor(expectedFilterHash, row, descriptorOffset),
+        });
+      }
+      scanned += 1;
+      lastOffset = descriptorOffset + 1;
+      const summary = toSummary(catalog[localIndex]);
+      if (summary && matches(summary, normalized.query)) {
+        tools.push(hit(row, summary, normalized.detail));
+      }
+      if (tools.length >= normalized.limit) {
+        const hasUnscannedScope =
+          lastOffset < row.descriptorCount || rowIndex + 1 < rows.length || hasMore;
+        return mcpToolDiscoveryPageSchema.parse({
+          status: "tools",
+          tools,
+          nextCursor: hasUnscannedScope ? encodeCursor(expectedFilterHash, row, lastOffset) : null,
+        });
+      }
+    }
+
+    if (lastOffset < row.descriptorCount) {
+      return mcpToolDiscoveryPageSchema.parse({
+        status: "tools",
+        tools,
+        nextCursor: encodeCursor(expectedFilterHash, row, lastOffset),
+      });
+    }
+  }
+
+  return mcpToolDiscoveryPageSchema.parse({
     status: "tools",
-    connectionId: input.connectionId,
-    catalogRevision: revision.revisionHash,
-    toolCount: summaries.length,
-    tools: page,
-    ...(nextOffset < summaries.length ? { nextCursor: String(nextOffset) } : {}),
-    catalogChanged,
-  };
+    tools,
+    nextCursor: hasMore && lastRow ? encodeCursor(expectedFilterHash, lastRow, lastOffset) : null,
+  });
+}
+
+export async function inspectMcpToolLocal(input: {
+  userId: string;
+  ref: ExternalToolRef;
+}): Promise<McpToolInspectionResult> {
+  const ref = mcpExternalToolRefSchema.parse(input.ref);
+  const row = await readOwnedCurrentCatalogDescriptor({
+    userId: input.userId,
+    connectionId: ref.connectionId,
+    remoteName: ref.remoteName,
+  });
+  if (!row) {
+    return mcpToolInspectionResultSchema.parse({
+      status: "not_found",
+      ref,
+      message: "This MCP tool is not available for the current user.",
+    });
+  }
+  if (row.revisionHash !== ref.catalogRevision) {
+    return mcpToolInspectionResultSchema.parse({
+      status: "catalog_stale",
+      ref,
+      message: "The MCP catalog changed. Search again and select a current tool reference.",
+    });
+  }
+
+  // The persistence read selects the descriptor by name, so a name mismatch
+  // here is a defect, not a legacy-catalog case; the result schema repeats the
+  // same identity check as the contract's own guarantee.
+  const tool = jsonObjectSchema.safeParse(row.descriptor);
+  if (!tool.success || tool.data.name !== ref.remoteName) {
+    return mcpToolInspectionResultSchema.parse({
+      status: "not_found",
+      ref,
+      message: `MCP tool '${ref.remoteName}' is not in the current catalog.`,
+    });
+  }
+  return mcpToolInspectionResultSchema.parse({
+    status: "tool",
+    ref,
+    connection: connection(row),
+    tool: tool.data,
+  });
+}
+
+/** Own the strict search-or-inspect operation rule behind one local adapter door. */
+export async function listMcpToolsLocal(input: {
+  userId: string;
+  request: McpListToolsInput;
+}): Promise<McpToolDiscoveryPage | McpToolInspectionResult> {
+  const operation = parseMcpListToolsOperation(input.request);
+  switch (operation.operation) {
+    case "inspect":
+      return inspectMcpToolLocal({ userId: input.userId, ref: operation.input.ref });
+    case "search":
+      return searchMcpToolsLocal({ userId: input.userId, ...operation.input });
+  }
 }

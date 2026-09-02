@@ -482,6 +482,23 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.ok(await readRevisionByHash(connId, "sha256:aaa"));
   });
 
+  test("catalog publication rejects a descriptor order outside the canonical shape", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+
+    await assert.rejects(
+      () =>
+        publishCatalogRevision({
+          connectionId: connId,
+          revisionHash: "sha256:unsorted",
+          descriptors: [{ name: "tool_b" }, { name: "tool_a" }],
+          descriptorHashes: { tool_a: "sha256:h_a", tool_b: "sha256:h_b" },
+          toolCount: 2,
+        }),
+      /canonical tool-name order/,
+    );
+  });
+
   test("catalog pointer compare-and-swap rejects a stale publisher", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
