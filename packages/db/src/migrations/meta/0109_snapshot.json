@@ -5399,19 +5399,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "mcp_connections_server_id_mcp_servers_id_fk": {
-          "name": "mcp_connections_server_id_mcp_servers_id_fk",
-          "tableFrom": "mcp_connections",
-          "tableTo": "mcp_servers",
-          "columnsFrom": [
-            "server_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "mcp_connections_credential_id_mcp_oauth_credentials_id_fk": {
           "name": "mcp_connections_credential_id_mcp_oauth_credentials_id_fk",
           "tableFrom": "mcp_connections",

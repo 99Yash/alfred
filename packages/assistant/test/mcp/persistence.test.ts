@@ -16,8 +16,8 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import {
   compareAndSetCatalogRevision,
-  createNamedConnection,
   ensureBuiltInConnection,
+  ensureConnection,
   insertCatalogRevision,
   publishCatalogRevision,
   readConnection,
@@ -105,9 +105,10 @@ async function seedStaging(userId: string): Promise<string> {
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await createNamedConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://example.test/mcp"),
   });
@@ -152,15 +153,17 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const canonicalResource = `mcp://test/${randomUUID()}`;
     const endpoint = new URL("https://shared.example.test/mcp");
 
-    const personal = await createNamedConnection({
+    const personal = await ensureConnection({
       userId,
       label: "Personal",
+      instanceKey: "personal",
       canonicalResource,
       endpoint,
     });
-    const work = await createNamedConnection({
+    const work = await ensureConnection({
       userId,
       label: "Work",
+      instanceKey: "work",
       canonicalResource,
       endpoint,
     });
@@ -234,9 +237,10 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   test("a connection cannot refer to another owner's server", async () => {
     const ownerId = await seedUser();
     const otherUserId = await seedUser();
-    const owned = await createNamedConnection({
+    const owned = await ensureConnection({
       userId: ownerId,
       label: "Owned server",
+      instanceKey: "default",
       canonicalResource: `mcp://test/${randomUUID()}`,
       endpoint: new URL("https://owned.example.test/mcp"),
     });
@@ -258,17 +262,19 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   test("a server definition cannot be silently retargeted", async () => {
     const userId = await seedUser();
     const canonicalResource = `mcp://test/${randomUUID()}`;
-    await createNamedConnection({
+    await ensureConnection({
       userId,
       label: "Original",
+      instanceKey: "default",
       canonicalResource,
       endpoint: new URL("https://one.example.test/mcp"),
     });
 
     await assert.rejects(
-      createNamedConnection({
+      ensureConnection({
         userId,
         label: "Retarget",
+        instanceKey: "second",
         canonicalResource,
         endpoint: new URL("https://two.example.test/mcp"),
       }),
@@ -296,10 +302,13 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
   test("concurrent first use reuses the GitHub row backfilled by migration 0108", async () => {
     const userId = await seedUser();
+    // Migration 0108 keeps the connection id and derives the server id from it
+    // by swapping the `mcpc_` prefix for `mcps_`, so the fixture mirrors both.
     const migratedConnectionId = `mcpc_migrated_${randomUUID()}`;
+    const migratedServerId = migratedConnectionId.replace(/^mcpc_/, "mcps_");
     const endpoint = new URL("https://api.githubcopilot.com/mcp");
     await db().insert(mcpServers).values({
-      id: migratedConnectionId,
+      id: migratedServerId,
       userId,
       canonicalResource: endpoint.href,
       endpointUrl: endpoint.href,
@@ -310,7 +319,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       .values({
         id: migratedConnectionId,
         userId,
-        serverId: migratedConnectionId,
+        serverId: migratedServerId,
         instanceKey: "default",
         label: "GitHub MCP",
         authServerIdentity: "oauth:legacy",
@@ -388,6 +397,52 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(rows, [{ id: migratedConnectionId }]);
   });
 
+  test("a replayed ensure on one instance key keeps the row and its state", async () => {
+    const userId = await seedUser();
+    const canonicalResource = `mcp://test/${randomUUID()}`;
+    const endpoint = new URL("https://replay.example.test/mcp");
+
+    const first = await ensureConnection({
+      userId,
+      label: "Replayed",
+      instanceKey: "slot-a",
+      canonicalResource,
+      endpoint,
+    });
+    await updateConnection(first.id, { status: "ready", lastError: "preserved" });
+
+    const replay = await ensureConnection({
+      userId,
+      label: "Replayed",
+      instanceKey: "slot-a",
+      canonicalResource,
+      endpoint,
+    });
+
+    assert.equal(replay.id, first.id);
+    assert.equal(replay.status, "ready");
+    assert.equal(replay.lastError, "preserved");
+  });
+
+  test("a built-in retargets its pinned endpoint instead of failing for ever", async () => {
+    const userId = await seedUser();
+    const seeded = await ensureBuiltInConnection(userId, "github");
+    // Stand in for a registry URL that moved after the user first connected.
+    await db()
+      .update(mcpServers)
+      .set({
+        endpointUrl: "https://old.githubcopilot.example.test/mcp",
+        endpointOrigin: "https://old.githubcopilot.example.test",
+      })
+      .where(eq(mcpServers.id, seeded.serverId));
+
+    const reconciled = await ensureBuiltInConnection(userId, "github");
+
+    assert.equal(reconciled.id, seeded.id);
+    assert.equal(reconciled.server.endpointUrl, "https://api.githubcopilot.com/mcp");
+    assert.equal(reconciled.server.endpointOrigin, "https://api.githubcopilot.com");
+  });
+
   test("publishCatalogRevision is idempotent and advances the pointer", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -427,7 +482,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.ok(await readRevisionByHash(connId, "sha256:aaa"));
   });
 
-  test("catalog publication rejects descriptor order that exact lookup cannot index", async () => {
+  test("catalog publication rejects a descriptor order outside the canonical shape", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
 

@@ -1,3 +1,4 @@
+import type { McpRecoveryOperation, McpRecoveryOperationsPage } from "@alfred/contracts";
 import {
   CATEGORY_ORDER,
   matchesIntegration,
@@ -51,4 +52,11 @@ export function buildConnectedSection(
   );
   if (connected.length === 0) return null;
   return { title: "Connected", providers: connected };
+}
+
+/** Every operation across the loaded recovery pages, in page order. */
+export function flattenMcpRecoveryPages(
+  pages: ReadonlyArray<McpRecoveryOperationsPage> | undefined,
+): ReadonlyArray<McpRecoveryOperation> {
+  return pages?.flatMap((page) => page.operations) ?? [];
 }

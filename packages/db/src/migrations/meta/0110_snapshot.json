@@ -1,5 +1,5 @@
 {
-  "id": "c6dea3d2-15ff-4cdd-b335-a00599e04b1c",
+  "id": "22fcfe27-d89b-4501-98fb-9f00c7645093",
   "prevId": "497c2cbb-f14e-4927-ad14-5512004b40ec",
   "version": "7",
   "dialect": "postgresql",
@@ -5392,19 +5392,6 @@
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "mcp_connections_server_id_mcp_servers_id_fk": {
-          "name": "mcp_connections_server_id_mcp_servers_id_fk",
-          "tableFrom": "mcp_connections",
-          "tableTo": "mcp_servers",
-          "columnsFrom": [
-            "server_id"
           ],
           "columnsTo": [
             "id"

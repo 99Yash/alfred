@@ -29,7 +29,11 @@
  */
 
 import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
-import { resolveMcpToolIdentity, type ResolveMcpToolIdentityInput } from "./invocations";
+import {
+  resolveMcpToolIdentity,
+  type McpToolIdentityResolution,
+  type ResolveMcpToolIdentityInput,
+} from "./invocations";
 
 /** The conservative floor an `mcp.call` falls back to when no reviewed downgrade applies. */
 export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
@@ -42,7 +46,15 @@ export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
 export async function resolveMcpCallRiskTier(
   input: ResolveMcpToolIdentityInput,
 ): Promise<ToolRiskTier> {
-  const identity = await resolveMcpToolIdentity(input);
+  return effectiveMcpRiskTier(await resolveMcpToolIdentity(input));
+}
+
+/**
+ * The reviewed tier an already-resolved identity grants, or the floor. The
+ * recovery successor mint reuses this so its staging row cannot carry a tier the
+ * dispatch gate would have refused.
+ */
+export function effectiveMcpRiskTier(identity: McpToolIdentityResolution): ToolRiskTier {
   if (identity.status !== "resolved") return MCP_CALL_RISK_FLOOR;
 
   // `policy.riskTier` is a `$type<ToolRiskTier>()` cast over persisted `text`, not

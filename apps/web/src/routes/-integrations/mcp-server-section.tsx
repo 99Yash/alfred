@@ -1,13 +1,9 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  McpRecoveryDecision,
-  McpRecoveryOperation,
-  McpRecoveryOperationsPage,
-} from "@alfred/contracts";
+import type { McpRecoveryDecision, McpRecoveryOperationsPage } from "@alfred/contracts";
 import { AlertTriangle, Plug, Plus } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
 import { client, type EdenData, API_URL } from "~/lib/eden";
-import { MCP_SECTION } from "./helpers";
+import { flattenMcpRecoveryPages, MCP_SECTION } from "./helpers";
 import { McpRecoveryList } from "./mcp-recovery-list";
 import { mcpConnectionStatusText } from "./mcp-server-status";
 
@@ -22,12 +18,6 @@ type McpRecoveryAction =
   | { kind: "successor"; invocationId: string };
 
 const FIRST_RECOVERY_PAGE: string | null = null;
-
-export function flattenMcpRecoveryPages(
-  pages: ReadonlyArray<McpRecoveryOperationsPage> | undefined,
-): ReadonlyArray<McpRecoveryOperation> {
-  return pages?.flatMap((page) => page.operations) ?? [];
-}
 
 export function MCPServerSection() {
   const queryClient = useQueryClient();
@@ -78,6 +68,8 @@ export function MCPServerSection() {
       queryClient.invalidateQueries({ queryKey: ["integrations", "mcp", "recovery"] }),
   });
   const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
+  // Every page reports the same owner-wide count; the newest page is the freshest.
+  const awaitingRepair = recoveryQuery.data?.pages.at(-1)?.awaitingRepair ?? 0;
   const github = connections.find((connection) => connection.canonicalResource.includes("github"));
   const isConnecting = github?.status === "connecting";
   const statusText = connectionQuery.isPending
@@ -137,6 +129,7 @@ export function MCPServerSection() {
       </div>
       <McpRecoveryList
         operations={recoveryOperations}
+        awaitingRepair={awaitingRepair}
         loading={recoveryQuery.isPending}
         readError={recoveryQuery.isError}
         hasNextPage={recoveryQuery.hasNextPage}

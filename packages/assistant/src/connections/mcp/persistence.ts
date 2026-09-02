@@ -8,8 +8,8 @@
  * single-row read, a single-row write, or the one genuinely-atomic multi-row
  * operation that MUST be a transaction to be crash-safe:
  *
- *  - named connection creation — immutable server definition + fresh instance;
- *  - built-in connection ensure — one closed, stable slot per built-in provider;
+ *  - `ensureConnection` — server definition + one connection instance, keyed by
+ *    the caller's instance key;
  *  - `publishCatalogRevision` — idempotent insert of an immutable revision +
  *    advance of the connection's current-revision pointer.
  *
@@ -20,7 +20,7 @@
  */
 
 import { db, rowsFromExecute } from "@alfred/db";
-import { createId, requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
+import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
   mcpConnections,
@@ -31,10 +31,12 @@ import {
   type NewMcpConnection,
   type NewMcpServer,
 } from "@alfred/db/schemas";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames } from "./hash";
+
+import { BUILT_IN_REGISTRY, type BuiltInProvider } from "./built-ins";
 
 // ===========================================================================
 // Connections
@@ -63,9 +65,24 @@ export type McpConnectionWithServer = McpConnection & {
   readonly server: McpServerDefinition;
 };
 
-export type CreateNamedMcpConnectionInput = Pick<NewMcpConnection, "userId" | "label"> &
+/**
+ * One connection ensure. `instanceKey` is the caller's idempotency key inside
+ * one server definition: the same key returns the same row, and a different key
+ * mints a second instance on the same endpoint. The caller always supplies it,
+ * so the column carries one meaning — a built-in passes its stable slot, and the
+ * connection-create operation will pass the key that identifies the click.
+ */
+export type EnsureMcpConnectionInput = Pick<NewMcpConnection, "userId" | "label" | "instanceKey"> &
   Pick<NewMcpServer, "canonicalResource"> & {
     endpoint: URL;
+    /**
+     * Who owns the endpoint of this server definition. `"caller"` refuses to
+     * retarget a resource that already points elsewhere. `"registry"` says the
+     * built-in table in `built-ins.ts` is the source of truth, so a pinned URL
+     * that moves in code retargets the stored row instead of throwing for every
+     * user who already connected.
+     */
+    endpointAuthority?: "caller" | "registry";
     initialState?: Partial<Pick<NewMcpConnection, "authServerIdentity" | "status">>;
   };
 
@@ -112,7 +129,10 @@ async function readServerByResource(
 }
 
 async function ensureServerDefinition(
-  input: Pick<CreateNamedMcpConnectionInput, "userId" | "canonicalResource" | "endpoint">,
+  input: Pick<
+    EnsureMcpConnectionInput,
+    "userId" | "canonicalResource" | "endpoint" | "endpointAuthority"
+  >,
   runner: DbRunner,
 ): Promise<McpServer> {
   const endpointUrl = input.endpoint.href;
@@ -136,89 +156,85 @@ async function ensureServerDefinition(
       `ensureServerDefinition: server vanished for resource ${input.canonicalResource}`,
     );
   }
-  if (server.endpointUrl !== endpointUrl || server.endpointOrigin !== endpointOrigin) {
+  if (server.endpointUrl === endpointUrl && server.endpointOrigin === endpointOrigin) {
+    return server;
+  }
+  if (input.endpointAuthority !== "registry") {
     throw new Error(
       `MCP resource '${input.canonicalResource}' already uses endpoint ${server.endpointUrl}`,
     );
   }
-  return server;
+  const [retargeted] = await runner
+    .update(mcpServers)
+    .set({ endpointUrl, endpointOrigin })
+    .where(eq(mcpServers.id, server.id))
+    .returning();
+  return requireRow(retargeted, "ensureServerDefinition");
 }
 
-function connectionInsertValues(
-  input: CreateNamedMcpConnectionInput,
-  serverId: string,
-  instanceKey: string,
-): NewMcpConnection {
-  return {
-    userId: input.userId,
-    serverId,
-    instanceKey,
-    label: input.label,
-    ...(input.initialState?.authServerIdentity !== undefined
-      ? { authServerIdentity: input.initialState.authServerIdentity }
-      : {}),
-    ...(input.initialState?.status !== undefined ? { status: input.initialState.status } : {}),
-  };
-}
-
-/** Create one fresh named instance. The persistence owner mints its immutable identity. */
-export async function createNamedConnection(
-  input: CreateNamedMcpConnectionInput,
+/**
+ * Ensure one connection instance and the server definition it points at.
+ *
+ * The insert conflicts on `(userId, serverId, instanceKey)`, so a replay returns
+ * the SAME row and touches only `updatedAt`. Account state — status, last error,
+ * granted scopes, the credential, the catalog pointer — survives a replay,
+ * because the caller that reconnects is not the caller that knows whether the
+ * account is still good.
+ */
+export async function ensureConnection(
+  input: EnsureMcpConnectionInput,
   runner: DbRunner = db(),
 ): Promise<McpConnectionWithServer> {
   return runAtomic(runner, async (tx) => {
     const server = await ensureServerDefinition(input, tx);
     const [connection] = await tx
       .insert(mcpConnections)
-      .values(connectionInsertValues(input, server.id, createId("mcpc")))
-      .returning();
-    return joinConnection({
-      connection: requireRow(connection, "createNamedConnection"),
-      server,
-    });
-  });
-}
-
-const BUILT_IN_CONNECTIONS = {
-  github: {
-    // Migration 0108 gives every historic server its one server-scoped built-in slot.
-    instanceKey: "default",
-    label: "GitHub MCP",
-    canonicalResource: "https://api.githubcopilot.com/mcp",
-    endpoint: new URL("https://api.githubcopilot.com/mcp"),
-    initialState: {
-      authServerIdentity: "oauth:pending",
-      status: "disconnected",
-    },
-  },
-} as const satisfies Record<
-  string,
-  Omit<CreateNamedMcpConnectionInput, "userId"> & { instanceKey: string }
->;
-
-/** Ensure the one stable connection slot owned by a closed built-in provider definition. */
-export async function ensureBuiltInConnection(
-  userId: string,
-  provider: keyof typeof BUILT_IN_CONNECTIONS,
-  runner: DbRunner = db(),
-): Promise<McpConnectionWithServer> {
-  const builtIn = BUILT_IN_CONNECTIONS[provider];
-  return runAtomic(runner, async (tx) => {
-    const input: CreateNamedMcpConnectionInput = { userId, ...builtIn };
-    const server = await ensureServerDefinition(input, tx);
-    const [connection] = await tx
-      .insert(mcpConnections)
-      .values(connectionInsertValues(input, server.id, builtIn.instanceKey))
+      .values({
+        userId: input.userId,
+        serverId: server.id,
+        instanceKey: input.instanceKey,
+        label: input.label,
+        ...(input.initialState?.authServerIdentity !== undefined
+          ? { authServerIdentity: input.initialState.authServerIdentity }
+          : {}),
+        ...(input.initialState?.status !== undefined ? { status: input.initialState.status } : {}),
+      })
       .onConflictDoUpdate({
         target: [mcpConnections.userId, mcpConnections.serverId, mcpConnections.instanceKey],
         set: { updatedAt: new Date() },
       })
       .returning();
     return joinConnection({
-      connection: requireRow(connection, "ensureBuiltInConnection"),
+      connection: requireRow(connection, "ensureConnection"),
       server,
     });
   });
+}
+
+/**
+ * Ensure the one stable slot a closed built-in provider owns. This is the only
+ * creation door the HTTP layer may open until the endpoint-authorizer slice
+ * admits arbitrary URLs, so the registry — not a request — supplies the
+ * endpoint, the canonical resource and the instance key.
+ */
+export async function ensureBuiltInConnection(
+  userId: string,
+  provider: BuiltInProvider,
+  runner: DbRunner = db(),
+): Promise<McpConnectionWithServer> {
+  const builtIn = BUILT_IN_REGISTRY[provider];
+  return ensureConnection(
+    {
+      userId,
+      label: builtIn.label,
+      instanceKey: builtIn.instanceKey,
+      canonicalResource: builtIn.canonicalResource,
+      endpoint: new URL(builtIn.endpointHref),
+      endpointAuthority: "registry",
+      initialState: builtIn.initialState,
+    },
+    runner,
+  );
 }
 
 export async function readOwnedConnection(
@@ -264,8 +280,12 @@ export type OwnedCurrentCatalogRow = Pick<McpConnection, "instanceKey" | "label"
 export type OwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & {
   /** Absolute zero-based position of the first projected descriptor. */
   descriptorOffset: number;
-  /** A database-projected slice. The complete persisted JSONB array never crosses this boundary. */
-  descriptors: unknown[];
+  /**
+   * A database-projected slice of `{ name, title, description }` summaries.
+   * Search reads only those three strings, so neither the full descriptors nor
+   * the complete persisted JSONB array ever crosses this boundary.
+   */
+  summaries: unknown[];
 };
 
 export type OwnedCurrentCatalogDescriptorRow = OwnedCurrentCatalogRow & {
@@ -294,10 +314,19 @@ export type ListOwnedCurrentCatalogSlicesInput = Pick<McpConnection, "userId"> &
   connectionId?: McpConnection["id"];
   /** Exclusive stable-order position from the last catalog row already scanned. */
   after?: OwnedCurrentCatalogPosition;
-  /** Both limits are clamped again here so no caller can issue an unbounded scan. */
+  /**
+   * Both limits are clamped again here so no caller can issue an unbounded
+   * page. `catalogLimit: 0` projects nothing and only answers `hasMore`.
+   */
   catalogLimit: number;
   descriptorLimit: number;
 };
+
+export interface OwnedCurrentCatalogSlicePage {
+  rows: OwnedCurrentCatalogSliceRow[];
+  /** One more owned current catalog follows the last row in stable order. */
+  hasMore: boolean;
+}
 
 const ownedCurrentCatalogSelection = {
   namespace: mcpServers.id,
@@ -320,12 +349,20 @@ function boundedLimit(value: number, maximum: number): number {
   return Math.min(value, maximum);
 }
 
-function descriptorSlice(offset: number, limit: number) {
-  return sql<unknown>`coalesce((
+/**
+ * The ONE summary projection both discovery reads share. It walks a bounded
+ * `generate_series` of array positions and builds `{ name, title, description }`
+ * for each, so a descriptor's `inputSchema` and any other key stay in the row.
+ * `descriptors`, `offset`, and `limit` are SQL expressions because the same
+ * projection runs over a table column and over a CTE column.
+ */
+function descriptorSummarySlice(descriptors: SQL, offset: SQL, limit: SQL): SQL<unknown> {
+  return sql`coalesce((
     select jsonb_agg(
-             jsonb_extract_path(
-               ${mcpCatalogRevisions.descriptors},
-               (${offset}::bigint + projected."index")::text
+             jsonb_build_object(
+               'name', selected.descriptor -> 'name',
+               'title', selected.descriptor -> 'title',
+               'description', selected.descriptor -> 'description'
              )
              order by projected."index"
            )
@@ -334,11 +371,14 @@ function descriptorSlice(offset: number, limit: number) {
              greatest(
                least(
                  ${limit}::bigint,
-                 jsonb_array_length(${mcpCatalogRevisions.descriptors})::bigint - ${offset}::bigint
+                 jsonb_array_length(${descriptors})::bigint - ${offset}::bigint
                ),
                0::bigint
              ) - 1::bigint
            ) as projected("index")
+     cross join lateral (
+       select ${descriptors} -> (${offset}::bigint + projected."index")::integer
+     ) as selected(descriptor)
   ), '[]'::jsonb)`;
 }
 
@@ -365,70 +405,31 @@ const descriptorHashesSchema = z.unknown().transform((value, context) => {
   return hashes;
 });
 
-function descriptorIndexFromHashes(descriptorHashes: unknown, remoteName: string): number | null {
-  const parsed = descriptorHashesSchema.safeParse(descriptorHashes);
-  if (!parsed.success) {
-    throw new Error("MCP catalog descriptor hashes are not a string record");
-  }
-  const index = Object.keys(parsed.data).sort(compareMcpToolNames).indexOf(remoteName);
-  return index < 0 ? null : index;
-}
-
 function toCatalogSliceRow(
-  row: OwnedCurrentCatalogRow & { descriptors: unknown },
+  row: OwnedCurrentCatalogRow & { summaries: unknown },
   descriptorOffset: number,
 ): OwnedCurrentCatalogSliceRow {
-  if (!Array.isArray(row.descriptors)) {
-    throw new Error("MCP catalog descriptor slice is not a JSON array");
+  if (!Array.isArray(row.summaries)) {
+    throw new Error("MCP catalog summary slice is not a JSON array");
   }
-  return { ...row, descriptorOffset, descriptors: row.descriptors };
+  return { ...row, descriptorOffset, summaries: row.summaries };
 }
 
-function ownedCurrentCatalogPredicate(input: ListOwnedCurrentCatalogSlicesInput) {
-  return and(
-    eq(mcpConnections.userId, input.userId),
-    sql`${mcpConnections.currentCatalogRevisionId} is not null`,
-    input.namespace !== undefined ? eq(mcpConnections.serverId, input.namespace) : undefined,
-    input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
-  );
+/** The join predicates every owned-current-catalog read shares. */
+function ownedServerJoin(userId: string) {
+  return and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, userId));
 }
 
-function firstOwnedCurrentCatalogKey(input: ListOwnedCurrentCatalogSlicesInput) {
-  const ownedCurrentCatalog = ownedCurrentCatalogPredicate(input);
-  return sql`
-    select ${mcpConnections.serverId} as "namespace",
-           ${mcpConnections.instanceKey} as "instanceKey"
-      from ${mcpConnections}
-     where ${ownedCurrentCatalog}
-     order by ${mcpConnections.userId},
-              ${mcpConnections.serverId},
-              ${mcpConnections.instanceKey}
-     limit 1
-  `;
+const currentRevisionJoin = and(
+  eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
+  eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+);
+
+function ownedConnectionWhere(userId: string, connectionId: string) {
+  return and(eq(mcpConnections.userId, userId), eq(mcpConnections.id, connectionId));
 }
 
-function nextOwnedCurrentCatalogKey(
-  input: ListOwnedCurrentCatalogSlicesInput,
-  namespace: ReturnType<typeof sql>,
-  instanceKey: ReturnType<typeof sql>,
-) {
-  const ownedCurrentCatalog = ownedCurrentCatalogPredicate(input);
-  return sql`
-    select ${mcpConnections.serverId} as "namespace",
-           ${mcpConnections.instanceKey} as "instanceKey"
-      from ${mcpConnections}
-     where ${and(
-       ownedCurrentCatalog,
-       sql`(${mcpConnections.serverId}, ${mcpConnections.instanceKey}) > (${namespace}, ${instanceKey})`,
-     )}
-     order by ${mcpConnections.userId},
-              ${mcpConnections.serverId},
-              ${mcpConnections.instanceKey}
-     limit 1
-  `;
-}
-
-/** Read one bounded slice from an owned connection's exact current catalog. */
+/** Read one bounded summary slice from an owned connection's exact current catalog. */
 export async function readOwnedCurrentCatalogSlice(
   input: ReadOwnedCurrentCatalogSliceInput,
   runner: DbRunner = db(),
@@ -441,212 +442,117 @@ export async function readOwnedCurrentCatalogSlice(
   const [row] = await runner
     .select({
       ...ownedCurrentCatalogSelection,
-      descriptors: descriptorSlice(descriptorOffset, descriptorLimit),
+      summaries: descriptorSummarySlice(
+        sql`${mcpCatalogRevisions.descriptors}`,
+        sql`${descriptorOffset}`,
+        sql`${descriptorLimit}`,
+      ),
     })
     .from(mcpConnections)
-    .innerJoin(
-      mcpServers,
-      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
-    )
-    .innerJoin(
-      mcpCatalogRevisions,
-      and(
-        eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
-        eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
-      ),
-    )
-    .where(and(eq(mcpConnections.userId, input.userId), eq(mcpConnections.id, input.connectionId)))
+    .innerJoin(mcpServers, ownedServerJoin(input.userId))
+    .innerJoin(mcpCatalogRevisions, currentRevisionJoin)
+    .where(ownedConnectionWhere(input.userId, input.connectionId))
     .limit(1);
   return row ? toCatalogSliceRow(row, descriptorOffset) : undefined;
 }
 
 /**
  * Read one exact descriptor from an owned connection's current catalog. The
- * validated hash-map keys recover the array index using the publisher's stable
- * name order, then a direct JSONB subscript reads that one immutable value. The
- * descriptor array is never expanded or returned to node-postgres.
+ * descriptor is selected by its `name` inside PostgreSQL, so the read derives
+ * nothing from the hash map or from the publisher's array order, and a legacy
+ * revision that predates `assertCanonicalCatalogPublication` resolves exactly.
+ * The scan is bounded by one catalog, which ingest caps at 1,000 descriptors,
+ * and only the one selected descriptor crosses the driver boundary.
  */
 export async function readOwnedCurrentCatalogDescriptor(
   input: ReadOwnedCurrentCatalogDescriptorInput,
   runner: DbRunner = db(),
 ): Promise<OwnedCurrentCatalogDescriptorRow | undefined> {
-  const [catalogWithHashes] = await runner
+  const [row] = await runner
     .select({
       ...ownedCurrentCatalogSelection,
-      descriptorHashes: mcpCatalogRevisions.descriptorHashes,
-    })
-    .from(mcpConnections)
-    .innerJoin(
-      mcpServers,
-      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
-    )
-    .innerJoin(
-      mcpCatalogRevisions,
-      and(
-        eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
-        eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
-      ),
-    )
-    .where(and(eq(mcpConnections.userId, input.userId), eq(mcpConnections.id, input.connectionId)))
-    .limit(1);
-  if (!catalogWithHashes) return undefined;
-
-  const { descriptorHashes, ...catalog } = catalogWithHashes;
-  const descriptorIndex = descriptorIndexFromHashes(descriptorHashes, input.remoteName);
-  if (descriptorIndex === null) return { ...catalog, descriptor: null };
-
-  const [selected] = await runner
-    .select({
-      descriptor: sql<unknown>`jsonb_extract_path(
-        ${mcpCatalogRevisions.descriptors},
-        ${descriptorIndex}::text
+      descriptor: sql<unknown>`(
+        select candidate.descriptor
+          from jsonb_array_elements(${mcpCatalogRevisions.descriptors}) as candidate(descriptor)
+         where candidate.descriptor ->> 'name' = ${input.remoteName}
+         limit 1
       )`,
     })
-    .from(mcpCatalogRevisions)
-    .where(
-      and(
-        eq(mcpCatalogRevisions.id, catalog.revisionId),
-        eq(mcpCatalogRevisions.connectionId, catalog.connectionId),
-      ),
-    )
+    .from(mcpConnections)
+    .innerJoin(mcpServers, ownedServerJoin(input.userId))
+    .innerJoin(mcpCatalogRevisions, currentRevisionJoin)
+    .where(ownedConnectionWhere(input.userId, input.connectionId))
     .limit(1);
-  return { ...catalog, descriptor: selected?.descriptor ?? null };
+  return row ? { ...row, descriptor: row.descriptor ?? null } : undefined;
 }
 
-type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { descriptors: unknown };
+type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { summaries: unknown };
 
 /**
- * Read a stable-order batch of owned current catalogs in one query. PostgreSQL
- * allocates one descriptor budget across the selected catalog rows before the
- * JSONB values cross the driver boundary. Ordered `LIMIT 1` probes walk the
- * partial current-catalog `(user_id, server_id, instance_key)` index one key at
- * a time, including after a cursor. Null pointers are absent from that index, so
- * inactive connections cannot enlarge a probe. Each selected pointer then uses
- * a range seek plus an equality fence on `(connection_id, id)`: PostgreSQL
- * cannot flatten the fixed number of exact revision reads into a catalog-table
- * scan. Namespace and connection filters remain exact and combine with AND.
+ * Read a stable-order page of owned current catalogs in one query. This is a
+ * PAGE bound, not a plan bound: the connection subquery returns at most
+ * `catalogLimit + 1` pointers in `(server_id, instance_key)` order, PostgreSQL
+ * allocates one summary budget across the first `catalogLimit` of them, and the
+ * extra pointer only answers `hasMore`, so a page never ends with a cursor that
+ * leads to an empty page. Which index the planner walks to get there is its
+ * choice; the unique `(user_id, server_id, instance_key)` index fits the order
+ * and the keyset. Namespace and connection filters remain exact and combine
+ * with AND.
  */
 export async function listOwnedCurrentCatalogSlices(
   input: ListOwnedCurrentCatalogSlicesInput,
   runner: DbRunner = db(),
-): Promise<OwnedCurrentCatalogSliceRow[]> {
+): Promise<OwnedCurrentCatalogSlicePage> {
   const catalogLimit = boundedLimit(input.catalogLimit, MCP_DISCOVERY_SCAN_BUDGET.catalogLimit);
   const descriptorLimit = boundedLimit(
     input.descriptorLimit,
     MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
   );
-  if (catalogLimit === 0) return [];
-
-  const initialCatalogKey = input.after
-    ? nextOwnedCurrentCatalogKey(
-        input,
-        sql`${input.after.namespace}`,
-        sql`${input.after.instanceKey}`,
-      )
-    : firstOwnedCurrentCatalogKey(input);
-  const followingCatalogKey = nextOwnedCurrentCatalogKey(
-    input,
-    sql`selected_keys."namespace"`,
-    sql`selected_keys."instanceKey"`,
+  const ownedCurrentCatalog = and(
+    eq(mcpConnections.userId, input.userId),
+    sql`${mcpConnections.currentCatalogRevisionId} is not null`,
+    input.namespace !== undefined ? eq(mcpConnections.serverId, input.namespace) : undefined,
+    input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
+    input.after
+      ? sql`(${mcpConnections.serverId}, ${mcpConnections.instanceKey}) > (${input.after.namespace}, ${input.after.instanceKey})`
+      : undefined,
   );
   const result = await runner.execute(sql`
-    with recursive selected_keys as materialized (
-      select initial_key."namespace",
-             initial_key."instanceKey",
-             1 as "ordinal"
-        from lateral (${initialCatalogKey}) initial_key
-       where initial_key."namespace" is not null
-         and initial_key."instanceKey" is not null
-
-      union all
-
-      select next_key."namespace",
-             next_key."instanceKey",
-             selected_keys."ordinal" + 1
-        from selected_keys
-        cross join lateral (${followingCatalogKey}) next_key
-       where selected_keys."ordinal" < ${catalogLimit}
-         and next_key."namespace" is not null
-         and next_key."instanceKey" is not null
-    ), selected_connections as materialized (
-      select exact_connection."namespace",
-             exact_connection."connectionId",
-             exact_connection."instanceKey",
-             exact_connection."label",
-             exact_connection."revisionId"
-        from selected_keys
-        cross join lateral (
-          select candidate."namespace",
-                 candidate."connectionId",
-                 candidate."instanceKey",
-                 candidate."label",
-                 candidate."revisionId"
-            from (
-              select ${mcpConnections.userId} as "userId",
-                     ${mcpConnections.serverId} as "namespace",
-                     ${mcpConnections.id} as "connectionId",
-                     ${mcpConnections.instanceKey} as "instanceKey",
-                     ${mcpConnections.label} as "label",
-                     ${mcpConnections.currentCatalogRevisionId} as "revisionId"
-                from ${mcpConnections}
-               where (
-                       ${mcpConnections.userId},
-                       ${mcpConnections.serverId},
-                       ${mcpConnections.instanceKey}
-                     ) >= (
-                       ${input.userId},
-                       selected_keys."namespace",
-                       selected_keys."instanceKey"
-                     )
-               order by ${mcpConnections.userId},
-                        ${mcpConnections.serverId},
-                        ${mcpConnections.instanceKey}
-               limit 1
-            ) candidate
-           where candidate."userId" = ${input.userId}
-             and candidate."namespace" = selected_keys."namespace"
-             and candidate."instanceKey" = selected_keys."instanceKey"
-             and candidate."revisionId" is not null
-        ) exact_connection
-    ), selected_catalogs as materialized (
-      select selected_connections."namespace",
-             selected_connections."connectionId",
-             selected_connections."instanceKey",
-             selected_connections."label",
-             exact_revision."revisionId",
-             exact_revision."revisionHash",
-             jsonb_array_length(exact_revision."catalogDescriptors") as "descriptorCount",
-             exact_revision."catalogDescriptors"
-        from selected_connections
-        cross join lateral (
-          select candidate."revisionId",
-                 candidate."revisionHash",
-                 candidate."catalogDescriptors"
-            from (
-              select ${mcpCatalogRevisions.connectionId} as "connectionId",
-                     ${mcpCatalogRevisions.id} as "revisionId",
-                     ${mcpCatalogRevisions.revisionHash} as "revisionHash",
-                     ${mcpCatalogRevisions.descriptors} as "catalogDescriptors"
-                from ${mcpCatalogRevisions}
-               where (
-                       ${mcpCatalogRevisions.connectionId},
-                       ${mcpCatalogRevisions.id}
-                     ) >= (
-                       selected_connections."connectionId",
-                       selected_connections."revisionId"
-                     )
-               order by ${mcpCatalogRevisions.connectionId},
-                        ${mcpCatalogRevisions.id}
-               limit 1
-            ) candidate
-           where candidate."connectionId" = selected_connections."connectionId"
-             and candidate."revisionId" = selected_connections."revisionId"
-        ) exact_revision
+    with selected_catalogs as (
+      select pointer."namespace",
+             pointer."connectionId",
+             pointer."instanceKey",
+             pointer."label",
+             ${mcpCatalogRevisions.id} as "revisionId",
+             ${mcpCatalogRevisions.revisionHash} as "revisionHash",
+             jsonb_array_length(${mcpCatalogRevisions.descriptors}) as "descriptorCount",
+             ${mcpCatalogRevisions.descriptors} as "catalogDescriptors",
+             pointer."ordinal"
+        from (
+          select ${mcpConnections.serverId} as "namespace",
+                 ${mcpConnections.id} as "connectionId",
+                 ${mcpConnections.instanceKey} as "instanceKey",
+                 ${mcpConnections.label} as "label",
+                 ${mcpConnections.currentCatalogRevisionId} as "revisionId",
+                 row_number() over (
+                   order by ${mcpConnections.serverId}, ${mcpConnections.instanceKey}
+                 ) as "ordinal"
+            from ${mcpConnections}
+           where ${ownedCurrentCatalog}
+           order by ${mcpConnections.serverId}, ${mcpConnections.instanceKey}
+           limit ${catalogLimit + 1}
+        ) pointer
+        join ${mcpServers}
+          on ${mcpServers.id} = pointer."namespace"
+         and ${mcpServers.userId} = ${input.userId}
+        join ${mcpCatalogRevisions}
+          on ${mcpCatalogRevisions.connectionId} = pointer."connectionId"
+         and ${mcpCatalogRevisions.id} = pointer."revisionId"
     ), budgeted_catalogs as (
       select selected_catalogs.*,
              coalesce(
                sum("descriptorCount") over (
-                 order by "namespace", "instanceKey", "connectionId"
+                 order by "ordinal"
                  rows between unbounded preceding and 1 preceding
                ),
                0
@@ -660,31 +566,22 @@ export async function listOwnedCurrentCatalogSlices(
            "revisionId",
            "revisionHash",
            "descriptorCount",
-           coalesce((
-             select jsonb_agg(
-                      jsonb_extract_path(
-                        "catalogDescriptors",
-                        projected."index"::text
-                      )
-                      order by projected."index"
-                    )
-               from generate_series(
-                      0,
-                      greatest(
-                        least(
-                          ${descriptorLimit} - "descriptorsBefore",
-                          "descriptorCount"
-                        ),
-                        0
-                      ) - 1
-                    ) as projected("index")
-           ), '[]'::jsonb) as "descriptors"
+           "ordinal",
+           ${descriptorSummarySlice(
+             sql`"catalogDescriptors"`,
+             sql`0`,
+             sql`case when "ordinal" <= ${catalogLimit} then ${descriptorLimit} - "descriptorsBefore" else 0 end`,
+           )} as "summaries"
       from budgeted_catalogs
-     order by "namespace", "instanceKey", "connectionId"
+     order by "ordinal"
   `);
-  return rowsFromExecute<RawOwnedCurrentCatalogSliceRow>(result).map((row) =>
-    toCatalogSliceRow(row, 0),
-  );
+  const fetched = rowsFromExecute<RawOwnedCurrentCatalogSliceRow & { ordinal: unknown }>(result);
+  return {
+    rows: fetched
+      .slice(0, catalogLimit)
+      .map(({ ordinal: _ordinal, ...row }) => toCatalogSliceRow(row, 0)),
+    hasMore: fetched.length > catalogLimit,
+  };
 }
 
 export async function updateConnection(
@@ -787,6 +684,13 @@ export interface PublishCatalogRevisionInput {
 
 const catalogDescriptorNamesSchema = z.array(z.object({ name: z.string().min(1) }).passthrough());
 
+/**
+ * Publication admits only the canonical shape the client produces: descriptors
+ * in strict `compareMcpToolNames` order and a hash map over exactly those names.
+ * Strict order proves the names are unique, and exact inspection selects a
+ * descriptor by name, so uniqueness is what keeps that selection exact. Legacy
+ * revisions are not re-validated; the by-name read does not depend on them.
+ */
 function assertCanonicalCatalogPublication(input: PublishCatalogRevisionInput): void {
   const descriptors = catalogDescriptorNamesSchema.safeParse(input.descriptors);
   if (!descriptors.success) {

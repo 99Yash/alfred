@@ -4,15 +4,15 @@ import { after, before, describe, test } from "node:test";
 
 import { isApiError, type ExternalToolRef } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { user } from "@alfred/db/schemas";
+import { mcpCatalogRevisions, mcpConnections, user } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
-import { inArray, like } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 
-import { inspectMcpToolLocal, searchMcpToolsLocal } from "../../src/connections/mcp";
+import { inspectMcpToolLocal, searchMcpToolsLocal } from "../../src/connections/mcp/list-tools";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "../../src/connections/mcp/discovery-policy";
 import { compareMcpToolNames, computeDescriptorHashes } from "../../src/connections/mcp/hash";
 import {
-  createNamedConnection,
+  ensureConnection,
   listOwnedCurrentCatalogSlices,
   publishCatalogRevision,
   readOwnedCurrentCatalogDescriptor,
@@ -51,12 +51,13 @@ async function seedUser(): Promise<string> {
 
 async function seedConnection(
   userId: string,
-  input: { label: string; resource?: string },
+  input: { label: string; resource?: string; instanceKey?: string },
 ): Promise<SeededConnection> {
   const identity = input.resource ?? randomUUID();
-  const connection = await createNamedConnection({
+  const connection = await ensureConnection({
     userId,
     label: input.label,
+    instanceKey: input.instanceKey ?? "default",
     canonicalResource: `mcp://test/${identity}`,
     endpoint: new URL(`https://${identity}.mcp.example.test/mcp`),
   });
@@ -142,8 +143,12 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
   test("duplicate remote names remain distinct exact refs across connection instances", async () => {
     const userId = await seedUser();
     const resource = randomUUID();
-    const first = await seedConnection(userId, { label: "Work", resource });
-    const second = await seedConnection(userId, { label: "Personal", resource });
+    const first = await seedConnection(userId, { label: "Work", resource, instanceKey: "work" });
+    const second = await seedConnection(userId, {
+      label: "Personal",
+      resource,
+      instanceKey: "personal",
+    });
     await seedRevision(first.id, [tool("create_issue")]);
     await seedRevision(second.id, [tool("create_issue")]);
 
@@ -200,7 +205,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     assert.deepEqual(foreignFilter, { status: "tools", tools: [], nextCursor: null });
   });
 
-  test("lexical search covers label, remote name, title, and visible description", async () => {
+  test("lexical search covers remote name, title, and visible description, never the label", async () => {
     const userId = await seedUser();
     const connection = await seedConnection(userId, { label: "Roadmap workspace" });
     await seedRevision(connection.id, [
@@ -209,7 +214,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     ]);
 
     const cases = [
-      ["roadmap", ["lookup_records", "open_ticket"]],
+      ["roadmap", []],
       ["lookup", ["lookup_records"]],
       ["milestones", ["lookup_records"]],
       ["customer incident", ["open_ticket"]],
@@ -344,26 +349,75 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       );
     }
 
-    const rows = await listOwnedCurrentCatalogSlices({
+    const page = await listOwnedCurrentCatalogSlices({
       userId,
       catalogLimit: Number.MAX_SAFE_INTEGER,
       descriptorLimit: Number.MAX_SAFE_INTEGER,
     });
-    assert.equal(rows.length, MCP_DISCOVERY_SCAN_BUDGET.catalogLimit);
+    assert.equal(page.rows.length, MCP_DISCOVERY_SCAN_BUDGET.catalogLimit);
+    assert.equal(page.hasMore, true, "the fifth catalog is reported, not projected");
     assert.equal(
-      rows.reduce((count, row) => count + row.descriptors.length, 0),
+      page.rows.reduce((count, row) => count + row.summaries.length, 0),
       MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
-      "the database projection, not the JavaScript scanner, owns the descriptor budget",
+      "the database projection, not the JavaScript scanner, owns the summary budget",
     );
-    assert.ok(rows.every((row) => row.descriptorCount === 1_000));
+    assert.ok(page.rows.every((row) => row.descriptorCount === 1_000));
+
+    const existence = await listOwnedCurrentCatalogSlices({
+      userId,
+      catalogLimit: 0,
+      descriptorLimit: 0,
+    });
+    assert.deepEqual(
+      existence,
+      { rows: [], hasMore: true },
+      "catalogLimit 0 is an existence probe",
+    );
+  });
+
+  test("the search slice carries only name, title, and description per tool", async () => {
+    const userId = await seedUser();
+    const connection = await seedConnection(userId, { label: "Projection" });
+    await seedRevision(connection.id, [
+      tool("bare"),
+      tool("described", { title: "Described", description: "Has prose" }),
+    ]);
+
+    const page = await listOwnedCurrentCatalogSlices({
+      userId,
+      connectionId: connection.id,
+      catalogLimit: 1,
+      descriptorLimit: 10,
+    });
+    assert.equal(page.hasMore, false);
+    assert.deepEqual(page.rows[0]?.summaries, [
+      { name: "bare", title: null, description: null },
+      { name: "described", title: "Described", description: "Has prose" },
+    ]);
+  });
+
+  test("a page that ends on the last owned catalog returns no cursor", async () => {
+    const userId = await seedUser();
+    const connections = await Promise.all(
+      Array.from({ length: MCP_DISCOVERY_SCAN_BUDGET.catalogLimit }, (_, index) =>
+        seedConnection(userId, { label: `Exact fit ${index}` }),
+      ),
+    );
+    for (const connection of connections) {
+      await seedRevision(connection.id, [tool("search")]);
+    }
+
+    const page = await searchMcpToolsLocal({ userId });
+    assert.equal(page.tools.length, MCP_DISCOVERY_SCAN_BUDGET.catalogLimit);
+    assert.equal(page.nextCursor, null, "no phantom empty page after the last catalog");
   });
 
   test("a descriptor budget resumes inside the next catalog without skipping its boundary", async () => {
     const userId = await seedUser();
     const resource = randomUUID();
     const connections = await Promise.all([
-      seedConnection(userId, { label: "Budget first", resource }),
-      seedConnection(userId, { label: "Budget second", resource }),
+      seedConnection(userId, { label: "Budget first", resource, instanceKey: "first" }),
+      seedConnection(userId, { label: "Budget second", resource, instanceKey: "second" }),
     ]);
     const ordered = [...connections].sort((left, right) =>
       left.instanceKey < right.instanceKey ? -1 : left.instanceKey > right.instanceKey ? 1 : 0,
@@ -412,8 +466,8 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const userId = await seedUser();
     const resource = randomUUID();
     const connections = await Promise.all([
-      seedConnection(userId, { label: "Exact budget first", resource }),
-      seedConnection(userId, { label: "Exact budget second", resource }),
+      seedConnection(userId, { label: "Exact budget first", resource, instanceKey: "first" }),
+      seedConnection(userId, { label: "Exact budget second", resource, instanceKey: "second" }),
     ]);
     const ordered = [...connections].sort((left, right) =>
       left.instanceKey < right.instanceKey ? -1 : left.instanceKey > right.instanceKey ? 1 : 0,
@@ -507,6 +561,47 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     assert.equal(inspected.status, "tool");
     if (inspected.status !== "tool") throw new Error("unreachable");
     assert.equal(inspected.tool.name, "__proto__");
+  });
+
+  test("exact inspection resolves a legacy revision whose array order predates publication checks", async () => {
+    const userId = await seedUser();
+    const connection = await seedConnection(userId, { label: "Legacy catalog" });
+    const unsorted = [tool("zeta", { description: "last by name" }), tool("alpha")];
+    const [revision] = await db()
+      .insert(mcpCatalogRevisions)
+      .values({
+        connectionId: connection.id,
+        revisionHash: `sha256:${randomUUID().replace(/-/g, "")}`,
+        descriptors: unsorted,
+        descriptorHashes: computeDescriptorHashes(unsorted),
+        toolCount: unsorted.length,
+      })
+      .returning();
+    assert.ok(revision);
+    await db()
+      .update(mcpConnections)
+      .set({ currentCatalogRevisionId: revision.id })
+      .where(eq(mcpConnections.id, connection.id));
+
+    for (const expected of unsorted) {
+      const row = await readOwnedCurrentCatalogDescriptor({
+        userId,
+        connectionId: connection.id,
+        remoteName: expected.name,
+      });
+      assert.ok(row);
+      assert.deepEqual(row.descriptor, expected, `by-name read selects '${expected.name}'`);
+      const inspected = await inspectMcpToolLocal({
+        userId,
+        ref: {
+          kind: "mcp",
+          connectionId: connection.id,
+          remoteName: expected.name,
+          catalogRevision: revision.revisionHash,
+        },
+      });
+      assert.equal(inspected.status, "tool");
+    }
   });
 
   test("malformed, filter-mismatched, and stale-revision cursors fail visibly", async () => {

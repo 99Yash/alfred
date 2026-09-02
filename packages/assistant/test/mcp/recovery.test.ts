@@ -6,9 +6,9 @@ import { canonicalArgsHash } from "@alfred/assistant/connections/mcp";
 import { MCP_RECOVERY_PAGE_SIZE } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
-import { eq, inArray, like } from "drizzle-orm";
+import { eq, inArray, like, sql } from "drizzle-orm";
 
-import { createNamedConnection } from "../../src/connections/mcp/persistence";
+import { ensureConnection } from "../../src/connections/mcp/persistence";
 import { MCP_SETTLEMENT_REPAIR_BATCH_SIZE } from "../../src/tool-runtime/mcp/broker-policy";
 import { reconcileInflightInvocations } from "../../src/tool-runtime/mcp/invocations";
 import {
@@ -42,9 +42,10 @@ async function seedAmbiguousOperation(
     workflowSlug: "chat",
     currentStep: "dispatch-tools",
   });
-  const connection = await createNamedConnection({
+  const connection = await ensureConnection({
     userId,
     label: "Recovery MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://recovery/${randomUUID()}`,
     endpoint: new URL("https://recovery.example.test/mcp"),
   });
@@ -190,7 +191,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  test("a repair batch smaller than the product page continues every hidden settlement exactly once", async () => {
+  test("the list is a pure read: unsettled rows are counted, boot normalizes them, then paging lists each once", async () => {
     assert.ok(
       MCP_SETTLEMENT_REPAIR_BATCH_SIZE < MCP_RECOVERY_PAGE_SIZE,
       "the regression must not rely on repair work exceeding one product page",
@@ -207,6 +208,8 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       })
       .where(eq(mcpInvocation.id, seeded.invocationId));
 
+    // Crash shape: the dispatcher committed `executed/unknown`, the broker never
+    // recorded its settlement on the invocation.
     const expectedIds = [seeded.invocationId];
     for (let index = 1; index < MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1; index += 1) {
       const stagingId = `as_${randomUUID().slice(0, 12)}`;
@@ -244,26 +247,101 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       expectedIds.push(invocation.id);
     }
 
+    const before = await listMcpRecoveryOperations({ userId: seeded.userId });
+    assert.deepEqual(before.operations, [], "an unsettled row is never projected");
+    assert.equal(before.nextCursor, null, "an empty page never carries a live cursor");
+    assert.equal(before.awaitingRepair, MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
+    const unchanged = await db()
+      .select({ effectOutcome: mcpInvocation.effectOutcome })
+      .from(mcpInvocation)
+      .where(inArray(mcpInvocation.id, expectedIds));
+    assert.ok(
+      unchanged.every((row) => row.effectOutcome === null),
+      "the read wrote nothing",
+    );
+
+    const boot = await reconcileInflightInvocations(seeded.userId);
+    assert.equal(boot.markedUnknown, MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
+
     const seen: string[] = [];
-    const pageSizes: number[] = [];
     let cursor: string | undefined;
     do {
       const page = await listMcpRecoveryOperations({ userId: seeded.userId, cursor });
-      pageSizes.push(page.operations.length);
+      assert.equal(page.awaitingRepair, 0);
       for (const operation of page.operations) {
-        assert.ok(!seen.includes(operation.invocationId), "a repaired row must not repeat");
+        assert.ok(!seen.includes(operation.invocationId), "a normalized row must not repeat");
         seen.push(operation.invocationId);
       }
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
-
-    assert.equal(seen.length, MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
     assert.deepEqual([...seen].sort(), expectedIds.sort());
-    assert.deepEqual(
-      pageSizes,
-      [MCP_SETTLEMENT_REPAIR_BATCH_SIZE, 1],
-      "repair progress, not a full product page, keeps traversal alive",
-    );
+  });
+
+  test("paging is exact when the durable key carries microseconds", async () => {
+    const seeded = await seedAmbiguousOperation();
+    // `new Date()` can only produce milliseconds. A raw PostgreSQL timestamp has
+    // microseconds, and every row here shares one such key so the tiebreaker
+    // and the truncation are both exercised at the page boundary.
+    const microsecondKey = sql`'2026-08-30T12:00:00.123456Z'::timestamptz`;
+    await db()
+      .update(mcpInvocation)
+      .set({ deliveryPossibleAt: microsecondKey })
+      .where(eq(mcpInvocation.id, seeded.invocationId));
+    const expectedIds = [seeded.invocationId];
+    for (let index = 0; index < MCP_RECOVERY_PAGE_SIZE; index += 1) {
+      const stagingId = `as_${randomUUID().slice(0, 12)}`;
+      await db()
+        .insert(actionStagings)
+        .values({
+          id: stagingId,
+          userId: seeded.userId,
+          runId: seeded.runId,
+          stepId: "dispatch-tools",
+          toolCallId: `tc_${randomUUID().slice(0, 8)}`,
+          toolName: "mcp.call",
+          integration: "mcp",
+          riskTier: "high",
+          proposedInput: {},
+          displayInput: { index },
+          proposedInputHash: randomUUID(),
+          effectKey: `eff:${seeded.runId}:micro:${index}`,
+          attemptKey: `eff:${seeded.runId}:micro:${index}:1`,
+          requestHash: `req:${randomUUID()}`,
+          requiresApproval: true,
+          status: "executed",
+          outcome: "unknown",
+        });
+      const invocation = await seedMcpInvocationForTests({
+        stagingId,
+        userId: seeded.userId,
+        connectionId: seeded.connectionId,
+        remoteName: `send_micro_${index}`,
+        argsHash: `sha256:micro:${index}`,
+        effectClass: "write",
+        attemptLifecycle: "delivery_possible",
+        effectOutcome: "unknown",
+        retryDisposition: "blocked",
+        deliveryPossibleAt: new Date(),
+      });
+      await db()
+        .update(mcpInvocation)
+        .set({ deliveryPossibleAt: microsecondKey })
+        .where(eq(mcpInvocation.id, invocation.id));
+      expectedIds.push(invocation.id);
+    }
+
+    const first = await listMcpRecoveryOperations({ userId: seeded.userId });
+    assert.equal(first.operations.length, MCP_RECOVERY_PAGE_SIZE);
+    assert.ok(first.nextCursor);
+    const second = await listMcpRecoveryOperations({
+      userId: seeded.userId,
+      cursor: first.nextCursor!,
+    });
+    assert.equal(second.operations.length, 1);
+    assert.equal(second.nextCursor, null);
+    const ids = [...first.operations, ...second.operations].map((row) => row.invocationId);
+    assert.equal(new Set(ids).size, MCP_RECOVERY_PAGE_SIZE + 1, "no row repeats or drops");
+    assert.deepEqual([...ids].sort(), expectedIds.sort());
   });
 
   test("a confirmed outcome resolves both durable barriers atomically", async () => {

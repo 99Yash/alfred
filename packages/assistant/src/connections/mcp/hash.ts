@@ -8,7 +8,12 @@ import { sha256Canonical } from "@alfred/db/hash";
  */
 export { sha256Canonical };
 
-/** Stable UTF-16 code-unit order, matching JavaScript's relational string comparison. */
+/**
+ * Stable UTF-16 code-unit order. This EQUALS the default `Array.prototype.sort`
+ * order for strings and is a named truth so the client, publication, and every
+ * persisted hash-key order agree. Do not replace it with `localeCompare`: that
+ * order differs and would reorder every persisted catalog.
+ */
 export function compareMcpToolNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }

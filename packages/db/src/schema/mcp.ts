@@ -170,10 +170,18 @@ export const mcpConnections = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    serverId: text("server_id")
-      .notNull()
-      .references(() => mcpServers.id, { onDelete: "cascade" }),
-    /** Opaque, immutable idempotency identity within one server definition. */
+    /**
+     * Owning server definition. The reference is the composite
+     * `mcp_connections_server_owner_fk` below and NOT a simple one: the
+     * composite carries the same `on delete cascade` AND binds the owner, so a
+     * simple foreign key beside it would only add a second lookup per insert.
+     */
+    serverId: text("server_id").notNull(),
+    /**
+     * The caller's idempotency key inside one server definition. Immutable after
+     * creation. A built-in provider passes the stable slot it owns; a
+     * user-created connection passes the key that identifies its creation.
+     */
     instanceKey: text("instance_key").notNull(),
     /** Human label shown in the (future) connection UI. */
     label: text("label").notNull(),
@@ -213,9 +221,6 @@ export const mcpConnections = pgTable(
   },
   (t) => [
     uniqueIndex("mcp_connections_user_server_instance_idx").on(t.userId, t.serverId, t.instanceKey),
-    index("mcp_connections_current_catalog_order_idx")
-      .on(t.userId, t.serverId, t.instanceKey)
-      .where(sql`${t.currentCatalogRevisionId} is not null`),
     index("mcp_connections_user_status_idx").on(t.userId, t.status),
     foreignKey({
       columns: [t.serverId, t.userId],
