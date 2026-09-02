@@ -21,6 +21,14 @@ export type ActionStagingStatus = z.infer<typeof actionStagingStatusSchema>;
  * `succeeded`. `refused` marks an effect the system refused to attempt — the
  * gate never called the provider, so it must not count as an attempt the way
  * `failed` does.
+ * `superseded` means a fresh, explicit user authorization replaced an ambiguous
+ * attempt. It does not claim the remote effect succeeded or failed. The prior
+ * row must leave `unknown` because the successor row carries the same
+ * `request_hash`, and the `(user_id, request_hash) WHERE outcome = 'unknown'`
+ * index admits one unresolved row per effect. While the successor is in flight
+ * its row is `dispatching`, so the generic gate does not block a repeat of that
+ * effect; the MCP barrier index on `mcp_invocation` does, exactly as it does for
+ * a first attempt that is still in flight. Only the MCP recovery door writes it.
  */
 export const effectOutcomeSchema = z.enum([
   "planned",
@@ -29,6 +37,7 @@ export const effectOutcomeSchema = z.enum([
   "succeeded",
   "failed",
   "unknown",
+  "superseded",
   "compensated",
   "refused",
 ]);

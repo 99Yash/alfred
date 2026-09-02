@@ -771,6 +771,13 @@
       "when": 1788091141675,
       "tag": "0109_futuristic_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1788340271692,
+      "tag": "0110_stormy_terror",
+      "breakpoints": true
     }
   ]
 }

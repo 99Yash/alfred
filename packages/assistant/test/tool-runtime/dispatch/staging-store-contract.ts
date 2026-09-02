@@ -324,7 +324,7 @@ export function runStagingStoreContract(
       const executedAt = new Date();
       const error = publicAppError("tool_execution_failed");
 
-      await h.store.commitStaging(row.id, {
+      await h.store.commitStaging(row.id, row, {
         status: "failed",
         outcome: "failed",
         error,
@@ -352,7 +352,7 @@ export function runStagingStoreContract(
       const seeded = await h.readBack(row.id);
       const executedAt = new Date();
 
-      await h.store.commitStaging(row.id, {
+      await h.store.commitStaging(row.id, row, {
         status: "executed",
         outcome: "succeeded",
         result: { ok: true },
@@ -381,7 +381,7 @@ export function runStagingStoreContract(
       const run = await h.seedRun("running");
       const { row } = await h.store.upsertStaging(stagingValues(run));
 
-      await h.store.commitStaging(row.id, {
+      await h.store.commitStaging(row.id, row, {
         status: "executed",
         outcome: "succeeded",
         result: undefined,
@@ -392,6 +392,39 @@ export function runStagingStoreContract(
       const stored = await h.readBack(row.id);
       assert.equal(stored?.status, "executed");
       assert.equal(stored?.executeResult, null);
+    });
+
+    test("commitStaging cannot overwrite a row advanced after it was observed", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      const { row } = await h.store.upsertStaging(stagingValues(run));
+
+      assert.equal(
+        await h.store.commitStaging(row.id, row, {
+          status: "executed",
+          outcome: "succeeded",
+          result: { ok: true },
+          sanitized: false,
+          executedAt: new Date(),
+        }),
+        true,
+      );
+      assert.equal(
+        await h.store.commitStaging(row.id, row, {
+          status: "executed",
+          outcome: "unknown",
+          result: { status: "unknown" },
+          sanitized: false,
+          executedAt: new Date(),
+        }),
+        false,
+        "the stale expected state must lose to the aggregate settlement",
+      );
+
+      const stored = await h.readBack(row.id);
+      assert.equal(stored?.status, "executed");
+      assert.equal(stored?.outcome, "succeeded");
+      assert.deepEqual(stored?.executeResult, { ok: true });
     });
 
     test("upsertStaging honours a non-default status and requiresApproval on insert", async () => {
@@ -486,7 +519,7 @@ export function runStagingStoreContract(
       const values = stagingValues(run);
       const { row } = await h.store.upsertStaging(values);
 
-      await h.store.commitStaging(row.id, {
+      await h.store.commitStaging(row.id, row, {
         status: "executed",
         outcome: "unknown",
         result: { status: "unknown", retry: "blocked", message: "may have landed" },
@@ -512,7 +545,7 @@ export function runStagingStoreContract(
       const other = await h.seedRun("running");
       const values = stagingValues(run);
       const { row } = await h.store.upsertStaging(values);
-      await h.store.commitStaging(row.id, {
+      await h.store.commitStaging(row.id, row, {
         status: "executed",
         outcome: "unknown",
         result: null,

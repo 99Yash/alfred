@@ -37,10 +37,10 @@
 export {
   MCP_DEFAULT_REQUEST_TIMEOUT_MS,
   McpRawClient,
-  type ExternalToolRef,
   type McpCallEnvelope,
   type McpPreparedToolCall,
 } from "./client";
+export type { ExternalToolRef } from "@alfred/contracts";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
 export {
   HostedMcpEndpointAuthorizer,
@@ -54,7 +54,7 @@ export {
   type McpEndpointNetworkPolicy,
 } from "./endpoint-authorization";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
-export { listMcpToolsLocal, type McpListToolsResult, type McpToolSummary } from "./list-tools";
+export { listMcpToolsLocal } from "./list-tools";
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 export {
   mcpOAuthClientConfiguration,

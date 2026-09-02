@@ -17,19 +17,16 @@
  * The genuinely-atomic operations here, each of which MUST be a transaction to be
  * crash-safe:
  *
- *  - `insertInvocation` — the barrier reservation. Inserting the ledger row IS
- *    the reservation; the partial unique index rejects a duplicate unresolved
- *    proposal, surfaced here as `{ ok: false, reason: "barrier" }`.
- *  - `createSuccessorInvocation` — resolve the prior invocation AND mint its
- *    successor in one transaction, so the prior leaves the partial barrier index
- *    exactly as the successor enters it.
+ *  - normal-call reservation and lifecycle transitions live module-private in
+ *    `broker.ts`, where they own the invocation and staging rows together.
+ *  - explicit successor reservation lives in `recovery.ts`, where the invocation
+ *    and action-staging barriers can move in one transaction.
  *  - `reconcileInflightInvocations` — the crash-recovery barrier sweep run at
  *    boot (issue clarification #1).
  */
 
 import { db } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
-import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
   actionStagings,
   mcpCatalogRevisions,
@@ -39,10 +36,9 @@ import {
   type McpConnection,
   type McpInvocation,
   type McpToolPolicyRow,
-  type NewMcpInvocation,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 // ===========================================================================
 // Per-tool policy (reviewed effect/retry/tier, bound to a descriptor hash)
@@ -163,126 +159,46 @@ export async function upsertToolPolicy(
   values: NewMcpToolPolicyRow,
   runner: DbRunner = db(),
 ): Promise<McpToolPolicyRow> {
-  const [row] = await runner
-    .insert(mcpToolPolicy)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [mcpToolPolicy.connectionId, mcpToolPolicy.remoteName, mcpToolPolicy.descriptorHash],
-      set: {
-        policyRevision: values.policyRevision,
-        riskTier: values.riskTier,
-        effectClass: values.effectClass,
-        retryContract: values.retryContract,
-        reviewedAt: values.reviewedAt,
-        reviewedNote: values.reviewedNote,
-      },
-    })
-    .returning();
-  return requireRow(row, "upsertToolPolicy");
+  return runAtomic(runner, async (tx) => {
+    // Policy publication and explicit successor reservation serialize on the
+    // connection row. This makes an absent policy as stable as a present one:
+    // a concurrent first review cannot appear between recovery validation and
+    // the barrier transition, while catalog and ownership writers already take
+    // this same PostgreSQL row lock through their connection update.
+    const [ownedConnection] = await tx
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(
+        and(eq(mcpConnections.id, values.connectionId), eq(mcpConnections.userId, values.userId)),
+      )
+      .for("update");
+    requireRow(ownedConnection, "upsertToolPolicy owned connection");
+
+    const [row] = await tx
+      .insert(mcpToolPolicy)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [
+          mcpToolPolicy.connectionId,
+          mcpToolPolicy.remoteName,
+          mcpToolPolicy.descriptorHash,
+        ],
+        set: {
+          policyRevision: values.policyRevision,
+          riskTier: values.riskTier,
+          effectClass: values.effectClass,
+          retryContract: values.retryContract,
+          reviewedAt: values.reviewedAt,
+          reviewedNote: values.reviewedNote,
+        },
+      })
+      .returning();
+    return requireRow(row, "upsertToolPolicy");
+  });
 }
 // ===========================================================================
 // Operation ledger
 // ===========================================================================
-
-/** Result of a barrier reservation attempt. */
-export type InsertInvocationResult =
-  | { ok: true; invocation: McpInvocation }
-  | { ok: false; reason: "barrier" | "duplicate_staging" };
-
-/**
- * The correlation breadcrumbs a ledger row carries so an ambiguous attempt is
- * reconstructable across Alfred's own traces (#541). They are a DENORMALIZED COPY
- * of the authorizing `action_stagings` row (`run_id` / `step_id` / `tool_call_id`),
- * which is the source of truth and already reachable via the 1:1 `staging_id` FK;
- * they live on the ledger only so an operator can pivot from a trace id to the row
- * without the join. Because nothing in the DB enforces the copy stays equal to its
- * staging twin, EVERY minter sources it HERE — from the staging row it is about to
- * point at — rather than from a separately-threaded dispatch ctx that could drift.
- * Sourcing it at the single insert choke point IS that enforcement.
- */
-async function stagingCorrelation(
-  stagingId: string,
-  runner: DbRunner,
-): Promise<{ traceId: string; stepId: string; toolCallId: string }> {
-  const [staging] = await runner
-    .select({
-      traceId: actionStagings.runId,
-      stepId: actionStagings.stepId,
-      toolCallId: actionStagings.toolCallId,
-    })
-    .from(actionStagings)
-    .where(eq(actionStagings.id, stagingId))
-    .limit(1);
-  return requireRow(staging, "stagingCorrelation");
-}
-
-/**
- * Reserve an operation by inserting its ledger row. The row is minted BEFORE
- * network dispatch, so a crash mid-flight still leaves durable evidence. The row
- * insert IS the ambiguity barrier: the partial unique index on
- * `(user, connection, remoteName, argsHash) WHERE resolvedAt IS NULL` rejects a
- * second unresolved proposal identical to an in-flight/blocked one (23505), and
- * the 1:1 `staging_id` index rejects a re-insert for the same staging row. Both
- * are reported as a typed non-throwing result so the broker decides the arm.
- */
-export async function insertInvocation(
-  values: NewMcpInvocation,
-  runner: DbRunner = db(),
-): Promise<InsertInvocationResult> {
-  const correlation = await stagingCorrelation(values.stagingId, runner);
-  try {
-    const [invocation] = await runner
-      .insert(mcpInvocation)
-      .values({ ...values, ...correlation })
-      .returning();
-    return { ok: true, invocation: requireRow(invocation, "insertInvocation") };
-  } catch (err) {
-    // Two distinct outcomes ride on this narrowing, so both `@alfred/db/pg-errors`
-    // helpers are needed: anything that is not a 23505 is a real failure and must
-    // rethrow, while a 23505 whose constraint name the driver omitted defaults to
-    // the barrier. Reading only the constraint name would collapse the first case
-    // into the second.
-    if (!isUniqueViolation(err)) throw err;
-    if (uniqueViolationConstraint(err) === "mcp_invocation_staging_idx") {
-      return { ok: false, reason: "duplicate_staging" };
-    }
-    // The barrier index (or an unnamed unique violation defaulting to barrier).
-    return { ok: false, reason: "barrier" };
-  }
-}
-
-/** Fields the broker patches onto a ledger row as an operation progresses. */
-export type McpInvocationUpdate = Partial<
-  Pick<
-    NewMcpInvocation,
-    | "attemptLifecycle"
-    | "effectOutcome"
-    | "retryDisposition"
-    | "descriptorHash"
-    | "policyRevision"
-    | "catalogRevisionId"
-    | "effectClass"
-    | "resolvedAt"
-    | "resolutionReason"
-    | "lastError"
-    | "resultProvenance"
-    | "deliveryPossibleAt"
-    | "responseReceivedAt"
-  >
->;
-
-export async function updateInvocation(
-  id: string,
-  patch: McpInvocationUpdate,
-  runner: DbRunner = db(),
-): Promise<McpInvocation | undefined> {
-  const [row] = await runner
-    .update(mcpInvocation)
-    .set(patch)
-    .where(eq(mcpInvocation.id, id))
-    .returning();
-  return row;
-}
 
 /**
  * The invocation minted for a staging row, if any. The `mcp_invocation_staging_idx`
@@ -328,68 +244,6 @@ export async function findUnresolvedBarrier(
   return row;
 }
 
-export interface CreateSuccessorInput {
-  /** The prior invocation this successor supersedes. */
-  priorId: string;
-  /** Why the prior is being resolved (e.g. "superseded_by_successor"). */
-  priorResolutionReason: string;
-  /** The successor ledger row. `successorOf` is set here — never by the caller. */
-  successor: Omit<NewMcpInvocation, "successorOf">;
-}
-
-/**
- * Outcome of a successor mint. A successor may only supersede a GENUINELY
- * unresolved prior; if the prior was already resolved (reconciled, raced to a
- * definitive outcome, or a stale id), no successor is minted.
- */
-export type CreateSuccessorResult =
-  | { ok: true; successor: McpInvocation }
-  | { ok: false; reason: "prior_already_resolved" };
-
-/**
- * Resolve the prior invocation AND insert its successor atomically. Only this
- * host-owned path may set `successorOf`; the model cannot mint a successor
- * (issue clarification #4 — authorization is minted at the approval boundary,
- * tied to the prior invocation). Resolving the prior in the same transaction
- * clears the partial barrier index exactly as the successor enters it, so the
- * successor insert does not collide with the row it replaces.
- *
- * The resolve is guarded on its affected-row count: the UPDATE matches only an
- * unresolved prior (`resolvedAt IS NULL`), so a zero-row result means the prior
- * was ALREADY resolved. Minting a successor against a settled prior would open a
- * fresh unresolved barrier for a write that is no longer ambiguous, so this
- * refuses instead — moving the "prior must be unresolved" precondition off an
- * assumed caller and into the transaction.
- */
-export async function createSuccessorInvocation(
-  input: CreateSuccessorInput,
-  runner: DbRunner = db(),
-): Promise<CreateSuccessorResult> {
-  const run = async (tx: DbRunner): Promise<CreateSuccessorResult> => {
-    const resolvedPrior = await tx
-      .update(mcpInvocation)
-      .set({ resolvedAt: sql`now()`, resolutionReason: input.priorResolutionReason })
-      .where(and(eq(mcpInvocation.id, input.priorId), isNull(mcpInvocation.resolvedAt)))
-      .returning({ id: mcpInvocation.id });
-
-    if (resolvedPrior.length === 0) {
-      return { ok: false, reason: "prior_already_resolved" };
-    }
-
-    // Source correlation from the successor's OWN staging row (a fresh
-    // authorization, distinct from the prior's), so its ledger breadcrumbs point
-    // at the trace that minted it — never inherited from the prior and never able
-    // to drift from the row this successor FKs to.
-    const correlation = await stagingCorrelation(input.successor.stagingId, tx);
-    const [successor] = await tx
-      .insert(mcpInvocation)
-      .values({ ...input.successor, ...correlation, successorOf: input.priorId })
-      .returning();
-    return { ok: true, successor: requireRow(successor, "createSuccessorInvocation") };
-  };
-  return runAtomic(runner, run);
-}
-
 export interface ReconcileSummary {
   /** `prepared` rows that never reached delivery — safe, resolved. */
   abandoned: number;
@@ -397,6 +251,8 @@ export interface ReconcileSummary {
   resolvedReads: number;
   /** `delivery_possible` effectful rows — outcome unknown, left BLOCKED. */
   markedUnknown: number;
+  /** Split invocation/staging barriers repaired without sending. */
+  alignedStagingBarriers: number;
 }
 
 /**
@@ -431,6 +287,7 @@ export async function reconcileInflightInvocations(
         and(
           ...scope,
           eq(mcpInvocation.attemptLifecycle, "prepared"),
+          isNull(mcpInvocation.successorOf),
           isNull(mcpInvocation.resolvedAt),
         ),
       )
@@ -469,12 +326,56 @@ export async function reconcileInflightInvocations(
           isNull(mcpInvocation.resolvedAt),
         ),
       )
-      .returning({ id: mcpInvocation.id });
+      .returning({ id: mcpInvocation.id, stagingId: mcpInvocation.stagingId });
+
+    // The broker can persist its unknown outcome before the dispatch owner
+    // persists the matching action-staging outcome. A process crash in that
+    // narrow gap leaves `mcp_invocation.effect_outcome = unknown` with staging
+    // still `dispatching` (or null on older rows). The old sweep only selected a
+    // null invocation outcome, so that split state survived every restart and
+    // both explicit recovery choices rejected it. Find the split AFTER the
+    // normalization above and align only the staging half. This is a database
+    // repair; it never calls the broker or a remote MCP server.
+    const splitStagingBarriers = await tx
+      .select({ stagingId: actionStagings.id })
+      .from(mcpInvocation)
+      .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+      .where(
+        and(
+          ...scope,
+          inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+          eq(mcpInvocation.effectOutcome, "unknown"),
+          eq(mcpInvocation.retryDisposition, "blocked"),
+          isNull(mcpInvocation.resolvedAt),
+          or(
+            inArray(actionStagings.outcome, ["planned", "dispatching", "failed", "succeeded"]),
+            isNull(actionStagings.outcome),
+          ),
+        ),
+      );
+
+    if (splitStagingBarriers.length > 0) {
+      await tx
+        .update(actionStagings)
+        .set({
+          status: "executed",
+          outcome: "unknown",
+          executedAt: sql`coalesce(${actionStagings.executedAt}, now())`,
+          rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        })
+        .where(
+          inArray(
+            actionStagings.id,
+            splitStagingBarriers.map((row) => row.stagingId),
+          ),
+        );
+    }
 
     return {
       abandoned: abandoned.length,
       resolvedReads: resolvedReads.length,
       markedUnknown: markedUnknown.length,
+      alignedStagingBarriers: splitStagingBarriers.length,
     };
   };
   return runAtomic(runner, run);

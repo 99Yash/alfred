@@ -154,8 +154,47 @@ type _NoBrokerSetterOnToolRuntime = ToolRuntimeDoor["_setMcpExecutionBrokerForTe
 // and point at the line to change.
 // ---------------------------------------------------------------------------
 
+// A successor resume must not share an HTTP request's lifetime, so its input
+// type has no `signal`. If one is added, this line stops compiling.
+type SuccessorResumeInput = import("@alfred/assistant/tool-runtime/mcp").McpReservedSuccessorInput;
+type _NoSignalOnSuccessorResume = "signal" extends keyof SuccessorResumeInput ? never : true;
+const _successorResumeHasNoSignal: _NoSignalOnSuccessorResume = true;
+
 type ToolRuntimeLeaf = typeof import("@alfred/assistant/tool-runtime/mcp/invocations");
 type _AssertToolRuntimeLeafStillResolves = ToolRuntimeLeaf["resolveMcpToolIdentity"];
+
+// @ts-expect-error - callers cannot mint arbitrary lifecycle or successor state.
+type _NoRawInvocationInsert = ToolRuntimeLeaf["insertInvocation"];
+
+// @ts-expect-error - callers cannot patch arbitrary lifecycle or outcome state.
+type _NoRawInvocationUpdate = ToolRuntimeLeaf["updateInvocation"];
+
+// @ts-expect-error - normal reservation is broker-owned, not wildcard-reachable.
+type _NoNormalReservation = ToolRuntimeLeaf["reserveMcpInvocation"];
+
+// @ts-expect-error - the normal delivery claim is broker-owned and aggregate-guarded.
+type _NoNormalDeliveryClaim = ToolRuntimeLeaf["markMcpInvocationDeliveryPossible"];
+
+// @ts-expect-error - not-delivered settlement must also settle its staging barrier.
+type _NoNormalNotDeliveredSettlement = ToolRuntimeLeaf["settleMcpInvocationNotDelivered"];
+
+// @ts-expect-error - ambiguous settlement must also settle its staging barrier.
+type _NoNormalAmbiguousSettlement = ToolRuntimeLeaf["blockMcpInvocationAsAmbiguous"];
+
+// @ts-expect-error - success settlement must also settle its staging barrier.
+type _NoNormalSuccessSettlement = ToolRuntimeLeaf["settleMcpInvocationSucceeded"];
+
+// The wildcard still republishes this leaf, so successor lifecycle primitives
+// must be absent from the module itself. Product code can only call the broker's
+// ID-only `resumeReservedSuccessor` capability.
+// @ts-expect-error - raw successor reads are module-private inside the broker owner.
+type _NoRawSuccessorRead = ToolRuntimeLeaf["readReservedMcpSuccessor"];
+
+// @ts-expect-error - raw successor delivery claims are module-private inside the broker owner.
+type _NoRawSuccessorClaim = ToolRuntimeLeaf["claimReservedMcpSuccessorDelivery"];
+
+// @ts-expect-error - raw successor settlement is module-private and guarded in the broker owner.
+type _NoRawSuccessorSettlement = ToolRuntimeLeaf["settleReservedMcpSuccessor"];
 
 // The extensioned target means only the EXTENSIONLESS specifier above resolves.
 // Pinning this keeps the pair honest: if the target ever loses its `.ts`, the

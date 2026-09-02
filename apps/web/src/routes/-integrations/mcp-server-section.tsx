@@ -1,14 +1,26 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { McpRecoveryDecision, McpRecoveryOperationsPage } from "@alfred/contracts";
 import { AlertTriangle, Plug, Plus } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
 import { client, type EdenData, API_URL } from "~/lib/eden";
-import { MCP_SECTION } from "./helpers";
+import { flattenMcpRecoveryPages, MCP_SECTION } from "./helpers";
+import { McpRecoveryList } from "./mcp-recovery-list";
 import { mcpConnectionStatusText } from "./mcp-server-status";
 
 type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
 type McpConnection = McpConnectionsResponse["connections"][number];
+type McpRecoveryAction =
+  | {
+      kind: "resolve";
+      invocationId: string;
+      decision: McpRecoveryDecision;
+    }
+  | { kind: "successor"; invocationId: string };
+
+const FIRST_RECOVERY_PAGE: string | null = null;
 
 export function MCPServerSection() {
+  const queryClient = useQueryClient();
   const connectionQuery = useQuery<ReadonlyArray<McpConnection>>({
     queryKey: ["integrations", "mcp", "connections"],
     queryFn: async () => {
@@ -22,6 +34,42 @@ export function MCPServerSection() {
     refetchOnWindowFocus: true,
   });
   const connections = connectionQuery.data ?? [];
+  const recoveryQuery = useInfiniteQuery({
+    queryKey: ["integrations", "mcp", "recovery"],
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
+      const response = await client.api.integrations.mcp.recovery.get({
+        query: pageParam ? { cursor: pageParam } : {},
+      });
+      if (response.error || !response.data) {
+        throw new Error("Could not load MCP recovery operations");
+      }
+      return response.data;
+    },
+    initialPageParam: FIRST_RECOVERY_PAGE,
+    getNextPageParam: (lastPage: McpRecoveryOperationsPage) => lastPage.nextCursor,
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+  });
+  const recoveryMutation = useMutation({
+    mutationFn: async (action: McpRecoveryAction) => {
+      const route = client.api.integrations.mcp.recovery({
+        invocationId: action.invocationId,
+      });
+      const response =
+        action.kind === "successor"
+          ? await route.successor.post()
+          : await route.resolve.post({ decision: action.decision });
+      if (response.error || !response.data) {
+        throw new Error("Could not update the MCP recovery operation");
+      }
+      return response.data;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["integrations", "mcp", "recovery"] }),
+  });
+  const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
+  // Every page reports the same owner-wide count; the newest page is the freshest.
+  const awaitingRepair = recoveryQuery.data?.pages.at(-1)?.awaitingRepair ?? 0;
   const github = connections.find((connection) => connection.canonicalResource.includes("github"));
   const isConnecting = github?.status === "connecting";
   const statusText = connectionQuery.isPending
@@ -79,6 +127,28 @@ export function MCPServerSection() {
           </button>
         </AppCard>
       </div>
+      <McpRecoveryList
+        operations={recoveryOperations}
+        awaitingRepair={awaitingRepair}
+        loading={recoveryQuery.isPending}
+        readError={recoveryQuery.isError}
+        hasNextPage={recoveryQuery.hasNextPage}
+        loadingMore={recoveryQuery.isFetchingNextPage}
+        mutationPending={recoveryMutation.isPending}
+        mutationError={recoveryMutation.isError}
+        onReadRetry={() => {
+          void recoveryQuery.refetch();
+        }}
+        onLoadMore={() => {
+          void recoveryQuery.fetchNextPage();
+        }}
+        onResolve={(invocationId, decision) => {
+          recoveryMutation.mutate({ kind: "resolve", invocationId, decision });
+        }}
+        onRetry={(invocationId) => {
+          recoveryMutation.mutate({ kind: "successor", invocationId });
+        }}
+      />
     </section>
   );
 }

@@ -27,9 +27,9 @@
  * connection-creation slice actually wires it.
  */
 
+import type { ExternalToolRef } from "@alfred/contracts";
 import {
   McpRawClient,
-  type ExternalToolRef,
   type McpCallEnvelope,
   type McpCatalogSnapshot,
   type McpPreparedToolCall,

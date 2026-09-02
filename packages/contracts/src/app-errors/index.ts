@@ -195,6 +195,11 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "A cancellation fence advanced between dispatch and execution.",
     fix: { kind: "none" },
   },
+  mcp_effect_not_applied: {
+    message: "You confirmed that this MCP operation did not apply. It was not repeated.",
+    why: "The user resolved an unresolved MCP invocation as not applied; the effect is closed.",
+    fix: { kind: "none" },
+  },
   tool_input_invalid: {
     message: "The tool input is invalid. Correct it and try again.",
     why: "The input failed the tool's schema after normalization.",
