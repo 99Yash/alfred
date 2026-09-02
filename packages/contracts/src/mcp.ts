@@ -91,6 +91,11 @@ export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 // ---------------------------------------------------------------------------
 export const mcpRecoveryDecisionSchema = z.enum(["confirmed_succeeded", "confirmed_not_applied"]);
 export type McpRecoveryDecision = z.infer<typeof mcpRecoveryDecisionSchema>;
+/** The one request body the resolve route accepts; the HTTP layer validates with it directly. */
+export const mcpRecoveryDecisionBodySchema = z
+  .object({ decision: mcpRecoveryDecisionSchema })
+  .strict();
+export type McpRecoveryDecisionBody = z.infer<typeof mcpRecoveryDecisionBodySchema>;
 
 const mcpRecoveryOperationBaseSchema = z.object({
   invocationId: z.string(),
@@ -148,10 +153,18 @@ export const mcpRecoveryOperationsPageInputSchema = mcpRecoveryOperationsPageQue
   .extend({ userId: z.string().min(1) })
   .strict();
 export type McpRecoveryOperationsPageInput = z.infer<typeof mcpRecoveryOperationsPageInputSchema>;
+/**
+ * One page of the recovery list. The read is pure: it never repairs a row.
+ * `awaitingRepair` counts the owner's invocations whose provider phase ended
+ * (the dispatcher committed the staging row) but whose broker settlement has
+ * not been recorded yet. Those rows are not in `operations` until the broker's
+ * local repair or boot reconciliation normalizes them.
+ */
 export const mcpRecoveryOperationsPageSchema = z
   .object({
     operations: z.array(mcpRecoveryOperationSchema).max(MCP_RECOVERY_PAGE_SIZE),
     nextCursor: z.string().min(1).nullable(),
+    awaitingRepair: z.number().int().nonnegative(),
   })
   .strict();
 export type McpRecoveryOperationsPage = z.infer<typeof mcpRecoveryOperationsPageSchema>;

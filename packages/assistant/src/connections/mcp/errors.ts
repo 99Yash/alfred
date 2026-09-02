@@ -20,6 +20,7 @@ export const MCP_CLIENT_ERROR_CODES = [
   "invalid_arguments",
   "invalid_output",
   "insufficient_scope",
+  "admission_full",
 ] as const;
 
 export type McpClientErrorCode = (typeof MCP_CLIENT_ERROR_CODES)[number];
@@ -33,7 +34,8 @@ export type McpClientErrorCode = (typeof MCP_CLIENT_ERROR_CODES)[number];
  * after that await and must be treated as possibly-delivered by the broker's
  * ambiguity ledger. `insufficient_scope` is the one response-side exception:
  * the resource server's 403 bearer challenge proves authorization rejected the
- * request before the MCP tool ran.
+ * request before the MCP tool ran. `admission_full` is the broker's own refusal:
+ * its process-local capacity was exhausted before any provider work started.
  *
  * Kept BESIDE the code union on purpose: a new code must be classified here, in
  * the same file it is declared, rather than in a denylist shadowing the boundary
@@ -47,6 +49,7 @@ const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
   "unknown_tool",
   "invalid_arguments",
   "insufficient_scope",
+  "admission_full",
 ]);
 
 /** True for a deterministic pre-delivery code (provably not delivered). */

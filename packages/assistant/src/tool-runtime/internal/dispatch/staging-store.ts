@@ -18,6 +18,26 @@
  *
  * The in-memory adapter deliberately lives in `test/`, not here — a fake in
  * `src/` is a runtime someone can select in production.
+ *
+ * `action_stagings` has a SECOND owner, and it is declared here so it is not a
+ * hidden one: `tool-runtime/mcp`. The MCP broker settles an invocation and its
+ * staging row as one aggregate, because the two rows are one ambiguity barrier
+ * and must move together. Its writers, all outside this port:
+ *
+ *   - `mcp/broker.ts` — the aggregate settle after a `tools/call`, and the
+ *     `unknown` mark a failed settlement leaves behind for a later repair;
+ *   - `mcp/invocations.ts` — boot reconciliation aligns a split barrier;
+ *   - `mcp/recovery.ts` — a user decision resolves the row, and an explicit
+ *     successor supersedes it and mints the next attempt of the SAME effect
+ *     (same `effect_key`, next `attempt_key`).
+ *
+ * The second WHERE arm in `commitStaging` exists for that owner: when the
+ * broker's aggregate has already written the terminal outcome the dispatcher is
+ * about to commit, the dispatcher's commit must still land its result payload
+ * instead of reading as a lost update. A `tx`-accepting `settleEffect` /
+ * `supersede` pair on this port would fold the MCP writers back into the one
+ * minter; that is the shape to reach for when this port gains a transaction
+ * parameter.
  */
 
 import type {

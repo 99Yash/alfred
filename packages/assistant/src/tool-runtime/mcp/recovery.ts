@@ -2,6 +2,11 @@
  * Product-facing MCP recovery door. It owns both durable ambiguity barriers:
  * `mcp_invocation` and `action_stagings`. No caller can supply replacement call
  * data; a successor always copies the exact persisted, owner-scoped staging input.
+ *
+ * The list is a pure read. It never repairs a row and never constructs the
+ * broker. Rows whose provider phase ended but whose settlement is not recorded
+ * yet are reported as a count (`awaitingRepair`), not hidden behind a live
+ * cursor; the broker's drain timer and boot reconciliation normalize them.
  */
 
 import { Buffer } from "node:buffer";
@@ -10,15 +15,18 @@ import {
   Errors,
   MCP_RECOVERY_PAGE_SIZE,
   hashToolInput,
+  jsonValueSchema,
   mcpCallInput,
   mcpRecoveryOperationSchema,
   mcpRecoveryOperationsPageInputSchema,
   mcpRecoveryOperationsPageSchema,
+  parseJsonWith,
   type McpRecoveryDecision,
   type McpRecoveryMutationResult,
   type McpRecoveryOperationsPageInput,
   type McpRecoveryOperationsPage,
 } from "@alfred/contracts";
+import { publicAppError } from "@alfred/contracts/app-errors";
 import { db } from "@alfred/db";
 import { createId, requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
@@ -27,20 +35,14 @@ import {
   mcpInvocation,
   type McpInvocation,
 } from "@alfred/db/schemas";
-import { and, asc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { canonicalArgsHash } from "@alfred/assistant/connections/mcp";
 import { getMcpExecutionBroker } from "./runtime";
 import { resolveMcpToolIdentity } from "./invocations";
+import { effectiveMcpRiskTier } from "./risk";
 import type { McpBrokerOutcome } from "./broker";
-import {
-  afterMcpRecoveryOrderKey,
-  atOrBeforeMcpRecoveryOrderKey,
-  mcpRecoveryEffectiveAt,
-  mcpRecoveryOrderKey,
-  mcpRecoveryOrderKeySchema,
-} from "./recovery-progress";
 
 const RESOLUTION_REASONS = {
   confirmed_succeeded: "user_confirmed_succeeded",
@@ -51,28 +53,75 @@ type ReservedSuccessor = { priorId: string; successor: McpInvocation };
 
 export type { McpRecoveryOperationsPageInput } from "@alfred/contracts";
 
-const recoveryCursorSchema = z
-  .object({
-    visibleAfter: mcpRecoveryOrderKeySchema.nullable(),
-    repairAfter: mcpRecoveryOrderKeySchema.nullable(),
-  })
+// ---------------------------------------------------------------------------
+// Keyset order. The cursor carries a JavaScript ISO timestamp, which has
+// millisecond precision, while PostgreSQL stores microseconds. The SQL key is
+// therefore truncated to milliseconds on BOTH sides of the comparison: a row
+// whose `created_at` is `12:00:00.123456` must sort exactly where the cursor
+// that names it as `.123` says it does, or the boundary row repeats on the next
+// page (and a `<=` frontier would drop it).
+// ---------------------------------------------------------------------------
+
+export const mcpRecoveryOrderKeySchema = z
+  .object({ timestamp: z.string().datetime(), invocationId: z.string() })
   .strict();
 
-function decodeRecoveryCursor(
-  cursor: string | undefined,
-): z.infer<typeof recoveryCursorSchema> | undefined {
-  if (!cursor) return undefined;
-  try {
-    return recoveryCursorSchema.parse(
-      JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown,
-    );
-  } catch {
-    throw Errors.BadRequestError("Invalid MCP recovery cursor");
-  }
+export type McpRecoveryOrderKey = z.infer<typeof mcpRecoveryOrderKeySchema>;
+
+export const mcpRecoveryEffectiveAt = sql<string>`date_trunc('milliseconds', coalesce(${mcpInvocation.deliveryPossibleAt}, ${mcpInvocation.createdAt}))`;
+
+export function mcpRecoveryOrderKey(input: {
+  effectiveAt: string | Date;
+  invocationId: string;
+}): McpRecoveryOrderKey {
+  return {
+    timestamp: new Date(input.effectiveAt).toISOString(),
+    invocationId: input.invocationId,
+  };
 }
 
-function encodeRecoveryCursor(input: z.infer<typeof recoveryCursorSchema>): string {
-  return Buffer.from(JSON.stringify(input)).toString("base64url");
+export function afterMcpRecoveryOrderKey(key: McpRecoveryOrderKey) {
+  return sql`(${mcpRecoveryEffectiveAt}, ${mcpInvocation.id}) > (${new Date(key.timestamp)}, ${key.invocationId})`;
+}
+
+function decodeRecoveryCursor(cursor: string | undefined): McpRecoveryOrderKey | undefined {
+  if (!cursor) return undefined;
+  const key = parseJsonWith(
+    Buffer.from(cursor, "base64url").toString("utf8"),
+    mcpRecoveryOrderKeySchema,
+  );
+  if (!key) throw Errors.BadRequestError("Invalid MCP recovery cursor");
+  return key;
+}
+
+function encodeRecoveryCursor(key: McpRecoveryOrderKey): string {
+  return Buffer.from(JSON.stringify(key)).toString("base64url");
+}
+
+/**
+ * Rows whose provider phase ended (the dispatcher committed the staging row to a
+ * terminal status) but whose broker settlement was never recorded on the
+ * invocation. They are invisible to the product projection until the broker's
+ * drain or boot reconciliation normalizes them, so the page reports how many
+ * there are instead of hiding them behind an empty page.
+ */
+async function countAwaitingRepair(userId: string, runner: DbRunner): Promise<number> {
+  const [row] = await runner
+    .select({ value: count() })
+    .from(mcpInvocation)
+    .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+    .where(
+      and(
+        eq(mcpInvocation.userId, userId),
+        eq(actionStagings.userId, userId),
+        ne(mcpInvocation.effectClass, "read"),
+        inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+        isNull(mcpInvocation.effectOutcome),
+        isNull(mcpInvocation.resolvedAt),
+        inArray(actionStagings.status, ["executed", "failed"]),
+      ),
+    );
+  return row?.value ?? 0;
 }
 
 export async function listMcpRecoveryOperations(
@@ -80,74 +129,69 @@ export async function listMcpRecoveryOperations(
   runner: DbRunner = db(),
 ): Promise<McpRecoveryOperationsPage> {
   const ownedInput = mcpRecoveryOperationsPageInputSchema.parse(input);
-  const cursor = decodeRecoveryCursor(ownedInput.cursor);
-  const repair = await getMcpExecutionBroker().repairIncompleteSettlements({
-    userId: ownedInput.userId,
-    ...(cursor?.repairAfter ? { after: cursor.repairAfter } : {}),
-  });
-  const repairFrontier = repair.scannedThrough ?? cursor?.repairAfter ?? null;
-  const rows = await runner
-    .select({
-      invocationId: mcpInvocation.id,
-      successorOf: mcpInvocation.successorOf,
-      connection: { id: mcpConnections.id, label: mcpConnections.label },
-      remoteName: mcpInvocation.remoteName,
-      displayInput: actionStagings.displayInput,
-      attemptLifecycle: mcpInvocation.attemptLifecycle,
-      effectOutcome: mcpInvocation.effectOutcome,
-      retryDisposition: mcpInvocation.retryDisposition,
-      deliveryPossibleAt: mcpInvocation.deliveryPossibleAt,
-      responseReceivedAt: mcpInvocation.responseReceivedAt,
-      lastError: mcpInvocation.lastError,
-      traceId: mcpInvocation.traceId,
-      stepId: mcpInvocation.stepId,
-      toolCallId: mcpInvocation.toolCallId,
-      effectiveAt: mcpRecoveryEffectiveAt,
-    })
-    .from(mcpInvocation)
-    .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
-    .innerJoin(mcpConnections, eq(mcpConnections.id, mcpInvocation.connectionId))
-    .where(
-      and(
-        eq(mcpInvocation.userId, ownedInput.userId),
-        eq(mcpConnections.userId, ownedInput.userId),
-        ne(mcpInvocation.effectClass, "read"),
-        isNull(mcpInvocation.resolvedAt),
-        or(
-          and(
-            inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
-            eq(mcpInvocation.effectOutcome, "unknown"),
-            eq(mcpInvocation.retryDisposition, "blocked"),
-            isNotNull(mcpInvocation.deliveryPossibleAt),
+  const after = decodeRecoveryCursor(ownedInput.cursor);
+  const [rows, awaitingRepair] = await Promise.all([
+    runner
+      .select({
+        invocationId: mcpInvocation.id,
+        successorOf: mcpInvocation.successorOf,
+        connection: { id: mcpConnections.id, label: mcpConnections.label },
+        remoteName: mcpInvocation.remoteName,
+        displayInput: actionStagings.displayInput,
+        attemptLifecycle: mcpInvocation.attemptLifecycle,
+        effectOutcome: mcpInvocation.effectOutcome,
+        retryDisposition: mcpInvocation.retryDisposition,
+        deliveryPossibleAt: mcpInvocation.deliveryPossibleAt,
+        responseReceivedAt: mcpInvocation.responseReceivedAt,
+        lastError: mcpInvocation.lastError,
+        traceId: mcpInvocation.traceId,
+        stepId: mcpInvocation.stepId,
+        toolCallId: mcpInvocation.toolCallId,
+        effectiveAt: mcpRecoveryEffectiveAt,
+      })
+      .from(mcpInvocation)
+      .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+      .innerJoin(mcpConnections, eq(mcpConnections.id, mcpInvocation.connectionId))
+      .where(
+        and(
+          eq(mcpInvocation.userId, ownedInput.userId),
+          eq(mcpConnections.userId, ownedInput.userId),
+          ne(mcpInvocation.effectClass, "read"),
+          isNull(mcpInvocation.resolvedAt),
+          or(
+            and(
+              inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
+              eq(mcpInvocation.effectOutcome, "unknown"),
+              eq(mcpInvocation.retryDisposition, "blocked"),
+              isNotNull(mcpInvocation.deliveryPossibleAt),
+            ),
+            and(
+              eq(mcpInvocation.attemptLifecycle, "prepared"),
+              isNotNull(mcpInvocation.successorOf),
+              isNull(mcpInvocation.effectOutcome),
+              isNull(mcpInvocation.retryDisposition),
+              isNull(mcpInvocation.deliveryPossibleAt),
+            ),
           ),
-          and(
-            eq(mcpInvocation.attemptLifecycle, "prepared"),
-            isNotNull(mcpInvocation.successorOf),
-            isNull(mcpInvocation.effectOutcome),
-            isNull(mcpInvocation.retryDisposition),
-            isNull(mcpInvocation.deliveryPossibleAt),
-          ),
+          ...(after ? [afterMcpRecoveryOrderKey(after)] : []),
         ),
-        ...(cursor?.visibleAfter ? [afterMcpRecoveryOrderKey(cursor.visibleAfter)] : []),
-        ...(repair.hasMore
-          ? [repairFrontier ? atOrBeforeMcpRecoveryOrderKey(repairFrontier) : sql`false`]
-          : []),
-      ),
-    )
-    .orderBy(asc(mcpRecoveryEffectiveAt), asc(mcpInvocation.id))
-    .limit(MCP_RECOVERY_PAGE_SIZE + 1);
+      )
+      .orderBy(asc(mcpRecoveryEffectiveAt), asc(mcpInvocation.id))
+      .limit(MCP_RECOVERY_PAGE_SIZE + 1),
+    countAwaitingRepair(ownedInput.userId, runner),
+  ]);
 
-  const hasNextPage = rows.length > MCP_RECOVERY_PAGE_SIZE;
   const pageRows = rows.slice(0, MCP_RECOVERY_PAGE_SIZE);
   const last = pageRows.at(-1);
-  const visibleAfter = last ? mcpRecoveryOrderKey(last) : (cursor?.visibleAfter ?? null);
-  const repairAfter = repair.scannedThrough ?? cursor?.repairAfter ?? null;
   return mcpRecoveryOperationsPageSchema.parse({
     operations: pageRows.map(({ effectiveAt: _effectiveAt, ...row }) =>
       mcpRecoveryOperationSchema.parse(row),
     ),
     nextCursor:
-      hasNextPage || repair.hasMore ? encodeRecoveryCursor({ visibleAfter, repairAfter }) : null,
+      rows.length > MCP_RECOVERY_PAGE_SIZE && last
+        ? encodeRecoveryCursor(mcpRecoveryOrderKey(last))
+        : null,
+    awaitingRepair,
   });
 }
 
@@ -206,6 +250,13 @@ export async function resolveMcpRecoveryOperation(
       .set({
         outcome: succeeded ? "succeeded" : "failed",
         status: succeeded ? "executed" : "failed",
+        // A `failed` staging row is replayed to the model through its stored
+        // error. The user's statement is the error here: the effect did not
+        // apply and Alfred did not repeat it. Without it the replay reads as a
+        // generic provider failure.
+        ...(succeeded
+          ? {}
+          : { executeError: jsonValueSchema.parse(publicAppError("mcp_effect_not_applied")) }),
         executedAt: now,
         decidedAt: now,
         rowVersion: sql`${actionStagings.rowVersion} + 1`,
@@ -218,6 +269,17 @@ export async function resolveMcpRecoveryOperation(
       successorInvocationId: null,
     };
   });
+}
+
+/**
+ * The successor is one more attempt of the SAME logical effect, so it inherits
+ * the prior row's `effect_key` and takes the next attempt number, the same way
+ * `attemptKeyFor` spells a first attempt as `<effect_key>:1`.
+ */
+function nextAttemptKey(staging: { effectKey: string; attemptKey: string }): string {
+  const suffix = /:(\d+)$/.exec(staging.attemptKey);
+  const prior = suffix?.[1] ? Number.parseInt(suffix[1], 10) : 1;
+  return `${staging.effectKey}:${prior + 1}`;
 }
 
 async function reserveMcpRecoverySuccessor(
@@ -332,10 +394,16 @@ async function reserveMcpRecoverySuccessor(
     const now = new Date();
     const stagingId = createId("as");
     const toolCallId = createId("mcp-recovery");
-    const effectKey = `mcp-recovery:${createId()}`;
+    // The prior row leaves `unknown` so the successor can hold the one unresolved
+    // slot the `(user_id, request_hash) WHERE outcome = 'unknown'` index admits
+    // per effect. See `effectOutcomeSchema` for what `superseded` claims.
     await tx
       .update(actionStagings)
-      .set({ outcome: "superseded", rowVersion: staging.rowVersion + 1, updatedAt: now })
+      .set({
+        outcome: "superseded",
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        updatedAt: now,
+      })
       .where(eq(actionStagings.id, staging.id));
     const [successorStaging] = await tx
       .insert(actionStagings)
@@ -347,15 +415,17 @@ async function reserveMcpRecoverySuccessor(
         toolCallId,
         toolName: "mcp.call",
         integration: "mcp",
-        riskTier: identity.policy?.riskTier ?? "high",
+        // The same guarded derivation the dispatch gate applies: an unreviewed or
+        // out-of-enum tier re-gates to the floor instead of un-gating.
+        riskTier: effectiveMcpRiskTier(identity),
         proposedInput: call.data,
         displayInput: staging.displayInput,
         proposedInputHash: hashToolInput("mcp.call", call.data),
         requiresApproval: true,
         status: "approved",
         outcome: "dispatching",
-        effectKey,
-        attemptKey: `${effectKey}:1`,
+        effectKey: staging.effectKey,
+        attemptKey: nextAttemptKey(staging),
         requestHash: staging.requestHash,
         decidedInput: call.data,
         decidedAt: now,
@@ -393,16 +463,19 @@ async function reserveMcpRecoverySuccessor(
   });
 }
 
+/**
+ * Reserve and deliver one explicit successor. The input carries no
+ * `AbortSignal` on purpose: the resume is the one send that must not share an
+ * HTTP request's lifetime (see `McpReservedSuccessorInput`).
+ */
 export async function retryMcpRecoveryOperation(input: {
   userId: string;
   invocationId: string;
-  signal?: AbortSignal;
 }): Promise<McpRecoveryMutationResult> {
   const reserved = await reserveMcpRecoverySuccessor(input);
   const outcome: McpBrokerOutcome = await getMcpExecutionBroker().resumeReservedSuccessor({
     userId: input.userId,
     invocationId: reserved.successor.id,
-    ...(input.signal ? { signal: input.signal } : {}),
   });
   return {
     status: outcome.status,
