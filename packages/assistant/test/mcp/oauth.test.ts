@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { afterEach, describe, test } from "node:test";
 import { createCredentialVault } from "@alfred/db/credential-vault";
 import type { McpOauthAuthorizationAttempt, McpOauthCredential } from "@alfred/db/schemas";
-import { IssuerMismatchError, type OAuthDiscoveryState } from "@modelcontextprotocol/client";
+import {
+  exchangeAuthorization,
+  IssuerMismatchError,
+  selectClientAuthMethod,
+  type OAuthDiscoveryState,
+} from "@modelcontextprotocol/client";
 import { createHash, randomBytes } from "node:crypto";
 import {
   authorizeMcpOAuth,
@@ -11,6 +16,7 @@ import {
   refreshMcpOAuthIfNeeded,
   type McpOAuthCredentialStore,
 } from "../../src/connections/mcp/oauth";
+import { GITHUB_MCP_ENDPOINT_HREF, GITHUB_MCP_ISSUER } from "../../src/connections/mcp/constants";
 
 class MemoryStore implements McpOAuthCredentialStore {
   row: McpOauthCredential | undefined;
@@ -466,5 +472,148 @@ describe("MCP OAuth credentials are sealed at rest", () => {
     assert.equal(vault.open(stored), "pkce-verifier");
 
     assert.equal(await oauth.codeVerifier(), "pkce-verifier");
+  });
+});
+
+/**
+ * The #934 path: GitHub's authorization server supports neither RFC 7591
+ * dynamic registration nor URL-based client ids, so the provider answers
+ * `clientInformation` from the ENVIRONMENT and the SDK skips `registerClient`.
+ * The environment is canonical — no row ever holds this client — so these tests
+ * also pin that nothing is written and that a rotated secret is picked up.
+ */
+describe("built-in GitHub MCP OAuth client (#934)", () => {
+  const CLIENT_ID = "GITHUB_MCP_CLIENT_ID";
+  const CLIENT_SECRET = "GITHUB_MCP_CLIENT_SECRET";
+
+  function githubProvider(store: MemoryStore): McpOAuthProvider {
+    return new McpOAuthProvider({
+      connectionId: "conn_test",
+      userId: "user_test",
+      endpoint: new URL(GITHUB_MCP_ENDPOINT_HREF),
+      redirectUrl: new URL("https://alfred.example.test/api/integrations/mcp/callback"),
+      clientMetadata: {
+        redirect_uris: ["https://alfred.example.test/api/integrations/mcp/callback"],
+        token_endpoint_auth_method: "none",
+        client_name: "Alfred",
+      },
+      store,
+      vault: createCredentialVault(randomBytes(32)),
+    });
+  }
+
+  const GITHUB_DISCOVERY: OAuthDiscoveryState = {
+    authorizationServerUrl: GITHUB_MCP_ISSUER,
+    authorizationServerMetadata: {
+      issuer: GITHUB_MCP_ISSUER,
+      authorization_endpoint: "https://github.com/login/oauth/authorize",
+      token_endpoint: "https://github.com/login/oauth/access_token",
+      response_types_supported: ["code"],
+    },
+  };
+
+  afterEach(() => {
+    delete process.env[CLIENT_ID];
+    delete process.env[CLIENT_SECRET];
+  });
+
+  test("answers clientInformation from the environment so the SDK skips registration", async () => {
+    process.env[CLIENT_ID] = "gh-client-id";
+    process.env[CLIENT_SECRET] = "gh-client-secret";
+    const store = new MemoryStore();
+    const oauth = githubProvider(store);
+
+    const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
+
+    assert.equal(info?.client_id, "gh-client-id");
+    assert.equal(info?.client_secret, "gh-client-secret");
+    assert.equal(info?.issuer, GITHUB_MCP_ISSUER);
+  });
+
+  test("declares the auth method the SDK reads off client information", async () => {
+    process.env[CLIENT_ID] = "gh-client-id";
+    process.env[CLIENT_SECRET] = "gh-client-secret";
+    const oauth = githubProvider(new MemoryStore());
+    const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
+    assert.ok(info);
+
+    // The SDK picks the method from client INFORMATION, never from the
+    // registration metadata, and an empty `supportedMethods` list is what
+    // GitHub's metadata document actually yields.
+    assert.equal(selectClientAuthMethod(info, []), "client_secret_post");
+    assert.equal(oauth.clientMetadata.token_endpoint_auth_method, "none");
+  });
+
+  test("the token exchange carries the client secret in the request body", async () => {
+    process.env[CLIENT_ID] = "gh-client-id";
+    process.env[CLIENT_SECRET] = "gh-client-secret";
+    const oauth = githubProvider(new MemoryStore());
+    const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
+    assert.ok(info);
+
+    let body: URLSearchParams | undefined;
+    let authorizationHeader: string | null = null;
+    const tokens = await exchangeAuthorization(GITHUB_MCP_ISSUER, {
+      metadata: {
+        issuer: GITHUB_MCP_ISSUER,
+        authorization_endpoint: "https://github.com/login/oauth/authorize",
+        token_endpoint: "https://github.com/login/oauth/access_token",
+        response_types_supported: ["code"],
+      },
+      clientInformation: info,
+      authorizationCode: "code-123",
+      codeVerifier: "verifier-123",
+      redirectUri: "https://alfred.example.test/api/integrations/mcp/callback",
+      fetchFn: async (_url, init) => {
+        body = new URLSearchParams(String(init?.body));
+        authorizationHeader = new Headers(init?.headers).get("Authorization");
+        return new Response(JSON.stringify({ access_token: "gh-token", token_type: "Bearer" }), {
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+
+    assert.equal(tokens.access_token, "gh-token");
+    assert.equal(body?.get("client_id"), "gh-client-id");
+    assert.equal(body?.get("client_secret"), "gh-client-secret");
+    assert.equal(authorizationHeader, null);
+  });
+
+  test("saveDiscoveryState never copies the client into the credential row", async () => {
+    process.env[CLIENT_ID] = "gh-client-id";
+    process.env[CLIENT_SECRET] = "gh-client-secret";
+    const store = new MemoryStore();
+    const oauth = githubProvider(store);
+
+    await oauth.saveDiscoveryState(GITHUB_DISCOVERY);
+
+    // The row holds discovery only. A durable copy would pin the secret at the
+    // value it had on first connect and survive every later rotation.
+    assert.equal(store.row?.clientInformation, null);
+    assert.equal(store.row?.clientSecret, null);
+  });
+
+  test("a rotated secret reaches the next exchange with no reconsent", async () => {
+    process.env[CLIENT_ID] = "gh-client-id";
+    process.env[CLIENT_SECRET] = "secret-one";
+    const store = new MemoryStore();
+    const oauth = githubProvider(store);
+    await oauth.saveDiscoveryState(GITHUB_DISCOVERY);
+    assert.equal(
+      (await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }))?.client_secret,
+      "secret-one",
+    );
+
+    process.env[CLIENT_SECRET] = "secret-two";
+
+    assert.equal(
+      (await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }))?.client_secret,
+      "secret-two",
+    );
+  });
+
+  test("an unconfigured environment leaves the built-in absent", async () => {
+    const oauth = githubProvider(new MemoryStore());
+    assert.equal(await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }), undefined);
   });
 });

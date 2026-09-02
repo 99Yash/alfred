@@ -259,6 +259,13 @@ const serverEnvSchema = z
     /** User-to-server OAuth callback, e.g. `https://api.alfred.beauty/api/integrations/github/callback`. */
     GITHUB_APP_REDIRECT_URI: z.string().url(),
     /**
+     * Built-in GitHub MCP OAuth client (PRD #934). Optional — when `GITHUB_MCP_CLIENT_ID`
+     * is unset the built-in falls back to DCR (which GitHub's AS does not support,
+     * so the flow then fails closed). `optionalSecret` tolerates blank env lines.
+     */
+    GITHUB_MCP_CLIENT_ID: optionalSecret(),
+    GITHUB_MCP_CLIENT_SECRET: optionalSecret(),
+    /**
      * Notion public OAuth integration (https://www.notion.so/my-integrations).
      * Optional so the server still boots before the integration is registered;
      * the connect route throws a clean 503 when these are absent. Notion access
@@ -439,7 +446,7 @@ function gatewayTokenFromEnv(): string | undefined {
   return undefined;
 }
 
-function envFieldValue<K extends keyof ServerEnv>(key: K): ServerEnv[K] | undefined {
+export function envFieldValue<K extends keyof ServerEnv>(key: K): ServerEnv[K] | undefined {
   const field = serverEnvSchema.shape[key];
   const result = field.safeParse(process.env[key as string]);
   return result.success ? (result.data as ServerEnv[K]) : undefined;

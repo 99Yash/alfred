@@ -21,7 +21,7 @@ INSERT INTO "mcp_servers" (
 	"updated_at"
 )
 SELECT
-	"id",
+	regexp_replace("id", '^mcpc_', 'mcps_'),
 	"user_id",
 	"canonical_resource",
 	"endpoint_url",
@@ -30,7 +30,7 @@ SELECT
 	"updated_at"
 FROM "mcp_connections";--> statement-breakpoint
 UPDATE "mcp_connections"
-SET "server_id" = "id", "instance_key" = 'default';--> statement-breakpoint
+SET "server_id" = regexp_replace("id", '^mcpc_', 'mcps_'), "instance_key" = 'default';--> statement-breakpoint
 DO $$
 BEGIN
 	IF EXISTS (
@@ -53,7 +53,6 @@ ALTER TABLE "mcp_connections" ALTER COLUMN "instance_key" SET NOT NULL;--> state
 ALTER TABLE "mcp_servers" ADD CONSTRAINT "mcp_servers_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "mcp_servers_user_resource_idx" ON "mcp_servers" USING btree ("user_id","canonical_resource");--> statement-breakpoint
 CREATE UNIQUE INDEX "mcp_servers_id_user_idx" ON "mcp_servers" USING btree ("id","user_id");--> statement-breakpoint
-ALTER TABLE "mcp_connections" ADD CONSTRAINT "mcp_connections_server_id_mcp_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."mcp_servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "mcp_connections" ADD CONSTRAINT "mcp_connections_server_owner_fk" FOREIGN KEY ("server_id","user_id") REFERENCES "public"."mcp_servers"("id","user_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "mcp_connections_user_server_instance_idx" ON "mcp_connections" USING btree ("user_id","server_id","instance_key");--> statement-breakpoint
 ALTER TABLE "mcp_connections" DROP COLUMN "canonical_resource";--> statement-breakpoint
