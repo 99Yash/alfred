@@ -69,7 +69,7 @@ const credentialKek = () =>
       .transform((v) => Buffer.from(v, "base64url").toString("base64url")),
   );
 
-export const serverEnvSchema = z
+const serverEnvSchema = z
   .object({
     DATABASE_URL: z.string().url(),
     REDIS_URL: z.string().url(),

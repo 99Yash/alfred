@@ -11,7 +11,7 @@ import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import { computeDescriptorHashes, type McpCallEnvelope } from "@alfred/assistant/connections/mcp";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
-import { createNamedConnection } from "../../../src/connections/mcp/persistence";
+import { ensureConnection } from "../../../src/connections/mcp/persistence";
 import {
   type McpBrokerCallInput,
   type McpBrokerOutcome,
@@ -102,9 +102,10 @@ async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
 }
 
 async function seedConnectionWithCatalog(userId: string, tools: Tool[]): Promise<string> {
-  const conn = await createNamedConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
@@ -132,9 +133,10 @@ async function seedOwnedCatalog(
   revisionHash: string;
   descriptorHashes: Record<string, string>;
 }> {
-  const conn = await createNamedConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
