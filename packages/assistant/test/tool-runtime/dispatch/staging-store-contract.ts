@@ -17,6 +17,7 @@
  */
 
 import assert from "node:assert/strict";
+import { publicAppError } from "@alfred/contracts/app-errors";
 import { describe, test } from "node:test";
 
 import type { ActionStagingStatus, EffectOutcome, RunStatus } from "@alfred/contracts";
@@ -321,10 +322,7 @@ export function runStagingStoreContract(
       const { row } = await h.store.upsertStaging(stagingValues(run));
       const seeded = await h.readBack(row.id);
       const executedAt = new Date();
-      const error = {
-        code: "tool_execution_failed",
-        message: "The tool failed unexpectedly. Please try again.",
-      } as const;
+      const error = publicAppError("tool_execution_failed");
 
       await h.store.commitStaging(row.id, row, {
         status: "failed",

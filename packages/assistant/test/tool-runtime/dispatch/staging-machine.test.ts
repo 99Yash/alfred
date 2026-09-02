@@ -24,6 +24,7 @@
  */
 
 import assert from "node:assert/strict";
+import { publicAppError } from "@alfred/contracts/app-errors";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { z } from "zod";
@@ -326,10 +327,7 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(result.kind, "failed");
     const [row] = store.rows();
     assert.equal(row?.status, "failed");
-    assert.deepEqual(row?.executeError, {
-      code: "tool_execution_failed",
-      message: "The tool failed unexpectedly. Please try again.",
-    });
+    assert.deepEqual(row?.executeError, publicAppError("tool_execution_failed"));
     assert.equal(row?.executeResult, null, "a failed commit writes no result");
   });
 
@@ -340,10 +338,10 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(executeCount, 1);
     assert.equal(second.kind, "failed");
-    assert.deepEqual(second.kind === "failed" ? second.error : undefined, {
-      code: "tool_execution_failed",
-      message: "The tool failed unexpectedly. Please try again.",
-    });
+    assert.deepEqual(
+      second.kind === "failed" ? second.error : undefined,
+      publicAppError("tool_execution_failed"),
+    );
   });
 
   test("retry suppression synthesizes the prior rejection and writes NO new row", async () => {
@@ -449,10 +447,7 @@ describe("dispatch staging machine (DB-free)", () => {
       "refused",
       "a refusal is not an attempted effect, so it is not `failed`",
     );
-    assert.deepEqual(row.executeError, {
-      code: "run_cancelled",
-      message: "The run was cancelled; this action did not run.",
-    });
+    assert.deepEqual(row.executeError, publicAppError("run_cancelled"));
   });
 
   test("an unknown run reads as unavailable rather than executing", async () => {
@@ -716,10 +711,7 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.deepEqual(result, {
       kind: "failed",
       stagingId: store.rows()[0]!.id,
-      error: {
-        code: "tool_input_invalid",
-        message: "The tool input is invalid. Correct it and try again.",
-      },
+      error: publicAppError("tool_input_invalid"),
     });
     assert.equal(executeCount, before, "an invalid edit must never reach the tool");
     const stored = store.readBack(store.rows()[0]!.id);

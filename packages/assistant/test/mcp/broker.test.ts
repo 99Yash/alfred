@@ -28,6 +28,7 @@ import { McpClientError } from "../../src/connections/mcp/errors";
 import { descriptorHash } from "../../src/connections/mcp/hash";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
 import { ensureConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
+import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import {
   reconcileInflightInvocations,
   upsertToolPolicy,
@@ -188,8 +189,8 @@ function brokerWith(protocol: FakeProtocol): McpExecutionBroker {
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: new URL(connection.server.endpointUrl),
-        endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+        endpoint: connection.server,
+        endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
   });
@@ -202,8 +203,8 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: new URL(connection.server.endpointUrl),
-        endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+        endpoint: connection.server,
+        endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
   });

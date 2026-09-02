@@ -16,6 +16,7 @@ import {
 } from "../../src/connections/mcp";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
 import { ensureConnection, readConnection } from "../../src/connections/mcp/persistence";
+import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
@@ -98,8 +99,8 @@ function managerWith(protocol: FakeProtocol): McpConnectionManager {
     clientFactory: (connection) =>
       new McpRawClient({
         connectionId: connection.id,
-        endpoint: new URL(connection.server.endpointUrl),
-        endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+        endpoint: connection.server,
+        endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
       }),
   });

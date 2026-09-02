@@ -342,6 +342,31 @@ const serverEnvSchema = z
      */
     GMAIL_MAILBOX_WRITES_ENABLED: optionalBooleanString(),
     /**
+     * Gate for the repeatable cron schedules — the ingestion poll, the memory
+     * extract, the hourly briefing tick, and the workflows tick.
+     *
+     * These are the only jobs a *timer* enqueues, so they are the only ones that
+     * spend money with nobody watching: the briefing tick calls a model and sends
+     * mail on a schedule. Worse, `pnpm dev` runs the server under `tsx watch`,
+     * and that supervisor listens on no port — so it survives closing the
+     * terminal, is invisible to a "what is on :3001" check, and silently respawns
+     * the child on every file change. One such orphan ran for three days and
+     * billed real tokens against seeded test rows.
+     *
+     * Deliberately scoped to the schedules and NOT to the workers. A worker only
+     * acts on a job somebody enqueued, and in dev that somebody is usually the
+     * developer — sending a chat message, triggering a run by hand. Gating the
+     * workers would break interactive local work; gating the schedules removes
+     * the unattended spend and leaves everything a person initiates untouched.
+     *
+     * Tri-state, mirroring {@link GMAIL_MAILBOX_WRITES_ENABLED}: unset → default
+     * (on in `production`, off otherwise); `"true"`/`"false"` → explicit opt-in
+     * or opt-out, so a developer can deliberately exercise a cron locally.
+     * Resolve via {@link scheduledJobsEnabled}; never branch on this field
+     * directly.
+     */
+    ALFRED_RUN_SCHEDULED_JOBS: optionalBooleanString(),
+    /**
      * Hedge delay for the triage classify call, in milliseconds (#436). If the
      * cheap-model call has not answered within this window, a second identical
      * call is fired and whichever lands first wins — the tail of
@@ -430,6 +455,18 @@ export function nodeEnv(): ServerEnv["NODE_ENV"] {
 export function gmailMailboxWritesEnabled(): boolean {
   const env = serverEnv();
   return env.GMAIL_MAILBOX_WRITES_ENABLED ?? env.NODE_ENV === "production";
+}
+
+/**
+ * Whether this process may register the repeatable cron schedules. The single
+ * decision point: an explicit `ALFRED_RUN_SCHEDULED_JOBS` wins, otherwise it
+ * defaults to production-only so an unattended dev process cannot spend money or
+ * send mail on a timer. The runtime's `start()` checks this; nothing else should
+ * read the env field.
+ */
+export function scheduledJobsEnabled(): boolean {
+  const env = serverEnv();
+  return env.ALFRED_RUN_SCHEDULED_JOBS ?? env.NODE_ENV === "production";
 }
 
 export function chatMemoryCaptureEnabled(): boolean {

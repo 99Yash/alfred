@@ -132,6 +132,7 @@ After a derive lands, drop now-orphaned imports — the literal often named a un
 - **No `Record<string, any>`.** It defeats every `unknown` guard the contracts package exists to provide; oxlint's `typescript/no-restricted-types` bans it.
 - **Make loose records intentional.** `Record<string, unknown>` is correct for a real open dictionary, but it is not a substitute for a boundary parse or a known object shape. Use a parsed schema (`z.infer`) for untrusted structured data, a `Record` keyed by a literal-union type with `satisfies` for known keys, `Map<K, V>` for an in-memory dynamic dictionary, and the canonical `JsonValue`/`JsonObject` from `@alfred/contracts` for JSON protocol bags. See [narrow record types](../research/narrow-record-types-2026-08-09.md).
 - **Type guards over casts.** `as` asserts; it doesn't check. A guard that the compiler verifies beats a cast that lies.
+- **Boundary guards stay at the boundary.** `isRecord`/`toRecord`/`getPath`/`getStringPath` are for `unknown` at a true parse boundary — webhook body, `JSON.parse` output, untyped `jsonb` with no `.$type<>()`, provider trace. Applying them to a value whose type a schema (`z.infer`), Drizzle row (`Document`), or SDK instance already established widens it back to `Record<string, unknown>` and re-opens what the parse proved. That widening is what `anti-slop/no-unsafe-dictionary-type`, `no-known-value-widening`, and `no-widen-then-assert` are ratcheted to prevent (see `scripts/oxlint/anti-slop/` and `code-asserts.md`). If the field is typed, index it directly; for class/SDK instances (`LanguageModel`, `DatabaseError`) use `isIndexable` + `Reflect.get`, not `isRecord`, per `packages/contracts/AGENTS.md` and `packages/ai/AGENTS.md`.
 - **Exhaustive switches** end with a `default` that assigns to `const _exhaustive: never = x` — adding a union member then fails the build instead of silently falling through.
 - **Minimize `!`.** A non-null assertion is a runtime promise the compiler can't keep. Narrow instead.
 - **`process.env` is banned** — go through `serverEnv()` from `@alfred/env/server`.
@@ -155,6 +156,8 @@ Put the constant at the narrowest stable owner:
 - **Environment** only for deploy-time operator knobs, secrets, endpoints, or values that should differ by environment. Do not use env vars just to avoid naming a constant.
 
 Before moving a value into `@alfred/contracts`, confirm the web bundle is allowed to import every dependency it pulls in. Contracts must stay runtime-light and server-agnostic.
+
+For the lint vs review split on these ownership rules, see `code-asserts.md` — which of the schema/constant/guard invariants are `anti-slop`/`oxlint` ratchets and which remain checklist-only.
 
 ## 3. Backend (api / db / integrations)
 

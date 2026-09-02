@@ -26,7 +26,10 @@ import {
   type McpProtocolClient,
   type McpProtocolPage,
 } from "@alfred/assistant/connections/mcp";
-import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
+import {
+  permissiveMcpEndpointAuthorizerForTests,
+  publishCatalogRevision,
+} from "@alfred/assistant/connections/mcp/test-support";
 import { ensureConnection } from "../../../src/connections/mcp/persistence";
 import { type McpBrokerCallInput, type McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
 import {
@@ -439,8 +442,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       clientFactory: (owned) =>
         new McpRawClient({
           connectionId: owned.id,
-          endpoint: new URL(owned.server.endpointUrl),
-          endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+          endpoint: owned.server,
+          endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
           protocolFactory: () => protocol,
         }),
     });
@@ -575,8 +578,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       clientFactory: (owned) =>
         new McpRawClient({
           connectionId: owned.id,
-          endpoint: new URL(owned.server.endpointUrl),
-          endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
+          endpoint: owned.server,
+          endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
           protocolFactory: () => protocol,
         }),
     });

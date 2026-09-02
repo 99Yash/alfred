@@ -35,7 +35,7 @@ import {
 async function credentialsFor(ctx: ToolExecuteContext): Promise<RailwayCredentialClient[]> {
   const credentials = await ctx.integrations.railway.credentials();
   if (credentials.length === 0) {
-    throw new AppError("railway_connection_required");
+    throw new AppError("connection_required", { integration: "railway" });
   }
   return credentials;
 }

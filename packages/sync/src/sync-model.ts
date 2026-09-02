@@ -238,7 +238,7 @@ export const IDB_KEY_NAMES =
  * non-JSON artefacts; the parse step returns a plain JSON tree that
  * satisfies the Replicache boundary.
  */
-export function normalizeToReadonlyJSON<T>(value: T): ReadonlyJSONValue {
+function normalizeToReadonlyJSON<T>(value: T): ReadonlyJSONValue {
   // SAFETY: JSON.parse returns `unknown`; the round-trip guarantees a valid
   // JSON tree, which is exactly ReadonlyJSONValue.
   return JSON.parse(JSON.stringify(value)) as ReadonlyJSONValue;

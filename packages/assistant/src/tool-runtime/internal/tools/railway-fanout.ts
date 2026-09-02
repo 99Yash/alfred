@@ -10,7 +10,12 @@ import {
   type RailwayDeployment,
   type RailwayProject,
 } from "@alfred/integrations/railway";
-import { AppError, toPublicAppError, type PublicAppError } from "@alfred/contracts/app-errors";
+import {
+  AppError,
+  publicAppError,
+  toPublicAppError,
+  type PublicAppError,
+} from "@alfred/contracts/app-errors";
 import { logger } from "@alfred/logging";
 
 export interface RailwayCredentialRef {
@@ -106,7 +111,11 @@ export async function listProjectsForCredentials(
   // With a single credential there is no sibling to fall back to, so fail with
   // a safe actionable error while retaining the provider detail only as cause.
   if (credentials.length === 1 && settled[0]?.status === "rejected") {
-    throw new AppError("railway_unavailable", { cause: settled[0].reason });
+    throw new AppError(
+      "integration_unavailable",
+      { integration: "railway" },
+      { cause: settled[0].reason },
+    );
   }
 
   const projectsById = new Map<string, RailwayProjectWithCredential>();
@@ -125,7 +134,10 @@ export async function listProjectsForCredentials(
       return;
     }
     // A sibling may still answer, so record the failure and keep going.
-    const failure = toPublicAppError(outcome.reason, "railway_account_read_failed");
+    const failure = toPublicAppError(
+      outcome.reason,
+      publicAppError("account_read_failed", { integration: "railway" }),
+    );
     logger.error(
       {
         err: outcome.reason,
@@ -144,7 +156,7 @@ export async function listProjectsForCredentials(
   // zero projects (empty workspace) must not be reported as a failure. List the
   // provider details remain in the per-account safe logs above.
   if (!anySucceeded && failures.length > 0) {
-    throw new AppError("railway_unavailable");
+    throw new AppError("integration_unavailable", { integration: "railway" });
   }
   return { projects: [...projectsById.values()], failures };
 }
@@ -218,7 +230,10 @@ export async function listRecentDeploymentsForCredentials(
       return;
     }
     // Tolerate one project's failure — the sweep still returns the rest.
-    const failure = toPublicAppError(outcome.reason, "railway_account_read_failed");
+    const failure = toPublicAppError(
+      outcome.reason,
+      publicAppError("account_read_failed", { integration: "railway" }),
+    );
     logger.error(
       {
         err: outcome.reason,
