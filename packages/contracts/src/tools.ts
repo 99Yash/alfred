@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { enumGuard } from "./guards";
 import {
+  INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
   INTEGRATION_SLUGS,
   isIntegrationSlug,
@@ -11,75 +12,9 @@ export const POLICY_MODES = ["autonomy", "gated"] as const;
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
 /**
- * The single registry of every tool action, keyed by integration slug. The
- * `satisfies` clause forces an entry for each {@link IntegrationSlug}, so adding
- * a slug without its actions is a type error. Per-integration arrays live inline
- * here rather than as separate exports — nothing consumes them on their own.
+ * The actions an integration registers, read off its registry entry
+ * (`INTEGRATIONS[slug].actions`). `${slug}.${action}` is the tool name.
  */
-export const INTEGRATION_ACTIONS = {
-  system: [
-    "search_tools",
-    "load_tool",
-    "current_time",
-    "author_workflow",
-    "recover_workflow",
-    "activate_workflow",
-    "spawn_sub_agent",
-    "await_sub_agent",
-    "read_user_context",
-    "read_chat_history",
-    "read_scratch",
-    "write_scratch",
-    "promote",
-    "remember",
-    "list_instructions",
-    "forget_instruction",
-    "edit_instruction",
-    "resolve_todo",
-    "suggest_todo",
-    "web_search",
-    "fetch_url",
-    "corpus_search",
-    "create_artifact",
-    "append_artifact_page",
-    "append_artifact_section",
-    "update_artifact",
-  ],
-  // Two fixed actions project N third-party MCP connections into the closed
-  // union: `mcp.call` (route a remote tools/call through dispatch) and
-  // `mcp.list_tools` (bounded local read of the persisted catalog). The remote
-  // tool name and connection ride in the args, never in the tool name.
-  mcp: ["call", "list_tools"],
-  gmail: ["search", "read_message", "send_draft", "request"],
-  calendar: ["list_events", "create_event", "request"],
-  drive: ["search_files", "get_file", "export_file", "download_file", "request"],
-  docs: ["get_document", "request"],
-  sheets: [
-    "create_spreadsheet",
-    "get_values",
-    "update_values",
-    "append_values",
-    "batch_update",
-    "add_sheet",
-    "request",
-  ],
-  slides: ["create_presentation", "get_presentation", "batch_update", "add_slide", "request"],
-  slack: [],
-  linear: [],
-  github: ["search", "get_pull_request", "get_issue", "request"],
-  notion: ["search", "get_page", "create_page", "append_blocks", "request"],
-  railway: [
-    "list_projects",
-    "list_deployments",
-    "recent_deployments",
-    "get_logs",
-    "redeploy",
-    "graphql",
-  ],
-  vercel: ["list_projects", "list_deployments", "redeploy", "request"],
-  imessage: [],
-} as const satisfies Record<IntegrationSlug, readonly string[]>;
-
 export type ActionSlug<I extends IntegrationSlug> = (typeof INTEGRATION_ACTIONS)[I][number];
 
 export type ToolName = {

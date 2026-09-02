@@ -40,6 +40,8 @@ import { isToolName, type ToolName } from "./tools";
  * The API-side handler registry is keyed by it, so giving an entry a
  * `passthrough` is a compile error until its config, gate, transport, tool
  * action, and preference are wired.
+ *
+ * @deprecated Import {@link SupportedPassthroughSlug}. Deleted in PR 4 of the registry plan.
  */
 export type SupportedIntegrationSlug = SupportedPassthroughSlug;
 

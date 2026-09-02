@@ -60,7 +60,11 @@ export interface ChatMessageToolCall {
   /**
    * Present only on a connection-health bounce (#378 item 3): this entry is
    * deliberately persisted (despite being a non-execution) so a reload
-   * re-offers the repair. Shape is the cross-boundary contract.
+   * re-offers the repair. Shape is the cross-boundary contract. The type is a
+   * claim over a jsonb column: a row written by a build with a wider registry
+   * can hold a slug this enum lacks. Only the sync parse
+   * (`syncedChatToolCallSchema`) validates it, and that parse reads a foreign
+   * slug as `null`; nothing else re-checks the row.
    */
   connectNudge?: ChatConnectNudge | undefined;
 }

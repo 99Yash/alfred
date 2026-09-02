@@ -23,6 +23,8 @@ import {
  * the shared bearer persistence layer in `@alfred/integrations`. The registry
  * name is {@link BearerSlug}; this alias keeps the older import working and is
  * deleted in PR 4 of the registry plan with the other transition names.
+ *
+ * @deprecated Import {@link BearerSlug}. Deleted in PR 4 of the registry plan.
  */
 export type BearerProvider = BearerSlug;
 
@@ -30,6 +32,9 @@ export type BearerProvider = BearerSlug;
  * The credential shape for a dynamic slug string (a UI catalog id, a persisted
  * value), or `undefined` when it isn't a loadable integration at all. Callers
  * treat `undefined` the same as `deferred`: nothing to probe.
+ *
+ * @deprecated Narrow with `isLiveProviderSlug` and read
+ * `INTEGRATIONS[slug].credential.shape`. Deleted in PR 4 of the registry plan.
  */
 export function credentialShapeForSlug(slug: string): CredentialShape | undefined {
   return isLoadableIntegrationSlug(slug) ? CREDENTIAL_SHAPE[slug] : undefined;
