@@ -61,9 +61,10 @@ export const BUILT_IN_REGISTRY = {
 
 export type BuiltInProvider = keyof typeof BUILT_IN_REGISTRY;
 
-function readEnvForEntry(
-  entry: (typeof BUILT_IN_REGISTRY)[BuiltInProvider],
-): { clientId: string | undefined; clientSecret: string | undefined } {
+function readEnvForEntry(entry: (typeof BUILT_IN_REGISTRY)[BuiltInProvider]): {
+  clientId: string | undefined;
+  clientSecret: string | undefined;
+} {
   const clientId = envFieldValue(entry.env.clientIdKey) as string | undefined;
   const clientSecret = envFieldValue(entry.env.clientSecretKey) as string | undefined;
   return { clientId, clientSecret };

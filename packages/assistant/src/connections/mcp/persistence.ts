@@ -195,7 +195,9 @@ import {
  * touches one site and `process.env` is read lazily inside the factory (per-test
  * overrides still work).
  */
-export function builtInStaticOAuthClient(provider: BuiltInProvider): BuiltInOAuthConfig | undefined {
+export function builtInStaticOAuthClient(
+  provider: BuiltInProvider,
+): BuiltInOAuthConfig | undefined {
   return resolveBuiltInClient({ provider });
 }
 
