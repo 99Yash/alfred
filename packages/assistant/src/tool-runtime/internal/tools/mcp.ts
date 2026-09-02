@@ -138,7 +138,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "list_tools",
     riskTier: "no_risk",
     description:
-      'Search the tools in all of your connected MCP catalogs without first knowing a connection. Returns compact hits with an exact `ref`, namespace, and connection identity. Narrow with optional `query`, `namespace`, or `connectionId`, and continue bounded scans with `cursor`. Pass `detail:"names"` to omit prose. To inspect one full descriptor, pass only a previously returned `ref`. This is a local read of Alfred\'s validated catalogs and never hits the network.',
+      'Search the tools in all of your connected MCP catalogs without first knowing a connection. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions only; scope to one connection with `namespace` or `connectionId`. Continue bounded scans with `cursor`. Pass `detail:"names"` to omit prose. To inspect one full descriptor, pass ONLY a previously returned `ref` and no other field: search fields and `ref` are exclusive, and a request that mixes them is rejected. This is a local read of Alfred\'s validated catalogs and never hits the network.',
     discovery: {
       aliases: ["list mcp tools", "mcp catalog", "what mcp tools", "connected tools"],
       tags: ["mcp", "integration", "discovery"],

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { McpRecoveryDecision } from "@alfred/contracts";
+import { mcpRecoveryDecisionBodySchema, type McpRecoveryDecision } from "@alfred/contracts";
 import { applyServerEnvFixtures } from "./support/server-env";
 
 // This suite makes only anonymous requests, so it never dials either service.
@@ -10,8 +10,10 @@ applyServerEnvFixtures({
   redisUrl: "redis://localhost:6379",
 });
 
-const [{ Elysia }, { errorHandler, mcpIntegrationRoutes }, { loadMcpRecoveryPage }] =
-  await Promise.all([import("elysia"), import("@alfred/http"), import("../src/mcp")]);
+const [{ Elysia }, { errorHandler, mcpIntegrationRoutes }] = await Promise.all([
+  import("elysia"),
+  import("@alfred/http"),
+]);
 
 describe("mcpIntegrationRoutes", () => {
   test("keeps the OAuth callback public and maps an invalid callback through errorHandler", async () => {
@@ -48,7 +50,7 @@ describe("mcpIntegrationRoutes", () => {
     }
   });
 
-  test("publishes only the optional recovery cursor and forwards it to the page loader", async () => {
+  test("publishes only the optional recovery cursor", async () => {
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
     const route = app.routes.find(
       (candidate) =>
@@ -71,41 +73,51 @@ describe("mcpIntegrationRoutes", () => {
       );
       assert.equal(rejected.status, 422);
     }
-
-    let received: unknown;
-    const page = await loadMcpRecoveryPage(
-      { userId: "user-1", cursor: "cursor-2" },
-      async (input) => {
-        received = input;
-        return { operations: [], nextCursor: null };
-      },
-    );
-    assert.deepEqual(received, { userId: "user-1", cursor: "cursor-2" });
-    assert.deepEqual(page, { operations: [], nextCursor: null });
   });
 
-  test("publishes the canonical closed recovery decision at the HTTP boundary", () => {
+  test("accepts exactly the two closed recovery decisions at the HTTP boundary", async () => {
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
     const route = app.routes.find(
       (candidate) =>
         candidate.method === "POST" &&
         candidate.path === "/api/integrations/mcp/recovery/:invocationId/resolve",
     );
-
     assert.ok(route);
-    assert.deepEqual(JSON.parse(JSON.stringify(route.hooks.body)), {
-      additionalProperties: false,
-      type: "object",
-      required: ["decision"],
-      properties: {
-        decision: {
-          anyOf: [
-            { const: "confirmed_succeeded", type: "string" },
-            { const: "confirmed_not_applied", type: "string" },
-          ],
-        },
+
+    const decisions: unknown[] = [];
+    const validationProbe = new Elysia({ normalize: "typebox" }).post(
+      "/resolve",
+      ({ body }) => {
+        // `route.hooks.body` is untyped here; the contract schema is the reader.
+        decisions.push(mcpRecoveryDecisionBodySchema.parse(body).decision);
+        return null;
       },
-    });
+      { body: route.hooks.body },
+    );
+    const acceptedDecisions: McpRecoveryDecision[] = [
+      "confirmed_succeeded",
+      "confirmed_not_applied",
+    ];
+    for (const decision of acceptedDecisions) {
+      const response = await validationProbe.handle(
+        new Request("http://localhost/resolve", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ decision }),
+        }),
+      );
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(decisions, acceptedDecisions);
+
+    const extraKey = await validationProbe.handle(
+      new Request("http://localhost/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "confirmed_succeeded", extra: true }),
+      }),
+    );
+    assert.equal(extraKey.status, 422, "the body is a closed object");
   });
 
   test("rejects a missing or invalid recovery decision before the mutation runs", async () => {

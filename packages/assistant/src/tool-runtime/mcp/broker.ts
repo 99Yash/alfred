@@ -38,7 +38,7 @@ import {
   type McpToolPolicyRow,
   type NewMcpInvocation,
 } from "@alfred/db/schemas";
-import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
   boundedMcpErrorText,
   canonicalArgsHash,
@@ -58,13 +58,11 @@ import {
   resolveMcpToolIdentity,
   type OwnedMcpConnectionRef,
 } from "./invocations";
-import { hasMcpBrokerAdmissionCapacity, MCP_SETTLEMENT_REPAIR_BATCH_SIZE } from "./broker-policy";
 import {
-  afterMcpRecoveryOrderKey,
-  mcpRecoveryEffectiveAt,
-  mcpRecoveryOrderKey,
-  type McpRecoveryOrderKey,
-} from "./recovery-progress";
+  hasMcpBrokerAdmissionCapacity,
+  MCP_SETTLEMENT_REPAIR_BATCH_SIZE,
+  MCP_SETTLEMENT_REPAIR_RETRY_MS,
+} from "./broker-policy";
 
 const BLOCKED_BARRIER_MESSAGE =
   "A matching write to this MCP tool is already unresolved (it may have been delivered). " +
@@ -93,10 +91,16 @@ export interface McpBrokerCallInput {
   signal?: AbortSignal;
 }
 
+/**
+ * A successor resume carries no `AbortSignal` on purpose. The send it performs is
+ * the one send that must not share an HTTP request's lifetime: a closed tab
+ * would abort a write that is already `delivery_possible` and convert a
+ * user-authorized successor into one more ambiguous row. The raw client's own
+ * request timeout is the only bound.
+ */
 export interface McpReservedSuccessorInput {
   userId: string;
   invocationId: string;
-  signal?: AbortSignal;
 }
 
 export type McpBrokerBlockReason = "ambiguity_barrier" | "already_recorded";
@@ -163,28 +167,8 @@ interface PendingMcpSettlementRepair {
   resultProvenance?: McpResultProvenance;
 }
 
-const pendingMcpSettlementRepairs = new Map<string, PendingMcpSettlementRepair>();
-let activeMcpSettlementSlots = 0;
-
-function acquireMcpSettlementSlot(): () => void {
-  if (
-    !hasMcpBrokerAdmissionCapacity({
-      pendingRepairs: pendingMcpSettlementRepairs.size,
-      activeSettlements: activeMcpSettlementSlots,
-    })
-  ) {
-    throw new McpClientError(
-      "not_connected",
-      "MCP recovery is temporarily busy; retry after pending recovery state is read.",
-    );
-  }
-  activeMcpSettlementSlots += 1;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    activeMcpSettlementSlots -= 1;
-  };
+function pendingRepairKey(input: Pick<PendingMcpSettlementRepair, "userId" | "invocationId">) {
+  return `${input.userId}:${input.invocationId}`;
 }
 
 /**
@@ -605,96 +589,116 @@ async function normalizeMarkedMcpSettlementFailure(
   });
 }
 
-function queueMcpSettlementRepair(input: PendingMcpSettlementRepair): void {
-  // Admission reserves one bounded process slot before any provider work. A
-  // completed call transfers that slot here before releasing it.
-  pendingMcpSettlementRepairs.set(`${input.userId}:${input.invocationId}`, input);
-}
-
 async function repairMcpSettlement(input: PendingMcpSettlementRepair): Promise<boolean> {
   if (!(await markMcpSettlementIncomplete(input))) return false;
   return normalizeMarkedMcpSettlementFailure(input);
 }
 
-async function bestEffortRepairMcpSettlement(input: PendingMcpSettlementRepair): Promise<void> {
-  queueMcpSettlementRepair(input);
-  try {
-    if (await repairMcpSettlement(input)) {
-      pendingMcpSettlementRepairs.delete(`${input.userId}:${input.invocationId}`);
-    }
-  } catch {
-    // The request must still return an ambiguous envelope. A later recovery read
-    // retries this local-only repair, and boot reconciliation covers a crash.
-  }
-}
-
 export class McpExecutionBroker {
   readonly #manager: McpConnectionManager;
+
+  /**
+   * Admission state is per broker instance, not per module: a test that swaps
+   * the singleton gets a fresh queue, and a process has exactly one broker.
+   * Capacity counts every user together, which is the right shape for a
+   * single-user deployment and a deliberate simplification beyond it.
+   */
+  readonly #pendingRepairs = new Map<string, PendingMcpSettlementRepair>();
+  #activeSettlementSlots = 0;
+  #repairDrainTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(manager: McpConnectionManager) {
     this.#manager = manager;
   }
 
   /**
-   * Retry one broker-owned batch before a recovery read. The returned frontier
-   * is the only key product paging may cross; this keeps repair work bounded
-   * independently from the recovery-card page size.
+   * Retry every queued local settlement repair, at most one batch per pass. The
+   * queue holds only repairs this process could not complete after the provider
+   * phase ended; a crash hands the same rows to boot reconciliation instead. A
+   * timer calls this after `MCP_SETTLEMENT_REPAIR_RETRY_MS`; tests call it
+   * directly. It never calls a provider.
    */
-  async repairIncompleteSettlements(input: {
-    userId: string;
-    after?: McpRecoveryOrderKey;
-  }): Promise<{ scannedThrough: McpRecoveryOrderKey | null; hasMore: boolean; repaired: number }> {
-    const queuedIds = [...pendingMcpSettlementRepairs.values()]
-      .filter((repair) => repair.userId === input.userId)
-      .map((repair) => repair.invocationId);
-    const candidates = await db()
-      .select({ invocationId: mcpInvocation.id, effectiveAt: mcpRecoveryEffectiveAt })
-      .from(mcpInvocation)
-      .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
-      .where(
-        and(
-          eq(mcpInvocation.userId, input.userId),
-          eq(actionStagings.userId, input.userId),
-          ...(input.after ? [afterMcpRecoveryOrderKey(input.after)] : []),
-          or(
-            and(
-              eq(actionStagings.outcome, "unknown"),
-              inArray(mcpInvocation.attemptLifecycle, ["delivery_possible", "response_received"]),
-              isNull(mcpInvocation.effectOutcome),
-              isNull(mcpInvocation.retryDisposition),
-              isNull(mcpInvocation.resolvedAt),
-            ),
-            ...(queuedIds.length > 0 ? [inArray(mcpInvocation.id, queuedIds)] : []),
-          ),
-        ),
-      )
-      .orderBy(asc(mcpRecoveryEffectiveAt), asc(mcpInvocation.id))
-      .limit(MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
-
-    let scannedThrough: McpRecoveryOrderKey | null = null;
-    let repaired = 0;
-    let processed = 0;
-    for (const row of candidates.slice(0, MCP_SETTLEMENT_REPAIR_BATCH_SIZE)) {
-      const key = `${input.userId}:${row.invocationId}`;
-      const repair = pendingMcpSettlementRepairs.get(key) ?? {
-        userId: input.userId,
-        invocationId: row.invocationId,
-      };
-      try {
-        if (!(await repairMcpSettlement(repair))) break;
-      } catch {
-        break;
-      }
-      pendingMcpSettlementRepairs.delete(key);
-      scannedThrough = mcpRecoveryOrderKey(row);
-      repaired += 1;
-      processed += 1;
+  async drainPendingSettlementRepairs(): Promise<{ repaired: number; remaining: number }> {
+    if (this.#repairDrainTimer) {
+      clearTimeout(this.#repairDrainTimer);
+      this.#repairDrainTimer = undefined;
     }
-    return {
-      scannedThrough,
-      hasMore: processed < candidates.length,
-      repaired,
+    let repaired = 0;
+    for (const [key, repair] of [...this.#pendingRepairs].slice(
+      0,
+      MCP_SETTLEMENT_REPAIR_BATCH_SIZE,
+    )) {
+      let done = false;
+      try {
+        done = await repairMcpSettlement(repair);
+      } catch {
+        done = false;
+      }
+      this.#pendingRepairs.delete(key);
+      if (done) {
+        repaired += 1;
+        continue;
+      }
+      // Re-queue at the back: one row that keeps failing must not hold the
+      // head of every pass and starve the rows behind it.
+      this.#pendingRepairs.set(key, repair);
+    }
+    if (this.#pendingRepairs.size > 0) this.#scheduleRepairDrain();
+    return { repaired, remaining: this.#pendingRepairs.size };
+  }
+
+  #scheduleRepairDrain(): void {
+    if (this.#repairDrainTimer) return;
+    const timer = setTimeout(() => {
+      this.#repairDrainTimer = undefined;
+      void this.drainPendingSettlementRepairs();
+    }, MCP_SETTLEMENT_REPAIR_RETRY_MS);
+    // The drain must never hold the process open: boot covers whatever a
+    // shutdown leaves behind.
+    if (typeof timer === "object" && "unref" in timer) timer.unref();
+    this.#repairDrainTimer = timer;
+  }
+
+  /**
+   * One bounded process slot per effectful send or successor resume. Reads take
+   * none: they have no settlement. A refusal is the broker's own pre-delivery
+   * code, so the dispatch seam reports capacity, not a missing connection.
+   */
+  #acquireSettlementSlot(): () => void {
+    if (
+      !hasMcpBrokerAdmissionCapacity({
+        pendingRepairs: this.#pendingRepairs.size,
+        activeSettlements: this.#activeSettlementSlots,
+      })
+    ) {
+      throw new McpClientError(
+        "admission_full",
+        "MCP execution is at capacity; try again in a moment.",
+      );
+    }
+    this.#activeSettlementSlots += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.#activeSettlementSlots -= 1;
     };
+  }
+
+  async #bestEffortRepair(input: PendingMcpSettlementRepair): Promise<void> {
+    // Admission reserves one bounded process slot before any provider work. A
+    // completed call transfers that slot here before releasing it.
+    this.#pendingRepairs.set(pendingRepairKey(input), input);
+    try {
+      if (await repairMcpSettlement(input)) {
+        this.#pendingRepairs.delete(pendingRepairKey(input));
+        return;
+      }
+    } catch {
+      // The request must still return an ambiguous envelope.
+    }
+    // The drain retries this local-only repair; boot reconciliation covers a crash.
+    this.#scheduleRepairDrain();
   }
 
   /**
@@ -703,7 +707,6 @@ export class McpExecutionBroker {
    * reservation BEFORE dispatch and resolve the lifecycle around the network hop.
    */
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
-    const releaseSettlementSlot = acquireMcpSettlementSlot();
     const span = startMcpTraceSpan({
       name: "runtime.mcp.broker_invoke",
       ...(input.traceId ? { traceId: input.traceId } : {}),
@@ -726,8 +729,6 @@ export class McpExecutionBroker {
     } catch (error) {
       span.end({ status: "error", level: "ERROR" });
       throw error;
-    } finally {
-      releaseSettlementSlot();
     }
   }
 
@@ -737,7 +738,7 @@ export class McpExecutionBroker {
    * `prepared` claim is the send-once gate for concurrent or repeated HTTP posts.
    */
   async resumeReservedSuccessor(input: McpReservedSuccessorInput): Promise<McpBrokerOutcome> {
-    const releaseSettlementSlot = acquireMcpSettlementSlot();
+    const releaseSettlementSlot = this.#acquireSettlementSlot();
     try {
       return await this.#resumeReservedSuccessor(input);
     } finally {
@@ -785,7 +786,8 @@ export class McpExecutionBroker {
         "The MCP tool changed after this recovery was authorized.",
       );
     }
-    const prepared = await this.#manager.prepareToolCall(call.connectionId, input.signal);
+    // No caller signal reaches this path (see `McpReservedSuccessorInput`).
+    const prepared = await this.#manager.prepareToolCall(call.connectionId);
     const liveTool = prepared.catalog.tools.find((tool) => tool.name === call.remoteName);
     const liveDescriptorHash = liveTool ? descriptorHash(liveTool) : undefined;
     const liveEffectClass = identity.policy?.effectClass ?? "unknown";
@@ -839,10 +841,7 @@ export class McpExecutionBroker {
     });
     let envelope: McpCallEnvelope;
     try {
-      envelope = await prepared.call(ref, claimed.call.arguments, {
-        ...(input.signal ? { signal: input.signal } : {}),
-        trace: trace.context,
-      });
+      envelope = await prepared.call(ref, claimed.call.arguments, { trace: trace.context });
     } catch (err) {
       if (isProvenNotDelivered(err)) {
         try {
@@ -852,7 +851,7 @@ export class McpExecutionBroker {
             settlement: { kind: "not_delivered", lastError: boundedMcpErrorText(err) },
           });
         } catch {
-          await bestEffortRepairMcpSettlement({
+          await this.#bestEffortRepair({
             userId: input.userId,
             invocationId: claimed.invocation.id,
           });
@@ -878,7 +877,7 @@ export class McpExecutionBroker {
           },
         });
       } catch {
-        await bestEffortRepairMcpSettlement({
+        await this.#bestEffortRepair({
           userId: input.userId,
           invocationId: claimed.invocation.id,
           ...(provenance ? { resultProvenance: provenance } : {}),
@@ -905,7 +904,7 @@ export class McpExecutionBroker {
               },
       });
     } catch {
-      await bestEffortRepairMcpSettlement({
+      await this.#bestEffortRepair({
         userId: input.userId,
         invocationId: claimed.invocation.id,
         resultProvenance: envelope.provenance,
@@ -1026,6 +1025,25 @@ export class McpExecutionBroker {
       trace: McpTraceContext;
     },
   ): Promise<McpBrokerOutcome> {
+    const releaseSettlementSlot = this.#acquireSettlementSlot();
+    try {
+      return await this.#reserveAndDeliver(input, resolved);
+    } finally {
+      releaseSettlementSlot();
+    }
+  }
+
+  async #reserveAndDeliver(
+    input: McpBrokerCallInput,
+    resolved: {
+      effectClass: McpEffectClass;
+      descriptorHashValue: string | undefined;
+      policy: McpToolPolicyRow | undefined;
+      connection: OwnedMcpConnectionRef;
+      prepared: McpPreparedToolCall;
+      trace: McpTraceContext;
+    },
+  ): Promise<McpBrokerOutcome> {
     const { ref } = input;
     const argsHash = canonicalArgsHash(input.arguments);
     // Only the current-revision POINTER is needed for the ledger row, and the
@@ -1098,7 +1116,7 @@ export class McpExecutionBroker {
             settlement: { kind: "not_delivered", lastError: boundedMcpErrorText(err) },
           });
         } catch {
-          await bestEffortRepairMcpSettlement({
+          await this.#bestEffortRepair({
             userId: input.userId,
             invocationId: invocation.id,
           });
@@ -1131,7 +1149,7 @@ export class McpExecutionBroker {
           },
         });
       } catch {
-        await bestEffortRepairMcpSettlement({
+        await this.#bestEffortRepair({
           userId: input.userId,
           invocationId: invocation.id,
           ...(provenance ? { resultProvenance: provenance } : {}),
@@ -1163,7 +1181,7 @@ export class McpExecutionBroker {
           },
         });
       } catch {
-        await bestEffortRepairMcpSettlement({
+        await this.#bestEffortRepair({
           userId: invocation.userId,
           invocationId: invocation.id,
           resultProvenance: envelope.provenance,
@@ -1179,7 +1197,7 @@ export class McpExecutionBroker {
         settlement: { kind: "succeeded", resultProvenance: envelope.provenance },
       });
     } catch {
-      await bestEffortRepairMcpSettlement({
+      await this.#bestEffortRepair({
         userId: invocation.userId,
         invocationId: invocation.id,
         resultProvenance: envelope.provenance,

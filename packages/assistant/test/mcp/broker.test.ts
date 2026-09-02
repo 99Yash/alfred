@@ -11,6 +11,7 @@ import {
   user,
   type NewActionStaging,
 } from "@alfred/db/schemas";
+import type { McpCallInput } from "@alfred/contracts";
 import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
@@ -26,10 +27,7 @@ import { McpExecutionBroker } from "../../src/tool-runtime/mcp/broker";
 import { McpClientError } from "../../src/connections/mcp/errors";
 import { descriptorHash } from "../../src/connections/mcp/hash";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import {
-  createNamedConnection,
-  publishCatalogRevision,
-} from "../../src/connections/mcp/persistence";
+import { ensureConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
 import {
   reconcileInflightInvocations,
   upsertToolPolicy,
@@ -124,6 +122,19 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
+/**
+ * The exact `mcp.call` input a staging row stores. The tool schema is strict and
+ * omits `kind`, so a spread of the whole `ExternalToolRef` is not a valid row.
+ */
+function stagedCallInput(ref: ExternalToolRef, args: McpCallInput["arguments"]): McpCallInput {
+  return {
+    connectionId: ref.connectionId,
+    remoteName: ref.remoteName,
+    catalogRevision: ref.catalogRevision,
+    arguments: args,
+  };
+}
+
 async function seedStaging(
   userId: string,
   proposedInput: NewActionStaging["proposedInput"] = {},
@@ -162,9 +173,10 @@ async function seedStaging(
 }
 
 async function seedConnection(userId: string): Promise<string> {
-  const conn = await createNamedConnection({
+  const conn = await ensureConnection({
     userId,
     label: "Test MCP",
+    instanceKey: "default",
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
@@ -219,7 +231,7 @@ async function seedRecoverableWrite(protocol: FakeProtocol) {
     catalogRevision: revision,
   };
   const argumentsValue = { amount: 4200 };
-  const exactInput = { ...ref, arguments: argumentsValue };
+  const exactInput = stagedCallInput(ref, argumentsValue);
   protocol.behavior = { kind: "throw", error: new Error("connection reset mid-send") };
   const stagingId = await seedStaging(userId, exactInput);
   const first = await brokerWith(protocol).callTool({
@@ -674,7 +686,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       catalogRevision: revision,
     };
     const args = { amount: 4200 };
-    const exactInput = { ...ref, arguments: args };
+    const exactInput = stagedCallInput(ref, args);
     protocol.behavior = {
       kind: "throw",
       error: new SdkHttpError(
@@ -926,9 +938,10 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const protocol = new FakeProtocol([tool("charge_card")]);
     const seeded = await seedRecoverableWrite(protocol);
     const attackerId = await seedUser();
-    const attackerConnection = await createNamedConnection({
+    const attackerConnection = await ensureConnection({
       userId: attackerId,
       label: "Attacker MCP",
+      instanceKey: "default",
       canonicalResource: `mcp://attacker/${randomUUID()}`,
       endpoint: new URL("https://attacker.example.test/mcp"),
     });
@@ -946,9 +959,16 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
           userId: seeded.userId,
           invocationId: seeded.invocationId,
         });
+        // The attacker already holds `default` on this server, and
+        // `(user_id, server_id, instance_key)` is unique, so the transferred row
+        // takes its own instance key.
         await tx
           .update(mcpConnections)
-          .set({ userId: attackerId, serverId: attackerConnection.serverId })
+          .set({
+            userId: attackerId,
+            serverId: attackerConnection.serverId,
+            instanceKey: "transferred",
+          })
           .where(eq(mcpConnections.id, seeded.connId));
       });
       assert.ok(retryPromise);
@@ -1065,7 +1085,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       remoteName: "create_issue",
       catalogRevision: revision,
     };
-    const stagingId = await seedStaging(userId, { ...ref, arguments: { title: "one" } });
+    const stagingId = await seedStaging(userId, stagedCallInput(ref, { title: "one" }));
     let appliedEffects = 0;
     protocol.beforeReturn = async () => {
       appliedEffects += 1;
@@ -1141,7 +1161,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     }
   });
 
-  test("a later recovery GET retries a failed local settlement normalization", async () => {
+  test("a failed local settlement repair is counted by the pure read and retried by the drain", async () => {
     const protocol = new FakeProtocol([tool("charge_card")]);
     const seeded = await seedRecoverableWrite(protocol);
     protocol.behavior = { kind: "ok" };
@@ -1153,14 +1173,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
       assert.ok(successor);
       successorStagingId = successor.stagingId;
-      // Neither the aggregate nor the first repair accepts this contradictory
-      // terminal value. It leaves the queued local repair for a later GET.
+      // `refused` is not a value the aggregate settle or the incomplete mark
+      // accepts, so the first repair genuinely fails and the row stays queued.
       await db()
         .update(actionStagings)
-        .set({ status: "executed", outcome: "succeeded" })
+        .set({ status: "failed", outcome: "refused" })
         .where(eq(actionStagings.id, successor.stagingId));
     };
-    _setMcpExecutionBrokerForTests(brokerWith(protocol));
+    const broker = brokerWith(protocol);
+    _setMcpExecutionBrokerForTests(broker);
     try {
       const result = await retryMcpRecoveryOperation({
         userId: seeded.userId,
@@ -1168,15 +1189,25 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       });
       assert.equal(result.status, "ambiguous");
       assert.ok(successorStagingId);
+
+      const callsBeforeGet = protocol.calls;
+      const counted = await listMcpRecoveryOperations({ userId: seeded.userId });
+      assert.deepEqual(counted.operations, [], "an unsettled successor is not projected");
+      assert.equal(counted.awaitingRepair, 1, "the read reports it instead");
+      assert.equal(protocol.calls, callsBeforeGet, "the read never calls a provider");
+
+      // The dispatcher-shaped terminal value the repair accepts.
       await db()
         .update(actionStagings)
         .set({ status: "failed", outcome: "failed" })
         .where(eq(actionStagings.id, successorStagingId));
+      const drained = await broker.drainPendingSettlementRepairs();
+      assert.deepEqual(drained, { repaired: 1, remaining: 0 });
 
-      const callsBeforeGet = protocol.calls;
       const page = await listMcpRecoveryOperations({ userId: seeded.userId });
+      assert.equal(page.awaitingRepair, 0);
       assert.equal(page.operations[0]?.invocationId, result.successorInvocationId);
-      assert.equal(protocol.calls, callsBeforeGet, "GET performs local repair only");
+      assert.equal(protocol.calls, callsBeforeGet, "repair is local only");
     } finally {
       _setMcpExecutionBrokerForTests(undefined);
     }
@@ -1193,7 +1224,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       remoteName: "charge_card",
       catalogRevision: revision,
     };
-    const exactInput = { ...ref, arguments: { amount: 4200 } };
+    const exactInput = stagedCallInput(ref, { amount: 4200 });
     protocol.behavior = { kind: "throw", error: new Error("connection reset mid-send") };
     const stagingId = await seedStaging(userId, exactInput);
     const first = await brokerWith(protocol).callTool({

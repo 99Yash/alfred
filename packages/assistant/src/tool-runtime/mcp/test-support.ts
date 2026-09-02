@@ -50,13 +50,17 @@ type TestInvocationReservation = Pick<
   | "effectClass"
 >;
 
-/** Reproduce a normal reservation for persistence fixtures only. */
-export async function reserveMcpInvocationForTests(
-  values: TestInvocationReservation,
-  runner: DbRunner = db(),
-): Promise<
-  { ok: true; invocation: McpInvocation } | { ok: false; reason: "barrier" | "duplicate_staging" }
-> {
+/**
+ * The one insert both fixtures share: copy correlation from the staging row,
+ * then mint the ledger row. The runner chain shape
+ * (`select().from().where().limit()` / `insert().values().returning()`) is
+ * load-bearing: `persistence.test.ts` drives it with a hand-built runner.
+ */
+async function insertMcpInvocationFixture(
+  values: NewMcpInvocation,
+  runner: DbRunner,
+  label: string,
+): Promise<McpInvocation> {
   const [staging] = await runner
     .select({
       traceId: actionStagings.runId,
@@ -66,16 +70,31 @@ export async function reserveMcpInvocationForTests(
     .from(actionStagings)
     .where(and(eq(actionStagings.id, values.stagingId), eq(actionStagings.userId, values.userId)))
     .limit(1);
+  const [row] = await runner
+    .insert(mcpInvocation)
+    .values({ ...values, ...requireRow(staging, `${label} staging`) })
+    .returning();
+  return requireRow(row, label);
+}
+
+/**
+ * Reproduce a normal reservation for persistence fixtures only: a `prepared`
+ * mint whose unique violation is classified the way the broker classifies its
+ * own. It is the seed below plus that classification, not a second copy.
+ */
+export async function reserveMcpInvocationForTests(
+  values: TestInvocationReservation,
+  runner: DbRunner = db(),
+): Promise<
+  { ok: true; invocation: McpInvocation } | { ok: false; reason: "barrier" | "duplicate_staging" }
+> {
   try {
-    const [invocation] = await runner
-      .insert(mcpInvocation)
-      .values({
-        ...values,
-        attemptLifecycle: "prepared",
-        ...requireRow(staging, "reserveMcpInvocationForTests staging"),
-      })
-      .returning();
-    return { ok: true, invocation: requireRow(invocation, "reserveMcpInvocationForTests") };
+    const invocation = await insertMcpInvocationFixture(
+      { ...values, attemptLifecycle: "prepared" },
+      runner,
+      "reserveMcpInvocationForTests",
+    );
+    return { ok: true, invocation };
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     return uniqueViolationConstraint(error) === "mcp_invocation_staging_idx"
@@ -89,20 +108,7 @@ export async function seedMcpInvocationForTests(
   values: NewMcpInvocation,
   runner: DbRunner = db(),
 ): Promise<McpInvocation> {
-  const [staging] = await runner
-    .select({
-      traceId: actionStagings.runId,
-      stepId: actionStagings.stepId,
-      toolCallId: actionStagings.toolCallId,
-    })
-    .from(actionStagings)
-    .where(eq(actionStagings.id, values.stagingId))
-    .limit(1);
-  const [row] = await runner
-    .insert(mcpInvocation)
-    .values({ ...values, ...requireRow(staging, "seedMcpInvocationForTests staging") })
-    .returning();
-  return requireRow(row, "seedMcpInvocationForTests");
+  return insertMcpInvocationFixture(values, runner, "seedMcpInvocationForTests");
 }
 
 /** Patch an exact ledger state for persistence fixtures only. */

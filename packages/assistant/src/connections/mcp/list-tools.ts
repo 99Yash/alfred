@@ -131,7 +131,7 @@ function encodeCursor(
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
-/** Project one persisted, previously validated descriptor into visible bounded text. */
+/** Project one database-built `{ name, title, description }` summary into visible bounded text. */
 function toSummary(descriptor: unknown): Summary | undefined {
   const parsed = jsonObjectSchema.safeParse(descriptor);
   if (!parsed.success) return undefined;
@@ -153,9 +153,15 @@ function connection(row: OwnedCurrentCatalogRow): McpDiscoveryConnection {
   return { id: row.connectionId, instanceKey: row.instanceKey, label: row.label };
 }
 
-function matches(summary: Summary, row: OwnedCurrentCatalogRow, query: string): boolean {
+/**
+ * `query` finds a TOOL, so it reads tool fields only. The connection label is
+ * deliberately not a match target: a query that equals a label would fill the
+ * page with every tool on that connection. `namespace` and `connectionId` are
+ * the doors that scope a search to one connection.
+ */
+function matches(summary: Summary, query: string): boolean {
   if (!query) return true;
-  return [row.label, summary.remoteName, summary.title, summary.description].some((value) =>
+  return [summary.remoteName, summary.title, summary.description].some((value) =>
     value?.toLowerCase().includes(query),
   );
 }
@@ -192,16 +198,15 @@ async function rowsForSearch(input: {
   namespace?: string;
   connectionId?: string;
   cursor: DiscoveryCursor | null;
-}): Promise<{ rows: OwnedCurrentCatalogSliceRow[]; fullBatch: boolean }> {
+}): Promise<{ rows: OwnedCurrentCatalogSliceRow[]; hasMore: boolean }> {
   if (!input.cursor) {
-    const rows = await listOwnedCurrentCatalogSlices({
+    return listOwnedCurrentCatalogSlices({
       userId: input.userId,
       ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
       ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
       catalogLimit: MCP_DISCOVERY_SCAN_BUDGET.catalogLimit,
       descriptorLimit: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
     });
-    return { rows, fullBatch: rows.length === MCP_DISCOVERY_SCAN_BUDGET.catalogLimit };
   }
 
   const current = await readOwnedCurrentCatalogSlice({
@@ -226,9 +231,12 @@ async function rowsForSearch(input: {
     cursorError("descriptor position is outside the catalog");
   }
 
-  const remainingCatalogBudget = MCP_DISCOVERY_SCAN_BUDGET.catalogLimit - 1;
   const remainingDescriptorBudget =
-    MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit - current.descriptors.length;
+    MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit - current.summaries.length;
+  // A full current slice leaves no summary budget for a later catalog, so the
+  // follow-up read projects nothing and only answers whether one exists.
+  const remainingCatalogBudget =
+    remainingDescriptorBudget === 0 ? 0 : MCP_DISCOVERY_SCAN_BUDGET.catalogLimit - 1;
   const following = await listOwnedCurrentCatalogSlices({
     userId: input.userId,
     ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
@@ -237,12 +245,13 @@ async function rowsForSearch(input: {
     catalogLimit: remainingCatalogBudget,
     descriptorLimit: remainingDescriptorBudget,
   });
-  return {
-    rows: [current, ...following],
-    fullBatch: following.length === remainingCatalogBudget,
-  };
+  return { rows: [current, ...following.rows], hasMore: following.hasMore };
 }
 
+/**
+ * The two halves below are exported for the test tree only. The dispatcher's
+ * one door is {@link listMcpToolsLocal}; the package barrel exports nothing else.
+ */
 export async function searchMcpToolsLocal(
   input: McpToolSearchInput & { userId: string },
 ): Promise<McpToolDiscoveryPage> {
@@ -251,7 +260,7 @@ export async function searchMcpToolsLocal(
   const normalized = normalizeSearch(parsed);
   const expectedFilterHash = filterHash(normalized);
   const cursor = decodeCursor(parsed.cursor, expectedFilterHash);
-  const { rows, fullBatch } = await rowsForSearch({
+  const { rows, hasMore } = await rowsForSearch({
     userId,
     ...(normalized.namespace === undefined ? {} : { namespace: normalized.namespace }),
     ...(normalized.connectionId === undefined ? {} : { connectionId: normalized.connectionId }),
@@ -264,7 +273,7 @@ export async function searchMcpToolsLocal(
   let lastOffset = 0;
 
   for (const [rowIndex, row] of rows.entries()) {
-    const catalog = row.descriptors;
+    const catalog = row.summaries;
     const start = row.descriptorOffset;
     lastRow = row;
     lastOffset = start;
@@ -281,12 +290,12 @@ export async function searchMcpToolsLocal(
       scanned += 1;
       lastOffset = descriptorOffset + 1;
       const summary = toSummary(catalog[localIndex]);
-      if (summary && matches(summary, row, normalized.query)) {
+      if (summary && matches(summary, normalized.query)) {
         tools.push(hit(row, summary, normalized.detail));
       }
       if (tools.length >= normalized.limit) {
         const hasUnscannedScope =
-          lastOffset < row.descriptorCount || rowIndex + 1 < rows.length || fullBatch;
+          lastOffset < row.descriptorCount || rowIndex + 1 < rows.length || hasMore;
         return mcpToolDiscoveryPageSchema.parse({
           status: "tools",
           tools,
@@ -307,7 +316,7 @@ export async function searchMcpToolsLocal(
   return mcpToolDiscoveryPageSchema.parse({
     status: "tools",
     tools,
-    nextCursor: fullBatch && lastRow ? encodeCursor(expectedFilterHash, lastRow, lastOffset) : null,
+    nextCursor: hasMore && lastRow ? encodeCursor(expectedFilterHash, lastRow, lastOffset) : null,
   });
 }
 
@@ -336,6 +345,9 @@ export async function inspectMcpToolLocal(input: {
     });
   }
 
+  // The persistence read selects the descriptor by name, so a name mismatch
+  // here is a defect, not a legacy-catalog case; the result schema repeats the
+  // same identity check as the contract's own guarantee.
   const tool = jsonObjectSchema.safeParse(row.descriptor);
   if (!tool.success || tool.data.name !== ref.remoteName) {
     return mcpToolInspectionResultSchema.parse({

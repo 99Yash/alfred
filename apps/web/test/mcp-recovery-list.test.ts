@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 import type { McpRecoveryOperation } from "@alfred/contracts";
@@ -6,8 +7,8 @@ import { Children, createElement, isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { client } from "../src/lib/eden";
+import { flattenMcpRecoveryPages } from "../src/routes/-integrations/helpers";
 import { McpRecoveryList } from "../src/routes/-integrations/mcp-recovery-list";
-import { flattenMcpRecoveryPages } from "../src/routes/-integrations/mcp-server-section";
 
 type McpRecoveryRoute = ReturnType<typeof client.api.integrations.mcp.recovery>;
 type McpResolveBody = Parameters<McpRecoveryRoute["resolve"]["post"]>[0];
@@ -54,6 +55,7 @@ const preparedSuccessor: McpRecoveryOperation = {
 };
 
 const baseProps = {
+  awaitingRepair: 0,
   loading: false,
   readError: false,
   hasNextPage: false,
@@ -152,8 +154,8 @@ test("MCP recovery read error binds the retry action", () => {
 
 test("MCP recovery accumulates operations from every loaded page", () => {
   const operations = flattenMcpRecoveryPages([
-    { operations: [operation], nextCursor: "cursor-2" },
-    { operations: [secondOperation, preparedSuccessor], nextCursor: null },
+    { operations: [operation], nextCursor: "cursor-2", awaitingRepair: 0 },
+    { operations: [secondOperation, preparedSuccessor], nextCursor: null, awaitingRepair: 0 },
   ]);
 
   assert.deepEqual(
@@ -181,4 +183,40 @@ test("MCP recovery binds the explicit load-more control", () => {
   assert.ok(isValidElement<{ onClick?: () => void }>(loadMore));
   loadMore.props.onClick?.();
   assert.equal(loads, 1);
+});
+
+test("MCP recovery reports rows that are still being recorded without a button", () => {
+  const emptyHtml = renderToStaticMarkup(
+    createElement(McpRecoveryList, {
+      ...baseProps,
+      operations: [],
+      awaitingRepair: 3,
+    }),
+  );
+  const listHtml = renderToStaticMarkup(
+    createElement(McpRecoveryList, {
+      ...baseProps,
+      operations: [preparedSuccessor],
+      awaitingRepair: 1,
+    }),
+  );
+
+  assert.match(emptyHtml, /No MCP operations need recovery/);
+  assert.match(emptyHtml, /3 operations are still being recorded/);
+  assert.equal((emptyHtml.match(/<button/g) ?? []).length, 0);
+  assert.match(listHtml, /1 operation is still being recorded/);
+  assert.equal((listHtml.match(/<button/g) ?? []).length, 1);
+});
+
+test("MCP recovery confirms inline instead of through window.confirm", async () => {
+  const source = await readFile(
+    new URL("../src/routes/-integrations/mcp-recovery-list.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /window\.confirm/);
+  const html = renderToStaticMarkup(
+    createElement(McpRecoveryList, { ...baseProps, operations: [operation] }),
+  );
+  assert.doesNotMatch(html, />Confirm<|>Cancel</, "the confirm step is closed at first render");
 });

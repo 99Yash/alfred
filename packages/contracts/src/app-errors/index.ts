@@ -66,6 +66,9 @@ export const APP_ERROR_REGISTRY = {
   run_cancelled: {
     message: "The run was cancelled; this action did not run.",
   },
+  mcp_effect_not_applied: {
+    message: "You confirmed that this MCP operation did not apply. It was not repeated.",
+  },
   tool_input_invalid: {
     message: "The tool input is invalid. Correct it and try again.",
   },

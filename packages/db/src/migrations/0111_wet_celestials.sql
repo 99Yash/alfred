@@ -1,1 +1,0 @@
-CREATE INDEX "mcp_connections_current_catalog_order_idx" ON "mcp_connections" USING btree ("user_id","server_id","instance_key") WHERE "mcp_connections"."current_catalog_revision_id" is not null;

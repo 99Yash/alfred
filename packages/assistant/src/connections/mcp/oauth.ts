@@ -28,6 +28,7 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { rememberOAuthNonce, signOAuthState } from "@alfred/assistant/connections";
+import { resolveBuiltInClient } from "./built-ins";
 
 const oauthMetadataSchema = z.looseObject({
   issuer: z.string().url(),
@@ -300,10 +301,6 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
 const DEFAULT_STORE = new DbMcpOAuthCredentialStore();
 const authorizationFlights = new Map<string, Promise<AuthResult>>();
 
-function canonicalIssuer(value: string): string {
-  return new URL(value).href;
-}
-
 function stateHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -401,13 +398,18 @@ export class McpOAuthProvider implements OAuthClientProvider {
   readonly redirectUrl: URL;
   readonly clientMetadataUrl?: string;
   readonly clientMetadata: OAuthClientMetadata;
+  readonly #endpoint: URL;
 
   constructor(options: McpOAuthProviderOptions) {
     this.#connectionId = options.connectionId;
     this.#userId = options.userId;
     this.#store = options.store ?? DEFAULT_STORE;
     this.#vault = options.vault ?? credentialVault();
+    this.#endpoint = new URL(options.endpoint.href);
     this.redirectUrl = new URL(options.redirectUrl.href);
+    // `clientMetadata` is ONLY the RFC 7591 registration body. The SDK picks a
+    // token-endpoint auth method from client INFORMATION, not from it, so the
+    // built-in secret declares its method in `clientInformation()` below.
     this.clientMetadata = options.clientMetadata;
     if (options.clientMetadataUrl) {
       validateClientMetadataUrl(options.clientMetadataUrl);
@@ -444,15 +446,38 @@ export class McpOAuthProvider implements OAuthClientProvider {
     ctx?: OAuthClientInformationContext,
   ): Promise<StoredOAuthClientInformation | undefined> {
     const credential = await this.#credentialForIssuer(ctx?.issuer);
-    if (!credential?.clientInformation) return undefined;
-    const parsed = clientInformationSchema.safeParse(credential.clientInformation);
-    if (!parsed.success) throw new Error("Persisted MCP OAuth client information is invalid");
-    const secret = credential.clientSecret ? this.#vault.open(credential.clientSecret) : undefined;
-    return {
-      ...parsed.data,
-      issuer: credential.issuer,
-      ...(secret ? { client_secret: secret } : {}),
-    };
+    if (credential?.clientInformation) {
+      const parsed = clientInformationSchema.safeParse(credential.clientInformation);
+      if (!parsed.success) throw new Error("Persisted MCP OAuth client information is invalid");
+      const secret = credential.clientSecret
+        ? this.#vault.open(credential.clientSecret)
+        : undefined;
+      return {
+        ...parsed.data,
+        issuer: credential.issuer,
+        ...(secret ? { client_secret: secret } : {}),
+      };
+    }
+    // Built-in providers whose authorization server has no DCR (#934). When
+    // `GITHUB_MCP_CLIENT_ID` is set, answer from the environment so the SDK
+    // skips `registerClient` entirely. Nothing persists this client: the
+    // environment stays canonical, so a rotated secret takes effect on the very
+    // next token exchange. `token_endpoint_auth_method` travels WITH the secret
+    // because the SDK's `selectClientAuthMethod` reads it off this object.
+    const staticClient = this.#staticBuiltInClient(ctx?.issuer ?? credential?.issuer);
+    if (staticClient) {
+      return {
+        client_id: staticClient.clientId,
+        issuer: staticClient.issuer,
+        ...(staticClient.clientSecret
+          ? {
+              client_secret: staticClient.clientSecret,
+              token_endpoint_auth_method: "client_secret_post",
+            }
+          : {}),
+      };
+    }
+    return undefined;
   }
 
   async saveClientInformation(
@@ -460,7 +485,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     ctx?: OAuthClientInformationContext,
   ): Promise<void> {
     const parsed = clientInformationSchema.parse(value);
-    const issuer = canonicalIssuer(ctx?.issuer ?? parsed.issuer ?? "");
+    const issuer = new URL(ctx?.issuer ?? parsed.issuer ?? "").href;
     const credential = await this.#requireCredential(issuer);
     const { client_secret: clientSecret, ...publicInformation } = parsed;
     await this.#store.update(credential.id, this.#userId, {
@@ -487,7 +512,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async saveTokens(value: StoredOAuthTokens, ctx?: OAuthClientInformationContext): Promise<void> {
     const parsed = oauthTokensSchema.parse(value);
-    const issuer = canonicalIssuer(ctx?.issuer ?? parsed.issuer ?? "");
+    const issuer = new URL(ctx?.issuer ?? parsed.issuer ?? "").href;
     const credential = await this.#requireCredential(issuer);
     const vault = this.#vault;
     await this.#store.update(credential.id, this.#userId, {
@@ -539,9 +564,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
     const parsed = parseDiscoveryState(state);
-    const issuer = canonicalIssuer(
+    const issuer = new URL(
       parsed.authorizationServerMetadata?.issuer ?? parsed.authorizationServerUrl,
-    );
+    ).href;
     await this.#store.attachDiscovery({
       connectionId: this.#connectionId,
       userId: this.#userId,
@@ -614,7 +639,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
     if (!credential || !issuer) return credential;
-    return credential.issuer === canonicalIssuer(issuer) ? credential : undefined;
+    return credential.issuer === new URL(issuer).href ? credential : undefined;
   }
 
   async #requireCredential(issuer?: string): Promise<McpOauthCredential> {
@@ -626,6 +651,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
   #requireAttemptStateHash(): string {
     if (!this.#attemptStateHash) throw new Error("MCP OAuth authorization attempt is missing");
     return this.#attemptStateHash;
+  }
+
+  #staticBuiltInClient(
+    issuerHint?: string,
+  ): { clientId: string; clientSecret?: string; issuer: string } | undefined {
+    return resolveBuiltInClient(this.#endpoint, issuerHint);
   }
 }
 

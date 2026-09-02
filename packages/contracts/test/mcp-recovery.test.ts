@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   MCP_RECOVERY_PAGE_SIZE,
+  mcpRecoveryDecisionBodySchema,
   mcpRecoveryDecisionSchema,
   mcpRecoveryOperationSchema,
   mcpRecoveryOperationsPageInputSchema,
@@ -31,6 +32,16 @@ test("MCP recovery accepts only closed host decisions", () => {
   assert.equal(mcpRecoveryDecisionSchema.safeParse("confirmed_succeeded").success, true);
   assert.equal(mcpRecoveryDecisionSchema.safeParse("confirmed_not_applied").success, true);
   assert.equal(mcpRecoveryDecisionSchema.safeParse("retry_automatically").success, false);
+  assert.equal(
+    mcpRecoveryDecisionBodySchema.safeParse({ decision: "confirmed_not_applied" }).success,
+    true,
+  );
+  assert.equal(mcpRecoveryDecisionBodySchema.safeParse({}).success, false);
+  assert.equal(
+    mcpRecoveryDecisionBodySchema.safeParse({ decision: "confirmed_succeeded", extra: true })
+      .success,
+    false,
+  );
 });
 
 test("MCP recovery projection rejects raw staging fields", () => {
@@ -90,6 +101,7 @@ test("MCP recovery pages keep one fixed bound and an opaque nullable cursor", ()
         invocationId: `mcpi_${index}`,
       })),
       nextCursor: "cursor-2",
+      awaitingRepair: 0,
     }).success,
     true,
   );
@@ -100,11 +112,26 @@ test("MCP recovery pages keep one fixed bound and an opaque nullable cursor", ()
         invocationId: `mcpi_${index}`,
       })),
       nextCursor: null,
+      awaitingRepair: 0,
     }).success,
     false,
   );
   assert.equal(
-    mcpRecoveryOperationsPageSchema.safeParse({ operations: [], nextCursor: "" }).success,
+    mcpRecoveryOperationsPageSchema.safeParse({ operations: [], nextCursor: "", awaitingRepair: 0 })
+      .success,
+    false,
+  );
+  assert.equal(
+    mcpRecoveryOperationsPageSchema.safeParse({ operations: [], nextCursor: null }).success,
+    false,
+    "a page must state how many rows are still awaiting repair",
+  );
+  assert.equal(
+    mcpRecoveryOperationsPageSchema.safeParse({
+      operations: [],
+      nextCursor: null,
+      awaitingRepair: -1,
+    }).success,
     false,
   );
 });
