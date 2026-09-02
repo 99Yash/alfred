@@ -34,6 +34,29 @@ export const INTEGRATION_SLUGS = ["system", "mcp", ...LOADABLE_INTEGRATION_SLUGS
 export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
 
 /**
+ * The display name of every integration, for prose a user or the model reads
+ * (a failure message, a connect nudge). `satisfies` forces an entry per slug, so
+ * a new slug without a name is a type error rather than an `undefined` in copy.
+ */
+export const INTEGRATION_DISPLAY_NAMES = {
+  system: "Alfred",
+  mcp: "MCP",
+  gmail: "Gmail",
+  calendar: "Calendar",
+  drive: "Drive",
+  docs: "Docs",
+  sheets: "Sheets",
+  slides: "Slides",
+  slack: "Slack",
+  linear: "Linear",
+  github: "GitHub",
+  notion: "Notion",
+  railway: "Railway",
+  vercel: "Vercel",
+  imessage: "iMessage",
+} as const satisfies Record<IntegrationSlug, string>;
+
+/**
  * The single registry of every tool action, keyed by integration slug. The
  * `satisfies` clause forces an entry for each {@link IntegrationSlug}, so adding
  * a slug without its actions is a type error. Per-integration arrays live inline

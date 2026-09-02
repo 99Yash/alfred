@@ -9,8 +9,9 @@
  *
  * Each execute selects the user's active Sheets-scoped Google credential, then
  * calls the user-bound integrations root. The `spreadsheets` scope is granted
- * when the user connects the Sheets feature; a connected account lacking it raises an actionable
- * `sheets_scope_required` rather than a raw client `[sheets] 403`.
+ * when the user connects the Sheets feature; a connected account lacking it raises
+ * `MissingScopesError` before any `[sheets] 403` can happen. The dispatcher maps
+ * that class to a catalog code in typed-failures PR 2 (`docs/plans/typed-failures-v1.md`).
  */
 
 import {
