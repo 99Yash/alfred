@@ -1,131 +1,20 @@
 import { z } from "zod";
 import { enumGuard } from "./guards";
+import {
+  INTEGRATION_ACTIONS,
+  INTEGRATION_DISPLAY_NAMES,
+  INTEGRATION_SLUGS,
+  isIntegrationSlug,
+  type IntegrationSlug,
+} from "./integrations";
 
 export const POLICY_MODES = ["autonomy", "gated"] as const;
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
-export const LOADABLE_INTEGRATION_SLUGS = [
-  "gmail",
-  "calendar",
-  "drive",
-  "docs",
-  "sheets",
-  "slides",
-  "slack",
-  "linear",
-  "github",
-  "notion",
-  "railway",
-  "vercel",
-  "imessage",
-] as const;
-export type LoadableIntegrationSlug = (typeof LOADABLE_INTEGRATION_SLUGS)[number];
-
 /**
- * `mcp` is an integration slug but deliberately NOT loadable: it is not an
- * OAuth-connectable provider with a REST/GraphQL passthrough surface, but a
- * projection of N independent third-party MCP connections behind two fixed
- * actions. Keeping it out of `LOADABLE_INTEGRATION_SLUGS` avoids forcing it
- * into the passthrough coverage / connected-catalog maps, while keeping it a
- * non-`system` slug preserves the per-user policy gate (only `system` is forced
- * to autonomy in dispatch) and the ADR-0069 high-tier floor.
+ * The actions an integration registers, read off its registry entry
+ * (`INTEGRATIONS[slug].actions`). `${slug}.${action}` is the tool name.
  */
-export const INTEGRATION_SLUGS = ["system", "mcp", ...LOADABLE_INTEGRATION_SLUGS] as const;
-export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
-
-/**
- * The display name of every integration, for prose a user or the model reads
- * (a failure message, a connect nudge). `satisfies` forces an entry per slug, so
- * a new slug without a name is a type error rather than an `undefined` in copy.
- */
-export const INTEGRATION_DISPLAY_NAMES = {
-  system: "Alfred",
-  mcp: "MCP",
-  gmail: "Gmail",
-  calendar: "Calendar",
-  drive: "Drive",
-  docs: "Docs",
-  sheets: "Sheets",
-  slides: "Slides",
-  slack: "Slack",
-  linear: "Linear",
-  github: "GitHub",
-  notion: "Notion",
-  railway: "Railway",
-  vercel: "Vercel",
-  imessage: "iMessage",
-} as const satisfies Record<IntegrationSlug, string>;
-
-/**
- * The single registry of every tool action, keyed by integration slug. The
- * `satisfies` clause forces an entry for each {@link IntegrationSlug}, so adding
- * a slug without its actions is a type error. Per-integration arrays live inline
- * here rather than as separate exports — nothing consumes them on their own.
- */
-export const INTEGRATION_ACTIONS = {
-  system: [
-    "search_tools",
-    "load_tool",
-    "current_time",
-    "author_workflow",
-    "recover_workflow",
-    "activate_workflow",
-    "spawn_sub_agent",
-    "await_sub_agent",
-    "read_user_context",
-    "read_chat_history",
-    "read_scratch",
-    "write_scratch",
-    "promote",
-    "remember",
-    "list_instructions",
-    "forget_instruction",
-    "edit_instruction",
-    "resolve_todo",
-    "suggest_todo",
-    "web_search",
-    "fetch_url",
-    "corpus_search",
-    "create_artifact",
-    "append_artifact_page",
-    "append_artifact_section",
-    "update_artifact",
-  ],
-  // Two fixed actions project N third-party MCP connections into the closed
-  // union: `mcp.call` (route a remote tools/call through dispatch) and
-  // `mcp.list_tools` (bounded local read of the persisted catalog). The remote
-  // tool name and connection ride in the args, never in the tool name.
-  mcp: ["call", "list_tools"],
-  gmail: ["search", "read_message", "send_draft", "request"],
-  calendar: ["list_events", "create_event", "request"],
-  drive: ["search_files", "get_file", "export_file", "download_file", "request"],
-  docs: ["get_document", "request"],
-  sheets: [
-    "create_spreadsheet",
-    "get_values",
-    "update_values",
-    "append_values",
-    "batch_update",
-    "add_sheet",
-    "request",
-  ],
-  slides: ["create_presentation", "get_presentation", "batch_update", "add_slide", "request"],
-  slack: [],
-  linear: [],
-  github: ["search", "get_pull_request", "get_issue", "request"],
-  notion: ["search", "get_page", "create_page", "append_blocks", "request"],
-  railway: [
-    "list_projects",
-    "list_deployments",
-    "recent_deployments",
-    "get_logs",
-    "redeploy",
-    "graphql",
-  ],
-  vercel: ["list_projects", "list_deployments", "redeploy", "request"],
-  imessage: [],
-} as const satisfies Record<IntegrationSlug, readonly string[]>;
-
 export type ActionSlug<I extends IntegrationSlug> = (typeof INTEGRATION_ACTIONS)[I][number];
 
 export type ToolName = {
@@ -214,7 +103,7 @@ export interface IntegrationRule {
   toolOverrides?: Partial<Record<ToolName, PolicyMode>>;
 }
 
-export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>;
+export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>; // drift-ok: sparse per-user overrides; absence is the default mode
 
 /**
  * Derive an integration's effective policy mode from a rules map + the
@@ -246,8 +135,6 @@ export function buildToolName<I extends IntegrationSlug, A extends ActionSlug<I>
   if (isToolName(name)) return name;
   throw new Error(`Unknown tool name '${name}'`);
 }
-
-export const isIntegrationSlug = enumGuard(INTEGRATION_SLUGS);
 
 export function isToolName(value: string): value is ToolName {
   const separator = value.indexOf(".");
@@ -281,8 +168,6 @@ export const toolNameSchema = z.custom<ToolName>(
   (value) => typeof value === "string" && isToolName(value),
   "Invalid tool name",
 );
-
-export const isLoadableIntegrationSlug = enumGuard(LOADABLE_INTEGRATION_SLUGS);
 
 export function hashToolInput(toolName: ToolName, input: unknown): string {
   return `fnv1a64:${fnv1a64(`${toolName}:${canonicalJson(input)}`)}`;

@@ -6,7 +6,7 @@ import { googleJson } from "./http";
  * Thin Google Docs v1 REST client. Same shape as `gmail.ts` /
  * `calendar.ts` — direct JSON calls, no `googleapis` dependency.
  *
- * The granted scope is now full `documents` (see `DOCS_SCOPE` in oauth.ts),
+ * The granted scope is now full `documents` (see `GOOGLE_SCOPE.docs.full` in `@alfred/contracts`),
  * but this client's surface is still read-only: "fetch a document and hand
  * back its text" (write tools ride a separate registration, ADR-0043). The
  * Docs API returns a deeply nested

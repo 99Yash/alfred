@@ -20,8 +20,11 @@ export function parseActivitySubtitle(subtitle: string): ParsedActivitySubtitle 
   return { provider, detail };
 }
 
-/** Monochrome brand marks need a visible color on the white panel. */
-export const PROVIDER_COLOR = new Map<IntegrationSlug, string>([["github", "#181925"]]);
+/**
+ * Monochrome brand marks need a visible color on the white panel. Sparse on
+ * purpose: a slug absent here has a brand mark that carries its own color.
+ */
+export const PROVIDER_COLOR = new Map<IntegrationSlug, string>([["github", "#181925"]]); // drift-ok: absence means the brand mark carries its own color; only monochrome marks need one
 
 /**
  * Format a calendar panel subtitle (`<startISO> - <endISO>`) into a human time

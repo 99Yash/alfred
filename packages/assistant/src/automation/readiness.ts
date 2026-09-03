@@ -1,4 +1,5 @@
 import {
+  GOOGLE_SCOPE,
   canonicalJson,
   humanizeSlug,
   integrationFromToolName,
@@ -16,7 +17,7 @@ import {
   type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
-import { GMAIL_READONLY_SCOPE, readGmailWatchState } from "@alfred/integrations/google";
+import { readGmailWatchState } from "@alfred/integrations/google";
 import type { WorkflowToolCatalog, WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
@@ -101,7 +102,7 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefiniti
   let trigger = args.definition.trigger;
   if (trigger.kind === "event") {
     const gmailRows = (args.availability.providers.get("google") ?? []).filter(
-      (row) => row.status === "active" && row.scopes.has(GMAIL_READONLY_SCOPE),
+      (row) => row.status === "active" && row.scopes.has(GOOGLE_SCOPE.gmail.readonly),
     );
     const triggerAccountRef = trigger.accountRef;
     const selected = triggerAccountRef
@@ -333,7 +334,7 @@ export function resolveWorkflowReadiness(args: {
     const now = args.now ?? new Date();
     const gmailRows = args.availability.providers.get("google") ?? [];
     const hasReadyWatch = (row: ProviderAvailability) => {
-      if (row.status !== "active" || !row.scopes.has(GMAIL_READONLY_SCOPE)) return false;
+      if (row.status !== "active" || !row.scopes.has(GOOGLE_SCOPE.gmail.readonly)) return false;
       const watch = readGmailWatchState(row.metadata);
       if (!watch) return false;
       const health = args.gmailEventHealth.get(row.credentialId);
@@ -362,7 +363,7 @@ export function resolveWorkflowReadiness(args: {
       const selectedWatch = selectedRow ? readGmailWatchState(selectedRow.metadata) : null;
       const watchInstalled = Boolean(
         selectedRow?.status === "active" &&
-        selectedRow.scopes.has(GMAIL_READONLY_SCOPE) &&
+        selectedRow.scopes.has(GOOGLE_SCOPE.gmail.readonly) &&
         selectedWatch &&
         new Date(selectedWatch.expiresAt).getTime() > now.getTime(),
       );

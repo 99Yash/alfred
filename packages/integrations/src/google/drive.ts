@@ -8,7 +8,7 @@ import { googleJson } from "./http";
  * Thin Google Drive v3 REST client. Same shape as `gmail.ts` /
  * `calendar.ts` — direct JSON calls, no `googleapis` dependency.
  *
- * The granted scope is now full `drive` (see `DRIVE_SCOPE` in oauth.ts),
+ * The granted scope is now full `drive` (see `GOOGLE_SCOPE.drive.full` in `@alfred/contracts`),
  * but this client's surface is still read-only: "find a file" (search by
  * Drive query), "what is this file" (metadata), and "read its contents" —
  * `exportFile` for Google-native types (Docs/Sheets/Slides → text) and

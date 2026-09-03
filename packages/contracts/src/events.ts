@@ -229,9 +229,12 @@ export const chatToolSchema = z.object({
    * (`not_connected` / `needs_reauth` / `missing_scope`): the user-meaningful
    * repair, so the chat can offer a connect nudge for this envelope instead of
    * only narrating it. Absent on every other rejection — dispatcher plumbing
-   * stays hidden.
+   * stays hidden. The slug is a closed enum. A frame from a server whose
+   * registry knows a slug this bundle does not must still parse, so the
+   * retraction lands and only the repair is dropped; `parseEventFrame` drops
+   * the whole frame on a payload failure.
    */
-  connectNudge: chatConnectNudgeSchema.optional(),
+  connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
   /**
    * The narration segment this call follows (see `chatDeltaSchema.segmentIndex`)
    * so the client can order the card relative to the model's interleaved

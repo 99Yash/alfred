@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { INTEGRATION_SLUGS } from "./integrations";
 
 /**
  * Chat model tier — the user-selectable depth for a chat turn. The single
@@ -67,7 +68,10 @@ export const chatErrorKindSchema = z.enum(chatErrorKindValues);
  * same refusal to the *client* so the chat can offer the repair instead of
  * leaving an opaque narration. The integration slug is the tool-runtime slug
  * (short Google aliases like `"calendar"` included) — exactly what
- * `getIntegrationProvider` resolves on the web.
+ * `getIntegrationProvider` resolves on the web. It is the closed
+ * {@link INTEGRATION_SLUGS} enum, not a free string: the payload persists on the
+ * message row, and a slug the registry no longer knows must fail this parse so
+ * the replay door can drop the offer instead of rendering a repair for nothing.
  *
  *   - `connect`   — no usable credential exists (`not_connected`).
  *   - `reconnect` — a credential exists but is unusable as-is:
@@ -75,7 +79,7 @@ export const chatErrorKindSchema = z.enum(chatErrorKindValues);
  *                     re-running the provider's connect flow.
  */
 export const chatConnectNudgeSchema = z.object({
-  integration: z.string().min(1).max(64),
+  integration: z.enum(INTEGRATION_SLUGS),
   action: z.enum(["connect", "reconnect"]),
 });
 export type ChatConnectNudge = z.infer<typeof chatConnectNudgeSchema>;
