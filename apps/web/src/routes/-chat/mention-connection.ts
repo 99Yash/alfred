@@ -1,9 +1,6 @@
+import { isCatalogSlug, isPlannedSlug } from "@alfred/contracts";
 import { useMemo } from "react";
-import {
-  getIntegrationProvider,
-  PROVIDER_BACKEND,
-  type IntegrationStatus,
-} from "~/lib/integrations/integrations";
+import type { IntegrationStatus } from "~/lib/integrations/integrations";
 import { useResolvedIntegrationsWithReady } from "~/lib/integrations/use-integration-status";
 import { MENTION_OPTIONS } from "./mention-options";
 
@@ -41,26 +38,25 @@ export type MentionConnectionLookup = (value: string) => MentionConnection;
  */
 export function classifyMentionValue(
   value: string,
-  statusByProviderId: ReadonlyMap<string, IntegrationStatus>,
+  statusBySlug: ReadonlyMap<string, IntegrationStatus>,
 ): MentionConnection {
-  const provider = getIntegrationProvider(value);
-  if (!provider) return "internal";
-  // No credential route family → no way to connect from anywhere, so an
-  // always-"not connected" nudge would be dishonest. Matches how
-  // `ConnectToolsBar` scopes its nudges to providers with a backend.
-  if (!PROVIDER_BACKEND.has(provider.id)) return "unavailable";
-  return statusByProviderId.get(provider.id) === "connected" ? "connected" : "connectable";
+  if (!isCatalogSlug(value)) return "internal";
+  // A planned provider has no credential store → no way to connect from
+  // anywhere, so an always-"not connected" nudge would be dishonest. Matches
+  // how `ConnectToolsBar` scopes its nudges to live providers.
+  if (isPlannedSlug(value)) return "unavailable";
+  return statusBySlug.get(value) === "connected" ? "connected" : "connectable";
 }
 
 /** Connection state for every mention option, plus whether state is settled. */
 export function useMentionConnections(): MentionConnectionLookup {
   const { integrations, ready } = useResolvedIntegrationsWithReady();
   return useMemo(() => {
-    const statusByProviderId = new Map(integrations.map((p) => [p.id, p.status]));
+    const statusBySlug = new Map(integrations.map((p) => [p.slug, p.status]));
     const map = new Map<string, MentionConnection>(
       MENTION_OPTIONS.map((option) => [
         option.value,
-        ready ? classifyMentionValue(option.value, statusByProviderId) : "loading",
+        ready ? classifyMentionValue(option.value, statusBySlug) : "loading",
       ]),
     );
     // The lookup owns the unknown-value rule ("an unknown id is internal, not

@@ -1,4 +1,4 @@
-import { isToolName, type ToolName } from "@alfred/contracts";
+import { INTEGRATIONS, isToolName, type ToolName } from "@alfred/contracts";
 import { domainOf } from "~/lib/favicon";
 import { formatRelative } from "~/lib/strings";
 import { asRecord, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
@@ -276,7 +276,7 @@ interface ListSpec {
 /** Railway's two deployment reads (`list_*` / `recent_*`) share a row shape. */
 const RAILWAY_DEPLOYMENTS: ListSpec = {
   arrayKey: "deployments",
-  faviconDomain: "railway.com",
+  faviconDomain: INTEGRATIONS.railway.domain,
   row: (item) => {
     const status = asString(item.status);
     const url = asString(item.url);
@@ -297,7 +297,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     "github.search",
     {
       arrayKey: "items",
-      faviconDomain: "github.com",
+      faviconDomain: INTEGRATIONS.github.domain,
       query: (result) => asString(result.query),
       remaining: (result, shown) => {
         const total = asNumber(result.totalCount);
@@ -322,7 +322,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     "calendar.list_events",
     {
       arrayKey: "events",
-      faviconDomain: "calendar.google.com",
+      faviconDomain: INTEGRATIONS.calendar.domain,
       row: (item) => {
         const title = asString(item.title);
         if (!title) return null;
@@ -345,7 +345,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     "notion.search",
     {
       arrayKey: "hits",
-      faviconDomain: "notion.so",
+      faviconDomain: INTEGRATIONS.notion.domain,
       query: (_result, args) => asString(args?.query),
       hasMore: (result) => result.hasMore === true,
       row: (item) => {
@@ -364,7 +364,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     "drive.search_files",
     {
       arrayKey: "files",
-      faviconDomain: "drive.google.com",
+      faviconDomain: INTEGRATIONS.drive.domain,
       query: (_result, args) => asString(args?.query),
       row: (item) => {
         const name = asString(item.name);
@@ -384,7 +384,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     "railway.list_projects",
     {
       arrayKey: "projects",
-      faviconDomain: "railway.com",
+      faviconDomain: INTEGRATIONS.railway.domain,
       row: (item) => {
         const name = asString(item.name);
         if (!name) return null;
@@ -424,7 +424,7 @@ function githubEntity(result: JsonRecord): EntityView | null {
   if (comments !== undefined) facts.push({ label: "Comments", value: String(comments) });
   return {
     kind: "entity",
-    faviconDomain: "github.com",
+    faviconDomain: INTEGRATIONS.github.domain,
     title: number ? `#${number} ${title}` : title,
     href: asString(result.url),
     badge: githubStateBadge(result),
@@ -454,7 +454,7 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonRecord) => EntityView | n
       const snippet = metadata ? asString(metadata.snippet) : undefined;
       return {
         kind: "entity",
-        faviconDomain: "mail.google.com",
+        faviconDomain: INTEGRATIONS.gmail.domain,
         title: subject ?? "(no subject)",
         // `url` is frequently null for Gmail reads — render as a link-less card.
         href: asString(result.url),

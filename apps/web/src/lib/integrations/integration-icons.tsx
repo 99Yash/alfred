@@ -1,3 +1,4 @@
+import type { IntegrationBrandKey } from "@alfred/contracts";
 import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
 import { useId } from "react";
 import {
@@ -29,19 +30,17 @@ import { cn } from "~/lib/utils";
 // multiple instances of the same icon on a page do not collide on
 // filter or clip-path IDs.
 
-type BrandSvgSlug =
-  | "gmail"
-  | "google_calendar"
-  | "google_drive"
-  | "google_docs"
-  | "google_sheets"
-  | "google_slides"
-  | "github"
-  | "linear"
-  | "notion"
-  | "railway"
-  | "slack"
-  | "vercel";
+/**
+ * Brands that exist only on the web: sources with no registry entry (web
+ * search, a collaborator). Every other brand is a provider entry's `brand`.
+ */
+export type WebOnlyBrand = "web" | "collaborators";
+
+/**
+ * Every brand Alfred can render an icon for: the registry's brand keys plus the
+ * web-only ones. The registry owns the key; this module owns the asset.
+ */
+export type IntegrationBrand = IntegrationBrandKey | WebOnlyBrand;
 
 const BRAND_SVGS = {
   gmail: `<path d="M12.9091 35.7161H17.3636V24.6782L11 19.8086V33.7682C11 34.846 11.8559 35.7161 12.9091 35.7161Z" fill="#4285F4"></path><path d="M32.6367 35.7161H37.0913C38.1476 35.7161 39.0004 34.8428 39.0004 33.7682V19.8086L32.6367 24.6782" fill="#34A853"></path><path d="M32.6365 16.2376V24.6783L39.0001 19.8086V17.2115C39.0001 14.8026 36.3051 13.4294 34.4183 14.8741" fill="#FBBC04"></path><path d="M17.3633 24.678V16.2373L24.9996 22.0809L32.636 16.2373V24.678L24.9996 30.5216" fill="#EA4335"></path><path d="M11 17.2115V19.8086L17.3636 24.6783V16.2376L15.5818 14.8741C13.6918 13.4294 11 14.8026 11 17.2115Z" fill="#C5221F"></path>`,
@@ -58,12 +57,12 @@ const BRAND_SVGS = {
   notion: `<path fill-rule="evenodd" clip-rule="evenodd" d="M29.1559 9.76696L12.2566 11.0152C10.8932 11.1331 10.4189 12.0239 10.4189 13.0917V31.6178C10.4189 32.4495 10.7143 33.1611 11.4268 34.1121L15.3993 39.2775C16.0519 40.1092 16.6453 40.2875 17.8914 40.2283L37.5162 39.0402C39.1755 38.922 39.651 38.1493 39.651 36.8434V16.0013C39.651 15.3263 39.3844 15.1318 38.5995 14.5558L33.0703 10.6575C31.7653 9.70862 31.2317 9.5886 29.1559 9.76665V9.76696ZM18.3352 15.6602C16.7327 15.768 16.3693 15.7924 15.4591 15.0524L13.1453 13.212C12.9102 12.9738 13.0284 12.6766 13.6209 12.6174L29.8666 11.4302C31.2308 11.3111 31.9412 11.7866 32.4748 12.202L35.261 14.2208C35.3801 14.2809 35.6764 14.6361 35.32 14.6361L18.5429 15.6461L18.3352 15.6602ZM16.467 36.6654V18.972C16.467 18.1993 16.7043 17.8429 17.4147 17.7831L36.6842 16.6549C37.3378 16.5959 37.6331 17.0113 37.6331 17.7828V35.3582C37.6331 36.1309 37.514 36.7845 36.4472 36.8434L18.0075 37.9123C16.9407 37.9713 16.4673 37.6161 16.4673 36.6654H16.467ZM34.6694 19.9206C34.7876 20.4551 34.6694 20.9896 34.135 21.0506L33.2462 21.2269V34.2902C32.4745 34.7055 31.7641 34.9428 31.1704 34.9428C30.2214 34.9428 29.9844 34.6457 29.2738 33.7557L23.4618 24.6117V33.4585L25.3004 33.8748C25.3004 33.8748 25.3004 34.9438 23.817 34.9438L19.7275 35.1811C19.6084 34.9428 19.7275 34.3494 20.142 34.2312L21.21 33.935V22.2378L19.7279 22.1177C19.6087 21.5833 19.905 20.8115 20.7357 20.7516L25.1235 20.4563L31.1707 29.7185V21.5243L29.6293 21.3472C29.5101 20.6927 29.9844 20.2172 30.5769 20.1592L34.6694 19.9206Z" fill="currentColor"></path>`,
   railway: `<path d="M7.82509 22.5005C7.7425 23.0793 7.68876 23.662 7.66406 24.2462H33.9983C33.9063 24.0665 33.7828 23.9045 33.6582 23.746C29.1562 17.9296 26.7344 18.4339 23.2701 18.2862C22.1151 18.2387 21.3318 18.2196 16.7344 18.2196C14.2737 18.2196 11.5986 18.2259 8.99364 18.2328C8.65642 19.143 8.33119 20.0253 8.17284 20.743H21.6674V22.5005H7.82509ZM34.2059 26.0054H7.67757C7.70533 26.4744 7.74908 26.9371 7.81226 27.3935H32.3043C33.3962 27.3935 34.0073 26.7741 34.2059 26.0054ZM9.18822 32.1881C9.18822 32.1881 13.2485 42.1579 24.9807 42.335C31.993 42.335 38.0182 38.1703 40.7551 32.1881H9.18822Z" fill="currentColor"></path><path d="M24.9805 7.66504C18.4968 7.66504 12.8548 11.2255 9.87528 16.4887C12.2037 16.4838 16.7383 16.481 16.7383 16.481H16.7394V16.4793C22.0993 16.4793 22.2985 16.5032 23.3455 16.5469L23.9939 16.5708C26.2522 16.6461 29.0279 16.8886 31.2119 18.541C32.3974 19.4372 34.1091 21.4154 35.1295 22.8246C36.0728 24.1281 36.3441 25.6265 35.7028 27.0622C35.1125 28.3816 33.8423 29.1686 32.3041 29.1686H8.22914C8.22914 29.1686 8.37246 29.7761 8.58735 30.4467H41.4504C42.034 28.6926 42.3323 26.8561 42.334 25.0074C42.3343 15.4304 34.5648 7.66504 24.9805 7.66504Z" fill="currentColor"></path>`,
   vercel: `<path d="M37.6934 35.7358L25 13.75L12.3066 35.7358H37.6934Z" fill="currentColor"></path>`,
-} satisfies Record<BrandSvgSlug, string>;
+} satisfies Record<IntegrationBrandKey, string>;
 
 type BrandIconMeta =
   | {
       kind: "svg";
-      slug: BrandSvgSlug;
+      slug: IntegrationBrandKey;
       // currentColor brand fallback for marks whose dimension source uses a
       // white-on-dark gradient (github, linear). Other multicolor SVGs ignore
       // currentColor entirely.
@@ -77,17 +76,13 @@ type BrandIconMeta =
     };
 
 /**
- * Identity helper that infers the brand keys while pinning every value to
- * `BrandIconMeta`. This lets `IntegrationBrand` derive from the map's keys — so
- * the union can never drift from the icons it describes — without `as const`
- * fracturing the shared meta shape into a per-entry union (which would break
- * the unconditional `plainColor`/`frostColor` reads in `IntegrationGlyph`).
+ * One icon per brand. `satisfies Record<IntegrationBrand, …>` is the proof: a
+ * provider entry whose `brand` has no row here is a compile error, so a live
+ * entry cannot ship without an icon. Read it through `brandIcon`, which widens
+ * a row back to `BrandIconMeta`; `satisfies` keeps each row's literal type, and
+ * `IntegrationGlyph` reads `plainColor` and `frostColor` unconditionally.
  */
-const defineBrandIcons = <K extends string>(
-  icons: Record<K, BrandIconMeta>,
-): Record<K, BrandIconMeta> => icons;
-
-const BRAND_ICONS = defineBrandIcons({
+const BRAND_ICONS = {
   collaborators: { kind: "lucide", icon: Users, color: "#e5e7eb" },
   github: {
     kind: "svg",
@@ -135,13 +130,11 @@ const BRAND_ICONS = defineBrandIcons({
     frostColor: "#f4f4f5",
   },
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
-});
+} satisfies Record<IntegrationBrand, BrandIconMeta>;
 
-/**
- * Every integration brand Alfred can render an icon for. Derived from the
- * `BRAND_ICONS` keys so the union stays in lockstep with the icon map.
- */
-export type IntegrationBrand = keyof typeof BRAND_ICONS;
+function brandIcon(brand: IntegrationBrand): BrandIconMeta {
+  return BRAND_ICONS[brand];
+}
 
 /**
  * Per-brand accent color for ambient surfaces — the radial glow behind a
@@ -152,19 +145,28 @@ export type IntegrationBrand = keyof typeof BRAND_ICONS;
  * black/near-gray — a gray glow reads as no glow on the dark canvas — so they
  * fall back to Alfred's house purple (`--app-purple-2`). Values are applied at
  * low alpha via `color-mix`, so the saturation here is intentional — the
- * surface dilutes it.
+ * surface dilutes it. Partial on purpose: it is keyed by brand, not by slug,
+ * and an absent brand falls back.
  */
-export const BRAND_ACCENT = new Map<string, string>([
-  ["gmail", "#ea4335"],
-  ["google_calendar", "#4285f4"],
-  ["google_drive", "#ffb400"],
-  ["google_docs", "#4285f4"],
-  ["google_sheets", "#1fa463"],
-  ["google_slides", "#f9ab00"],
-  ["slack", "#a25da3"],
-  ["linear", "#5e6ad2"],
-  ["railway", "#8c1eaf"],
-]);
+const BRAND_ACCENT = {
+  gmail: "#ea4335",
+  google_calendar: "#4285f4",
+  google_drive: "#ffb400",
+  google_docs: "#4285f4",
+  google_sheets: "#1fa463",
+  google_slides: "#f9ab00",
+  slack: "#a25da3",
+  linear: "#5e6ad2",
+  railway: "#8c1eaf",
+} satisfies Partial<Record<IntegrationBrand, string>>;
+
+/** The brand's accent hue, or `undefined` for a monochrome brand that falls back to the house purple. */
+export function brandAccent(brand: IntegrationBrand): string | undefined {
+  return Object.hasOwn(BRAND_ACCENT, brand)
+    ? // SAFETY: `hasOwn` proved `brand` is one of the literal's own keys.
+      BRAND_ACCENT[brand as keyof typeof BRAND_ACCENT]
+    : undefined;
+}
 
 const TILE_SIZE_CLASS = {
   sm: "size-7 rounded-full",
@@ -187,10 +189,8 @@ const CHECK_SIZE_CLASS = {
   xs: "size-3 -bottom-0.5 -right-0.5",
 } as const;
 
-/** Brands that ship a full-bleed app-icon tile (background + gloss baked in). */
-function hasTile(
-  brand: IntegrationBrand,
-): brand is IntegrationBrand & keyof typeof INTEGRATION_TILES {
+/** Brands that ship a full-bleed app-icon tile (background + gloss baked in): every registry brand. */
+function hasTile(brand: IntegrationBrand): brand is IntegrationBrandKey {
   return Object.prototype.hasOwnProperty.call(INTEGRATION_TILES, brand);
 }
 
@@ -209,7 +209,7 @@ const INTEGRATION_TILES = {
   railway: RailwayTile,
   slack: SlackTile,
   vercel: VercelTile,
-} as const satisfies Record<string, TileComponent>;
+} satisfies Record<IntegrationBrandKey, TileComponent>;
 
 /**
  * An integration's brand mark as a polished, full-bleed app-icon coin — the
@@ -307,7 +307,7 @@ export function IntegrationGlyph({
   colorOverride?: string | undefined;
   className?: string | undefined;
 }) {
-  const meta = BRAND_ICONS[brand];
+  const meta = brandIcon(brand);
   // useId is always called regardless of branch so hook order is stable.
   const reactId = useId();
   const uid = `ai_${reactId.replace(/[^a-zA-Z0-9_]/g, "_")}`;

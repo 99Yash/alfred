@@ -7,7 +7,7 @@ import {
 } from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
-import { getIntegrationProvider } from "~/lib/integrations/integrations";
+import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 
 export interface ToolCallView {
@@ -99,7 +99,7 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
 
   if (tool.toolName === SPAWN_SUB_AGENT_TOOL) {
     const allowed = toStringArray(args?.allowedIntegrations);
-    const provider = allowed[0] ? getIntegrationProvider(allowed[0]) : undefined;
+    const provider = allowed[0] ? getIntegrationPage(allowed[0]) : undefined;
     return {
       brand: provider?.brand,
       fallbackIcon: Sparkles,
@@ -122,7 +122,7 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   }
 
   // Integration-scoped tool, e.g. `github.search`.
-  const provider = getIntegrationProvider(slug);
+  const provider = getIntegrationPage(slug);
   const brand = provider?.brand ?? (slug === "web" ? "web" : undefined);
   if (label) {
     return {

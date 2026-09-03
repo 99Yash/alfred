@@ -9,7 +9,7 @@ export function SectionBlock({ section, index }: { section: Section; index: numb
       </h2>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
         {section.providers.map((provider, i) => (
-          <ProviderRow key={provider.id} provider={provider} index={i} />
+          <ProviderRow key={provider.slug} provider={provider} index={i} />
         ))}
       </div>
     </section>

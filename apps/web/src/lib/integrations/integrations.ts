@@ -1,4 +1,13 @@
-import { INTEGRATION_SLUGS, isIntegrationSlug, type IntegrationSlug } from "@alfred/contracts";
+import {
+  CATALOG_SLUGS,
+  credentialProviderOf,
+  INTEGRATIONS,
+  integrationRoutePrefix,
+  isCatalogSlug,
+  type CatalogSlug,
+  type IntegrationSlug,
+  type LiveProviderSlug,
+} from "@alfred/contracts";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 export type IntegrationStatus = "connected" | "available" | "soon";
@@ -10,43 +19,63 @@ export type IntegrationCategory =
   | "Development"
   | "Your Integrations";
 
-export type IntegrationProvider = {
-  id: string;
-  name: string;
-  description: string;
-  status: IntegrationStatus;
-  category: IntegrationCategory;
-  brand: IntegrationBrand;
-  actionLabel: "Manage" | "Connect" | "Coming Soon" | "Add";
-  capabilities: ReadonlyArray<string>;
-  trust: {
-    title: string;
-    body: string;
+export type IntegrationActionLabel = "Manage" | "Connect" | "Coming Soon" | "Add";
+
+/**
+ * The web-only prose of one catalog page. Every registry fact (display name,
+ * brand, live/planned status, credential shape) is read off the entry in
+ * `INTEGRATIONS`, so this type holds nothing the registry already knows.
+ */
+export interface IntegrationPageCopy {
+  readonly description: string;
+  readonly category: IntegrationCategory;
+  readonly capabilities: ReadonlyArray<string>;
+  readonly trust: {
+    readonly title: string;
+    readonly body: string;
   };
-  overview: {
-    body: string;
-    heading: string;
-    detail: string;
-    extraHeading?: string | undefined;
-    extraDetail?: string | undefined;
+  readonly overview: {
+    readonly body: string;
+    readonly heading: string;
+    readonly detail: string;
+    readonly extraHeading?: string | undefined;
+    readonly extraDetail?: string | undefined;
   };
-  relatedProviderIds?: ReadonlyArray<string> | undefined;
-};
+  /** Pages to offer under "Complete your setup", by slug. */
+  readonly related?: ReadonlyArray<CatalogSlug> | undefined;
+}
+
+/**
+ * One catalog page: the registry entry's facts under the names the tiles and
+ * detail sections read, plus the page copy. `slug` is the only key; the route
+ * param, the credential probe, the policy row, and the brand all derive from
+ * it. `status` and `actionLabel` are the catalog's static reading; the
+ * credential overlay (`useResolvedIntegrations`) flips both to connected.
+ */
+export interface IntegrationPage extends IntegrationPageCopy {
+  readonly slug: CatalogSlug;
+  /** The registry display name (`Gmail`, `Calendar`). */
+  readonly name: string;
+  readonly brand: IntegrationBrand;
+  readonly status: IntegrationStatus;
+  readonly actionLabel: IntegrationActionLabel;
+}
 
 const GOOGLE_TRUST = {
   title: "Your data is indexed & encrypted",
   body: "Your data is indexed and encrypted at rest. We never train AI models on your data or share it with third parties.",
 };
 
-export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
-  {
-    id: "google_gmail",
-    name: "Gmail",
+/**
+ * The page copy, one row per catalog slug. `satisfies Record<CatalogSlug, …>`
+ * makes a provider entry without a page, or a page without a provider entry, a
+ * compile error, so a new registry entry cannot ship as a brandless tile or a
+ * pageless slug (Notion, Railway, and Vercel once did).
+ */
+const INTEGRATION_PAGE_COPY = {
+  gmail: {
     description: "Manage Gmail emails and communications.",
-    status: "available",
     category: "Apps",
-    brand: "gmail",
-    actionLabel: "Connect",
     capabilities: [
       "Read Emails",
       "Compose Emails",
@@ -64,14 +93,9 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Alfred can help draft emails, summarize conversations, find specific messages, and manage inbox organization with smart labeling and filtering.",
     },
   },
-  {
-    id: "google_calendar",
-    name: "Google Calendar",
+  calendar: {
     description: "Manage calendar and schedule events.",
-    status: "available",
     category: "Apps",
-    brand: "google_calendar",
-    actionLabel: "Connect",
     capabilities: [
       "Read Events",
       "Create Events",
@@ -89,15 +113,10 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "When you mention dates or times in conversation, Alfred can pull up your calendar for that day and use those events as scheduling context.",
     },
   },
-  {
-    id: "google_drive",
-    name: "Google Drive",
+  drive: {
     description: "Read files across your Google Drive.",
-    status: "available",
     category: "Apps",
-    brand: "google_drive",
-    actionLabel: "Connect",
-    relatedProviderIds: ["google_docs", "google_sheets", "google_slides"],
+    related: ["docs", "sheets", "slides"],
     capabilities: ["Search Files", "List Folders", "Read File Metadata", "Download File Contents"],
     trust: GOOGLE_TRUST,
     overview: {
@@ -107,31 +126,45 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Alfred can search for files, follow folder structures, and pull contents into context. Writes (rename, share, move, delete) are out of scope at this grant level.",
     },
   },
-  {
-    id: "github",
-    name: "GitHub",
-    description: "Manage GitHub repos and workflow.",
-    status: "available",
-    category: "Development",
-    brand: "github",
-    actionLabel: "Connect",
-    capabilities: ["Read Repositories", "Review Pull Requests", "Manage Issues", "Search Code"],
+  docs: {
+    description: "Read your Google Docs.",
+    category: "Productivity",
+    capabilities: ["Read Documents", "Extract Headings", "Read Tables", "Search Document Text"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect your GitHub account to Alfred for repository, pull request, issue, and release context.",
-      heading: "Development Intelligence",
+      body: "Connect Google Docs to Alfred so it can pull structured content — headings, paragraphs, tables — into context when you ask.",
+      heading: "Read-only document access",
       detail:
-        "Alfred can summarize code work, inspect issue context, and help coordinate development workflows.",
+        "Alfred can use Docs as source material in answers and workflows. Drafting back to Docs (create/edit) is not enabled at this grant level.",
     },
   },
-  {
-    id: "slack",
-    name: "Slack",
+  sheets: {
+    description: "Read and edit your Google Sheets.",
+    category: "Productivity",
+    capabilities: ["Read Cell Ranges", "Create Spreadsheets", "Write & Append Rows"],
+    trust: GOOGLE_TRUST,
+    overview: {
+      body: "Connect Google Sheets to Alfred for spreadsheet-backed lookups, summaries, and edits.",
+      heading: "Read/write spreadsheet access",
+      detail:
+        "Alfred can read cell ranges, create spreadsheets, and write or append rows on your behalf.",
+    },
+  },
+  slides: {
+    description: "Read and edit your Google Slides.",
+    category: "Productivity",
+    capabilities: ["Read Presentations", "Create Decks", "Add & Edit Slides"],
+    trust: GOOGLE_TRUST,
+    overview: {
+      body: "Connect Google Slides to Alfred to read deck structure and build or edit presentations.",
+      heading: "Read/write deck access",
+      detail:
+        "Alfred can summarize decks, create presentations, and add or edit slides on your behalf.",
+    },
+  },
+  slack: {
     description: "Manage Slack messages and channels.",
-    status: "available",
     category: "Apps",
-    brand: "slack",
-    actionLabel: "Connect",
     capabilities: [
       "Send Messages",
       "Read Messages",
@@ -152,65 +185,9 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Alfred can help manage team communications, organize channel discussions, summarize conversations, and draft messages for your team.",
     },
   },
-  {
-    id: "google_docs",
-    name: "Google Docs",
-    description: "Read your Google Docs.",
-    status: "available",
-    category: "Productivity",
-    brand: "google_docs",
-    actionLabel: "Connect",
-    capabilities: ["Read Documents", "Extract Headings", "Read Tables", "Search Document Text"],
-    trust: GOOGLE_TRUST,
-    overview: {
-      body: "Connect Google Docs to Alfred so it can pull structured content — headings, paragraphs, tables — into context when you ask.",
-      heading: "Read-only document access",
-      detail:
-        "Alfred can use Docs as source material in answers and workflows. Drafting back to Docs (create/edit) is not enabled at this grant level.",
-    },
-  },
-  {
-    id: "google_sheets",
-    name: "Google Sheets",
-    description: "Read and edit your Google Sheets.",
-    status: "available",
-    category: "Productivity",
-    brand: "google_sheets",
-    actionLabel: "Connect",
-    capabilities: ["Read Cell Ranges", "Create Spreadsheets", "Write & Append Rows"],
-    trust: GOOGLE_TRUST,
-    overview: {
-      body: "Connect Google Sheets to Alfred for spreadsheet-backed lookups, summaries, and edits.",
-      heading: "Read/write spreadsheet access",
-      detail:
-        "Alfred can read cell ranges, create spreadsheets, and write or append rows on your behalf.",
-    },
-  },
-  {
-    id: "google_slides",
-    name: "Google Slides",
-    description: "Read and edit your Google Slides.",
-    status: "available",
-    category: "Productivity",
-    brand: "google_slides",
-    actionLabel: "Connect",
-    capabilities: ["Read Presentations", "Create Decks", "Add & Edit Slides"],
-    trust: GOOGLE_TRUST,
-    overview: {
-      body: "Connect Google Slides to Alfred to read deck structure and build or edit presentations.",
-      heading: "Read/write deck access",
-      detail:
-        "Alfred can summarize decks, create presentations, and add or edit slides on your behalf.",
-    },
-  },
-  {
-    id: "linear",
-    name: "Linear",
+  linear: {
     description: "View, create, and manage Linear projects, issues, and docs.",
-    status: "available",
     category: "Productivity",
-    brand: "linear",
-    actionLabel: "Connect",
     capabilities: [
       "Create Issues",
       "Update Issues",
@@ -231,14 +208,21 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Connecting Linear gives Alfred full access to read and write issues, documents, and projects. This enables both search/indexing and AI-powered actions like creating issues and adding comments.",
     },
   },
-  {
-    id: "notion",
-    name: "Notion",
+  github: {
+    description: "Manage GitHub repos and workflow.",
+    category: "Development",
+    capabilities: ["Read Repositories", "Review Pull Requests", "Manage Issues", "Search Code"],
+    trust: GOOGLE_TRUST,
+    overview: {
+      body: "Connect your GitHub account to Alfred for repository, pull request, issue, and release context.",
+      heading: "Development Intelligence",
+      detail:
+        "Alfred can summarize code work, inspect issue context, and help coordinate development workflows.",
+    },
+  },
+  notion: {
     description: "Search, read, and write Notion pages.",
-    status: "available",
     category: "Productivity",
-    brand: "notion",
-    actionLabel: "Connect",
     capabilities: ["Search Workspace", "Read Pages", "Create Pages", "Append Content"],
     trust: {
       title: "Alfred only sees what you share",
@@ -251,14 +235,9 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Alfred can search shared pages and databases, pull their contents into answers, create new pages under a parent, and append notes to existing pages.",
     },
   },
-  {
-    id: "railway",
-    name: "Railway",
+  railway: {
     description: "Inspect and redeploy Railway services.",
-    status: "available",
     category: "Development",
-    brand: "railway",
-    actionLabel: "Connect",
     capabilities: ["List Projects", "Check Deployments", "Read Logs", "Redeploy"],
     trust: {
       title: "Your token, your control",
@@ -271,14 +250,9 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Alfred can list your projects, services, and environments, check deployment status, read deployment logs, and trigger a redeploy.",
     },
   },
-  {
-    id: "vercel",
-    name: "Vercel",
+  vercel: {
     description: "Inspect and redeploy Vercel projects.",
-    status: "available",
     category: "Development",
-    brand: "vercel",
-    actionLabel: "Connect",
     capabilities: ["List Projects", "Check Deployments", "Redeploy"],
     trust: {
       title: "Scoped to your install",
@@ -291,7 +265,23 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Alfred can list projects, check recent deployments and their state, and redeploy an existing deployment.",
     },
   },
-];
+} satisfies Record<CatalogSlug, IntegrationPageCopy>;
+
+function buildPage(slug: CatalogSlug): IntegrationPage {
+  const entry = INTEGRATIONS[slug];
+  const live = entry.status === "live";
+  return {
+    slug,
+    name: entry.displayName,
+    brand: entry.brand,
+    status: live ? "available" : "soon",
+    actionLabel: live ? "Connect" : "Coming Soon",
+    ...INTEGRATION_PAGE_COPY[slug],
+  };
+}
+
+/** Every catalog page in registry order: the one list the tiles, dialogs, and overlays iterate. */
+export const INTEGRATION_PAGES: ReadonlyArray<IntegrationPage> = CATALOG_SLUGS.map(buildPage);
 
 export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
   "Connected",
@@ -301,134 +291,56 @@ export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
   "Your Integrations",
 ];
 
-/**
- * The one map from a `@alfred/contracts` integration slug to its catalog
- * provider id. Google slugs de-prefix (`gmail` -> `google_gmail`); every
- * other catalog id equals its slug; `null` marks a slug with no catalog page
- * (internal `system` tools, the `mcp` projection, the `imessage` channel).
- * `satisfies` forces a row per slug, so a new slug without a decision here is
- * a type error instead of a silently brandless tile. Every slug-keyed web
- * lookup (brand, policy control, connect nudge) derives from this table.
- */
-const CATALOG_ID_BY_SLUG = {
-  system: null,
-  mcp: null,
-  gmail: "google_gmail",
-  calendar: "google_calendar",
-  drive: "google_drive",
-  docs: "google_docs",
-  sheets: "google_sheets",
-  slides: "google_slides",
-  slack: "slack",
-  linear: "linear",
-  github: "github",
-  notion: "notion",
-  railway: "railway",
-  vercel: "vercel",
-  imessage: null,
-} as const satisfies Record<IntegrationSlug, string | null>;
-
-export function getIntegrationProvider(id: string): IntegrationProvider | undefined {
-  const canonical = isIntegrationSlug(id) ? (CATALOG_ID_BY_SLUG[id] ?? id) : id;
-  return INTEGRATION_PROVIDERS.find((provider) => provider.id === canonical);
+/** The page of a known catalog slug. */
+export function integrationPage(slug: CatalogSlug): IntegrationPage {
+  // SAFETY: `INTEGRATION_PAGES` is `CATALOG_SLUGS.map(buildPage)`, so every
+  // catalog slug has exactly one page in it.
+  return INTEGRATION_PAGES.find((page) => page.slug === slug) as IntegrationPage;
 }
 
 /**
- * Reverse of `CATALOG_ID_BY_SLUG`: maps a catalog provider id (e.g.
- * `google_gmail`) to the integration slug (e.g. `gmail`) the tool registry
- * keys on. Unknown ids pass through unchanged so callers can skip the
- * registry lookup.
+ * The page for an unchecked string (a tool-name prefix, a mention value, a
+ * route param), or `undefined` when it is not a catalog slug.
  */
-const PROVIDER_ID_TO_SLUG: ReadonlyMap<string, IntegrationSlug> = new Map(
-  INTEGRATION_SLUGS.flatMap((slug) => {
-    const id = CATALOG_ID_BY_SLUG[slug];
-    return id === null ? [] : [[id, slug] as const];
-  }),
-);
-
-export function integrationSlugForProvider(providerId: string): string {
-  return PROVIDER_ID_TO_SLUG.get(providerId) ?? providerId;
+export function getIntegrationPage(value: string): IntegrationPage | undefined {
+  return isCatalogSlug(value) ? integrationPage(value) : undefined;
 }
 
 /**
- * Brand mark for an integration slug, read off its catalog entry, or
- * `undefined` for slugs without a page. Every catalog entry carries a brand,
- * so a slug with a page always renders its own mark.
+ * Brand mark for an integration slug, or `undefined` for a slug without a page
+ * (Alfred's own `system` tools, the `mcp` projection, the `imessage` channel).
+ * Every provider entry carries a brand, so a slug with a page always renders
+ * its own mark.
  */
 export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined {
-  return getIntegrationProvider(slug)?.brand;
+  const entry = INTEGRATIONS[slug];
+  return entry.kind === "provider" ? entry.brand : undefined;
 }
 
-export function getRelatedProviders(provider: IntegrationProvider): IntegrationProvider[] {
-  return (provider.relatedProviderIds ?? [])
-    .map((id) => getIntegrationProvider(id))
-    .filter((related): related is IntegrationProvider => Boolean(related));
+export function getRelatedPages(page: IntegrationPage): ReadonlyArray<IntegrationPage> {
+  return (page.related ?? []).map(integrationPage);
 }
 
-export function matchesIntegration(provider: IntegrationProvider, query: string): boolean {
+export function matchesIntegration(page: IntegrationPage, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  return `${provider.name} ${provider.description} ${provider.capabilities.join(" ")}`
+  return `${page.name} ${page.description} ${page.capabilities.join(" ")}`
     .toLowerCase()
     .includes(needle);
 }
 
 /**
- * Provider → required OAuth scopes the user must have granted for the
- * provider tile to render as "Connected". A provider absent from this map
- * has no live backend yet; its catalog-declared `status` is the source of
- * truth (currently every provider is `"available"`; `"soon"` is supported by
- * the type but unused).
+ * The API path that starts a live provider's connect flow: the provider's route
+ * family plus `/connect`, and for a Google product the `?features=` the entry
+ * declares, so the consent screen asks only for that product's scopes
+ * (Google's `include_granted_scopes=true` merges the grant into an existing
+ * one). A `token_paste` credential POSTs a token to this path instead of
+ * redirecting to it; `DetailHeader` branches on the credential, not the slug.
  */
-export type ProviderScopeRequirement = string | ReadonlyArray<string>;
-
-export const PROVIDER_REQUIRED_SCOPES = new Map<string, ReadonlyArray<ProviderScopeRequirement>>([
-  ["google_gmail", ["https://www.googleapis.com/auth/gmail.readonly"]],
-  [
-    "google_calendar",
-    [
-      [
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/calendar.events",
-      ],
-    ],
-  ],
-  ["google_drive", ["https://www.googleapis.com/auth/drive"]],
-  ["google_docs", ["https://www.googleapis.com/auth/documents"]],
-  ["google_sheets", ["https://www.googleapis.com/auth/spreadsheets"]],
-  ["google_slides", ["https://www.googleapis.com/auth/presentations"]],
-  // GitHub is intentionally absent: post-ADR-0052 the App install carries no
-  // OAuth scopes, so its connection is probed by an active credential with an
-  // `installation_id` (see `resolveOne` in use-integration-status.ts), not by
-  // scopes.
-]);
-
-/**
- * Provider id → the upstream provider key in the `integration_credentials`
- * table. Providers in this map are checked against real credential rows
- * by `useResolvedIntegrations`; everything else falls back to the catalog
- * status (currently always `"available"`).
- *
- * This is the *route family* — which `/integrations/<backend>/credentials`
- * endpoint to hit — and deliberately NOT the credential shape. How a credential
- * proves "connected" (scopes vs installation id vs row presence) lives in
- * `CREDENTIAL_SHAPE` in `@alfred/contracts`, keyed by integration slug and
- * exhaustive over it. The two lists look alike today only because three bearer
- * providers happen to have three route namespaces; they diverge the moment two
- * providers share one endpoint, or one provider's route family outlives its
- * credential shape.
- */
-export type IntegrationBackend = "google" | "github" | "notion" | "railway" | "vercel";
-
-export const PROVIDER_BACKEND = new Map<string, IntegrationBackend>([
-  ["google_gmail", "google"],
-  ["google_calendar", "google"],
-  ["google_drive", "google"],
-  ["google_docs", "google"],
-  ["google_sheets", "google"],
-  ["google_slides", "google"],
-  ["github", "github"],
-  ["notion", "notion"],
-  ["railway", "railway"],
-  ["vercel", "vercel"],
-]);
+export function connectPathFor(slug: LiveProviderSlug): string {
+  const path = `${integrationRoutePrefix(credentialProviderOf(slug))}/connect`;
+  const credential = INTEGRATIONS[slug].credential;
+  return credential.shape === "google_oauth"
+    ? `${path}?features=${credential.features.join(",")}`
+    : path;
+}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { getIntegrationProvider } from "~/lib/integrations/integrations";
+import { getIntegrationPage } from "~/lib/integrations/integrations";
 import type { MentionConnectionLookup } from "../mention-connection";
 import { filterMentionOptions, type MentionOption } from "../mention-options";
 import type { SuggestionRenderState } from "../tiptap-composer";
@@ -77,11 +77,11 @@ export function useMentionController(connections: MentionConnectionLookup): Ment
   const navigate = useNavigate();
   const connectFromPrompt = useCallback(() => {
     if (!connectPrompt) return;
-    const provider = getIntegrationProvider(connectPrompt.value);
+    const page = getIntegrationPage(connectPrompt.value);
     setConnectPrompt(null);
     suggestion?.dismiss();
-    if (provider) {
-      void navigate({ to: "/integrations/$provider", params: { provider: provider.id } });
+    if (page) {
+      void navigate({ to: "/integrations/$slug", params: { slug: page.slug } });
     }
   }, [connectPrompt, suggestion, navigate]);
 

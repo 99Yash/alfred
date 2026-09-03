@@ -84,10 +84,10 @@ describe("presentConnectNudges", () => {
   test("an unconnected provider resolves to a view with copy and route param", () => {
     const [view] = presentConnectNudges(
       [{ integration: "gmail", action: "connect" }],
-      statuses(["google_gmail", "available"]),
+      statuses(["gmail", "available"]),
     );
     assert.ok(view);
-    assert.equal(view.providerId, "google_gmail");
+    assert.equal(view.slug, "gmail");
     assert.equal(view.name, "Gmail");
     assert.equal(view.line, "Gmail isn't connected.");
     assert.equal(view.cta, "Connect Gmail");
@@ -107,7 +107,7 @@ describe("presentConnectNudges", () => {
     assert.deepEqual(
       presentConnectNudges(
         [{ integration: "gmail", action: "connect" }],
-        statuses(["google_gmail", "connected"]),
+        statuses(["gmail", "connected"]),
       ),
       [],
     );
@@ -127,12 +127,12 @@ describe("presentConnectNudges", () => {
     );
   });
 
-  test("short Google aliases resolve through the catalog", () => {
+  test("a Google product keys on its own slug", () => {
     const [view] = presentConnectNudges(
       [{ integration: "calendar", action: "connect" }],
-      statuses(["google_calendar", "available"]),
+      statuses(["calendar", "available"]),
     );
     assert.ok(view);
-    assert.equal(view.providerId, "google_calendar");
+    assert.equal(view.slug, "calendar");
   });
 });

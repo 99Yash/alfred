@@ -29,7 +29,7 @@ import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as BriefingsDateRouteImport } from './routes/briefings.$date'
 import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
-import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
+import { Route as IntegrationsSlugRouteImport } from './routes/integrations.$slug'
 import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as PreviewChatRouteImport } from './routes/preview.chat'
 import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
@@ -138,9 +138,9 @@ const DebugEventsRoute = DebugEventsRouteImport.update({
   path: '/debug/events',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IntegrationsProviderRoute = IntegrationsProviderRouteImport.update({
-  id: '/$provider',
-  path: '/$provider',
+const IntegrationsSlugRoute = IntegrationsSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
   getParentRoute: () => IntegrationsRoute,
 } as any)
 const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
@@ -200,7 +200,7 @@ export interface FileRoutesByFullPath {
   '/briefings/$date': typeof BriefingsDateRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
-  '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/integrations/$slug': typeof IntegrationsSlugRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
@@ -230,7 +230,7 @@ export interface FileRoutesByTo {
   '/briefings/$date': typeof BriefingsDateRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
-  '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/integrations/$slug': typeof IntegrationsSlugRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
@@ -261,7 +261,7 @@ export interface FileRoutesById {
   '/briefings/$date': typeof BriefingsDateRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
-  '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/integrations/$slug': typeof IntegrationsSlugRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
@@ -293,7 +293,7 @@ export interface FileRouteTypes {
     | '/briefings/$date'
     | '/chat/$threadId'
     | '/debug/events'
-    | '/integrations/$provider'
+    | '/integrations/$slug'
     | '/library/$artifact'
     | '/preview/chat'
     | '/preview/landing'
@@ -323,7 +323,7 @@ export interface FileRouteTypes {
     | '/briefings/$date'
     | '/chat/$threadId'
     | '/debug/events'
-    | '/integrations/$provider'
+    | '/integrations/$slug'
     | '/library/$artifact'
     | '/preview/chat'
     | '/preview/landing'
@@ -353,7 +353,7 @@ export interface FileRouteTypes {
     | '/briefings/$date'
     | '/chat/$threadId'
     | '/debug/events'
-    | '/integrations/$provider'
+    | '/integrations/$slug'
     | '/library/$artifact'
     | '/preview/chat'
     | '/preview/landing'
@@ -529,11 +529,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DebugEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/integrations/$provider': {
-      id: '/integrations/$provider'
-      path: '/$provider'
-      fullPath: '/integrations/$provider'
-      preLoaderRoute: typeof IntegrationsProviderRouteImport
+    '/integrations/$slug': {
+      id: '/integrations/$slug'
+      path: '/$slug'
+      fullPath: '/integrations/$slug'
+      preLoaderRoute: typeof IntegrationsSlugRouteImport
       parentRoute: typeof IntegrationsRoute
     }
     '/library/$artifact': {
@@ -611,11 +611,11 @@ const ChatRouteChildren: ChatRouteChildren = {
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
 interface IntegrationsRouteChildren {
-  IntegrationsProviderRoute: typeof IntegrationsProviderRoute
+  IntegrationsSlugRoute: typeof IntegrationsSlugRoute
 }
 
 const IntegrationsRouteChildren: IntegrationsRouteChildren = {
-  IntegrationsProviderRoute: IntegrationsProviderRoute,
+  IntegrationsSlugRoute: IntegrationsSlugRoute,
 }
 
 const IntegrationsRouteWithChildren = IntegrationsRoute._addFileChildren(

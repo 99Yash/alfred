@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { AppCard } from "~/components/ui/v2";
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 import { ActionPill } from "./action-pill";
 import { ProviderTile } from "./provider-tile";
 
-export function ProviderRow({ provider, index }: { provider: IntegrationProvider; index: number }) {
+export function ProviderRow({ provider, index }: { provider: IntegrationPage; index: number }) {
   const isSoon = provider.status === "soon";
   const content = (
     <>
@@ -38,8 +38,8 @@ export function ProviderRow({ provider, index }: { provider: IntegrationProvider
 
   return (
     <Link
-      to="/integrations/$provider"
-      params={{ provider: provider.id }}
+      to="/integrations/$slug"
+      params={{ slug: provider.slug }}
       className={cn(
         cardClassName,
         "overflow-hidden rounded-2xl bg-app-bg-1",

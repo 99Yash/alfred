@@ -1,10 +1,7 @@
-import { isLoadableIntegrationSlug, type PolicyMode } from "@alfred/contracts";
+import type { PolicyMode } from "@alfred/contracts";
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
-import {
-  integrationSlugForProvider,
-  type IntegrationProvider,
-} from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
 import { SectionHeading } from "./section-heading";
 
@@ -15,14 +12,11 @@ const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
 
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
-export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) {
-  // Only loadable slugs have a policy row; the catalog can also describe a
-  // slug with no gate, and that page simply has no control.
-  const candidate = integrationSlugForProvider(provider.id);
-  const slug = isLoadableIntegrationSlug(candidate) ? candidate : undefined;
+export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
+  // Every catalog slug is a provider, and every provider is loadable, so every
+  // page has a policy row.
+  const { slug } = provider;
   const { modeFor, setIntegrationMode, loading, error, retry } = useActionPolicy();
-
-  if (!slug) return null;
 
   // Fall back to the conservative `gated` while the policy row loads so the
   // control never flashes the less-safe option before the real value lands.

@@ -26,7 +26,7 @@ import {
 import { AppButton, AppTextarea } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import { getIntegrationProvider } from "~/lib/integrations/integrations";
+import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
@@ -203,7 +203,7 @@ function InlineApprovalCard({
   // aren't loadable, so they're excluded too.
   const canAlwaysAllow =
     staging.riskTier !== "high" && isLoadableIntegrationSlug(staging.integration);
-  const integrationName = getIntegrationProvider(staging.integration)?.name ?? staging.integration;
+  const integrationName = getIntegrationPage(staging.integration)?.name ?? staging.integration;
 
   const allowAlways = async () => {
     if (busy || decided || preview) return;

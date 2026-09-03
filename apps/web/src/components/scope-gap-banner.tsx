@@ -1,3 +1,4 @@
+import { integrationRoutePrefix } from "@alfred/contracts";
 import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
 import { useGoogleScopeGaps } from "~/lib/integrations/use-integration-status";
@@ -34,7 +35,7 @@ export function ScopeGapBanner() {
       onAction={() => {
         // Full-page redirect to the connect endpoint (no params → full grant);
         // Google merges the re-consent into the existing authorization.
-        window.location.href = `${API_URL}/api/integrations/google/connect`;
+        window.location.href = `${API_URL}${integrationRoutePrefix("google")}/connect`;
       }}
       onDismiss={() => setDismissed(true)}
     />
