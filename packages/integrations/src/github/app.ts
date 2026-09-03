@@ -1,4 +1,4 @@
-import { getStringPath, httpErrorFromResponse } from "@alfred/contracts";
+import { getStringPath, httpErrorFromResponse, parseOAuthScopeList } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { createHmac, createPrivateKey, timingSafeEqual, type KeyObject } from "node:crypto";
 import { SignJWT } from "jose";
@@ -237,7 +237,7 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
     expiresAt: parsed.data.expires_in
       ? new Date(Date.now() + parsed.data.expires_in * 1000)
       : FAR_FUTURE(),
-    scopes: parsed.data.scope ? parsed.data.scope.split(/[,\s]+/).filter(Boolean) : [],
+    scopes: parseOAuthScopeList(parsed.data.scope),
     tokenType: parsed.data.token_type ?? "bearer",
   };
 }

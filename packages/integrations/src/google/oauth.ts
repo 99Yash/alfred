@@ -1,6 +1,7 @@
 import {
   GOOGLE_FEATURE_SCOPES,
   isRecord,
+  parseOAuthScopeList,
   toMessage,
   type AccountPersona,
   type GoogleFeature,
@@ -193,7 +194,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     accountEmail: claims.email,
     ...(claims.hostedDomain ? { hostedDomain: claims.hostedDomain } : {}),
     expiresAt: new Date(Date.now() + parsed.expires_in * 1000),
-    scopes: parsed.scope ? parsed.scope.split(/\s+/).filter(Boolean) : [],
+    scopes: parseOAuthScopeList(parsed.scope),
   };
 }
 
@@ -256,7 +257,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
     accessToken: parsed.access_token,
     expiresAt: new Date(Date.now() + parsed.expires_in * 1000),
     refreshToken: parsed.refresh_token,
-    scopes: parsed.scope ? parsed.scope.split(/\s+/).filter(Boolean) : [],
+    scopes: parseOAuthScopeList(parsed.scope),
   };
 }
 

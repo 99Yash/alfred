@@ -110,6 +110,12 @@ export interface GithubSearchHit {
   repository: string;
   createdAt: string;
   closedAt: string | null;
+  /**
+   * When the PR merged, or `null` for an issue and for an unmerged PR. A
+   * multi-window search returns a superset, so the boss reads this to tell
+   * which event put an item in the result (see `buildGithubSearchQuery`).
+   */
+  mergedAt: string | null;
 }
 
 export interface SearchResult {
@@ -280,17 +286,24 @@ export function createGithubClient(options: GithubClientOptions) {
         totalCount: json.total_count,
         incompleteResults: json.incomplete_results,
         query: args.q,
-        items: json.items.map((it) => ({
-          number: it.number,
-          title: it.title,
-          url: it.html_url,
-          state: it.state,
-          isPullRequest: it.pull_request !== undefined,
-          merged: Boolean(it.pull_request?.merged_at),
-          repository: repositoryFromUrl(it.repository_url),
-          createdAt: it.created_at,
-          closedAt: it.closed_at,
-        })),
+        items: json.items.map((it) => {
+          // GitHub's `merged_at` IS the merge signal, so it is read once and
+          // `merged` derives from it. Two independent reads of one field can
+          // report a merged PR as unmerged.
+          const mergedAt = it.pull_request?.merged_at ?? null;
+          return {
+            number: it.number,
+            title: it.title,
+            url: it.html_url,
+            state: it.state,
+            isPullRequest: it.pull_request !== undefined,
+            merged: mergedAt !== null,
+            repository: repositoryFromUrl(it.repository_url),
+            createdAt: it.created_at,
+            closedAt: it.closed_at,
+            mergedAt,
+          };
+        }),
       };
     },
 

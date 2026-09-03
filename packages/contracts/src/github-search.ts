@@ -126,7 +126,37 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
   return out;
 }
 
-const DATE_QUALIFIERS = new Set(["created", "closed", "merged"]);
+/**
+ * The GitHub date qualifiers a structured window can emit, each paired with the
+ * `github.search` field that sets it, in the order the query builder lists
+ * them.
+ *
+ * ONE table, three readers. Before it, the same three-event map was restated in
+ * the query builder's `if` blocks, in the sanitizer's `hasStructuredWindow`,
+ * and in this module's date-qualifier whitelist, so a fourth event meant three
+ * edits and a missed one was silent. {@link githubSearchWindowDays} is the only
+ * function that answers "how long is this event's window", and every reader
+ * goes through it.
+ */
+export const GITHUB_SEARCH_WINDOWS = [
+  { qualifier: "closed", field: "closedWithinDays" },
+  { qualifier: "created", field: "createdWithinDays" },
+  { qualifier: "merged", field: "mergedWithinDays" },
+] as const;
+
+/** One date event a window can name. */
+export type GithubSearchWindow = (typeof GITHUB_SEARCH_WINDOWS)[number]["qualifier"];
+
+/** One row of {@link GITHUB_SEARCH_WINDOWS}. */
+export type GithubSearchWindowEntry = (typeof GITHUB_SEARCH_WINDOWS)[number];
+
+const isWindowQualifier = enumGuard(GITHUB_SEARCH_WINDOWS.map((entry) => entry.qualifier));
+
+/** The window row a free-form qualifier head names, or `undefined` for any other head. */
+function windowEntry(qualifier: string): GithubSearchWindowEntry | undefined {
+  return GITHUB_SEARCH_WINDOWS.find((entry) => entry.qualifier === qualifier);
+}
+
 const ISO_DATE = String.raw`\d{4}-\d{2}-\d{2}`;
 const ISO_DATE_TIME = String.raw`${ISO_DATE}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})`;
 const DATE_BOUND = String.raw`(?:${ISO_DATE}|${ISO_DATE_TIME})`;
@@ -208,6 +238,48 @@ export interface GithubSearchQueryContext {
   closedWithinDays?: number | undefined;
   createdWithinDays?: number | undefined;
   mergedWithinDays?: number | undefined;
+  /**
+   * One window that stands for every event this search can observe. See
+   * {@link githubActivityWindows} for the expansion.
+   */
+  activeWithinDays?: number | undefined;
+}
+
+/**
+ * Which events `activeWithinDays` stands for, given the type and state the
+ * search already fixes.
+ *
+ * "Active" means the item did something inside the window, so creation always
+ * counts. The other two drop out when the structured fields make them
+ * impossible. That is why one field replaces three: it cannot produce the
+ * `state:'open'` or `type:'issue'` contradictions the explicit fields can, so
+ * the tool description does not have to teach which combinations are legal.
+ */
+export function githubActivityWindows(
+  input: Pick<GithubSearchQueryContext, "type" | "state">,
+): readonly GithubSearchWindow[] {
+  // An open item has neither closed nor merged, so only creation is observable.
+  if (input.state === "open") return ["created"];
+  // An issue never merges.
+  if (input.type === "issue") return ["closed", "created"];
+  return ["closed", "created", "merged"];
+}
+
+/**
+ * How many days back one date event reaches: the explicit `*WithinDays` field
+ * when it is set, else `activeWithinDays` when this event is part of what
+ * "active" means for this search. `undefined` means emit no token for it.
+ */
+export function githubSearchWindowDays(
+  input: GithubSearchQueryContext,
+  window: GithubSearchWindowEntry,
+): number | undefined {
+  const explicit = input[window.field];
+  if (explicit !== undefined) return explicit;
+  if (input.activeWithinDays === undefined) return undefined;
+  return githubActivityWindows(input).includes(window.qualifier)
+    ? input.activeWithinDays
+    : undefined;
 }
 
 /**
@@ -318,12 +390,45 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     );
   }
 
+  // A free-form date window mixed with a structured one. GitHub joins top-level
+  // tokens with AND, while two or more structured windows are emitted as one
+  // parenthesized OR group — so `createdWithinDays:7` plus a `merged:>=X` in
+  // `query` asks for a PR that was created AND merged, the exact dropped-item
+  // class the OR group exists to remove. The sanitizer already strips a
+  // free-form window that DUPLICATES a set field, so anything reaching here
+  // names a DIFFERENT event. There is no safe auto-fix: folding an explicit
+  // range into the OR group would silently widen the search the model asked
+  // for. Reject, and name the field that expresses it.
+  const setWindows = GITHUB_SEARCH_WINDOWS.filter(
+    (entry) => githubSearchWindowDays(input, entry) !== undefined,
+  );
+  if (setWindows.length > 0) {
+    const freeFormWindows = [
+      ...new Set(
+        qualifiers
+          .filter(
+            (q) => !q.negated && isWindowQualifier(q.key) && isValidDateQualifierValue(q.value),
+          )
+          .map((q) => `${q.raw}:${q.value}`),
+      ),
+    ];
+    if (freeFormWindows.length > 0) {
+      issues.push(
+        `\`query\` mixes a free-form date window with a structured one: ${freeFormWindows.join(", ")}. ` +
+          "GitHub joins top-level tokens with AND, while the *WithinDays fields combine as OR, so " +
+          "the two together match only items that did BOTH. Express every window through the " +
+          "structured fields (`activeWithinDays` for any activity), or set none of them and put " +
+          "the whole range in `query`.",
+      );
+    }
+  }
+
   // Malformed date comparison operators (`closed:>`, `merged:>=`) make GitHub
   // reject the whole request — catch them before the network call. (A valid
   // date window in `query` is legitimate for explicit ranges the relative
   // *WithinDays fields can't express.)
   const malformedDateQualifiers = qualifiers
-    .filter((q) => DATE_QUALIFIERS.has(q.key) && !isValidDateQualifierValue(q.value))
+    .filter((q) => isWindowQualifier(q.key) && !isValidDateQualifierValue(q.value))
     .map((q) => `${q.raw}:${q.value}`);
   if (malformedDateQualifiers.length > 0) {
     issues.push(
@@ -373,12 +478,8 @@ export function sanitizeGithubSearchQuery(
   const toRemove: ParsedQualifier[] = [];
 
   // Does the structured context already carry a window for this date qualifier?
-  const hasStructuredWindow = (key: string): boolean =>
-    key === "closed"
-      ? input.closedWithinDays !== undefined
-      : key === "created"
-        ? input.createdWithinDays !== undefined
-        : key === "merged" && input.mergedWithinDays !== undefined;
+  const hasStructuredWindow = (entry: GithubSearchWindowEntry): boolean =>
+    githubSearchWindowDays(input, entry) !== undefined;
 
   for (const q of qualifiers) {
     // A negated qualifier is an exclusion (`-author:octocat`, `-label:wontfix`)
@@ -436,11 +537,8 @@ export function sanitizeGithubSearchQuery(
       // Other `type:` values aren't ones the structured field expresses; keep.
       continue;
     }
-    if (
-      DATE_QUALIFIERS.has(q.key) &&
-      hasStructuredWindow(q.key) &&
-      isValidDateQualifierValue(q.value)
-    ) {
+    const entry = windowEntry(q.key);
+    if (entry && hasStructuredWindow(entry) && isValidDateQualifierValue(q.value)) {
       // Duplicates a structured window — the field wins; drop the free-form one.
       toRemove.push(q);
       continue;

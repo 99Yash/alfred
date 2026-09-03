@@ -648,6 +648,24 @@ function withGithubItemUrl<S extends z.ZodObject>(
   }, schema);
 }
 
+/**
+ * One `*WithinDays` field. N=1 means today in the user's timezone, 7 means the
+ * past week. Only the event differs between the four, so the rest of the
+ * sentence is written once here — a per-field paragraph is how the same rule
+ * ended up restated four times.
+ */
+function windowDays(event: string) {
+  return z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(365)
+    .optional()
+    .describe(
+      `Only items that ${event} in the user's timezone — N=1 means today, 7 means the past week. Prefer a window field over a free-form created:/merged:/closed: qualifier; the two cannot be mixed.`,
+    );
+}
+
 export const githubSearchInput = withKeyAliases(
   // The model invents `limit` for the result cap; the field is `perPage`. The
   // alias target `perPage` is now tied to the object's keys at compile time, so
@@ -687,33 +705,16 @@ export const githubSearchInput = withKeyAliases(
         .describe(
           "State filter. `closed` includes merged PRs; `merged` is merged-only (PRs). Issues are never `merged`.",
         ),
-      closedWithinDays: z.coerce
-        .number()
-        .int()
-        .min(1)
-        .max(365)
-        .optional()
-        .describe(
-          "Only PRs closed within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Prefer this over a free-form closed: qualifier.",
-        ),
-      createdWithinDays: z.coerce
-        .number()
-        .int()
-        .min(1)
-        .max(365)
-        .optional()
-        .describe(
-          "Only PRs created within the last N calendar days in the user's timezone (N=1 = today). Prefer this over a free-form created: qualifier.",
-        ),
-      mergedWithinDays: z.coerce
-        .number()
-        .int()
-        .min(1)
-        .max(365)
-        .optional()
-        .describe(
-          "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/in the past week'. Prefer this over a free-form merged: qualifier.",
-        ),
+      // The four window fields differ only in which date event they name, so
+      // they share one `.describe` sentence plus the event. `activeWithinDays`
+      // is the one to reach for: it expands to every event the search can
+      // observe, which is why no field has to teach how windows combine.
+      activeWithinDays: windowDays(
+        "did anything — was created, merged, or closed — within the last N calendar days",
+      ),
+      closedWithinDays: windowDays("closed within the last N calendar days"),
+      createdWithinDays: windowDays("was created within the last N calendar days"),
+      mergedWithinDays: windowDays("merged within the last N calendar days"),
       query: z
         .string()
         .max(256)

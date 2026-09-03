@@ -785,6 +785,13 @@
       "when": 1788402377469,
       "tag": "0111_pale_thunderbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1788439917221,
+      "tag": "0112_retarget_github_mcp_readonly",
+      "breakpoints": true
     }
   ]
 }
