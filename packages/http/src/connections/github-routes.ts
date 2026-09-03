@@ -1,4 +1,4 @@
-import { Errors, rowToCredentialWire } from "@alfred/contracts";
+import { Errors, rowToCredentialWire, type CredentialProvider } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -37,8 +37,11 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   DELETE /api/integrations/github/:id           → disconnect (drops our token, App stays installed)
  */
 
+/** The route family is the credential provider (ADR-0093); the registry must know it. */
+const PROVIDER = "github" satisfies CredentialProvider;
+
 export const githubIntegrationRoutes = new Elysia({
-  prefix: "/api/integrations/github",
+  prefix: `/api/integrations/${PROVIDER}`,
   normalize: "typebox",
 })
   .use(authMacro)

@@ -1,6 +1,7 @@
 # Integration registry v1 — one entry per integration, the slug is the only key
 
-> **Status.** Design, 2026-09-02. Not started. Follows the
+> **Status.** In progress. PR 1 (contracts) merged as #944 on 2026-09-03; PR 2 (server) is
+> the next PR; PR 3 (web) and PR 4 (delete the transition projections) follow. Follows the
 > [inventory](./integration-registry-inventory.md). The three decisions in inventory section 9
 > are locked: the web keys on the slug; the credential provider is a registry field; Slack and
 > Linear carry a `planned` status. [ADR-0093](../decisions/ADR-0093-integration-registry-one-entry-per-integration.md)
@@ -369,6 +370,15 @@ runtime value. PR 2 and PR 3 are independent of each other and both depend on PR
 - `ProviderAvailability` and tool `availability.credential.provider` typed.
 - Route prefix assertions in `packages/http`.
 - DB `$type` and the `CHECK` migration, with the production probe in the PR body.
+
+_Deviations recorded in PR 2:_ the "zod parse at the read boundary" in section 2 is the
+`isCredentialProvider` guard in `connections/availability.ts`, the one read that fans rows out
+by provider; a row the constraint predates is skipped there, not thrown. `LiveProviderEntry`
+re-adds the optional `identityInSummary` field that `as const` drops from the entries that do not
+set it, so a reader of the union can read it without an `in` check. `deleteIntegrationCredential`
+takes `CredentialProvider`, the column's vocabulary, where it took `IntegrationSlug`. The
+`ingestion_state.provider` and `webhook_events.provider` columns keep their `text` type; they
+are provenance, not the credential vocabulary, and are out of this plan.
 
 ### PR 3 — web: the slug is the key
 

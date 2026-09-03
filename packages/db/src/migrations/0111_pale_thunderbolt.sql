@@ -1,0 +1,1 @@
+ALTER TABLE "integration_credentials" ADD CONSTRAINT "integration_credentials_provider_valid" CHECK ("integration_credentials"."provider" IN ('google', 'github', 'notion', 'railway', 'vercel'));

@@ -1,7 +1,9 @@
-import { INTEGRATION_DISPLAY_NAMES, type WorkflowRecoveryNavigation } from "@alfred/contracts";
+import {
+  INTEGRATION_DISPLAY_NAMES,
+  isGoogleSlug,
+  type WorkflowRecoveryNavigation,
+} from "@alfred/contracts";
 import type { WorkflowReadinessProblem } from "./readiness";
-
-const GOOGLE_INTEGRATIONS = new Set(["gmail", "calendar", "drive", "docs", "sheets", "slides"]);
 
 /**
  * Convert a readiness remedy into navigation only when this server owns a flow
@@ -17,7 +19,7 @@ export function workflowRecoveryNavigation(args: {
     if (
       !action ||
       (action.kind !== "connect" && action.kind !== "reauthorize") ||
-      !GOOGLE_INTEGRATIONS.has(action.integration)
+      !isGoogleSlug(action.integration)
     ) {
       continue;
     }

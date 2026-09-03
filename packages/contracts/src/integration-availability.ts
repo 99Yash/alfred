@@ -1,5 +1,8 @@
-import type { SupportedIntegrationSlug } from "./passthrough";
-import type { LoadableIntegrationSlug } from "./integrations";
+import type {
+  CredentialProvider,
+  LoadableIntegrationSlug,
+  SupportedPassthroughSlug,
+} from "./integrations";
 
 export interface ProviderAvailability {
   credentialId: string;
@@ -18,9 +21,14 @@ export interface IntegrationAvailability {
 /** Connection state consumed by tool availability policy. */
 export interface IntegrationAvailabilitySnapshot {
   integrations: ReadonlyMap<LoadableIntegrationSlug, IntegrationAvailability>;
-  providers: ReadonlyMap<string, readonly ProviderAvailability[]>;
+  /**
+   * Credential rows grouped by `integration_credentials.provider`. The key is
+   * the persisted vocabulary the registry derives, so a lookup with a slug that
+   * is not a provider (`gmail`, `slack`) is a compile error, not an empty list.
+   */
+  providers: ReadonlyMap<CredentialProvider, readonly ProviderAvailability[]>;
   /** Default-off general-passthrough enablement for every supported slug. */
-  passthroughEnabled: ReadonlyMap<SupportedIntegrationSlug, boolean>;
+  passthroughEnabled: ReadonlyMap<SupportedPassthroughSlug, boolean>;
 }
 
 export type ToolUnavailabilityCode =

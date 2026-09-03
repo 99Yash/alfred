@@ -6,6 +6,7 @@ import {
   isIntegrationSlug,
   isToolName,
   toolLabel,
+  type CredentialProvider,
   type IntegrationAvailabilitySnapshot,
   type ProviderAvailability,
   type ToolName,
@@ -137,7 +138,7 @@ export function resolveWorkflowApprovalDisplay(
   toolCatalog: WorkflowToolCatalog,
 ): WorkflowApprovalDisplay {
   const resolvedAccounts = new Map<string, WorkflowAccountDisplay>();
-  const displayAccount = (provider: string, accountRef: string) => {
+  const displayAccount = (provider: CredentialProvider, accountRef: string) => {
     const row = (availability.providers.get(provider) ?? []).find(
       (candidate) => candidate.accountId === accountRef,
     );

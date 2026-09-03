@@ -1,4 +1,10 @@
-import { ACCOUNT_PERSONAS, Errors, rowToCredentialWire, toMessage } from "@alfred/contracts";
+import {
+  ACCOUNT_PERSONAS,
+  Errors,
+  rowToCredentialWire,
+  toMessage,
+  type CredentialProvider,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -76,8 +82,11 @@ async function assertCredentialOwned(id: string, userId: string): Promise<void> 
   if (!owner[0]) throw Errors.NotFoundError("Credential not found");
 }
 
+/** The route family is the credential provider (ADR-0093); the registry must know it. */
+const PROVIDER = "google" satisfies CredentialProvider;
+
 export const googleIntegrationRoutes = new Elysia({
-  prefix: "/api/integrations/google",
+  prefix: `/api/integrations/${PROVIDER}`,
   normalize: "typebox",
 })
   .use(authMacro)
