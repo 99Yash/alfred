@@ -112,9 +112,9 @@ export const externalFileContentSchema = z.object({
   /** Provider-native file id (e.g. Drive fileId), for building URLs and dedup. */
   fileId: z.string(),
   /** Embeddable, sandbox-safe preview URL (e.g. Drive `/preview`). */
-  previewUrl: z.string().url(),
+  previewUrl: z.url(),
   /** Human-facing "open in the provider" link, when the provider offers one. */
-  webViewLink: z.string().url().optional(),
+  webViewLink: z.url().optional(),
   /** The file's MIME type, shown in the subline (e.g. `application/pdf`). */
   mimeType: z.string().max(255).optional(),
   /** The file's own name, if known (the artifact `title` may differ). */

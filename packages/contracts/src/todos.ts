@@ -68,7 +68,7 @@ export const todoSourceSchema = z
     provider: z.string().min(1).max(64),
     kind: z.string().min(1).max(64),
     id: z.string().min(1).max(512),
-    url: z.string().url().max(2_048).optional(),
+    url: z.url().max(2_048).optional(),
   })
   .strict();
 export type TodoSource = z.infer<typeof todoSourceSchema>;
