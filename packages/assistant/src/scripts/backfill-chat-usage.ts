@@ -35,7 +35,7 @@ import { db, closeConnections } from "@alfred/db";
 import { agentRuns, apiCallLog, chatMessages } from "@alfred/db/schemas";
 import { chatMessageUsageSchema, type ChatMessageUsage } from "@alfred/contracts";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
-import { foldModelUsage } from "@alfred/assistant/execution/usage-fold";
+import { DEGRADED, REQUESTED_MODEL, foldModelUsage } from "@alfred/assistant/execution/usage-fold";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -73,6 +73,8 @@ async function loadGroups(): Promise<
     role: string | null;
     subId: string | null;
     model: string;
+    degraded: boolean;
+    requestedModel: string | null;
     inputTokens: string;
     outputTokens: string;
     cachedInputTokens: string;
@@ -88,6 +90,8 @@ async function loadGroups(): Promise<
       role: CALL_ROLE,
       subId: SUB_ID,
       model: MODEL,
+      degraded: DEGRADED,
+      requestedModel: REQUESTED_MODEL,
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
@@ -116,7 +120,7 @@ async function loadGroups(): Promise<
           or not (${chatMessages.usage} ? 'modelLatencyMs'))`,
       ),
     )
-    .groupBy(chatMessages.id, apiCallLog.kind, CALL_ROLE, SUB_ID, MODEL);
+    .groupBy(chatMessages.id, apiCallLog.kind, CALL_ROLE, SUB_ID, MODEL, DEGRADED, REQUESTED_MODEL);
 }
 
 /**
