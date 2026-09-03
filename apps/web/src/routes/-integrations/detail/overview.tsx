@@ -1,7 +1,7 @@
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { SectionHeading } from "./section-heading";
 
-export function Overview({ provider }: { provider: IntegrationProvider }) {
+export function Overview({ provider }: { provider: IntegrationPage }) {
   return (
     <section className="app-card-in space-y-4 pb-8" style={{ animationDelay: "360ms" }}>
       <SectionHeading>Overview</SectionHeading>

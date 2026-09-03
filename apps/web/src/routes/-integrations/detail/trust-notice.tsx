@@ -1,10 +1,10 @@
 import { ShieldCheck } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 import { TrustDial } from "./trust-dial";
 
-export function TrustNotice({ provider }: { provider: IntegrationProvider }) {
+export function TrustNotice({ provider }: { provider: IntegrationPage }) {
   return (
     <section className="app-card-in" style={{ animationDelay: "180ms" }}>
       <AppCard padded={false} className="relative overflow-hidden">

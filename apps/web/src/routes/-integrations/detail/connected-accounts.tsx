@@ -1,19 +1,20 @@
+import {
+  credentialProviderOf,
+  isLiveProviderSlug,
+  type CredentialProvider,
+} from "@alfred/contracts";
 import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import {
   useDisconnectIntegration,
   type ConnectedAccount,
 } from "~/lib/integrations/use-integration-status";
-import {
-  PROVIDER_BACKEND,
-  type IntegrationBackend,
-  type IntegrationProvider,
-} from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { toast } from "~/lib/toast";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
 
-interface ResolvedIntegrationLike extends IntegrationProvider {
+interface ResolvedIntegrationLike extends IntegrationPage {
   connectedAccounts?: ReadonlyArray<ConnectedAccount> | undefined;
 }
 
@@ -25,7 +26,10 @@ export function ConnectedAccounts({
   connected: boolean;
 }) {
   const accounts = provider.connectedAccounts ?? [];
-  const backend = PROVIDER_BACKEND.get(provider.id);
+  // A planned provider has no credential rows, so nothing to disconnect.
+  const credentialProvider = isLiveProviderSlug(provider.slug)
+    ? credentialProviderOf(provider.slug)
+    : undefined;
 
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: "120ms" }}>
@@ -52,11 +56,11 @@ export function ConnectedAccounts({
                   <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
                   Active
                 </span>
-                {backend ? (
+                {credentialProvider ? (
                   <DisconnectControl
-                    backend={backend}
+                    provider={credentialProvider}
                     account={acct}
-                    isGoogle={backend === "google"}
+                    isGoogle={credentialProvider === "google"}
                   />
                 ) : null}
               </div>
@@ -78,15 +82,15 @@ export function ConnectedAccounts({
  * state spells that out.
  */
 function DisconnectControl({
-  backend,
+  provider,
   account,
   isGoogle,
 }: {
-  backend: IntegrationBackend;
+  provider: CredentialProvider;
   account: ConnectedAccount;
   isGoogle: boolean;
 }) {
-  const { mutateAsync, isPending } = useDisconnectIntegration(backend);
+  const { mutateAsync, isPending } = useDisconnectIntegration(provider);
   const [armed, setArmed] = useState(false);
 
   async function disconnect() {

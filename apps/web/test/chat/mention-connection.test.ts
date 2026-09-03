@@ -11,8 +11,8 @@ function statuses(
   return new Map(entries);
 }
 
-const connected = statuses(["google_gmail", "connected"]);
-const disconnected = statuses(["google_gmail", "available"]);
+const connected = statuses(["gmail", "connected"]);
+const disconnected = statuses(["gmail", "available"]);
 
 describe("classifyMentionValue", () => {
   test("sources without an integration are internal", () => {
@@ -21,7 +21,7 @@ describe("classifyMentionValue", () => {
     assert.equal(classifyMentionValue("notes", disconnected), "internal");
   });
 
-  test("short aliases resolve to their catalog provider", () => {
+  test("a catalog slug reads its own status", () => {
     assert.equal(classifyMentionValue("gmail", connected), "connected");
     assert.equal(classifyMentionValue("calendar", disconnected), "connectable");
     assert.equal(classifyMentionValue("drive", disconnected), "connectable");
@@ -32,7 +32,7 @@ describe("classifyMentionValue", () => {
     assert.equal(classifyMentionValue("github", statuses()), "connectable");
   });
 
-  test("catalog-only providers with no connect flow stay unavailable", () => {
+  test("planned providers with no connect flow stay unavailable", () => {
     assert.equal(classifyMentionValue("slack", connected), "unavailable");
     assert.equal(classifyMentionValue("linear", connected), "unavailable");
     assert.equal(classifyMentionValue("slack", statuses()), "unavailable");
