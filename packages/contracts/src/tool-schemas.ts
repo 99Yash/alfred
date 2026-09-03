@@ -763,6 +763,26 @@ export const githubGetPullRequestInput = withGithubItemUrl(
     .strict(),
 );
 
+/**
+ * The batch form of `github.get_pull_request` (#935). One call fetches the diff
+ * stats of every PR a search returned, so the model never has to fan out one
+ * call per hit. Each item is the single-PR input, preprocess included, so a
+ * pasted URL or an `owner/repo` slug is decomposed per item exactly as it is
+ * for the single fetch. The cap bounds one tool call to one page of search
+ * results; a larger set is two calls, not a hidden truncation.
+ */
+export const GITHUB_PULL_REQUEST_BATCH_MAX = 25;
+
+export const githubGetPullRequestsInput = z
+  .object({
+    items: z
+      .array(githubGetPullRequestInput)
+      .min(1)
+      .max(GITHUB_PULL_REQUEST_BATCH_MAX)
+      .describe("The pull requests to fetch, each as owner + repo + pull_number (or its url)."),
+  })
+  .strict();
+
 export const githubGetIssueInput = withGithubItemUrl(
   "issue_number",
   z
@@ -1792,6 +1812,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "drive.download_file": driveDownloadFileInput,
   "github.search": githubSearchInput,
   "github.get_pull_request": githubGetPullRequestInput,
+  "github.get_pull_requests": githubGetPullRequestsInput,
   "github.get_issue": githubGetIssueInput,
   "github.request": restPassthroughInput,
   "notion.search": notionSearchInput,

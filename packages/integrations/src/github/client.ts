@@ -1,4 +1,4 @@
-import { redacted, type Redacted } from "@alfred/contracts";
+import { mapConcurrent, redacted, toMessage, type Redacted } from "@alfred/contracts";
 import { z } from "zod";
 
 import type { ProviderBindOptions } from "../shared/provider";
@@ -119,6 +119,23 @@ export interface SearchResult {
   items: GithubSearchHit[];
 }
 
+/** How many PR detail reads one batch call keeps in flight at once. */
+const PULL_REQUEST_BATCH_CONCURRENCY = 5;
+
+export interface PullRequestBatchFailure {
+  owner: string;
+  repo: string;
+  number: number;
+  error: string;
+}
+
+export interface PullRequestBatch {
+  items: PullRequestDetail[];
+  failed: PullRequestBatchFailure[];
+  /** Summed over `items` only — a failed item is absent from every total. */
+  totals: Pick<PullRequestDetail, "additions" | "deletions" | "changedFiles" | "commits">;
+}
+
 export interface PullRequestDetail {
   number: number;
   title: string;
@@ -191,6 +208,35 @@ export function createGithubClient(options: GithubClientOptions) {
     }),
   });
 
+  async function getPullRequest(args: {
+    owner: string;
+    repo: string;
+    number: number;
+  }): Promise<PullRequestDetail> {
+    const { owner, repo, number } = args;
+    const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`;
+    const pr = pullRequestSchema.parse(
+      await client.json(path, { label: `repos/${owner}/${repo}/pulls/${number}` }),
+    );
+    return {
+      number: pr.number,
+      title: pr.title,
+      url: pr.html_url,
+      state: pr.state,
+      merged: Boolean(pr.merged ?? pr.merged_at),
+      draft: Boolean(pr.draft),
+      repository: pr.base?.repo?.full_name ?? `${owner}/${repo}`,
+      author: pr.user?.login ?? null,
+      createdAt: pr.created_at,
+      closedAt: pr.closed_at ?? null,
+      mergedAt: pr.merged_at ?? null,
+      additions: pr.additions ?? 0,
+      deletions: pr.deletions ?? 0,
+      changedFiles: pr.changed_files ?? 0,
+      commits: pr.commits ?? 0,
+    };
+  }
+
   return {
     /** The connected login (for resolving `author:@me`), resolved alongside the token. */
     async connectedLogin(): Promise<string | null> {
@@ -248,32 +294,47 @@ export function createGithubClient(options: GithubClientOptions) {
       };
     },
 
-    async getPullRequest(args: {
-      owner: string;
-      repo: string;
-      number: number;
-    }): Promise<PullRequestDetail> {
-      const { owner, repo, number } = args;
-      const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`;
-      const pr = pullRequestSchema.parse(
-        await client.json(path, { label: `repos/${owner}/${repo}/pulls/${number}` }),
+    getPullRequest,
+
+    /**
+     * Fetch several pull requests in one call (#935). GitHub has no batch REST
+     * read for PR detail, so this fans out the single fetch under a bounded
+     * concurrency; the installation token comes from the in-process cache after
+     * the first request. Best-effort on purpose: one 404 (a renumbered or
+     * deleted PR) must not hide the other stats, so a failed item lands in
+     * `failed` with its message and the rest still return (ADR-0071 honesty —
+     * the caller sees exactly which items are missing from the totals).
+     */
+    async getPullRequests(
+      items: ReadonlyArray<{ owner: string; repo: string; number: number }>,
+    ): Promise<PullRequestBatch> {
+      const fetched: PullRequestDetail[] = new Array<PullRequestDetail>(items.length);
+      const failed: PullRequestBatchFailure[] = [];
+      await mapConcurrent(
+        items.map((item, index) => ({ item, index })),
+        PULL_REQUEST_BATCH_CONCURRENCY,
+        async ({ item, index }) => {
+          try {
+            fetched[index] = await getPullRequest(item);
+          } catch (err) {
+            failed.push({ ...item, error: toMessage(err) });
+          }
+        },
       );
+      // Keep the caller's order; drop the slots a failure left empty.
+      const ok = fetched.filter((pr): pr is PullRequestDetail => pr !== undefined);
       return {
-        number: pr.number,
-        title: pr.title,
-        url: pr.html_url,
-        state: pr.state,
-        merged: Boolean(pr.merged ?? pr.merged_at),
-        draft: Boolean(pr.draft),
-        repository: pr.base?.repo?.full_name ?? `${owner}/${repo}`,
-        author: pr.user?.login ?? null,
-        createdAt: pr.created_at,
-        closedAt: pr.closed_at ?? null,
-        mergedAt: pr.merged_at ?? null,
-        additions: pr.additions ?? 0,
-        deletions: pr.deletions ?? 0,
-        changedFiles: pr.changed_files ?? 0,
-        commits: pr.commits ?? 0,
+        items: ok,
+        failed,
+        totals: ok.reduce(
+          (acc, pr) => ({
+            additions: acc.additions + pr.additions,
+            deletions: acc.deletions + pr.deletions,
+            changedFiles: acc.changedFiles + pr.changedFiles,
+            commits: acc.commits + pr.commits,
+          }),
+          { additions: 0, deletions: 0, changedFiles: 0, commits: 0 },
+        ),
       };
     },
 
