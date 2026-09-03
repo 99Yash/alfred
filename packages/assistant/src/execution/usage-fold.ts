@@ -5,6 +5,17 @@ import { inArray, sql } from "drizzle-orm";
 import { subAgentParentRunIdMatches } from "./sub-agent-metadata";
 
 /**
+ * A row degraded through `withFallback` when `metered()` re-attributed it to
+ * the model the provider reported serving: `reconcileServed` writes
+ * `response_meta.servedModelId` only on divergence and moves `model` to the
+ * served id only when that id is a registered model. A dated alias of the
+ * requested model therefore leaves the two unequal and reads as not degraded.
+ */
+export const DEGRADED = sql<boolean>`coalesce((${apiCallLog.responseMeta}->>'servedModelId') = ${apiCallLog.model}, false)`;
+/** The pre-call model of a degraded row, recorded beside `servedModelId` since 2026-09-03. */
+export const REQUESTED_MODEL = sql<string | null>`${apiCallLog.responseMeta}->>'requestedModelId'`;
+
+/**
  * One `api_call_log` group summed for a single (agent, model) pair within a
  * turn. `subId` names the agent that made the calls: `null` for the boss run,
  * the child's `subId` for a sub-agent. The `sum`/`count` aggregates, including
@@ -24,11 +35,20 @@ export interface ModelUsageGroup {
   modelLatencyMs: string | number;
   costUsd: string | number;
   calls: string | number;
+  /**
+   * True when the provider served a different registered model than the one
+   * the call was attributed to before dispatch — a `withFallback` cascade
+   * fired. Optional so a caller that never groups by it (the backfill's older
+   * shape, fixtures) still folds; absent reads as "not degraded".
+   */
+  degraded?: boolean | undefined;
+  /** The pre-call model of a degraded group (`response_meta.requestedModelId`), when recorded. */
+  requestedModel?: string | null | undefined;
 }
 
 /**
  * Fold per-(agent, model) usage groups into one {@link ChatMessageUsage}: sum
- * the turn totals and model latency, carry a per-model `{ model, calls }`
+ * the turn totals and model latency, carry a per-model `{ model, calls, fallback }`
  * breakdown sorted busiest first, and carry a per-agent
  * `{ subId, calls, costUsd }` split sorted most expensive first. The single home
  * for the `(model, tokens, latency, cost)` rollup shape — shared by the live
@@ -50,7 +70,10 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     models: [],
     agents: [],
   };
-  const callsByModel = new Map<string, number>();
+  const callsByModel = new Map<
+    string,
+    { calls: number; fallbackCalls: number; primary: string | null }
+  >();
   // Keyed on subId with a sentinel for the boss, because `null` is a legitimate
   // agent here and Map keys distinguish it from a child literally named "boss".
   const byAgent = new Map<string | null, { calls: number; costUsd: number }>();
@@ -69,14 +92,25 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     usage.modelLatencyMs += Number(group.modelLatencyMs) || 0;
     usage.costUsd += costUsd;
     usage.calls += calls;
-    callsByModel.set(group.model, (callsByModel.get(group.model) ?? 0) + calls);
+    const model = callsByModel.get(group.model) ?? { calls: 0, fallbackCalls: 0, primary: null };
+    model.calls += calls;
+    if (group.degraded === true) {
+      model.fallbackCalls += calls;
+      model.primary ??= group.requestedModel ?? null;
+    }
+    callsByModel.set(group.model, model);
     const agent = byAgent.get(group.subId) ?? { calls: 0, costUsd: 0 };
     agent.calls += calls;
     agent.costUsd += costUsd;
     byAgent.set(group.subId, agent);
   }
   usage.models = [...callsByModel]
-    .map(([model, calls]) => ({ model, calls }))
+    .map(([model, totals]) => ({
+      model,
+      calls: totals.calls,
+      fallback:
+        totals.fallbackCalls > 0 ? { primary: totals.primary, calls: totals.fallbackCalls } : null,
+    }))
     .filter((m) => m.calls > 0)
     .sort((a, b) => b.calls - a.calls);
   usage.agents = [...byAgent]
@@ -133,8 +167,9 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
 export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null> {
   const runs = await listTurnRuns(runId);
   // Grouped by run and model: by model so the readout can name every model that
-  // served the turn (and catch a silent Anthropic→Gemini fallback), by run so
-  // each agent's spend stays attributable. The turn totals are summed back
+  // served the turn, by run so each agent's spend stays attributable, and by
+  // the degrade fact so a silent `withFallback` cascade is visible without the
+  // client guessing which model is primary. The turn totals are summed back
   // across the groups in JS.
   const rows = await db()
     .select({
@@ -142,6 +177,8 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
       kind: apiCallLog.kind,
       role: sql<string | null>`${apiCallLog.requestMeta}->>'role'`,
       model: sql<string>`coalesce(${apiCallLog.model}, 'unknown')`,
+      degraded: DEGRADED,
+      requestedModel: REQUESTED_MODEL,
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
@@ -162,6 +199,8 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
       apiCallLog.kind,
       sql`${apiCallLog.requestMeta}->>'role'`,
       apiCallLog.model,
+      DEGRADED,
+      REQUESTED_MODEL,
     );
   if (rows.length === 0) return null;
   const usage = foldModelUsage(
