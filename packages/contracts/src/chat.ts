@@ -124,9 +124,9 @@ export const chatMessageUsageSchema = z.object({
   calls: z.number().int().nonnegative(),
   /**
    * The distinct models that actually served this turn, with each one's call
-   * count, most-used first. Reveals a silent provider fallback — e.g. a turn you
-   * expected on `claude-sonnet-4-6` showing `gemini-3.5-flash` means the
-   * Anthropic primary errored and `withFallback` degraded it (spend cap, 429).
+   * count, most-used first. Reveals a silent provider fallback — e.g. a chat
+   * turn you expected on `gpt-5.6-luna` showing `gemini-3.8-flash` means the
+   * OpenAI primary errored and `withFallback` degraded it (spend cap, 429).
    */
   models: z.array(z.object({ model: z.string(), calls: z.number().int().positive() })).default([]),
   /**

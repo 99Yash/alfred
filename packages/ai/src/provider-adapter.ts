@@ -1,4 +1,3 @@
-import { cloudflareGatewayConfig } from "@alfred/env/server";
 import type {
   LanguageModelV4CallOptions,
   LanguageModelV4Middleware,
@@ -6,7 +5,7 @@ import type {
 } from "@ai-sdk/provider";
 import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
-import { createGateway } from "./gateway";
+import { activeGateway } from "./gateway";
 import {
   MODEL_CAPABILITIES,
   MODEL_IDS,
@@ -46,9 +45,7 @@ const PROVIDER_SPECS = {
     nativeToolSearch: false,
     createModel: (modelId: string) => {
       // SAFETY: PROVIDER_SPECS is keyed by ModelProviderId; each branch creates only its own provider's model type.
-      return createGateway(cloudflareGatewayConfig()).createAnthropic()(
-        modelId as ModelIdFor<"anthropic">,
-      );
+      return activeGateway().createAnthropic()(modelId as ModelIdFor<"anthropic">);
     },
     projectRequest: projectAnthropicRequest,
   },
@@ -56,9 +53,7 @@ const PROVIDER_SPECS = {
     nativeToolSearch: false,
     createModel: (modelId: string) => {
       // SAFETY: keyed by provider, so google branch only receives google ids.
-      return createGateway(cloudflareGatewayConfig()).createGoogle()(
-        modelId as ModelIdFor<"google">,
-      );
+      return activeGateway().createGoogle()(modelId as ModelIdFor<"google">);
     },
     projectRequest: projectApplicationRequest,
   },
@@ -66,7 +61,7 @@ const PROVIDER_SPECS = {
     nativeToolSearch: false,
     createModel: (modelId: string) => {
       // SAFETY: openai branch only receives openai ids; .responses is the language-model factory.
-      return createGateway(cloudflareGatewayConfig())
+      return activeGateway()
         .createOpenAI()
         .responses(modelId as ModelIdFor<"openai">);
     },

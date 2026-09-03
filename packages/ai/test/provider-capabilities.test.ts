@@ -19,16 +19,23 @@ import { route } from "../src/provider";
  */
 describe("provider capability dispatch", () => {
   test("route follows the chat tier capability map", () => {
-    // standard → Sonnet 4.6 + 2.5-flash fallback (ADR-0077 2026-08-28: 3.5-flash 403, so 2.5-flash until probe succeeds).
-    // Anthropic keeps adaptive medium; Google 2.5-flash is budget-based (thinkingBudget:-1), not level-based.
+    // standard → Luna primary + 3.8-flash fallback (ADR-0077 amendment
+    // 2026-09-03d: Anthropic leaves both chat tiers). Both legs carry the
+    // tier's `medium`: OpenAI Responses as flat `reasoningEffort`, Google as a
+    // `thinkingLevel`. Two providers, so the merge must keep both bags — an
+    // assertion that catches a chain edit dropping a leg's options.
+    // `store: false` is load-bearing, not hygiene: Cloudflare Unified Billing
+    // puts Alfred on a Zero Data Retention org, so replaying a reasoning item
+    // by `rs_…` id 400s and kills the turn. See OPENAI_ZERO_DATA_RETENTION_STORE.
     assert.deepEqual(route("standard").providerOptions(), {
-      anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
-      google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+      openai: { reasoningEffort: "medium", store: false },
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
     });
-    // deep → Opus 4.8 + 2.5-flash fallback (same temporary downgrade).
+    // deep → the same Luna at `max`, which is in its vocabulary; the Gemini
+    // leg clamps `max` to its strongest value `high`.
     assert.deepEqual(route("deep").providerOptions(), {
-      anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
-      google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+      openai: { reasoningEffort: "max", store: false },
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
     });
   });
 
@@ -90,11 +97,13 @@ describe("provider capability dispatch", () => {
   });
 
   test("GPT-5.6 dispatch emits only supported Responses API effort values", () => {
+    // `store: false` rides every OpenAI bag, clamped effort or not — the Zero
+    // Data Retention org cannot resolve a replayed `rs_…` reasoning item id.
     assert.deepEqual(route("gpt-5.6-sol", "max").providerOptions(), {
-      openai: { reasoningEffort: "max" },
+      openai: { reasoningEffort: "max", store: false },
     });
     assert.deepEqual(route("gpt-5.6-luna", "minimal").providerOptions(), {
-      openai: { reasoningEffort: "none" },
+      openai: { reasoningEffort: "none", store: false },
     });
   });
 });

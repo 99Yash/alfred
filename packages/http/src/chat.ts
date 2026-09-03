@@ -15,14 +15,13 @@
  * `Errors.*` thrown below the seam still map to a status:
  * `packages/http/src/middleware/error-handler.ts` turns any `ApiError` into one.
  */
-import { transcribeAudio } from "@alfred/ai";
+import { MAX_TRANSCRIBE_AUDIO_BYTES, transcribeAudio, transcriptionConfigured } from "@alfred/ai";
 import {
   Errors,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   toMessage,
 } from "@alfred/contracts";
-import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 
 import {
@@ -33,9 +32,6 @@ import {
 } from "@alfred/assistant/chat";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
-
-/** OpenAI's transcription endpoint caps uploads at 25 MB; mirror it here. */
-const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
 
 /**
  * Chat turn surface (streaming-chat plan). The composer uploads any attachment
@@ -62,9 +58,9 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
          */
         "/transcribe",
         async ({ body }) => {
-          if (!serverEnv().OPENAI_API_KEY) {
+          if (!transcriptionConfigured()) {
             throw Errors.ServiceUnavailableError(
-              "Voice transcription isn't configured — set OPENAI_API_KEY on the server.",
+              "Voice transcription isn't configured — set the Cloudflare AI gateway or OPENAI_API_KEY on the server.",
             );
           }
           const audio = new Uint8Array(await body.audio.arrayBuffer());
@@ -82,7 +78,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         },
         {
           body: t.Object({
-            audio: t.File({ maxSize: TRANSCRIBE_MAX_BYTES }),
+            audio: t.File({ maxSize: MAX_TRANSCRIBE_AUDIO_BYTES }),
           }),
         },
       )

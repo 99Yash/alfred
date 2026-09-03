@@ -79,6 +79,17 @@ export const MODEL_DEFINITIONS = [
     },
   },
   {
+    id: "gemini-3.8-flash",
+    provider: "google",
+    capabilities: {
+      effortValues: ["low", "medium", "high"],
+      temperature: true,
+      inputModalities: ["text", "image", "audio", "video", "pdf"],
+      maxInlineMediaBytes: 50 * 1024 * 1024,
+      nativeToolSearch: false,
+    },
+  },
+  {
     id: "gemini-3.5-flash",
     provider: "google",
     capabilities: {

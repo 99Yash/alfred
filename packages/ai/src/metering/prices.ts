@@ -133,6 +133,7 @@ const FALLBACK_CONTEXT_WINDOWS = {
   "google/gemini-2.5-flash": 1_048_576,
   "google/gemini-2.5-flash-lite": 1_048_576,
   "google/gemini-3.5-flash": 1_048_576,
+  "google/gemini-3.8-flash": 1_048_576,
 } as const satisfies Readonly<Record<string, number>>;
 
 /**
