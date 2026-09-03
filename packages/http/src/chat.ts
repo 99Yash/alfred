@@ -22,7 +22,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   toMessage,
 } from "@alfred/contracts";
-import { serverEnv } from "@alfred/env/server";
+import { cloudflareGatewayEnabled, serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 
 import {
@@ -62,9 +62,9 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
          */
         "/transcribe",
         async ({ body }) => {
-          if (!serverEnv().OPENAI_API_KEY) {
+          if (!cloudflareGatewayEnabled() && !serverEnv().OPENAI_API_KEY) {
             throw Errors.ServiceUnavailableError(
-              "Voice transcription isn't configured — set OPENAI_API_KEY on the server.",
+              "Voice transcription isn't configured — set the Cloudflare AI gateway or OPENAI_API_KEY on the server.",
             );
           }
           const audio = new Uint8Array(await body.audio.arrayBuffer());

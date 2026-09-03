@@ -129,7 +129,7 @@ const serverEnvSchema = z
      */
     ANTHROPIC_API_KEY: optionalSecret(),
     GOOGLE_GENERATIVE_AI_API_KEY: optionalSecret(),
-    OPENAI_API_KEY: z.string().optional(),
+    OPENAI_API_KEY: optionalSecret(),
     /**
      * Cloudflare AI Gateway — when all three are set, every LLM call routes via
      * `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}` using
