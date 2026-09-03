@@ -1,7 +1,7 @@
 import {
   INTEGRATION_DISPLAY_NAMES,
   SUPPORTED_PASSTHROUGH_SLUGS,
-  type SupportedIntegrationSlug,
+  type SupportedPassthroughSlug,
 } from "@alfred/contracts";
 import {
   AlertCircle,
@@ -90,7 +90,7 @@ const PASSTHROUGH_META = {
     icon: Triangle,
     tint: "amber",
   },
-} satisfies Record<SupportedIntegrationSlug, PassthroughMeta>;
+} satisfies Record<SupportedPassthroughSlug, PassthroughMeta>;
 
 /**
  * General read-only API access toggles (ADR-0074 rung-a). One switch per

@@ -1,6 +1,5 @@
 import {
   rowToCredentialWire,
-  type BearerProvider,
   type BearerSlug,
   type CredentialProvider,
   type CredentialRowWire,
@@ -44,11 +43,7 @@ import { and, desc, eq } from "drizzle-orm";
  * which fixed that but left the same taxonomy spelled again in the web
  * connectedness probe. Deriving both from the one record means a new
  * integration cannot be added without declaring how its credential works.
- *
- * {@link BearerProvider} is the older name for the same union, re-exported for
- * its importers until PR 4 of the registry plan deletes it.
  */
-export type { BearerProvider };
 
 export interface UpsertBearerCredentialArgs {
   userId: string;

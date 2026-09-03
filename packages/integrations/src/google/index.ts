@@ -96,7 +96,6 @@ export {
 export type {
   AccountPersona,
   ExchangeCodeResult,
-  GoogleFeature,
   GoogleOAuthConfig,
   RefreshTokenResult,
 } from "./oauth";
@@ -106,7 +105,6 @@ export {
   DEFAULT_GOOGLE_SCOPES,
   detectPersona,
   exchangeCode,
-  GOOGLE_FEATURE_SCOPES,
   getGoogleOAuthConfig,
   refreshAccessToken,
   scopesForFeatures,
