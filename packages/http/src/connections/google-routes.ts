@@ -1,10 +1,12 @@
 import {
   ACCOUNT_PERSONAS,
   Errors,
+  GOOGLE_FEATURE_SCOPES,
   integrationRoutePrefix,
   rowToCredentialWire,
   toMessage,
   type CredentialProvider,
+  type GoogleFeature,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
@@ -13,10 +15,8 @@ import {
   buildAuthorizeUrl,
   exchangeCode,
   getGmailWatchState,
-  GOOGLE_FEATURE_SCOPES,
   assertGmailPushOidcConfigured,
   isGmailPushOidcConfigError,
-  type GoogleFeature,
   scopesForFeatures,
   uninstallGmailWatch,
 } from "@alfred/integrations/google";

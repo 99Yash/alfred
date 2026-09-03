@@ -33,22 +33,14 @@ const TOKEN_BASE = "https://oauth2.googleapis.com/token";
 const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email"] as const;
 
 /**
- * The scope vocabulary — `GOOGLE_SCOPE`, {@link GOOGLE_FEATURE_SCOPES}, and
- * {@link GoogleFeature} — lives in `@alfred/contracts/google-scopes` so the
- * integration registry can name the scopes that prove a Google product is
- * connected (ADR-0093). Every scope URL is read as `GOOGLE_SCOPE.<product>.<grant>`
- * from `@alfred/contracts`; this package does not re-export it. The feature
- * table and its types are re-exported here so no consumer changes an import in
- * PR 1; the OAuth mechanics below stay in this package. That re-export is a
- * second door for the same names. PR 4 of the registry plan repoints the
- * remaining importers to `@alfred/contracts` and deletes it.
+ * The scope vocabulary — `GOOGLE_SCOPE`, {@link GOOGLE_FEATURE_SCOPES},
+ * `GOOGLE_SCOPES`, {@link GoogleFeature}, and `GoogleScope` — lives in
+ * `@alfred/contracts/google-scopes` so the integration registry can name the
+ * scopes that prove a Google product is connected (ADR-0093). Every consumer
+ * imports it from `@alfred/contracts`; this package does not re-export it. Only
+ * the OAuth mechanics below (the grant resolution, the client, the refresh)
+ * live here.
  */
-export {
-  GOOGLE_FEATURE_SCOPES,
-  GOOGLE_SCOPES,
-  type GoogleFeature,
-  type GoogleScope,
-} from "@alfred/contracts";
 
 const ALL_FEATURES =
   // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`, so

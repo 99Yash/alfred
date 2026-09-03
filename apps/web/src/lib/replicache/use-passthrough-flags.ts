@@ -1,7 +1,7 @@
 import {
   isPassthroughPreferenceOn,
   PASSTHROUGH_PREFERENCE_KEYS,
-  type SupportedIntegrationSlug,
+  type SupportedPassthroughSlug,
 } from "@alfred/contracts";
 import { useCallback } from "react";
 import { usePreferenceMap } from "./use-preferences";
@@ -14,9 +14,9 @@ export interface PassthroughFlagsState {
    * must not reuse `useFeatureFlags().isOn`, whose default would silently arm a
    * security-sensitive tier the user never enabled.
    */
-  isOn: (slug: SupportedIntegrationSlug) => boolean;
+  isOn: (slug: SupportedPassthroughSlug) => boolean;
   /** Optimistically flip a passthrough toggle; the server confirms on next pull. */
-  setEnabled: (slug: SupportedIntegrationSlug, enabled: boolean) => Promise<void>;
+  setEnabled: (slug: SupportedPassthroughSlug, enabled: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
   retry: () => void;
@@ -34,13 +34,13 @@ export function usePassthroughFlags(): PassthroughFlagsState {
   const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
 
   const isOn = useCallback(
-    (slug: SupportedIntegrationSlug): boolean =>
+    (slug: SupportedPassthroughSlug): boolean =>
       isPassthroughPreferenceOn(values[PASSTHROUGH_PREFERENCE_KEYS[slug]]),
     [values],
   );
 
   const setEnabled = useCallback(
-    (slug: SupportedIntegrationSlug, enabled: boolean): Promise<void> =>
+    (slug: SupportedPassthroughSlug, enabled: boolean): Promise<void> =>
       setPref(PASSTHROUGH_PREFERENCE_KEYS[slug], enabled),
     [setPref],
   );

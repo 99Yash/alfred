@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
-  GENERAL_INVOCATION_COVERAGE,
+  INTEGRATIONS,
+  isSupportedPassthroughSlug,
   PASSTHROUGH_TOOL_ACTION,
-  PASSTHROUGH_TRANSPORT,
   SUPPORTED_PASSTHROUGH_SLUGS,
-  type SupportedIntegrationSlug,
+  type SupportedPassthroughSlug,
 } from "@alfred/contracts";
 import { clearToolRegistryForTests, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../../../src/tool-runtime/builtin-tools";
@@ -18,12 +18,12 @@ import { listToolsForIntegration } from "../../../../src/tool-runtime/internal/r
  *
  * The general invocation tier is now fully wired: Railway (graphql) plus the
  * REST family (github/notion/vercel + the Google products
- * gmail/calendar/drive/docs/sheets/slides). Every `supported` slug in the
- * coverage map registers exactly one passthrough tool — this test is the
- * forcing function so a supported slug can never ship without its tool.
+ * gmail/calendar/drive/docs/sheets/slides). Every slug whose registry entry
+ * has a `passthrough` registers exactly one passthrough tool — this test is
+ * the forcing function so a supported slug can never ship without its tool.
  */
 
-function passthroughToolsFor(slug: SupportedIntegrationSlug): RegisteredTool[] {
+function passthroughToolsFor(slug: SupportedPassthroughSlug): RegisteredTool[] {
   return listToolsForIntegration(slug).filter((tool) => tool.availability?.passthrough === true);
 }
 
@@ -33,7 +33,6 @@ describe("passthrough tool registration", () => {
     registerBuiltinTools();
     try {
       for (const slug of SUPPORTED_PASSTHROUGH_SLUGS) {
-        assert.equal(GENERAL_INVOCATION_COVERAGE[slug], "supported", `${slug} is supported`);
         const tools = passthroughToolsFor(slug);
         assert.equal(tools.length, 1, `${slug} must register exactly one passthrough tool`);
         const [tool] = tools;
@@ -41,7 +40,7 @@ describe("passthrough tool registration", () => {
         assert.equal(tool?.riskTier, "no_risk", `${slug} passthrough is a read (no_risk)`);
         assert.equal(
           tool?.action,
-          PASSTHROUGH_TOOL_ACTION[PASSTHROUGH_TRANSPORT[slug]],
+          PASSTHROUGH_TOOL_ACTION[INTEGRATIONS[slug].passthrough.transport],
           `${slug} passthrough action matches its transport`,
         );
       }
@@ -50,12 +49,12 @@ describe("passthrough tool registration", () => {
     }
   });
 
-  test("deferred / not-applicable slugs expose no passthrough tool", () => {
+  test("planned providers and channels expose no passthrough tool", () => {
     clearToolRegistryForTests();
     registerBuiltinTools();
     try {
       for (const slug of ["slack", "linear", "imessage"] as const) {
-        assert.notEqual(GENERAL_INVOCATION_COVERAGE[slug], "supported");
+        assert.equal(isSupportedPassthroughSlug(slug), false);
         // These slugs have no live tool module at all; listing returns nothing.
         assert.equal(
           listToolsForIntegration(slug).filter((t) => t.availability?.passthrough === true).length,
