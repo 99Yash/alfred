@@ -6,6 +6,7 @@ import { mediaEnrichmentModelRoutes } from "../src/provider";
 describe("media enrichment capability routing", () => {
   test("routes images through Flash, Flash-Lite, then Sonnet", () => {
     assert.deepEqual(mediaEnrichmentModelRoutes("image", 1_000), [
+      "gemini-3.8-flash",
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
       "claude-sonnet-4-6",
@@ -14,6 +15,7 @@ describe("media enrichment capability routing", () => {
 
   test("skips Flash for PDF input it does not advertise", () => {
     assert.deepEqual(mediaEnrichmentModelRoutes("pdf", 1_000), [
+      "gemini-3.8-flash",
       "gemini-2.5-flash-lite",
       "claude-sonnet-4-6",
     ]);
