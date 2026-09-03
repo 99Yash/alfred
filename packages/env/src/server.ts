@@ -133,7 +133,12 @@ const serverEnvSchema = z
     /**
      * Cloudflare AI Gateway — when all three are set, every LLM call routes via
      * `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}` using
-     * Unified Billing (`cfut_` token). This fully replaces the Vercel AI Gateway
+     * Unified Billing (`cfut_` token). Speech to text is the one endpoint that
+     * differs: it posts to `https://api.cloudflare.com/client/v4/accounts/
+     * {account}/ai/run` with `cf-aig-gateway-id`, because the provider-native
+     * pass-through carries no managed credential on `/audio/transcriptions`
+     * (`packages/ai/src/gateway.ts`). Both surfaces read these same three vars.
+     * This fully replaces the Vercel AI Gateway
      * (`AI_GATEWAY_API_KEY` `vck_` prefix) and direct keys when present.
      * All three are `optionalSecret` so a half-configured gateway does not bounce
      * boot — the gateway simply stays disabled and the provider fallback handles it.

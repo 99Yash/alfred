@@ -19,9 +19,10 @@ import { route } from "../src/provider";
  */
 describe("provider capability dispatch", () => {
   test("route follows the chat tier capability map", () => {
-    // standard → Sonnet 4.6 + 3.8-flash fallback. Anthropic keeps adaptive
-    // medium; Google 3.8-flash is level-based (thinkingLevel), not
-    // budget-based like the 2.5-flash it replaced.
+    // standard → Sonnet 4.6 + 3.8-flash fallback (ADR-0077 amendment
+    // 2026-09-03, which records that no live gateway probe backs the swap).
+    // Anthropic keeps adaptive medium; Google 3.8-flash is level-based
+    // (thinkingLevel), not budget-based like the 2.5-flash it replaced.
     assert.deepEqual(route("standard").providerOptions(), {
       anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
       google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
