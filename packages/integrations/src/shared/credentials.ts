@@ -1,8 +1,9 @@
 import {
   rowToCredentialWire,
   type BearerProvider,
+  type BearerSlug,
+  type CredentialProvider,
   type CredentialRowWire,
-  type IntegrationSlug,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
@@ -32,23 +33,27 @@ import { and, desc, eq } from "drizzle-orm";
  */
 
 /**
- * The providers this module is FOR are named by `CREDENTIAL_SHAPE` in
- * `@alfred/contracts`, and {@link BearerProvider} is the `"bearer"` subset of
- * that map. Which providers they are was previously prose in the docstring above
- * while the signatures took a bare `string`, so
+ * The providers this module is FOR are the registry entries whose credential
+ * shape is `"bearer"` (`INTEGRATIONS[slug].credential.shape` in
+ * `@alfred/contracts`, ADR-0093); {@link BearerSlug} is that derived subset.
+ * Which providers they are was previously prose in the docstring above while
+ * the signatures took a bare `string`, so
  * `getActiveBearerCredential(userId, "gmail")` — a provider whose tokens this
  * store cannot serve — compiled fine and failed at runtime as a "connect gmail"
  * error for an already-connected account. It was then a hand-written tuple here,
  * which fixed that but left the same taxonomy spelled again in the web
- * connectedness probe. Deriving both from the one exhaustive map means a new
+ * connectedness probe. Deriving both from the one record means a new
  * integration cannot be added without declaring how its credential works.
+ *
+ * {@link BearerProvider} is the older name for the same union, re-exported for
+ * its importers until PR 4 of the registry plan deletes it.
  */
 export type { BearerProvider };
 
 export interface UpsertBearerCredentialArgs {
   userId: string;
   /** `integration_credentials.provider`, narrowed to the bearer-token providers. */
-  provider: BearerProvider;
+  provider: BearerSlug;
   /** Provider-side stable id (workspace id, team/user id, account id). */
   accountId: string;
   accountLabel?: string | null | undefined;
@@ -117,13 +122,13 @@ export async function upsertBearerCredential(
  * provider mismatch) so callers can turn that into a 404. Generic across every
  * provider — Google/GitHub rows live in the same table, so a disconnect is the
  * same scoped row delete regardless of how the token was originally minted. That
- * is why this one takes {@link IntegrationSlug} and not {@link BearerProvider}:
- * the breadth is deliberate, and now it says so in the type rather than only in
- * this sentence.
+ * is why this one takes {@link CredentialProvider} — the column's whole
+ * vocabulary — and not {@link BearerSlug}: the breadth is deliberate, and it
+ * says so in the type rather than only in this sentence.
  */
 export async function deleteIntegrationCredential(args: {
   userId: string;
-  provider: IntegrationSlug;
+  provider: CredentialProvider;
   id: string;
 }): Promise<{ id: string } | null> {
   const deleted = await db()
@@ -142,7 +147,7 @@ export async function deleteIntegrationCredential(args: {
 /** List a user's credential rows for a bearer-token provider (UI status + management). */
 export async function listBearerCredentials(
   userId: string,
-  provider: BearerProvider,
+  provider: BearerSlug,
 ): Promise<CredentialRowWire[]> {
   const rows = await db()
     .select({
@@ -185,7 +190,7 @@ export type ActiveBearerCredential = Pick<
  */
 export async function listActiveBearerCredentials(
   userId: string,
-  provider: BearerProvider,
+  provider: BearerSlug,
   limit = 100,
   accountRef?: string,
 ): Promise<ActiveBearerCredential[]> {
@@ -225,7 +230,7 @@ export async function listActiveBearerCredentials(
  */
 export async function getActiveBearerCredential(
   userId: string,
-  provider: BearerProvider,
+  provider: BearerSlug,
   accountRef?: string,
 ): Promise<ActiveBearerCredential> {
   const rows = await listActiveBearerCredentials(userId, provider, 1, accountRef);

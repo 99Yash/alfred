@@ -1,40 +1,20 @@
 import {
-  GOOGLE_SCOPE,
+  credentialSatisfies,
+  isCredentialProvider,
   isPassthroughPreferenceOn,
+  LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
   toStringArray,
+  type CredentialProvider,
   type IntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
   type LoadableIntegrationSlug,
   type ProviderAvailability,
-  type SupportedIntegrationSlug,
+  type SupportedPassthroughSlug,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, userPreferences } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-
-interface IntegrationAccessSpec {
-  slug: LoadableIntegrationSlug;
-  provider: string;
-  anyOfScopes: readonly string[];
-}
-
-const ACCESS_SPECS: readonly IntegrationAccessSpec[] = [
-  { slug: "gmail", provider: "google", anyOfScopes: [GOOGLE_SCOPE.gmail.readonly] },
-  {
-    slug: "calendar",
-    provider: "google",
-    anyOfScopes: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
-  },
-  { slug: "drive", provider: "google", anyOfScopes: [GOOGLE_SCOPE.drive.full] },
-  { slug: "docs", provider: "google", anyOfScopes: [GOOGLE_SCOPE.docs.full] },
-  { slug: "sheets", provider: "google", anyOfScopes: [GOOGLE_SCOPE.sheets.full] },
-  { slug: "slides", provider: "google", anyOfScopes: [GOOGLE_SCOPE.slides.full] },
-  { slug: "github", provider: "github", anyOfScopes: [] },
-  { slug: "notion", provider: "notion", anyOfScopes: [] },
-  { slug: "railway", provider: "railway", anyOfScopes: [] },
-  { slug: "vercel", provider: "vercel", anyOfScopes: [] },
-];
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -111,6 +91,7 @@ async function loadIntegrationAvailability(
         accountId: integrationCredentials.accountId,
         status: integrationCredentials.status,
         scopes: integrationCredentials.scopes,
+        installationId: integrationCredentials.installationId,
         accountLabel: integrationCredentials.accountLabel,
         metadata: integrationCredentials.metadata,
       })
@@ -125,24 +106,34 @@ async function loadIntegrationAvailability(
   ]);
 
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
-  const passthroughEnabled = new Map<SupportedIntegrationSlug, boolean>();
-  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedIntegrationSlug
+  const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
+  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug
   // with string preference keys, so Object.entries yields exactly these tuples.
   for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
-    SupportedIntegrationSlug,
+    SupportedPassthroughSlug,
     string,
   ][]) {
     passthroughEnabled.set(slug, isPassthroughPreferenceOn(prefByKey.get(key)));
   }
 
-  const byProvider = new Map<string, ProviderAvailability[]>();
+  const byProvider = new Map<CredentialProvider, ProviderAvailability[]>();
   for (const row of rows) {
+    // The column's type is the CHECK constraint's promise, and this is the one
+    // read that consumes the value (every other read filters on it). A miss is
+    // registry-versus-migration drift, so it fails loud instead of dropping the
+    // row and reading a connected provider as absent.
+    if (!isCredentialProvider(row.provider)) {
+      throw new Error(
+        `[availability] integration_credentials.provider ${JSON.stringify(row.provider)} is not a registry provider; the CHECK constraint and the registry disagree`,
+      );
+    }
     const list = byProvider.get(row.provider) ?? [];
     list.push({
       credentialId: row.id,
       accountId: row.accountId,
       status: row.status,
       scopes: new Set(toStringArray(row.scopes)),
+      installationId: row.installationId,
       accountLabel: row.accountLabel,
       metadata: row.metadata,
     });
@@ -150,18 +141,17 @@ async function loadIntegrationAvailability(
   }
 
   const availability = new Map<LoadableIntegrationSlug, IntegrationAvailability>();
-  for (const spec of ACCESS_SPECS) {
-    const providerRows = byProvider.get(spec.provider);
+  for (const entry of LIVE_PROVIDERS) {
+    const providerRows = byProvider.get(entry.provider);
     if (!providerRows || providerRows.length === 0) {
-      availability.set(spec.slug, { health: null, accountLabel: null });
+      availability.set(entry.slug, { health: null, accountLabel: null });
       continue;
     }
-    const active = providerRows.find(
-      (row) =>
-        row.status === "active" &&
-        (spec.anyOfScopes.length === 0 || spec.anyOfScopes.some((scope) => row.scopes.has(scope))),
-    );
-    availability.set(spec.slug, {
+    // The connected rule is the entry's own (ADR-0093): the same predicate the
+    // web's connectedness probe calls, so a legacy GitHub row without an
+    // installation reads `needs_reauth` here as it does there.
+    const active = providerRows.find((row) => credentialSatisfies(entry.credential, row));
+    availability.set(entry.slug, {
       health: active ? "active" : "needs_reauth",
       accountLabel: active?.accountLabel?.trim() || null,
     });

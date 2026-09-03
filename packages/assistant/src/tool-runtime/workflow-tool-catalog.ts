@@ -2,6 +2,7 @@ import type {
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   ToolAvailabilityResult,
+  ToolCredentialRequirement,
   ToolName,
   ToolRunContext,
 } from "@alfred/contracts";
@@ -20,7 +21,7 @@ import { bootPort } from "./boot-port";
 export interface WorkflowToolFacts {
   name: ToolName;
   integration: IntegrationSlug;
-  availability?: { credential?: { provider: string; anyOfScopes: readonly string[] } } | undefined;
+  availability?: { credential?: ToolCredentialRequirement } | undefined;
   /**
    * The same verdict `evaluateToolAvailability(availability, tool, allowed,
    * context)` returns today, bound to this exact tool by the source.

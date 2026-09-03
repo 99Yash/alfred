@@ -1,7 +1,7 @@
-import type {
-  IntegrationAvailabilitySnapshot,
-  LoadableIntegrationSlug,
-  ToolRunContext,
+import {
+  LIVE_PROVIDERS,
+  type IntegrationAvailabilitySnapshot,
+  type ToolRunContext,
 } from "@alfred/contracts";
 import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
 
@@ -21,72 +21,21 @@ import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime"
  * mid-turn, so the system-prompt prefix stays cache-stable (ADR-0053 / ADR-0026).
  */
 
-interface SummarySlug {
-  slug: LoadableIntegrationSlug;
-  /** Short, user-facing description of what the slug reaches. */
-  blurb: string;
-  /**
-   * When true, append the connected account's identity (e.g. GitHub login) to
-   * the catalog line — the F2 binding (ADR-0071). It lets the boss resolve
-   * `author:@me` / `owner` from its own connection instead of asking the user.
-   * Scoped to GitHub today: that is the connection whose missing identity made
-   * the boss ask "which repo?" on a self-referential question.
-   */
-  showIdentity?: boolean;
-}
-
-/**
- * Ordered for stable, readable output. Empty-action stubs (`slack`, `linear`,
- * `imessage`) are intentionally omitted — ADR-0053 skips empty-action slugs.
- */
-const SUMMARY_SLUGS: readonly SummarySlug[] = [
-  {
-    slug: "gmail",
-    blurb: "the user's email",
-  },
-  {
-    slug: "calendar",
-    blurb: "the user's calendar",
-  },
-  {
-    slug: "drive",
-    blurb: "the user's Drive files",
-  },
-  { slug: "docs", blurb: "the user's Google Docs" },
-  {
-    slug: "sheets",
-    blurb: "the user's spreadsheets",
-  },
-  {
-    slug: "slides",
-    blurb: "the user's presentations",
-  },
-  {
-    slug: "github",
-    blurb: "the user's GitHub issues and pull requests",
-    showIdentity: true,
-  },
-  // Bearer-token providers (Notion OAuth, Railway API token, Vercel OAuth).
-  {
-    slug: "notion",
-    blurb: "the user's Notion pages and databases",
-  },
-  {
-    slug: "railway",
-    blurb: "the user's Railway projects, deployments, and logs",
-  },
-  {
-    slug: "vercel",
-    blurb: "the user's Vercel projects and deployments",
-  },
-];
-
 const CONNECTED_HEADER =
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.";
 
 const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
 
+/**
+ * The lines iterate `LIVE_PROVIDERS` in registry order (ADR-0093): each live
+ * entry carries its `summaryBlurb`, and `identityInSummary` marks the entries
+ * whose connected account identity (e.g. GitHub login) is appended — the F2
+ * binding (ADR-0071) that lets the boss resolve `author:@me` / `owner` from its
+ * own connection instead of asking the user. Planned providers and channels
+ * (`slack`, `linear`, `imessage`) are not live entries, so ADR-0053's "skip
+ * empty-action slugs" falls out of the type instead of a hand-kept list.
+ */
 export function buildConnectedSummaryFromAvailability(
   availability: IntegrationAvailabilitySnapshot,
   allowedIntegrations: readonly string[],
@@ -99,9 +48,9 @@ export function buildConnectedSummaryFromAvailability(
   });
   const allowed = new Set(allowedIntegrations);
   const lines: string[] = [];
-  for (const spec of SUMMARY_SLUGS) {
-    if (allowed.size > 0 && !allowed.has(spec.slug)) continue;
-    const access = availability.integrations.get(spec.slug);
+  for (const entry of LIVE_PROVIDERS) {
+    if (allowed.size > 0 && !allowed.has(entry.slug)) continue;
+    const access = availability.integrations.get(entry.slug);
     if (!access || access.health === null) continue;
     // List the fully-qualified tool names (`calendar.list_events`), not the
     // bare actions. A slug-then-actions shape ("calendar — list_events, …")
@@ -109,19 +58,19 @@ export function buildConnectedSummaryFromAvailability(
     // exactly that — emitting a bare `calendar {action:"list_events"}` call
     // that dispatch can only reject ("Couldn't" card). Handing it the literal
     // `integration.action` strings is the shape it should paste verbatim.
-    const identity = spec.showIdentity ? access.accountLabel : null;
+    const identity = entry.identityInSummary ? access.accountLabel : null;
     const binding = identity ? ` — connected as ${identity}` : "";
-    const tools = availableByIntegration.get(spec.slug) ?? [];
+    const tools = availableByIntegration.get(entry.slug) ?? [];
     // A slug with credentials but no executable tools needs reauthorization.
     // Exact tool availability wins when a narrower scope still supports part
     // of the integration (for example Gmail read without Gmail send).
     if (tools.length === 0 && access.health === "needs_reauth") {
       lines.push(
-        `- ${spec.slug} — ${spec.blurb}${binding} (needs reauth — tell the user to reconnect ${spec.slug}; don't call its tools yet)`,
+        `- ${entry.slug} — ${entry.summaryBlurb}${binding} (needs reauth — tell the user to reconnect ${entry.slug}; don't call its tools yet)`,
       );
       continue;
     }
-    if (tools.length > 0) lines.push(`- ${tools.join(", ")} — ${spec.blurb}${binding}`);
+    if (tools.length > 0) lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${binding}`);
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;

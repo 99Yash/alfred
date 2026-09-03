@@ -119,6 +119,7 @@ function provider(
     accountId: "account_google",
     status,
     scopes: new Set(scopes),
+    installationId: null,
     accountLabel: null,
     metadata: {},
   };
