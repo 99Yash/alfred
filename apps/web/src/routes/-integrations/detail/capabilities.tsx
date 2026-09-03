@@ -1,9 +1,6 @@
 import type { RiskTierCounts } from "@alfred/contracts";
 import { useIntegrationTierCounts } from "./use-tool-tiers";
-import {
-  type IntegrationProvider,
-  integrationSlugForProvider,
-} from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { CapabilityChip } from "./capability-chip";
 import { SectionHeading } from "./section-heading";
 
@@ -28,8 +25,8 @@ function summarizeTiers(counts: RiskTierCounts): string {
   return parts.length > 0 ? `${total} ${noun} · ${parts.join(", ")}` : `${total} ${noun}`;
 }
 
-export function Capabilities({ provider }: { provider: IntegrationProvider }) {
-  const tierCounts = useIntegrationTierCounts(integrationSlugForProvider(provider.id));
+export function Capabilities({ provider }: { provider: IntegrationPage }) {
+  const tierCounts = useIntegrationTierCounts(provider.slug);
 
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: "300ms" }}>

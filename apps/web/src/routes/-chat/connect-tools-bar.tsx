@@ -1,8 +1,8 @@
 import { ArrowRight, Check } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AllIntegrationsDialog } from "~/routes/-integrations/all-integrations-dialog";
+import { isLiveProviderSlug } from "@alfred/contracts";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
-import { PROVIDER_BACKEND } from "~/lib/integrations/integrations";
 import { useResolvedIntegrations } from "~/lib/integrations/use-integration-status";
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
@@ -12,7 +12,7 @@ export function ConnectToolsBar() {
   // /integrations, mirroring dimension's "Connect Your Tools" affordance.
   const [dialogOpen, setDialogOpen] = useState(false);
   // Drive the row off the real catalog overlaid with live credential state
-  // instead of a hardcoded brand list. Catalog-only providers stay on the
+  // instead of a hardcoded brand list. Planned providers stay on the
   // integrations page, but this nudge only shows providers the user can
   // actually connect here.
   const integrations = useResolvedIntegrations();
@@ -20,9 +20,7 @@ export function ConnectToolsBar() {
   // Unconnected first (these are the actual nudge), connected trailing with
   // a check. Catalog order is preserved within each group.
   const ordered = useMemo(() => {
-    const visible = integrations.filter(
-      (p) => p.status === "connected" || PROVIDER_BACKEND.get(p.id) !== undefined,
-    );
+    const visible = integrations.filter((p) => isLiveProviderSlug(p.slug));
     const unconnected = visible.filter((p) => p.status !== "connected");
     const connected = visible.filter((p) => p.status === "connected");
     return { unconnected, connected, all: [...unconnected, ...connected] };
@@ -90,7 +88,7 @@ export function ConnectToolsBar() {
             {ordered.all.map((p, i) => {
               const connected = p.status === "connected";
               return (
-                <Tip key={p.id} label={connected ? `${p.name} — connected` : p.name}>
+                <Tip key={p.slug} label={connected ? `${p.name} — connected` : p.name}>
                   <span
                     className={cn(
                       "relative grid size-[22px] shrink-0 place-items-center rounded-full",

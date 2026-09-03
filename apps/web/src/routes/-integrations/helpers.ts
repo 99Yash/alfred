@@ -3,12 +3,12 @@ import {
   CATEGORY_ORDER,
   matchesIntegration,
   type IntegrationCategory,
-  type IntegrationProvider,
+  type IntegrationPage,
 } from "~/lib/integrations/integrations";
 
 export type Section = {
   title: IntegrationCategory;
-  providers: ReadonlyArray<IntegrationProvider>;
+  providers: ReadonlyArray<IntegrationPage>;
 };
 
 export const MCP_SECTION = {
@@ -26,7 +26,7 @@ export function matches(haystack: string, query: string): boolean {
 }
 
 export function filterSections(
-  providers: ReadonlyArray<IntegrationProvider>,
+  providers: ReadonlyArray<IntegrationPage>,
   query: string,
 ): ReadonlyArray<Section> {
   return CATEGORY_ORDER.flatMap((category) => {
@@ -44,7 +44,7 @@ export function filterSections(
  * instead of hardcoded `status: "connected"` rows.
  */
 export function buildConnectedSection(
-  resolved: ReadonlyArray<IntegrationProvider>,
+  resolved: ReadonlyArray<IntegrationPage>,
   query: string,
 ): Section | null {
   const connected = resolved.filter(

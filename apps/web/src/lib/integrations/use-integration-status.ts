@@ -1,17 +1,18 @@
-import { credentialRowSchema, credentialShapeForSlug } from "@alfred/contracts";
+import {
+  credentialProviderOf,
+  credentialRowSchema,
+  credentialSatisfies,
+  GOOGLE_SLUGS,
+  INTEGRATIONS,
+  isLiveProviderSlug,
+  type CredentialProvider,
+  type GoogleSlug,
+} from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { z } from "zod";
 import { client } from "~/lib/eden";
-import {
-  INTEGRATION_PROVIDERS,
-  integrationSlugForProvider,
-  PROVIDER_BACKEND,
-  PROVIDER_REQUIRED_SCOPES,
-  type IntegrationBackend,
-  type ProviderScopeRequirement,
-  type IntegrationProvider,
-} from "~/lib/integrations/integrations";
+import { INTEGRATION_PAGES, type IntegrationPage } from "~/lib/integrations/integrations";
 
 /**
  * Eden Treaty revives ISO-shaped response strings into `Date` objects on the
@@ -63,22 +64,24 @@ export interface ConnectedAccount {
 
 /**
  * The provider tile a UI surface actually wants to render: the static
- * catalog entry overlaid with whatever the user's `integration_credentials`
- * rows tell us. Components keep consuming the standard `IntegrationProvider`
+ * catalog page overlaid with whatever the user's `integration_credentials`
+ * rows tell us. Components keep consuming the standard `IntegrationPage`
  * shape — `status` / `actionLabel` just reflect real DB state now.
  */
-export interface ResolvedIntegration extends IntegrationProvider {
+export interface ResolvedIntegration extends IntegrationPage {
   /** Accounts the user has connected for this provider. */
   connectedAccounts: ReadonlyArray<ConnectedAccount>;
 }
 
 /**
- * Fetch credential rows for a single provider backend. Returns `[]` on
- * any error (unauthenticated, network, …) so callers can render the
- * honest "not connected" state without a special-case loading branch.
+ * Fetch credential rows for one credential provider (the route family
+ * `/api/integrations/<provider>`). The switch is Eden mechanics: each case is
+ * a typed client path, so it stays a switch rather than a template string.
+ * Returns `[]` on any error (unauthenticated, network, …) so callers can render
+ * the honest "not connected" state without a special-case loading branch.
  */
-async function fetchBackendCredentials(backend: IntegrationBackend) {
-  switch (backend) {
+async function fetchProviderCredentials(provider: CredentialProvider) {
+  switch (provider) {
     case "google":
       return client.api.integrations.google.credentials.get();
     case "github":
@@ -90,22 +93,22 @@ async function fetchBackendCredentials(backend: IntegrationBackend) {
     case "vercel":
       return client.api.integrations.vercel.credentials.get();
     default: {
-      // Adding an IntegrationBackend without a case here is a compile error,
-      // not a silent `undefined` return.
-      const _exhaustive: never = backend;
-      throw new Error(`Unhandled integration backend: ${String(_exhaustive)}`);
+      // A CredentialProvider without a case here is a compile error, not a
+      // silent `undefined` return.
+      const _exhaustive: never = provider;
+      throw new Error(`Unhandled credential provider: ${String(_exhaustive)}`);
     }
   }
 }
 
 /**
- * Disconnect a single credential row for a backend. Each provider exposes the
+ * Disconnect a single credential row for a provider. Each provider exposes the
  * same `DELETE /:id` shape (see the integration route files); the only thing
- * that varies is which provider namespace we hit. Mirrors the per-backend
- * dispatch in `fetchBackendCredentials`.
+ * that varies is which provider namespace we hit. Mirrors the per-provider
+ * dispatch in `fetchProviderCredentials`.
  */
-async function deleteBackendCredential(backend: IntegrationBackend, id: string) {
-  switch (backend) {
+async function deleteProviderCredential(provider: CredentialProvider, id: string) {
+  switch (provider) {
     case "google":
       return client.api.integrations.google({ id }).delete();
     case "github":
@@ -117,36 +120,40 @@ async function deleteBackendCredential(backend: IntegrationBackend, id: string) 
     case "vercel":
       return client.api.integrations.vercel({ id }).delete();
     default: {
-      const _exhaustive: never = backend;
-      throw new Error(`Unhandled integration backend: ${String(_exhaustive)}`);
+      const _exhaustive: never = provider;
+      throw new Error(`Unhandled credential provider: ${String(_exhaustive)}`);
     }
   }
 }
 
 /**
- * Disconnect mutation for a provider backend. On success it invalidates that
- * backend's credential query so every tile bound to it re-resolves to the
+ * Disconnect mutation for a credential provider. On success it invalidates that
+ * provider's credential query so every tile bound to it re-resolves to the
  * honest "not connected" state. Throws on a non-2xx response so callers can
  * surface a toast.
  */
-export function useDisconnectIntegration(backend: IntegrationBackend) {
+export function useDisconnectIntegration(provider: CredentialProvider) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await deleteBackendCredential(backend, id);
+      const res = await deleteProviderCredential(provider, id);
       if (res.error) throw new Error("Disconnect failed");
       return res.data;
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["integrations", backend, "credentials"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: credentialsQueryKey(provider) }),
   });
 }
 
-function useProviderCredentials(backend: IntegrationBackend) {
+/** The query key of one provider's credential rows; the connect flows invalidate it. */
+export function credentialsQueryKey(provider: CredentialProvider) {
+  return ["integrations", provider, "credentials"] as const;
+}
+
+function useProviderCredentials(provider: CredentialProvider) {
   return useQuery<ReadonlyArray<CredentialRow>>({
-    queryKey: ["integrations", backend, "credentials"],
+    queryKey: credentialsQueryKey(provider),
     queryFn: async () => {
-      const res = await fetchBackendCredentials(backend);
+      const res = await fetchProviderCredentials(provider);
       if (res.error || !res.data) return [];
       return parseCredentialRows(res.data.credentials);
     },
@@ -176,14 +183,14 @@ function useVercelCredentials() {
 }
 
 /**
- * The display label of the first active credential for a backend, or
+ * The display label of the first active credential for a provider, or
  * `null` if none. Used by onboarding to keep the Google and GitHub
  * "connected as …" badges live independently of the `?*_connected` URL
  * param — each provider's OAuth callback only carries its own param, so a
  * second connect would otherwise blank the first badge.
  */
-export function useConnectedAccountLabel(backend: IntegrationBackend): string | null {
-  const { data } = useProviderCredentials(backend);
+export function useConnectedAccountLabel(provider: CredentialProvider): string | null {
+  const { data } = useProviderCredentials(provider);
   const active = (data ?? []).find((c) => c.status === "active");
   return active?.accountLabel ?? active?.accountId ?? null;
 }
@@ -191,7 +198,7 @@ export function useConnectedAccountLabel(backend: IntegrationBackend): string | 
 export interface ResolvedIntegrationsResult {
   integrations: ReadonlyArray<ResolvedIntegration>;
   /**
-   * False until every backend credential query has *succeeded* once — not
+   * False until every provider credential query has *succeeded* once — not
    * merely settled. The fetchers collapse any request failure to `[]`, which
    * is indistinguishable from "nothing connected", so gating on settlement
    * alone would fade a connected provider to "Connect" during an API
@@ -203,10 +210,12 @@ export interface ResolvedIntegrationsResult {
 }
 
 /**
- * Resolve every catalog provider against the user's real credentials.
- * Each catalog entry consults the credential set for its declared
- * backend (per `PROVIDER_BACKEND`) and flips to `"connected"` iff an
- * active row carries every required scope.
+ * Resolve every catalog page against the user's real credentials. Each live
+ * page consults the credential rows of its provider (`credentialProviderOf`)
+ * and flips to `"connected"` iff one row satisfies the connected rule its
+ * registry entry declares (`credentialSatisfies`: Google = active + one of
+ * the entry's scopes, GitHub = active + App installation, bearer = active).
+ * A planned page has no credential to probe and keeps its catalog status.
  */
 export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
   const google = useGoogleCredentials();
@@ -221,16 +230,24 @@ export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
   // to stateless rows and self-heal via retry + focus refetch.
   const ready = [google, github, notion, railway, vercel].every((q) => q.isSuccess);
   const integrations = useMemo(() => {
-    const byBackend = new Map<IntegrationBackend, ReadonlyArray<CredentialRow> | undefined>([
-      ["google", google.data],
-      ["github", github.data],
-      ["notion", notion.data],
-      ["railway", railway.data],
-      ["vercel", vercel.data],
-    ]);
-    return INTEGRATION_PROVIDERS.map((p) => {
-      const backend = PROVIDER_BACKEND.get(p.id);
-      return resolveOne(p, backend === undefined ? undefined : byBackend.get(backend));
+    // One row set per credential provider. A provider without a hook above is
+    // a compile error here, so a new route family cannot resolve as "nothing
+    // connected" by omission.
+    const rowsByProvider = {
+      google: google.data,
+      github: github.data,
+      notion: notion.data,
+      railway: railway.data,
+      vercel: vercel.data,
+    } satisfies Record<CredentialProvider, ReadonlyArray<CredentialRow> | undefined>;
+    return INTEGRATION_PAGES.map((page) => {
+      if (!isLiveProviderSlug(page.slug)) return { ...page, connectedAccounts: [] };
+      const rows = rowsByProvider[credentialProviderOf(page.slug)] ?? [];
+      const spec = INTEGRATIONS[page.slug].credential;
+      return resolveOne(
+        page,
+        rows.filter((row) => credentialSatisfies(spec, row)),
+      );
     });
   }, [google.data, github.data, notion.data, railway.data, vercel.data]);
   return useMemo(() => ({ integrations, ready }), [integrations, ready]);
@@ -240,24 +257,21 @@ export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
   return useResolvedIntegrationsWithReady().integrations;
 }
 
-export function useResolvedIntegration(providerId: string): ResolvedIntegration | undefined {
+export function useResolvedIntegration(slug: string): ResolvedIntegration | undefined {
   const all = useResolvedIntegrations();
-  return all.find((p) => p.id === providerId);
+  return all.find((p) => p.slug === slug);
 }
 
+/** Overlay the rows that prove `page` connected; none leaves the catalog reading in place. */
 function resolveOne(
-  provider: IntegrationProvider,
-  creds: ReadonlyArray<CredentialRow> | undefined,
+  page: IntegrationPage,
+  matching: ReadonlyArray<CredentialRow>,
 ): ResolvedIntegration {
-  if (!creds) {
-    return { ...provider, connectedAccounts: [] };
-  }
-  const matching = matchByCredentialShape(provider, creds);
   if (matching.length === 0) {
-    return { ...provider, connectedAccounts: [] };
+    return { ...page, connectedAccounts: [] };
   }
   return {
-    ...provider,
+    ...page,
     status: "connected",
     actionLabel: "Manage",
     connectedAccounts: matching.map((c) => ({
@@ -266,16 +280,6 @@ function resolveOne(
       connectedAt: c.createdAt,
     })),
   };
-}
-
-const credentialScopeSets = new WeakMap<CredentialRow, ReadonlySet<string>>();
-
-function grantedScopes(credential: CredentialRow): ReadonlySet<string> {
-  const cached = credentialScopeSets.get(credential);
-  if (cached) return cached;
-  const scopes = new Set(credential.scopes);
-  credentialScopeSets.set(credential, scopes);
-  return scopes;
 }
 
 /**
@@ -291,8 +295,8 @@ export interface GoogleScopeGaps {
   /** At least one active Google credential exists. */
   connected: boolean;
   accountLabel: string | null;
-  /** Google-backed providers an active credential does not fully scope. */
-  missing: ReadonlyArray<{ providerId: string; name: string }>;
+  /** Google products no active credential scopes. */
+  missing: ReadonlyArray<{ slug: GoogleSlug; name: string }>;
 }
 
 export function useGoogleScopeGaps(): GoogleScopeGaps {
@@ -302,22 +306,14 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
     if (active.length === 0) {
       return { connected: false, accountLabel: null, missing: [] };
     }
-    const missing = INTEGRATION_PROVIDERS.flatMap((p) => {
-      if (PROVIDER_BACKEND.get(p.id) !== "google") return [];
-      const required = PROVIDER_REQUIRED_SCOPES.get(p.id);
-      if (!required) return [];
-      // Missing iff no active credential carries every required scope. The
-      // WeakMap-backed helper builds one Set per credential object, shared by
-      // every provider probe in this render.
-      if (
-        active.some((credential) =>
-          required.every((requirement) =>
-            meetsScopeRequirement(grantedScopes(credential), requirement),
-          ),
-        )
-      )
+    // Missing iff no active credential satisfies the product's connected rule
+    // (one of the entry's `anyOfScopes`): the same predicate the tiles use.
+    const missing = GOOGLE_SLUGS.flatMap((slug) => {
+      const entry = INTEGRATIONS[slug];
+      if (active.some((credential) => credentialSatisfies(entry.credential, credential))) {
         return [];
-      return [{ providerId: p.id, name: p.name }];
+      }
+      return [{ slug, name: entry.displayName }];
     });
     return { connected: true, accountLabel: active[0]?.accountLabel ?? null, missing };
   }, [googleCreds]);
@@ -347,78 +343,4 @@ export function useGithubNeedsReconnect(): GithubReconnect {
       accountLabel: stale?.accountLabel ?? null,
     };
   }, [githubCreds]);
-}
-
-/**
- * Which of a provider's credential rows prove it is connected. How you prove it
- * depends on how the credential is *shaped*, so the branch reads
- * `CREDENTIAL_SHAPE` from `@alfred/contracts` rather than re-listing providers
- * here — this used to be an inline `backend === "notion" || backend ===
- * "railway" || backend === "vercel"` chain, and because `PROVIDER_BACKEND` is a
- * `Record<string, …>` with no exhaustiveness, a fourth bearer provider would
- * have fallen silently through to the scope probe (which no bearer credential
- * can satisfy) and rendered a connected account as "not connected".
- */
-function matchByCredentialShape(
-  provider: IntegrationProvider,
-  creds: ReadonlyArray<CredentialRow>,
-): ReadonlyArray<CredentialRow> {
-  const shape = credentialShapeForSlug(integrationSlugForProvider(provider.id));
-  switch (shape) {
-    case "github_app":
-      // GitHub App installs carry no OAuth scopes — App *permissions*
-      // (metadata/PRs/issues/contents, ADR-0052) never flow into the
-      // credential's `scopes` array, so the scope-completeness probe Google
-      // uses can't apply. A GitHub credential is connected when it's active and
-      // the App is installed (installation_id present). Legacy classic-OAuth
-      // rows (active but no installation_id) can't mint installation tokens, so
-      // they read as not-connected here and the reconnect nag
-      // (`useGithubNeedsReconnect`) drives the upgrade.
-      return creds.filter((c) => c.status === "active" && c.installationId);
-    case "bearer":
-      // One long-lived bearer token: no scopes (Notion/Vercel OAuth and the
-      // Railway pasted token are all non-expiring) and no installation id to
-      // probe — the active row's presence is the proof.
-      return creds.filter((c) => c.status === "active");
-    case "google_oauth":
-      return matchByScopes(provider, creds);
-    case "deferred":
-    case "not_applicable":
-    case undefined:
-      // No credential store yet, none by nature, or a catalog id that isn't a
-      // loadable integration: nothing to probe, so nothing is connected.
-      return [];
-    default: {
-      // Adding a CredentialShape without a probe here is a compile error, not a
-      // provider silently reading as disconnected.
-      const _exhaustive: never = shape;
-      throw new Error(`Unhandled credential shape: ${String(_exhaustive)}`);
-    }
-  }
-}
-
-/**
- * Scope-based connection probe (Google providers): an active credential
- * counts only if it carries every required scope. A provider with no scope
- * requirement has no live backend yet, so nothing matches.
- */
-function matchByScopes(
-  provider: IntegrationProvider,
-  creds: ReadonlyArray<CredentialRow>,
-): ReadonlyArray<CredentialRow> {
-  const required = PROVIDER_REQUIRED_SCOPES.get(provider.id);
-  if (!required) return [];
-  return creds.filter((c) => {
-    if (c.status !== "active") return false;
-    return required.every((requirement) => meetsScopeRequirement(grantedScopes(c), requirement));
-  });
-}
-
-function meetsScopeRequirement(
-  granted: ReadonlySet<string>,
-  requirement: ProviderScopeRequirement,
-): boolean {
-  return typeof requirement === "string"
-    ? granted.has(requirement)
-    : requirement.some((scope) => granted.has(scope));
 }

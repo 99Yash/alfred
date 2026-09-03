@@ -1,4 +1,4 @@
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { Capabilities } from "./capabilities";
 import { ConnectedAccounts } from "./connected-accounts";
 import { DetailHeader } from "./detail-header";
@@ -8,7 +8,7 @@ import { ProviderPolicy } from "./provider-policy";
 import { RelatedSetup } from "./related-setup";
 import { TrustNotice } from "./trust-notice";
 
-export function ProviderDetail({ provider }: { provider: IntegrationProvider }) {
+export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
   const connected = provider.status === "connected";
 
   return (

@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 
 export function ActionPill({
   status,
   children,
 }: {
-  status: IntegrationProvider["status"];
+  status: IntegrationPage["status"];
   children: ReactNode;
 }) {
   return (
