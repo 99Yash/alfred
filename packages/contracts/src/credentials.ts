@@ -1,44 +1,12 @@
 /**
- * The credential wire shape every `GET /integrations/<provider>/credentials`
- * route returns, plus the one dynamic reader of the credential-shape
- * projection. How each integration's credential is stored and how "connected"
- * is proved is a fact about the integration, so it lives on the registry entry
- * (`INTEGRATIONS[slug].credential` in `./integrations`, ADR-0093). The tables
- * this module used to hand-type (`CREDENTIAL_SHAPE`, `BEARER_PROVIDER_SLUGS`,
- * `isBearerProvider`) are projections there and reach consumers through the
- * root barrel; only the `BearerProvider` alias stays here.
+ * The credential wire shape of the http↔web seam. How each integration's
+ * credential is stored and how "connected" is proved is a fact about the
+ * integration, so it lives on the registry entry (`INTEGRATIONS[slug].credential`
+ * in `./integrations`, ADR-0093); the bearer subset (`BearerSlug`,
+ * `BEARER_PROVIDER_SLUGS`, `isBearerProvider`) is derived there.
  */
 
 import { z } from "zod";
-
-import {
-  CREDENTIAL_SHAPE,
-  isLoadableIntegrationSlug,
-  type BearerSlug,
-  type CredentialShape,
-} from "./integrations";
-
-/**
- * The slugs whose access is a single long-lived bearer token — the domain of
- * the shared bearer persistence layer in `@alfred/integrations`. The registry
- * name is {@link BearerSlug}; this alias keeps the older import working and is
- * deleted in PR 4 of the registry plan with the other transition names.
- *
- * @deprecated Import {@link BearerSlug}. Deleted in PR 4 of the registry plan.
- */
-export type BearerProvider = BearerSlug;
-
-/**
- * The credential shape for a dynamic slug string (a UI catalog id, a persisted
- * value), or `undefined` when it isn't a loadable integration at all. Callers
- * treat `undefined` the same as `deferred`: nothing to probe.
- *
- * @deprecated Narrow with `isLiveProviderSlug` and read
- * `INTEGRATIONS[slug].credential.shape`. Deleted in PR 4 of the registry plan.
- */
-export function credentialShapeForSlug(slug: string): CredentialShape | undefined {
-  return isLoadableIntegrationSlug(slug) ? CREDENTIAL_SHAPE[slug] : undefined;
-}
 
 /**
  * The wire shape every `GET /integrations/<backend>/credentials` route returns.

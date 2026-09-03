@@ -1,8 +1,8 @@
-import { toStringArray } from "@alfred/contracts";
+import { GOOGLE_FEATURE_SCOPES, toStringArray, type GoogleFeature } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import { GOOGLE_FEATURE_SCOPES, type GoogleFeature, scopesForFeatures } from "./oauth";
+import { scopesForFeatures } from "./oauth";
 
 /**
  * Thrown when a credential row is missing scopes a feature needs. The

@@ -132,13 +132,10 @@ from it. `pnpm check` fails on a `Partial<Record<…Slug, …>>` over a registry
 - `credentialProviderOf(slug)` — the credential provider of a live slug: `google` for a Google
   product, the slug itself otherwise. There is no `provider` field, so a slug cannot be paired
   with another slug's route family.
-- `CREDENTIAL_SHAPE`, `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT` — transitional
-  projections, tagged `@deprecated`. Read the entry field instead in new code; PR 4 of the
-  registry plan deletes them.
 - `src/google-scopes.ts` — `GOOGLE_SCOPE`, the nine Google scope URLs keyed by product then grant
   (`GOOGLE_SCOPE.gmail.modify`, `GOOGLE_SCOPE.drive.full`); `GOOGLE_SCOPES` and `GoogleScope` derive
-  from its leaves; `GOOGLE_FEATURE_SCOPES` groups them by connect feature.
-  `@alfred/integrations/google` re-exports them beside the OAuth mechanics.
+  from its leaves; `GOOGLE_FEATURE_SCOPES` groups them by connect feature. Import them from
+  `@alfred/contracts`; `@alfred/integrations/google` owns only the OAuth mechanics.
 
 ### HTTP failures — `@alfred/contracts` (`src/api-errors.ts`)
 

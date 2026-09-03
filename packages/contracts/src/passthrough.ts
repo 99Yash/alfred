@@ -20,30 +20,21 @@
  * Which integrations the tier covers, and with which transport, are facts about
  * the integration, so they live on the registry entry
  * (`INTEGRATIONS[slug].passthrough` in `./integrations`, ADR-0093). This module
- * derives the tool names and preference keys from that.
+ * derives the tool names and preference keys from that. The slugs the tier
+ * serves are {@link SupportedPassthroughSlug}: every live provider whose entry
+ * has a non-null `passthrough`. The API-side handler registry is keyed by it,
+ * so giving an entry a `passthrough` is a compile error until its config, gate,
+ * transport, tool action, and preference are wired.
  */
 
 import { z } from "zod";
 import {
-  PASSTHROUGH_TRANSPORT,
+  INTEGRATIONS,
   SUPPORTED_PASSTHROUGH_SLUGS,
   type PassthroughTransportKind,
   type SupportedPassthroughSlug,
 } from "./integrations";
 import { isToolName, type ToolName } from "./tools";
-
-/**
- * The slugs the general tier serves: every live provider whose registry entry
- * has a non-null `passthrough`. The registry name is
- * {@link SupportedPassthroughSlug}; this alias keeps the older import working
- * and is deleted in PR 4 of the registry plan with the other transition names.
- * The API-side handler registry is keyed by it, so giving an entry a
- * `passthrough` is a compile error until its config, gate, transport, tool
- * action, and preference are wired.
- *
- * @deprecated Import {@link SupportedPassthroughSlug}. Deleted in PR 4 of the registry plan.
- */
-export type SupportedIntegrationSlug = SupportedPassthroughSlug;
 
 /**
  * The tool `action` each transport registers: REST providers expose
@@ -65,7 +56,7 @@ export const PASSTHROUGH_TOOL_ACTION = {
  */
 export const PASSTHROUGH_TOOL_NAMES: readonly ToolName[] = SUPPORTED_PASSTHROUGH_SLUGS.map(
   (slug) => {
-    const name = `${slug}.${PASSTHROUGH_TOOL_ACTION[PASSTHROUGH_TRANSPORT[slug]]}`;
+    const name = `${slug}.${PASSTHROUGH_TOOL_ACTION[INTEGRATIONS[slug].passthrough.transport]}`;
     // Constructed from registered slugs + actions; validate rather than cast so a
     // future drift (a supported slug whose action isn't registered) fails loudly
     // at module load instead of silently widening to a non-existent tool name.
@@ -87,18 +78,18 @@ export const PASSTHROUGH_TOOL_NAMES: readonly ToolName[] = SUPPORTED_PASSTHROUGH
  */
 export const PASSTHROUGH_PREFERENCE_PREFIX = "feature.passthrough." as const;
 
-export function passthroughPreferenceKey(slug: SupportedIntegrationSlug): string {
+export function passthroughPreferenceKey(slug: SupportedPassthroughSlug): string {
   return `${PASSTHROUGH_PREFERENCE_PREFIX}${slug}`;
 }
 
-export const PASSTHROUGH_PREFERENCE_KEYS: Record<SupportedIntegrationSlug, string> =
+export const PASSTHROUGH_PREFERENCE_KEYS: Record<SupportedPassthroughSlug, string> =
   // SAFETY: the entries are built by mapping SUPPORTED_PASSTHROUGH_SLUGS — the
-  // same closed tuple the SupportedIntegrationSlug union derives from — so the
+  // same derived list the SupportedPassthroughSlug union describes — so the
   // fromEntries result has exactly those keys; Object.fromEntries' string index
   // erases that, and this cast restores it.
   Object.fromEntries(
     SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => [slug, passthroughPreferenceKey(slug)]),
-  ) as Record<SupportedIntegrationSlug, string>;
+  ) as Record<SupportedPassthroughSlug, string>;
 
 /**
  * Resolve a stored passthrough preference value to on/off. **Default OFF**: only
