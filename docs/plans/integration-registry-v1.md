@@ -1,7 +1,7 @@
 # Integration registry v1 — one entry per integration, the slug is the only key
 
-> **Status.** In progress. PR 1 (contracts) merged as #944 on 2026-09-03; PR 2 (server) is
-> open as #945; PR 3 (web) and PR 4 (delete the transition projections) follow. Follows the
+> **Status.** In progress. PR 1 (contracts) merged as #944 and PR 2 (server) as #945, both on
+> 2026-09-03; PR 3 (web) is open; PR 4 (delete the transition projections) follows. Follows the
 > [inventory](./integration-registry-inventory.md). The three decisions in inventory section 9
 > are locked: the web keys on the slug; the credential provider is a registry field; Slack and
 > Linear carry a `planned` status. [ADR-0093](../decisions/ADR-0093-integration-registry-one-entry-per-integration.md)

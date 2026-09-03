@@ -3,16 +3,15 @@ import { useResolvedIntegration } from "~/lib/integrations/use-integration-statu
 import { BackLink } from "./back-link";
 import { NotFound } from "./not-found";
 import { ProviderDetail } from "./provider-detail";
-import { getIntegrationProvider } from "~/lib/integrations/integrations";
+import { getIntegrationPage } from "~/lib/integrations/integrations";
 
 export function IntegrationDetailPage() {
-  const { provider: providerId } = useParams({ from: "/integrations/$provider" });
-  const catalogProvider = getIntegrationProvider(providerId);
-  // Resolve against the catalog's canonical id (`getIntegrationProvider`
-  // accepts short slugs like `gmail`; the resolver only knows the
-  // canonical id like `google_gmail`).
-  const resolved = useResolvedIntegration(catalogProvider?.id ?? "");
-  const provider = resolved ?? catalogProvider;
+  const { slug } = useParams({ from: "/integrations/$slug" });
+  // The route's `beforeLoad` redirects the legacy `google_*` ids, so a param
+  // that is not a catalog slug here is a genuine miss.
+  const page = getIntegrationPage(slug);
+  const resolved = useResolvedIntegration(slug);
+  const provider = resolved ?? page;
 
   return (
     <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">

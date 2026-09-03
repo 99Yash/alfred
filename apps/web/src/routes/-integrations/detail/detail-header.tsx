@@ -1,43 +1,46 @@
+import {
+  credentialProviderOf,
+  INTEGRATIONS,
+  isLiveProviderSlug,
+  type LiveProviderSlug,
+} from "@alfred/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
 import { AppButton, AppInput } from "~/components/ui/v2";
 import { client, API_URL } from "~/lib/eden";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
-import { PROVIDER_BACKEND, type IntegrationProvider } from "~/lib/integrations/integrations";
+import { connectPathFor, type IntegrationPage } from "~/lib/integrations/integrations";
+import { credentialsQueryKey } from "~/lib/integrations/use-integration-status";
 import { toast } from "~/lib/toast";
 
 /**
- * Provider id → API path that initiates the OAuth flow (with optional
- * `?features=` narrowing). Absent ids either have no wired backend
- * (status: "soon", CTA renders disabled) or use a non-redirect connect flow
- * handled below (Railway pastes a token).
- *
- * Per-provider features:
- *  - Gmail → `?features=briefing,triage,reply_draft`: requests the full
- *    Gmail grant so every downstream workflow works without an extra
- *    re-consent, but explicitly excludes Calendar so the Gmail tile's
- *    consent screen doesn't ask for calendar access. (Calendar lives in
- *    `GOOGLE_FEATURE_SCOPES` and would otherwise be picked up by the
- *    no-arg default.)
- *  - Calendar → `?features=calendar`: ask only for calendar scopes so
- *    a Gmail-already-connected user sees a focused consent screen.
- *    Google's `include_granted_scopes=true` merges this into their
- *    existing grant.
+ * The connect action reads the registry entry's credential: a planned provider
+ * renders a disabled "Coming Soon"; a `token_paste` credential renders a form
+ * that POSTs the token; every other live credential redirects to the path
+ * `connectPathFor` builds (the provider's route family plus, for a Google
+ * product, the `?features=` its entry declares).
  */
-const CONNECT_PATHS = new Map<string, string>([
-  ["google_gmail", "/api/integrations/google/connect?features=briefing,triage,reply_draft"],
-  ["google_calendar", "/api/integrations/google/connect?features=calendar"],
-  ["github", "/api/integrations/github/connect"],
-  ["notion", "/api/integrations/notion/connect"],
-  ["vercel", "/api/integrations/vercel/connect"],
-]);
+function ConnectAction({ provider, connected }: { provider: IntegrationPage; connected: boolean }) {
+  if (!isLiveProviderSlug(provider.slug)) {
+    return (
+      <AppButton variant="white" size="lg" disabled>
+        Coming Soon
+      </AppButton>
+    );
+  }
+  const credential = INTEGRATIONS[provider.slug].credential;
+  if (credential.shape === "bearer" && credential.connect === "token_paste") {
+    return <RailwayConnect connected={connected} />;
+  }
+  return <RedirectConnect slug={provider.slug} connected={connected} />;
+}
 
 export function DetailHeader({
   provider,
   connected,
 }: {
-  provider: IntegrationProvider;
+  provider: IntegrationPage;
   connected: boolean;
 }) {
   return (
@@ -54,42 +57,30 @@ export function DetailHeader({
           <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">{provider.description}</p>
         </div>
       </div>
-      {provider.id === "railway" ? (
-        <RailwayConnect connected={connected} />
-      ) : (
-        <RedirectConnect provider={provider} connected={connected} />
-      )}
+      <ConnectAction provider={provider} connected={connected} />
     </header>
   );
 }
 
 /** OAuth/redirect providers (Google, GitHub, Notion, Vercel). */
-function RedirectConnect({
-  provider,
-  connected,
-}: {
-  provider: IntegrationProvider;
-  connected: boolean;
-}) {
+function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connected: boolean }) {
   // Google providers gate the redirect behind consent coaching: one grant
   // covers the whole Workspace, and an unverified app trips two consent-screen
   // gotchas (uncheckable per-scope boxes + the "unverified app" interstitial)
   // that the dialog pre-explains. Other OAuth providers carry no such gotcha,
   // so they redirect straight through. Mirrors the onboarding flow.
   const [consentOpen, setConsentOpen] = useState(false);
-  const path = CONNECT_PATHS.get(provider.id);
-  const wired = Boolean(path);
-  const isGoogle = PROVIDER_BACKEND.get(provider.id) === "google";
-  const label = connected ? "Add Account" : wired ? "Connect" : "Coming Soon";
+  const isGoogle = credentialProviderOf(slug) === "google";
+  const label = connected ? "Add Account" : "Connect";
 
   const redirect = () => {
-    window.location.href = `${API_URL}${path}`;
+    window.location.href = `${API_URL}${connectPathFor(slug)}`;
   };
-  const onConnect = wired ? (isGoogle ? () => setConsentOpen(true) : redirect) : undefined;
+  const onConnect = isGoogle ? () => setConsentOpen(true) : redirect;
 
   return (
     <>
-      {isGoogle && wired ? (
+      {isGoogle ? (
         <GoogleConsentDialog
           open={consentOpen}
           onOpenChange={setConsentOpen}
@@ -99,7 +90,7 @@ function RedirectConnect({
           }}
         />
       ) : null}
-      <AppButton variant="white" size="lg" disabled={!wired} onClick={onConnect}>
+      <AppButton variant="white" size="lg" onClick={onConnect}>
         {label}
       </AppButton>
     </>
@@ -107,10 +98,11 @@ function RedirectConnect({
 }
 
 /**
- * Railway has no OAuth — the user pastes an account or workspace API token.
- * We POST it to the connect route (which validates it against Railway before
- * storing) and refresh the credential query on success so the tile flips to
- * "Connected".
+ * The `token_paste` connect flow. Railway has no OAuth — the user pastes an
+ * account or workspace API token. We POST it to the connect route (which
+ * validates it against Railway before storing) and refresh the credential
+ * query on success so the tile flips to "Connected". Railway is the one
+ * `token_paste` credential today; the Eden path below is its mechanics.
  */
 function RailwayConnect({ connected }: { connected: boolean }) {
   const queryClient = useQueryClient();
@@ -131,7 +123,7 @@ function RailwayConnect({ connected }: { connected: boolean }) {
       toast.success("Connected Railway");
       setToken("");
       setOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["integrations", "railway", "credentials"] });
+      await queryClient.invalidateQueries({ queryKey: credentialsQueryKey("railway") });
     } catch {
       toast.error("Couldn't reach the server — try again");
     } finally {

@@ -15,10 +15,11 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
+import { INTEGRATIONS, isGoogleSlug, type CatalogSlug } from "@alfred/contracts";
 import { useEffect, useState, type ReactNode } from "react";
 import { FrostButton, HeroAtmosphere } from "~/components/landing";
 import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 export type OnboardingStep = 1 | 2 | 3;
@@ -432,74 +433,26 @@ function UnlockShowcase() {
 
 type IntegrationTileStatus = "included" | "connected" | "available" | "soon";
 
+/**
+ * The showcase's pick of the catalog, in display order, with a short web-only
+ * line each. Name and brand are the registry entry's; a Google product is
+ * "Included" once Workspace is linked because it rides the same grant.
+ */
 interface PopularIntegration {
-  id: string;
-  name: string;
+  slug: CatalogSlug;
   description: string;
-  brand: IntegrationBrand;
-  /** `included` if Google Workspace is linked; otherwise resolves to `soon`. */
-  bundledWithGoogle?: boolean | undefined;
   /** Renders a live "Connect" pill that triggers `onConnectGithub`. */
-  connectable?: boolean | undefined;
-  /** Hard-coded default when neither bundled with Google nor connectable. */
-  status: IntegrationTileStatus;
+  connectable?: true | undefined;
 }
 
 const POPULAR_INTEGRATIONS: ReadonlyArray<PopularIntegration> = [
-  {
-    id: "github",
-    name: "GitHub",
-    description: "Repos and pull requests",
-    brand: "github",
-    connectable: true,
-    status: "available",
-  },
-  {
-    id: "linear",
-    name: "Linear",
-    description: "Issues and projects",
-    brand: "linear",
-    status: "soon",
-  },
-  {
-    id: "slack",
-    name: "Slack",
-    description: "Messages and channels",
-    brand: "slack",
-    status: "soon",
-  },
-  {
-    id: "google_drive",
-    name: "Google Drive",
-    description: "Find and read your files",
-    brand: "google_drive",
-    status: "soon",
-    bundledWithGoogle: true,
-  },
-  {
-    id: "google_docs",
-    name: "Google Docs",
-    description: "Create and edit docs",
-    brand: "google_docs",
-    status: "soon",
-    bundledWithGoogle: true,
-  },
-  {
-    id: "google_sheets",
-    name: "Google Sheets",
-    description: "Work with spreadsheets",
-    brand: "google_sheets",
-    status: "soon",
-    bundledWithGoogle: true,
-  },
-  {
-    id: "google_slides",
-    name: "Google Slides",
-    description: "Create and edit decks",
-    brand: "google_slides",
-    status: "soon",
-    bundledWithGoogle: true,
-  },
+  { slug: "github", description: "Repos and pull requests", connectable: true },
+  { slug: "linear", description: "Issues and projects" },
+  { slug: "slack", description: "Messages and channels" },
+  { slug: "drive", description: "Find and read your files" },
+  { slug: "docs", description: "Create and edit docs" },
+  { slug: "sheets", description: "Work with spreadsheets" },
+  { slug: "slides", description: "Create and edit decks" },
 ];
 
 function ConnectShowcase({
@@ -531,30 +484,33 @@ function ConnectShowcase({
       <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
         {POPULAR_INTEGRATIONS.map((p) => {
-          // GitHub connects live here; Google sub-features ride the Workspace
+          const { displayName: name, brand } = INTEGRATIONS[p.slug];
+          // GitHub connects live here; Google products ride the Workspace
           // grant; everything else is honestly "Soon".
           const isGithubConnected = p.connectable && Boolean(connectedGithub);
           const status: IntegrationTileStatus = isGithubConnected
             ? "connected"
-            : p.bundledWithGoogle
+            : isGoogleSlug(p.slug)
               ? connectedEmail
                 ? "included"
                 : "soon"
-              : p.status;
+              : p.connectable
+                ? "available"
+                : "soon";
           const detail =
             isGithubConnected && connectedGithub ? `@${connectedGithub}` : p.description;
           return (
             <li
-              key={p.id}
+              key={p.slug}
               className="flex items-center gap-3 bg-white/[0.04] px-5 py-4 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
             >
-              <IntegrationIcon brand={p.brand} size="md" title={p.name} variant="frost" />
+              <IntegrationIcon brand={brand} size="md" title={name} variant="frost" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-semibold text-white">{p.name}</p>
+                <p className="truncate text-[14px] font-semibold text-white">{name}</p>
                 <p className="truncate text-[12.5px] text-white/75">{detail}</p>
               </div>
               {status === "available" ? (
-                <ConnectPill onClick={onConnectGithub} label={`Connect ${p.name}`} />
+                <ConnectPill onClick={onConnectGithub} label={`Connect ${name}`} />
               ) : (
                 <IntegrationStatusBadge status={status} />
               )}

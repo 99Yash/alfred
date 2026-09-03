@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
-import { BRAND_ACCENT, IntegrationIcon } from "~/lib/integrations/integration-icons";
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import { brandAccent, IntegrationIcon } from "~/lib/integrations/integration-icons";
+import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 
 /**
@@ -44,10 +44,10 @@ const SATELLITES: ReadonlyArray<{
   { id: "near-tr", size: 34, rotate: -4, opacity: 0.55, style: { top: "30%", right: "13%" } },
 ];
 
-export function HeroPanel({ provider }: { provider: IntegrationProvider }) {
+export function HeroPanel({ provider }: { provider: IntegrationPage }) {
   // Colored brands light their hero in their own hue; monochrome marks fall
   // back to the house purple. Low-alpha mix keeps it ambient in both themes.
-  const accent = BRAND_ACCENT.get(provider.brand);
+  const accent = brandAccent(provider.brand);
   const glow = accent ? `color-mix(in srgb, ${accent} 24%, transparent)` : "var(--app-purple-2)";
   return (
     <div

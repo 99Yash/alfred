@@ -1,9 +1,12 @@
-import type { ChatConnectNudge } from "@alfred/contracts";
+import {
+  isLiveProviderSlug,
+  type ChatConnectNudge,
+  type LiveProviderSlug,
+} from "@alfred/contracts";
 import type { SyncedChatToolCall } from "@alfred/sync";
 import {
-  getIntegrationProvider,
-  PROVIDER_BACKEND,
-  type IntegrationProvider,
+  integrationPage,
+  type IntegrationPage,
   type IntegrationStatus,
 } from "~/lib/integrations/integrations";
 
@@ -21,11 +24,11 @@ export interface ConnectNudgeView {
   /** Stable identity — one offer per integration even after several bounces. */
   integration: string;
   action: ChatConnectNudge["action"];
-  /** Catalog provider id (`google_gmail`), the connect route's param. */
-  providerId: string;
+  /** The live provider's slug (`gmail`), the connect route's param. */
+  slug: LiveProviderSlug;
   /** Display name (`Gmail`). */
   name: string;
-  brand: IntegrationProvider["brand"];
+  brand: IntegrationPage["brand"];
   /** The one-line explanation above the action ("Gmail isn't connected."). */
   line: string;
   /** The primary action label ("Connect Gmail"). */
@@ -68,40 +71,40 @@ export function splitPersistedToolCalls(
 }
 
 /**
- * Resolve raw offers into renderable views. `statusByProviderId` is the live
+ * Resolve raw offers into renderable views. `statusBySlug` is the live
  * credential overlay once ready and `undefined` while queries are in flight —
  * matching the mention palette's rule that rows stay stateless during load
  * rather than flash an offer that may already be stale:
  *
- *  - no catalog provider, or no connect backend behind it → no view. There is
- *    no flow to send the user to, so an actionable offer would be dishonest
- *    (the same rule that keeps Slack/Linear out of the composer's nudges).
+ *  - not a live provider (a planned one, a channel, Alfred's own tools) → no
+ *    view. There is no flow to send the user to, so an actionable offer would
+ *    be dishonest (the same rule that keeps Slack/Linear out of the composer's
+ *    nudges).
  *  - already connected → no view. The repair happened; re-offering it would
  *    read as broken even though the bounce was real when it streamed.
  */
 export function presentConnectNudges(
   nudges: readonly ChatConnectNudge[],
-  statusByProviderId: ReadonlyMap<string, IntegrationStatus> | undefined,
+  statusBySlug: ReadonlyMap<string, IntegrationStatus> | undefined,
 ): ConnectNudgeView[] {
-  if (statusByProviderId === undefined) return [];
+  if (statusBySlug === undefined) return [];
   const views: ConnectNudgeView[] = [];
   for (const nudge of nudges) {
-    // Short Google slugs (`calendar`) resolve through the same alias table the
-    // mention palette uses; unknown slugs yield no provider and no offer.
-    const provider = getIntegrationProvider(nudge.integration);
-    if (!provider || !PROVIDER_BACKEND.has(provider.id)) continue;
-    if (statusByProviderId.get(provider.id) === "connected") continue;
+    const slug = nudge.integration;
+    if (!isLiveProviderSlug(slug)) continue;
+    if (statusBySlug.get(slug) === "connected") continue;
+    const { name, brand } = integrationPage(slug);
     views.push({
-      integration: nudge.integration,
+      integration: slug,
       action: nudge.action,
-      providerId: provider.id,
-      name: provider.name,
-      brand: provider.brand,
+      slug,
+      name,
+      brand,
       line:
         nudge.action === "connect"
-          ? `${provider.name} isn't connected.`
-          : `${provider.name} needs to be reconnected.`,
-      cta: `${nudge.action === "connect" ? "Connect" : "Reconnect"} ${provider.name}`,
+          ? `${name} isn't connected.`
+          : `${name} needs to be reconnected.`,
+      cta: `${nudge.action === "connect" ? "Connect" : "Reconnect"} ${name}`,
     });
   }
   return views;

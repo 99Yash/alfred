@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { getRelatedProviders, type IntegrationProvider } from "~/lib/integrations/integrations";
+import { getRelatedPages, type IntegrationPage } from "~/lib/integrations/integrations";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { SectionHeading } from "./section-heading";
 
-export function RelatedSetup({ provider }: { provider: IntegrationProvider }) {
-  const related = getRelatedProviders(provider);
+export function RelatedSetup({ provider }: { provider: IntegrationPage }) {
+  const related = getRelatedPages(provider);
   if (related.length === 0) return null;
 
   return (
@@ -19,9 +19,9 @@ export function RelatedSetup({ provider }: { provider: IntegrationProvider }) {
       <div className="space-y-2">
         {related.map((item, idx) => (
           <Link
-            key={item.id}
-            to="/integrations/$provider"
-            params={{ provider: item.id }}
+            key={item.slug}
+            to="/integrations/$slug"
+            params={{ slug: item.slug }}
             className={cn(
               "app-card-in flex items-center gap-3 rounded-2xl bg-app-bg-1 px-3 py-2.5",
               "app-press shadow-[var(--app-shadow-elevated)] transition-shadow",

@@ -5,7 +5,7 @@ import { IntegrationsRoute } from "./-integrations/integrations-route";
 /**
  * App-grammar port of /integrations.
  *
- * Same IA + same data (CATEGORY_ORDER, INTEGRATION_PROVIDERS), rebuilt
+ * Same IA + same data (CATEGORY_ORDER, INTEGRATION_PAGES), rebuilt
  * with the app primitives. Adds:
  *   - A 3-tile floating hero showing connected provider logos (the
  *     "logos as a hero" treatment Yash called out, ported from the
