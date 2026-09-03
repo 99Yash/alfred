@@ -18,6 +18,7 @@
  * Steady state: `refreshIfNeeded` pre-delivery only; the transport holds a
  * token-only projection so it can never refresh/replay `tools/call`.
  */
+import { parseOAuthScopeList } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
 import {
@@ -330,10 +331,6 @@ function stateHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function scopeList(scope: string | undefined): string[] {
-  return scope?.split(/\s+/).filter(Boolean) ?? [];
-}
-
 function parseAuthorizationServerMetadata(
   value: unknown,
   server: McpAuthorizedOAuthServer,
@@ -620,7 +617,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     await this.#store.updateConnectionAuthorization({
       connectionId: this.#connectionId,
       userId: this.#userId,
-      grantedScopes: scopeList(parsed.scope ?? credential.scope ?? undefined),
+      grantedScopes: parseOAuthScopeList(parsed.scope ?? credential.scope),
     });
     if (this.#attemptStateHash) {
       await this.#store.deleteAttempt(this.#attemptStateHash, this.#userId);

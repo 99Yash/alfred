@@ -10,10 +10,12 @@
  */
 
 import {
+  GITHUB_SEARCH_WINDOWS,
   githubGetIssueInput,
   githubGetPullRequestInput,
   githubGetPullRequestsInput,
   githubSearchInput,
+  githubSearchWindowDays,
   queryHasNarrowingScope,
   restPassthroughInput,
   sanitizeGithubSearchQuery,
@@ -95,18 +97,18 @@ export function buildGithubSearchQuery(
   // the item the AND form dropped is PR 910, created 2026-08-27 and merged
   // 2026-08-28. The OR group is a superset the boss narrows locally, because
   // every item carries `createdAt`, `closedAt`, `mergedAt` and `merged`; the
-  // AND form loses items with no signal at all.
-  // One window keeps its bare token, so a single-window query is unchanged.
-  const windows: string[] = [];
-  if (input.closedWithinDays !== undefined) {
-    windows.push(`closed:>=${windowLowerBound(input.closedWithinDays, timezone, nowMs)}`);
-  }
-  if (input.createdWithinDays !== undefined) {
-    windows.push(`created:>=${windowLowerBound(input.createdWithinDays, timezone, nowMs)}`);
-  }
-  if (input.mergedWithinDays !== undefined) {
-    windows.push(`merged:>=${windowLowerBound(input.mergedWithinDays, timezone, nowMs)}`);
-  }
+  // AND form loses items with no signal at all. One window keeps its bare
+  // token, so a single-window query is unchanged.
+  //
+  // A free-form date window in `query` would still be a top-level AND token,
+  // so the schema refuses to mix the two grammars
+  // (`githubSearchQueryIssues` in `@alfred/contracts`) and every window that
+  // reaches here came through `githubSearchWindowDays`.
+  const windows = GITHUB_SEARCH_WINDOWS.flatMap((entry) => {
+    const days = githubSearchWindowDays(input, entry);
+    if (days === undefined) return [];
+    return [`${entry.qualifier}:>=${windowLowerBound(days, timezone, nowMs)}`];
+  });
   // `advanced_search=true` on the client is what makes `(… OR …)` a boolean
   // group rather than free text (`packages/integrations/src/github/client.ts`).
   if (windows.length > 1) parts.push(`(${windows.join(" OR ")})`);
@@ -134,7 +136,7 @@ export const githubTools: readonly RegisteredTool[] = [
     action: "search",
     riskTier: "no_risk",
     description:
-      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. For all recent PR activity in one window, set state:'all' and ALL THREE of createdWithinDays/mergedWithinDays/closedWithinDays to the same N: several windows combine as OR, so one search returns every PR created OR merged OR closed in that window — do not run a second search over the same window with a different state. One window alone matches only that one event, so createdWithinDays:N by itself MISSES a PR created earlier and merged inside the window. Each item carries createdAt, mergedAt, closedAt, state and merged, so read those to say which event happened when. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'. For diff stats on the hits, pass them all to github.get_pull_requests in one call.",
+      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. 'What did I ship this week' → state:'all', activeWithinDays:7 — one search, never one per state. Each item carries createdAt, mergedAt, closedAt, state and merged, so read those to say which event happened when. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'. For diff stats on the hits, pass them all to github.get_pull_requests in one call.",
     discovery: {
       aliases: ["search GitHub", "find pull requests", "find issues"],
       tags: ["github", "code", "development"],

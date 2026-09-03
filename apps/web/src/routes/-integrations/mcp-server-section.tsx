@@ -70,7 +70,11 @@ export function MCPServerSection() {
   const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
   // Every page reports the same owner-wide count; the newest page is the freshest.
   const awaitingRepair = recoveryQuery.data?.pages.at(-1)?.awaitingRepair ?? 0;
-  const github = connections.find((connection) => connection.canonicalResource.includes("github"));
+  // `builtInProvider` is derived server-side from the pinned endpoint, so the
+  // card follows the built-in when its path moves. The old
+  // `canonicalResource.includes("github")` also matched a user-added URL that
+  // merely had "github" in it, and broke on any endpoint rename.
+  const github = connections.find((connection) => connection.builtInProvider === "github");
   const isConnecting = github?.status === "connecting";
   const statusText = connectionQuery.isPending
     ? "Loading connection…"

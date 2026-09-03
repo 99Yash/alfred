@@ -18,9 +18,10 @@
  *    Postgres; production always receives the module-owned default adapter.
  *
  * PRD guardrail — first real server: the intended first connection is GitHub's
- * official remote MCP server (`https://api.githubcopilot.com/mcp/readonly`, Streamable
- * HTTP). Its `tools/list` shape (snake_case tools like `create_issue` /
- * `list_pull_requests`, cursor pagination, per-tool input/output JSON Schema)
+ * official remote MCP server (`https://api.githubcopilot.com/mcp/readonly`,
+ * Streamable HTTP). Its `tools/list` shape (snake_case tools like
+ * `get_pull_request` / `list_pull_requests` — the read-only catalog carries no
+ * write tool, ADR-0094 — cursor pagination, per-tool input/output JSON Schema)
  * validates this broker's interface — paginated immutable catalog revisions,
  * per-descriptor hashing, and the closed `mcp.call` projection — against a real
  * catalog rather than an imagined one. It is named before merge; the OAuth /
