@@ -47,6 +47,24 @@ type BuiltInDefinition = {
     readonly clientIdKey: keyof ServerEnv;
     readonly clientSecretKey: keyof ServerEnv;
   };
+  /**
+   * OAuth scopes Alfred asks for on EVERY authorize for this provider.
+   *
+   * The remote MCP server decides what its `tools/list` contains from the
+   * token it is given, and GitHub's server hides a tool whose scope the token
+   * lacks instead of failing the call. A `gho_` token with an empty scope
+   * therefore produced a catalog of 8 tools with no pull request or issue tool
+   * in it, while the same read-only endpoint returned 28 tools to a token
+   * carrying `repo` and `read:org`. Nothing in the protocol reports that
+   * shortfall, so the ask cannot be discovered at run time: it is pinned here
+   * beside the endpoint the scopes belong to.
+   *
+   * This is the BASELINE, not the whole ask. `beginAuthorization` unions it
+   * with the connection's granted scopes and with any scope the server later
+   * demanded through an insufficient-scope response, so a runtime demand still
+   * widens the next consent.
+   */
+  readonly scopes: readonly string[];
   readonly initialState: {
     readonly authServerIdentity: string;
     readonly status: "disconnected";
@@ -64,6 +82,12 @@ export const BUILT_IN_REGISTRY = {
       clientIdKey: "GITHUB_MCP_CLIENT_ID",
       clientSecretKey: "GITHUB_MCP_CLIENT_SECRET",
     },
+    // `repo` is what unhides the pull request and issue tools; `read:org` is
+    // what unhides the team reads. `repo` is GitHub's only grain for private
+    // repository content, so the consent screen states write access — the
+    // pinned read-only endpoint is what keeps the granted token from reaching
+    // a write tool. See `GITHUB_MCP_ENDPOINT_HREF`.
+    scopes: ["repo", "read:org"],
     initialState: {
       authServerIdentity: "oauth:pending",
       status: "disconnected",
@@ -72,6 +96,27 @@ export const BUILT_IN_REGISTRY = {
 } as const satisfies Record<string, BuiltInDefinition>;
 
 export type BuiltInProvider = keyof typeof BUILT_IN_REGISTRY;
+
+/**
+ * The built-in that owns `endpoint`, or `undefined` when no entry claims it.
+ *
+ * A query or a fragment is not part of a canonical built-in resource. Refusing
+ * `https://api.githubcopilot.com/mcp/readonly?foo=1` here keeps a supplied URL
+ * from inheriting either the pre-registered client or the pinned scopes.
+ */
+function lookupBuiltIn(endpoint: URL): ResolvedDefinition | undefined {
+  if (endpoint.search !== "" || endpoint.hash !== "") return undefined;
+  return BY_ENDPOINT.get(endpointKey(endpoint));
+}
+
+/**
+ * The scope baseline for the built-in that owns `endpoint`, empty for every
+ * other endpoint. The authorize step unions this with the connection's own
+ * scopes, so a user-added server keeps asking for exactly what it discovered.
+ */
+export function builtInAuthorizationScopes(endpoint: URL): readonly string[] {
+  return lookupBuiltIn(endpoint)?.scopes ?? [];
+}
 
 /**
  * Origin plus path with any trailing slashes removed. Two hrefs that name the
@@ -110,11 +155,7 @@ export function resolveBuiltInClient(
   endpoint: URL,
   issuerHint?: string | undefined,
 ): BuiltInOAuthConfig | undefined {
-  // A query or a fragment is not part of a canonical built-in resource. Refuse
-  // `https://api.githubcopilot.com/mcp?foo=1` before the lookup so an
-  // attacker-supplied URL cannot inherit the pre-registered client.
-  if (endpoint.search !== "" || endpoint.hash !== "") return undefined;
-  const definition = BY_ENDPOINT.get(endpointKey(endpoint));
+  const definition = lookupBuiltIn(endpoint);
   if (!definition) return undefined;
   const clientId = envFieldValue(definition.env.clientIdKey);
   if (typeof clientId !== "string") return undefined;

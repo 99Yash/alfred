@@ -53,6 +53,7 @@ export {
   type McpEndpointConnection,
   type McpEndpointNetworkPolicy,
 } from "./endpoint-authorization";
+export { builtInAuthorizationScopes } from "./built-ins";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
 export { listMcpToolsLocal } from "./list-tools";
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
