@@ -51,10 +51,7 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
       return result;
     };
 
-    const results =
-      input.run.runContext.interaction === "background"
-        ? await dispatchSerial(input.calls, dispatch)
-        : await dispatchLiveChat(input.calls, input.run.userId, adapter, dispatch);
+    const results = await dispatchGatedConcurrent(input.calls, input.run.userId, adapter, dispatch);
 
     const staged = results.find(
       (result): result is Extract<ToolCallDispatchResult, { kind: "staged" }> =>
@@ -95,20 +92,22 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
   }
 }
 
-async function dispatchSerial<Call extends ProposedToolCall>(
-  calls: readonly Call[],
-  dispatch: (call: Call) => Promise<ToolCallDispatchResult>,
-): Promise<Array<ToolCallDispatchResult | undefined>> {
-  const results: Array<ToolCallDispatchResult | undefined> = Array.from({ length: calls.length });
-  for (let index = 0; index < calls.length; index += 1) {
-    const result = await dispatch(calls[index]!);
-    results[index] = result;
-    if (result.kind === "staged" || result.kind === "parked") break;
-  }
-  return results;
-}
-
-async function dispatchLiveChat<Call extends ProposedToolCall>(
+/**
+ * Dispatch one round's calls with the approval gate read first.
+ *
+ * Calls the gate hint marks as free run at once; calls that share an
+ * `executionLane` run in model order inside that lane; calls the hint marks as
+ * gated run one at a time after the rest, so a round can stage at most one
+ * approval card (ADR-0040). A `parked` or `staged` result leaves the batch
+ * uncommitted and the whole batch re-dispatches on resume, where the finished
+ * siblings short-circuit on `(runId, toolCallId)` idempotency.
+ *
+ * Every caller takes this path. `interaction` decides tool eligibility
+ * (`requiresLiveChat`) and the surface cache key, not the dispatch order: the
+ * gate hint and the staging decision read only `(userId, toolName)`, so the
+ * schedule is as safe for a sub-agent brief as for a chat turn (#937).
+ */
+async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
   calls: readonly Call[],
   userId: string,
   adapter: ToolCallRoundAdapter,
