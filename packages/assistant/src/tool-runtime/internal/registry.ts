@@ -22,10 +22,12 @@ import type {
   ToolName,
   ToolRunContext,
   ToolAvailabilityResult,
+  ToolCredentialRequirement,
   ToolRiskTier,
 } from "@alfred/contracts";
 import {
   buildToolName,
+  holdsAnyScope,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
@@ -65,10 +67,7 @@ interface ToolAvailabilityMetadata {
   /** Always expose this tool in the run-local bootstrap surface. Omit for lazy-loaded tools. */
   surface?: "kernel";
   /** Credential capability required by this exact tool, when narrower than its integration. */
-  credential?: {
-    provider: string;
-    anyOfScopes: readonly string[];
-  };
+  credential?: ToolCredentialRequirement;
   /** Caller kinds that may actually receive and invoke this tool. */
   callers?: readonly ("boss" | "sub_agent")[];
   /** True when execution requires an interactive chat thread. */
@@ -391,9 +390,9 @@ function evaluateSnapshotGates(
     if (activeRows.length === 0) {
       return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
     }
-    const scopeMatches =
-      credential.anyOfScopes.length === 0 ||
-      activeRows.some((row) => credential.anyOfScopes.some((scope) => row.scopes.has(scope)));
+    const scopeMatches = activeRows.some((row) =>
+      holdsAnyScope(row.scopes, credential.anyOfScopes),
+    );
     if (!scopeMatches) {
       return {
         available: false,

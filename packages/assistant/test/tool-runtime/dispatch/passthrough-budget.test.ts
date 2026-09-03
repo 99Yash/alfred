@@ -60,8 +60,9 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
   // connection *health* AFTER the passthrough kill switch — a turned-on tier on a
   // disconnected integration is still unavailable, by design. Without a row here the
   // snapshot reports `health: null` and the dispatch answers `not_allowed` before it
-  // ever reaches the ceiling this file exists to test. `ACCESS_SPECS`' github entry
-  // declares `anyOfScopes: []`, so any `status: "active"` row satisfies it.
+  // ever reaches the ceiling this file exists to test. The registry's `github_app`
+  // rule (`credentialSatisfies`) needs an active row WITH an installation id.
+
   await db()
     .insert(integrationCredentials)
     .values({
@@ -73,6 +74,7 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
       // sealing it would only pull the whole `serverEnv()` fixture block in here.
       // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
       accessToken: "test-token" as unknown as SealedCredentialSecret,
+      installationId: "1",
       status: "active",
     });
   // Default-OFF passthrough tier: turn github ON so the kill-switch recheck passes.

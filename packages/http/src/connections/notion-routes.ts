@@ -1,4 +1,4 @@
-import { Errors } from "@alfred/contracts";
+import { Errors, integrationRoutePrefix, type CredentialProvider } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildNotionAuthorizeUrl,
@@ -31,8 +31,10 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   GET    /api/integrations/notion/credentials  → list this user's connections
  *   DELETE /api/integrations/notion/:id          → disconnect
  */
+const PROVIDER = "notion" satisfies CredentialProvider;
+
 export const notionIntegrationRoutes = new Elysia({
-  prefix: "/api/integrations/notion",
+  prefix: integrationRoutePrefix(PROVIDER),
   normalize: "typebox",
 })
   .use(authMacro)
@@ -44,14 +46,14 @@ export const notionIntegrationRoutes = new Elysia({
           throw Errors.ServiceUnavailableError("Notion integration is not configured");
         }
         const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: "notion", nonce, userId: user.id });
+        await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
         const state = signOAuthState({ userId: user.id, nonce });
         set.status = 302;
         set.headers["Location"] = buildNotionAuthorizeUrl(state);
         return null;
       })
       .get("/credentials", async ({ user }) => {
-        const credentials = await listBearerCredentials(user.id, "notion");
+        const credentials = await listBearerCredentials(user.id, PROVIDER);
         return { credentials };
       })
       .delete(
@@ -59,7 +61,7 @@ export const notionIntegrationRoutes = new Elysia({
         async ({ params, user }) => {
           const deleted = await deleteIntegrationCredential({
             userId: user.id,
-            provider: "notion",
+            provider: PROVIDER,
             id: params.id,
           });
           if (!deleted) throw Errors.NotFoundError("Credential not found");
@@ -83,7 +85,7 @@ export const notionIntegrationRoutes = new Elysia({
 
       const decoded = verifyOAuthState(query.state);
       if (!decoded) throw Errors.BadRequestError("Invalid state");
-      const storedUserId = await consumeOAuthNonce("notion", decoded.nonce);
+      const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
         throw Errors.BadRequestError("Invalid or expired state");
       }
@@ -91,7 +93,7 @@ export const notionIntegrationRoutes = new Elysia({
       const tokens = await exchangeNotionCode(query.code);
       await upsertBearerCredential({
         userId: decoded.userId,
-        provider: "notion",
+        provider: PROVIDER,
         accountId: tokens.workspaceId,
         accountLabel: tokens.workspaceName ?? tokens.ownerName,
         accessToken: tokens.accessToken,

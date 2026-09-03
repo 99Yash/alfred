@@ -1,6 +1,7 @@
 # Integration registry v1 — one entry per integration, the slug is the only key
 
-> **Status.** Design, 2026-09-02. Not started. Follows the
+> **Status.** In progress. PR 1 (contracts) merged as #944 on 2026-09-03; PR 2 (server) is
+> open as #945; PR 3 (web) and PR 4 (delete the transition projections) follow. Follows the
 > [inventory](./integration-registry-inventory.md). The three decisions in inventory section 9
 > are locked: the web keys on the slug; the credential provider is a registry field; Slack and
 > Linear carry a `planned` status. [ADR-0093](../decisions/ADR-0093-integration-registry-one-entry-per-integration.md)
@@ -247,8 +248,10 @@ type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
 
 ### `packages/assistant`
 
-- `connections/availability.ts`: `ACCESS_SPECS` is deleted. The read maps `LIVE_PROVIDERS` to
-  `{ slug, provider, anyOfScopes }`; the non-Google entries contribute an empty scope list.
+- `connections/availability.ts`: `ACCESS_SPECS` is deleted. The read iterates `LIVE_PROVIDERS`
+  and asks `credentialSatisfies(entry.credential, row)` from `@alfred/contracts`, the one
+  executable home of the connected rule each `CredentialSpec` declares in prose.
+  `ProviderAvailability` carries `installationId` so the `github_app` rule can run on the server.
 - `execution/connected-summary.ts`: `SUMMARY_SLUGS` is deleted. The summary iterates
   `LIVE_PROVIDERS` and reads `summaryBlurb` and `identityInSummary`. The eval `BLURB` table in
   `evals/tool-selection-bloat.eval.ts` reads the same field.
@@ -260,8 +263,13 @@ type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
 
 ### `packages/http`
 
-- The five `*-routes.ts` files keep their handlers. Each route prefix is asserted against the
-  registry with one line: `const PROVIDER = "notion" satisfies CredentialProvider`.
+- The five `*-routes.ts` files keep their handlers. Each declares
+  `const PROVIDER = "notion" satisfies CredentialProvider` once and spells the provider nowhere
+  else: the prefix is `integrationRoutePrefix(PROVIDER)`, and the query filters, the nonce calls,
+  and the credential calls take `PROVIDER`. `connections/index.ts` keys the five plugins
+  `satisfies Record<CredentialProvider, AnyElysia>`, so a live provider with no route family is a
+  compile error. The nonce store keys on `OAuthNonceNamespace`: a `CredentialProvider` or one
+  MCP connection.
 - `tool-tiers.ts` keys on `LoadableIntegrationSlug`, unchanged.
 
 ### `packages/sync`
@@ -284,12 +292,14 @@ The slug is the key. The catalog id is deleted.
   the integration rows in `MENTION_OPTIONS`, the per-provider `faviconDomain` literals in
   `evidence.ts`.
 - `connectPathFor(slug: LiveProviderSlug): string` in `lib/integrations`:
-  `/api/integrations/${provider}/connect` plus `?features=` joined from the entry for Google.
+  `integrationRoutePrefix(credentialProviderOf(slug))` from `@alfred/contracts` plus `/connect`,
+  plus `?features=` joined from the entry for Google.
   `detail-header.tsx` branches on `credential.connect === "token_paste"`, not on
   `slug === "railway"`.
 - `use-integration-status.ts`: the two `switch (backend)` blocks switch on `CredentialProvider`.
-  They stay, because the Eden client paths are mechanics. `matchByCredentialShape` reads
-  `entry.credential.shape`; `matchByScopes` reads `entry.credential.anyOfScopes`.
+  They stay, because the Eden client paths are mechanics. `matchByCredentialShape` and
+  `matchByScopes` are replaced by `credentialSatisfies(INTEGRATIONS[slug].credential, row)` from
+  `@alfred/contracts`; the parsed credential row already satisfies `CredentialProofRow`.
 - Route `integrations.$provider.tsx` becomes `integrations.$slug.tsx`. A `LEGACY_PAGE_IDS`
   map with the six `google_*` ids lives in that route's loader only and redirects. It is the last
   home of the catalog id and is deleted one release later.
@@ -365,10 +375,28 @@ runtime value. PR 2 and PR 3 are independent of each other and both depend on PR
 ### PR 2 — server: the record is the only source of provider facts
 
 - `ACCESS_SPECS`, `SUMMARY_SLUGS`, eval `BLURB`, `GOOGLE_INTEGRATIONS` derive.
+- `credentialSatisfies(spec, row)` and `holdsAnyScope` in `contracts/integrations/connected.ts`;
+  `integrationRoutePrefix(provider)` in `slugs.ts`; `ToolCredentialRequirement` in
+  `integration-availability.ts`.
 - `providerRegistry satisfies Record<CredentialProvider, ProviderFactory>`.
 - `ProviderAvailability` and tool `availability.credential.provider` typed.
 - Route prefix assertions in `packages/http`.
 - DB `$type` and the `CHECK` migration, with the production probe in the PR body.
+
+_Deviations recorded in PR 2:_ the "zod parse at the read boundary" in section 2 is the
+`isCredentialProvider` guard in `connections/availability.ts`, the one read that consumes the
+column's value (every other read filters on it and never consumes it). The `CHECK` constraint is
+the proof; the column's `$type` is that constraint's promise, and the guard throws on a miss,
+because a miss is registry-versus-migration drift and a skipped row would read a connected
+provider as absent. The connected rule moved into contracts as `credentialSatisfies`, so the
+server now applies the `github_app` rule (an active row with an `installation_id`) where it
+applied "any active row": a legacy classic-OAuth GitHub row reads `needs_reauth` on the server
+as it already did on the web. `LiveProviderEntry` intersects `LiveIntegrationEntry` so every
+optional the interface declares is readable on every member; `as const` drops an unset optional
+from an entry's type. `deleteIntegrationCredential` takes `CredentialProvider`, the column's
+vocabulary, where it took `IntegrationSlug`. The `ingestion_state.provider` and
+`webhook_events.provider` columns keep their `text` type; they are provenance, not the
+credential vocabulary, and are out of this plan.
 
 ### PR 3 — web: the slug is the key
 

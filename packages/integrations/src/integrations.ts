@@ -4,6 +4,7 @@ import { notionClientForUser } from "./notion/client";
 import { railwayClientForUser } from "./railway/client";
 import { vercelClientForUser } from "./vercel/client";
 
+import type { CredentialProvider } from "@alfred/contracts";
 import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/provider";
 
 /**
@@ -48,12 +49,15 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
  */
 
 /**
- * The single source of truth for which providers the root exposes. Add a
- * provider here and its client type flows into {@link Integrations} automatically
- * — there is no second place to update. `satisfies` enforces the uniform factory
- * signature while preserving each entry's precise return type for the derivation.
- * Because every client factory already takes {@link ProviderBindOptions}, entries
- * are bare references — no per-provider adapter glue.
+ * The client factory for every credential provider the registry derives
+ * (ADR-0093). The key set is `CredentialProvider`, so a live provider entry in
+ * `@alfred/contracts` without a client here is a compile error, and a key here
+ * that the registry does not know is one too. Each client type flows into
+ * {@link Integrations} automatically — there is no second place to update.
+ * `satisfies` enforces the uniform factory signature while preserving each
+ * entry's precise return type for the derivation. Because every client factory
+ * already takes {@link ProviderBindOptions}, entries are bare references — no
+ * per-provider adapter glue.
  */
 const providerRegistry = {
   github: githubClientForUser,
@@ -61,7 +65,7 @@ const providerRegistry = {
   notion: notionClientForUser,
   railway: railwayClientForUser,
   vercel: vercelClientForUser,
-} satisfies Record<string, ProviderFactory>;
+} satisfies Record<CredentialProvider, ProviderFactory>;
 
 type ProviderRegistry = typeof providerRegistry;
 

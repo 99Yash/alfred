@@ -1,8 +1,12 @@
-import type { AccountPersona } from "@alfred/contracts";
+import {
+  CREDENTIAL_PROVIDERS,
+  type AccountPersona,
+  type CredentialProvider,
+} from "@alfred/contracts";
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { check, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import type { SealedCredentialSecret } from "../credential-vault";
-import { createId, lifecycle_dates } from "../helpers";
+import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 /**
@@ -57,8 +61,13 @@ export const integrationCredentials = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** 'google', 'slack', 'linear', 'github', 'notion'. */
-    provider: text("provider").notNull(),
+    /**
+     * The credential provider (ADR-0093): `google` for every Google product,
+     * else the live provider's slug (`github`, `notion`, `railway`, `vercel`).
+     * The vocabulary is derived from the integration registry, and the CHECK
+     * below holds the column to it, so a new provider is a migration.
+     */
+    provider: text("provider").$type<CredentialProvider>().notNull(),
     /** Provider-side user identifier — Google `sub`, Slack `team:user`, etc. */
     accountId: text("account_id").notNull(),
     /** Email or display label surfaced in the UI ("dev.7@oliv.ai"). */
@@ -99,6 +108,10 @@ export const integrationCredentials = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    check(
+      "integration_credentials_provider_valid",
+      sql`${t.provider} IN (${inList(CREDENTIAL_PROVIDERS)})`,
+    ),
     uniqueIndex("integration_credentials_unique_idx").on(t.userId, t.provider, t.accountId),
     // Webhook deliveries resolve their owning user by GitHub installation id.
     index("integration_credentials_installation_idx").on(t.installationId),

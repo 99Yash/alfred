@@ -1,11 +1,13 @@
 import {
   GOOGLE_SCOPE,
   canonicalJson,
+  holdsAnyScope,
   humanizeSlug,
   integrationFromToolName,
   isIntegrationSlug,
   isToolName,
   toolLabel,
+  type CredentialProvider,
   type IntegrationAvailabilitySnapshot,
   type ProviderAvailability,
   type ToolName,
@@ -75,10 +77,7 @@ function eligibleRows(
   const credential = toolCatalog.get(capability.tool)?.availability?.credential;
   if (!credential) return [];
   return (availability.providers.get(credential.provider) ?? []).filter(
-    (row) =>
-      row.status === "active" &&
-      (credential.anyOfScopes.length === 0 ||
-        credential.anyOfScopes.some((scope) => row.scopes.has(scope))),
+    (row) => row.status === "active" && holdsAnyScope(row.scopes, credential.anyOfScopes),
   );
 }
 
@@ -137,7 +136,7 @@ export function resolveWorkflowApprovalDisplay(
   toolCatalog: WorkflowToolCatalog,
 ): WorkflowApprovalDisplay {
   const resolvedAccounts = new Map<string, WorkflowAccountDisplay>();
-  const displayAccount = (provider: string, accountRef: string) => {
+  const displayAccount = (provider: CredentialProvider, accountRef: string) => {
     const row = (availability.providers.get(provider) ?? []).find(
       (candidate) => candidate.accountId === accountRef,
     );
@@ -291,8 +290,7 @@ export function resolveWorkflowReadiness(args: {
           continue;
         } else if (
           credential &&
-          credential.anyOfScopes.length > 0 &&
-          !activeRows.some((row) => credential.anyOfScopes.some((scope) => row.scopes.has(scope)))
+          !activeRows.some((row) => holdsAnyScope(row.scopes, credential.anyOfScopes))
         ) {
           problems.push({
             code: "missing_scope",

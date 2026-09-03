@@ -25,7 +25,7 @@ import {
   type LoadableIntegrationSlug,
   type SupportedPassthroughSlug,
 } from "./slugs";
-import type { CredentialSpec, PassthroughTransportKind } from "./types";
+import type { CredentialSpec, LiveIntegrationEntry, PassthroughTransportKind } from "./types";
 
 function projectSlugs<K extends string, T>(
   slugs: readonly K[],
@@ -62,12 +62,19 @@ export const INTEGRATION_DISPLAY_NAMES: Readonly<Record<IntegrationSlug, string>
   (slug) => INTEGRATIONS[slug].displayName,
 );
 
-/** A live entry with its slug and credential provider attached, discriminated by slug. */
+/**
+ * A live entry with its slug and credential provider attached, discriminated by
+ * slug. `as const` drops an optional field from the entries that do not set it,
+ * so each member is also intersected with `LiveIntegrationEntry`: the `as const`
+ * fields stay narrow, and every optional the interface declares is readable on
+ * every member without an `in` check.
+ */
 export type LiveProviderEntry = {
   [K in LiveProviderSlug]: {
     readonly slug: K;
     readonly provider: CredentialProvider;
-  } & IntegrationEntryOf<K>;
+  } & IntegrationEntryOf<K> &
+    LiveIntegrationEntry;
 }[LiveProviderSlug];
 
 /** The live providers in registry order: the one loop the assistant and the web iterate. */
