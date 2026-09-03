@@ -15,6 +15,7 @@
 
 import type {
   ActionSlug,
+  CredentialProvider,
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
@@ -66,7 +67,7 @@ interface ToolAvailabilityMetadata {
   surface?: "kernel";
   /** Credential capability required by this exact tool, when narrower than its integration. */
   credential?: {
-    provider: string;
+    provider: CredentialProvider;
     anyOfScopes: readonly string[];
   };
   /** Caller kinds that may actually receive and invoke this tool. */

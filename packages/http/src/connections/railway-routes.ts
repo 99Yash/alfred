@@ -1,4 +1,4 @@
-import { Errors, redactSecrets, toMessage } from "@alfred/contracts";
+import { Errors, redactSecrets, toMessage, type CredentialProvider } from "@alfred/contracts";
 import { isRailwayAuthorizationError, railwayValidateToken } from "@alfred/integrations/railway";
 import {
   deleteIntegrationCredential,
@@ -20,8 +20,11 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   GET    /api/integrations/railway/credentials              → list connections
  *   DELETE /api/integrations/railway/:id                      → disconnect
  */
+/** The route family is the credential provider (ADR-0093); the registry must know it. */
+const PROVIDER = "railway" satisfies CredentialProvider;
+
 export const railwayIntegrationRoutes = new Elysia({
-  prefix: "/api/integrations/railway",
+  prefix: `/api/integrations/${PROVIDER}`,
   normalize: "typebox",
 })
   .use(authMacro)

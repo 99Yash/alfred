@@ -2,9 +2,12 @@ import path from "node:path";
 import { route } from "@alfred/ai";
 import {
   INTEGRATION_ACTIONS,
+  INTEGRATIONS,
+  isLiveProviderSlug,
+  LIVE_PROVIDER_SLUGS,
   parseIanaTimezone,
   type IntegrationSlug,
-  type LoadableIntegrationSlug,
+  type LiveProviderSlug,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { type Tool, type ToolSet, generateText, tool } from "ai";
@@ -41,36 +44,10 @@ const NOW = new Date("2026-06-27T04:44:00Z");
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
-// The 10 connected integrations with a non-empty action surface (slack, linear,
-// imessage are empty stubs). This is the realistic FULL menu for this user.
-const FULL_INTEGRATIONS: LoadableIntegrationSlug[] = [
-  "gmail",
-  "calendar",
-  "drive",
-  "docs",
-  "sheets",
-  "slides",
-  "github",
-  "notion",
-  "railway",
-  "vercel",
-];
-
-const BLURB = {
-  gmail: "the user's email",
-  calendar: "the user's calendar",
-  drive: "the user's Google Drive files",
-  docs: "the user's Google Docs",
-  sheets: "the user's Google Sheets",
-  slides: "the user's Google Slides",
-  github: "the user's GitHub issues and pull requests",
-  notion: "the user's Notion workspace",
-  railway: "the user's Railway projects and deployments",
-  vercel: "the user's Vercel projects and deployments",
-  slack: "",
-  linear: "",
-  imessage: "",
-} satisfies Record<LoadableIntegrationSlug, string>;
+// The live providers (the 10 connected integrations with a non-empty action
+// surface; slack, linear, imessage are not live entries). This is the realistic
+// FULL menu for this user.
+const FULL_INTEGRATIONS: readonly LiveProviderSlug[] = LIVE_PROVIDER_SLUGS;
 
 /** Build the SDK tool set for a set of slugs — mirrors `resolveSdkTools`. */
 function buildToolSet(slugs: IntegrationSlug[]): ToolSet {
@@ -87,16 +64,16 @@ function buildToolSet(slugs: IntegrationSlug[]): ToolSet {
   return out as ToolSet;
 }
 
-/** Build the connected-summary catalog text for the loadable slugs in scope. */
-function buildSummary(loadable: LoadableIntegrationSlug[]): string {
-  if (loadable.length === 0) {
+/** Build the connected-summary catalog text for the live slugs in scope. */
+function buildSummary(live: readonly LiveProviderSlug[]): string {
+  if (live.length === 0) {
     return "You have no third-party integrations connected right now.";
   }
   const header =
     "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.";
-  const lines = loadable.map((slug) => {
+  const lines = live.map((slug) => {
     const tools = INTEGRATION_ACTIONS[slug].map((a) => `${slug}.${a}`).join(", ");
-    return `- ${tools} — ${BLURB[slug]}`;
+    return `- ${tools} — ${INTEGRATIONS[slug].summaryBlurb}`;
   });
   return [header, ...lines].join("\n");
 }
@@ -104,8 +81,8 @@ function buildSummary(loadable: LoadableIntegrationSlug[]): string {
 interface Case {
   input: string;
   expected: string;
-  /** Loadable integration to include in the LEAN menu; null = system-only LEAN. */
-  home: LoadableIntegrationSlug | null;
+  /** Live provider to include in the LEAN menu; null = system-only LEAN. */
+  home: LiveProviderSlug | null;
 }
 
 const CASES: Case[] = [
@@ -177,10 +154,10 @@ interface TaskOutput {
 }
 
 async function runUnderMenu(input: string, slugs: IntegrationSlug[]): Promise<TaskOutput> {
-  const loadable = slugs.filter((s): s is LoadableIntegrationSlug => s !== "system");
+  const live = slugs.filter(isLiveProviderSlug);
   const result = await generateText({
     model: route("standard").model(),
-    instructions: buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), buildSummary(loadable)),
+    instructions: buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), buildSummary(live)),
     prompt: input,
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },

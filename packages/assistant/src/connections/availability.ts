@@ -1,40 +1,30 @@
 import {
-  GOOGLE_SCOPE,
+  isCredentialProvider,
   isPassthroughPreferenceOn,
+  LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
   toStringArray,
+  type CredentialProvider,
   type IntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
+  type LiveProviderEntry,
   type LoadableIntegrationSlug,
   type ProviderAvailability,
-  type SupportedIntegrationSlug,
+  type SupportedPassthroughSlug,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, userPreferences } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
-interface IntegrationAccessSpec {
-  slug: LoadableIntegrationSlug;
-  provider: string;
-  anyOfScopes: readonly string[];
+/**
+ * The scopes that prove a live provider is connected (ADR-0093). Only a Google
+ * grant can be partial — the consent screen lets the user uncheck scopes — so
+ * only a `google_oauth` credential names any; for every other shape an active
+ * row is the proof and the list is empty.
+ */
+function connectedScopes(entry: LiveProviderEntry): readonly string[] {
+  return entry.credential.shape === "google_oauth" ? entry.credential.anyOfScopes : [];
 }
-
-const ACCESS_SPECS: readonly IntegrationAccessSpec[] = [
-  { slug: "gmail", provider: "google", anyOfScopes: [GOOGLE_SCOPE.gmail.readonly] },
-  {
-    slug: "calendar",
-    provider: "google",
-    anyOfScopes: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
-  },
-  { slug: "drive", provider: "google", anyOfScopes: [GOOGLE_SCOPE.drive.full] },
-  { slug: "docs", provider: "google", anyOfScopes: [GOOGLE_SCOPE.docs.full] },
-  { slug: "sheets", provider: "google", anyOfScopes: [GOOGLE_SCOPE.sheets.full] },
-  { slug: "slides", provider: "google", anyOfScopes: [GOOGLE_SCOPE.slides.full] },
-  { slug: "github", provider: "github", anyOfScopes: [] },
-  { slug: "notion", provider: "notion", anyOfScopes: [] },
-  { slug: "railway", provider: "railway", anyOfScopes: [] },
-  { slug: "vercel", provider: "vercel", anyOfScopes: [] },
-];
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -125,18 +115,22 @@ async function loadIntegrationAvailability(
   ]);
 
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
-  const passthroughEnabled = new Map<SupportedIntegrationSlug, boolean>();
-  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedIntegrationSlug
+  const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
+  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug
   // with string preference keys, so Object.entries yields exactly these tuples.
   for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
-    SupportedIntegrationSlug,
+    SupportedPassthroughSlug,
     string,
   ][]) {
     passthroughEnabled.set(slug, isPassthroughPreferenceOn(prefByKey.get(key)));
   }
 
-  const byProvider = new Map<string, ProviderAvailability[]>();
+  const byProvider = new Map<CredentialProvider, ProviderAvailability[]>();
   for (const row of rows) {
+    // The column is CHECK-constrained to this vocabulary; the guard is the read
+    // boundary's own proof, so a row the constraint predates cannot poison a
+    // provider key that nothing else reads.
+    if (!isCredentialProvider(row.provider)) continue;
     const list = byProvider.get(row.provider) ?? [];
     list.push({
       credentialId: row.id,
@@ -150,18 +144,19 @@ async function loadIntegrationAvailability(
   }
 
   const availability = new Map<LoadableIntegrationSlug, IntegrationAvailability>();
-  for (const spec of ACCESS_SPECS) {
-    const providerRows = byProvider.get(spec.provider);
+  for (const entry of LIVE_PROVIDERS) {
+    const providerRows = byProvider.get(entry.provider);
     if (!providerRows || providerRows.length === 0) {
-      availability.set(spec.slug, { health: null, accountLabel: null });
+      availability.set(entry.slug, { health: null, accountLabel: null });
       continue;
     }
+    const anyOfScopes = connectedScopes(entry);
     const active = providerRows.find(
       (row) =>
         row.status === "active" &&
-        (spec.anyOfScopes.length === 0 || spec.anyOfScopes.some((scope) => row.scopes.has(scope))),
+        (anyOfScopes.length === 0 || anyOfScopes.some((scope) => row.scopes.has(scope))),
     );
-    availability.set(spec.slug, {
+    availability.set(entry.slug, {
       health: active ? "active" : "needs_reauth",
       accountLabel: active?.accountLabel?.trim() || null,
     });

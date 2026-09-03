@@ -1,4 +1,4 @@
-import { Errors } from "@alfred/contracts";
+import { Errors, type CredentialProvider } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildNotionAuthorizeUrl,
@@ -31,8 +31,11 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   GET    /api/integrations/notion/credentials  → list this user's connections
  *   DELETE /api/integrations/notion/:id          → disconnect
  */
+/** The route family is the credential provider (ADR-0093); the registry must know it. */
+const PROVIDER = "notion" satisfies CredentialProvider;
+
 export const notionIntegrationRoutes = new Elysia({
-  prefix: "/api/integrations/notion",
+  prefix: `/api/integrations/${PROVIDER}`,
   normalize: "typebox",
 })
   .use(authMacro)
