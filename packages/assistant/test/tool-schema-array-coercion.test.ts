@@ -53,6 +53,15 @@ const FIXTURES = {
     },
     arrayFields: ["attendees"],
   },
+  "github.get_pull_requests": {
+    base: {
+      items: [
+        { owner: "99Yash", repo: "alfred", pull_number: 957 },
+        { owner: "99Yash", repo: "alfred", pull_number: 952 },
+      ],
+    },
+    arrayFields: ["items"],
+  },
   "gmail.send_draft": {
     base: {
       to: ["a@example.com"],
