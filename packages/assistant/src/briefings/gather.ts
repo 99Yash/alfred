@@ -10,6 +10,7 @@ import type {
   WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
+  GOOGLE_SCOPE,
   isLoopClosingCategory,
   isRecord,
   parseGmailDocumentMetadata,
@@ -20,8 +21,6 @@ import {
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
 import {
-  CALENDAR_EVENTS_SCOPE,
-  CALENDAR_READONLY_SCOPE,
   type CalendarEvent,
   getFreshAccessToken,
   listEvents,
@@ -669,7 +668,10 @@ export async function gatherCalendarContribution(
 
   const calendarCreds = creds.filter((cred) => {
     const granted = toStringArray(cred.scopes);
-    return granted.includes(CALENDAR_READONLY_SCOPE) || granted.includes(CALENDAR_EVENTS_SCOPE);
+    return (
+      granted.includes(GOOGLE_SCOPE.calendar.readonly) ||
+      granted.includes(GOOGLE_SCOPE.calendar.events)
+    );
   });
   if (calendarCreds.length === 0) return null;
 

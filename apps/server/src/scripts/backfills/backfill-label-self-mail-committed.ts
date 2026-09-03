@@ -41,7 +41,7 @@
  */
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
-import { parseEmailAddress, toMessage } from "@alfred/contracts";
+import { GOOGLE_SCOPE, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
@@ -49,7 +49,6 @@ import {
   ALFRED_SELF_LABEL_NAME,
   batchModifyMessages,
   ensureAlfredSelfLabel,
-  GMAIL_MODIFY_SCOPE,
   getFreshAccessToken,
   listMessages,
   selfSenderEmail,
@@ -119,7 +118,7 @@ interface TargetCredential {
 
 /** Label creation + batchModify require a Gmail mutation grant. */
 function hasGmailModifyScope(scopes: string[]): boolean {
-  return scopes.includes(GMAIL_MODIFY_SCOPE);
+  return scopes.includes(GOOGLE_SCOPE.gmail.modify);
 }
 
 async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {

@@ -1,4 +1,5 @@
 import {
+  GOOGLE_SCOPE,
   INBOX_DEFAULT_LIMIT,
   INBOX_MAX_LIMIT,
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
@@ -25,9 +26,6 @@ import {
   extractMessageHtml,
   batchModifyMessages,
   getFreshAccessToken,
-  CALENDAR_EVENTS_SCOPE,
-  GMAIL_MODIFY_SCOPE,
-  CALENDAR_READONLY_SCOPE,
   listEvents,
   type ExtractedAttachment,
   type GmailMessage,
@@ -665,7 +663,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // read-only briefing scope isn't enough to remove a label.
           // Mirrors the calendar-scope filter in `/meetings` so a
           // Calendar-only Google account doesn't get picked up here.
-          const modifyScope = GMAIL_MODIFY_SCOPE;
+          const modifyScope = GOOGLE_SCOPE.gmail.modify;
           const creds = await db()
             .select({
               id: integrationCredentials.id,
@@ -777,7 +775,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const row = creds.find((c) => {
             const granted = toStringArray(c.scopes);
             return (
-              granted.includes(CALENDAR_READONLY_SCOPE) || granted.includes(CALENDAR_EVENTS_SCOPE)
+              granted.includes(GOOGLE_SCOPE.calendar.readonly) ||
+              granted.includes(GOOGLE_SCOPE.calendar.events)
             );
           });
           if (!row) return { items: [], connected: false };

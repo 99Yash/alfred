@@ -1,4 +1,5 @@
 import {
+  GOOGLE_SCOPE,
   isPassthroughPreferenceOn,
   PASSTHROUGH_PREFERENCE_KEYS,
   toStringArray,
@@ -10,15 +11,6 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, userPreferences } from "@alfred/db/schemas";
-import {
-  CALENDAR_EVENTS_SCOPE,
-  CALENDAR_READONLY_SCOPE,
-  DOCS_SCOPE,
-  DRIVE_SCOPE,
-  GMAIL_READONLY_SCOPE,
-  SHEETS_SCOPE,
-  SLIDES_SCOPE,
-} from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 
 interface IntegrationAccessSpec {
@@ -28,16 +20,16 @@ interface IntegrationAccessSpec {
 }
 
 const ACCESS_SPECS: readonly IntegrationAccessSpec[] = [
-  { slug: "gmail", provider: "google", anyOfScopes: [GMAIL_READONLY_SCOPE] },
+  { slug: "gmail", provider: "google", anyOfScopes: [GOOGLE_SCOPE.gmail.readonly] },
   {
     slug: "calendar",
     provider: "google",
-    anyOfScopes: [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE],
+    anyOfScopes: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
   },
-  { slug: "drive", provider: "google", anyOfScopes: [DRIVE_SCOPE] },
-  { slug: "docs", provider: "google", anyOfScopes: [DOCS_SCOPE] },
-  { slug: "sheets", provider: "google", anyOfScopes: [SHEETS_SCOPE] },
-  { slug: "slides", provider: "google", anyOfScopes: [SLIDES_SCOPE] },
+  { slug: "drive", provider: "google", anyOfScopes: [GOOGLE_SCOPE.drive.full] },
+  { slug: "docs", provider: "google", anyOfScopes: [GOOGLE_SCOPE.docs.full] },
+  { slug: "sheets", provider: "google", anyOfScopes: [GOOGLE_SCOPE.sheets.full] },
+  { slug: "slides", provider: "google", anyOfScopes: [GOOGLE_SCOPE.slides.full] },
   { slug: "github", provider: "github", anyOfScopes: [] },
   { slug: "notion", provider: "notion", anyOfScopes: [] },
   { slug: "railway", provider: "railway", anyOfScopes: [] },
