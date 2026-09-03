@@ -4,6 +4,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./app-errors": "./src/app-errors/index.ts",
+    "./integrations": "./src/integrations/index.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {

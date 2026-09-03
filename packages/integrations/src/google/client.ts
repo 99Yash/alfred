@@ -49,17 +49,7 @@ import {
   type GetPresentationArgs,
 } from "./slides";
 import type { GoogleService } from "./http";
-import {
-  CALENDAR_EVENTS_SCOPE,
-  CALENDAR_READONLY_SCOPE,
-  DOCS_SCOPE,
-  DRIVE_SCOPE,
-  GMAIL_MODIFY_SCOPE,
-  GMAIL_READONLY_SCOPE,
-  GMAIL_SEND_SCOPE,
-  SHEETS_SCOPE,
-  SLIDES_SCOPE,
-} from "./oauth";
+import { GOOGLE_SCOPE } from "@alfred/contracts";
 
 type WithCredentialId<T extends { accessToken: string }> = Omit<T, "accessToken"> & {
   credentialId: string;
@@ -80,14 +70,14 @@ export type GoogleAuthority =
   | "slides";
 
 const AUTHORITY_SCOPES = {
-  gmail_read: [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE],
-  gmail_send: [GMAIL_SEND_SCOPE],
-  calendar_read: [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE],
-  calendar_write: [CALENDAR_EVENTS_SCOPE],
-  docs: [DOCS_SCOPE],
-  drive: [DRIVE_SCOPE],
-  sheets: [SHEETS_SCOPE],
-  slides: [SLIDES_SCOPE],
+  gmail_read: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
+  gmail_send: [GOOGLE_SCOPE.gmail.send],
+  calendar_read: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
+  calendar_write: [GOOGLE_SCOPE.calendar.events],
+  docs: [GOOGLE_SCOPE.docs.full],
+  drive: [GOOGLE_SCOPE.drive.full],
+  sheets: [GOOGLE_SCOPE.sheets.full],
+  slides: [GOOGLE_SCOPE.slides.full],
 } satisfies Record<GoogleAuthority, readonly string[]>;
 
 export type GoogleCredential = Pick<CredentialRow, "id" | "accountId" | "accountLabel">;

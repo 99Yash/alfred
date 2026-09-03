@@ -14,7 +14,7 @@ import { googleJson } from "./http";
  *
  * Callers pass an already-fresh access token — get it from
  * `getFreshAccessToken(credentialId)` first. Requires the `presentations`
- * scope (see `SLIDES_SCOPE` in oauth.ts).
+ * scope (see `GOOGLE_SCOPE.slides.full` in `@alfred/contracts`).
  */
 
 const API_BASE = "https://slides.googleapis.com/v1/presentations";

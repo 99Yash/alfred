@@ -14,7 +14,7 @@ import { googleJson } from "./http";
  *
  * Callers pass an already-fresh access token — get it from
  * `getFreshAccessToken(credentialId)` before calling. Requires the
- * `spreadsheets` scope (see `SHEETS_SCOPE` in oauth.ts).
+ * `spreadsheets` scope (see `GOOGLE_SCOPE.sheets.full` in `@alfred/contracts`).
  */
 
 const API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";

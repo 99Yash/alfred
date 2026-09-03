@@ -35,7 +35,7 @@
 import { randomUUID } from "node:crypto";
 import { redeliverRun, signalRun, startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
-import { getStringPath } from "@alfred/contracts";
+import { GOOGLE_SCOPE, getStringPath } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -48,7 +48,6 @@ import {
   workflows,
   type UserActionPolicy,
 } from "@alfred/db/schemas";
-import { GMAIL_SEND_SCOPE } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
@@ -79,7 +78,7 @@ async function pickGoogleConnectedUser(): Promise<{
       and(
         eq(integrationCredentials.provider, "google"),
         eq(integrationCredentials.status, "active"),
-        sql`${integrationCredentials.scopes} ? ${GMAIL_SEND_SCOPE}`,
+        sql`${integrationCredentials.scopes} ? ${GOOGLE_SCOPE.gmail.send}`,
       ),
     )
     .limit(1);

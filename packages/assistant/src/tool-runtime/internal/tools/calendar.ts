@@ -1,4 +1,5 @@
 import {
+  GOOGLE_SCOPE,
   calendarCreateEventSendsInvitations,
   calendarCreateEventInput,
   calendarListEventsInput,
@@ -6,11 +7,7 @@ import {
   type IanaTimezone,
   type ToolRiskTier,
 } from "@alfred/contracts";
-import {
-  CALENDAR_EVENTS_SCOPE,
-  CALENDAR_READONLY_SCOPE,
-  type CalendarEvent,
-} from "@alfred/integrations/google";
+import { type CalendarEvent } from "@alfred/integrations/google";
 import type { z } from "zod";
 import {
   AppError,
@@ -50,8 +47,11 @@ interface CalendarCredential {
 type CompactCalendarEvent = ReturnType<typeof compactEvent>;
 
 /** Read = either scope; write = the events scope. Matched any-of by the resolver. */
-const CALENDAR_READ_SCOPES = [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE] as const;
-const CALENDAR_WRITE_SCOPES = [CALENDAR_EVENTS_SCOPE] as const;
+const CALENDAR_READ_SCOPES = [
+  GOOGLE_SCOPE.calendar.readonly,
+  GOOGLE_SCOPE.calendar.events,
+] as const;
+const CALENDAR_WRITE_SCOPES = [GOOGLE_SCOPE.calendar.events] as const;
 
 export function resolveCalendarListWindow(
   input: CalendarListEventsInput,

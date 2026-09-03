@@ -11,7 +11,51 @@
 // Only add a fixture when the answer is load-bearing: a false positive would
 // block a build and a false negative would let a real bug through.
 
-import { matchChains, matchLine } from "./consolidation-rules.mjs";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { matchChains, matchLine, REGISTRY_UNION } from "./consolidation-rules.mjs";
+
+/**
+ * The file whose `export type …Slug` / `…Provider` names the
+ * `partial-integration-slug-record` rule must cover. Read from the script's
+ * own location, so a worktree resolves it the same way the repo root does.
+ */
+const REGISTRY_SLUGS_FILE = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../packages/contracts/src/integrations/slugs.ts",
+);
+
+/**
+ * Every derived union in the registry, as a `Partial<Record<…>>` fixture the
+ * rule must catch. An absent or empty file is a failure, not an empty list: the
+ * rule's alternation is a hand-typed list, and this drive is the only thing that
+ * proves it did not lag `slugs.ts`. When the file moves, repoint
+ * REGISTRY_SLUGS_FILE; do not skip.
+ */
+function registryUnionFailures() {
+  let source;
+  try {
+    source = readFileSync(REGISTRY_SLUGS_FILE, "utf8");
+  } catch {
+    return [
+      `registry unions: cannot read ${REGISTRY_SLUGS_FILE}; repoint REGISTRY_SLUGS_FILE or delete the rule`,
+    ];
+  }
+  const names = [...source.matchAll(/^export type (\w+(?:Slug|Provider))\b/gm)].map((m) => m[1]);
+  if (names.length === 0) {
+    return [
+      `registry unions: no \`export type …Slug\` in ${REGISTRY_SLUGS_FILE}; the drive has nothing to prove`,
+    ];
+  }
+  const union = new RegExp(`^${REGISTRY_UNION}$`);
+  return names
+    .filter((name) => !union.test(name))
+    .map(
+      (name) => `registry union ${name} escapes REGISTRY_UNION in partial-integration-slug-record`,
+    );
+}
 
 /** A source file the rule is not exempt in. */
 const FILE = "packages/api/src/modules/agent/executor.ts";
@@ -276,11 +320,76 @@ const LINE_CASES = [
     caught: false,
     code: `export class GoogleCredentialNotFoundError extends Error {`,
   },
+  {
+    name: "partial-integration-slug-record — a sparse slug-keyed table (the PR #943 shape)",
+    caught: true,
+    code: `const BRAND_BY_SLUG = { gmail: "gmail" } satisfies Partial<Record<IntegrationSlug, string>>;`,
+  },
+  {
+    name: "partial-integration-slug-record — a Map from a catalog id to a loadable slug",
+    caught: true,
+    code: `const PROVIDER_ID_TO_SLUG = new Map<string, LoadableIntegrationSlug>([`,
+  },
+  {
+    name: "partial-integration-slug-record — a Partial over a derived live-provider union",
+    caught: true,
+    code: `const PAGE_BY_SLUG: Partial<Record<LiveProviderSlug, string>> = {};`,
+  },
+  {
+    name: "partial-integration-slug-record — a Partial over the catalog union",
+    caught: true,
+    code: `const ACCENT = { github: "#181925" } satisfies Partial<Record<CatalogSlug, string>>;`,
+  },
+  {
+    name: "partial-integration-slug-record — a Partial over the transition passthrough alias",
+    caught: true,
+    code: `const GATE: Partial<Record<SupportedIntegrationSlug, boolean>> = {};`,
+  },
+  {
+    name: "partial-integration-slug-record — a Partial over the credential-provider union",
+    caught: true,
+    code: `const FACTORY: Partial<Record<CredentialProvider, ProviderFactory>> = {};`,
+  },
+  {
+    name: "partial-integration-slug-record — a literal Map from a catalog id to a live-provider slug",
+    caught: true,
+    code: `const ID_TO_SLUG = new Map<string, LiveProviderSlug>([["google_gmail", "gmail"]]);`,
+  },
+  {
+    name: "partial-integration-slug-record — a literal Map keyed by a loadable slug",
+    caught: true,
+    code: `const LABEL = new Map<LoadableIntegrationSlug, string>([["gmail", "Mail"]]);`,
+  },
+  {
+    name: "partial-integration-slug-record — a literal Map keyed by the slug with a generic value",
+    caught: true,
+    code: `const GLYPH_FALLBACK = new Map<IntegrationSlug, LucideIcon>([`,
+  },
+  {
+    name: "a Map keyed by a slug and filled at request time is a lookup index, not a table",
+    caught: false,
+    code: `const availability = new Map<LoadableIntegrationSlug, IntegrationAvailability>();`,
+  },
+  {
+    name: "a briefing gather source is not an integration slug",
+    caught: false,
+    code: `const SOURCE_BRAND = new Map<GatherSourceSlug, IntegrationBrand>([`,
+  },
+  {
+    name: "an exhaustive slug-keyed table is the intended form",
+    caught: false,
+    code: `} as const satisfies Record<IntegrationSlug, string>;`,
+  },
+  {
+    name: "a partial record keyed by something other than a slug is not this rule's business",
+    caught: false,
+    code: `  toolOverrides?: Partial<Record<ToolName, PolicyMode>>;`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
 export function selfTestFailures() {
-  const failures = [];
+  const failures = registryUnionFailures();
   for (const { name, caught, code, file } of CASES) {
     const hits = matchChains(code, file ?? FILE, "gate");
     if (hits.length > 0 !== caught) {
