@@ -325,7 +325,8 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "spawn_sub_agent",
     riskTier: "no_risk",
-    description: "Spawn one focused sub-agent run with an isolated brief.",
+    description:
+      "Spawn one focused sub-agent run with an isolated brief. Reserve it for a subtask that needs its own multi-step investigation across several sources (memory + the user's accounts + the web, or a long open-ended research question). It costs a second model run and a join, and its tool calls are no more parallel than yours. Do NOT spawn one for a bounded lookup chain you can run directly — one search plus a batch or a few fetches from a single integration (a daily GitHub summary, today's calendar, one person's recent mail) is a direct call, not a delegation.",
     // Kernel: named in the chat/boss prompt as a primary capability; keep it
     // visible on turn one. `callers` still hides it from sub-agent runs.
     availability: { surface: "kernel", callers: ["boss"] },

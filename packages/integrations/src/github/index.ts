@@ -33,5 +33,7 @@ export type {
   GithubSearchHit,
   SearchResult as GithubSearchResult,
   PullRequestDetail as GithubPullRequestDetail,
+  PullRequestBatch as GithubPullRequestBatch,
+  PullRequestBatchFailure as GithubPullRequestBatchFailure,
   IssueDetail as GithubIssueDetail,
 } from "./client";

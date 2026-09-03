@@ -5,12 +5,14 @@
  * issues and pull requests, and fetch one by number for the per-item detail
  * search structurally cannot return (ADR-0071). The boss uses `github.search`
  * to answer "how many PRs did I merge today" / "what issues are open" directly,
- * and `github.get_pull_request` to total LOC across a set of PRs (#222).
+ * and `github.get_pull_requests` to total LOC across a set of PRs in one call
+ * (#222, #935); `github.get_pull_request` is the single-item form.
  */
 
 import {
   githubGetIssueInput,
   githubGetPullRequestInput,
+  githubGetPullRequestsInput,
   githubSearchInput,
   queryHasNarrowingScope,
   restPassthroughInput,
@@ -116,13 +118,13 @@ export const githubTools: readonly RegisteredTool[] = [
     action: "search",
     riskTier: "no_risk",
     description:
-      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'.",
+      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. Every item already carries state and merged, so ONE search over a window (state:'all', createdWithinDays:N) answers created, merged, and closed together — do not run a second search over the same window with a different state. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'. For diff stats on the hits, pass them all to github.get_pull_requests in one call.",
     discovery: {
       aliases: ["search GitHub", "find pull requests", "find issues"],
       tags: ["github", "code", "development"],
       entities: ["pull request", "pr", "issue", "repository"],
       verbs: ["search", "find", "list", "count"],
-      relatedTools: ["github.get_pull_request", "github.get_issue"],
+      relatedTools: ["github.get_pull_requests", "github.get_pull_request", "github.get_issue"],
     },
     inputSchema: githubSearchInput,
     execute: async (input, ctx) => {
@@ -166,13 +168,13 @@ export const githubTools: readonly RegisteredTool[] = [
     // Read-only fetch-by-number — same tier as github.search and drive.get_file.
     riskTier: "no_risk",
     description:
-      "Fetch one pull request by owner/repo/number. Returns diff stats — additions, deletions, changed_files, commits — that search cannot. To total lines changed across several PRs, search first, then call this for each hit and sum.",
+      "Fetch ONE pull request by owner/repo/number. Returns diff stats — additions, deletions, changed_files, commits — that search cannot. For two or more PRs (every hit of a search, a set to total) use github.get_pull_requests once instead of calling this per PR.",
     discovery: {
       aliases: ["get pull request", "read PR", "pull request details"],
       tags: ["github", "code", "development"],
       entities: ["pull request", "pr", "diff"],
       verbs: ["get", "read", "inspect"],
-      relatedTools: ["github.search"],
+      relatedTools: ["github.search", "github.get_pull_requests"],
     },
     inputSchema: githubGetPullRequestInput,
     execute: async (input, ctx) =>
@@ -181,6 +183,30 @@ export const githubTools: readonly RegisteredTool[] = [
         repo: input.repo,
         number: input.pull_number,
       }),
+  }),
+  liveTool({
+    integration: "github",
+    action: "get_pull_requests",
+    // Read-only fetch-by-number, batched — same tier as github.get_pull_request.
+    riskTier: "no_risk",
+    description:
+      "Fetch SEVERAL pull requests in one call — pass every owner/repo/pull_number (or each hit's url) from a search as `items`. Returns each PR's diff stats (additions, deletions, changed_files, commits) plus `totals` summed for you, and lists any item that could not be fetched under `failed`. This is the way to total lines changed across a set of PRs or to summarize recent PR work: one search, then one call here — never one github.get_pull_request per hit.",
+    discovery: {
+      aliases: ["get pull requests", "read PRs", "pull request stats", "total lines changed"],
+      tags: ["github", "code", "development"],
+      entities: ["pull request", "pr", "diff"],
+      verbs: ["get", "read", "inspect", "total", "sum"],
+      relatedTools: ["github.search", "github.get_pull_request"],
+    },
+    inputSchema: githubGetPullRequestsInput,
+    execute: async (input, ctx) =>
+      ctx.integrations.github.getPullRequests(
+        input.items.map((item) => ({
+          owner: item.owner,
+          repo: item.repo,
+          number: item.pull_number,
+        })),
+      ),
   }),
   liveTool({
     integration: "github",
@@ -216,7 +242,7 @@ export const githubTools: readonly RegisteredTool[] = [
       tags: ["github", "code", "development"],
       entities: ["workflow run", "commit", "release", "branch", "repository", "tag"],
       verbs: ["read", "list", "get", "inspect", "query"],
-      relatedTools: ["github.search", "github.get_pull_request"],
+      relatedTools: ["github.search", "github.get_pull_requests"],
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => runRestPassthrough(ctx.integrations.github.passthrough, input),

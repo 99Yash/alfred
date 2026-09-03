@@ -319,6 +319,32 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     },
   ],
   [
+    "github.get_pull_requests",
+    {
+      arrayKey: "items",
+      faviconDomain: INTEGRATIONS.github.domain,
+      row: (item) => {
+        const title = asString(item.title);
+        if (!title) return null;
+        const number = asNumber(item.number);
+        const url = asString(item.url);
+        const additions = asNumber(item.additions);
+        const deletions = asNumber(item.deletions);
+        const diff =
+          additions !== undefined || deletions !== undefined
+            ? `+${additions ?? 0} −${deletions ?? 0}`
+            : undefined;
+        return {
+          key: url ?? String(number ?? title),
+          title: number ? `#${number} ${title}` : title,
+          href: url,
+          meta: joinMeta(asString(item.repository), diff),
+          badge: githubStateBadge(item),
+        };
+      },
+    },
+  ],
+  [
     "calendar.list_events",
     {
       arrayKey: "events",

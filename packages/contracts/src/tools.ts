@@ -515,6 +515,11 @@ export const TOOL_LABELS = {
     done: "Read a pull request",
     title: "read a pull request",
   },
+  "github.get_pull_requests": {
+    running: "Reading pull requests",
+    done: "Read pull requests",
+    title: "read several pull requests",
+  },
   "github.get_issue": {
     running: "Reading an issue",
     done: "Read an issue",
@@ -687,6 +692,7 @@ export const TOOL_CATEGORIES = {
 
   "github.search": "source",
   "github.get_pull_request": "source",
+  "github.get_pull_requests": "source",
   "github.get_issue": "source",
   "github.request": "source",
 
