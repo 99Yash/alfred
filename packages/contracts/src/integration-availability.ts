@@ -1,16 +1,28 @@
 import type {
+  CredentialProofRow,
   CredentialProvider,
   LoadableIntegrationSlug,
   SupportedPassthroughSlug,
 } from "./integrations";
 
-export interface ProviderAvailability {
+/** One `integration_credentials` row as the availability policy reads it; a {@link CredentialProofRow}. */
+export interface ProviderAvailability extends CredentialProofRow {
   credentialId: string;
   accountId: string;
   status: string;
   scopes: Set<string>;
+  installationId: string | null;
   accountLabel: string | null;
   metadata: Record<string, unknown>;
+}
+
+/**
+ * The credential a single tool needs when it is narrower than its integration:
+ * the provider whose rows to read and the scopes any one of them must hold.
+ */
+export interface ToolCredentialRequirement {
+  provider: CredentialProvider;
+  anyOfScopes: readonly string[];
 }
 
 export interface IntegrationAvailability {

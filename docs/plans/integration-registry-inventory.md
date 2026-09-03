@@ -13,7 +13,7 @@
 | Three web tables with no `notion`, `railway`, `vercel` rows (section 6, item 2) | Closed. One table, `CATALOG_ID_BY_SLUG` in `apps/web/src/lib/integrations/integrations.ts`, is `satisfies Record<IntegrationSlug, ...>`. The brand, the policy control, and the briefing glyph derive from it. |
 | Two display-name homes remain: the contracts map and the web catalog `name` | Open. The registry design closes it. |
 | `chatConnectNudge.integration` is `z.string()` (section 6, item 7) | Closed in PR #944. It is `z.enum(INTEGRATION_SLUGS)` with a catch at each of its three persisted doors. |
-| The registry design (sections 7 to 9) | Decided in ADR-0093 and built in `integration-registry-v1.md`. PR 1 (contracts record) merged as #944. PR 2 (server) next; PR 3 (web) and PR 4 (delete the transition projections) follow. |
+| The registry design (sections 7 to 9) | Decided in ADR-0093 and built in `integration-registry-v1.md`. PR 1 (contracts record) merged as #944. PR 2 (server) open as #945; PR 3 (web) and PR 4 (delete the transition projections) follow. |
 
 ## 1. The obligation
 

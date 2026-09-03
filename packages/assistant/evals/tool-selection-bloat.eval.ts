@@ -44,11 +44,6 @@ const NOW = new Date("2026-06-27T04:44:00Z");
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
-// The live providers (the 10 connected integrations with a non-empty action
-// surface; slack, linear, imessage are not live entries). This is the realistic
-// FULL menu for this user.
-const FULL_INTEGRATIONS: readonly LiveProviderSlug[] = LIVE_PROVIDER_SLUGS;
-
 /** Build the SDK tool set for a set of slugs — mirrors `resolveSdkTools`. */
 function buildToolSet(slugs: IntegrationSlug[]): ToolSet {
   const out: Record<string, Tool> = {};
@@ -206,7 +201,9 @@ evalite<string, TaskOutput, string>("Tool selection — FULL menu (system + all 
   data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
-    return runUnderMenu(input, ["system", ...FULL_INTEGRATIONS]);
+    // Every live provider (the 10 connected integrations with a non-empty
+    // action surface): the realistic FULL menu for this user.
+    return runUnderMenu(input, ["system", ...LIVE_PROVIDER_SLUGS]);
   },
   scorers: scorers(),
 });

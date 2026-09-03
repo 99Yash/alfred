@@ -1,6 +1,7 @@
 import {
   ACCOUNT_PERSONAS,
   Errors,
+  integrationRoutePrefix,
   rowToCredentialWire,
   toMessage,
   type CredentialProvider,
@@ -82,11 +83,10 @@ async function assertCredentialOwned(id: string, userId: string): Promise<void> 
   if (!owner[0]) throw Errors.NotFoundError("Credential not found");
 }
 
-/** The route family is the credential provider (ADR-0093); the registry must know it. */
 const PROVIDER = "google" satisfies CredentialProvider;
 
 export const googleIntegrationRoutes = new Elysia({
-  prefix: `/api/integrations/${PROVIDER}`,
+  prefix: integrationRoutePrefix(PROVIDER),
   normalize: "typebox",
 })
   .use(authMacro)
@@ -114,7 +114,7 @@ export const googleIntegrationRoutes = new Elysia({
           .where(
             and(
               eq(integrationCredentials.userId, user.id),
-              eq(integrationCredentials.provider, "google"),
+              eq(integrationCredentials.provider, PROVIDER),
             ),
           );
         return { credentials: rows.map(rowToCredentialWire) };
@@ -164,7 +164,7 @@ export const googleIntegrationRoutes = new Elysia({
               : undefined;
 
           const nonce = randomBytes(16).toString("hex");
-          await rememberOAuthNonce({ provider: "google", nonce, userId: user.id });
+          await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
           const state = signOAuthState({
             userId: user.id,
             nonce,
@@ -220,7 +220,7 @@ export const googleIntegrationRoutes = new Elysia({
               and(
                 eq(integrationCredentials.id, params.id),
                 eq(integrationCredentials.userId, user.id),
-                eq(integrationCredentials.provider, "google"),
+                eq(integrationCredentials.provider, PROVIDER),
               ),
             )
             .returning({ id: integrationCredentials.id, persona: integrationCredentials.persona });
@@ -327,7 +327,7 @@ export const googleIntegrationRoutes = new Elysia({
       // reject — this is what makes captured `state` values single-use.
       // We additionally require the persisted userId to match the one in
       // the signed state as a sanity check.
-      const storedUserId = await consumeOAuthNonce("google", decoded.nonce);
+      const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
         throw Errors.BadRequestError("Invalid or expired state");
       }

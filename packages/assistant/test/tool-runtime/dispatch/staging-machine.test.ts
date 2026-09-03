@@ -202,6 +202,7 @@ function installMachineFixture(): void {
             accountId: "account_calendar",
             status: "active",
             scopes: new Set(calendarCredentialRequirement.anyOfScopes),
+            installationId: null,
             accountLabel: null,
             metadata: {},
           },

@@ -19,7 +19,7 @@
  * make an imported tool loadable: two closed-world layers must open first — the
  * registry (`RegisteredTool.integration` / `liveTool` are keyed on the builtin
  * `IntegrationSlug`) and availability (`evaluateToolAvailability` keys on the
- * closed `ACCESS_SPECS`, so an unknown slug reads as permanently not-connected).
+ * closed `LIVE_PROVIDERS`, so an unknown slug reads as permanently not-connected).
  * Until both open, a derived-metadata imported tool can be ranked in text but
  * never surfaced as runnable — this is a foundation, not a finished MCP path.
  */
