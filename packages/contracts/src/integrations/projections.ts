@@ -3,10 +3,9 @@
  * hand-typed. `Object.fromEntries` erases the key set, so each carries one
  * cast that restores it.
  *
- * `INTEGRATION_ACTIONS` and `INTEGRATION_DISPLAY_NAMES` are permanent views.
- * `CREDENTIAL_SHAPE`, `GENERAL_INVOCATION_COVERAGE`, and `PASSTHROUGH_TRANSPORT`
- * are transitional: their consumers move to the entry fields in PR 2 and PR 3
- * of the registry plan, and PR 4 deletes them.
+ * Every other per-integration fact is read off the entry itself
+ * (`INTEGRATIONS[slug].credential`, `.passthrough`, `.status`). A table earns a
+ * place here only when a consumer needs the whole slug space at once.
  */
 
 import {
@@ -18,14 +17,10 @@ import {
 import {
   credentialProviderOf,
   LIVE_PROVIDER_SLUGS,
-  LOADABLE_INTEGRATION_SLUGS,
-  SUPPORTED_PASSTHROUGH_SLUGS,
   type CredentialProvider,
   type LiveProviderSlug,
-  type LoadableIntegrationSlug,
-  type SupportedPassthroughSlug,
 } from "./slugs";
-import type { CredentialSpec, LiveIntegrationEntry, PassthroughTransportKind } from "./types";
+import type { LiveIntegrationEntry } from "./types";
 
 function projectSlugs<K extends string, T>(
   slugs: readonly K[],
@@ -86,40 +81,3 @@ export const LIVE_PROVIDERS: readonly LiveProviderEntry[] = LIVE_PROVIDER_SLUGS.
   (slug) =>
     ({ slug, provider: credentialProviderOf(slug), ...INTEGRATIONS[slug] }) as LiveProviderEntry,
 );
-
-// ---------------------------------------------------------------------------
-// Transitional tables. Deleted in PR 4 of the registry plan.
-// ---------------------------------------------------------------------------
-
-/**
- * @deprecated Read `INTEGRATIONS[slug].kind`, `.status`, and
- * `.credential.shape` instead. `deferred` is a `planned` provider;
- * `not_applicable` is a channel. Deleted in PR 4 of the registry plan.
- */
-export type CredentialShape = CredentialSpec["shape"] | "deferred" | "not_applicable";
-
-/** @deprecated Read `INTEGRATIONS[slug].credential.shape`. Deleted in PR 4 of the registry plan. */
-export const CREDENTIAL_SHAPE: Readonly<Record<LoadableIntegrationSlug, CredentialShape>> =
-  projectSlugs(LOADABLE_INTEGRATION_SLUGS, (slug) => {
-    const entry = INTEGRATIONS[slug];
-    if (entry.kind === "channel") return "not_applicable";
-    return entry.status === "planned" ? "deferred" : entry.credential.shape;
-  });
-
-/** @deprecated Read `INTEGRATIONS[slug].passthrough`. Deleted in PR 4 of the registry plan. */
-export type CoverageDecision = "supported" | "deferred" | "not_applicable";
-
-/** @deprecated Read `INTEGRATIONS[slug].passthrough`. Deleted in PR 4 of the registry plan. */
-export const GENERAL_INVOCATION_COVERAGE: Readonly<
-  Record<LoadableIntegrationSlug, CoverageDecision>
-> = projectSlugs(LOADABLE_INTEGRATION_SLUGS, (slug) => {
-  const entry = INTEGRATIONS[slug];
-  if (entry.kind === "channel") return "not_applicable";
-  if (entry.status === "planned") return "deferred";
-  return entry.passthrough === null ? "not_applicable" : "supported";
-});
-
-/** @deprecated Read `INTEGRATIONS[slug].passthrough.transport`. Deleted in PR 4 of the registry plan. */
-export const PASSTHROUGH_TRANSPORT: Readonly<
-  Record<SupportedPassthroughSlug, PassthroughTransportKind>
-> = projectSlugs(SUPPORTED_PASSTHROUGH_SLUGS, (slug) => INTEGRATIONS[slug].passthrough.transport);

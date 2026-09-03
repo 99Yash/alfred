@@ -1,7 +1,7 @@
 # Integration registry v1 — one entry per integration, the slug is the only key
 
-> **Status.** In progress. PR 1 (contracts) merged as #944 and PR 2 (server) as #945, both on
-> 2026-09-03; PR 3 (web) is open; PR 4 (delete the transition projections) follows. Follows the
+> **Status.** In progress. PR 1 (contracts) merged as #944, PR 2 (server) as #945, and PR 3 (web)
+> as #947, all on 2026-09-03; PR 4 (delete the transition projections) is open. Follows the
 > [inventory](./integration-registry-inventory.md). The three decisions in inventory section 9
 > are locked: the web keys on the slug; the credential provider is a registry field; Slack and
 > Linear carry a `planned` status. [ADR-0093](../decisions/ADR-0093-integration-registry-one-entry-per-integration.md)
@@ -32,7 +32,7 @@ Every rule below is a compile error or a `pnpm check` gate, not a convention.
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Every slug has one entry                    | `INTEGRATIONS satisfies Record<IntegrationSlug, IntegrationEntry>`                                                                                       |
 | Every entry keeps its literal facts         | `as const` on the record, so `INTEGRATIONS.github.credential.shape` is the literal `"github_app"`                                                        |
-| Every subset union is derived, never listed | Mapped conditional types over the record, the pattern `BearerProvider` uses today                                                                        |
+| Every subset union is derived, never listed | Mapped conditional types over the record (`SlugsWhere<P>` in `slugs.ts`), the pattern `BearerSlug` uses                                                  |
 | Every runtime list matches its union        | Built by `filter` over `INTEGRATION_SLUGS` with a predicate that reads the record; `enumGuard` over that list                                            |
 | Every sibling table is exhaustive           | `satisfies Record<<DerivedSlugUnion>, T>`; `Partial<Record<...Slug` is a consolidation gate                                                              |
 | A `planned` entry has no actions            | `PlannedIntegrationEntry.actions` is `readonly []`; the record entry is checked at construction                                                          |
@@ -149,8 +149,8 @@ entries, unchanged in value.
 `GOOGLE_SCOPE`, keyed by product then grant (`GOOGLE_SCOPE.gmail.readonly`, `GOOGLE_SCOPE.drive.full`),
 so a URL is spelled once and `GOOGLE_SCOPES` and `GoogleScope` derive from its leaves. Every reader
 of a scope URL imports `GOOGLE_SCOPE` from `@alfred/contracts`; `@alfred/integrations/google` does not
-re-export it. The feature table and its types are still re-exported there, so those importers do not
-change. The OAuth mechanics (`scopesForFeatures`, the client,
+re-export it. The feature table and its types were re-exported there until PR 4 repointed the last
+importer to `@alfred/contracts`. The OAuth mechanics (`scopesForFeatures`, the client,
 the token refresh) stay in `packages/integrations`.
 
 `GoogleScope` becomes a union of the nine URL literals. `anyOfScopes` and `features` on the
@@ -187,8 +187,8 @@ All derived from `INTEGRATIONS`; none hand-typed.
 | `GoogleSlug`, `BearerSlug`, `GithubAppSlug`                             | by `credential.shape`                                                                                            |
 | `SupportedPassthroughSlug`, `SupportedRestSlug`, `SupportedGraphqlSlug` | by `passthrough`                                                                                                 |
 | `INTEGRATION_DISPLAY_NAMES`                                             | `Record<IntegrationSlug, string>` projection, same values                                                        |
-| `CREDENTIAL_SHAPE`                                                      | projection; `planned` and `channel` read `"deferred"` and `"not_applicable"` for the transition, deleted in PR 4 |
-| `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT`                  | projections, deleted in PR 4                                                                                     |
+| `CREDENTIAL_SHAPE`                                                      | transition projection, deleted in PR 4; read `INTEGRATIONS[slug].credential.shape`, `.kind`, `.status`           |
+| `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT`                  | transition projections, deleted in PR 4; read `INTEGRATIONS[slug].passthrough`                                   |
 | `LIVE_PROVIDERS`                                                        | ordered `readonly LiveProviderEntry[]` for the assistant and the web                                             |
 | `integrationEntry(slug)`                                                | typed index, `INTEGRATIONS[slug]`                                                                                |
 | `isCatalogSlug`, `isLiveProviderSlug`, `isCredentialProvider`           | `enumGuard` over the derived lists                                                                               |
@@ -217,18 +217,18 @@ type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
   `INTEGRATION_DISPLAY_NAMES` and `INTEGRATION_ACTIONS` are projections in
   `integrations/projections.ts`; `tools.ts` imports both. The root exports of `@alfred/contracts`
   are unchanged.
-- `credentials.ts` keeps `credentialRowSchema` and `rowToCredentialWire`. `CREDENTIAL_SHAPE`,
-  `BearerProvider`, `BEARER_PROVIDER_SLUGS`, `isBearerProvider` become re-exports of registry
-  derivations. `credentialShapeForSlug` stays for the one dynamic caller and reads the registry.
-- `passthrough.ts` keeps the preference-key helpers. The coverage and transport tables become
-  derivations. `PASSTHROUGH_TOOL_NAMES` is unchanged in value.
+- `credentials.ts` keeps only `credentialRowSchema` and `rowToCredentialWire`. `BEARER_PROVIDER_SLUGS`
+  and `isBearerProvider` are registry derivations in `integrations/slugs.ts`. `CREDENTIAL_SHAPE`,
+  `BearerProvider`, and `credentialShapeForSlug` were transition names, deleted in PR 4.
+- `passthrough.ts` keeps the preference-key helpers and derives `PASSTHROUGH_TOOL_NAMES` from
+  `INTEGRATIONS[slug].passthrough.transport`. `PASSTHROUGH_TOOL_NAMES` is unchanged in value.
 - `chat.ts`: `chatConnectNudgeSchema.integration` becomes `z.enum(INTEGRATION_SLUGS)`.
 - `integration-availability.ts`: `ProviderAvailability` keys on `CredentialProvider`, not
   `string`.
 
 ### `packages/integrations`
 
-- `google/oauth.ts` imports the scope vocabulary from contracts and re-exports it.
+- `google/oauth.ts` imports the scope vocabulary from contracts. It re-exported it until PR 4.
 - `shared/credentials.ts` parses `provider` from the row with `isCredentialProvider` at the read
   boundary and narrows its signatures to `BearerSlug`, which it already does through
   `BearerProvider`.
@@ -413,13 +413,16 @@ credential vocabulary, and are out of this plan.
 ### PR 4 — delete the transition projections
 
 - Remove `CREDENTIAL_SHAPE`, `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT`,
-  `credentialShapeForSlug`, the aliases `BearerProvider` and `SupportedIntegrationSlug`, and
-  `LEGACY_PAGE_IDS` once no consumer reads them. Each carries `@deprecated` from PR 1.
+  `credentialShapeForSlug`, and the aliases `BearerProvider` and `SupportedIntegrationSlug`. Each
+  carried `@deprecated` from PR 1. The tests that pinned their values go with them; the registry's
+  `as const` literals and the `SlugsWhere` unions are the proof now.
 - Repoint the importers of `GOOGLE_FEATURE_SCOPES`, `GOOGLE_SCOPES`, `GoogleFeature`, and
   `GoogleScope` from `@alfred/integrations/google` to `@alfred/contracts` and delete the re-export
-  block in `google/oauth.ts`. Until then those names have two import doors; the scope URLs already
-  have one.
-- Update `docs/reference/shared-helpers.md` and `packages/contracts/AGENTS.md`.
+  block in `google/oauth.ts`. Those names have one import door now, like the scope URLs.
+- Update `docs/reference/shared-helpers.md`.
+- _Deviation:_ the legacy `google_*` redirect in `integrations.$slug.tsx` (`legacyPageTarget`, a
+  prefix strip plus `isGoogleSlug`, not a map) stays. PR 3 documented it as "deleted one release
+  after PR 3", and PR 4 landed the same day. Delete it in a later cleanup.
 
 ## 8. Down-proofs the PRs must carry
 
