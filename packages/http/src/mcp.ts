@@ -10,12 +10,14 @@ import { z } from "zod";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import {
   boundedMcpErrorText,
+  builtInProviderForEndpoint,
   ensureBuiltInConnection,
   getMcpConnectionManager,
   HostedMcpEndpointAuthorizer,
   listOwnedConnections,
   MCP_DEFAULT_REQUEST_TIMEOUT_MS,
   McpOAuthAuthorizationRequiredError,
+  mcpConsentAsk,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
   readOwnedConnection,
@@ -103,6 +105,10 @@ function connectionResult(
     label: connection.label,
     canonicalResource: connection.server.canonicalResource,
     endpointOrigin: connection.server.endpointOrigin,
+    // Derived from the endpoint, never stored (ADR-0093). The card picks its
+    // built-in by this key; `canonicalResource.includes("github")` also matched
+    // any user-added URL with the word "github" in it.
+    builtInProvider: builtInProviderForEndpoint(connection.server.endpointUrl) ?? null,
     status: connection.status,
     grantedScopes: connection.grantedScopes,
     requiredScopes: connection.requiredScopes,
@@ -129,22 +135,20 @@ async function beginAuthorization(input: {
         userId: connection.userId,
         authorization: authorized.oauth,
       });
-      const scope = [...new Set([...connection.grantedScopes, ...connection.requiredScopes])].join(
-        " ",
-      );
+      const consent = mcpConsentAsk(connection, {
+        forced: input.forceReauthorization === true,
+      });
       try {
         await provider.authorize({
-          ...(input.forceReauthorization ? { forceReauthorization: true } : {}),
-          ...(scope ? { scope } : {}),
+          ...(consent.forceReauthorization ? { forceReauthorization: true } : {}),
+          ...(consent.scope ? { scope: consent.scope } : {}),
         });
         return null;
       } catch (error) {
         if (error instanceof McpOAuthAuthorizationRequiredError) {
           await updateConnection(connection.id, {
             status: "auth_required",
-            lastError: input.forceReauthorization
-              ? "Additional permissions require your consent."
-              : "Authorization is required to connect this MCP server.",
+            lastError: consent.pendingMessage,
           });
           return error.authorizationUrl;
         }

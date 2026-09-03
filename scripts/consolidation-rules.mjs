@@ -107,6 +107,31 @@ export const RULES = [
     fix: "Use canonicalParamKey(key) from @alfred/contracts — the one canonical key-folding function.",
   },
   {
+    id: "hand-split-oauth-scope",
+    // The OAuth `scope` response field, split by hand. Two copies existed with
+    // two grammars: `/\s+/` in the MCP provider and `/[,\s]+/` in the GitHub
+    // App. GitHub returns a COMMA list, so the whitespace-only copy read
+    // `repo,read:org` as one opaque scope and every "already granted?" test
+    // answered no forever.
+    re: /\bscope\w*\b[^;\n]*\.split\(/i,
+    severity: "gate",
+    owners: ["packages/contracts/src/oauth-scopes.ts"],
+    fix: "Use parseOAuthScopeList(scope) from @alfred/contracts — the one grammar that accepts both RFC 6749 space lists and GitHub's comma list.",
+  },
+  {
+    id: "read-write-github-mcp-endpoint",
+    // ADR-0094: read-only is a property of the RESOURCE, so the whole rule is
+    // the value of one constant. GitHub serves 47 tools with 16 writes at the
+    // `/mcp` root and 28 tools with 0 writes at `/mcp/readonly`, for the SAME
+    // token. Nothing in the protocol reports the difference, nothing in this
+    // repo reads a per-tool `annotations.readOnlyHint`, and the catalog only
+    // changes at run time. Without this row, a one-character edit hands the
+    // boss a write catalog and every check still passes.
+    re: /api\.githubcopilot\.com\/mcp(?!\/readonly)/,
+    severity: "gate",
+    fix: "Use GITHUB_MCP_ENDPOINT_HREF from @alfred/assistant — Alfred pins GitHub's read-only resource `/mcp/readonly` (ADR-0094). The `/mcp` root serves 16 write tools.",
+  },
+  {
     id: "hand-rolled-timezone-validator",
     // A hand-rolled `function isValidTimezone` — this exact `Intl.DateTimeFormat`
     // trial was copied verbatim into web, sync, and api before consolidation.

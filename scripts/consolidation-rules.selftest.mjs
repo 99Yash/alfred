@@ -385,6 +385,38 @@ const LINE_CASES = [
     caught: false,
     code: `  toolOverrides?: Partial<Record<ToolName, PolicyMode>>;`,
   },
+  {
+    // ADR-0094 rests on one constant. This fixture is the only thing that
+    // proves the guard watches it, so the ADR's "no failing check" gap is
+    // closed rather than merely asserted.
+    name: "read-write-github-mcp-endpoint — the `/mcp` root this branch moved away from",
+    caught: true,
+    code: `export const GITHUB_MCP_ENDPOINT_HREF = "https://api.githubcopilot.com/mcp" as const;`,
+  },
+  {
+    name: "read-write-github-mcp-endpoint — a trailing slash does not make the root read-only",
+    caught: true,
+    code: `const endpoint = new URL("https://api.githubcopilot.com/mcp/");`,
+  },
+  {
+    // The guard reads code, not prose: `matchLine` skips comment-only lines so a
+    // doc example of a banned idiom is not drift. So this rule cannot keep a
+    // docstring honest, and it never sees `.env.example` or a `.sql` migration
+    // either — the drift scanner takes `*.ts` / `*.tsx` only.
+    name: "read-write-github-mcp-endpoint — a comment naming the root is out of the guard's reach",
+    caught: false,
+    code: ` * Falls back to https://api.githubcopilot.com/mcp when the pin is absent.`,
+  },
+  {
+    name: "read-write-github-mcp-endpoint — the pinned read-only resource is the intended form",
+    caught: false,
+    code: `export const GITHUB_MCP_ENDPOINT_HREF = "https://api.githubcopilot.com/mcp/readonly" as const;`,
+  },
+  {
+    name: "read-write-github-mcp-endpoint — another origin serving /mcp is not GitHub's write catalog",
+    caught: false,
+    code: `assert.equal(resolveBuiltInClient(new URL("https://evil.example.test/mcp")), undefined);`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
