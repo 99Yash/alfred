@@ -1,4 +1,10 @@
-import { Errors, redactSecrets, toMessage, type CredentialProvider } from "@alfred/contracts";
+import {
+  Errors,
+  integrationRoutePrefix,
+  redactSecrets,
+  toMessage,
+  type CredentialProvider,
+} from "@alfred/contracts";
 import { isRailwayAuthorizationError, railwayValidateToken } from "@alfred/integrations/railway";
 import {
   deleteIntegrationCredential,
@@ -20,11 +26,10 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   GET    /api/integrations/railway/credentials              → list connections
  *   DELETE /api/integrations/railway/:id                      → disconnect
  */
-/** The route family is the credential provider (ADR-0093); the registry must know it. */
 const PROVIDER = "railway" satisfies CredentialProvider;
 
 export const railwayIntegrationRoutes = new Elysia({
-  prefix: `/api/integrations/${PROVIDER}`,
+  prefix: integrationRoutePrefix(PROVIDER),
   normalize: "typebox",
 })
   .use(authMacro)
@@ -58,7 +63,7 @@ export const railwayIntegrationRoutes = new Elysia({
           const label = account.name ?? account.email ?? account.id;
           const credential = await upsertBearerCredential({
             userId: user.id,
-            provider: "railway",
+            provider: PROVIDER,
             accountId: account.id,
             accountLabel: label,
             accessToken: token,
@@ -71,7 +76,7 @@ export const railwayIntegrationRoutes = new Elysia({
         },
       )
       .get("/credentials", async ({ user }) => {
-        const credentials = await listBearerCredentials(user.id, "railway");
+        const credentials = await listBearerCredentials(user.id, PROVIDER);
         return { credentials };
       })
       .delete(
@@ -79,7 +84,7 @@ export const railwayIntegrationRoutes = new Elysia({
         async ({ params, user }) => {
           const deleted = await deleteIntegrationCredential({
             userId: user.id,
-            provider: "railway",
+            provider: PROVIDER,
             id: params.id,
           });
           if (!deleted) throw Errors.NotFoundError("Credential not found");

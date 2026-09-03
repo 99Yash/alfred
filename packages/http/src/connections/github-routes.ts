@@ -1,4 +1,9 @@
-import { Errors, rowToCredentialWire, type CredentialProvider } from "@alfred/contracts";
+import {
+  Errors,
+  integrationRoutePrefix,
+  rowToCredentialWire,
+  type CredentialProvider,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -37,11 +42,10 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   DELETE /api/integrations/github/:id           → disconnect (drops our token, App stays installed)
  */
 
-/** The route family is the credential provider (ADR-0093); the registry must know it. */
 const PROVIDER = "github" satisfies CredentialProvider;
 
 export const githubIntegrationRoutes = new Elysia({
-  prefix: `/api/integrations/${PROVIDER}`,
+  prefix: integrationRoutePrefix(PROVIDER),
   normalize: "typebox",
 })
   .use(authMacro)
@@ -67,14 +71,14 @@ export const githubIntegrationRoutes = new Elysia({
           .where(
             and(
               eq(integrationCredentials.userId, user.id),
-              eq(integrationCredentials.provider, "github"),
+              eq(integrationCredentials.provider, PROVIDER),
             ),
           );
         return { credentials: rows.map(rowToCredentialWire) };
       })
       .get("/connect", async ({ user, set }) => {
         const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: "github", nonce, userId: user.id });
+        await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
         const state = signOAuthState({ userId: user.id, nonce });
         set.status = 302;
         set.headers["Location"] = buildInstallUrl(state);
@@ -90,7 +94,7 @@ export const githubIntegrationRoutes = new Elysia({
         // from GitHub's settings — we just stop holding credentials for it.
         const deleted = await deleteIntegrationCredential({
           userId: user.id,
-          provider: "github",
+          provider: PROVIDER,
           id: params.id,
         });
         if (!deleted) throw Errors.NotFoundError("Credential not found");
@@ -117,7 +121,7 @@ export const githubIntegrationRoutes = new Elysia({
       const decoded = verifyOAuthState(query.state);
       if (!decoded) throw Errors.BadRequestError("Invalid state");
 
-      const storedUserId = await consumeOAuthNonce("github", decoded.nonce);
+      const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
         throw Errors.BadRequestError("Invalid or expired state");
       }

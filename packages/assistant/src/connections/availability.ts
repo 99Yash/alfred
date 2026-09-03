@@ -1,4 +1,5 @@
 import {
+  credentialSatisfies,
   isCredentialProvider,
   isPassthroughPreferenceOn,
   LIVE_PROVIDERS,
@@ -7,7 +8,6 @@ import {
   type CredentialProvider,
   type IntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
-  type LiveProviderEntry,
   type LoadableIntegrationSlug,
   type ProviderAvailability,
   type SupportedPassthroughSlug,
@@ -15,16 +15,6 @@ import {
 import { db } from "@alfred/db";
 import { integrationCredentials, userPreferences } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-
-/**
- * The scopes that prove a live provider is connected (ADR-0093). Only a Google
- * grant can be partial — the consent screen lets the user uncheck scopes — so
- * only a `google_oauth` credential names any; for every other shape an active
- * row is the proof and the list is empty.
- */
-function connectedScopes(entry: LiveProviderEntry): readonly string[] {
-  return entry.credential.shape === "google_oauth" ? entry.credential.anyOfScopes : [];
-}
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -101,6 +91,7 @@ async function loadIntegrationAvailability(
         accountId: integrationCredentials.accountId,
         status: integrationCredentials.status,
         scopes: integrationCredentials.scopes,
+        installationId: integrationCredentials.installationId,
         accountLabel: integrationCredentials.accountLabel,
         metadata: integrationCredentials.metadata,
       })
@@ -127,16 +118,22 @@ async function loadIntegrationAvailability(
 
   const byProvider = new Map<CredentialProvider, ProviderAvailability[]>();
   for (const row of rows) {
-    // The column is CHECK-constrained to this vocabulary; the guard is the read
-    // boundary's own proof, so a row the constraint predates cannot poison a
-    // provider key that nothing else reads.
-    if (!isCredentialProvider(row.provider)) continue;
+    // The column's type is the CHECK constraint's promise, and this is the one
+    // read that consumes the value (every other read filters on it). A miss is
+    // registry-versus-migration drift, so it fails loud instead of dropping the
+    // row and reading a connected provider as absent.
+    if (!isCredentialProvider(row.provider)) {
+      throw new Error(
+        `[availability] integration_credentials.provider ${JSON.stringify(row.provider)} is not a registry provider; the CHECK constraint and the registry disagree`,
+      );
+    }
     const list = byProvider.get(row.provider) ?? [];
     list.push({
       credentialId: row.id,
       accountId: row.accountId,
       status: row.status,
       scopes: new Set(toStringArray(row.scopes)),
+      installationId: row.installationId,
       accountLabel: row.accountLabel,
       metadata: row.metadata,
     });
@@ -150,12 +147,10 @@ async function loadIntegrationAvailability(
       availability.set(entry.slug, { health: null, accountLabel: null });
       continue;
     }
-    const anyOfScopes = connectedScopes(entry);
-    const active = providerRows.find(
-      (row) =>
-        row.status === "active" &&
-        (anyOfScopes.length === 0 || anyOfScopes.some((scope) => row.scopes.has(scope))),
-    );
+    // The connected rule is the entry's own (ADR-0093): the same predicate the
+    // web's connectedness probe calls, so a legacy GitHub row without an
+    // installation reads `needs_reauth` here as it does there.
+    const active = providerRows.find((row) => credentialSatisfies(entry.credential, row));
     availability.set(entry.slug, {
       health: active ? "active" : "needs_reauth",
       accountLabel: active?.accountLabel?.trim() || null,

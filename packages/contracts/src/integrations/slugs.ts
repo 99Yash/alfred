@@ -98,6 +98,16 @@ export function credentialProviderOf(slug: LiveProviderSlug): CredentialProvider
   return isGoogleSlug(slug) ? "google" : slug;
 }
 
+/**
+ * The route family of a credential provider, `/api/integrations/<provider>`.
+ * The literal type survives so Eden's client keeps a typed path per provider.
+ */
+export function integrationRoutePrefix<P extends CredentialProvider>(
+  provider: P,
+): `/api/integrations/${P}` {
+  return `/api/integrations/${provider}`;
+}
+
 /** The distinct providers, in first-appearance slug order (`google` once for six slugs). */
 export const CREDENTIAL_PROVIDERS: readonly CredentialProvider[] = [
   ...new Set(LIVE_PROVIDER_SLUGS.map(credentialProviderOf)),

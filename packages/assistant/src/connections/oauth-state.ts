@@ -1,3 +1,4 @@
+import type { CredentialProvider } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { z } from "zod";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -26,11 +27,18 @@ function client(): BoundedRedis {
   return _client;
 }
 
+/**
+ * The key space a nonce is minted in, so a callback can only consume a nonce
+ * its own connect route minted: a credential provider's route family, or one
+ * MCP connection. A misspelled provider is a compile error, not a callback that
+ * never finds its nonce.
+ */
+export type OAuthNonceNamespace = CredentialProvider | `mcp:${string}`;
+
 export interface IssueNonceArgs {
   nonce: string;
   userId: string;
-  /** Provider tag (`google`, `slack`, …) so nonces can't cross-pollinate. */
-  provider: string;
+  provider: OAuthNonceNamespace;
   ttlSeconds?: number;
 }
 
@@ -43,12 +51,15 @@ export async function rememberOAuthNonce(args: IssueNonceArgs): Promise<void> {
  * Atomically read-and-delete the nonce. Returns the userId that minted
  * it, or null if the nonce is unknown / already consumed / expired.
  */
-export async function consumeOAuthNonce(provider: string, nonce: string): Promise<string | null> {
+export async function consumeOAuthNonce(
+  provider: OAuthNonceNamespace,
+  nonce: string,
+): Promise<string | null> {
   const v = await client().getdel(key(provider, nonce));
   return v ?? null;
 }
 
-function key(provider: string, nonce: string): string {
+function key(provider: OAuthNonceNamespace, nonce: string): string {
   return `${KEY_PREFIX}${provider}:${nonce}`;
 }
 

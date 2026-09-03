@@ -1,4 +1,4 @@
-import { Errors, type CredentialProvider } from "@alfred/contracts";
+import { Errors, integrationRoutePrefix, type CredentialProvider } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildVercelInstallUrl,
@@ -33,11 +33,10 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   GET    /api/integrations/vercel/credentials  → list this user's connections
  *   DELETE /api/integrations/vercel/:id          → disconnect
  */
-/** The route family is the credential provider (ADR-0093); the registry must know it. */
 const PROVIDER = "vercel" satisfies CredentialProvider;
 
 export const vercelIntegrationRoutes = new Elysia({
-  prefix: `/api/integrations/${PROVIDER}`,
+  prefix: integrationRoutePrefix(PROVIDER),
   normalize: "typebox",
 })
   .use(authMacro)
@@ -49,14 +48,14 @@ export const vercelIntegrationRoutes = new Elysia({
           throw Errors.ServiceUnavailableError("Vercel integration is not configured");
         }
         const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: "vercel", nonce, userId: user.id });
+        await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
         const state = signOAuthState({ userId: user.id, nonce });
         set.status = 302;
         set.headers["Location"] = buildVercelInstallUrl(state);
         return null;
       })
       .get("/credentials", async ({ user }) => {
-        const credentials = await listBearerCredentials(user.id, "vercel");
+        const credentials = await listBearerCredentials(user.id, PROVIDER);
         return { credentials };
       })
       .delete(
@@ -64,7 +63,7 @@ export const vercelIntegrationRoutes = new Elysia({
         async ({ params, user }) => {
           const deleted = await deleteIntegrationCredential({
             userId: user.id,
-            provider: "vercel",
+            provider: PROVIDER,
             id: params.id,
           });
           if (!deleted) throw Errors.NotFoundError("Credential not found");
@@ -87,7 +86,7 @@ export const vercelIntegrationRoutes = new Elysia({
 
       const decoded = verifyOAuthState(query.state);
       if (!decoded) throw Errors.BadRequestError("Invalid state");
-      const storedUserId = await consumeOAuthNonce("vercel", decoded.nonce);
+      const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
         throw Errors.BadRequestError("Invalid or expired state");
       }
@@ -99,7 +98,7 @@ export const vercelIntegrationRoutes = new Elysia({
       const label = tokens.teamId ? `team ${tokens.teamId}` : (tokens.userId ?? accountId);
       await upsertBearerCredential({
         userId: decoded.userId,
-        provider: "vercel",
+        provider: PROVIDER,
         accountId,
         accountLabel: label,
         accessToken: tokens.accessToken,
