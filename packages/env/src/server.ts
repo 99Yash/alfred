@@ -71,8 +71,8 @@ const credentialKek = () =>
 
 const serverEnvSchema = z
   .object({
-    DATABASE_URL: z.string().url(),
-    REDIS_URL: z.string().url(),
+    DATABASE_URL: z.url(),
+    REDIS_URL: z.url(),
     BETTER_AUTH_SECRET: z.string().min(32),
     /**
      * Key-encryption key for the OAuth credential vault (#453), base64 or
@@ -96,7 +96,7 @@ const serverEnvSchema = z
      * directly.
      */
     OAUTH_CREDENTIAL_KEK: credentialKek(),
-    BETTER_AUTH_URL: z.string().url(),
+    BETTER_AUTH_URL: z.url(),
     CORS_ORIGIN: z.string().default("http://localhost:3000"),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     /** HTTP port the server binds to. Railway injects this; defaults to 3001 locally. */
@@ -168,7 +168,7 @@ const serverEnvSchema = z
      * is overridable so the OSS self-hosted Firecrawl is a config swap.
      */
     FIRECRAWL_API_KEY: z.string().optional(),
-    FIRECRAWL_BASE_URL: z.string().url().default("https://api.firecrawl.dev"),
+    FIRECRAWL_BASE_URL: z.url().default("https://api.firecrawl.dev"),
     /**
      * HMAC namespace for ADR-0067 stable entity IDs. Optional during P0 because no
      * projection writer computes IDs yet; P1 must require it before writing
@@ -199,7 +199,7 @@ const serverEnvSchema = z
     SENTRY_RELEASE: z.string().optional(),
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
     LANGFUSE_SECRET_KEY: z.string().optional(),
-    LANGFUSE_HOST: z.string().url().optional(),
+    LANGFUSE_HOST: z.url().optional(),
     /**
      * Langfuse tracing environment slug (#226 review). `NODE_ENV` only
      * separates development|production|test, but every deploy target (staging,
@@ -235,7 +235,7 @@ const serverEnvSchema = z
     // callback URL automatically from BETTER_AUTH_URL.
     GOOGLE_OAUTH_CLIENT_ID: z.string().min(1),
     GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
-    GOOGLE_OAUTH_REDIRECT_URI: z.string().url(),
+    GOOGLE_OAUTH_REDIRECT_URI: z.url(),
     /** Pub/Sub topic Gmail watch should publish to, e.g. `projects/<id>/topics/gmail-push`. */
     GOOGLE_PUBSUB_TOPIC: optionalSecret(),
     /** OIDC audience configured on the push subscription. Required in production. */
@@ -257,7 +257,7 @@ const serverEnvSchema = z
     /** Shared secret GitHub signs webhook bodies with (`x-hub-signature-256`). */
     GITHUB_WEBHOOK_SECRET: z.string().min(1),
     /** User-to-server OAuth callback, e.g. `https://api.alfred.beauty/api/integrations/github/callback`. */
-    GITHUB_APP_REDIRECT_URI: z.string().url(),
+    GITHUB_APP_REDIRECT_URI: z.url(),
     /**
      * Built-in GitHub MCP OAuth client (PRD #934). Optional — when `GITHUB_MCP_CLIENT_ID`
      * is unset the built-in falls back to DCR (which GitHub's AS does not support,
@@ -275,7 +275,7 @@ const serverEnvSchema = z
     NOTION_OAUTH_CLIENT_SECRET: optionalSecret(),
     NOTION_OAUTH_REDIRECT_URI: z.preprocess(
       (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.string().url().optional(),
+      z.url().optional(),
     ),
     /**
      * Vercel integration (https://vercel.com/dashboard → Integrations → Develop).
@@ -287,7 +287,7 @@ const serverEnvSchema = z
     VERCEL_CLIENT_SECRET: optionalSecret(),
     VERCEL_REDIRECT_URI: z.preprocess(
       (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.string().url().optional(),
+      z.url().optional(),
     ),
     VERCEL_APP_SLUG: optionalSecret(),
     /**
@@ -310,13 +310,13 @@ const serverEnvSchema = z
     CHAT_S3_REGION: optionalSecret(),
     CHAT_S3_ENDPOINT: z.preprocess(
       (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.string().url().optional(),
+      z.url().optional(),
     ),
     CHAT_S3_ACCESS_KEY_ID: optionalSecret(),
     CHAT_S3_SECRET_ACCESS_KEY: optionalSecret(),
     CHAT_S3_PUBLIC_BASE_URL: z.preprocess(
       (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.string().url().optional(),
+      z.url().optional(),
     ),
     CHAT_S3_FORCE_PATH_STYLE: z
       .string()

@@ -1,3 +1,23 @@
+/**
+ * MCP OAuth (RFC 8707 resource indicators + RFC 8414 discovery + RFC 7591 DCR).
+ *
+ * Execution order — start (`GET /github/connect` -> `beginAuthorization` in
+ * `packages/http/src/mcp.ts`):
+ *  1. `authorize()` runs SDK `auth()`: `saveDiscoveryState` (upsert
+ *     `mcp_oauth_credentials`) -> `clientInformation` (DCR or built-in env
+ *     client) -> `state` (Redis nonce + `mcp_oauth_authorization_attempts` row)
+ *     -> `saveCodeVerifier` (sealed PKCE on that attempt) ->
+ *     `redirectToAuthorization` (throws `McpOAuthAuthorizationRequiredError`,
+ *     route sets `mcp_connections.status=auth_required` + 302).
+ *  2. User consents at the authorization server.
+ * Callback (`GET /callback` -> `completeMcpOAuthCallback`):
+ *  3. `matchesState` (sha256(state) lookup) -> `discoveryState` (re-validate
+ *     pinned issuer) -> `finishAuthorization` (code+verifier -> tokens via
+ *     guarded fetch) -> `saveTokens` (seal tokens, set `grantedScopes`,
+ *     delete attempt) -> `getReadyClient` (connect + catalog snapshot).
+ * Steady state: `refreshIfNeeded` pre-delivery only; the transport holds a
+ * token-only projection so it can never refresh/replay `tools/call`.
+ */
 import { db } from "@alfred/db";
 import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
 import {
@@ -34,23 +54,23 @@ import { resolveBuiltInClient } from "./built-ins";
 import type { McpAuthorizedOAuth, McpAuthorizedOAuthServer } from "./endpoint-authorization";
 
 const oauthMetadataSchema = z.looseObject({
-  issuer: z.string().url(),
-  authorization_endpoint: z.string().url(),
-  token_endpoint: z.string().url(),
+  issuer: z.url(),
+  authorization_endpoint: z.url(),
+  token_endpoint: z.url(),
   response_types_supported: z.array(z.string()),
-  registration_endpoint: z.string().url().optional(),
+  registration_endpoint: z.url().optional(),
   client_id_metadata_document_supported: z.boolean().optional(),
   authorization_response_iss_parameter_supported: z.boolean().optional(),
 });
 
 const protectedResourceMetadataSchema = z.looseObject({
   resource: z.string(),
-  authorization_servers: z.array(z.string().url()).optional(),
+  authorization_servers: z.array(z.url()).optional(),
 });
 
 const discoveryStateSchema = z.object({
-  authorizationServerUrl: z.string().url(),
-  resourceMetadataUrl: z.string().url().optional(),
+  authorizationServerUrl: z.url(),
+  resourceMetadataUrl: z.url().optional(),
   authorizationServerMetadata: oauthMetadataSchema.optional(),
   resourceMetadata: protectedResourceMetadataSchema.optional(),
 });
@@ -58,7 +78,7 @@ const discoveryStateSchema = z.object({
 const clientInformationSchema = z.looseObject({
   client_id: z.string().min(1),
   client_secret: z.string().optional(),
-  issuer: z.string().url().optional(),
+  issuer: z.url().optional(),
 });
 
 const oauthTokensSchema = z.object({
@@ -68,7 +88,7 @@ const oauthTokensSchema = z.object({
   id_token: z.string().optional(),
   expires_in: z.coerce.number().int().nonnegative().optional(),
   scope: z.string().optional(),
-  issuer: z.string().url().optional(),
+  issuer: z.url().optional(),
 });
 
 const MCP_OAUTH_FETCH_TIMEOUT_MS = 30_000;

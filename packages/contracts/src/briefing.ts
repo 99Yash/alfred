@@ -214,9 +214,7 @@ export const dayShapeSchema = z.object({
   /** Activity intensity over the window — derived from deterministic counts. */
   activityVolume: dayShapeVolumeSchema,
   /** Work objects that reached a shipped/resolved state — the evening recap. */
-  shipped: z.array(
-    z.object({ title: z.string().min(1).max(300), url: z.string().url().optional() }),
-  ),
+  shipped: z.array(z.object({ title: z.string().min(1).max(300), url: z.url().optional() })),
   /**
    * Count of gathered priority emails scored at the `demanding` attention band
    * (ADR-0064). The morning suppression gate (#259) reads this: a cron morning
@@ -301,7 +299,7 @@ export const integrationActivityItemSchema = z.object({
   status: integrationActivityStatusSchema.optional(),
   severity: integrationActivitySeveritySchema.optional(),
   occurredAt: z.string().min(1),
-  url: z.string().url().optional(),
+  url: z.url().optional(),
   relatedRepo: z.string().min(1).optional(),
   rollup: integrationActivityRollupSchema.optional(),
 });
@@ -351,7 +349,7 @@ export const briefingSourcePanelItemSchema = z.object({
   subtitle: z.string().max(300).optional(),
   status: z.string().max(80).optional(),
   severity: integrationActivitySeveritySchema.optional(),
-  href: z.string().url().optional(),
+  href: z.url().optional(),
   reference: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.string()).optional(),
 });
