@@ -28,6 +28,29 @@ function gatewayHeaders(token: string) {
   return { "cf-aig-authorization": `Bearer ${token}` } satisfies Record<string, string>;
 }
 
+/**
+ * Unified Billing on the provider-native surface authenticates via
+ * `cf-aig-authorization` alone. A request carrying the provider-native
+ * `Authorization` header is forwarded to OpenAI unchanged (credential
+ * precedence rule 1 — BYOK and Unified Billing are not consulted), so the
+ * `cfut_` dummy the SDK requires in `apiKey` must never reach the wire or
+ * OpenAI rejects the call. Strip it here, mirroring Cloudflare's own
+ * `ai-gateway-provider` (dummy key plus header strip).
+ *
+ * Scoped to OpenAI: it is the only provider whose native auth is the
+ * `Authorization` header. Anthropic (`x-api-key`) and Google
+ * (`x-goog-api-key`) ride `cf-aig-authorization` into Unified Billing with
+ * the `headers` option today, so they are left untouched.
+ */
+function openaiGatewayFetch(token: string): typeof globalThis.fetch {
+  return (input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.delete("authorization");
+    headers.set("cf-aig-authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  };
+}
+
 export function createGateway(config: GatewayConfig | undefined): Gateway {
   if (!config) {
     return {
@@ -49,6 +72,7 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "openai"),
     headers: gatewayHeaders(config.token),
+    fetch: openaiGatewayFetch(config.token),
   });
   const cfGoogle = createGoogleGenerativeAI({
     apiKey: config.token,
