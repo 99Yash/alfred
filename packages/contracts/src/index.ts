@@ -3,6 +3,7 @@ export * from "./guards";
 export * from "./json";
 export * from "./runtime";
 export * from "./google-scopes";
+export * from "./oauth-scopes";
 export * from "./integrations";
 export * from "./tools";
 export * from "./passthrough";
