@@ -40,19 +40,19 @@ interface ModelRoute {
  */
 const MODEL_ROUTES = {
   boss: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["claude-sonnet-4-6", "gemini-3.8-flash"],
     reasoning: "medium",
   },
   subAgent: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["claude-sonnet-4-6", "gemini-3.8-flash"],
     reasoning: "medium",
   },
   cheap: {
-    chain: ["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+    chain: ["gemini-2.5-flash-lite", "gemini-3.8-flash"],
     reasoning: "disabled",
   },
   webSearch: {
-    chain: ["gemini-2.5-flash"],
+    chain: ["gemini-3.8-flash"],
     reasoning: "disabled",
   },
   compactor: {
@@ -60,15 +60,15 @@ const MODEL_ROUTES = {
     reasoning: "disabled",
   },
   compactorFallback: {
-    chain: ["gemini-2.5-flash"],
+    chain: ["gemini-3.8-flash"],
     reasoning: "disabled",
   },
   standard: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["claude-sonnet-4-6", "gemini-3.8-flash"],
     reasoning: "medium",
   },
   deep: {
-    chain: ["claude-opus-4-8", "gemini-2.5-flash"],
+    chain: ["claude-opus-4-8", "gemini-3.8-flash"],
     reasoning: "high",
   },
 } as const satisfies Record<string, ModelRoute>;
@@ -136,6 +136,7 @@ export function route(
 }
 
 const MEDIA_ENRICHMENT_ROUTES = [
+  "gemini-3.8-flash",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
   "claude-sonnet-4-6",
