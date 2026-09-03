@@ -694,7 +694,7 @@ export const githubSearchInput = withKeyAliases(
         .max(365)
         .optional()
         .describe(
-          "Only PRs closed within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Prefer this over a free-form closed: qualifier.",
+          "Only PRs closed within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Set with another window field to match EITHER event: two or more windows combine as OR, never AND. Prefer this over a free-form closed: qualifier.",
         ),
       createdWithinDays: z.coerce
         .number()
@@ -703,7 +703,7 @@ export const githubSearchInput = withKeyAliases(
         .max(365)
         .optional()
         .describe(
-          "Only PRs created within the last N calendar days in the user's timezone (N=1 = today). Prefer this over a free-form created: qualifier.",
+          "Only PRs created within the last N calendar days in the user's timezone (N=1 = today). Alone it matches creation ONLY — a PR created earlier and merged inside the window needs mergedWithinDays too (the windows combine as OR). Prefer this over a free-form created: qualifier.",
         ),
       mergedWithinDays: z.coerce
         .number()
@@ -712,7 +712,7 @@ export const githubSearchInput = withKeyAliases(
         .max(365)
         .optional()
         .describe(
-          "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/in the past week'. Prefer this over a free-form merged: qualifier.",
+          "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/in the past week'. Set with another window field to match EITHER event: two or more windows combine as OR, never AND. Prefer this over a free-form merged: qualifier.",
         ),
       query: z
         .string()

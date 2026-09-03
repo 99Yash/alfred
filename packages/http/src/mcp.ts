@@ -10,6 +10,7 @@ import { z } from "zod";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import {
   boundedMcpErrorText,
+  builtInAuthorizationScopes,
   ensureBuiltInConnection,
   getMcpConnectionManager,
   HostedMcpEndpointAuthorizer,
@@ -129,12 +130,34 @@ async function beginAuthorization(input: {
         userId: connection.userId,
         authorization: authorized.oauth,
       });
-      const scope = [...new Set([...connection.grantedScopes, ...connection.requiredScopes])].join(
-        " ",
-      );
+      // The registry baseline first, then what this connection already holds
+      // or was told it needs. Without the baseline a built-in asks for nothing:
+      // both scope columns are empty on a fresh row, GitHub then issues a
+      // token with an empty scope, and its MCP server answers `tools/list`
+      // with only the scope-free tools — a catalog that cannot read a pull
+      // request. The baseline is derived from the endpoint on every authorize
+      // rather than stored, so widening it in code needs no row migration and
+      // no backfill; the two scope columns keep their one meaning, which is
+      // what this connection was granted and what its server demanded.
+      const wanted = [
+        ...new Set([
+          ...builtInAuthorizationScopes(new URL(connection.server.endpointUrl)),
+          ...connection.grantedScopes,
+          ...connection.requiredScopes,
+        ]),
+      ];
+      const scope = wanted.join(" ");
+      // A scope the stored grant does not carry can only be obtained from a
+      // new consent. The SDK's `auth()` stops at the token it already holds,
+      // so a plain reconnect over a still-valid narrow token asks GitHub for
+      // nothing and the catalog stays narrow. Force the consent exactly when
+      // the ask exceeds the grant: that fires once after the baseline widens
+      // and never again, because the callback writes the granted scopes back.
+      const askExceedsGrant = wanted.some((value) => !connection.grantedScopes.includes(value));
+      const forceReauthorization = input.forceReauthorization || askExceedsGrant;
       try {
         await provider.authorize({
-          ...(input.forceReauthorization ? { forceReauthorization: true } : {}),
+          ...(forceReauthorization ? { forceReauthorization: true } : {}),
           ...(scope ? { scope } : {}),
         });
         return null;
@@ -142,9 +165,13 @@ async function beginAuthorization(input: {
         if (error instanceof McpOAuthAuthorizationRequiredError) {
           await updateConnection(connection.id, {
             status: "auth_required",
-            lastError: input.forceReauthorization
-              ? "Additional permissions require your consent."
-              : "Authorization is required to connect this MCP server.",
+            // Which sentence is true depends on whether a grant already
+            // exists, not on which route asked: a widened baseline on a ready
+            // connection is an additional-permissions prompt too.
+            lastError:
+              forceReauthorization && connection.grantedScopes.length > 0
+                ? "Additional permissions require your consent."
+                : "Authorization is required to connect this MCP server.",
           });
           return error.authorizationUrl;
         }

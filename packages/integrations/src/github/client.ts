@@ -110,6 +110,12 @@ export interface GithubSearchHit {
   repository: string;
   createdAt: string;
   closedAt: string | null;
+  /**
+   * When the PR merged, or `null` for an issue and for an unmerged PR. The
+   * boss needs it to narrow a multi-window search (which is an OR group, see
+   * `buildGithubSearchQuery`) down to the one event it was asked about.
+   */
+  mergedAt: string | null;
 }
 
 export interface SearchResult {
@@ -290,6 +296,7 @@ export function createGithubClient(options: GithubClientOptions) {
           repository: repositoryFromUrl(it.repository_url),
           createdAt: it.created_at,
           closedAt: it.closed_at,
+          mergedAt: it.pull_request?.merged_at ?? null,
         })),
       };
     },

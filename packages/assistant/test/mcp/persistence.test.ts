@@ -14,6 +14,7 @@ import {
 } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
+import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
 import {
   compareAndSetCatalogRevision,
   ensureBuiltInConnection,
@@ -306,7 +307,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     // by swapping the `mcpc_` prefix for `mcps_`, so the fixture mirrors both.
     const migratedConnectionId = `mcpc_migrated_${randomUUID()}`;
     const migratedServerId = migratedConnectionId.replace(/^mcpc_/, "mcps_");
-    const endpoint = new URL("https://api.githubcopilot.com/mcp");
+    const endpoint = new URL(GITHUB_MCP_ENDPOINT_HREF);
     await db().insert(mcpServers).values({
       id: migratedServerId,
       userId,
@@ -439,7 +440,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const reconciled = await ensureBuiltInConnection(userId, "github");
 
     assert.equal(reconciled.id, seeded.id);
-    assert.equal(reconciled.server.endpointUrl, "https://api.githubcopilot.com/mcp");
+    assert.equal(reconciled.server.endpointUrl, GITHUB_MCP_ENDPOINT_HREF);
     assert.equal(reconciled.server.endpointOrigin, "https://api.githubcopilot.com");
   });
 
