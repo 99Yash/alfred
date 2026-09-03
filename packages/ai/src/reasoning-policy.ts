@@ -9,7 +9,41 @@ export type ModelReasoningPolicy = EffortLevel | "disabled";
 
 type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
 type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
-type OpenAIChatProviderOptions = Pick<OpenAILanguageModelResponsesOptions, "reasoningEffort">;
+type OpenAIChatProviderOptions = Pick<
+  OpenAILanguageModelResponsesOptions,
+  "reasoningEffort" | "store"
+>;
+
+/**
+ * Every OpenAI leg must send `store: false`, and the reason is reasoning-item
+ * retention rather than privacy.
+ *
+ * On the Responses API a reasoning model returns a reasoning item with an
+ * `rs_…` id. With the default `store: true`, the SDK replays that item back by
+ * **id reference** on the next leg of a tool loop, and OpenAI is expected to
+ * resolve the id from its own 30-day store. Alfred reaches OpenAI through
+ * Cloudflare AI Gateway Unified Billing, so the upstream organization is
+ * Cloudflare's, and that organization is Zero Data Retention: it persists no
+ * items. The id therefore resolves to nothing and the call fails with
+ * `invalid_request_error` — "Item with id 'rs_…' not found. Items are not
+ * persisted for Zero Data Retention organizations." That is a 400, which
+ * `withFallback` classifies as a client bug and deliberately does NOT retry or
+ * degrade, so the whole turn dies and chat renders "something interrupted this
+ * reply". It fires on the second leg of any tool loop, which is most turns.
+ *
+ * `store: false` switches the round trip from id reference to inline payload:
+ * `openai-language-model.ts` adds `include: ["reasoning.encrypted_content"]`
+ * whenever `store === false` and the model parses as a reasoning model, so the
+ * reasoning travels back as opaque encrypted content that needs no server-side
+ * lookup. It also drops any reasoning part that arrived without encrypted
+ * content instead of sending a dangling id, so the failure mode is closed on
+ * both sides.
+ *
+ * Nothing is lost. Alfred replays the whole transcript every turn and never
+ * sets `previousResponseId` or `conversation`, which are the only features that
+ * need the store. OpenAI prompt caching is independent of it.
+ */
+const OPENAI_ZERO_DATA_RETENTION_STORE = false;
 
 type AnthropicEffortLevel = NonNullable<AnthropicChatProviderOptions["effort"]>;
 type GoogleThinkingLevel = NonNullable<
@@ -87,13 +121,22 @@ function googleDisabled(): SharedV4ProviderOptions["google"] {
 
 function openaiReasoning(modelId: ModelId, effort: EffortLevel): SharedV4ProviderOptions["openai"] {
   const { effortValues } = MODEL_CAPABILITIES[modelId];
-  const bag: OpenAIChatProviderOptions = { reasoningEffort: clampEffort(effort, effortValues) };
+  const bag: OpenAIChatProviderOptions = {
+    reasoningEffort: clampEffort(effort, effortValues),
+    store: OPENAI_ZERO_DATA_RETENTION_STORE,
+  };
   // SAFETY: OpenAI Responses reasoningEffort bag is JSONObject-compatible.
   return bag as SharedV4ProviderOptions["openai"];
 }
 
 function openaiDisabled(): SharedV4ProviderOptions["openai"] {
-  const bag: OpenAIChatProviderOptions = { reasoningEffort: "none" };
+  // `store` still matters at effort "none": the SDK reads the model id, not the
+  // effort, to decide a model is a reasoning model, so an item can still come
+  // back needing the encrypted round trip.
+  const bag: OpenAIChatProviderOptions = {
+    reasoningEffort: "none",
+    store: OPENAI_ZERO_DATA_RETENTION_STORE,
+  };
   // SAFETY: OpenAI disable bag is the SDK shape.
   return bag as SharedV4ProviderOptions["openai"];
 }

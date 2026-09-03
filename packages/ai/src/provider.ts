@@ -40,19 +40,24 @@ interface ModelRoute {
  */
 const MODEL_ROUTES = {
   boss: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["claude-sonnet-4-6", "gemini-3.8-flash"],
     reasoning: "medium",
   },
+  // Sub-agents follow the chat tiers onto Luna (ADR-0077 amendment
+  // 2026-09-03d) so a delegating chat turn is one vendor end to end. The July
+  // bake-off measured the mixed pairing — Luna boss + Sonnet worker — as the
+  // worst shape at 10 calls / 97s / $0.241, and a Sonnet worker still costs
+  // 13× a Luna one. `boss` stays on Sonnet: it drives background work only.
   subAgent: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
     reasoning: "medium",
   },
   cheap: {
-    chain: ["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+    chain: ["gemini-2.5-flash-lite", "gemini-3.8-flash"],
     reasoning: "disabled",
   },
   webSearch: {
-    chain: ["gemini-2.5-flash"],
+    chain: ["gemini-3.8-flash"],
     reasoning: "disabled",
   },
   compactor: {
@@ -60,16 +65,29 @@ const MODEL_ROUTES = {
     reasoning: "disabled",
   },
   compactorFallback: {
-    chain: ["gemini-2.5-flash"],
+    chain: ["gemini-3.8-flash"],
     reasoning: "disabled",
   },
+  // Both chat tiers run `gpt-5.6-luna` and differ only in effort (ADR-0077
+  // amendment 2026-09-03d). The 2026-09-02 `db:sync-prices` run cut Luna 5×
+  // on every token class (1.00/6.00 → 0.20/1.20 per MTok), taking its blended
+  // rate at Alfred's 7:2:1 cache/input/output mix to $0.174 against Sonnet's
+  // $2.31 and Opus's $3.85. Anthropic leaves the chat tiers entirely: keeping
+  // Sonnet as the Auto fallback made a degrade leg cost 13× the primary and
+  // kept the Anthropic cache warm for nothing. `gemini-3.8-flash` is the
+  // cross-provider degrade leg on both tiers, as it already is on boss, deep,
+  // and cheap. Latency is the open risk pricing cannot fix: Luna ran 13 calls
+  // / 63s against Sonnet's 4 / 28s, and the first live Auto turn took 16 legs
+  // / 86s.
   standard: {
-    chain: ["claude-sonnet-4-6", "gemini-2.5-flash"],
+    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
     reasoning: "medium",
   },
+  // Deep is the same model at its strongest effort. `max` is in Luna's
+  // vocabulary; the Gemini leg clamps it to `high`.
   deep: {
-    chain: ["claude-opus-4-8", "gemini-2.5-flash"],
-    reasoning: "high",
+    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
+    reasoning: "max",
   },
 } as const satisfies Record<string, ModelRoute>;
 
@@ -136,6 +154,7 @@ export function route(
 }
 
 const MEDIA_ENRICHMENT_ROUTES = [
+  "gemini-3.8-flash",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
   "claude-sonnet-4-6",
