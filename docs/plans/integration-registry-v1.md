@@ -143,9 +143,13 @@ entries, unchanged in value.
 
 ### 3.3 Google vocabulary moves to contracts
 
-`GOOGLE_FEATURE_SCOPES`, the nine scope URL constants, and `GoogleFeature` are plain strings.
-They move to `packages/contracts/src/google-scopes.ts`. `@alfred/integrations/google` re-exports
-them, so no consumer changes an import. The OAuth mechanics (`scopesForFeatures`, the client,
+`GOOGLE_FEATURE_SCOPES`, the nine scope URLs, and `GoogleFeature` are plain strings. They move to
+`packages/contracts/src/google-scopes.ts`. _Deviation recorded in PR 1:_ the URLs are one object,
+`GOOGLE_SCOPE`, keyed by product then grant (`GOOGLE_SCOPE.gmail.readonly`, `GOOGLE_SCOPE.drive.full`),
+so a URL is spelled once and `GOOGLE_SCOPES` and `GoogleScope` derive from its leaves. Every reader
+of a scope URL imports `GOOGLE_SCOPE` from `@alfred/contracts`; `@alfred/integrations/google` does not
+re-export it. The feature table and its types are still re-exported there, so those importers do not
+change. The OAuth mechanics (`scopesForFeatures`, the client,
 the token refresh) stay in `packages/integrations`.
 
 `GoogleScope` becomes a union of the nine URL literals. `anyOfScopes` and `features` on the
@@ -383,9 +387,10 @@ runtime value. PR 2 and PR 3 are independent of each other and both depend on PR
 - Remove `CREDENTIAL_SHAPE`, `GENERAL_INVOCATION_COVERAGE`, `PASSTHROUGH_TRANSPORT`,
   `credentialShapeForSlug`, the aliases `BearerProvider` and `SupportedIntegrationSlug`, and
   `LEGACY_PAGE_IDS` once no consumer reads them. Each carries `@deprecated` from PR 1.
-- Repoint the importers of the Google scope vocabulary (`smoke-boss.ts`, `smoke-google.ts`,
-  `automation/readiness.ts`, `http/test/workflows/revisions.test.ts`) to `@alfred/contracts` and
-  delete the re-export block in `google/oauth.ts`. Until then the scopes have two import doors.
+- Repoint the importers of `GOOGLE_FEATURE_SCOPES`, `GOOGLE_SCOPES`, `GoogleFeature`, and
+  `GoogleScope` from `@alfred/integrations/google` to `@alfred/contracts` and delete the re-export
+  block in `google/oauth.ts`. Until then those names have two import doors; the scope URLs already
+  have one.
 - Update `docs/reference/shared-helpers.md` and `packages/contracts/AGENTS.md`.
 
 ## 8. Down-proofs the PRs must carry

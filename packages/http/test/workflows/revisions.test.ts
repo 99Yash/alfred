@@ -12,7 +12,6 @@ import {
   workflowRevisions,
   workflows,
 } from "@alfred/db/schemas";
-import { GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 
 import { runOnce } from "@alfred/assistant/execution/executor";
@@ -34,6 +33,7 @@ import {
 } from "@alfred/assistant/automation/revisions";
 import { ENTITY_FETCHERS } from "../../src/sync/read";
 import { dbBackedSkip } from "../support/db-backed";
+import { GOOGLE_SCOPE } from "@alfred/contracts";
 
 const SKIP = dbBackedSkip("database");
 
@@ -429,7 +429,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         accountLabel: "test@example.test",
         // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         accessToken: "test-token" as unknown as SealedCredentialSecret,
-        scopes: [GMAIL_READONLY_SCOPE],
+        scopes: [GOOGLE_SCOPE.gmail.readonly],
         status: "active",
       })
       .returning({ id: integrationCredentials.id });
@@ -500,7 +500,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         accountLabel: "stale@example.test",
         // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
         accessToken: "test-token" as unknown as SealedCredentialSecret,
-        scopes: [GMAIL_READONLY_SCOPE],
+        scopes: [GOOGLE_SCOPE.gmail.readonly],
         status: "active",
       })
       .returning({ id: integrationCredentials.id });

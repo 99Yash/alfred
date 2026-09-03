@@ -103,21 +103,12 @@ export type {
 export {
   ALL_GOOGLE_SCOPES,
   buildAuthorizeUrl,
-  CALENDAR_EVENTS_SCOPE,
-  CALENDAR_READONLY_SCOPE,
   DEFAULT_GOOGLE_SCOPES,
   detectPersona,
-  DOCS_SCOPE,
-  DRIVE_SCOPE,
   exchangeCode,
-  GMAIL_MODIFY_SCOPE,
-  GMAIL_READONLY_SCOPE,
-  GMAIL_SEND_SCOPE,
   GOOGLE_FEATURE_SCOPES,
   getGoogleOAuthConfig,
   refreshAccessToken,
-  SHEETS_SCOPE,
-  SLIDES_SCOPE,
   scopesForFeatures,
 } from "./oauth";
 export { GOOGLE_PASSTHROUGH_BASE_URLS, googlePassthroughProfile } from "./passthrough";

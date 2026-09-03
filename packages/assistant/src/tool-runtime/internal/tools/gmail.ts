@@ -9,6 +9,7 @@
  */
 
 import {
+  GOOGLE_SCOPE,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
   gmailReadMessageInput,
   gmailSearchInput,
@@ -19,13 +20,7 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
-import {
-  type ExtractedMessage,
-  extractMessageContent,
-  GMAIL_MODIFY_SCOPE,
-  GMAIL_READONLY_SCOPE,
-  GMAIL_SEND_SCOPE,
-} from "@alfred/integrations/google";
+import { type ExtractedMessage, extractMessageContent } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
@@ -41,7 +36,7 @@ function gmailThreadUrl(threadId: string): string {
 }
 
 /** Scopes that grant Gmail read access — either readonly or the broader modify. */
-const GMAIL_READ_SCOPES = [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE] as const;
+const GMAIL_READ_SCOPES = [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify] as const;
 
 /** Collapse whitespace and cap length so a search hit's preview stays a glanceable one-liner. */
 function truncateSnippet(text: string | null): string | null {
@@ -276,7 +271,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.search", "gmail.read_message"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: [GMAIL_SEND_SCOPE] },
+      credential: { provider: "google", anyOfScopes: [GOOGLE_SCOPE.gmail.send] },
     },
     inputSchema: gmailSendDraftInput,
     execute: async (input, ctx) => {

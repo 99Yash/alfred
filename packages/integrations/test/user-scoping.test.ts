@@ -5,7 +5,6 @@ import { after, describe, test } from "node:test";
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import {
-  GMAIL_READONLY_SCOPE,
   GoogleCredentialSelectionError,
   googleClientForUser,
   listCredentials,
@@ -19,6 +18,7 @@ import {
 } from "../src/shared/index";
 import { eq, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
+import { GOOGLE_SCOPE } from "@alfred/contracts";
 
 const SKIP = dbBackedSkip("database");
 
@@ -131,7 +131,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         accessToken: "access-a",
         refreshToken: "refresh-a",
         expiresAt: new Date(Date.now() + 60 * 60_000),
-        scopes: [GMAIL_READONLY_SCOPE],
+        scopes: [GOOGLE_SCOPE.gmail.readonly],
       });
       const b = await upsertCredential({
         userId: userB,
@@ -140,7 +140,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         accessToken: "access-b",
         refreshToken: "refresh-b",
         expiresAt: new Date(Date.now() + 60 * 60_000),
-        scopes: [GMAIL_READONLY_SCOPE],
+        scopes: [GOOGLE_SCOPE.gmail.readonly],
       });
 
       const rows = await listCredentials(userA, "google");
@@ -178,7 +178,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         accessToken: "access-a",
         refreshToken: "refresh-a",
         expiresAt: new Date(Date.now() + 60 * 60_000),
-        scopes: [GMAIL_READONLY_SCOPE],
+        scopes: [GOOGLE_SCOPE.gmail.readonly],
       });
       const b = await upsertCredential({
         userId: userB,
@@ -189,7 +189,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         // Non-expiring + gmail scope: under the mutation, the resolver would
         // happily resolve this instead of throwing.
         expiresAt: new Date(Date.now() + 60 * 60_000),
-        scopes: [GMAIL_READONLY_SCOPE],
+        scopes: [GOOGLE_SCOPE.gmail.readonly],
       });
 
       const clientForA = googleClientForUser({ userId: userA, retry: "none" });

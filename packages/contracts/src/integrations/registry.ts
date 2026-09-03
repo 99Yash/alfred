@@ -13,17 +13,9 @@
  * `../tools`.
  */
 
-import {
-  CALENDAR_EVENTS_SCOPE,
-  CALENDAR_READONLY_SCOPE,
-  DOCS_SCOPE,
-  DRIVE_SCOPE,
-  GMAIL_READONLY_SCOPE,
-  SHEETS_SCOPE,
-  SLIDES_SCOPE,
-} from "../google-scopes";
 import { enumGuard } from "../guards";
 import type { IntegrationEntry } from "./types";
+import { GOOGLE_SCOPE } from "../google-scopes";
 
 export const INTEGRATIONS = {
   system: {
@@ -74,7 +66,7 @@ export const INTEGRATIONS = {
     credential: {
       shape: "google_oauth",
       features: ["briefing", "triage", "reply_draft"],
-      anyOfScopes: [GMAIL_READONLY_SCOPE],
+      anyOfScopes: [GOOGLE_SCOPE.gmail.readonly],
     },
     passthrough: { transport: "rest" },
     actions: ["search", "read_message", "send_draft", "request"],
@@ -89,7 +81,7 @@ export const INTEGRATIONS = {
     credential: {
       shape: "google_oauth",
       features: ["calendar"],
-      anyOfScopes: [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE],
+      anyOfScopes: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
     },
     passthrough: { transport: "rest" },
     actions: ["list_events", "create_event", "request"],
@@ -101,7 +93,11 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Drive",
     brand: "google_drive",
-    credential: { shape: "google_oauth", features: ["drive"], anyOfScopes: [DRIVE_SCOPE] },
+    credential: {
+      shape: "google_oauth",
+      features: ["drive"],
+      anyOfScopes: [GOOGLE_SCOPE.drive.full],
+    },
     passthrough: { transport: "rest" },
     actions: ["search_files", "get_file", "export_file", "download_file", "request"],
     summaryBlurb: "the user's Drive files",
@@ -112,7 +108,11 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Docs",
     brand: "google_docs",
-    credential: { shape: "google_oauth", features: ["docs"], anyOfScopes: [DOCS_SCOPE] },
+    credential: {
+      shape: "google_oauth",
+      features: ["docs"],
+      anyOfScopes: [GOOGLE_SCOPE.docs.full],
+    },
     passthrough: { transport: "rest" },
     actions: ["get_document", "request"],
     summaryBlurb: "the user's Google Docs",
@@ -123,7 +123,11 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Sheets",
     brand: "google_sheets",
-    credential: { shape: "google_oauth", features: ["sheets"], anyOfScopes: [SHEETS_SCOPE] },
+    credential: {
+      shape: "google_oauth",
+      features: ["sheets"],
+      anyOfScopes: [GOOGLE_SCOPE.sheets.full],
+    },
     passthrough: { transport: "rest" },
     actions: [
       "create_spreadsheet",
@@ -142,7 +146,11 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Slides",
     brand: "google_slides",
-    credential: { shape: "google_oauth", features: ["slides"], anyOfScopes: [SLIDES_SCOPE] },
+    credential: {
+      shape: "google_oauth",
+      features: ["slides"],
+      anyOfScopes: [GOOGLE_SCOPE.slides.full],
+    },
     passthrough: { transport: "rest" },
     actions: ["create_presentation", "get_presentation", "batch_update", "add_slide", "request"],
     summaryBlurb: "the user's presentations",
