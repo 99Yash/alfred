@@ -40,7 +40,15 @@ function reconcileServed(meta: MeteredMeta, extracted: MeteredResult) {
   if (!served || served === meta.model) {
     return { provider: meta.provider, model: meta.model, responseMeta: extracted.responseMeta };
   }
-  const responseMeta = { ...extracted.responseMeta, servedModelId: served };
+  // `requestedModelId` is the pre-call attribution — the route's primary when a
+  // `withFallback` cascade fired — so a usage rollup can name the model that
+  // errored beside the one that answered. Only written on divergence, like
+  // `servedModelId`, so the common same-model row stays untouched.
+  const responseMeta = {
+    ...extracted.responseMeta,
+    servedModelId: served,
+    requestedModelId: meta.model,
+  };
   const provider = findModelProvider(served);
   if (!provider) {
     return { provider: meta.provider, model: meta.model, responseMeta };

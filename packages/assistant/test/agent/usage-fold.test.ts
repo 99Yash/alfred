@@ -71,8 +71,8 @@ describe("foldModelUsage", () => {
     ]);
 
     assert.deepEqual(usage.models, [
-      { model: "claude-sonnet-4-6", calls: 8 },
-      { model: "gemini-2.5-flash", calls: 1 },
+      { model: "claude-sonnet-4-6", calls: 8, fallback: null },
+      { model: "gemini-2.5-flash", calls: 1, fallback: null },
     ]);
     assert.deepEqual(usage.agents, [
       { subId: "research", calls: 5, costUsd: 0.4 },
@@ -122,6 +122,6 @@ describe("foldModelUsage", () => {
     assert.equal(usage.outputTokens, 20);
     assert.equal(usage.modelLatencyMs, 2000);
     assert.equal(usage.calls, 1);
-    assert.deepEqual(usage.models, [{ model: "claude-sonnet-4-6", calls: 1 }]);
+    assert.deepEqual(usage.models, [{ model: "claude-sonnet-4-6", calls: 1, fallback: null }]);
   });
 });
