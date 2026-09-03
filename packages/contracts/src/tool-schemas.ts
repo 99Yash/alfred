@@ -773,15 +773,18 @@ export const githubGetPullRequestInput = withGithubItemUrl(
  */
 export const GITHUB_PULL_REQUEST_BATCH_MAX = 25;
 
-export const githubGetPullRequestsInput = z
-  .object({
-    items: z
-      .array(githubGetPullRequestInput)
-      .min(1)
-      .max(GITHUB_PULL_REQUEST_BATCH_MAX)
-      .describe("The pull requests to fetch, each as owner + repo + pull_number (or its url)."),
-  })
-  .strict();
+export const githubGetPullRequestsInput = coerceJsonArrayFields(
+  ["items"],
+  z
+    .object({
+      items: z
+        .array(githubGetPullRequestInput)
+        .min(1)
+        .max(GITHUB_PULL_REQUEST_BATCH_MAX)
+        .describe("The pull requests to fetch, each as owner + repo + pull_number (or its url)."),
+    })
+    .strict(),
+);
 
 export const githubGetIssueInput = withGithubItemUrl(
   "issue_number",
