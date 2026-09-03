@@ -124,11 +124,26 @@ export const chatMessageUsageSchema = z.object({
   calls: z.number().int().nonnegative(),
   /**
    * The distinct models that actually served this turn, with each one's call
-   * count, most-used first. Reveals a silent provider fallback — e.g. a chat
-   * turn you expected on `gpt-5.6-luna` showing `gemini-3.8-flash` means the
-   * OpenAI primary errored and `withFallback` degraded it (spend cap, 429).
+   * count, most-used first. `fallback` is set when some of a model's calls ran
+   * because a `withFallback` cascade degraded them (spend cap, 429): `calls` is
+   * how many, and `primary` names the model that errored when the metering row
+   * recorded it (`response_meta.requestedModelId`), else `null`. Derived from
+   * the metering rows, never from the model id, because which model is primary
+   * changes with the route table. `null` means every call ran on its route's
+   * primary. Defaulted for durable messages written before the field existed.
    */
-  models: z.array(z.object({ model: z.string(), calls: z.number().int().positive() })).default([]),
+  models: z
+    .array(
+      z.object({
+        model: z.string(),
+        calls: z.number().int().positive(),
+        fallback: z
+          .object({ primary: z.string().nullable(), calls: z.number().int().positive() })
+          .nullable()
+          .default(null),
+      }),
+    )
+    .default([]),
   /**
    * How the turn's cost divides across the agents that ran it, most expensive
    * first, boss included. One entry means the boss did the whole turn alone.

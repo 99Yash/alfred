@@ -1,7 +1,7 @@
-import type { ChatMessageAgentUsage } from "@alfred/contracts";
+import type { ChatMessageAgentUsage, ChatMessageUsage } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
 import { ArrowDown, ArrowUp, Gauge, Repeat, Zap } from "lucide-react";
-import { PROVIDERS, modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
+import { modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
 import { formatCost, formatTokens, outputTokensPerSecond } from "~/lib/usage-format";
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
@@ -39,6 +39,21 @@ function Stat({
 
 function Divider() {
   return <span aria-hidden className="h-3 w-px bg-app-bg-a3" />;
+}
+
+type ModelFallback = NonNullable<ChatMessageUsage["models"][number]["fallback"]>;
+
+/**
+ * Why a model chip glows amber, in the rollup's own words: how many of the
+ * model's calls were a `withFallback` degrade and, when the metering row kept
+ * it, which primary errored. Older rows carry no primary, so the sentence
+ * degrades to "the primary" rather than guessing one from the model id.
+ */
+function fallbackNote(fallback: ModelFallback, calls: number): string {
+  const share =
+    fallback.calls === calls ? (calls === 1 ? "It" : "Every call") : `${fallback.calls} of them`;
+  const primary = fallback.primary ? `the primary (${fallback.primary})` : "the primary";
+  return `${share} ran here as a fallback: ${primary} errored, so withFallback degraded the turn.`;
 }
 
 /** Circumference of the ring below, hoisted so it isn't recomputed per render. */
@@ -197,9 +212,10 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
  * and on a delegating turn the stacked bar right after it says how much of that
  * number the boss itself spent. The cache share gets a tiny amber ring since
  * it's the biggest lever on that cost. Each served model wears its provider
- * mark; a non-Anthropic chip glows amber because both boss and sub-agent run on
- * `claude-*`, so a `gemini-*`/`gpt-*` model means the Anthropic primary errored
- * (spend cap, 429) and `withFallback` degraded the turn.
+ * mark; a chip glows amber only when the rollup says some of its calls ran as a
+ * `withFallback` degrade (spend cap, 429). That fact travels on
+ * `usage.models[].fallback` from the metering rows, so the strip never has to
+ * know which model the route table currently calls primary.
  *
  * Every cell carries a `Tip` hover card rather than a native `title`, so the
  * abbreviated figure keeps its exact count and its explanation one hover away.
@@ -281,7 +297,9 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
 
       {usage.models.map((m) => {
         const provider = providerOf(m.model);
-        const fell = provider !== null && provider !== PROVIDERS.anthropic;
+        // `?? null` covers a rollup persisted before the field existed and read
+        // back without a schema pass: absent must mean "no degrade", not amber.
+        const fallback = m.fallback ?? null;
         const Icon = provider?.Icon;
         const served =
           m.calls === 1 ? "Served 1 call this turn." : `Served ${m.calls} calls this turn.`;
@@ -290,13 +308,13 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
             key={m.model}
             label={m.model}
             description={
-              fell
-                ? `${served} ${provider?.label} is a fallback. The Anthropic primary errored, so withFallback degraded the turn.`
+              fallback
+                ? `${served} ${fallbackNote(fallback, m.calls)}`
                 : `${served}${provider ? ` Provider: ${provider.label}.` : ""}`
             }
           >
             <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-app-fg-4 transition-colors">
-              {fell ? (
+              {fallback ? (
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-app-amber-4" />
               ) : null}
               {Icon ? (
