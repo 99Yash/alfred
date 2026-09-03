@@ -171,7 +171,7 @@ export const INTEGRATIONS = {
     brand: "github",
     credential: { shape: "github_app" },
     passthrough: { transport: "rest" },
-    actions: ["search", "get_pull_request", "get_issue", "request"],
+    actions: ["search", "get_pull_request", "get_pull_requests", "get_issue", "request"],
     summaryBlurb: "the user's GitHub issues and pull requests",
     // The connection whose missing identity made the boss ask "which repo?" on
     // a self-referential question: the summary line carries the login.
