@@ -47,6 +47,34 @@ export function computeDescriptorHashes(tools: readonly Tool[]): Record<string, 
 }
 
 /**
+ * `{ [remoteName]: readOnly }` for a whole catalog snapshot, true ONLY where the
+ * descriptor asserted `annotations.readOnlyHint === true`.
+ *
+ * A tool that declared no annotation is `false`. An optional annotation that is
+ * absent carries no claim, and the one reading that admits a write is treating
+ * "said nothing" as "is a read" (ADR-0094 amendment).
+ *
+ * Persisted beside {@link computeDescriptorHashes} and for the same reason: the
+ * `mcp.call` dispatch gate resolves ONE tool per call and must not scan a
+ * catalog-sized descriptor array to learn whether that tool claims to be a read
+ * (ADR-0096).
+ */
+export function computeReadOnlyHints(tools: readonly Tool[]): Record<string, boolean> {
+  const hints: Record<string, boolean> = {};
+  for (const tool of tools) {
+    // Same untrusted-name defense as `computeDescriptorHashes`: define an own
+    // data property so `__proto__` becomes a key instead of a prototype setter.
+    Object.defineProperty(hints, tool.name, {
+      configurable: true,
+      enumerable: true,
+      value: tool.annotations?.readOnlyHint === true,
+      writable: true,
+    });
+  }
+  return hints;
+}
+
+/**
  * The security-relevant ambiguity-barrier key: SHA-256 over the canonical
  * EFFECTIVE arguments of an MCP call. Deliberately NOT the generic FNV-1a
  * `proposedInputHash` (which stays the staging/rejection dedup key) — the

@@ -178,6 +178,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:personal",
       descriptors: [{ name: "personal_tool" }],
       descriptorHashes: { personal_tool: "sha256:personal_tool" },
+      readOnlyHints: { personal_tool: false },
       toolCount: 1,
     });
     const [personalCredential, workCredential] = await db()
@@ -343,6 +344,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:migrated-github",
       descriptors: [{ name: "search_repositories" }],
       descriptorHashes: { search_repositories: "sha256:migrated-search" },
+      readOnlyHints: { search_repositories: false },
       toolCount: 1,
     });
     const policy = await upsertToolPolicy({
@@ -453,6 +455,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:aaa",
       descriptors: [{ name: "tool_a" }],
       descriptorHashes: { tool_a: "sha256:h_a" },
+      readOnlyHints: { tool_a: false },
       toolCount: 1,
     });
     // Pointer advanced to the new revision.
@@ -465,6 +468,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:aaa",
       descriptors: [{ name: "tool_a" }],
       descriptorHashes: { tool_a: "sha256:h_a" },
+      readOnlyHints: { tool_a: false },
       toolCount: 1,
     });
     assert.equal(revAAgain.id, revA.id);
@@ -475,6 +479,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:bbb",
       descriptors: [{ name: "tool_a" }, { name: "tool_b" }],
       descriptorHashes: { tool_a: "sha256:h_a", tool_b: "sha256:h_b" },
+      readOnlyHints: { tool_a: false, tool_b: false },
       toolCount: 2,
     });
     assert.notEqual(revB.id, revA.id);
@@ -494,6 +499,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
           revisionHash: "sha256:unsorted",
           descriptors: [{ name: "tool_b" }, { name: "tool_a" }],
           descriptorHashes: { tool_a: "sha256:h_a", tool_b: "sha256:h_b" },
+          readOnlyHints: { tool_a: false, tool_b: false },
           toolCount: 2,
         }),
       /canonical tool-name order/,
@@ -508,6 +514,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:cas-a",
       descriptors: [{ name: "tool_a" }],
       descriptorHashes: { tool_a: "sha256:h_a" },
+      readOnlyHints: { tool_a: false },
       toolCount: 1,
     });
     const revisionB = await insertCatalogRevision({
@@ -515,6 +522,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:cas-b",
       descriptors: [{ name: "tool_b" }],
       descriptorHashes: { tool_b: "sha256:h_b" },
+      readOnlyHints: { tool_b: false },
       toolCount: 1,
     });
 
@@ -579,6 +587,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:catalog",
       descriptors: [{ name: "search" }],
       descriptorHashes: { search: "sha256:search" },
+      readOnlyHints: { search: false },
       toolCount: 1,
     });
     const policy = await upsertToolPolicy({
@@ -844,6 +853,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:for-b",
       descriptors: [{ name: "b_tool" }],
       descriptorHashes: { b_tool: "sha256:hb" },
+      readOnlyHints: { b_tool: false },
       toolCount: 1,
     });
 

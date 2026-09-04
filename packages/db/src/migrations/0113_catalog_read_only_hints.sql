@@ -1,0 +1,20 @@
+-- Per-tool read-only claim, projected from `descriptors` at publication so the
+-- `mcp.call` dispatch gate can resolve ONE tool without scanning a catalog-sized
+-- JSON array (ADR-0096). True only where the descriptor asserted
+-- `annotations.readOnlyHint === true`.
+--
+-- Existing rows default to `{}`, which reads as "no tool claims to be a read".
+-- That is the fail-closed direction: a structural downgrade needs a `true`, so
+-- every historic revision keeps the `high` approval floor.
+--
+-- Republishing does NOT repair an old row. `insertCatalogRevisionInTx` is
+-- `onConflictDoNothing` on `(connection_id, revision_hash)`, so an unchanged
+-- catalog reuses the existing row and its empty map. A revision regains a
+-- downgrade only when the catalog itself changes and a NEW revision is
+-- inserted, which is exactly what the GitHub reconnect does: the catalog grows
+-- from 8 tools to 28.
+--
+-- No backfill from `descriptors` is attempted on purpose. A revision published
+-- before the ADR-0095 admission gate was never checked against the read-only
+-- surface, so backfilling would grant it a downgrade the gate never authorized.
+ALTER TABLE "mcp_catalog_revisions" ADD COLUMN "read_only_hints" jsonb DEFAULT '{}'::jsonb NOT NULL;

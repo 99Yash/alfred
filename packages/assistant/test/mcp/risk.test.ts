@@ -58,6 +58,11 @@ async function seedRevision(connectionId: string): Promise<void> {
     revisionHash: REVISION,
     descriptors: [{ name: REMOTE }],
     descriptorHashes: { [REMOTE]: DESC_HASH },
+    // The descriptor above carries no `annotations`, so `false` is what
+    // `computeReadOnlyHints` would derive for it. It also keeps every assertion
+    // below meaning what it did: the ADR-0096 structural downgrade needs a
+    // `true` AND a built-in read-only endpoint, and this fixture has neither.
+    readOnlyHints: { [REMOTE]: false },
     toolCount: 1,
   });
 }

@@ -32,6 +32,7 @@ import {
   mcpCatalogRevisions,
   mcpConnections,
   mcpInvocation,
+  mcpServers,
   mcpToolPolicy,
   type McpConnection,
   type McpInvocation,
@@ -80,6 +81,17 @@ export type McpToolIdentityResolution =
       connection: OwnedMcpConnectionRef;
       descriptorHash: string;
       policy: McpToolPolicyRow | undefined;
+      /**
+       * The connection's stored endpoint, and whether THIS tool's descriptor
+       * asserted `annotations.readOnlyHint === true` in the current revision.
+       *
+       * Together they are the structural downgrade authority of ADR-0096: an
+       * endpoint the built-in registry marks as a read-only protected resource,
+       * plus the server's own per-tool claim, read from persisted data rather
+       * than assumed from the admission gate having run.
+       */
+      endpointUrl: string;
+      readOnly: boolean;
     }
   | {
       status: "unresolved";
@@ -117,9 +129,22 @@ export async function resolveMcpToolIdentity(
       },
       revisionHash: mcpCatalogRevisions.revisionHash,
       descriptorHash: descriptorHashExpr,
+      // A by-name read of the projected map, not a scan of `descriptors`. Only
+      // the literal `true` counts: an absent key and a stored `false` are both
+      // "this tool makes no read-only claim" (ADR-0096).
+      readOnly: sql<boolean>`coalesce(
+        ${mcpCatalogRevisions.readOnlyHints} -> ${input.remoteName} = 'true'::jsonb, false
+      )`,
+      endpointUrl: mcpServers.endpointUrl,
       policy: mcpToolPolicy,
     })
     .from(mcpConnections)
+    // INNER join: the server row is the endpoint authority, and a connection
+    // without one cannot resolve an identity at all.
+    .innerJoin(
+      mcpServers,
+      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
+    )
     .leftJoin(
       mcpCatalogRevisions,
       eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
@@ -145,6 +170,8 @@ export async function resolveMcpToolIdentity(
     connection: row.connection,
     descriptorHash: row.descriptorHash,
     policy: row.policy ?? undefined,
+    endpointUrl: row.endpointUrl,
+    readOnly: row.readOnly === true,
   };
 }
 

@@ -880,6 +880,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
             revisionHash: `sha256:${randomUUID()}`,
             descriptors: [changedTool],
             descriptorHashes: { charge_card: descriptorHash(changedTool) },
+            readOnlyHints: { charge_card: false },
             toolCount: 1,
           },
           tx,

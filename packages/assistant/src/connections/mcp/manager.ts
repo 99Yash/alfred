@@ -35,9 +35,10 @@ import {
   type McpCatalogSnapshot,
   type McpPreparedToolCall,
 } from "./client";
+import { builtInClientPolicy } from "./built-ins";
 import { HostedMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, McpClientError } from "./errors";
-import { computeDescriptorHashes } from "./hash";
+import { computeDescriptorHashes, computeReadOnlyHints } from "./hash";
 import {
   compareAndSetCatalogRevision,
   insertCatalogRevision,
@@ -115,6 +116,11 @@ function liveClientFactory(): McpClientFactory {
       connectionId: connection.id,
       endpoint: connection.server,
       endpointAuthorizer,
+      // The registry is the only thing that knows an endpoint serves a
+      // read-only catalog (ADR-0094) or must be held to the legacy protocol era
+      // (ADR-0095). `McpRawClient` owns both refusals; it must not reach the
+      // registry to learn the policy.
+      ...builtInClientPolicy(connection.server.endpointUrl),
       ...(usesOAuth
         ? {
             oauthProviderFactory: (authorization) =>
@@ -351,6 +357,7 @@ export class McpConnectionManager {
       revisionHash: snapshot.revision,
       descriptors: snapshot.tools,
       descriptorHashes: computeDescriptorHashes(snapshot.tools),
+      readOnlyHints: computeReadOnlyHints(snapshot.tools),
       toolCount: snapshot.tools.length,
     });
     return revision.id;

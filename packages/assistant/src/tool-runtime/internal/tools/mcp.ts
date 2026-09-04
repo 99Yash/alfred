@@ -93,11 +93,14 @@ export const mcpTools: readonly RegisteredTool[] = [
       relatedTools: ["mcp.list_tools"],
     },
     inputSchema: mcpCallInput,
-    // Reviewed per-descriptor downgrade (#541): the `high` above is the floor, and
-    // this narrows it only when the user has reviewed the exact descriptor the
-    // model selected and recorded a lower tier. All resolution reads Alfred's
-    // PERSISTED catalog (no live client at the gate); any uncertainty — unowned
-    // connection, stale revision, descriptor drift, no policy — stays high.
+    // Two downgrade authorities over the `high` floor above. The REVIEWED one
+    // (#541) narrows it when the user has reviewed the exact descriptor the model
+    // selected and recorded a tier. The STRUCTURAL one (ADR-0096) narrows it for a
+    // tool that is a read on two independent proofs: its connection's endpoint is
+    // a built-in read-only protected resource, and its own published descriptor
+    // asserted `annotations.readOnlyHint`. All resolution reads Alfred's PERSISTED
+    // catalog (no live client at the gate); any uncertainty — unowned connection,
+    // stale revision, descriptor drift, a corrupt policy row — stays high.
     resolveRiskTier: (input, ctx) =>
       resolveMcpCallRiskTier({
         userId: ctx.userId,
@@ -106,7 +109,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         catalogRevision: input.catalogRevision,
       }),
     riskTierDowngradeReason:
-      "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision",
+      "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision; ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
       if (!ctx.stagingId) {
         // mcp.call is always staged (high floor), so it only reaches execution via

@@ -95,6 +95,19 @@ export interface SdkMcpProtocolClientOptions {
   authorization: McpAuthorizedProtocol;
   authProvider?: AuthProvider;
   requestTimeoutMs: number;
+  /**
+   * Refuse the modern era for this connection and negotiate `2025-11-25`.
+   *
+   * The modern era is what turns a server-authored `x-mcp-header` declaration
+   * into a real header channel: the SDK mirrors the declared argument values
+   * into `Mcp-Param-*` request headers, and it gates that behavior on the
+   * negotiated era alone. Pinning the legacy era therefore makes the keyword
+   * inert, which is the whole reason a built-in may ask for it (ADR-0095).
+   *
+   * Alfred implements both eras — `MCP_PROTOCOL_PROFILES` names them — so this
+   * is a choice between two supported profiles, not a fallback.
+   */
+  pinLegacyProtocol?: boolean;
 }
 
 /** Streamable HTTP implementation of Alfred's deliberately narrow MCP profile. */
@@ -116,7 +129,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       {
         capabilities: MCP_CLIENT_CAPABILITIES,
         enforceStrictCapabilities: true,
-        versionNegotiation: { mode: "auto" },
+        versionNegotiation: { mode: options.pinLegacyProtocol === true ? "legacy" : "auto" },
         inputRequired: MCP_INPUT_REQUIRED_PROFILE,
         listChanged: {
           tools: {
