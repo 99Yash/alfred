@@ -86,7 +86,23 @@ export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
  * parser that only checks the beginning of a whitespace token would miss the
  * original failure class when the model wraps it in parentheses.
  */
-const QUALIFIER_SCAN_RE = /(^|[\s(])(-?([A-Za-z][\w-]*):(?:"[^"]*"|[^\s)]*))/g;
+const QUALIFIER_TOKEN = String.raw`-?([A-Za-z][\w-]*):(?:"[^"]*"|[^\s)]*)`;
+const QUALIFIER_SCAN_RE = new RegExp(String.raw`(^|[\s(])(${QUALIFIER_TOKEN})`, "g");
+
+/**
+ * The same scan, widened to absorb the boolean operator that BINDS the token
+ * (`… OR closed:>=X`). {@link stripQualifiers} drops a folded token together
+ * with its operator, because an operator whose operand is gone is dangling and
+ * GitHub 422s on it. The token sub-pattern is shared with
+ * {@link QUALIFIER_SCAN_RE}, so both scans agree on where a token starts and
+ * ends and only the left boundary differs.
+ *
+ * Groups: 1 = boundary, 2 = operator (may be empty), 3 = token, 4 = name.
+ */
+const QUALIFIER_STRIP_RE = new RegExp(
+  String.raw`(^|[\s(])((?:(?:AND|OR|NOT)\s+)?)(${QUALIFIER_TOKEN})`,
+  "g",
+);
 
 export interface ParsedQualifier {
   /** Qualifier name as written, e.g. `merged-by`. */
@@ -557,32 +573,67 @@ export function sanitizeGithubSearchQuery(
  * Remove the given folded `qualifier:value` tokens from the query string and
  * tidy the leftover whitespace and now-empty boolean groups.
  *
- * Re-tokenizes with the SAME scanner the parse used and drops only whole
+ * Re-tokenizes with the same token pattern the parse used and drops only whole
  * qualifier tokens whose identity is in `toRemove`. A naive `split(token)`
  * would clip prefixes (`is:pr` inside `is:private`) and miss/garble the `-`
  * negation; matching on the scanner's token boundaries + the negation-aware
  * identity avoids both.
+ *
+ * A dropped token takes the boolean operator that BOUND it with it
+ * ({@link QUALIFIER_STRIP_RE}), because an operator whose operand is gone is a
+ * syntax error GitHub answers with 422. Removing the operator at strip time
+ * rather than by a blind sweep afterwards is what keeps a MEANINGFUL operator
+ * between two surviving tokens intact — `(NOT is:draft) closed:>=X` loses only
+ * the date window, not the `NOT`.
  */
 function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): string | undefined {
   const drop = new Set(toRemove.map(qualifierIdentity));
-  // A fresh regex instance: QUALIFIER_SCAN_RE is global and module-shared, so
+  // A fresh regex instance: QUALIFIER_STRIP_RE is global and module-shared, so
   // reusing it in `.replace` could collide with another scan's `lastIndex`.
-  const scanner = new RegExp(QUALIFIER_SCAN_RE.source, QUALIFIER_SCAN_RE.flags);
-  const out = query.replace(scanner, (match, boundary: string, token: string, name: string) => {
-    const negated = token.startsWith("-");
-    const value = token.slice(token.indexOf(":") + 1);
-    const identity = qualifierIdentity({ key: name.toLowerCase(), value, negated });
-    // Keep the leading boundary char (space/`(`/start) so neighbouring tokens
-    // don't fuse; drop the qualifier itself when it was folded.
-    return drop.has(identity) ? boundary : match;
-  });
-  const cleaned = out
-    // Collapse whitespace and drop dangling boolean operators / empty groups.
-    .replace(/\s+(AND|OR|NOT)\s+/g, " ")
-    .replace(/\(\s*\)/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .replace(/^\s*(AND|OR|NOT)\s+/i, "")
-    .replace(/\s+(AND|OR|NOT)\s*$/i, "")
-    .trim();
+  const scanner = new RegExp(QUALIFIER_STRIP_RE.source, QUALIFIER_STRIP_RE.flags);
+  const out = query.replace(
+    scanner,
+    (match, boundary: string, _operator: string, token: string, name: string) => {
+      const negated = token.startsWith("-");
+      const value = token.slice(token.indexOf(":") + 1);
+      const identity = qualifierIdentity({ key: name.toLowerCase(), value, negated });
+      // Keep the leading boundary char (space/`(`/start) so neighbouring tokens
+      // don't fuse; drop the operator and the qualifier it bound.
+      return drop.has(identity) ? boundary : match;
+    },
+  );
+  return tidyBooleanResidue(out);
+}
+
+/**
+ * Close up the syntax a strip leaves behind: a group that lost its first member
+ * still opens with the operator that bound its second (`( OR label:bug)`), and a
+ * group that lost every member is empty (`()`).
+ *
+ * Runs to a fixed point because one pass can expose the next: `((closed:>=X))`
+ * strips to `(())`, whose inner group has to go before the outer one is empty.
+ *
+ * `AND`/`OR` never legitimately open a group, so removing one there is
+ * unambiguous. `NOT` does open a group, so it is NOT listed here — a `NOT` that
+ * bound a dropped token already left with it.
+ */
+function tidyBooleanResidue(query: string): string | undefined {
+  let cleaned = query;
+  for (;;) {
+    const next = cleaned
+      .replace(/\(\s*(?:AND|OR)\s+/g, "(")
+      .replace(/\(\s*\)/g, " ")
+      // The gap a dropped token leaves next to a parenthesis. Whitespace beside
+      // a parenthesis means nothing to GitHub, so closing it is safe and keeps
+      // the emitted query byte-identical to the one a clean input would build.
+      .replace(/\(\s+/g, "(")
+      .replace(/\s+\)/g, ")")
+      .replace(/\s{2,}/g, " ")
+      .replace(/^\s*(AND|OR|NOT)\s+/i, "")
+      .replace(/\s+(AND|OR|NOT)\s*$/i, "")
+      .trim();
+    if (next === cleaned) break;
+    cleaned = next;
+  }
   return cleaned.length > 0 ? cleaned : undefined;
 }

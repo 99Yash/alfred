@@ -112,7 +112,37 @@ export class HttpError extends Error {
   get retryable(): boolean {
     return this.status === 429 || (this.status >= 500 && this.status <= 599);
   }
+
+  /**
+   * The provider rejected THIS input, so the same request will fail forever.
+   * See {@link PER_INPUT_PERMANENT_STATUSES} for what qualifies and why the
+   * other 4xx statuses do not.
+   */
+  get perInputPermanent(): boolean {
+    return PER_INPUT_PERMANENT_STATUSES.has(this.status);
+  }
 }
+
+/**
+ * HTTP statuses that mean THIS specific request body is unacceptable — a
+ * malformed request (400), a payload too large (413), or content the provider
+ * semantically rejects (422). The caller must CHANGE the input; repeating it
+ * only burns attempts.
+ *
+ * Every OTHER non-`retryable` status is systemic and recoverable, NOT
+ * per-input: a rotated-then-valid key (401), a quota/billing/permission trip
+ * (403), an endpoint change (404), or a request timeout (408) return the same
+ * status for every request while the condition lasts, then clear. A caller
+ * that treated those as "the input is wrong" would tell the user to fix an
+ * input that was never the problem. (429 and 5xx are already `retryable` and
+ * never reach this set.)
+ *
+ * Two readers, one table: the embed poison-pill guard dead-letters a row on the
+ * first such failure (`buildEmbedFailureSet` in `@alfred/db`), and the public
+ * failure catalog turns one into a `correct_input` fix rather than the generic
+ * "try again" (`toPublicAppError`).
+ */
+export const PER_INPUT_PERMANENT_STATUSES: ReadonlySet<number> = new Set([400, 413, 422]);
 
 /** Type guard — branch on the tag, not the message. */
 export function isHttpError(err: unknown): err is HttpError {

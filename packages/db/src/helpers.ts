@@ -285,30 +285,12 @@ export const vectorColumn = (name: string, dimensions: number) =>
  * drop the entire pending backlog (silent data loss). A full day gives the
  * provider (or ops) time to recover while still terminating the retry storm for
  * a genuinely un-embeddable input. Only a *per-input-permanent* error
- * (`PER_INPUT_PERMANENT_STATUSES`) dead-letters immediately regardless.
+ * (`HttpError.perInputPermanent`) dead-letters immediately regardless.
  *
  * Shared by every embeddable table (`documents`, `memory_chunks`) so the
  * poison-pill policy is defined once — see `buildEmbedFailureSet`.
  */
 export const EMBED_RETRY_WINDOW_HOURS = 24;
-
-/**
- * HTTP statuses that mean THIS specific input is un-embeddable — a malformed
- * request (400), a payload too large to embed (413), or content the provider
- * semantically rejects (422). Safe to dead-letter on the FIRST failure: the
- * same input will fail forever, so retrying only burns sweeps.
- *
- * Every OTHER non-`retryable` status is systemic and recoverable, NOT per-input:
- * a rotated-then-valid key (401), a quota/billing/permission trip (403), an
- * endpoint change (404), or a request timeout (408) return the same status for
- * every row while the condition lasts, then clear. Classifying those as
- * "permanent" would dead-letter the entire pending backlog on the first sweep
- * of a 20-minute key-rotation lag — the exact irreversible-loss class this
- * guard exists to prevent — so they ride the wall-clock window
- * (`EMBED_RETRY_WINDOW_HOURS`) instead. (429 and 5xx are already `retryable`
- * and never reach this set.)
- */
-const PER_INPUT_PERMANENT_STATUSES: ReadonlySet<number> = new Set([400, 413, 422]);
 
 /** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
 const MAX_EMBED_ERROR_CHARS = 500;
@@ -327,7 +309,7 @@ export interface EmbedFailureColumns {
  * change to the window, the redaction cap, or the transient/permanent
  * classification is one edit, not N co-varying copies.
  *
- * A per-input-permanent error (`PER_INPUT_PERMANENT_STATUSES` — the input
+ * A per-input-permanent error (`HttpError.perInputPermanent` — the input
  * itself is un-embeddable) dead-letters the row (`failedAt`) immediately;
  * every other failure, INCLUDING a systemic 4xx (401/403/404 — a rotated key,
  * a quota trip, an endpoint change), rides the wall-clock window and only
@@ -346,7 +328,7 @@ export interface EmbedFailureColumns {
  * with the caller.
  */
 export function buildEmbedFailureSet(cols: EmbedFailureColumns, err: unknown) {
-  const permanent = isHttpError(err) && PER_INPUT_PERMANENT_STATUSES.has(err.status);
+  const permanent = isHttpError(err) && err.perInputPermanent;
   return {
     embedAttempts: sql`${cols.attempts} + 1`,
     // Stamp the first failure once so the transient gate can measure how long
