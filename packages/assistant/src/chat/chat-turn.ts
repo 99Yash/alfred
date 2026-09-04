@@ -22,7 +22,7 @@ import { chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
-import { buildThreadArtifactsContext, ARTIFACT_SYSTEM_GUIDANCE } from "@alfred/assistant/artifacts";
+import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone } from "@alfred/assistant/settings";
 import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
@@ -177,24 +177,28 @@ const CHAT_SYSTEM_PROMPT_BASE = [
   ].join("\n"),
 ].join("\n\n");
 
+/**
+ * Invariant artifact edit rules (#896). Constant across threads and turns, so
+ * they sit in the cached system prefix — including on threads with no
+ * artifact. Per-thread facts (ids, selection, index) change on every mutation
+ * and ride the ephemeral per-turn block instead (`artifactThreadFacts`), where
+ * they add no new cache invalidation. Not exported: the prompt builder inlines
+ * it, so no caller can swap or omit it.
+ */
+const ARTIFACT_SYSTEM_GUIDANCE = [
+  "For an edit, use system.update_artifact on the selected id; do not create a replacement artifact.",
+  "A separate assistant-role reference message contains the selected artifact's exact current body only when contentComplete=true.",
+  "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
+].join("\n");
+
 export function buildChatSystemPrompt(
   grounding: string,
   connectedSummary: string,
   options: {
-    /** Invariant artifact edit guidance; defaults to the constant (#896). */
-    artifactGuidance?: string;
-    /**
-     * @deprecated Pre-split mixed artifact block. Honored as an explicit
-     * override so older callers keep their pinned prompt; new code passes
-     * `artifactGuidance` (or nothing, for the constant).
-     */
-    artifactsContext?: string;
     /** Inject the heavier document guide only while a PDF is selected. */
     artifactDesignMedium?: ArtifactFormat | undefined;
   } = {},
 ): string {
-  const artifactGuidance =
-    options.artifactGuidance ?? options.artifactsContext ?? ARTIFACT_SYSTEM_GUIDANCE;
   const documentDesignBlock =
     options.artifactDesignMedium === "pdf" ? `\n\n${ARTIFACT_DOCUMENT_DESIGN_PROMPT}` : "";
   // The chat path passes no `grounding` date: its "now" (date and time both)
@@ -206,18 +210,19 @@ export function buildChatSystemPrompt(
   // A non-chat caller (or an eval) may still supply a date for a single-turn,
   // non-parking context.
   const dateLine = grounding ? `The current date is ${grounding}.` : "";
-  // The artifact design-system block (`@alfred/artifacts-design`) is identical
-  // every turn, so it sits right after the constant base — the largest possible
-  // cache-stable prefix (#223) — and ahead of the catalog so the connected
-  // catalog stays the last, strongest anchor (ADR-0077). It teaches the boss the
+  // The artifact edit rules and the design-system block
+  // (`@alfred/artifacts-design`) are identical every turn, so they sit right
+  // after the constant base — the largest possible cache-stable prefix (#223) —
+  // and ahead of the catalog so the connected catalog stays the last, strongest
+  // anchor (ADR-0077). The design block teaches the boss the
   // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
   // authoring rules; without it artifact styling is reconstructed from memory
   // and drifts (the "vibes" gap behind the resume shitshow — see artifacts/read.ts).
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: CHAT_SYSTEM_PROMPT_BASE,
-    rules: [`${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}`],
-    grounding: [dateLine, artifactGuidance, connectedSummary],
+    rules: [ARTIFACT_SYSTEM_GUIDANCE, `${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}`],
+    grounding: [dateLine, connectedSummary],
   });
 }
 
@@ -368,26 +373,21 @@ const chatTurnStep: Step<ChatRunState> = {
         // and stays byte-identical. The one remaining mid-run system change is
         // the PDF design guide; clear the durable pin only when its inclusion
         // toggles (Issue 2 closes even that path).
-        const hadLegacyBlock = state.artifactsContext !== undefined;
         const pdfToggled =
           (state.artifactDesignMedium === "pdf") !== (artifactContext.designMedium === "pdf");
         state.artifactThreadFacts = artifactContext.threadFacts;
         state.artifactReference = artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
-        // Drop the pre-split mixed block so a retried legacy checkpoint cannot
-        // resurrect per-thread facts into the system prefix.
-        state.artifactsContext = undefined;
-        if (pdfToggled || hadLegacyBlock) state.systemPromptHash = undefined;
+        if (pdfToggled) state.systemPromptHash = undefined;
       }
       // No date in the system prompt: a stable cached prefix cannot carry a
       // "now" that stays fresh across a park. Both date and time ride the one
       // ephemeral runtime line below. The anchor stays stable throughout a
       // contiguous execution slice and every interrupt clears it, so resume
       // re-stamps to wake-time without using elapsed time as a park proxy (#410).
-      // #896: the artifact invariant is a constant in this cached prefix; the
-      // per-thread facts ride the ephemeral block below.
+      // #896: the artifact edit rules are a constant inside this cached prefix;
+      // the per-thread facts ride the ephemeral block below.
       const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, {
-        artifactGuidance: ARTIFACT_SYSTEM_GUIDANCE,
         artifactDesignMedium: state.artifactDesignMedium,
       });
       assertStableChatSystem(state, systemPrompt);
@@ -397,10 +397,10 @@ const chatTurnStep: Step<ChatRunState> = {
       state.runtimeGroundingAnchor = runtimeGroundingAnchor.toISOString();
       const ephemeralReference = [
         formatRuntimeTimeGrounding(timezone, runtimeGroundingAnchor),
-        state.artifactThreadFacts ?? "",
+        state.artifactThreadFacts,
         state.artifactReference,
       ]
-        .filter((value) => (value ?? "").length > 0)
+        .filter((value) => value.length > 0)
         .join("\n\n");
       const sdkTools = tools.forModel(state.activeTools);
       const chatRoute = route(state.tier);

@@ -194,10 +194,9 @@ test("chat persists system stability across short-lived AlfredAgent instances", 
     /system prompt changed within a cache-stable chat run/,
   );
 
-  // A PDF-guide toggle is the remaining explicit system-context lifecycle
-  // seam (#896: artifact mutations ride the ephemeral block, so the workflow
-  // clears the hash only when the PDF guide toggles). The workflow clears the
-  // hash there, after which the new stable prompt can pin.
+  // Clearing the pin is the only sanctioned way to change the prompt. This
+  // exercises the guard alone: the workflow's seam (a PDF-guide toggle, #896)
+  // is not run here.
   state.systemPromptHash = undefined;
   assertStableChatSystem(state, "intentional refreshed artifact context");
   assert.notEqual(state.systemPromptHash, pinned);
