@@ -35,9 +35,9 @@ import {
   type McpCatalogSnapshot,
   type McpPreparedToolCall,
 } from "./client";
+import { builtInClientPolicy } from "./built-ins";
 import { HostedMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, McpClientError } from "./errors";
-import { computeDescriptorHashes } from "./hash";
 import {
   compareAndSetCatalogRevision,
   insertCatalogRevision,
@@ -115,6 +115,11 @@ function liveClientFactory(): McpClientFactory {
       connectionId: connection.id,
       endpoint: connection.server,
       endpointAuthorizer,
+      // The registry is the only thing that knows an endpoint serves a
+      // read-only catalog (ADR-0094) or must be held to the legacy protocol era
+      // (ADR-0095). `McpRawClient` owns both refusals; it must not reach the
+      // registry to learn the policy.
+      ...builtInClientPolicy(connection.server.endpointUrl),
       ...(usesOAuth
         ? {
             oauthProviderFactory: (authorization) =>
@@ -346,12 +351,13 @@ export class McpConnectionManager {
   }
 
   async #insertCatalog(connectionId: string, snapshot: McpCatalogSnapshot): Promise<string> {
+    // The hash map, the read-only map, and the tool count are all projected
+    // INSIDE publication from these same descriptors, so this call site cannot
+    // hand the row a projection that disagrees with them (ADR-0096).
     const revision = await this.#persistence.insertCatalogRevision({
       connectionId,
       revisionHash: snapshot.revision,
       descriptors: snapshot.tools,
-      descriptorHashes: computeDescriptorHashes(snapshot.tools),
-      toolCount: snapshot.tools.length,
     });
     return revision.id;
   }

@@ -15,6 +15,7 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
+import { projectCatalogRevision } from "../../src/connections/mcp/hash";
 import type { McpConnectionWithServer } from "../../src/connections/mcp/persistence";
 
 type JoinedServerDefinition = McpConnectionWithServer["server"];
@@ -43,6 +44,7 @@ class FakeProtocol implements McpProtocolClient {
     return {
       protocolEra: "pre_2026_07_28",
       protocolVersion: "2025-11-25",
+      mirrorsParamHeaders: false,
       serverName: "fake",
       serverVersion: "1",
       hasTools: true,
@@ -123,26 +125,19 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     await this.onPublish?.();
     const now = new Date();
     const id = `revision-${this.publications}`;
+    // `descriptors` is `readonly Tool[]` now, so the name is typed, not sniffed.
     this.revisions.set(
       id,
-      Array.isArray(input.descriptors)
-        ? input.descriptors.flatMap((entry) =>
-            typeof entry === "object" &&
-            entry !== null &&
-            "name" in entry &&
-            typeof entry.name === "string"
-              ? [entry.name]
-              : [],
-          )
-        : [],
+      input.descriptors.map((entry) => entry.name),
     );
     return {
       id,
       connectionId: input.connectionId,
       revisionHash: input.revisionHash,
       descriptors: input.descriptors,
-      descriptorHashes: input.descriptorHashes,
-      toolCount: input.toolCount,
+      // The fake mirrors what publication does: project, never accept.
+      ...projectCatalogRevision(input.descriptors),
+      toolCount: input.descriptors.length,
       createdAt: now,
       updatedAt: now,
     };

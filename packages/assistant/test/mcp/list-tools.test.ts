@@ -10,7 +10,7 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import { inspectMcpToolLocal, searchMcpToolsLocal } from "../../src/connections/mcp/list-tools";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "../../src/connections/mcp/discovery-policy";
-import { compareMcpToolNames, computeDescriptorHashes } from "../../src/connections/mcp/hash";
+import { compareMcpToolNames, projectCatalogRevision } from "../../src/connections/mcp/hash";
 import {
   ensureConnection,
   listOwnedCurrentCatalogSlices,
@@ -71,13 +71,7 @@ async function seedConnection(
 async function seedRevision(connectionId: string, tools: Tool[]): Promise<string> {
   const descriptors = [...tools].sort((left, right) => compareMcpToolNames(left.name, right.name));
   const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
-  await publishCatalogRevision({
-    connectionId,
-    revisionHash,
-    descriptors,
-    descriptorHashes: computeDescriptorHashes(descriptors),
-    toolCount: descriptors.length,
-  });
+  await publishCatalogRevision({ connectionId, revisionHash, descriptors });
   return revisionHash;
 }
 
@@ -541,7 +535,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const descriptor = tool("__proto__", {
       description: "A valid remote name must remain an own hash-map key",
     });
-    const hashes = computeDescriptorHashes([descriptor]);
+    const { descriptorHashes: hashes } = projectCatalogRevision([descriptor]);
 
     assert.equal(Object.hasOwn(hashes, "__proto__"), true);
     await seedRevision(connection.id, [descriptor]);
@@ -573,7 +567,10 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
         connectionId: connection.id,
         revisionHash: `sha256:${randomUUID().replace(/-/g, "")}`,
         descriptors: unsorted,
-        descriptorHashes: computeDescriptorHashes(unsorted),
+        // A DIRECT insert on purpose: this row's unsorted array is what
+        // publication now refuses, so the projections come straight from the
+        // projector rather than through `publishCatalogRevision`.
+        ...projectCatalogRevision(unsorted),
         toolCount: unsorted.length,
       })
       .returning();

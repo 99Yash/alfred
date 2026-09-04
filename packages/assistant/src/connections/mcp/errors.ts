@@ -17,6 +17,7 @@ export const MCP_CLIENT_ERROR_CODES = [
   "catalog_limit",
   "duplicate_tool",
   "invalid_schema",
+  "write_tool",
   "unknown_tool",
   "invalid_arguments",
   "invalid_output",
