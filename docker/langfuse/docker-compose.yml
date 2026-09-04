@@ -1,4 +1,8 @@
-# Self-hosted Langfuse v3 for LOCAL development only.
+# Self-hosted Langfuse v4 for LOCAL development only.
+# Migrated from v3 (3.194.0) on 2026-09-04; backup in tmp/langfuse-backup-20260904/.
+# Write mode is `dual` until the app SDK (langfuse v3) and legacy read APIs are
+# migrated — only then cut over to the `events_only` default. See the v3->v4
+# guide: https://langfuse.com/self-hosting/upgrade/upgrade-guides/upgrade-v3-to-v4
 #
 # Fully isolated from Alfred's own stack (root ./docker-compose.yml):
 #   - its own postgres / redis / clickhouse / minio, on the `langfuse`
@@ -26,7 +30,7 @@ name: langfuse
 
 services:
   langfuse-worker:
-    image: docker.io/langfuse/langfuse-worker:3
+    image: docker.io/langfuse/langfuse-worker:4.28.1
     restart: always
     depends_on: &langfuse-depends-on
       postgres:
@@ -70,9 +74,16 @@ services:
       REDIS_PORT: "6379"
       REDIS_AUTH: myredissecret
       REDIS_TLS_ENABLED: "false"
+      # v3->v4 migration (dual-write phase): keep v3 ingestion/reads working
+      # while also writing the new events tables. Cut over to `events_only`
+      # only after the app SDK is on langfuse JS v5 and legacy read APIs are
+      # migrated. Backfill stays off until dual-write is confirmed healthy.
+      LANGFUSE_MIGRATION_V4_WRITE_MODE: "dual"
+      LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN: "true"
+      LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL: "false"
 
   langfuse-web:
-    image: docker.io/langfuse/langfuse:3
+    image: docker.io/langfuse/langfuse:4.28.1
     restart: always
     depends_on: *langfuse-depends-on
     ports:
