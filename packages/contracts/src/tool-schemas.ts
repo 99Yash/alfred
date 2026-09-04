@@ -1695,40 +1695,55 @@ export const suggestTodoInput = coerceJsonArrayFields(
  */
 const authorableArtifactKindSchema = artifactKindSchema.exclude(["spreadsheet", "external_file"]);
 
-export const createArtifactInput = z
-  .object({
-    title: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe(
-        "Short human title for the artifact, shown in the sidebar header and the chat card.",
+/**
+ * `markdown` and `format` are optional, but the boss fills every declared field
+ * anyway: dispatch traces run_hs9s7ss11hak and run_bfs3827cdfek show the
+ * semantically correct deck call `{kind:"pages", format:"slides", markdown:""}`
+ * bouncing on the pages-take-no-markdown refine because `""` is not
+ * `undefined`. The model reads that rejection as "pages is broken", retries
+ * `document` with `format:"slides"`, and finally ships a document instead of
+ * the deck the user asked for. Blank strings mean "omitted" here, so drop them
+ * before the refines run (see {@link blankFieldToOmitted}).
+ */
+export const createArtifactInput = blankFieldToOmitted(
+  ["markdown", "format"],
+  z
+    .object({
+      title: z
+        .string()
+        .min(1)
+        .max(200)
+        .describe(
+          "Short human title for the artifact, shown in the sidebar header and the chat card.",
+        ),
+      kind: authorableArtifactKindSchema.describe(
+        "`document` for long-form prose (markdown), or `pages` for an ordered deck/PDF of full-bleed HTML pages.",
       ),
-    kind: authorableArtifactKindSchema.describe(
-      "`document` for long-form prose (markdown), or `pages` for an ordered deck/PDF of full-bleed HTML pages.",
-    ),
-    format: artifactFormatSchema
-      .optional()
-      .describe(
-        "Required when kind is `pages`: `slides` (16:9 deck) or `pdf` (portrait letter). Omit for `document`.",
-      ),
-    markdown: z
-      .string()
-      .max(ARTIFACT_SECTION_MAX_CHARS)
-      .optional()
-      .describe(
-        "Opening section for a `document` (≤~1,800 words). Author the first section here, then continue with append_artifact_section — each section renders in the sidebar as produced. Do NOT attempt the whole document in one call; a long body must be split into sections. Invalid for `pages` (add pages with append_artifact_page).",
-      ),
-  })
-  .strict()
-  .refine((v) => (v.kind === "pages" ? v.format !== undefined : v.format === undefined), {
-    message: "format is required for kind 'pages' and must be omitted for 'document'",
-    path: ["format"],
-  })
-  .refine((v) => !(v.kind === "pages" && v.markdown !== undefined), {
-    message: "markdown is only valid for kind 'document'; use append_artifact_page for pages",
-    path: ["markdown"],
-  });
+      format: artifactFormatSchema
+        .optional()
+        .describe(
+          "Required when kind is `pages`: `slides` (16:9 deck) or `pdf` (portrait letter). Omit for `document`.",
+        ),
+      markdown: z
+        .string()
+        .max(ARTIFACT_SECTION_MAX_CHARS)
+        .optional()
+        .describe(
+          "Opening section for a `document` (≤~1,800 words). Author the first section here, then continue with append_artifact_section — each section renders in the sidebar as produced. Do NOT attempt the whole document in one call; a long body must be split into sections. Invalid for `pages` (add pages with append_artifact_page).",
+        ),
+    })
+    .strict()
+    .refine((v) => (v.kind === "pages" ? v.format !== undefined : v.format === undefined), {
+      message:
+        "kind 'pages' needs format 'slides' or 'pdf'; kind 'document' takes no format. For a slide deck send {kind:'pages', format:'slides'} with no markdown, then add each slide with append_artifact_page.",
+      path: ["format"],
+    })
+    .refine((v) => !(v.kind === "pages" && v.markdown !== undefined), {
+      message:
+        "kind 'pages' takes no markdown. Send {kind:'pages', format:'slides'|'pdf'} with markdown omitted or empty, then add each page with append_artifact_page. markdown is only for kind 'document'.",
+      path: ["markdown"],
+    }),
+);
 
 export const appendArtifactPageInput = z
   .object({
@@ -1767,37 +1782,42 @@ export const appendArtifactSectionInput = z
 
 export const updateArtifactInput = coerceJsonArrayFields(
   ["pages"],
-  z
-    .object({
-      artifactId: z.string().min(1).describe("The artifactId to revise."),
-      title: z.string().min(1).max(200).optional().describe("New title (rename only)."),
-      markdown: z
-        .string()
-        .max(500_000)
-        .optional()
-        .describe("Full replacement markdown for a `document` artifact."),
-      pages: z
-        .array(artifactPageSchema)
-        .max(100)
-        .optional()
-        .describe(
-          "Full replacement page list for a `pages` artifact. Send every page you want kept — this replaces the whole set. To merely add a page, prefer append_artifact_page.",
-        ),
-      baseContentHash: z
-        .string()
-        .regex(/^[a-f0-9]{64}$/)
-        .optional()
-        .describe(
-          "Required for cross-turn markdown/pages replacement. Copy it exactly from a complete artifact reference. Omit for rename-only edits or content created earlier in this same run.",
-        ),
-    })
-    .strict()
-    .refine((v) => v.title !== undefined || v.markdown !== undefined || v.pages !== undefined, {
-      message: "provide at least one of title, markdown, or pages",
-    })
-    .refine((v) => !(v.markdown !== undefined && v.pages !== undefined), {
-      message: "markdown and pages are mutually exclusive (a document has one, a deck the other)",
-    }),
+  // A blank `markdown` beside a `pages` list means "no markdown", not a
+  // document body — same fill-every-field habit as `createArtifactInput`.
+  blankFieldToOmitted(
+    ["title", "markdown"],
+    z
+      .object({
+        artifactId: z.string().min(1).describe("The artifactId to revise."),
+        title: z.string().min(1).max(200).optional().describe("New title (rename only)."),
+        markdown: z
+          .string()
+          .max(500_000)
+          .optional()
+          .describe("Full replacement markdown for a `document` artifact."),
+        pages: z
+          .array(artifactPageSchema)
+          .max(100)
+          .optional()
+          .describe(
+            "Full replacement page list for a `pages` artifact. Send every page you want kept — this replaces the whole set. To merely add a page, prefer append_artifact_page.",
+          ),
+        baseContentHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional()
+          .describe(
+            "Required for cross-turn markdown/pages replacement. Copy it exactly from a complete artifact reference. Omit for rename-only edits or content created earlier in this same run.",
+          ),
+      })
+      .strict()
+      .refine((v) => v.title !== undefined || v.markdown !== undefined || v.pages !== undefined, {
+        message: "provide at least one of title, markdown, or pages",
+      })
+      .refine((v) => !(v.markdown !== undefined && v.pages !== undefined), {
+        message: "markdown and pages are mutually exclusive (a document has one, a deck the other)",
+      }),
+  ),
 );
 
 /**

@@ -71,10 +71,9 @@ describe("systemToolKernel", () => {
       "system.append_artifact_section",
       "system.update_artifact",
     ]);
-    const prompt = buildChatSystemPrompt("Thursday, July 16, 2026", "", {
-      artifactsContext:
-        "An artifact is selected. For an edit, use system.update_artifact on the selected id.",
-    });
+    // The artifact edit rules are inlined by the builder (#896), so this reads
+    // the production constant, not a hand-written stand-in.
+    const prompt = buildChatSystemPrompt("Thursday, July 16, 2026", "");
     const namedSystemTools = new Set(prompt.match(/\bsystem\.[a-z_]+\b/g) ?? []);
     const kernel = new Set<string>(systemToolKernel());
 
