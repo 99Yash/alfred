@@ -89,7 +89,16 @@ export const chatRunStateSchema = z
     // Safe system guidance for the thread's existing artifacts (generated
     // ids/enums only). Refreshed after an artifact mutation so the next model step
     // cannot operate from stale target metadata.
+    // @deprecated #896 split the block: the invariant guidance is a constant in
+    // the system prefix and per-thread facts ride the ephemeral block as
+    // `artifactThreadFacts`. Retained only so pre-split checkpoints still parse;
+    // new code neither reads nor writes it.
     artifactsContext: z.string().optional(),
+    // Per-thread artifact facts (default id, selection resolution, bounded
+    // index). Ephemeral per-turn text, recomposed after every artifact mutation
+    // so the next model step resolves the correct edit target. Optional for
+    // legacy checkpoints minted before the split.
+    artifactThreadFacts: z.string().optional(),
     // Exact selected artifact body, carried as a lower-trust assistant reference
     // message rather than system text. Empty when no artifact exists/was found.
     artifactReference: z.string().optional(),

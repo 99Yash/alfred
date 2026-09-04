@@ -3,7 +3,7 @@
 // update path (ADR-0075) plus the turn-close finalizer; external-file surfaces a
 // Drive/other pointer artifact inline. Cross-module callers (the `system.*` and
 // `drive` tools) import these here, not the private files.
-export { buildThreadArtifactsContext } from "./read";
+export { ARTIFACT_SYSTEM_GUIDANCE, buildThreadArtifactsContext } from "./read";
 export {
   createArtifact,
   appendArtifactPage,
