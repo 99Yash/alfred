@@ -11,8 +11,11 @@ import { artifactContentHash } from "./content-hash";
  * otherwise loses both the artifact id and the exact body needed for an edit.
  *
  * Trust boundary: artifact titles/content can originate in user files or web
- * content. Generated ids/enums may enter the system prompt, but authored text is
- * supplied only as a lower-trust assistant reference message.
+ * content. Generated ids/enums may enter the per-turn facts block, but authored
+ * text is supplied only as a lower-trust assistant reference message.
+ *
+ * The invariant edit rules (#896) are prompt text, not read-path data: they
+ * live beside the chat prompt base in `chat/chat-turn.ts`.
  */
 
 /** A complete reference larger than this is omitted, never truncated. */
@@ -20,8 +23,6 @@ const MAX_REFERENCE_CONTENT_CHARS = 20_000;
 /** Keep per-turn metadata work bounded even in artifact-heavy threads. */
 const MAX_LISTED_ARTIFACTS = 20;
 export interface ThreadArtifactsContext {
-  /** Invariant edit guidance: constant, safe for the cached system prefix. */
-  readonly systemGuidance: string;
   /** Per-thread facts: default id, selection resolution, bounded index. Ephemeral. */
   readonly threadFacts: string;
   /** Lower-trust assistant message with the exact selected body when bounded. */
@@ -29,19 +30,6 @@ export interface ThreadArtifactsContext {
   /** Selected artifact medium, used to inject only the relevant design guide. */
   readonly designMedium: ArtifactFormat | undefined;
 }
-
-/**
- * Invariant artifact edit guidance (#896). Constant across threads and turns,
- * so it lives in the cached system prefix — including on threads with no
- * artifact. Per-thread facts (ids, selection, index) change on every mutation
- * and ride the ephemeral per-turn block instead, where they add no new cache
- * invalidation.
- */
-export const ARTIFACT_SYSTEM_GUIDANCE = [
-  "For an edit, use system.update_artifact on the selected id; do not create a replacement artifact.",
-  "A separate assistant-role reference message contains the selected artifact's exact current body only when contentComplete=true.",
-  "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
-].join("\n");
 
 type ArtifactReferenceRow = Pick<
   Artifact,
@@ -103,12 +91,7 @@ export async function buildThreadArtifactsContext(
 
   const current = rows[0];
   if (!current) {
-    return {
-      systemGuidance: ARTIFACT_SYSTEM_GUIDANCE,
-      threadFacts: "",
-      referenceMessage: "",
-      designMedium: undefined,
-    };
+    return { threadFacts: "", referenceMessage: "", designMedium: undefined };
   }
 
   const selectedId = requestedArtifactId ?? current.id;
@@ -154,7 +137,6 @@ export async function buildThreadArtifactsContext(
   }
 
   return {
-    systemGuidance: ARTIFACT_SYSTEM_GUIDANCE,
     threadFacts: lines.join("\n"),
     referenceMessage: selected ? buildArtifactReference(selected) : "",
     designMedium: selected?.format ?? undefined,
