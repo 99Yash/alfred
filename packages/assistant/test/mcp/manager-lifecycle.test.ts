@@ -142,6 +142,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
       revisionHash: input.revisionHash,
       descriptors: input.descriptors,
       descriptorHashes: input.descriptorHashes,
+      readOnlyHints: input.readOnlyHints,
       toolCount: input.toolCount,
       createdAt: now,
       updatedAt: now,

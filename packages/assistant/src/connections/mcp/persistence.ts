@@ -405,6 +405,34 @@ const descriptorHashesSchema = z.unknown().transform((value, context) => {
   return hashes;
 });
 
+/**
+ * The same untrusted-key discipline as `descriptorHashesSchema`, over booleans.
+ * A non-boolean value is a publication bug, not a degraded read, so it fails
+ * the whole publication rather than coercing to `false`.
+ */
+const readOnlyHintsSchema = z.unknown().transform((value, context) => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    context.addIssue({ code: "custom", message: "Expected a read-only hint record" });
+    return z.NEVER;
+  }
+
+  const hints: Record<string, boolean> = {};
+  for (const [name, candidate] of Object.entries(value)) {
+    const hint = z.boolean().safeParse(candidate);
+    if (!hint.success) {
+      context.addIssue({ code: "custom", message: `Expected a boolean hint for '${name}'` });
+      return z.NEVER;
+    }
+    Object.defineProperty(hints, name, {
+      configurable: true,
+      enumerable: true,
+      value: hint.data,
+      writable: true,
+    });
+  }
+  return hints;
+});
+
 function toCatalogSliceRow(
   row: OwnedCurrentCatalogRow & { summaries: unknown },
   descriptorOffset: number,
@@ -679,6 +707,8 @@ export interface PublishCatalogRevisionInput {
   descriptors: unknown;
   /** `{ [remoteName]: descriptorHash }` from `computeDescriptorHashes`. */
   descriptorHashes: Record<string, string>;
+  /** `{ [remoteName]: readOnly }` from `computeReadOnlyHints`. */
+  readOnlyHints: Record<string, boolean>;
   toolCount: number;
 }
 
@@ -720,6 +750,19 @@ function assertCanonicalCatalogPublication(input: PublishCatalogRevisionInput): 
   const hashNames = Object.keys(descriptorHashes.data).sort(compareMcpToolNames);
   if (hashNames.length !== names.length || hashNames.some((name, index) => name !== names[index])) {
     throw new Error("MCP catalog descriptor hashes must cover the exact descriptor names");
+  }
+
+  // The read-only map covers the SAME names, for the same reason: a downgrade
+  // resolves one tool by name, so a name the map omits would read as `false` —
+  // safe here, but silently so. Requiring full coverage keeps a publication bug
+  // loud instead of turning it into an invisible re-gate (ADR-0096).
+  const readOnlyHints = readOnlyHintsSchema.safeParse(input.readOnlyHints);
+  if (!readOnlyHints.success) {
+    throw new Error("MCP catalog read-only hints must be a boolean record");
+  }
+  const hintNames = Object.keys(readOnlyHints.data).sort(compareMcpToolNames);
+  if (hintNames.length !== names.length || hintNames.some((name, index) => name !== names[index])) {
+    throw new Error("MCP catalog read-only hints must cover the exact descriptor names");
   }
 }
 
@@ -776,6 +819,7 @@ async function insertCatalogRevisionInTx(
       revisionHash: input.revisionHash,
       descriptors: input.descriptors,
       descriptorHashes: input.descriptorHashes,
+      readOnlyHints: input.readOnlyHints,
       toolCount: input.toolCount,
     })
     .onConflictDoNothing({

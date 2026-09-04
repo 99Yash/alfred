@@ -592,6 +592,17 @@ describe("McpRawClient catalog", () => {
         ],
       },
     ]);
+    // The refusal is scoped to the era that ACTS on the keyword: the SDK mirrors
+    // an `x-mcp-header` declaration into a `Mcp-Param-*` request header only in
+    // the modern era, so that is where a declaration is a header channel and
+    // where Alfred refuses it (ADR-0095). The legacy era makes the same
+    // declaration inert, which is what lets a pinned built-in read GitHub's
+    // catalog at all — 21 of its 28 read-only tools declare the keyword.
+    modelSelectedHeader.negotiated = {
+      ...modelSelectedHeader.negotiated,
+      protocolEra: "post_2026_07_28",
+      protocolVersion: "2026-07-28",
+    };
     const headerClient = makeClient(modelSelectedHeader);
     await headerClient.connect();
     await assertMcpError(headerClient.refreshCatalog(), "invalid_schema");

@@ -10,7 +10,11 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import { inspectMcpToolLocal, searchMcpToolsLocal } from "../../src/connections/mcp/list-tools";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "../../src/connections/mcp/discovery-policy";
-import { compareMcpToolNames, computeDescriptorHashes } from "../../src/connections/mcp/hash";
+import {
+  compareMcpToolNames,
+  computeDescriptorHashes,
+  computeReadOnlyHints,
+} from "../../src/connections/mcp/hash";
 import {
   ensureConnection,
   listOwnedCurrentCatalogSlices,
@@ -76,6 +80,7 @@ async function seedRevision(connectionId: string, tools: Tool[]): Promise<string
     revisionHash,
     descriptors,
     descriptorHashes: computeDescriptorHashes(descriptors),
+    readOnlyHints: computeReadOnlyHints(descriptors),
     toolCount: descriptors.length,
   });
   return revisionHash;
@@ -574,6 +579,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
         revisionHash: `sha256:${randomUUID().replace(/-/g, "")}`,
         descriptors: unsorted,
         descriptorHashes: computeDescriptorHashes(unsorted),
+        readOnlyHints: computeReadOnlyHints(unsorted),
         toolCount: unsorted.length,
       })
       .returning();

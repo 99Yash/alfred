@@ -53,7 +53,12 @@ export {
   type McpEndpointConnection,
   type McpEndpointNetworkPolicy,
 } from "./endpoint-authorization";
-export { builtInProviderForEndpoint, type BuiltInProvider } from "./built-ins";
+export {
+  builtInClientPolicy,
+  builtInProviderForEndpoint,
+  type BuiltInClientPolicy,
+  type BuiltInProvider,
+} from "./built-ins";
 export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./consent";
 export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
 export { listMcpToolsLocal } from "./list-tools";

@@ -93,6 +93,24 @@ export const mcpCatalogRevisions = pgTable(
      * changing (which bumps the whole `revisionHash`) need not churn it.
      */
     descriptorHashes: jsonb("descriptor_hashes").$type<Record<string, string>>().notNull(),
+    /**
+     * Per-tool read-only claim `{ [remoteName]: boolean }` — true ONLY when the
+     * descriptor asserted `annotations.readOnlyHint === true`. A tool that said
+     * nothing is `false`, because an optional annotation absent carries no
+     * claim, and "said nothing" must not read as "is a read".
+     *
+     * Projected here for the same reason as `descriptorHashes`: the dispatch
+     * gate resolves ONE tool per call and must not scan a catalog-sized JSON
+     * array on a hot path (`resolveMcpToolIdentity`). It is derived from
+     * `descriptors` at publication and never written apart from them.
+     *
+     * The ADR-0095 admission gate already refuses a non-read tool on a
+     * read-only built-in, so for those connections this map is all `true` by
+     * construction. It is stored anyway because the RISK gate must verify the
+     * claim from persisted data rather than inherit the assumption that the
+     * admission gate ran (ADR-0094 amendment, ADR-0096).
+     */
+    readOnlyHints: jsonb("read_only_hints").$type<Record<string, boolean>>().notNull().default({}),
     toolCount: integer("tool_count").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

@@ -65,6 +65,54 @@ type BuiltInDefinition = {
    * widens the next consent.
    */
   readonly scopes: readonly string[];
+  /**
+   * True when the provider's endpoint is a READ-ONLY protected resource, so
+   * every descriptor in its catalog must assert `annotations.readOnlyHint`.
+   *
+   * ADR-0094 pins the read-only resource, and that pin is one character of one
+   * constant. This flag is the SECOND, independent condition the same catalog
+   * has to satisfy: `McpRawClient` refuses the whole refresh when any tool
+   * fails to assert the hint, so a write tool served at `/mcp/readonly` never
+   * reaches a published revision. Measured on 2026-09-03: all 28 tools at
+   * `/mcp/readonly` carry `readOnlyHint: true`, and the 19 write tools that
+   * only the `/mcp` root serves all carry `readOnlyHint: false`. The name set
+   * GitHub serves at `/mcp/readonly` is byte-identical to the `readOnlyHint:
+   * true` subset of `/mcp`, so the resource and the annotation agree today.
+   *
+   * The MCP specification calls an annotation a HINT and tells a client never
+   * to make a tool-use decision from one. That warning holds, and it does not
+   * apply here, because Alfred only ever REFUSES on this field. A lying server
+   * can claim `readOnlyHint: true` for a write tool, which this flag does not
+   * catch and the resource pin does. Nothing a server can say WIDENS what
+   * Alfred admits, so the two controls fail in different directions.
+   *
+   * Absent for a user-added server, which keeps whatever catalog it discovered
+   * (`mcp.call` still stages an approval for every tool — ADR-0088).
+   */
+  readonly readOnlyCatalog: boolean;
+  /**
+   * True when Alfred must negotiate the LEGACY protocol era (`2025-11-25`) with
+   * this provider instead of letting the SDK choose the newest both sides
+   * support.
+   *
+   * GitHub declares `x-mcp-header` on `owner` and `repo` for 21 of the 28 tools
+   * at `/mcp/readonly`. In the modern era the SDK mirrors those argument values
+   * into `Mcp-Param-*` request headers, which is a model-selected header
+   * channel Alfred has never reviewed, so `assertSafeSchema` refuses any
+   * descriptor that declares the keyword. That refusal is not optional garnish:
+   * it is the only thing standing between a server-authored schema and that
+   * channel. Left alone it also refuses GitHub's whole catalog.
+   *
+   * The legacy era resolves both. The SDK gates mirroring on the negotiated era
+   * alone, so `2025-11-25` makes the keyword inert, and the admission rule then
+   * has nothing to refuse. Measured on 2026-09-03 against `/mcp/readonly`: the
+   * legacy era lists the same 28 tools, sends no `Mcp-Param-*` header, and
+   * `list_branches` succeeds with `owner` and `repo` in the request body.
+   * Stripping the keyword instead does NOT work — GitHub enforces the header in
+   * the modern era and answers `header mismatch: missing Mcp-Param-repo header
+   * for parameter "repo"`. ADR-0095.
+   */
+  readonly pinLegacyProtocol: boolean;
   readonly initialState: {
     readonly authServerIdentity: string;
     readonly status: "disconnected";
@@ -87,6 +135,8 @@ export const BUILT_IN_REGISTRY = {
     // so the consent screen states write access; `GITHUB_MCP_ENDPOINT_HREF` is
     // what keeps the granted token off a write tool.
     scopes: ["repo", "read:org"],
+    readOnlyCatalog: true,
+    pinLegacyProtocol: true,
     initialState: {
       authServerIdentity: "oauth:pending",
       status: "disconnected",
@@ -129,6 +179,39 @@ function lookupBuiltInHref(endpointUrl: string): ResolvedDefinition | undefined 
  */
 export function builtInAuthorizationScopes(endpointUrl: string): readonly string[] {
   return lookupBuiltInHref(endpointUrl)?.scopes ?? [];
+}
+
+/**
+ * How `McpRawClient` must be configured for a STORED endpoint — the two facts
+ * only the registry knows, in the one shape `liveClientFactory` spreads.
+ *
+ * They travel together because they answer one question, "what does Alfred owe
+ * this endpoint that it does not owe an arbitrary one", and because keeping
+ * them together means a third built-in adds one registry entry rather than a
+ * third reader. The client itself takes them as two plain flags: it must not
+ * reach the registry, or it would know which servers Alfred trusts.
+ *
+ * Every field is `false` for an endpoint no built-in claims. That default never
+ * admits a tool the endpoint would not have served anyway, and a user-added
+ * server is allowed both a write catalog and the newest protocol era.
+ *
+ * Unlike {@link builtInAuthorizationScopes}, this one IS on the package barrel.
+ * It has a second product reader outside this directory: the `mcp.call` risk
+ * gate asks whether the endpoint is a read-only protected resource before it
+ * grants a structural downgrade (ADR-0096). The scope baseline has no such
+ * reader, which is why it stays behind `consent.ts`.
+ */
+export interface BuiltInClientPolicy {
+  readonly readOnlyCatalog: boolean;
+  readonly pinLegacyProtocol: boolean;
+}
+
+export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
+  const definition = lookupBuiltInHref(endpointUrl);
+  return {
+    readOnlyCatalog: definition?.readOnlyCatalog ?? false,
+    pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
+  };
 }
 
 /**

@@ -15,6 +15,7 @@ import type { Tool } from "@modelcontextprotocol/client";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
+import { computeReadOnlyHints } from "../../../src/connections/mcp/hash";
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import {
   computeDescriptorHashes,
@@ -189,6 +190,7 @@ async function seedConnectionWithCatalog(
     revisionHash: `sha256:${randomUUID().replace(/-/g, "")}`,
     descriptors: tools,
     descriptorHashes: computeDescriptorHashes(tools),
+    readOnlyHints: computeReadOnlyHints(tools),
     toolCount: tools.length,
   });
   return conn.id;
@@ -222,6 +224,7 @@ async function seedOwnedCatalog(
     revisionHash,
     descriptors: tools,
     descriptorHashes,
+    readOnlyHints: computeReadOnlyHints(tools),
     toolCount: tools.length,
   });
   return { connectionId: conn.id, revisionHash, descriptorHashes };
