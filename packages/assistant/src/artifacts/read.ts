@@ -20,13 +20,28 @@ const MAX_REFERENCE_CONTENT_CHARS = 20_000;
 /** Keep per-turn metadata work bounded even in artifact-heavy threads. */
 const MAX_LISTED_ARTIFACTS = 20;
 export interface ThreadArtifactsContext {
-  /** Safe system guidance: generated ids/enums only, never titles/bodies. */
-  readonly systemContext: string;
+  /** Invariant edit guidance: constant, safe for the cached system prefix. */
+  readonly systemGuidance: string;
+  /** Per-thread facts: default id, selection resolution, bounded index. Ephemeral. */
+  readonly threadFacts: string;
   /** Lower-trust assistant message with the exact selected body when bounded. */
   readonly referenceMessage: string;
   /** Selected artifact medium, used to inject only the relevant design guide. */
   readonly designMedium: ArtifactFormat | undefined;
 }
+
+/**
+ * Invariant artifact edit guidance (#896). Constant across threads and turns,
+ * so it lives in the cached system prefix — including on threads with no
+ * artifact. Per-thread facts (ids, selection, index) change on every mutation
+ * and ride the ephemeral per-turn block instead, where they add no new cache
+ * invalidation.
+ */
+export const ARTIFACT_SYSTEM_GUIDANCE = [
+  "For an edit, use system.update_artifact on the selected id; do not create a replacement artifact.",
+  "A separate assistant-role reference message contains the selected artifact's exact current body only when contentComplete=true.",
+  "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
+].join("\n");
 
 type ArtifactReferenceRow = Pick<
   Artifact,
@@ -88,7 +103,12 @@ export async function buildThreadArtifactsContext(
 
   const current = rows[0];
   if (!current) {
-    return { systemContext: "", referenceMessage: "", designMedium: undefined };
+    return {
+      systemGuidance: ARTIFACT_SYSTEM_GUIDANCE,
+      threadFacts: "",
+      referenceMessage: "",
+      designMedium: undefined,
+    };
   }
 
   const selectedId = requestedArtifactId ?? current.id;
@@ -114,15 +134,12 @@ export async function buildThreadArtifactsContext(
 
   const lines = [
     "Artifacts already exist in this conversation and render in the side panel.",
-    "For an edit, use system.update_artifact on the selected id; do not create a replacement artifact.",
     `Most recent/default artifact id: ${current.id}.`,
     requestedArtifactId
       ? selected
         ? `The user selected artifact id ${selected.id}; it wins over recency.`
         : `The requested artifact id ${requestedArtifactId} is not available in this thread; do not guess another target.`
       : `No exact id was selected, so ${current.id} is the edit target.`,
-    "A separate assistant-role reference message contains the selected artifact's exact current body only when contentComplete=true.",
-    "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
   ];
 
   const listedRows = rows.slice(0, MAX_LISTED_ARTIFACTS);
@@ -137,7 +154,8 @@ export async function buildThreadArtifactsContext(
   }
 
   return {
-    systemContext: lines.join("\n"),
+    systemGuidance: ARTIFACT_SYSTEM_GUIDANCE,
+    threadFacts: lines.join("\n"),
     referenceMessage: selected ? buildArtifactReference(selected) : "",
     designMedium: selected?.format ?? undefined,
   };

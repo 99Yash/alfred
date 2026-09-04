@@ -9,7 +9,6 @@ import {
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
-  artifactFormatSchema,
   AWAIT_SUB_AGENT_TOOL,
   getPath,
   parseIanaTimezone,
@@ -23,7 +22,7 @@ import { chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
-import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
+import { buildThreadArtifactsContext, ARTIFACT_SYSTEM_GUIDANCE } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone } from "@alfred/assistant/settings";
 import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
@@ -182,13 +181,20 @@ export function buildChatSystemPrompt(
   grounding: string,
   connectedSummary: string,
   options: {
-    /** Safe generated artifact metadata; authored content stays in the transcript. */
+    /** Invariant artifact edit guidance; defaults to the constant (#896). */
+    artifactGuidance?: string;
+    /**
+     * @deprecated Pre-split mixed artifact block. Honored as an explicit
+     * override so older callers keep their pinned prompt; new code passes
+     * `artifactGuidance` (or nothing, for the constant).
+     */
     artifactsContext?: string;
     /** Inject the heavier document guide only while a PDF is selected. */
     artifactDesignMedium?: ArtifactFormat | undefined;
   } = {},
 ): string {
-  const artifactsContext = options.artifactsContext ?? "";
+  const artifactGuidance =
+    options.artifactGuidance ?? options.artifactsContext ?? ARTIFACT_SYSTEM_GUIDANCE;
   const documentDesignBlock =
     options.artifactDesignMedium === "pdf" ? `\n\n${ARTIFACT_DOCUMENT_DESIGN_PROMPT}` : "";
   // The chat path passes no `grounding` date: its "now" (date and time both)
@@ -211,7 +217,7 @@ export function buildChatSystemPrompt(
     purpose: "assistant_response",
     role: CHAT_SYSTEM_PROMPT_BASE,
     rules: [`${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}`],
-    grounding: [dateLine, artifactsContext, connectedSummary],
+    grounding: [dateLine, artifactGuidance, connectedSummary],
   });
 }
 
@@ -351,23 +357,37 @@ const chatTurnStep: Step<ChatRunState> = {
         );
       }
       await tools.preload(state, hydratedTranscript);
-      if (state.artifactsContext === undefined || state.artifactReference === undefined) {
+      if (state.artifactThreadFacts === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
           state.threadId,
           state.artifactTargetId,
         );
-        state.artifactsContext = artifactContext.systemContext;
+        // #896: per-thread facts ride the ephemeral block, so a mutation only
+        // invalidates that block. The system prefix holds the invariant constant
+        // and stays byte-identical. The one remaining mid-run system change is
+        // the PDF design guide; clear the durable pin only when its inclusion
+        // toggles (Issue 2 closes even that path).
+        const hadLegacyBlock = state.artifactsContext !== undefined;
+        const pdfToggled =
+          (state.artifactDesignMedium === "pdf") !== (artifactContext.designMedium === "pdf");
+        state.artifactThreadFacts = artifactContext.threadFacts;
         state.artifactReference = artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
+        // Drop the pre-split mixed block so a retried legacy checkpoint cannot
+        // resurrect per-thread facts into the system prefix.
+        state.artifactsContext = undefined;
+        if (pdfToggled || hadLegacyBlock) state.systemPromptHash = undefined;
       }
       // No date in the system prompt: a stable cached prefix cannot carry a
       // "now" that stays fresh across a park. Both date and time ride the one
       // ephemeral runtime line below. The anchor stays stable throughout a
       // contiguous execution slice and every interrupt clears it, so resume
       // re-stamps to wake-time without using elapsed time as a park proxy (#410).
+      // #896: the artifact invariant is a constant in this cached prefix; the
+      // per-thread facts ride the ephemeral block below.
       const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, {
-        artifactsContext: state.artifactsContext,
+        artifactGuidance: ARTIFACT_SYSTEM_GUIDANCE,
         artifactDesignMedium: state.artifactDesignMedium,
       });
       assertStableChatSystem(state, systemPrompt);
@@ -377,9 +397,10 @@ const chatTurnStep: Step<ChatRunState> = {
       state.runtimeGroundingAnchor = runtimeGroundingAnchor.toISOString();
       const ephemeralReference = [
         formatRuntimeTimeGrounding(timezone, runtimeGroundingAnchor),
+        state.artifactThreadFacts ?? "",
         state.artifactReference,
       ]
-        .filter((value) => value.length > 0)
+        .filter((value) => (value ?? "").length > 0)
         .join("\n\n");
       const sdkTools = tools.forModel(state.activeTools);
       const chatRoute = route(state.tier);
@@ -817,18 +838,13 @@ const dispatchToolsStep: Step<ChatRunState> = {
           const { call } = completion;
           if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && completion.execution === "completed") {
             // The next model step must not see a stale pre-edit body/hash. Re-read
-            // the selected/default artifact after create/update commits.
-            state.artifactsContext = undefined;
+            // the per-thread facts and reference after create/update commits.
+            // #896: facts ride the ephemeral block, so the cached system prefix
+            // stays byte-identical and the durable pin stays set. The design
+            // medium refreshes on the next chat-turn (which clears the pin only
+            // when the PDF guide toggles), so no optimistic medium update here.
+            state.artifactThreadFacts = undefined;
             state.artifactReference = undefined;
-            // Artifact metadata is the one intentionally mutable system block.
-            // Release the durable pin at the same explicit mutation seam.
-            state.systemPromptHash = undefined;
-            if (call.toolName === "system.create_artifact") {
-              const createdFormat = artifactFormatSchema.safeParse(
-                getPath(completion.result, "format"),
-              );
-              if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
-            }
           }
 
           // ADR-0070: the boundary sanitizer's verdict rides the dispatch
