@@ -37,6 +37,7 @@ class FakeProtocol implements McpProtocolClient {
   negotiated: McpNegotiatedServer = {
     protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
+    mirrorsParamHeaders: false,
     serverName: "fake",
     serverVersion: "1",
     hasTools: true,

@@ -109,6 +109,39 @@ export interface McpRawClientOptions extends McpClientLimits {
   onInsufficientScope?: (requiredScopes: string[]) => void | Promise<void>;
   now?: () => number;
   protocolFactory?: (authorization: McpAuthorizedProtocol) => McpProtocolClient;
+  /**
+   * Refuse the whole catalog unless EVERY descriptor asserts
+   * `annotations.readOnlyHint === true`.
+   *
+   * Injected, never looked up. This class deliberately knows nothing about
+   * Alfred's built-in registry, so the caller that knows an endpoint is a
+   * read-only protected resource decides — `liveClientFactory` spreads
+   * `builtInClientPolicy(endpointUrl)`, which is this flag and
+   * {@link McpRawClientOptions.pinLegacyProtocol} together.
+   *
+   * ADR-0094 makes read-only a property of the RESOURCE, and its residual risk
+   * is that the resource pin proves the ADDRESS and never the CATALOG. This is
+   * the condition that reads the catalog. It refuses the refresh rather than
+   * dropping the offending tool: a write tool at a read-only resource is the
+   * server breaking its own contract, and publishing every OTHER tool would
+   * hide that behind a working connection.
+   */
+  readOnlyCatalog?: boolean | undefined;
+  /**
+   * Negotiate the legacy protocol era (`2025-11-25`) instead of the newest era
+   * both sides support.
+   *
+   * Injected for the same reason as {@link McpRawClientOptions.readOnlyCatalog}:
+   * only the built-in registry knows which endpoints need it. It is what makes
+   * a server's `x-mcp-header` declaration inert, so it is what lets the schema
+   * gate below admit a descriptor that carries one (ADR-0095).
+   *
+   * Both flags read `=== true`, so absent and an explicit `undefined` mean the
+   * same thing to every consumer, and the declarations say so
+   * (`exactOptionalPropertyTypes`). That is what lets the two travel as one
+   * spread of `builtInClientPolicy` without a conditional key.
+   */
+  pinLegacyProtocol?: boolean | undefined;
 }
 
 /**
@@ -222,6 +255,7 @@ export class McpRawClient {
         : new SdkMcpProtocolClient({
             authorization: authorized.protocol,
             requestTimeoutMs: this.#limits.requestTimeoutMs,
+            pinLegacyProtocol: this.#options.pinLegacyProtocol === true,
             ...(boundOAuth
               ? {
                   authProvider: {
@@ -324,7 +358,18 @@ export class McpRawClient {
         cacheScope = page.cacheScope;
       }
       for (const tool of page.tools) {
-        assertAdmissibleToolDescriptor(tool);
+        assertAdmissibleToolDescriptor(tool, {
+          readOnlyCatalog: this.#options.readOnlyCatalog === true,
+          // The NEGOTIATED era, never the pin. A pin that failed, or that a
+          // later edit removes, must not leave the header gate open, and this
+          // reading stays correct either way. `mirrorsParamHeaders` is the
+          // profile's own field, so a new era declares whether it mirrors
+          // instead of this line comparing an era literal. The `!== false`
+          // form is what makes an ABSENT negotiation close the gate: nothing
+          // reaches here before `#connect` publishes the generation, but the
+          // expression must not depend on that call order to be safe.
+          mirrorsParamHeaders: generation.negotiated?.mirrorsParamHeaders !== false,
+        });
         const descriptorBytes = encodedBytes(canonicalJson(tool));
         if (descriptorBytes > MAX_TOOL_DESCRIPTOR_BYTES) {
           throw new McpClientError(
@@ -711,15 +756,37 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function assertAdmissibleToolDescriptor(tool: Tool): void {
+interface ToolAdmissionPolicy {
+  /** Every descriptor must assert `annotations.readOnlyHint === true` (ADR-0094). */
+  readOnlyCatalog: boolean;
+  /**
+   * The negotiated era mirrors an `x-mcp-header` declaration into a
+   * `Mcp-Param-*` request header, so a descriptor may not declare one
+   * (ADR-0095).
+   */
+  mirrorsParamHeaders: boolean;
+}
+
+function assertAdmissibleToolDescriptor(tool: Tool, policy: ToolAdmissionPolicy): void {
   if (tool.name.length === 0 || tool.name.length > 128 || hasAsciiControlCharacter(tool.name)) {
     throw new McpClientError(
       "invalid_schema",
       "MCP tool name must be 1-128 characters with no control characters",
     );
   }
-  assertSafeSchema(tool.name, "input", tool.inputSchema);
-  if (tool.outputSchema) assertSafeSchema(tool.name, "output", tool.outputSchema);
+  // A MISSING hint fails the same way an explicit `false` does. The MCP
+  // specification makes every annotation optional, so absence carries no claim
+  // at all, and treating "said nothing" as "is a read" is the one reading that
+  // admits a write. Alfred only ever refuses on this field, so a server cannot
+  // widen its catalog by asserting the hint (see `BuiltInDefinition.readOnlyCatalog`).
+  if (policy.readOnlyCatalog && tool.annotations?.readOnlyHint !== true) {
+    throw new McpClientError(
+      "write_tool",
+      `MCP tool '${tool.name}' does not assert annotations.readOnlyHint, and this endpoint serves a read-only catalog`,
+    );
+  }
+  assertSafeSchema(tool.name, "input", tool.inputSchema, policy);
+  if (tool.outputSchema) assertSafeSchema(tool.name, "output", tool.outputSchema, policy);
 }
 
 function hasAsciiControlCharacter(value: string): boolean {
@@ -730,7 +797,12 @@ function hasAsciiControlCharacter(value: string): boolean {
   return false;
 }
 
-function assertSafeSchema(toolName: string, direction: "input" | "output", schema: unknown): void {
+function assertSafeSchema(
+  toolName: string,
+  direction: "input" | "output",
+  schema: unknown,
+  policy: ToolAdmissionPolicy,
+): void {
   let nodes = 0;
 
   const visit = (value: unknown, depth: number): void => {
@@ -761,10 +833,25 @@ function assertSafeSchema(toolName: string, direction: "input" | "output", schem
           `MCP tool '${toolName}' ${direction} schema declares a forbidden ${key}`,
         );
       }
-      if (key === "x-mcp-header") {
+      // `x-mcp-header` makes the SDK mirror the declared argument's value into a
+      // `Mcp-Param-*` request header — a header channel a remote server authors
+      // and the model fills. Alfred has never reviewed that channel, so it
+      // refuses the keyword wherever the channel can open.
+      //
+      // The SDK opens it on the NEGOTIATED ERA alone, so the legacy era makes
+      // the declaration inert and there is nothing left to refuse. That is not
+      // a loophole; it is the whole reason a built-in may pin the legacy era
+      // (ADR-0095). GitHub declares the keyword on 21 of its 28 read-only
+      // tools, so an unconditional refusal costs Alfred the entire catalog.
+      //
+      // Admitting the keyword in the modern era is a SEPARATE decision that
+      // ADR-0095 leaves open. It needs a bound on header name and value size,
+      // and an argument that `Mcp-Param-*` cannot reach a credential,
+      // authorization, cache, proxy, or SSRF decision.
+      if (key === "x-mcp-header" && policy.mirrorsParamHeaders) {
         throw new McpClientError(
           "invalid_schema",
-          `MCP tool '${toolName}' ${direction} schema declares forbidden x-mcp-header`,
+          `MCP tool '${toolName}' ${direction} schema declares x-mcp-header, which the negotiated protocol era mirrors into a request header`,
         );
       }
       if (

@@ -12,9 +12,11 @@ import {
   mcpServers,
   user,
 } from "@alfred/db/schemas";
+import type { Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
+import { descriptorHash } from "../../src/connections/mcp/hash";
 import {
   compareAndSetCatalogRevision,
   ensureBuiltInConnection,
@@ -52,6 +54,15 @@ import { dbBackedSkip } from "../support/db-backed";
  * `test-mcp-*` users and cascades everything away on teardown.
  */
 const SKIP = dbBackedSkip("database");
+
+/**
+ * Permissive schema on purpose: these tests exercise persistence, not the raw
+ * client's exact-schema admission (covered by the client tests). Publication
+ * takes `readonly Tool[]`, so a fixture must be a real descriptor.
+ */
+function tool(name: string): Tool {
+  return { name, inputSchema: { type: "object", additionalProperties: true } };
+}
 
 const ID_PREFIX = "test-mcp-";
 const createdUserIds: string[] = [];
@@ -176,9 +187,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const revision = await publishCatalogRevision({
       connectionId: personal.id,
       revisionHash: "sha256:personal",
-      descriptors: [{ name: "personal_tool" }],
-      descriptorHashes: { personal_tool: "sha256:personal_tool" },
-      toolCount: 1,
+      descriptors: [tool("personal_tool")],
     });
     const [personalCredential, workCredential] = await db()
       .insert(mcpOauthCredentials)
@@ -341,9 +350,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const revision = await publishCatalogRevision({
       connectionId: migratedConnectionId,
       revisionHash: "sha256:migrated-github",
-      descriptors: [{ name: "search_repositories" }],
-      descriptorHashes: { search_repositories: "sha256:migrated-search" },
-      toolCount: 1,
+      descriptors: [tool("search_repositories")],
     });
     const policy = await upsertToolPolicy({
       userId,
@@ -451,9 +458,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const revA = await publishCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:aaa",
-      descriptors: [{ name: "tool_a" }],
-      descriptorHashes: { tool_a: "sha256:h_a" },
-      toolCount: 1,
+      descriptors: [tool("tool_a")],
     });
     // Pointer advanced to the new revision.
     assert.equal((await readConnection(connId))?.currentCatalogRevisionId, revA.id);
@@ -463,9 +468,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const revAAgain = await publishCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:aaa",
-      descriptors: [{ name: "tool_a" }],
-      descriptorHashes: { tool_a: "sha256:h_a" },
-      toolCount: 1,
+      descriptors: [tool("tool_a")],
     });
     assert.equal(revAAgain.id, revA.id);
 
@@ -473,9 +476,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const revB = await publishCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:bbb",
-      descriptors: [{ name: "tool_a" }, { name: "tool_b" }],
-      descriptorHashes: { tool_a: "sha256:h_a", tool_b: "sha256:h_b" },
-      toolCount: 2,
+      descriptors: [tool("tool_a"), tool("tool_b")],
     });
     assert.notEqual(revB.id, revA.id);
     assert.equal((await readCurrentRevision(connId))?.id, revB.id);
@@ -492,9 +493,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
         publishCatalogRevision({
           connectionId: connId,
           revisionHash: "sha256:unsorted",
-          descriptors: [{ name: "tool_b" }, { name: "tool_a" }],
-          descriptorHashes: { tool_a: "sha256:h_a", tool_b: "sha256:h_b" },
-          toolCount: 2,
+          descriptors: [tool("tool_b"), tool("tool_a")],
         }),
       /canonical tool-name order/,
     );
@@ -506,16 +505,12 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const revisionA = await insertCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:cas-a",
-      descriptors: [{ name: "tool_a" }],
-      descriptorHashes: { tool_a: "sha256:h_a" },
-      toolCount: 1,
+      descriptors: [tool("tool_a")],
     });
     const revisionB = await insertCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:cas-b",
-      descriptors: [{ name: "tool_b" }],
-      descriptorHashes: { tool_b: "sha256:h_b" },
-      toolCount: 1,
+      descriptors: [tool("tool_b")],
     });
 
     const winner = await compareAndSetCatalogRevision({
@@ -574,18 +569,20 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   test("tool identity resolves owner, current revision, descriptor, and policy together", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
+    const searchTool = tool("search");
     const revision = await publishCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:catalog",
-      descriptors: [{ name: "search" }],
-      descriptorHashes: { search: "sha256:search" },
-      toolCount: 1,
+      descriptors: [searchTool],
     });
+    // Publication derives the hash, so the review has to bind to the derived
+    // one — a literal here would be a miss, which is the point of the binding.
+    const searchHash = descriptorHash(searchTool);
     const policy = await upsertToolPolicy({
       userId,
       connectionId: connId,
       remoteName: "search",
-      descriptorHash: "sha256:search",
+      descriptorHash: searchHash,
       riskTier: "low",
       effectClass: "read",
       retryContract: "never",
@@ -601,7 +598,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     if (identity.status !== "resolved") return;
     assert.equal(identity.connection.id, connId);
     assert.equal(identity.connection.currentCatalogRevisionId, revision.id);
-    assert.equal(identity.descriptorHash, "sha256:search");
+    assert.equal(identity.descriptorHash, searchHash);
     assert.equal(identity.policy?.id, policy.id);
 
     const stale = await resolveMcpToolIdentity({
@@ -842,9 +839,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const revB = await publishCatalogRevision({
       connectionId: connB,
       revisionHash: "sha256:for-b",
-      descriptors: [{ name: "b_tool" }],
-      descriptorHashes: { b_tool: "sha256:hb" },
-      toolCount: 1,
+      descriptors: [tool("b_tool")],
     });
 
     // Pointing A's current-revision at B's revision violates the composite FK

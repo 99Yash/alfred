@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
+import type { Tool } from "@modelcontextprotocol/client";
+
 import type { ToolRiskTier } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
+import { descriptorHash } from "../../src/connections/mcp/hash";
 import { ensureConnection } from "../../src/connections/mcp/persistence";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
 import { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
@@ -29,7 +32,19 @@ const createdUserIds: string[] = [];
 
 const REVISION = "sha256:catrev1";
 const REMOTE = "search_issues";
-const DESC_HASH = "sha256:desc_search_issues";
+
+/**
+ * The one descriptor every case in this file publishes. It carries no
+ * `annotations`, so its projected `readOnlyHint` is `false`, which keeps every
+ * assertion below meaning what it did: the ADR-0096 structural downgrade needs
+ * a `true` AND a built-in read-only endpoint, and this fixture has neither.
+ */
+const DESCRIPTOR: Tool = {
+  name: REMOTE,
+  inputSchema: { type: "object", additionalProperties: true },
+};
+/** Derived, not written down: publication projects the hash from the descriptor. */
+const DESC_HASH = descriptorHash(DESCRIPTOR);
 
 async function seedUser(): Promise<string> {
   const userId = `${ID_PREFIX}${randomUUID()}`;
@@ -56,9 +71,7 @@ async function seedRevision(connectionId: string): Promise<void> {
   await publishCatalogRevision({
     connectionId,
     revisionHash: REVISION,
-    descriptors: [{ name: REMOTE }],
-    descriptorHashes: { [REMOTE]: DESC_HASH },
-    toolCount: 1,
+    descriptors: [DESCRIPTOR],
   });
 }
 
@@ -158,6 +171,9 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
     const connectionId = await seedConnection(userId);
     await seedRevision(connectionId);
     // The user reviewed a PRIOR descriptor of this tool; the live one differs.
+    // The exact-hash policy join misses, and the `reviewed` branch is what
+    // holds the floor — the structural branch must not answer for a tool the
+    // user has already made a decision about (ADR-0096 sub-decision 2).
     await upsertToolPolicy({
       userId,
       connectionId,

@@ -17,7 +17,6 @@ import { and, eq, inArray, like } from "drizzle-orm";
 import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import {
-  computeDescriptorHashes,
   descriptorHash,
   McpRawClient,
   type McpCallEnvelope,
@@ -121,6 +120,7 @@ class PausedFirstCallProtocol implements McpProtocolClient {
     return {
       protocolEra: "pre_2026_07_28",
       protocolVersion: "2025-11-25",
+      mirrorsParamHeaders: false,
       serverName: "paused-test",
       serverVersion: "1",
       hasTools: true,
@@ -188,8 +188,6 @@ async function seedConnectionWithCatalog(
     connectionId: conn.id,
     revisionHash: `sha256:${randomUUID().replace(/-/g, "")}`,
     descriptors: tools,
-    descriptorHashes: computeDescriptorHashes(tools),
-    toolCount: tools.length,
   });
   return conn.id;
 }
@@ -216,14 +214,16 @@ async function seedOwnedCatalog(
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
   const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
-  const descriptorHashes = computeDescriptorHashes(tools);
   await publishCatalogRevision({
     connectionId: conn.id,
     revisionHash,
     descriptors: tools,
-    descriptorHashes,
-    toolCount: tools.length,
   });
+  // Publication derives the hash map, so read it back the way the resolver
+  // does rather than minting a second copy here.
+  const descriptorHashes = Object.fromEntries(
+    tools.map((entry) => [entry.name, descriptorHash(entry)]),
+  );
   return { connectionId: conn.id, revisionHash, descriptorHashes };
 }
 

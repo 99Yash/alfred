@@ -31,10 +31,10 @@ import {
   type NewMcpConnection,
   type NewMcpServer,
 } from "@alfred/db/schemas";
+import type { Tool } from "@modelcontextprotocol/client";
 import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
-import { z } from "zod";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
-import { compareMcpToolNames } from "./hash";
+import { compareMcpToolNames, projectCatalogRevision } from "./hash";
 
 import { BUILT_IN_REGISTRY, type BuiltInProvider } from "./built-ins";
 
@@ -382,29 +382,6 @@ function descriptorSummarySlice(descriptors: SQL, offset: SQL, limit: SQL): SQL<
   ), '[]'::jsonb)`;
 }
 
-const descriptorHashesSchema = z.unknown().transform((value, context) => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    context.addIssue({ code: "custom", message: "Expected a descriptor hash record" });
-    return z.NEVER;
-  }
-
-  const hashes: Record<string, string> = {};
-  for (const [name, candidate] of Object.entries(value)) {
-    const hash = z.string().safeParse(candidate);
-    if (!hash.success) {
-      context.addIssue({ code: "custom", message: `Expected a string hash for '${name}'` });
-      return z.NEVER;
-    }
-    Object.defineProperty(hashes, name, {
-      configurable: true,
-      enumerable: true,
-      value: hash.data,
-      writable: true,
-    });
-  }
-  return hashes;
-});
-
 function toCatalogSliceRow(
   row: OwnedCurrentCatalogRow & { summaries: unknown },
   descriptorOffset: number,
@@ -675,51 +652,44 @@ export interface PublishCatalogRevisionInput {
   connectionId: string;
   /** Stable authority hash (`McpCatalogSnapshot.revision`, "sha256:..."). */
   revisionHash: string;
-  /** Raw, validated descriptors exactly as admitted by the raw client (`Tool[]`). */
-  descriptors: unknown;
-  /** `{ [remoteName]: descriptorHash }` from `computeDescriptorHashes`. */
-  descriptorHashes: Record<string, string>;
-  toolCount: number;
+  /**
+   * The descriptors exactly as `McpRawClient` admitted them, in canonical
+   * `compareMcpToolNames` order.
+   *
+   * This is the ONLY catalog fact publication accepts. The per-tool hash map,
+   * the read-only map, and the tool count are all DERIVED here, so no caller
+   * can hand the database a projection that disagrees with the descriptors it
+   * sits beside — see {@link projectCatalogRevision}. `Tool` is the admitted
+   * type, not raw protocol data: `assertAdmissibleToolDescriptor` in
+   * `client.ts` is the owning parse boundary, and it runs before any of these
+   * descriptors exist.
+   */
+  descriptors: readonly Tool[];
 }
-
-const catalogDescriptorNamesSchema = z.array(z.object({ name: z.string().min(1) }).passthrough());
 
 /**
  * Publication admits only the canonical shape the client produces: descriptors
- * in strict `compareMcpToolNames` order and a hash map over exactly those names.
- * Strict order proves the names are unique, and exact inspection selects a
- * descriptor by name, so uniqueness is what keeps that selection exact. Legacy
- * revisions are not re-validated; the by-name read does not depend on them.
+ * in strict `compareMcpToolNames` order. Strict order proves the names are
+ * unique, and exact inspection selects a descriptor by name, so uniqueness is
+ * what keeps that selection exact. Legacy revisions are not re-validated; the
+ * by-name read does not depend on them.
+ *
+ * There is no longer a coverage check over a supplied hash map or read-only
+ * map. Both are projected from this same array one line below, so the class of
+ * bug those checks caught — a map that does not cover the descriptor names —
+ * cannot be expressed any more.
  */
-function assertCanonicalCatalogPublication(input: PublishCatalogRevisionInput): void {
-  const descriptors = catalogDescriptorNamesSchema.safeParse(input.descriptors);
-  if (!descriptors.success) {
-    throw new Error("MCP catalog descriptors must be an array of named objects");
-  }
-  const descriptorHashes = descriptorHashesSchema.safeParse(input.descriptorHashes);
-  if (!descriptorHashes.success) {
-    throw new Error("MCP catalog descriptor hashes must be a string record");
-  }
-
-  const names = descriptors.data.map((descriptor) => descriptor.name);
-  if (names.length !== input.toolCount) {
-    throw new Error("MCP catalog tool count must match its descriptor array");
-  }
-  for (let index = 1; index < names.length; index += 1) {
-    const previous = names[index - 1];
-    const current = names[index];
+function assertCanonicalCatalogPublication(descriptors: readonly Tool[]): void {
+  for (let index = 1; index < descriptors.length; index += 1) {
+    const previous = descriptors[index - 1];
+    const current = descriptors[index];
     if (
       previous === undefined ||
       current === undefined ||
-      compareMcpToolNames(previous, current) >= 0
+      compareMcpToolNames(previous.name, current.name) >= 0
     ) {
       throw new Error("MCP catalog descriptors must use unique canonical tool-name order");
     }
-  }
-
-  const hashNames = Object.keys(descriptorHashes.data).sort(compareMcpToolNames);
-  if (hashNames.length !== names.length || hashNames.some((name, index) => name !== names[index])) {
-    throw new Error("MCP catalog descriptor hashes must cover the exact descriptor names");
   }
 }
 
@@ -732,6 +702,13 @@ function assertCanonicalCatalogPublication(input: PublishCatalogRevisionInput): 
  *
  * The insert uses `onConflictDoNothing` so a concurrent publisher racing on the
  * same hash cannot produce two rows; the loser reads the winner's row back.
+ *
+ * That conflict rule is also why re-publishing does not REPAIR a stored row.
+ * An unchanged catalog keeps the projection the winning insert wrote, so a
+ * revision inserted before `read_only_hints` existed keeps its `{}` map (and
+ * therefore the `high` floor) until the catalog itself changes and a new
+ * revision hash is inserted. Migration `0113` relies on this and adds no
+ * backfill — ADR-0096.
  */
 export async function publishCatalogRevision(
   input: PublishCatalogRevisionInput,
@@ -768,15 +745,17 @@ async function insertCatalogRevisionInTx(
   input: PublishCatalogRevisionInput,
   tx: DbRunner,
 ): Promise<McpCatalogRevision> {
-  assertCanonicalCatalogPublication(input);
+  assertCanonicalCatalogPublication(input.descriptors);
+  const projection = projectCatalogRevision(input.descriptors);
   const [inserted] = await tx
     .insert(mcpCatalogRevisions)
     .values({
       connectionId: input.connectionId,
       revisionHash: input.revisionHash,
       descriptors: input.descriptors,
-      descriptorHashes: input.descriptorHashes,
-      toolCount: input.toolCount,
+      descriptorHashes: projection.descriptorHashes,
+      readOnlyHints: projection.readOnlyHints,
+      toolCount: input.descriptors.length,
     })
     .onConflictDoNothing({
       target: [mcpCatalogRevisions.connectionId, mcpCatalogRevisions.revisionHash],

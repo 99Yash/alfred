@@ -32,13 +32,16 @@ import {
   mcpCatalogRevisions,
   mcpConnections,
   mcpInvocation,
+  mcpServers,
   mcpToolPolicy,
   type McpConnection,
   type McpInvocation,
   type McpToolPolicyRow,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { builtInReadOnlyResource } from "@alfred/assistant/connections/mcp";
+import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 // ===========================================================================
 // Per-tool policy (reviewed effect/retry/tier, bound to a descriptor hash)
@@ -79,7 +82,33 @@ export type McpToolIdentityResolution =
       status: "resolved";
       connection: OwnedMcpConnectionRef;
       descriptorHash: string;
+      /** The reviewed row for the EXACT descriptor the caller selected. */
       policy: McpToolPolicyRow | undefined;
+      /**
+       * True when the user has reviewed this `(connection, remoteName)` under
+       * ANY descriptor hash, including one that has since drifted.
+       *
+       * `policy` answers "is there a review of THIS descriptor". This answers
+       * "has this tool ever been reviewed at all", and the two differ exactly
+       * when a descriptor drifted. A reviewed tool that drifts must re-gate,
+       * not fall through to a structural downgrade, or drift would silently
+       * undo a review that RAISED the tier (ADR-0096).
+       */
+      reviewed: boolean;
+      /**
+       * Whether the connection's endpoint is a built-in read-only protected
+       * resource, and whether THIS tool's descriptor asserted
+       * `annotations.readOnlyHint === true` in the current revision.
+       *
+       * Together they are the structural downgrade authority of ADR-0096: a
+       * resource the built-in registry itself marks as read-only, plus the
+       * server's own per-tool claim, read from persisted data rather than
+       * assumed from the admission gate having run. The resource question is
+       * resolved HERE, so the risk gate reads two booleans and never handles a
+       * raw endpoint href.
+       */
+      readOnlyResource: boolean;
+      readOnly: boolean;
     }
   | {
       status: "unresolved";
@@ -101,6 +130,12 @@ export type McpToolIdentityResolution =
  * The policy join includes its denormalized `userId` as defense in depth. The
  * connection is the ownership authority, but a malformed cross-user policy row
  * must never authorize a downgrade merely because its descriptor key matches.
+ *
+ * It also answers the two ADR-0096 structural questions here rather than
+ * handing the gate the raw material for them: whether the tool was EVER
+ * reviewed (`reviewed`), and whether the endpoint is a built-in read-only
+ * protected resource (`readOnlyResource`). Both are facts about durable state,
+ * which is what this function owns; the gate is left with booleans to combine.
  */
 export async function resolveMcpToolIdentity(
   input: ResolveMcpToolIdentityInput,
@@ -109,6 +144,9 @@ export async function resolveMcpToolIdentity(
   const descriptorHashExpr = sql<
     string | null
   >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
+  // A SECOND, hash-blind view of the same table. It must be an alias: the join
+  // below binds the exact descriptor hash, and this one deliberately does not.
+  const anyReviewedPolicy = alias(mcpToolPolicy, "any_reviewed_policy");
   const [row] = await runner
     .select({
       connection: {
@@ -117,9 +155,37 @@ export async function resolveMcpToolIdentity(
       },
       revisionHash: mcpCatalogRevisions.revisionHash,
       descriptorHash: descriptorHashExpr,
+      // A by-name read of the projected map, not a scan of `descriptors`. Only
+      // the literal `true` counts: an absent key and a stored `false` are both
+      // "this tool makes no read-only claim" (ADR-0096).
+      readOnly: sql<boolean>`coalesce(
+        ${mcpCatalogRevisions.readOnlyHints} -> ${input.remoteName} = 'true'::jsonb, false
+      )`,
+      // `exists`, not a second join: one `(connection, remoteName)` may hold a
+      // reviewed row per descriptor hash, and a join would multiply the result
+      // row for every historic review.
+      reviewed: exists(
+        runner
+          .select({ reviewed: sql`1` })
+          .from(anyReviewedPolicy)
+          .where(
+            and(
+              eq(anyReviewedPolicy.userId, input.userId),
+              eq(anyReviewedPolicy.connectionId, mcpConnections.id),
+              eq(anyReviewedPolicy.remoteName, input.remoteName),
+            ),
+          ),
+      ),
+      endpointUrl: mcpServers.endpointUrl,
       policy: mcpToolPolicy,
     })
     .from(mcpConnections)
+    // INNER join: the server row is the endpoint authority, and a connection
+    // without one cannot resolve an identity at all.
+    .innerJoin(
+      mcpServers,
+      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
+    )
     .leftJoin(
       mcpCatalogRevisions,
       eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
@@ -145,6 +211,14 @@ export async function resolveMcpToolIdentity(
     connection: row.connection,
     descriptorHash: row.descriptorHash,
     policy: row.policy ?? undefined,
+    reviewed: row.reviewed === true,
+    // The registry is keyed on the stored ENDPOINT, not on the server's
+    // `canonical_resource`. That is the fail-closed direction: if an endpoint
+    // is ever retargeted under an unchanged resource, this answers `false` and
+    // the tool keeps the `high` floor. Keying on the resource would keep a
+    // downgrade alive for an endpoint that had moved (ADR-0094 residual).
+    readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
+    readOnly: row.readOnly === true,
   };
 }
 

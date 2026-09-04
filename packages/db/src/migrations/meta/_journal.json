@@ -792,6 +792,13 @@
       "when": 1788439917221,
       "tag": "0112_retarget_github_mcp_readonly",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1788492358719,
+      "tag": "0113_catalog_read_only_hints",
+      "breakpoints": true
     }
   ]
 }

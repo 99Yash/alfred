@@ -72,7 +72,11 @@ Status: implemented across PR #607 and its schema/cache-hint follow-up
 - Test primitive and array `outputSchema` roots.
 - Keep bounded local `$ref` support and reject external references.
 - Reject descriptors that contain `x-mcp-header` in the first profile.
-  Implemented in PR #607.
+  Implemented in PR #607. **Amended 2026-09-03 by ADR-0095**: the refusal is now
+  scoped to the negotiated era that MIRRORS the keyword into a `Mcp-Param-*`
+  header. The legacy era makes the declaration inert, so it is admitted there,
+  and a built-in may pin that era. The unconditional form refused GitHub's whole
+  read-only catalog, in which 21 of 28 tools declare the keyword.
 - Remove the legacy core `execution.taskSupport` check. Keep Tasks unavailable
   through capability and extension negotiation.
 
