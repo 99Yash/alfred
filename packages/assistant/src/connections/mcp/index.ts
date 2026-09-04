@@ -54,13 +54,14 @@ export {
   type McpEndpointNetworkPolicy,
 } from "./endpoint-authorization";
 export {
-  builtInClientPolicy,
   builtInProviderForEndpoint,
-  type BuiltInClientPolicy,
+  builtInReadOnlyResource,
   type BuiltInProvider,
 } from "./built-ins";
 export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./consent";
-export { canonicalArgsHash, computeDescriptorHashes, descriptorHash } from "./hash";
+// `projectCatalogRevision` is deliberately absent: publication owns it, and no
+// reader outside this directory has any business minting a catalog projection.
+export { canonicalArgsHash, descriptorHash } from "./hash";
 export { listMcpToolsLocal } from "./list-tools";
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 export {

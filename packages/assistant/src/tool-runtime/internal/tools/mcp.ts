@@ -7,9 +7,12 @@
  *  - `mcp.call` carries a static `high` FLOOR: an unreviewed MCP tool always
  *    stages for approval (the risk floor in `toolRequiresApproval`), then routes
  *    through the durable execution broker, which owns the ambiguity ledger. A
- *    `resolveRiskTier` hook narrows that floor at the dispatch gate when the user
- *    has reviewed the exact descriptor and recorded a lower tier in
- *    `mcp_tool_policy` (#541 Part 3) — drift or an unreviewed tool re-gates high.
+ *    `resolveRiskTier` hook narrows that floor at the dispatch gate on TWO
+ *    authorities: a reviewed `mcp_tool_policy` row for the exact descriptor
+ *    (#541 Part 3), or a structural read-only proof — a built-in read-only
+ *    resource plus that tool's own published `readOnlyHint` (ADR-0096). An
+ *    unreviewed tool that satisfies neither, and a reviewed tool whose
+ *    descriptor has drifted, both re-gate high.
  *  - `mcp.list_tools` is a bounded LOCAL read of the persisted catalog. It runs on
  *    the dispatcher's fast path (no staging, no approval, no ledger) because it
  *    performs no outbound action — see the `mcp.list_tools` intercept in

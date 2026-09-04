@@ -115,17 +115,18 @@ export interface McpRawClientOptions extends McpClientLimits {
    *
    * Injected, never looked up. This class deliberately knows nothing about
    * Alfred's built-in registry, so the caller that knows an endpoint is a
-   * read-only protected resource decides — `liveClientFactory` reads
-   * `builtInReadOnlyCatalog(endpointUrl)` and passes the answer here.
+   * read-only protected resource decides — `liveClientFactory` spreads
+   * `builtInClientPolicy(endpointUrl)`, which is this flag and
+   * {@link McpRawClientOptions.pinLegacyProtocol} together.
    *
    * ADR-0094 makes read-only a property of the RESOURCE, and its residual risk
    * is that the resource pin proves the ADDRESS and never the CATALOG. This is
    * the condition that reads the catalog. It refuses the refresh rather than
    * dropping the offending tool: a write tool at a read-only resource is the
-   * server breaking its own contract, and publishing 27 of 28 tools would hide
-   * that behind a working connection.
+   * server breaking its own contract, and publishing every OTHER tool would
+   * hide that behind a working connection.
    */
-  readOnlyCatalog?: boolean;
+  readOnlyCatalog?: boolean | undefined;
   /**
    * Negotiate the legacy protocol era (`2025-11-25`) instead of the newest era
    * both sides support.
@@ -134,8 +135,13 @@ export interface McpRawClientOptions extends McpClientLimits {
    * only the built-in registry knows which endpoints need it. It is what makes
    * a server's `x-mcp-header` declaration inert, so it is what lets the schema
    * gate below admit a descriptor that carries one (ADR-0095).
+   *
+   * Both flags read `=== true`, so absent and an explicit `undefined` mean the
+   * same thing to every consumer, and the declarations say so
+   * (`exactOptionalPropertyTypes`). That is what lets the two travel as one
+   * spread of `builtInClientPolicy` without a conditional key.
    */
-  pinLegacyProtocol?: boolean;
+  pinLegacyProtocol?: boolean | undefined;
 }
 
 /**
@@ -249,7 +255,7 @@ export class McpRawClient {
         : new SdkMcpProtocolClient({
             authorization: authorized.protocol,
             requestTimeoutMs: this.#limits.requestTimeoutMs,
-            ...(this.#options.pinLegacyProtocol === true ? { pinLegacyProtocol: true } : {}),
+            pinLegacyProtocol: this.#options.pinLegacyProtocol === true,
             ...(boundOAuth
               ? {
                   authProvider: {
@@ -356,8 +362,13 @@ export class McpRawClient {
           readOnlyCatalog: this.#options.readOnlyCatalog === true,
           // The NEGOTIATED era, never the pin. A pin that failed, or that a
           // later edit removes, must not leave the header gate open, and this
-          // reading stays correct either way.
-          mirrorsParamHeaders: generation.negotiated?.protocolEra === "post_2026_07_28",
+          // reading stays correct either way. `mirrorsParamHeaders` is the
+          // profile's own field, so a new era declares whether it mirrors
+          // instead of this line comparing an era literal. The `!== false`
+          // form is what makes an ABSENT negotiation close the gate: nothing
+          // reaches here before `#connect` publishes the generation, but the
+          // expression must not depend on that call order to be safe.
+          mirrorsParamHeaders: generation.negotiated?.mirrorsParamHeaders !== false,
         });
         const descriptorBytes = encodedBytes(canonicalJson(tool));
         if (descriptorBytes > MAX_TOOL_DESCRIPTOR_BYTES) {

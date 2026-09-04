@@ -25,10 +25,12 @@
  *   - the model echoed a `catalogRevision` that is not the connection's current
  *     one (a stale view — descriptor drift may have re-gated the tool, story #12);
  *   - the selected `remoteName` has no descriptor in that revision;
- *   - no reviewed policy exists for that exact descriptor hash (stories #10/#11:
- *     a downgrade binds to the descriptor it was granted for, so drift produces a
- *     fresh key, a miss, and a re-gate), AND the structural conditions do not
- *     both hold.
+ *   - the tool was reviewed under a descriptor that has since drifted (stories
+ *     #10/#11: a downgrade binds to the descriptor it was granted for, so drift
+ *     produces a fresh key, a miss, and a re-gate — and the structural branch
+ *     below must not paper over that miss);
+ *   - no reviewed policy exists at all AND the structural conditions do not both
+ *     hold.
  *
  * The broker consumes the SAME `resolveMcpToolIdentity` derivation at execute
  * time, then requires its persisted descriptor hash to equal the live client's
@@ -40,7 +42,6 @@
  */
 
 import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
-import { builtInClientPolicy } from "@alfred/assistant/connections/mcp";
 import {
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,
@@ -78,19 +79,26 @@ export async function resolveMcpCallRiskTier(
  * successor mint reuses this so its staging row cannot carry a tier the dispatch
  * gate would have refused.
  *
- * Three branches, in strict precedence:
+ * Four branches, in strict precedence:
  *
- * 1. **A reviewed policy row wins outright**, in both directions. It is the
- *    user's explicit decision about this exact descriptor, so it must be able to
- *    raise the tier as well as lower it. A row whose persisted tier is corrupt
- *    is an uncertainty, so it takes the floor and does NOT fall through to the
- *    structural branch: a present-but-unreadable review is not the same as no
- *    review at all.
- * 2. **The structural downgrade (ADR-0096)** applies when the connection's
+ * 1. **A reviewed policy row for THIS descriptor wins outright**, in both
+ *    directions. It is the user's explicit decision about this exact
+ *    descriptor, so it must be able to raise the tier as well as lower it. A
+ *    row whose persisted tier is corrupt is an uncertainty, so it takes the
+ *    floor and does NOT fall through: a present-but-unreadable review is not
+ *    the same as no review at all.
+ * 2. **A tool reviewed under a DIFFERENT descriptor takes the floor.** The user
+ *    reviewed this tool and its descriptor has since drifted. Without this
+ *    branch the drift would fall through to the structural downgrade, which
+ *    would silently undo a review that RAISED the tier — the user asked to be
+ *    prompted, and a server-side description edit would have cancelled the
+ *    ask. Re-gating is what "a reviewed policy wins in both directions" has to
+ *    mean under drift.
+ * 3. **The structural downgrade (ADR-0096)** applies when the connection's
  *    endpoint is a built-in read-only protected resource AND the persisted
- *    catalog records this tool's own `readOnlyHint`. Two independent conditions,
- *    both read from durable state at the gate.
- * 3. **Otherwise the floor.**
+ *    catalog records this tool's own `readOnlyHint`. Two independent
+ *    conditions, both read from durable state at the gate.
+ * 4. **Otherwise the floor.**
  */
 export function effectiveMcpRiskTier(identity: McpToolIdentityResolution): ToolRiskTier {
   if (identity.status !== "resolved") return MCP_CALL_RISK_FLOOR;
@@ -105,13 +113,18 @@ export function effectiveMcpRiskTier(identity: McpToolIdentityResolution): ToolR
       : MCP_CALL_RISK_FLOOR;
   }
 
+  // Reviewed once, drifted since. The structural branch below re-proves that
+  // the NEW descriptor is a read, which is true and is not the question: the
+  // user's decision about this tool is what drifted out of reach, and only the
+  // floor is faithful to it until they review the new descriptor.
+  if (identity.reviewed) return MCP_CALL_RISK_FLOOR;
+
   // The structural authority. Neither half is a claim Alfred takes from the
-  // model or from the call: `readOnlyCatalog` is pinned in Alfred's own built-in
-  // registry (ADR-0094), and `readOnly` was projected from the descriptor the
-  // catalog actually published. A user-added server satisfies neither, so it
-  // keeps the floor until its descriptor is reviewed.
-  const readOnlyEndpoint = builtInClientPolicy(identity.endpointUrl).readOnlyCatalog;
-  if (readOnlyEndpoint && identity.readOnly) return MCP_READ_ONLY_STRUCTURAL_TIER;
+  // model or from the call: `readOnlyResource` is pinned in Alfred's own
+  // built-in registry (ADR-0094), and `readOnly` was projected from the
+  // descriptor the catalog actually published. A user-added server satisfies
+  // neither, so it keeps the floor until its descriptor is reviewed.
+  if (identity.readOnlyResource && identity.readOnly) return MCP_READ_ONLY_STRUCTURAL_TIER;
 
   return MCP_CALL_RISK_FLOOR;
 }
