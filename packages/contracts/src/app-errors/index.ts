@@ -28,10 +28,12 @@
  * Design: `docs/plans/typed-failures-v1.md`.
  */
 import { z } from "zod";
+import { isHttpError } from "../errors";
 import { enumGuard, isRecord } from "../guards";
 import {
   INTEGRATION_DISPLAY_NAMES,
   INTEGRATION_SLUGS,
+  isIntegrationSlug,
   type IntegrationSlug,
 } from "../integrations";
 
@@ -214,6 +216,16 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "The tool threw something the dispatcher could not classify.",
     fix: { kind: "retry" },
   },
+  upstream_rejected_input: withParams(
+    z.object({ integration: integrationSlug.optional(), status: z.number() }),
+    {
+      message: ({ integration, status }) =>
+        `${integration ? label(integration) : "The provider"} rejected these arguments (HTTP ${status}). ` +
+        "The same call will fail again — change the arguments before you repeat it.",
+      why: "An upstream 400/413/422 names the request body, not the connection, as the problem.",
+      fix: (): Fix => ({ kind: "correct_input" }),
+    },
+  ),
 });
 
 export type AppErrorCode = keyof typeof APP_ERROR_REGISTRY;
@@ -330,12 +342,37 @@ function asErrorOptions(value: unknown): ErrorOptions | undefined {
  * Project a caught value through the catalog. An `AppError` keeps its own
  * public shape; anything else becomes `fallback`, so exception text never
  * reaches persistence or the model.
+ *
+ * One exception sits between the two: an {@link HttpError} whose status says
+ * the provider rejected the REQUEST rather than the caller
+ * (`perInputPermanent` — 400/413/422). That is not the unclassified class the
+ * fallback stands for, and the difference is the one the reader acts on: the
+ * fallback advises `retry`, so the model repeats a call that can only fail
+ * again. Observed on `github.search`, which sent GitHub a malformed boolean
+ * group, read "please try again", and re-sent the same malformed group twice.
+ *
+ * Only the per-input class is lifted. A 401/403 (a revoked credential) or a
+ * 404 (an endpoint change) still falls through to the caller's `fallback`,
+ * which is where a `reconnect` decision belongs — a fan-out reader that maps
+ * its failures to `account_read_failed` keeps doing so for exactly those.
+ *
+ * `status` is a number and `integration` is a closed enum, so the lift obeys
+ * the module header's rule: no upstream body text rides into the transcript.
  */
 export function toPublicAppError(
   err: unknown,
   fallback: PublicAppError = publicAppError(FALLBACK_APP_ERROR_CODE),
 ): PublicAppError {
-  return err instanceof AppError ? err.public : fallback;
+  if (err instanceof AppError) return err.public;
+  if (isHttpError(err) && err.perInputPermanent) {
+    return publicAppError("upstream_rejected_input", {
+      // A provider label that is not a slug (an embedding vendor, say) renders
+      // the generic wording rather than dropping the classification.
+      ...(isIntegrationSlug(err.provider) ? { integration: err.provider } : {}),
+      status: err.status,
+    });
+  }
+  return fallback;
 }
 
 /**
