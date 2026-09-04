@@ -14,6 +14,7 @@ import {
   type Transport,
 } from "@modelcontextprotocol/client";
 import type { McpAuthorizedProtocol } from "./endpoint-authorization";
+import { McpClientError } from "./errors";
 import type { McpTraceContext } from "./trace";
 
 const HEADER_MISMATCH_ERROR_CODE = -32020;
@@ -35,17 +36,28 @@ export interface McpProtocolPage {
  * The one catalog of SDK era, Alfred era, and admitted protocol revision. A new
  * SDK era is a compile error here, and every downstream union/allowlist derives
  * from this table instead of restating the correlation.
+ *
+ * `mirrorsParamHeaders` records the one era-dependent BEHAVIOR Alfred's
+ * admission rule turns on: whether the SDK mirrors an `x-mcp-header` schema
+ * declaration into a `Mcp-Param-*` request header (ADR-0095). It lives here so
+ * the fact has one home and a new era must declare it, instead of the client
+ * comparing an inline era literal and a reader having to know which era acts.
  */
 const MCP_PROTOCOL_PROFILES = {
   legacy: {
     protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
+    mirrorsParamHeaders: false,
   },
   modern: {
     protocolEra: "post_2026_07_28",
     protocolVersion: "2026-07-28",
+    mirrorsParamHeaders: true,
   },
-} as const satisfies Record<ProtocolEra, { protocolEra: string; protocolVersion: string }>;
+} as const satisfies Record<
+  ProtocolEra,
+  { protocolEra: string; protocolVersion: string; mirrorsParamHeaders: boolean }
+>;
 
 type McpProtocolProfile = (typeof MCP_PROTOCOL_PROFILES)[ProtocolEra];
 export type McpProtocolEra = McpProtocolProfile["protocolEra"];
@@ -106,8 +118,11 @@ export interface SdkMcpProtocolClientOptions {
    *
    * Alfred implements both eras — `MCP_PROTOCOL_PROFILES` names them — so this
    * is a choice between two supported profiles, not a fallback.
+   *
+   * Absent and an explicit `undefined` mean the same thing to the one reader
+   * below, so the declaration says so (`exactOptionalPropertyTypes`).
    */
-  pinLegacyProtocol?: boolean;
+  pinLegacyProtocol?: boolean | undefined;
 }
 
 /** Streamable HTTP implementation of Alfred's deliberately narrow MCP profile. */
@@ -115,6 +130,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   readonly #client: Client;
   readonly #transport: StreamableHTTPClientTransport;
   readonly #requestTimeoutMs: number;
+  readonly #pinLegacyProtocol: boolean;
   #toolsChangedHandler: (() => void | Promise<void>) | null = null;
   #connectionUnhealthyHandler: ((error: Error) => void | Promise<void>) | null = null;
   #closing = false;
@@ -159,6 +175,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       },
     });
     this.#requestTimeoutMs = options.requestTimeoutMs;
+    this.#pinLegacyProtocol = options.pinLegacyProtocol === true;
   }
 
   onToolsChanged(handler: () => void | Promise<void>): void {
@@ -193,7 +210,17 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     const protocolEra = this.#era();
     const protocolVersion = this.#client.getNegotiatedProtocolVersion();
     if (!protocolEra || !protocolVersion) {
-      throw new Error("MCP SDK connected without a negotiated protocol era and version");
+      // Reachable if a pinned era stops being on offer: `mode: "legacy"` asks
+      // for `2025-11-25` alone, so a server that drops it leaves the SDK with
+      // no negotiated era. Name the cause here — the connection row records
+      // `lastError`, and "connected without a negotiated era" alone sends the
+      // reader looking for a transport bug (ADR-0095).
+      throw new McpClientError(
+        "unsupported_protocol_version",
+        this.#pinLegacyProtocol
+          ? `The MCP server did not negotiate the pinned legacy protocol ${MCP_PROTOCOL_PROFILES.legacy.protocolVersion}`
+          : "The MCP SDK connected without a negotiated protocol era and version",
+      );
     }
     if (protocolEra === "post_2026_07_28" && capabilities?.tools?.listChanged === true) {
       const subscription = this.#client.autoOpenedSubscription;

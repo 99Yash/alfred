@@ -72,12 +72,9 @@ type BuiltInDefinition = {
    * ADR-0094 pins the read-only resource, and that pin is one character of one
    * constant. This flag is the SECOND, independent condition the same catalog
    * has to satisfy: `McpRawClient` refuses the whole refresh when any tool
-   * fails to assert the hint, so a write tool served at `/mcp/readonly` never
-   * reaches a published revision. Measured on 2026-09-03: all 28 tools at
-   * `/mcp/readonly` carry `readOnlyHint: true`, and the 19 write tools that
-   * only the `/mcp` root serves all carry `readOnlyHint: false`. The name set
-   * GitHub serves at `/mcp/readonly` is byte-identical to the `readOnlyHint:
-   * true` subset of `/mcp`, so the resource and the annotation agree today.
+   * fails to assert the hint, so a write tool served at a read-only path never
+   * reaches a published revision. `GITHUB_MCP_ENDPOINT_HREF` holds the measured
+   * catalog counts for GitHub's two resources; they are not restated here.
    *
    * The MCP specification calls an annotation a HINT and tells a client never
    * to make a tool-use decision from one. That warning holds, and it does not
@@ -86,7 +83,7 @@ type BuiltInDefinition = {
    * catch and the resource pin does. Nothing a server can say WIDENS what
    * Alfred admits, so the two controls fail in different directions.
    *
-   * Absent for a user-added server, which keeps whatever catalog it discovered
+   * False for a user-added server, which keeps whatever catalog it discovered
    * (`mcp.call` still stages an approval for every tool — ADR-0088).
    */
   readonly readOnlyCatalog: boolean;
@@ -95,8 +92,8 @@ type BuiltInDefinition = {
    * this provider instead of letting the SDK choose the newest both sides
    * support.
    *
-   * GitHub declares `x-mcp-header` on `owner` and `repo` for 21 of the 28 tools
-   * at `/mcp/readonly`. In the modern era the SDK mirrors those argument values
+   * GitHub declares `x-mcp-header` on `owner` and `repo` for most of its
+   * read-only tools. In the modern era the SDK mirrors those argument values
    * into `Mcp-Param-*` request headers, which is a model-selected header
    * channel Alfred has never reviewed, so `assertSafeSchema` refuses any
    * descriptor that declares the keyword. That refusal is not optional garnish:
@@ -104,13 +101,11 @@ type BuiltInDefinition = {
    * channel. Left alone it also refuses GitHub's whole catalog.
    *
    * The legacy era resolves both. The SDK gates mirroring on the negotiated era
-   * alone, so `2025-11-25` makes the keyword inert, and the admission rule then
-   * has nothing to refuse. Measured on 2026-09-03 against `/mcp/readonly`: the
-   * legacy era lists the same 28 tools, sends no `Mcp-Param-*` header, and
-   * `list_branches` succeeds with `owner` and `repo` in the request body.
-   * Stripping the keyword instead does NOT work — GitHub enforces the header in
-   * the modern era and answers `header mismatch: missing Mcp-Param-repo header
-   * for parameter "repo"`. ADR-0095.
+   * alone — `MCP_PROTOCOL_PROFILES[era].mirrorsParamHeaders` is where Alfred
+   * records which era does — so `2025-11-25` makes the keyword inert, and the
+   * admission rule then has nothing to refuse. Stripping the keyword instead
+   * does NOT work: GitHub enforces the header in the modern era. ADR-0095 holds
+   * the measured matrix.
    */
   readonly pinLegacyProtocol: boolean;
   readonly initialState: {
@@ -185,6 +180,9 @@ export function builtInAuthorizationScopes(endpointUrl: string): readonly string
  * How `McpRawClient` must be configured for a STORED endpoint — the two facts
  * only the registry knows, in the one shape `liveClientFactory` spreads.
  *
+ * Derived from {@link BuiltInDefinition} rather than restated, so a third
+ * client-side policy field is one edit in the definition above.
+ *
  * They travel together because they answer one question, "what does Alfred owe
  * this endpoint that it does not owe an arbitrary one", and because keeping
  * them together means a third built-in adds one registry entry rather than a
@@ -195,16 +193,13 @@ export function builtInAuthorizationScopes(endpointUrl: string): readonly string
  * admits a tool the endpoint would not have served anyway, and a user-added
  * server is allowed both a write catalog and the newest protocol era.
  *
- * Unlike {@link builtInAuthorizationScopes}, this one IS on the package barrel.
- * It has a second product reader outside this directory: the `mcp.call` risk
- * gate asks whether the endpoint is a read-only protected resource before it
- * grants a structural downgrade (ADR-0096). The scope baseline has no such
- * reader, which is why it stays behind `consent.ts`.
+ * This stays OFF the `connections/mcp` barrel, like
+ * {@link builtInAuthorizationScopes}. It is a CLIENT CONFIGURATION bundle, and
+ * its only caller is `liveClientFactory` in this directory. The risk gate
+ * outside this directory asks a different, narrower question and gets
+ * {@link builtInReadOnlyResource} instead.
  */
-export interface BuiltInClientPolicy {
-  readonly readOnlyCatalog: boolean;
-  readonly pinLegacyProtocol: boolean;
-}
+type BuiltInClientPolicy = Pick<BuiltInDefinition, "readOnlyCatalog" | "pinLegacyProtocol">;
 
 export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   const definition = lookupBuiltInHref(endpointUrl);
@@ -212,6 +207,22 @@ export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
     readOnlyCatalog: definition?.readOnlyCatalog ?? false,
     pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
   };
+}
+
+/**
+ * True when this STORED endpoint is a built-in READ-ONLY protected resource.
+ *
+ * One question, one answer, and the one name on the barrel. The `mcp.call` risk
+ * gate asks whether the RESOURCE is trusted to serve reads before it grants a
+ * structural downgrade (ADR-0096). That is a resource-trust question, so it
+ * must not travel through the client-configuration bundle above: the gate has
+ * no business knowing which protocol era Alfred negotiates.
+ *
+ * False for every endpoint no built-in claims, and false for a corrupt stored
+ * href, so an uncertainty keeps the `high` floor.
+ */
+export function builtInReadOnlyResource(endpointUrl: string): boolean {
+  return lookupBuiltInHref(endpointUrl)?.readOnlyCatalog ?? false;
 }
 
 /**

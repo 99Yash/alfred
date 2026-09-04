@@ -38,7 +38,6 @@ import {
 import { builtInClientPolicy } from "./built-ins";
 import { HostedMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, McpClientError } from "./errors";
-import { computeDescriptorHashes, computeReadOnlyHints } from "./hash";
 import {
   compareAndSetCatalogRevision,
   insertCatalogRevision,
@@ -352,13 +351,13 @@ export class McpConnectionManager {
   }
 
   async #insertCatalog(connectionId: string, snapshot: McpCatalogSnapshot): Promise<string> {
+    // The hash map, the read-only map, and the tool count are all projected
+    // INSIDE publication from these same descriptors, so this call site cannot
+    // hand the row a projection that disagrees with them (ADR-0096).
     const revision = await this.#persistence.insertCatalogRevision({
       connectionId,
       revisionHash: snapshot.revision,
       descriptors: snapshot.tools,
-      descriptorHashes: computeDescriptorHashes(snapshot.tools),
-      readOnlyHints: computeReadOnlyHints(snapshot.tools),
-      toolCount: snapshot.tools.length,
     });
     return revision.id;
   }

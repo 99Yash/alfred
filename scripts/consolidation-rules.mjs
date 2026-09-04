@@ -121,11 +121,13 @@ export const RULES = [
   {
     id: "read-write-github-mcp-endpoint",
     // ADR-0094: read-only is a property of the RESOURCE, so the whole rule is
-    // the value of one constant. GitHub serves 47 tools with 19 writes at the
-    // `/mcp` root and 28 tools with 0 writes at `/mcp/readonly`, for the SAME
-    // token. Nothing in the protocol reports the difference, and the catalog
-    // only changes at run time. Without this row, a one-character edit hands
-    // the boss a write catalog and every check still passes.
+    // the value of one constant. The `/mcp` root and `/mcp/readonly` are two
+    // protected resources with two catalogs for the SAME token; the measured
+    // counts live on `GITHUB_MCP_ENDPOINT_HREF` and in ADR-0094, and are
+    // deliberately not copied here. Nothing in the protocol reports the
+    // difference, and the catalog only changes at run time. Without this row, a
+    // one-character edit hands the boss a write catalog and every check still
+    // passes.
     //
     // `BuiltInDefinition.readOnlyCatalog` now adds a run-time condition on the
     // per-tool `annotations.readOnlyHint`, which catches a write tool served AT
@@ -135,7 +137,7 @@ export const RULES = [
     // instead of a review comment.
     re: /api\.githubcopilot\.com\/mcp(?!\/readonly)/,
     severity: "gate",
-    fix: "Use GITHUB_MCP_ENDPOINT_HREF from @alfred/assistant — Alfred pins GitHub's read-only resource `/mcp/readonly` (ADR-0094). The `/mcp` root serves 19 write tools.",
+    fix: "Use GITHUB_MCP_ENDPOINT_HREF from @alfred/assistant — Alfred pins GitHub's read-only resource `/mcp/readonly` (ADR-0094). The `/mcp` root also serves write tools.",
   },
   {
     id: "hand-rolled-timezone-validator",

@@ -28,50 +28,59 @@ export function descriptorHash(tool: Tool): string {
   return sha256Canonical(tool);
 }
 
-/** `{ [remoteName]: descriptorHash }` for a whole catalog snapshot. */
-export function computeDescriptorHashes(tools: readonly Tool[]): Record<string, string> {
-  const hashes: Record<string, string> = {};
+/**
+ * The two by-name projections a published catalog revision carries beside its
+ * raw descriptors: `{ [remoteName]: descriptorHash }` and
+ * `{ [remoteName]: readOnly }`.
+ *
+ * ONE function over ONE input, because the two maps are two readings of the
+ * same descriptor array and must not be able to disagree with it or with each
+ * other. Publication DERIVES this (`assertCanonicalCatalogPublication` no
+ * longer accepts either map as an argument), so a caller cannot hand the
+ * database a hash map that omits a tool, or a read-only map that claims `true`
+ * for a write tool the descriptors call a write. A third projection is a third
+ * key here and no new field anywhere else.
+ *
+ * Both maps exist for the same reason: the `mcp.call` dispatch gate resolves
+ * ONE tool per call and must not scan a catalog-sized JSON array to learn that
+ * tool's descriptor hash (#541) or its read-only claim (ADR-0096).
+ *
+ * `readOnly` is `true` ONLY where the descriptor asserted
+ * `annotations.readOnlyHint === true`. A tool that declared no annotation is
+ * `false`: an optional annotation that is absent carries no claim, and the one
+ * reading that admits a write is treating "said nothing" as "is a read"
+ * (ADR-0094 amendment).
+ */
+export interface McpCatalogProjection {
+  readonly descriptorHashes: Record<string, string>;
+  readonly readOnlyHints: Record<string, boolean>;
+}
+
+export function projectCatalogRevision(tools: readonly Tool[]): McpCatalogProjection {
+  const descriptorHashes: Record<string, string> = {};
+  const readOnlyHints: Record<string, boolean> = {};
   for (const tool of tools) {
-    // Remote tool names are untrusted data. Defining an own data property makes
-    // every admitted name, including `__proto__`, a key instead of invoking an
-    // inherited Object.prototype setter. Keep the normal prototype because the
-    // Drizzle insert encoder expects ordinary record values.
-    Object.defineProperty(hashes, tool.name, {
-      configurable: true,
-      enumerable: true,
-      value: descriptorHash(tool),
-      writable: true,
-    });
+    defineRemoteNameKey(descriptorHashes, tool.name, descriptorHash(tool));
+    defineRemoteNameKey(readOnlyHints, tool.name, tool.annotations?.readOnlyHint === true);
   }
-  return hashes;
+  return { descriptorHashes, readOnlyHints };
 }
 
 /**
- * `{ [remoteName]: readOnly }` for a whole catalog snapshot, true ONLY where the
- * descriptor asserted `annotations.readOnlyHint === true`.
+ * Set one untrusted remote tool name as an OWN data property.
  *
- * A tool that declared no annotation is `false`. An optional annotation that is
- * absent carries no claim, and the one reading that admits a write is treating
- * "said nothing" as "is a read" (ADR-0094 amendment).
- *
- * Persisted beside {@link computeDescriptorHashes} and for the same reason: the
- * `mcp.call` dispatch gate resolves ONE tool per call and must not scan a
- * catalog-sized descriptor array to learn whether that tool claims to be a read
- * (ADR-0096).
+ * Remote tool names are untrusted data. Defining an own data property makes
+ * every admitted name, including `__proto__`, a key instead of invoking an
+ * inherited `Object.prototype` setter. Keep the normal prototype because the
+ * Drizzle insert encoder expects ordinary record values.
  */
-export function computeReadOnlyHints(tools: readonly Tool[]): Record<string, boolean> {
-  const hints: Record<string, boolean> = {};
-  for (const tool of tools) {
-    // Same untrusted-name defense as `computeDescriptorHashes`: define an own
-    // data property so `__proto__` becomes a key instead of a prototype setter.
-    Object.defineProperty(hints, tool.name, {
-      configurable: true,
-      enumerable: true,
-      value: tool.annotations?.readOnlyHint === true,
-      writable: true,
-    });
-  }
-  return hints;
+function defineRemoteNameKey<T>(target: Record<string, T>, name: string, value: T): void {
+  Object.defineProperty(target, name, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
 }
 
 /**

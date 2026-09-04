@@ -110,7 +110,10 @@ export const mcpCatalogRevisions = pgTable(
      * claim from persisted data rather than inherit the assumption that the
      * admission gate ran (ADR-0094 amendment, ADR-0096).
      */
-    readOnlyHints: jsonb("read_only_hints").$type<Record<string, boolean>>().notNull().default({}),
+    readOnlyHints: jsonb("read_only_hints")
+      .$type<Record<string, boolean>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     toolCount: integer("tool_count").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

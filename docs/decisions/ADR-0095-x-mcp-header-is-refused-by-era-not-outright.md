@@ -2,10 +2,11 @@
 
 **Decision.** `x-mcp-header` in a tool's input schema is refused when the NEGOTIATED protocol era mirrors it into a `Mcp-Param-*` request header, and admitted when the negotiated era ignores it. A built-in provider may pin the legacy era (`2025-11-25`) for exactly this reason. GitHub's built-in pins it.
 
-Two sub-decisions follow:
+Three sub-decisions follow:
 
-1. **The condition is the negotiated era, never the pin.** `McpRawClient` reads `generation.negotiated.protocolEra` at admission. A pin that fails, or that a later edit removes, therefore closes the gate again by itself.
+1. **The condition is the negotiated era, never the pin.** `McpRawClient` reads the negotiated profile's own `mirrorsParamHeaders` field at admission, and reads it fail-closed (`!== false`), so an absent negotiation refuses rather than admits. A pin that fails, or that a later edit removes, therefore closes the gate again by itself, and the proof is the expression rather than the order in which `#connect` assigns its fields.
 2. **A pinned era is a choice between two supported profiles, not a fallback.** `MCP_PROTOCOL_PROFILES` in `protocol.ts` implements both eras in full. The pin is one field on the built-in definition (`pinLegacyProtocol`), spread into the client by `liveClientFactory` together with the ADR-0094 read-only flag.
+3. **"Which era mirrors" is a field on the profile, not a comparison at the call site.** `MCP_PROTOCOL_PROFILES[era].mirrorsParamHeaders` is the one home for the fact, so a third era must declare it and the admission rule never restates an era literal. `McpNegotiatedServer` already spreads the whole profile, so the client reads the field it was given.
 
 **Amends the first-profile rule** in `docs/plans/mcp-2026-07-28-client-migration.md`, which said to reject the keyword outright. **Does not change ADR-0094** (the read-only resource pin and the annotation condition both still apply). **Does not change ADR-0088** (`mcp.call` still stages an approval for every tool).
 
@@ -63,9 +64,23 @@ Row 1 is Alfred's configuration. Rows 2 to 4 are what keeps rows 1's admission f
 
 The modern era's per-connection features are what Alfred gives up on this one connection: the modern list-change subscription (Alfred sets `autoRefresh: false` and drives refresh itself, so this is a notification path, not a correctness one), the `_meta` protocol-version envelope, and modern cache-scope handling. Session termination moves back to the legacy `Mcp-Session-Id` path, which `SdkMcpProtocolClient.close` already implements. OAuth is unaffected: GitHub uses a static client id from the environment, not dynamic registration.
 
+## What happens if GitHub drops the legacy era
+
+`versionNegotiation: { mode: "legacy" }` asks for `2025-11-25` and nothing else. It is not a floor with a fallback. So if GitHub stops offering that version, the SDK finishes `connect` with no negotiated era, and `SdkMcpProtocolClient.connect` refuses:
+
+```
+McpClientError(unsupported_protocol_version):
+  The MCP server did not negotiate the pinned legacy protocol 2025-11-25
+```
+
+The connection then goes to `failed` with that text in `lastError`, and the boss sees no GitHub MCP catalog at all. This is loud and it is the correct direction — the alternative is negotiating the modern era, in which 21 of GitHub's read-only descriptors declare a keyword Alfred refuses, so the refresh would fail one layer later with a message about `get_commit` instead. The named error is what keeps an operator from reading the outage as a transport bug.
+
+There is no automatic recovery. Removing the pin is a code edit, and it is only safe once alternative (b) below is decided, because the modern era is exactly what the pin exists to avoid.
+
 ## Residual risk
 
 - **The pin is per provider, so a second built-in that declares the keyword needs the same decision made again.** That is intentional. The field is on the definition so the answer is visible beside the endpoint it applies to.
 - **Nothing gates the pin itself.** If GitHub stops declaring `x-mcp-header`, the pin becomes unnecessary and nothing will say so. The cost of leaving it is the feature list above.
+- **The pin has no self-healing path.** The failure above needs a human, and nothing watches for it other than the connection row's status.
 - **Alternative (b) stays open.** Until it is decided, Alfred cannot use a modern-era server that declares the keyword, and pinning the legacy era is the only way to read one.
 - **This change adds no test**, per repository policy. The era condition is proved by the existing `rejects unsafe names and schemas before compiling the catalog` case, now negotiating the modern era, and by the live-catalog matrix above, captured in `references/scratch/probe-live-github-catalog-admission.ts`.
