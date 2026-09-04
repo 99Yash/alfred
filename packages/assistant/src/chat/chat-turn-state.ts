@@ -80,16 +80,23 @@ export const chatRunStateSchema = z
     // SHA-256 of the cache-stable system prompt. AlfredAgent is constructed per
     // model step on this workflow, so its instance-local stability assertion
     // cannot compare chat turns; the durable workflow state owns that check.
-    // Cleared only when an artifact mutation intentionally changes system
-    // context. Optional for legacy checkpoints.
+    // Cleared only when the PDF design guide toggles into or out of the prompt,
+    // the one remaining intentional system-context change (#896; artifact
+    // mutations ride the ephemeral block). Optional for legacy checkpoints.
     systemPromptHash: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
-    // Safe system guidance for the thread's existing artifacts (generated
-    // ids/enums only). Refreshed after an artifact mutation so the next model step
-    // cannot operate from stale target metadata.
+    // Pre-#896 mixed artifact block (edit rules plus per-thread facts) that
+    // lived in the system prefix. Accepted only so a pre-split checkpoint still
+    // parses; the transform below folds it away, like `started`, so
+    // `ChatRunState` has no such field and no step can read or write it.
     artifactsContext: z.string().optional(),
+    // Per-thread artifact facts (default id, selection resolution, bounded
+    // index). Ephemeral per-turn text, recomposed after every artifact mutation
+    // so the next model step resolves the correct edit target. Optional for
+    // legacy checkpoints minted before the split.
+    artifactThreadFacts: z.string().optional(),
     // Exact selected artifact body, carried as a lower-trust assistant reference
     // message rather than system text. Empty when no artifact exists/was found.
     artifactReference: z.string().optional(),
@@ -178,11 +185,15 @@ export const chatRunStateSchema = z
     // surfaced to the model.
     notedFailureToolCallIds: z.array(z.string()).default([]),
   })
-  .transform(({ started, ...state }) => ({
+  .transform(({ started, artifactsContext, ...state }) => ({
     ...foldToolSurfaceState(state),
     // The old boolean recorded only that the event fired. Runtime migration is
     // the best timestamp available for an already-started legacy checkpoint.
     startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
+    // A pre-split checkpoint pinned a prompt that carried the mixed block. The
+    // rebuilt prompt no longer contains it, so release the pin once here; the
+    // next chat step pins the new stable prompt.
+    ...(artifactsContext === undefined ? {} : { systemPromptHash: undefined }),
   }));
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
