@@ -1,10 +1,11 @@
 import {
   connectedAccountSchema,
+  GOOGLE_SLUGS,
   INTEGRATIONS,
   integrationConnectionSchema,
   integrationStatusSchema,
-  isGoogleSlug,
   isLiveProviderSlug,
+  LIVE_PROVIDER_SLUGS,
   type ConnectedAccount,
   type CredentialProvider,
   type GoogleSlug,
@@ -31,10 +32,14 @@ const edenTimestamp = z
 
 /**
  * The status body as the browser receives it: the owning wire schema from
- * `@alfred/contracts` with `connectedAt` absorbing Eden's date revival.
+ * `@alfred/contracts` with `connectedAt` absorbing Eden's date revival. The
+ * parse is all-or-nothing on purpose: the body is one document from one
+ * producer the compiler pins to the same schema, so a field that fails here is
+ * a contract break to surface, not a stray row to skip.
  */
 const receivedStatusSchema = integrationStatusSchema.extend({
-  integrations: z.array(
+  integrations: z.record(
+    z.enum(LIVE_PROVIDER_SLUGS),
     integrationConnectionSchema.extend({
       accounts: z.array(connectedAccountSchema.extend({ connectedAt: edenTimestamp })),
     }),
@@ -54,8 +59,6 @@ export interface ResolvedIntegration extends IntegrationPage {
 
 /** The one query key of the status read; the connect and disconnect flows invalidate it. */
 export const INTEGRATION_STATUS_QUERY_KEY = ["integrations", "status"] as const;
-
-const EMPTY_STATUS: IntegrationStatus = { integrations: [], providers: [] };
 
 /**
  * The server-side join of registry, credentials, and connected rule (ADR-0093),
@@ -122,28 +125,28 @@ export function useDisconnectIntegration(provider: CredentialProvider) {
 }
 
 /**
- * The display label of the first active credential for a provider, or
- * `null` if none. Used by onboarding to keep the Google and GitHub
- * "connected as …" badges live independently of the `?*_connected` URL
- * param — each provider's OAuth callback only carries its own param, so a
- * second connect would otherwise blank the first badge.
+ * The display label of the first active credential for a provider (the
+ * account connected first), or `null` if none. Used by onboarding to keep the
+ * Google and GitHub "connected as …" badges live independently of the
+ * `?*_connected` URL param — each provider's OAuth callback only carries its
+ * own param, so a second connect would otherwise blank the first badge.
  */
 export function useConnectedAccountLabel(provider: CredentialProvider): string | null {
   const { data } = useIntegrationStatus();
-  const state = data?.providers.find((entry) => entry.provider === provider);
-  return state ? (state.accountLabel ?? state.accountId) : null;
+  const first = data?.providers[provider]?.[0];
+  return first ? (first.accountLabel ?? first.accountId) : null;
 }
 
 export interface ResolvedIntegrationsResult {
   integrations: ReadonlyArray<ResolvedIntegration>;
   /**
-   * False until the status read has *succeeded* once — not merely settled. A
-   * failed read leaves `data` undefined, which renders the same as "nothing
-   * connected", so gating on settlement alone would fade a connected provider
-   * to "Connect" during an API failure. Surfaces that *gate* on connection
-   * state (the mention palette's connect nudges) hold stateless rows through
-   * failures; surfaces that merely decorate (tiles, bars) can ignore this flag
-   * and settle in place.
+   * False until the status read has *succeeded* once. A request failure
+   * throws, so a failed read leaves `data` undefined, which renders the same
+   * as "nothing connected"; gating on settlement alone would fade a connected
+   * provider to "Connect" during an API failure. Surfaces that *gate* on
+   * connection state (the mention palette's connect nudges) hold stateless
+   * rows through failures; surfaces that merely decorate (tiles, bars) can
+   * ignore this flag and settle in place.
    */
   ready: boolean;
 }
@@ -153,21 +156,21 @@ export interface ResolvedIntegrationsResult {
  * flips to `"connected"` iff its entry reports `active` health, which the
  * server decides with the connected rule its registry entry declares
  * (`credentialSatisfies`: Google = active + one of the entry's scopes, GitHub
- * = active + App installation, bearer = active). A planned page has no entry
- * and keeps its catalog status.
+ * = active + App installation, bearer = active). The body is an exhaustive
+ * record over the live slugs, so a live page always has an entry. A planned
+ * page has none and keeps its catalog status.
  */
 export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
   const { data, isSuccess } = useIntegrationStatus();
-  const integrations = useMemo(() => {
-    const bySlug = new Map(
-      (data ?? EMPTY_STATUS).integrations.map((connection) => [connection.slug, connection]),
-    );
-    return INTEGRATION_PAGES.map((page) =>
-      isLiveProviderSlug(page.slug)
-        ? resolveOne(page, bySlug.get(page.slug))
-        : { ...page, connectedAccounts: [] },
-    );
-  }, [data]);
+  const integrations = useMemo(
+    () =>
+      INTEGRATION_PAGES.map((page) =>
+        data && isLiveProviderSlug(page.slug)
+          ? resolveOne(page, data.integrations[page.slug])
+          : { ...page, connectedAccounts: [] },
+      ),
+    [data],
+  );
   return useMemo(() => ({ integrations, ready: isSuccess }), [integrations, isSuccess]);
 }
 
@@ -181,11 +184,8 @@ export function useResolvedIntegration(slug: string): ResolvedIntegration | unde
 }
 
 /** Overlay the entry that proves `page` connected; anything else leaves the catalog reading in place. */
-function resolveOne(
-  page: IntegrationPage,
-  connection: IntegrationConnection | undefined,
-): ResolvedIntegration {
-  if (!connection || connection.health !== "active") {
+function resolveOne(page: IntegrationPage, connection: IntegrationConnection): ResolvedIntegration {
+  if (connection.health !== "active") {
     return { ...page, connectedAccounts: [] };
   }
   return {
@@ -201,9 +201,10 @@ function resolveOne(
  * onboarding requests the full Google grant in one consent, but Google's
  * consent screen lets the user *uncheck* individual scopes — so a Google
  * account can be connected yet missing the scopes a feature needs. The server
- * reports the gap as the Google slugs no active credential proves (`missing`
- * on the provider entry); empty = nothing to nag about. Mirrors dimension's
- * `checkGoogleScopesComplete`.
+ * reports, per active Google row, the Google slugs that row's scopes fail to
+ * prove (`missing`); a product is a gap iff every active row misses it, the
+ * same predicate the tiles use. Empty `missing` = nothing to nag about.
+ * Mirrors dimension's `checkGoogleScopesComplete`.
  */
 export interface GoogleScopeGaps {
   /** At least one active Google credential exists. */
@@ -216,14 +217,15 @@ export interface GoogleScopeGaps {
 export function useGoogleScopeGaps(): GoogleScopeGaps {
   const { data } = useIntegrationStatus();
   return useMemo(() => {
-    const google = data?.providers.find((entry) => entry.provider === "google");
-    if (!google) {
+    const active = data?.providers.google;
+    const first = active?.[0];
+    if (!active || !first) {
       return { connected: false, accountLabel: null, missing: [] };
     }
-    const missing = google.missing
-      .filter(isGoogleSlug)
-      .map((slug) => ({ slug, name: INTEGRATIONS[slug].displayName }));
-    return { connected: true, accountLabel: google.accountLabel, missing };
+    const missing = GOOGLE_SLUGS.filter((slug) =>
+      active.every((row) => row.missing.includes(slug)),
+    ).map((slug) => ({ slug, name: INTEGRATIONS[slug].displayName }));
+    return { connected: true, accountLabel: first.accountLabel, missing };
   }, [data]);
 }
 
@@ -232,9 +234,10 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
  * GitHub App migration, ADR-0052) is still `active` but carries no
  * `installation_id`, so installation-token minting fails and no activity
  * webhooks flow. Reconnecting runs the one-click Install & Authorize, which
- * writes the `installation_id`. The server reports the row as the `github`
- * slug missing from an active GitHub provider; `needsReconnect` is true only
- * then — i.e. there's something to nag about. Mirrors `useGoogleScopeGaps`.
+ * writes the `installation_id`. The server reports such a row as an active
+ * GitHub row with the `github` slug in its `missing` list; `needsReconnect` is
+ * true only when one exists — i.e. there's something to nag about — and the
+ * label names that row, not a healthy sibling. Mirrors `useGoogleScopeGaps`.
  */
 export interface GithubReconnect {
   /** An active GitHub credential is missing its App installation. */
@@ -245,10 +248,10 @@ export interface GithubReconnect {
 export function useGithubNeedsReconnect(): GithubReconnect {
   const { data } = useIntegrationStatus();
   return useMemo(() => {
-    const github = data?.providers.find((entry) => entry.provider === "github");
+    const stale = data?.providers.github?.find((row) => row.missing.includes("github"));
     return {
-      needsReconnect: github?.missing.includes("github") ?? false,
-      accountLabel: github?.accountLabel ?? null,
+      needsReconnect: stale !== undefined,
+      accountLabel: stale?.accountLabel ?? null,
     };
   }, [data]);
 }

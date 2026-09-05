@@ -1,23 +1,33 @@
 import {
   CREDENTIAL_PROVIDERS,
+  credentialAccountLabel,
+  credentialProviderOf,
   credentialSatisfies,
+  INTEGRATIONS,
   isCredentialProvider,
   isPassthroughPreferenceOn,
+  LIVE_PROVIDER_SLUGS,
   LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
+  projectSlugs,
   toStringArray,
   type CredentialProvider,
+  type CredentialSpec,
   type IntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
+  type IntegrationConnection,
   type IntegrationStatus,
-  type LiveProviderEntry,
   type LoadableIntegrationSlug,
   type ProviderAvailability,
   type SupportedPassthroughSlug,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials, userPreferences } from "@alfred/db/schemas";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  integrationCredentials,
+  userPreferences,
+  type IntegrationCredential,
+} from "@alfred/db/schemas";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -88,57 +98,71 @@ export async function readFreshIntegrationAvailability(
  *
  * It reads the rows directly instead of through {@link readIntegrationAvailability}:
  * the web refetches right after a connect or a disconnect, and inside the memo's
- * window it would read back the state the user just changed. The join lives here,
- * beside the snapshot the dispatch floor reads, so the two consume one row read
- * and one connected rule ({@link resolveIntegrationAvailability}) and cannot
- * disagree on which rows count.
+ * window it would read back the state the user just changed. The read does not
+ * evict the memo either, so for up to {@link AVAILABILITY_MEMO_TTL_MS} after a
+ * disconnect the web can say "Connect" while a dispatch already in flight still
+ * reads `active`; inside that window the call fails with the provider's own auth
+ * error, which is the memo's documented trade. The join lives here, beside the
+ * snapshot the dispatch floor reads, so the two consume one row read and one
+ * connected rule ({@link resolveIntegrationAvailability}) and cannot disagree on
+ * which rows count.
  */
 export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
   const byProvider = await loadCredentialRowsByProvider(userId);
+  const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
+    byProvider.get(provider) ?? [];
 
-  const integrations = LIVE_PROVIDERS.map((entry) => {
-    const rows = byProvider.get(entry.provider) ?? [];
-    const { health } = resolveIntegrationAvailability(entry, rows);
-    const accounts = rows
-      .filter((row) => credentialSatisfies(entry.credential, row))
-      .map((row) => ({
-        id: row.credentialId,
-        accountLabel: row.accountLabel ?? row.accountId,
-        connectedAt: row.createdAt.toISOString(),
-      }));
-    return { slug: entry.slug, health, accounts };
+  const integrations = projectSlugs(LIVE_PROVIDER_SLUGS, (slug): IntegrationConnection => {
+    const spec = INTEGRATIONS[slug].credential;
+    const rows = rowsOf(credentialProviderOf(slug));
+    return {
+      health: resolveIntegrationAvailability(spec, rows).health,
+      accounts: rows
+        .filter((row) => credentialSatisfies(spec, row))
+        .map((row) => ({
+          id: row.credentialId,
+          accountLabel: credentialAccountLabel(row) ?? row.accountId,
+          connectedAt: row.createdAt.toISOString(),
+        })),
+    };
   });
 
-  // A provider appears iff it holds an active row. `missing` is the provider's
-  // live slugs no active row proves: the Google scopes the user unchecked, or the
-  // GitHub App installation a classic-OAuth row never had.
-  const providers = CREDENTIAL_PROVIDERS.flatMap((provider) => {
-    const active = (byProvider.get(provider) ?? []).filter((row) => row.status === "active");
-    const first = active[0];
-    if (!first) return [];
-    const missing = LIVE_PROVIDERS.filter(
-      (entry) =>
-        entry.provider === provider &&
-        !active.some((row) => credentialSatisfies(entry.credential, row)),
-    ).map((entry) => entry.slug);
-    return [{ provider, accountId: first.accountId, accountLabel: first.accountLabel, missing }];
-  });
+  // A provider appears iff it holds an `active` row. Each row carries the
+  // provider's live slugs whose rule it fails: the Google scopes the user
+  // unchecked, or the GitHub App installation a classic-OAuth row never had.
+  const providers: IntegrationStatus["providers"] = {};
+  for (const provider of CREDENTIAL_PROVIDERS) {
+    const active = rowsOf(provider).filter((row) => row.status === "active");
+    if (active.length === 0) continue;
+    const entries = LIVE_PROVIDERS.filter((entry) => entry.provider === provider);
+    providers[provider] = active.map((row) => ({
+      accountId: row.accountId,
+      accountLabel: credentialAccountLabel(row),
+      missing: entries
+        .filter((entry) => !credentialSatisfies(entry.credential, row))
+        .map((entry) => entry.slug),
+    }));
+  }
 
   return { integrations, providers };
 }
 
-/** A {@link ProviderAvailability} row plus the timestamp the web shows as "connected at". */
-interface CredentialRow extends ProviderAvailability {
-  createdAt: Date;
-}
+/**
+ * A {@link ProviderAvailability} row plus the timestamp the web shows as
+ * "connected at". Distinct from the `CredentialRow` of
+ * `@alfred/integrations/google`, which is that provider's token row.
+ */
+type AvailabilityRow = ProviderAvailability & Pick<IntegrationCredential, "createdAt">;
 
 /**
- * Every credential row of one user, grouped by `integration_credentials.provider`.
- * The one row read both the availability snapshot and the web status consume.
+ * Every credential row of one user, grouped by `integration_credentials.provider`
+ * and ordered oldest first (`created_at`, then `id` for two rows in one instant).
+ * The one row read both the availability snapshot and the web status consume, so
+ * "the first row" means the same row to both: the account connected first.
  */
 async function loadCredentialRowsByProvider(
   userId: string,
-): Promise<Map<CredentialProvider, CredentialRow[]>> {
+): Promise<Map<CredentialProvider, AvailabilityRow[]>> {
   const rows = await db()
     .select({
       id: integrationCredentials.id,
@@ -152,9 +176,10 @@ async function loadCredentialRowsByProvider(
       createdAt: integrationCredentials.createdAt,
     })
     .from(integrationCredentials)
-    .where(eq(integrationCredentials.userId, userId));
+    .where(eq(integrationCredentials.userId, userId))
+    .orderBy(asc(integrationCredentials.createdAt), asc(integrationCredentials.id));
 
-  const byProvider = new Map<CredentialProvider, CredentialRow[]>();
+  const byProvider = new Map<CredentialProvider, AvailabilityRow[]>();
   for (const row of rows) {
     // The column's type is the CHECK constraint's promise, and this is the one
     // read that consumes the value (every other read filters on it). A miss is
@@ -188,14 +213,14 @@ async function loadCredentialRowsByProvider(
  * `needs_reauth` here as it does on the web.
  */
 function resolveIntegrationAvailability(
-  entry: LiveProviderEntry,
+  spec: CredentialSpec,
   providerRows: readonly ProviderAvailability[],
 ): IntegrationAvailability {
   if (providerRows.length === 0) return { health: null, accountLabel: null };
-  const active = providerRows.find((row) => credentialSatisfies(entry.credential, row));
+  const active = providerRows.find((row) => credentialSatisfies(spec, row));
   return {
     health: active ? "active" : "needs_reauth",
-    accountLabel: active?.accountLabel?.trim() || null,
+    accountLabel: active ? credentialAccountLabel(active) : null,
   };
 }
 
@@ -228,8 +253,10 @@ async function loadIntegrationAvailability(
   for (const entry of LIVE_PROVIDERS) {
     availability.set(
       entry.slug,
-      resolveIntegrationAvailability(entry, byProvider.get(entry.provider) ?? []),
+      resolveIntegrationAvailability(entry.credential, byProvider.get(entry.provider) ?? []),
     );
   }
+  // The rows carry `createdAt` past the `ProviderAvailability` the snapshot
+  // declares: structural widening, read by nothing on the dispatch side.
   return { integrations: availability, providers: byProvider, passthroughEnabled };
 }

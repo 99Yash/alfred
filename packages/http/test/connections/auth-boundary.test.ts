@@ -49,9 +49,9 @@ describe("connections auth boundary", () => {
     );
   });
 
-  test("keeps credential access inside the auth guard", async () => {
+  test("keeps the connect step inside the auth guard", async () => {
     const response = await app.handle(
-      new Request("http://localhost/api/integrations/notion/credentials"),
+      new Request("http://localhost/api/integrations/notion/connect"),
     );
 
     assert.equal(response.status, 401);
