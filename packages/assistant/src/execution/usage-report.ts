@@ -42,6 +42,7 @@ export const SLUG_CATEGORY = {
   "daily-briefing": "briefing",
   "morning-briefing": "briefing",
   "email-triage": "triage",
+  "reply-drafting": "reply_drafting",
   "cold-start-research": "cold_start",
   "learn-skill": "skill",
   "skill-documentation": "skill",
@@ -93,6 +94,8 @@ function labelOf(category: UsageRunCategory, workflowSlug: string | null, state:
     }
     case "triage":
       return "Email triage";
+    case "reply_drafting":
+      return "Reply draft";
     case "cold_start":
       return "Cold-start research";
     case "skill":

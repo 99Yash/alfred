@@ -68,6 +68,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "tasks",
   "time",
   "triage",
+  "reply-drafting",
 ]);
 // The root that decides which module owns a file, as one parameter so a self-test can
 // point the module derivation at a fixture tree. Its member is the existing constant,

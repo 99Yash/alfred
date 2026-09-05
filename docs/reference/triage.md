@@ -31,6 +31,9 @@ Sender/observation flow — what each stage is _for_, since the call graph alrea
 - `agent_decision_traces` stores a `triage.classification` row per run so tuning happens from observed misses in SQL rather than transient progress logs. This is why classifier changes are verified by trajectory diff, not by re-reading the prompt.
 - The dormant `deepen`/dossier hooks remain in code for future non-triage work, but triage v3 does not call them.
 
+**Post-classification seam (ADR-0097).** After the canonical row is written, `runEmailTriageClassify` publishes `email-triage.classified` on the domain bus with `publishDomainEvent`. The payload (`emailTriageClassifiedPayloadSchema`) carries the triage snapshot, the classify step identity, the sender's effective author, the mailbox, and the thread reply timestamps — no body text. Triage imports nothing from its consumers. The reply-drafting gate (`packages/assistant/src/reply-drafting/post-triage.ts`) is the first consumer: with `feature.reply_drafting` off it returns before any read; with it on, it runs `decideReplyWorthiness` and either records a `reply_drafting.decision` trace under the triage run or starts one `reply-drafting` run. A publish failure is logged with `ctx.log` and never fails the step.
+
 Smokes:
 
 - From `apps/server`, `pnpm exec tsx --env-file=.env src/scripts/smokes/smoke-triage.ts` exercises the Gmail-backed end-to-end workflow and requires a connected Google account plus at least one ingested email.
+- `smoke-reply-drafting.ts` in the same directory starts a `manual` `reply-drafting` run on the newest reply-expected triage row and parses the output with `replyDraftResultSchema`. It never mutates Gmail.

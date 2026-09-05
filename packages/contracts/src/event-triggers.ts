@@ -1,16 +1,30 @@
 import { enumGuard } from "./guards";
 
-export const EVENT_SOURCES = ["gmail", "google.oauth.callback", "learn-skill"] as const;
+export const EVENT_SOURCES = [
+  "gmail",
+  "google.oauth.callback",
+  "learn-skill",
+  "email-triage",
+] as const;
 export type EventSource = (typeof EVENT_SOURCES)[number];
 
 export const GMAIL_EVENT_TYPES = ["message_received", "documents_ingested"] as const;
 export const GOOGLE_OAUTH_CALLBACK_EVENT_TYPES = ["completed"] as const;
 export const LEARN_SKILL_EVENT_TYPES = ["completed"] as const;
+/**
+ * `classified` is the fact the triage `classify` step publishes for every thread
+ * whose row it owns; the reply-drafting gate consumes it (ADR-0097). `reply_worthy`
+ * is the trigger the `reply-drafting` builtin declares. Nothing publishes it on
+ * the bus: the gate starts the run directly, so a worthy verdict is the only
+ * thing that can fire the workflow, and the declaration still names its cause.
+ */
+export const EMAIL_TRIAGE_EVENT_TYPES = ["classified", "reply_worthy"] as const;
 
 export const EVENT_TYPES_BY_SOURCE = {
   gmail: GMAIL_EVENT_TYPES,
   "google.oauth.callback": GOOGLE_OAUTH_CALLBACK_EVENT_TYPES,
   "learn-skill": LEARN_SKILL_EVENT_TYPES,
+  "email-triage": EMAIL_TRIAGE_EVENT_TYPES,
 } as const satisfies Record<EventSource, readonly string[]>;
 
 export type EventTypeForSource<S extends EventSource> = (typeof EVENT_TYPES_BY_SOURCE)[S][number];

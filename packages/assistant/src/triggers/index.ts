@@ -1,10 +1,12 @@
 import { db, type DbTransaction } from "@alfred/db";
 import { eventsOutbox } from "@alfred/db/schemas";
 import {
+  EFFECTIVE_AUTHOR,
   isEventSource,
   isEventType,
   isEventTypeForSource,
   jsonObjectSchema,
+  replyDraftTriageSnapshotSchema,
   type EventSource,
   type EventType,
   eventPayloadSchemas,
@@ -25,10 +27,12 @@ const domainEventIdentityShape = {
   accountRef: z.string().min(1).max(200).optional(),
 };
 
+export const GMAIL_MESSAGE_EVENT_REASONS = ["webhook", "manual", "ingest", "reply"] as const;
+
 export const gmailMessagePayloadSchema = z
   .object({
     documentId: z.string().min(1).max(200).optional(),
-    reason: z.enum(["webhook", "manual", "ingest", "reply"]).optional(),
+    reason: z.enum(GMAIL_MESSAGE_EVENT_REASONS).optional(),
     force: z.boolean().optional(),
   })
   .strict();
@@ -36,6 +40,44 @@ export const gmailMessagePayloadSchema = z
 export type GmailMessageEventReason = NonNullable<
   z.infer<typeof gmailMessagePayloadSchema>["reason"]
 >;
+
+/**
+ * The fact triage's `classify` step publishes once it owns a thread's canonical
+ * row (`email-triage.classified`, ADR-0097). It is a bounded pointer plus the
+ * deterministic facts a downstream gate needs to decide WITHOUT re-reading the
+ * row: the triage snapshot, who sent it, which mailbox received it, and the
+ * thread's reply state. Dates travel as ISO strings because the payload is a
+ * JSON object. No body text: a consumer that needs content loads the document.
+ */
+export const emailTriageClassifiedPayloadSchema = z
+  .object({
+    triage: replyDraftTriageSnapshotSchema,
+    /** The classify step that decided, so a consumer can trace under the same run. */
+    triageStep: z.object({
+      runId: z.string().min(1),
+      stepId: z.string().min(1),
+      attempt: z.number().int().nonnegative(),
+    }),
+    /** Why triage ran; `reply` is the outbound-reply re-eval (#282). */
+    triageReason: z.enum(GMAIL_MESSAGE_EVENT_REASONS).nullable(),
+    sender: z.object({
+      /** Canonical `local@domain`, or null when `From:` was unparseable. */
+      address: z.string().nullable(),
+      effectiveAuthor: z.enum(EFFECTIVE_AUTHOR),
+    }),
+    mailbox: z.object({
+      accountId: z.string().min(1),
+      /** Authoritative mailbox address, or null when unknown. */
+      address: z.string().nullable(),
+    }),
+    thread: z.object({
+      inboundAuthoredAt: z.iso.datetime().nullable(),
+      lastUserReplyAt: z.iso.datetime().nullable(),
+      newestDirection: z.enum(["sent", "received"]).nullable(),
+    }),
+  })
+  .strict();
+export type EmailTriageClassifiedPayload = z.infer<typeof emailTriageClassifiedPayloadSchema>;
 
 /** The three Gmail insert job kinds that can raise `gmail.documents_ingested`. */
 export const GMAIL_INSERT_JOB_KINDS = [
@@ -86,6 +128,8 @@ function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unkno
       return type === "documents_ingested"
         ? gmailDocumentsIngestedPayloadSchema
         : gmailMessagePayloadSchema;
+    case "email-triage":
+      return type === "classified" ? emailTriageClassifiedPayloadSchema : jsonObjectSchema;
     case "google.oauth.callback":
     case "learn-skill":
       return jsonObjectSchema;

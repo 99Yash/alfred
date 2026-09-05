@@ -55,8 +55,15 @@ export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURF
  *
  * `block_todo_suggestion`     — triage `classify` mints no `todoSuggestion` for a matching email.
  * `exclude_briefing_priority` — briefing `gather` drops the match from the priority buckets.
+ * `block_reply_draft`         — the reply-drafting gate returns `no_draft` for a matching sender
+ *                               (ADR-0097). Suppressions written before this effect existed do
+ *                               not carry it; they keep suppressing todos and briefings only.
  */
-export const SUPPRESSION_EFFECTS = ["block_todo_suggestion", "exclude_briefing_priority"] as const;
+export const SUPPRESSION_EFFECTS = [
+  "block_todo_suggestion",
+  "exclude_briefing_priority",
+  "block_reply_draft",
+] as const;
 export type SuppressionEffect = (typeof SUPPRESSION_EFFECTS)[number];
 export const suppressionEffectSchema = z.enum(SUPPRESSION_EFFECTS);
 
