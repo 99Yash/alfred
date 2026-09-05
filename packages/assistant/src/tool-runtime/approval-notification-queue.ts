@@ -38,9 +38,8 @@ export const workflowBlockedNotificationJobDataSchema = z.object({
   kind: z.literal("workflow_blocked"),
   workflowId: z.string().min(1),
   userId: z.string().min(1),
-  revisionId: z.string().min(1),
-  code: z.string().min(1),
-  message: z.string().min(1),
+  /** `workflowBlockedGeneration(blocked)` at enqueue time; the worker sends only while it still matches. */
+  generation: z.string().min(1),
 });
 export type WorkflowBlockedNotificationJobData = z.infer<
   typeof workflowBlockedNotificationJobDataSchema
@@ -102,21 +101,15 @@ export async function scheduleApprovalNotificationJob(args: {
 
 /**
  * Job id keyed by workflow AND blocker generation: the same blocker never
- * enqueues twice while its job is still known to BullMQ, but a new code,
- * message, or revision does.
+ * enqueues twice while its job is still known to BullMQ, but a new generation
+ * does. The generation string is hashed only because BullMQ ids must be short
+ * and free of `:`; the identity itself is `workflowBlockedGeneration`.
  */
 export function workflowBlockedNotificationJobId(args: {
   workflowId: string;
-  revisionId: string;
-  code: string;
-  message: string;
+  generation: string;
 }): string {
-  const generation = sha256Canonical({
-    code: args.code,
-    message: args.message,
-    revisionId: args.revisionId,
-  }).slice(7, 23);
-  return `workflow-blocked.${args.workflowId}.${generation}`;
+  return `workflow-blocked.${args.workflowId}.${sha256Canonical(args.generation).slice(7, 23)}`;
 }
 
 export async function scheduleWorkflowBlockedNotificationJob(

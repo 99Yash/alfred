@@ -1,5 +1,5 @@
 import type { IntegrationSlug, PolicyMode, ToolRiskTier } from "@alfred/contracts";
-import { isLoadableIntegrationSlug } from "@alfred/contracts";
+import { isLoadableIntegrationSlug, isWriteRiskTier } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as Accordion from "@radix-ui/react-accordion";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -572,9 +572,8 @@ function canAlwaysAllow(staging: SyncedActionStaging): boolean {
 
 function approvalLabel(toolName: string, riskTier: ToolRiskTier, edited: boolean): string {
   if (edited && toolName === "system.activate_workflow") return "Review changes";
-  if (edited)
-    return riskTier === "no_risk" || riskTier === "low" ? "Allow changes" : "Approve changes";
-  return riskTier === "no_risk" || riskTier === "low" ? "Allow once" : "Approve";
+  if (edited) return isWriteRiskTier(riskTier) ? "Approve changes" : "Allow changes";
+  return isWriteRiskTier(riskTier) ? "Approve" : "Allow once";
 }
 
 function policyCopy(riskTier: ToolRiskTier): string {

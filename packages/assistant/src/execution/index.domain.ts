@@ -48,7 +48,6 @@ export { normalizeDecisionTraceKey } from "./decision-traces";
 export {
   EFFECT_RECEIPT_CAP,
   effectReceiptColumns,
-  isWriteRiskTier,
   toEffectReceipt,
   type EffectReceiptSource,
 } from "./run-outcome";

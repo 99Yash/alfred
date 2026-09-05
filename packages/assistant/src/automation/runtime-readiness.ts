@@ -1,5 +1,5 @@
 import type { WorkflowRevisionDefinition } from "@alfred/contracts";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, workflowBlockedGeneration } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, workflowRevisions, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
@@ -112,21 +112,18 @@ export async function checkWorkflowRunReadiness(args: {
   }
   if (disposition === "ready") return { kind: "ready" };
   const blocked = recorded.reconciled.workflow.blocked;
+  const generation = blocked ? workflowBlockedGeneration(blocked) : null;
   const newlyBlocked =
-    recorded.before?.code !== blocked?.code ||
-    recorded.before?.message !== blocked?.message ||
-    recorded.before?.revisionId !== blocked?.revisionId;
+    generation !== (recorded.before ? workflowBlockedGeneration(recorded.before) : null);
   // #561: a blocker the owner has not seen yet owes them one email. The job id
   // is keyed by the blocker generation, and the worker re-checks `notifiedAt`,
   // so a re-observed blocker never sends twice. Scheduling returns a status
   // string and never throws, so the readiness verdict is unaffected.
-  if (newlyBlocked && blocked) {
+  if (newlyBlocked && generation) {
     await scheduleWorkflowBlockedNotificationJob({
       workflowId: row.workflow.id,
       userId: args.userId,
-      revisionId: blocked.revisionId ?? row.revision.id,
-      code: blocked.code,
-      message: blocked.message,
+      generation,
     });
   }
   return { kind: "blocked", problems, newlyBlocked };

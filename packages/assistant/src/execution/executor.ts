@@ -945,7 +945,10 @@ async function commitStepSuccessTx(
     if (result.kind === "done") {
       // #561: the typed verdict rides in the same guarded `.set()` as the
       // status, so a superseded commit rolls both back together.
-      const outcome = await deriveRunOutcome(tx, run, { status: "completed", output: cleanOutput });
+      const outcome = await deriveRunOutcome(tx, run, {
+        status: "completed",
+        summary: result.summary,
+      });
       // Guarded like the `next` branch: abort rather than mark a run completed
       // under a stale attempt while the reclaimer is mid-step, or over a
       // terminal status a cancel just wrote.
@@ -1005,7 +1008,7 @@ async function commitStepSuccessTx(
       // Outcome only: a deferred run is not over, so no `last_run_*` roll-up.
       const outcome = await deriveRunOutcome(tx, run, {
         status: "deferred",
-        output: cleanOutput,
+        reason: result.reason,
         retryAt: result.retryAt,
       });
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {

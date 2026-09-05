@@ -63,7 +63,6 @@ export {
   readChildRunOutcome,
   EFFECT_RECEIPT_CAP,
   effectReceiptColumns,
-  isWriteRiskTier,
   toEffectReceipt,
 } from "./index.domain";
 export type {

@@ -1,5 +1,7 @@
 import { workflowRunHistorySchema, type WorkflowRunHistory } from "@alfred/contracts";
+import type { SyncedWorkflow } from "@alfred/sync";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, parseEdenBody } from "~/lib/eden";
 
@@ -12,8 +14,23 @@ export const workflowRunHistoryKey = (workflowId: string) => ["workflow-runs", w
 /**
  * Keyset pages of one workflow's runs, newest first (#561). The contract parse
  * in `parseEdenBody` is the boundary that proves the server shape.
+ *
+ * The history is a react-query read, not a synced entity, so a Replicache poke
+ * alone does not refresh it. Every terminal commit rolls `lastRunAt` up onto
+ * the synced `workflows` row in the same transaction and pokes; this hook
+ * watches that synced field and re-fetches when it moves, so a run that just
+ * finished leaves "Queued" without a window refocus.
  */
-export function useWorkflowRunHistory(workflowId: string) {
+export function useWorkflowRunHistory(
+  workflow: Pick<SyncedWorkflow, "id" | "lastRunAt" | "lastRunStatus">,
+) {
+  const workflowId = workflow.id;
+  const queryClient = useQueryClient();
+  const lastRunSignal = `${workflow.lastRunAt ?? ""}|${workflow.lastRunStatus ?? ""}`;
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: workflowRunHistoryKey(workflowId) });
+  }, [queryClient, workflowId, lastRunSignal]);
+
   return useInfiniteQuery({
     queryKey: workflowRunHistoryKey(workflowId),
     queryFn: async ({ pageParam }: { pageParam: string | null }): Promise<WorkflowRunHistory> => {
