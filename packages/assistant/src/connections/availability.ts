@@ -1,4 +1,5 @@
 import {
+  CREDENTIAL_PROVIDERS,
   credentialSatisfies,
   isCredentialProvider,
   isPassthroughPreferenceOn,
@@ -8,6 +9,8 @@ import {
   type CredentialProvider,
   type IntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
+  type IntegrationStatus,
+  type LiveProviderEntry,
   type LoadableIntegrationSlug,
   type ProviderAvailability,
   type SupportedPassthroughSlug,
@@ -79,44 +82,79 @@ export async function readFreshIntegrationAvailability(
   return readIntegrationAvailability(userId);
 }
 
-async function loadIntegrationAvailability(
+/**
+ * `GET /api/integrations`: the registry joined with the user's credentials and
+ * resolved through each entry's connected rule, in the shape the web renders.
+ *
+ * It reads the rows directly instead of through {@link readIntegrationAvailability}:
+ * the web refetches right after a connect or a disconnect, and inside the memo's
+ * window it would read back the state the user just changed. The join lives here,
+ * beside the snapshot the dispatch floor reads, so the two consume one row read
+ * and one connected rule ({@link resolveIntegrationAvailability}) and cannot
+ * disagree on which rows count.
+ */
+export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
+  const byProvider = await loadCredentialRowsByProvider(userId);
+
+  const integrations = LIVE_PROVIDERS.map((entry) => {
+    const rows = byProvider.get(entry.provider) ?? [];
+    const { health } = resolveIntegrationAvailability(entry, rows);
+    const accounts = rows
+      .filter((row) => credentialSatisfies(entry.credential, row))
+      .map((row) => ({
+        id: row.credentialId,
+        accountLabel: row.accountLabel ?? row.accountId,
+        connectedAt: row.createdAt.toISOString(),
+      }));
+    return { slug: entry.slug, health, accounts };
+  });
+
+  // A provider appears iff it holds an active row. `missing` is the provider's
+  // live slugs no active row proves: the Google scopes the user unchecked, or the
+  // GitHub App installation a classic-OAuth row never had.
+  const providers = CREDENTIAL_PROVIDERS.flatMap((provider) => {
+    const active = (byProvider.get(provider) ?? []).filter((row) => row.status === "active");
+    const first = active[0];
+    if (!first) return [];
+    const missing = LIVE_PROVIDERS.filter(
+      (entry) =>
+        entry.provider === provider &&
+        !active.some((row) => credentialSatisfies(entry.credential, row)),
+    ).map((entry) => entry.slug);
+    return [{ provider, accountId: first.accountId, accountLabel: first.accountLabel, missing }];
+  });
+
+  return { integrations, providers };
+}
+
+/** A {@link ProviderAvailability} row plus the timestamp the web shows as "connected at". */
+interface CredentialRow extends ProviderAvailability {
+  createdAt: Date;
+}
+
+/**
+ * Every credential row of one user, grouped by `integration_credentials.provider`.
+ * The one row read both the availability snapshot and the web status consume.
+ */
+async function loadCredentialRowsByProvider(
   userId: string,
-): Promise<IntegrationAvailabilitySnapshot> {
-  const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
-  const [rows, prefRows] = await Promise.all([
-    db()
-      .select({
-        id: integrationCredentials.id,
-        provider: integrationCredentials.provider,
-        accountId: integrationCredentials.accountId,
-        status: integrationCredentials.status,
-        scopes: integrationCredentials.scopes,
-        installationId: integrationCredentials.installationId,
-        accountLabel: integrationCredentials.accountLabel,
-        metadata: integrationCredentials.metadata,
-      })
-      .from(integrationCredentials)
-      .where(eq(integrationCredentials.userId, userId)),
-    db()
-      .select({ key: userPreferences.key, value: userPreferences.value })
-      .from(userPreferences)
-      .where(
-        and(eq(userPreferences.userId, userId), inArray(userPreferences.key, passthroughKeys)),
-      ),
-  ]);
+): Promise<Map<CredentialProvider, CredentialRow[]>> {
+  const rows = await db()
+    .select({
+      id: integrationCredentials.id,
+      provider: integrationCredentials.provider,
+      accountId: integrationCredentials.accountId,
+      status: integrationCredentials.status,
+      scopes: integrationCredentials.scopes,
+      installationId: integrationCredentials.installationId,
+      accountLabel: integrationCredentials.accountLabel,
+      metadata: integrationCredentials.metadata,
+      createdAt: integrationCredentials.createdAt,
+    })
+    .from(integrationCredentials)
+    .where(eq(integrationCredentials.userId, userId));
 
-  const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
-  const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
-  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug
-  // with string preference keys, so Object.entries yields exactly these tuples.
-  for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
-    SupportedPassthroughSlug,
-    string,
-  ][]) {
-    passthroughEnabled.set(slug, isPassthroughPreferenceOn(prefByKey.get(key)));
-  }
-
-  const byProvider = new Map<CredentialProvider, ProviderAvailability[]>();
+  const byProvider = new Map<CredentialProvider, CredentialRow[]>();
   for (const row of rows) {
     // The column's type is the CHECK constraint's promise, and this is the one
     // read that consumes the value (every other read filters on it). A miss is
@@ -136,25 +174,62 @@ async function loadIntegrationAvailability(
       installationId: row.installationId,
       accountLabel: row.accountLabel,
       metadata: row.metadata,
+      createdAt: row.createdAt,
     });
     byProvider.set(row.provider, list);
+  }
+  return byProvider;
+}
+
+/**
+ * The entry's connected rule (ADR-0093) over its provider's rows: `null` health
+ * with no rows, `active` when one row satisfies the rule, `needs_reauth` when
+ * rows exist but none does, so a legacy GitHub row without an installation reads
+ * `needs_reauth` here as it does on the web.
+ */
+function resolveIntegrationAvailability(
+  entry: LiveProviderEntry,
+  providerRows: readonly ProviderAvailability[],
+): IntegrationAvailability {
+  if (providerRows.length === 0) return { health: null, accountLabel: null };
+  const active = providerRows.find((row) => credentialSatisfies(entry.credential, row));
+  return {
+    health: active ? "active" : "needs_reauth",
+    accountLabel: active?.accountLabel?.trim() || null,
+  };
+}
+
+async function loadIntegrationAvailability(
+  userId: string,
+): Promise<IntegrationAvailabilitySnapshot> {
+  const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
+  const [byProvider, prefRows] = await Promise.all([
+    loadCredentialRowsByProvider(userId),
+    db()
+      .select({ key: userPreferences.key, value: userPreferences.value })
+      .from(userPreferences)
+      .where(
+        and(eq(userPreferences.userId, userId), inArray(userPreferences.key, passthroughKeys)),
+      ),
+  ]);
+
+  const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
+  const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
+  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug
+  // with string preference keys, so Object.entries yields exactly these tuples.
+  for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
+    SupportedPassthroughSlug,
+    string,
+  ][]) {
+    passthroughEnabled.set(slug, isPassthroughPreferenceOn(prefByKey.get(key)));
   }
 
   const availability = new Map<LoadableIntegrationSlug, IntegrationAvailability>();
   for (const entry of LIVE_PROVIDERS) {
-    const providerRows = byProvider.get(entry.provider);
-    if (!providerRows || providerRows.length === 0) {
-      availability.set(entry.slug, { health: null, accountLabel: null });
-      continue;
-    }
-    // The connected rule is the entry's own (ADR-0093): the same predicate the
-    // web's connectedness probe calls, so a legacy GitHub row without an
-    // installation reads `needs_reauth` here as it does there.
-    const active = providerRows.find((row) => credentialSatisfies(entry.credential, row));
-    availability.set(entry.slug, {
-      health: active ? "active" : "needs_reauth",
-      accountLabel: active?.accountLabel?.trim() || null,
-    });
+    availability.set(
+      entry.slug,
+      resolveIntegrationAvailability(entry, byProvider.get(entry.provider) ?? []),
+    );
   }
   return { integrations: availability, providers: byProvider, passthroughEnabled };
 }

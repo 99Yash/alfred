@@ -7,6 +7,7 @@ import { agent } from "./agent";
 import { approvalsRoutes } from "./approvals";
 import { chatRoutes } from "./chat";
 import { connections } from "./connections";
+import { integrationsRoutes } from "./integrations";
 import { mcpIntegrationRoutes } from "./mcp";
 import { meRoutes } from "./me";
 import { authMacro } from "./middleware/auth";
@@ -77,6 +78,7 @@ export { agent, approvalsRoutes, chatRoutes, meRoutes };
 export type { MeInboxItem, MeInboxMessage, MeLatestBriefing, MeMeetingItem } from "./me";
 export {
   connections,
+  integrationsRoutes,
   mcpIntegrationRoutes,
   onboardingRoutes,
   skillsRoutes,
@@ -171,6 +173,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(chatRoutes)
   .use(connections)
   .use(mcpIntegrationRoutes)
+  .use(integrationsRoutes)
   .use(toolTiersRoutes)
   .use(meRoutes)
   .use(onboardingRoutes)
