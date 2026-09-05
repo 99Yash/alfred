@@ -46,6 +46,8 @@
     "./triage": "./src/triage/index.ts",
     "./triage/floors": "./src/triage/floors/index.ts",
     "./triage/*": "./src/triage/*.ts",
+    "./reply-drafting": "./src/reply-drafting/index.ts",
+    "./reply-drafting/workflow-input": "./src/reply-drafting/workflow-input.ts",
     "./briefings": "./src/briefings/index.ts",
     "./briefings/gather": "./src/briefings/gather.ts",
     "./briefings/preferences": "./src/briefings/preferences.ts",

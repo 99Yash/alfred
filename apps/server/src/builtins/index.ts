@@ -5,6 +5,7 @@ import {
 import { chatMemoryCaptureWorkflow, chatTurnWorkflow } from "@alfred/assistant/chat";
 import { dailyBriefingWorkflow, morningBriefingWorkflow } from "@alfred/assistant/briefings";
 import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triage";
+import { replyDraftingWorkflow } from "@alfred/assistant/reply-drafting";
 import { learnSkillWorkflow, skillDocumentationWorkflow } from "@alfred/assistant/skills";
 import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
 import { registerRecipe } from "@alfred/assistant/execution";
@@ -22,6 +23,8 @@ export function registerBuiltinWorkflows(): void {
   registerRecipe(buildMemoryExtractionWorkflow(gmailSenderAdapter));
   registerRecipe(chatMemoryCaptureWorkflow);
   registerRecipe(emailTriageWorkflow);
+  // Reply drafting (ADR-0098): started by the post-triage gate, never by the event bus.
+  registerRecipe(replyDraftingWorkflow);
   // Resume compatibility only: hidden from catalogs/seeding and unavailable
   // for new runs, but required by persisted nonterminal agent checkpoints.
   registerRecipe(morningBriefingWorkflow);

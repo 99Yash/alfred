@@ -21,6 +21,7 @@ import { enumGuard } from "./guards";
  *   - `chat`          — a boss chat turn (`__chat-turn__`).
  *   - `briefing`      — morning or evening daily briefing (`daily-briefing`).
  *   - `triage`        — email triage run (`email-triage`).
+ *   - `reply_drafting` — a reply-drafting run (`reply-drafting`, ADR-0098).
  *   - `cold_start`    — cold-start onboarding research.
  *   - `skill`         — a skill run (learn-skill / skill-documentation).
  *   - `memory`        — memory extraction / chat-memory capture.
@@ -33,6 +34,7 @@ export const USAGE_RUN_CATEGORIES = [
   "chat",
   "briefing",
   "triage",
+  "reply_drafting",
   "cold_start",
   "skill",
   "memory",

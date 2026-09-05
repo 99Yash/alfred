@@ -37,9 +37,10 @@ export interface BackgroundAgentDef {
   tint: AppTint;
   /**
    * `user_preferences` key this switch writes. The switch reads its state via
-   * `isOn(prefKey)`, which defaults to ON when no row exists (UNSET = ON).
-   * Omitted for agents that don't exist yet — those render as disabled
-   * "Coming soon" rows.
+   * `isOn(prefKey)`, which applies the per-key default from
+   * `FEATURE_FLAG_DEFAULTS` when no row exists (UNSET = ON for the original
+   * agents, OFF for reply drafting). Omitted for agents that have no flag yet —
+   * those render as disabled "Coming soon" rows.
    */
   prefKey?: FeatureFlagKey | undefined;
   /** Not built yet — row is shown for parity but switched off and disabled. */
@@ -85,6 +86,9 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Drafts replies in your tone so you can review and send.",
     icon: PencilLine,
     tint: "sky",
+    // The flag and the gate exist (#243); the composer does not (#237). The
+    // switch stays disabled until a run can actually stage a draft.
+    prefKey: FEATURE_FLAG_KEYS.replyDrafting,
     comingSoon: true,
   },
   {

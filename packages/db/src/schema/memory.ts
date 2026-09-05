@@ -131,10 +131,13 @@ export const userFactInsertSchema = createInsertSchema(userFacts, {
  * `briefing.delivery_hour`.
  *
  * Background-agent toggles (Settings → Features) live under `feature.*`
- * boolean keys, read via `resolveFeatureFlags` in `@alfred/assistant`. UNSET means
- * ON, so absence = current default behavior (no migration needed):
- * `feature.morning_briefing`, `feature.evening_recap`,
- * `feature.email_tagging`, `feature.action_items`.
+ * boolean keys, read via `resolveFeatureFlags` in `@alfred/assistant`. For the
+ * four original agents UNSET means ON, so absence = current default behavior
+ * (no migration needed): `feature.morning_briefing`, `feature.evening_recap`,
+ * `feature.email_tagging`, `feature.action_items`. `feature.reply_drafting` is
+ * the exception: UNSET means OFF, because it stages outbound mail and must be
+ * opted into. The per-key default lives in `FEATURE_FLAG_DEFAULTS`
+ * (`@alfred/contracts`); no migration.
  */
 export const userPreferences = pgTable(
   "user_preferences",
