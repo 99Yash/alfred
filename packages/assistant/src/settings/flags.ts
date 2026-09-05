@@ -35,7 +35,7 @@ export interface FeatureFlags {
   /** Mint `suggested` todos off triage classification. */
   actionItems: boolean;
   /**
-   * Proactive reply drafting off the triage tail (ADR-0097). Default OFF. A
+   * Proactive reply drafting off the triage tail (ADR-0098). Default OFF. A
    * `manual` invocation of the `reply-drafting` workflow ignores this flag.
    */
   replyDrafting: boolean;

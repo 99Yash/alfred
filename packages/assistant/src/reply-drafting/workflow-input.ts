@@ -2,7 +2,7 @@ import { replyDraftInvocationSchema, replyDraftTriageSnapshotSchema } from "@alf
 import { z } from "zod";
 
 /**
- * Public input schema + slug for the `reply-drafting` workflow (ADR-0097).
+ * Public input schema + slug for the `reply-drafting` workflow (ADR-0098).
  * Lives apart from the workflow file so the post-triage gate, the smoke
  * script, and the usage report can name the run without importing the recipe.
  */

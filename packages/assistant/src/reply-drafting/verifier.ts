@@ -10,7 +10,7 @@ import {
 } from "@alfred/contracts";
 
 /**
- * Reply-draft verifier (ADR-0097). PURE — no DB, no LLM.
+ * Reply-draft verifier (ADR-0098). PURE — no DB, no LLM.
  *
  * The verifier stands between a composed candidate and the `gmail.send_draft`
  * staging call. It checks STRUCTURE, not prose quality: does the reply point at

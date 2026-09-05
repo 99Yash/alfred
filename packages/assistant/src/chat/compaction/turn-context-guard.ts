@@ -140,6 +140,7 @@ async function applyForegroundContextGuard({
   storedTranscript,
   hydratedTranscript,
   artifactReference,
+  pendingGuidance,
   abortSignal,
   onCompactionStart,
   onCompactionFinish,
@@ -156,6 +157,7 @@ async function applyForegroundContextGuard({
   storedTranscript: readonly AgentTranscriptMessage[];
   hydratedTranscript: readonly AgentTranscriptMessage[];
   artifactReference: string;
+  pendingGuidance: AgentTranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
   onCompactionFinish?: () => Promise<void>;
@@ -170,7 +172,7 @@ async function applyForegroundContextGuard({
       tools,
       // SAFETY: AgentTranscriptMessage is the persisted superset view of the
       // SDK's ModelMessage transcript; assess reads the model-message shape.
-      transcript: candidate as ModelMessage[],
+      transcript: (pendingGuidance ? [...candidate, pendingGuidance] : candidate) as ModelMessage[],
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
@@ -293,6 +295,7 @@ async function applyWithinRunContextGuard({
   hydratedTranscript,
   inFlightTailStart,
   artifactReference,
+  pendingGuidance,
   abortSignal,
   onCompactionStart,
   onCompactionFinish,
@@ -308,6 +311,7 @@ async function applyWithinRunContextGuard({
   hydratedTranscript: readonly AgentTranscriptMessage[];
   inFlightTailStart: number;
   artifactReference: string;
+  pendingGuidance: AgentTranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
   onCompactionFinish?: () => Promise<void>;
@@ -324,7 +328,10 @@ async function applyWithinRunContextGuard({
       // SAFETY: withEphemeralReference rebuilds the same transcript shape it is
       // given (AgentTranscriptMessage), which the pressure check reads as
       // ModelMessage.
-      transcript: withEphemeralReference(candidate, artifactReference) as ModelMessage[],
+      transcript: withEphemeralReference(
+        pendingGuidance ? [...candidate, pendingGuidance] : candidate,
+        artifactReference,
+      ) as ModelMessage[],
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
@@ -398,7 +405,7 @@ async function applyWithinRunContextGuard({
  * transcript, and whether it compacted (the caller resets `inFlightTailStart`
  * when a within-run compaction folded the in-flight tail into the summary).
  */
-export async function guardTurnContext(args: {
+async function guardExistingTurnContext(args: {
   turnCount: number;
   inFlightTailStart: number;
   userId: string;
@@ -413,6 +420,8 @@ export async function guardTurnContext(args: {
   storedTranscript: readonly AgentTranscriptMessage[];
   hydratedTranscript: readonly AgentTranscriptMessage[];
   artifactReference: string;
+  /** Budget runtime guidance without changing the real user's compaction boundary. */
+  pendingGuidance?: AgentTranscriptMessage | undefined;
   /** The turn-stop signal; the guard composes its own compaction timeout on top. */
   abortSignal: AbortSignal;
   onPhase: (
@@ -455,6 +464,7 @@ export async function guardTurnContext(args: {
       storedTranscript: args.storedTranscript,
       hydratedTranscript: args.hydratedTranscript,
       artifactReference: args.artifactReference,
+      pendingGuidance: args.pendingGuidance,
       abortSignal: guardAbortSignal,
       onCompactionStart: () => args.onPhase("compaction_started", "foreground"),
       onCompactionFinish: () => args.onPhase("compaction_finished", "foreground"),
@@ -480,6 +490,7 @@ export async function guardTurnContext(args: {
     hydratedTranscript: args.hydratedTranscript,
     inFlightTailStart: args.inFlightTailStart,
     artifactReference: args.artifactReference,
+    pendingGuidance: args.pendingGuidance,
     abortSignal: guardAbortSignal,
     onCompactionStart: () => args.onPhase("compaction_started", "within_run"),
     onCompactionFinish: () => args.onPhase("compaction_finished", "within_run"),
@@ -488,5 +499,16 @@ export async function guardTurnContext(args: {
     continuationTranscript: withinRun.continuationTranscript,
     modelTranscript: withinRun.modelTranscript,
     compacted: withinRun.compacted,
+  };
+}
+
+/** Admit pending guidance only after compaction, in both checkpoint and model views. */
+export async function guardTurnContext(args: Parameters<typeof guardExistingTurnContext>[0]) {
+  const guarded = await guardExistingTurnContext(args);
+  if (!args.pendingGuidance) return guarded;
+  return {
+    ...guarded,
+    continuationTranscript: [...guarded.continuationTranscript, args.pendingGuidance],
+    modelTranscript: [...guarded.modelTranscript, args.pendingGuidance],
   };
 }

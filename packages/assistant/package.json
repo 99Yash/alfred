@@ -11,6 +11,7 @@
     "./connections/mcp/test-support": "./src/connections/mcp/test-support.ts",
     "./connections/ingestion": "./src/connections/ingestion/index.ts",
     "./connections/ingestion/internal": "./src/connections/ingestion/internal.ts",
+    "./connections/ingress": "./src/connections/ingress/index.ts",
     "./artifacts": "./src/artifacts/index.ts",
     "./artifacts/content-hash": "./src/artifacts/content-hash.ts",
     "./artifacts/read": "./src/artifacts/read.ts",

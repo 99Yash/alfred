@@ -1,5 +1,5 @@
 /**
- * Reply drafting (ADR-0025 #5, PRD #236, foundation #243; ADR-0097).
+ * Reply drafting (ADR-0025 #5, PRD #236, foundation #243; ADR-0098).
  *
  * Owns the reply-worthiness gate, the structural verifier, the Gmail send-access
  * check, the `reply-drafting` workflow recipe, the post-triage trigger consumer,

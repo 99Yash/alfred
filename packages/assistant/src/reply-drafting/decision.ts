@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { normalizeDecisionTraceKey } from "@alfred/assistant/execution";
 
 /**
- * Durable record of one reply-drafting decision (ADR-0097).
+ * Durable record of one reply-drafting decision (ADR-0098).
  *
  * Inside the `reply-drafting` workflow every terminal step calls
  * `ctx.trace("reply_drafting.decision", result)` and the executor persists it

@@ -1,5 +1,5 @@
 /**
- * Reply-drafting result contract (PRD #236, foundation #243; ADR-0097).
+ * Reply-drafting result contract (PRD #236, foundation #243; ADR-0098).
  *
  * Alfred drafts a reply only for a message that deserves one, and every run
  * ends in ONE of five typed outcomes. Four of them are successful decisions

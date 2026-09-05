@@ -11,7 +11,7 @@ import {
 import type { GmailMessageEventReason } from "@alfred/assistant/triggers";
 
 /**
- * Reply-worthiness gate (ADR-0097). PURE — no DB, no LLM.
+ * Reply-worthiness gate (ADR-0098). PURE — no DB, no LLM.
  *
  * The gate is deliberately NOT `category === "awaiting_reply"`. Triage keeps
  * the category honest (a cold ask IS `awaiting_reply`), and the todo rubric

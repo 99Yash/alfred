@@ -3,7 +3,6 @@ import {
   Errors,
   GOOGLE_FEATURE_SCOPES,
   integrationRoutePrefix,
-  rowToCredentialWire,
   toMessage,
   type CredentialProvider,
   type GoogleFeature,
@@ -48,6 +47,8 @@ import { requireOnboarded } from "../middleware/onboarding";
  *   GET  /api/integrations/google/callback ← Google redirects here with `code`
  *   POST /api/integrations/google/:id/ingest → enqueue an ingestion job
  *
+ * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
+ *
  * The `state` parameter on the authorize URL carries `(userId, nonce)`,
  * HMAC-signed with `BETTER_AUTH_SECRET` to detect tampering. The real
  * CSRF/replay defense is the nonce: we persist it in Redis with a TTL
@@ -91,101 +92,77 @@ export const googleIntegrationRoutes = new Elysia({
 })
   .use(authMacro)
   .use(requireOnboarded)
-  // `/connect` + `/credentials` must be reachable *during* onboarding
-  // before `user.onboarded_at` is set — otherwise the step-1 CTA 302s to
-  // 403 and the step-2 / integrations tiles that probe credentials read as
-  // "not connected" (empty array) while the user is still onboarding.
+  // `/connect` must be reachable *during* onboarding before
+  // `user.onboarded_at` is set — otherwise the step-1 CTA 302s to 403 while
+  // the user is still onboarding.
   .guard({ auth: true }, (app) =>
-    app
-      .get("/credentials", async ({ user }) => {
-        const rows = await db()
-          .select({
-            id: integrationCredentials.id,
-            accountId: integrationCredentials.accountId,
-            accountLabel: integrationCredentials.accountLabel,
-            status: integrationCredentials.status,
-            scopes: integrationCredentials.scopes,
-            persona: integrationCredentials.persona,
-            expiresAt: integrationCredentials.expiresAt,
-            lastRefreshedAt: integrationCredentials.lastRefreshedAt,
-            createdAt: integrationCredentials.createdAt,
-          })
-          .from(integrationCredentials)
-          .where(
-            and(
-              eq(integrationCredentials.userId, user.id),
-              eq(integrationCredentials.provider, PROVIDER),
-            ),
-          );
-        return { credentials: rows.map(rowToCredentialWire) };
-      })
-      .get(
-        "/connect",
-        async ({ user, query, set }) => {
-          // Default (no `?features` param) requests the FULL grant — every
-          // feature's scopes in a single consent. Alfred operates as one
-          // Production-unverified tenant (ADR-0044, amended 2026-06-08), so
-          // there is no scope tier to dodge and no user cap that matters; the
-          // owner clicks through the unverified-app warning once and grants
-          // the lot. `?features=briefing,triage` narrows the request for a
-          // targeted reconnect; `include_granted_scopes=true` (on the
-          // authorize URL) merges it into the existing grant rather than
-          // re-prompting from scratch.
-          let features: readonly GoogleFeature[] | undefined;
-          if (query.features) {
-            const parsed = query.features
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean);
-            const known = parsed.filter((f): f is GoogleFeature => f in GOOGLE_FEATURE_SCOPES);
-            if (known.length !== parsed.length) {
-              throw Errors.BadRequestError(
-                // SAFETY: the cast only types .includes' argument for the
-                // unknown-feature test; `f` itself prints unchanged.
-                `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
-              );
-            }
-            // An explicit param that parses to nothing (e.g. `?features=,`)
-            // requests identity scopes only — it must not silently widen to
-            // the full grant. `scopesForFeatures([])` returns identity-only.
-            features = known;
-          }
-
-          const hasWorkflowId = query.workflowId !== undefined;
-          const hasRevisionId = query.revisionId !== undefined;
-          if (hasWorkflowId !== hasRevisionId) {
+    app.get(
+      "/connect",
+      async ({ user, query, set }) => {
+        // Default (no `?features` param) requests the FULL grant — every
+        // feature's scopes in a single consent. Alfred operates as one
+        // Production-unverified tenant (ADR-0044, amended 2026-06-08), so
+        // there is no scope tier to dodge and no user cap that matters; the
+        // owner clicks through the unverified-app warning once and grants
+        // the lot. `?features=briefing,triage` narrows the request for a
+        // targeted reconnect; `include_granted_scopes=true` (on the
+        // authorize URL) merges it into the existing grant rather than
+        // re-prompting from scratch.
+        let features: readonly GoogleFeature[] | undefined;
+        if (query.features) {
+          const parsed = query.features
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const known = parsed.filter((f): f is GoogleFeature => f in GOOGLE_FEATURE_SCOPES);
+          if (known.length !== parsed.length) {
             throw Errors.BadRequestError(
-              "workflowId and revisionId must be provided together for workflow recovery",
+              // SAFETY: the cast only types .includes' argument for the
+              // unknown-feature test; `f` itself prints unchanged.
+              `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
             );
           }
-          const workflowRecovery =
-            query.workflowId && query.revisionId
-              ? { workflowId: query.workflowId, revisionId: query.revisionId }
-              : undefined;
+          // An explicit param that parses to nothing (e.g. `?features=,`)
+          // requests identity scopes only — it must not silently widen to
+          // the full grant. `scopesForFeatures([])` returns identity-only.
+          features = known;
+        }
 
-          const nonce = randomBytes(16).toString("hex");
-          await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
-          const state = signOAuthState({
-            userId: user.id,
-            nonce,
-            ...(workflowRecovery ? { workflowRecovery } : {}),
-          });
-          const url = buildAuthorizeUrl({
-            state,
-            scopes: scopesForFeatures(features),
-          });
-          set.status = 302;
-          set.headers["Location"] = url;
-          return null;
-        },
-        {
-          query: t.Object({
-            features: t.Optional(t.String({ maxLength: 200 })),
-            workflowId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
-            revisionId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
-          }),
-        },
-      ),
+        const hasWorkflowId = query.workflowId !== undefined;
+        const hasRevisionId = query.revisionId !== undefined;
+        if (hasWorkflowId !== hasRevisionId) {
+          throw Errors.BadRequestError(
+            "workflowId and revisionId must be provided together for workflow recovery",
+          );
+        }
+        const workflowRecovery =
+          query.workflowId && query.revisionId
+            ? { workflowId: query.workflowId, revisionId: query.revisionId }
+            : undefined;
+
+        const nonce = randomBytes(16).toString("hex");
+        await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
+        const state = signOAuthState({
+          userId: user.id,
+          nonce,
+          ...(workflowRecovery ? { workflowRecovery } : {}),
+        });
+        const url = buildAuthorizeUrl({
+          state,
+          scopes: scopesForFeatures(features),
+        });
+        set.status = 302;
+        set.headers["Location"] = url;
+        return null;
+      },
+      {
+        query: t.Object({
+          features: t.Optional(t.String({ maxLength: 200 })),
+          workflowId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
+          revisionId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
+        }),
+      },
+    ),
   )
   .guard({ auth: true, requireOnboarded: true }, (app) =>
     app

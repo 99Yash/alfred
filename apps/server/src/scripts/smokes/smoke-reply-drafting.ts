@@ -1,5 +1,5 @@
 /**
- * Smoke test for the `reply-drafting` workflow foundation (#243, ADR-0097).
+ * Smoke test for the `reply-drafting` workflow foundation (#243, ADR-0098).
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-reply-drafting.ts
  *
