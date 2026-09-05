@@ -2,12 +2,15 @@ import {
   credentialProviderOf,
   INTEGRATIONS,
   isLiveProviderSlug,
+  isTokenPasteSlug,
   type LiveProviderSlug,
+  type TokenPasteSlug,
 } from "@alfred/contracts";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
 import { AppButton, AppInput } from "~/components/ui/v2";
+import { responseErrorMessage } from "~/lib/api-error";
 import { client, API_URL } from "~/lib/eden";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { connectPathFor, type IntegrationPage } from "~/lib/integrations/integrations";
@@ -16,10 +19,10 @@ import { toast } from "~/lib/toast";
 
 /**
  * The connect action reads the registry entry's credential: a planned provider
- * renders a disabled "Coming Soon"; a `token_paste` credential renders a form
- * that POSTs the token; every other live credential redirects to the path
- * `connectPathFor` builds (the provider's route family plus, for a Google
- * product, the `?features=` its entry declares).
+ * renders a disabled "Coming Soon"; a `token_paste` credential renders the form
+ * its `TOKEN_PASTE_FORMS` row declares; every other live credential redirects to
+ * the path `connectPathFor` builds (the provider's route family plus, for a
+ * Google product, the `?features=` its entry declares).
  */
 function ConnectAction({ provider, connected }: { provider: IntegrationPage; connected: boolean }) {
   if (!isLiveProviderSlug(provider.slug)) {
@@ -29,9 +32,8 @@ function ConnectAction({ provider, connected }: { provider: IntegrationPage; con
       </AppButton>
     );
   }
-  const credential = INTEGRATIONS[provider.slug].credential;
-  if (credential.shape === "bearer" && credential.connect === "token_paste") {
-    return <RailwayConnect connected={connected} />;
+  if (isTokenPasteSlug(provider.slug)) {
+    return <TokenPasteConnect slug={provider.slug} connected={connected} />;
   }
   return <RedirectConnect slug={provider.slug} connected={connected} />;
 }
@@ -98,30 +100,69 @@ function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connecte
 }
 
 /**
- * The `token_paste` connect flow. Railway has no OAuth — the user pastes an
- * account or workspace API token. We POST it to the connect route (which
- * validates it against Railway before storing) and refresh the credential
- * query on success so the tile flips to "Connected". Railway is the one
- * `token_paste` credential today; the Eden path below is its mechanics.
+ * The `token_paste` connect flow. Neither Railway nor Sentry has a public
+ * OAuth for this use, so the user pastes a token they generated themselves. We
+ * POST it to the provider's connect route (which validates it upstream before
+ * storing) and refresh the credential query on success so the tile flips to
+ * "Connected". The table below is the per-provider half: what the user pastes,
+ * where to get it, whether the route needs a second field beside the token, and
+ * the typed Eden call. Its key set is the registry's token-paste slugs, so a new
+ * `token_paste` credential cannot ship without a form.
  */
-function RailwayConnect({ connected }: { connected: boolean }) {
+interface TokenPasteForm {
+  tokenPlaceholder: string;
+  /** Where the user generates the token. */
+  tokenUrl: string;
+  /**
+   * A second identifier the connect route needs beside the token (Sentry's
+   * organization slug), or `undefined` when the token alone names the account.
+   */
+  scope?: { placeholder: string } | undefined;
+  submit(values: {
+    token: string;
+    scope: string;
+  }): Promise<{ error: { status: number; value: unknown } | null }>;
+}
+
+const TOKEN_PASTE_FORMS = {
+  railway: {
+    tokenPlaceholder: "Railway workspace or account token",
+    tokenUrl: "https://railway.com/account/tokens",
+    submit: ({ token }) => client.api.integrations.railway.connect.post({ token }),
+  },
+  sentry: {
+    tokenPlaceholder: "Sentry internal integration token",
+    tokenUrl: "https://sentry.io/settings/developer-settings/",
+    scope: { placeholder: "Sentry organization slug" },
+    submit: ({ token, scope }) =>
+      client.api.integrations.sentry.connect.post({ token, organization: scope }),
+  },
+} satisfies Record<TokenPasteSlug, TokenPasteForm>;
+
+function TokenPasteConnect({ slug, connected }: { slug: TokenPasteSlug; connected: boolean }) {
+  const form: TokenPasteForm = TOKEN_PASTE_FORMS[slug];
+  const name = INTEGRATIONS[slug].displayName;
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
+  const [scope, setScope] = useState("");
   const [pending, setPending] = useState(false);
+  const complete = token.trim().length > 0 && (!form.scope || scope.trim().length > 0);
 
   async function submit() {
-    const trimmed = token.trim();
-    if (!trimmed) return;
+    if (!complete) return;
     setPending(true);
     try {
-      const res = await client.api.integrations.railway.connect.post({ token: trimmed });
+      const res = await form.submit({ token: token.trim(), scope: scope.trim() });
       if (res.error) {
-        toast.error("Railway rejected that token — check it and try again");
+        // The connect route distinguishes a wrong token, a missing installation,
+        // an unconfigured server, and an upstream outage; show its message.
+        toast.error(responseErrorMessage(res.error.value, res.error.status, `Connect ${name}`));
         return;
       }
-      toast.success("Connected Railway");
+      toast.success(`Connected ${name}`);
       setToken("");
+      setScope("");
       setOpen(false);
       await queryClient.invalidateQueries({ queryKey: INTEGRATION_STATUS_QUERY_KEY });
     } catch {
@@ -139,23 +180,35 @@ function RailwayConnect({ connected }: { connected: boolean }) {
     );
   }
 
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") void submit();
+    if (e.key === "Escape") setOpen(false);
+  };
+
   return (
     <div className="flex flex-col items-end gap-2">
+      {form.scope ? (
+        <AppInput
+          autoFocus
+          value={scope}
+          placeholder={form.scope.placeholder}
+          className="w-64"
+          onChange={(e) => setScope(e.target.value)}
+          onKeyDown={onKeyDown}
+        />
+      ) : null}
       <AppInput
         type="password"
-        autoFocus
+        autoFocus={!form.scope}
         value={token}
-        placeholder="Railway workspace or account token"
+        placeholder={form.tokenPlaceholder}
         className="w-64"
         onChange={(e) => setToken(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void submit();
-          if (e.key === "Escape") setOpen(false);
-        }}
+        onKeyDown={onKeyDown}
       />
       <div className="flex items-center gap-2">
         <a
-          href="https://railway.com/account/tokens"
+          href={form.tokenUrl}
           target="_blank"
           rel="noreferrer"
           className="text-[11.5px] text-app-fg-2 underline-offset-2 hover:underline"
@@ -169,7 +222,7 @@ function RailwayConnect({ connected }: { connected: boolean }) {
           variant="white"
           size="sm"
           onClick={() => void submit()}
-          disabled={pending || !token.trim()}
+          disabled={pending || !complete}
         >
           {pending ? "Connecting…" : "Save"}
         </AppButton>
