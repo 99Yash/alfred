@@ -1,5 +1,6 @@
 import { registerTriggerConsumer } from "@alfred/assistant/triggers";
 import { acceptEvent } from "@alfred/assistant/automation";
+import { githubActivityTriggerConsumer } from "./github-activity-consumer";
 import { gmailIngestedTriggerConsumers } from "./gmail-ingested-consumers";
 
 let unregisterConsumers: (() => void)[] | undefined;
@@ -14,6 +15,7 @@ export function registerTriggerConsumers(): void {
       accept: acceptEvent,
     }),
     ...gmailIngestedTriggerConsumers().map((consumer) => registerTriggerConsumer(consumer)),
+    registerTriggerConsumer(githubActivityTriggerConsumer()),
   ];
 }
 
