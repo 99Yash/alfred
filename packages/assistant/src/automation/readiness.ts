@@ -4,6 +4,7 @@ import {
   holdsAnyScope,
   humanizeSlug,
   integrationFromToolName,
+  isInboundEventSource,
   isIntegrationSlug,
   isToolName,
   toolLabel,
@@ -18,10 +19,12 @@ import {
   type PersistedWorkflowReadinessProblem,
   type WorkflowRequestedCapability,
   type WorkflowRequiredCapability,
+  type InboundEventSource,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 import { readGmailWatchState } from "@alfred/integrations/google";
 import type { WorkflowToolCatalog, WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
+import type { InboundSubscriptionHealth } from "@alfred/assistant/connections/ingress";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
 type WorkflowReadinessProblemCode =
@@ -30,7 +33,12 @@ type WorkflowReadinessProblemCode =
   | "choose_account"
   | "resource_not_granted"
   | "trigger_not_ready"
-  | "provider_unhealthy";
+  | "provider_unhealthy"
+  /** An inbound webhook source has no healthy subscription (ADR-0097); a deferral, like `provider_unhealthy`. */
+  | "trigger_degraded";
+
+/** Per-source subscription health for the inbound sources, as `readInboundTriggerHealth` reads it. */
+export type InboundTriggerHealthMap = ReadonlyMap<InboundEventSource, InboundSubscriptionHealth>;
 
 export interface WorkflowReadinessProblem extends PersistedWorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
@@ -194,6 +202,7 @@ export function resolveWorkflowReadiness(args: {
   availability: IntegrationAvailabilitySnapshot;
   requestedCapabilities?: readonly WorkflowRequestedCapability[];
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
+  inboundTriggerHealth: InboundTriggerHealthMap;
   toolCatalog: WorkflowToolCatalog;
   resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
   now?: Date;
@@ -394,6 +403,32 @@ export function resolveWorkflowReadiness(args: {
     }
   }
 
+  if (
+    args.definition.trigger.kind === "event" &&
+    isInboundEventSource(args.definition.trigger.source)
+  ) {
+    // An inbound source with no healthy subscription is degraded, never quiet:
+    // the absence of deliveries must not read as "nothing happened" (ADR-0097).
+    const source = args.definition.trigger.source;
+    const health: InboundSubscriptionHealth = args.inboundTriggerHealth.get(source) ?? {
+      healthy: false,
+      reason: "no subscription health signal",
+      recovery: { kind: "none" },
+    };
+    if (!health.healthy) {
+      // The descriptor names the integration its `connect` recovery points at;
+      // `connect` and `retry` are already `WorkflowRecoveryAction` shapes.
+      const recoveryAction: WorkflowRecoveryAction | undefined =
+        health.recovery.kind === "none" ? undefined : health.recovery;
+      problems.push({
+        code: "trigger_degraded",
+        message: `${humanizeSlug(source)} event delivery is degraded: ${health.reason}.`,
+        field: "trigger",
+        ...(recoveryAction ? { recoveryAction } : {}),
+      });
+    }
+  }
+
   return problems;
 }
 
@@ -408,6 +443,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
   availability: IntegrationAvailabilitySnapshot;
   toolCatalog: WorkflowToolCatalog;
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
+  inboundTriggerHealth: InboundTriggerHealthMap;
   resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
   now?: Date;
 }): WorkflowCapabilityResolution<TDefinition> {
@@ -445,6 +481,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     availability: args.availability,
     requestedCapabilities: args.requested,
     gmailEventHealth: args.gmailEventHealth,
+    inboundTriggerHealth: args.inboundTriggerHealth,
     toolCatalog: args.toolCatalog,
     ...(args.resourceAccessFacts ? { resourceAccessFacts: args.resourceAccessFacts } : {}),
     ...(args.now ? { now: args.now } : {}),
