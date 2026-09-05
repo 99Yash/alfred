@@ -236,6 +236,11 @@ function isBroadcastAuthSignInConfirmation(
 ): boolean {
   if (senderKind.kind !== "group") return false;
   const text = [context.subject, context.signalText].filter(Boolean).join("\n");
+  // A sign-in notice that also names a leaked secret must escape demotion, the
+  // same veto `collab_passive_activity` and `monitoring_alarm` carry (#580).
+  // Otherwise the override floor's `urgent` is demoted straight back to `fyi`
+  // and the rotate-now todo it protects is cleared.
+  if (matchesExposedSecret(text)) return false;
   return (
     AUTH_SIGNIN_NOTICE_RE.test(text) &&
     AUTH_NO_ACTION_IF_YOU_RE.test(text) &&
