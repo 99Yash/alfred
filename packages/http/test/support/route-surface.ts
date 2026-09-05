@@ -70,6 +70,7 @@ const ROUTE_SURFACE = [
   "DELETE /api/integrations/vercel/:id",
   "GET /api/integrations/vercel/callback",
   "POST /webhooks/gmail",
+  "POST /webhooks/inbound/:source",
   "POST /webhooks/github",
   "GET /api/integrations/mcp/connections",
   "GET /api/integrations/mcp/recovery",

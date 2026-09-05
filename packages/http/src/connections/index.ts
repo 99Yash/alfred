@@ -1,8 +1,8 @@
 import type { CredentialProvider } from "@alfred/contracts";
 import { Elysia, type AnyElysia } from "elysia";
 import { githubIntegrationRoutes } from "./github-routes";
-import { githubWebhookRoutes } from "./github-webhook";
 import { gmailWebhookRoutes } from "./gmail-webhook";
+import { inboundWebhookRoutes } from "./inbound-webhook";
 import { googleIntegrationRoutes } from "./google-routes";
 import { notionIntegrationRoutes } from "./notion-routes";
 import { railwayIntegrationRoutes } from "./railway-routes";
@@ -29,4 +29,4 @@ export const connections = new Elysia({ name: "connections", normalize: "typebox
   .use(providerRoutes.railway)
   .use(providerRoutes.vercel)
   .use(gmailWebhookRoutes)
-  .use(githubWebhookRoutes);
+  .use(inboundWebhookRoutes);

@@ -45,7 +45,8 @@ export async function authorWorkflowDraft(args: {
 }): Promise<WorkflowServiceResult<AuthoredWorkflowOutcome>> {
   // Gather mutable setup before the first write. A transient availability-read
   // failure must not commit a draft and then make a retry create a second one.
-  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+  const { availability, gmailEventHealth, inboundTriggerHealth } =
+    await readWorkflowReadinessContext(args.userId);
   const toolCatalog = workflowToolCatalog();
   const resolution = resolveWorkflowCapabilities({
     definition: definitionFromProposal(args.input),
@@ -53,6 +54,7 @@ export async function authorWorkflowDraft(args: {
     availability,
     toolCatalog,
     gmailEventHealth,
+    inboundTriggerHealth,
   });
   const definition = resolution.definition;
   const authoringProposal = authoringProposalFromInput(args.input, definition);

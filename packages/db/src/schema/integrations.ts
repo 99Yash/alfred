@@ -227,6 +227,14 @@ export const webhookEvents = pgTable(
  * or 'oidc_failed'). `processing_status` tracks whether the ingestion job ran
  * and completed.
  *
+ * Inbound webhook sources (ADR-0097): `provider` is the source slug from
+ * `EVENT_SOURCE_ENTRIES` (`github`), `provider_delivery_id` is the key the
+ * source descriptor's `dedup` rule produced, `event_type` is
+ * `<slug>.<projected type>`, and `payload` holds the verified body so the
+ * delivery job and any consumer can read it after the HTTP request has been
+ * acknowledged. Gmail rows leave `payload` NULL because the Pub/Sub envelope
+ * carries only a pointer.
+ *
  * The full unique index on `(provider, provider_delivery_id)` deduplicates
  * redeliveries at the DB level. The webhook handler uses `onConflictDoNothing`
  * so a duplicate insert is a no-op. Failed deliveries are not retried with a
@@ -238,9 +246,9 @@ export const eventReceipts = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => createId("evr")),
-    /** 'google' for Gmail; 'github', 'slack', etc. later. */
+    /** 'google' for Gmail; the inbound source slug (`github`) for webhook sources. */
     provider: text("provider").notNull(),
-    /** Pub/Sub messageId (Gmail) or X-GitHub-Delivery (GitHub). Stable across redeliveries. */
+    /** Pub/Sub messageId (Gmail) or the descriptor's dedup key (X-GitHub-Delivery for GitHub). Stable across redeliveries. */
     providerDeliveryId: text("provider_delivery_id").notNull(),
     /** FK to integration_credentials — the account that owns this delivery. */
     credentialId: text("credential_id")
@@ -256,8 +264,13 @@ export const eventReceipts = pgTable(
     historyId: text("history_id"),
     /** OIDC verification outcome: 'oidc_valid', 'oidc_skipped' (dev), 'oidc_failed'. */
     verificationResult: text("verification_result").notNull().default("oidc_valid"),
-    /** SHA-256 hex of the raw Pub/Sub body for audit / re-derivation. */
+    /** SHA-256 hex of the raw request body for audit / re-derivation. */
     payloadHash: text("payload_hash"),
+    /**
+     * The verified JSON body of an inbound webhook delivery (ADR-0097). NULL
+     * for Gmail, whose Pub/Sub envelope is a pointer the poll job re-reads.
+     */
+    payload: jsonb("payload"),
     /**
      * Processing state: 'pending' (received, not yet ingested), 'completed'
      * (ingestion job ran), 'failed' (ingestion job errored).
@@ -280,3 +293,4 @@ export type IntegrationCredential = typeof integrationCredentials.$inferSelect;
 export type IngestionState = typeof ingestionState.$inferSelect;
 export type WebhookEvent = typeof webhookEvents.$inferSelect;
 export type EventReceipt = typeof eventReceipts.$inferSelect;
+export type NewEventReceipt = typeof eventReceipts.$inferInsert;
