@@ -17,6 +17,7 @@ export type {
   InboundSubscriptionAdapter,
   InboundSubscriptionHealth,
   InboundSubscriptionRecovery,
+  InboundSyntheticKey,
 } from "./descriptor";
 export { inboundDeliveryKey } from "./descriptor";
 export { INBOUND_SOURCES, inboundSource } from "./registry";
