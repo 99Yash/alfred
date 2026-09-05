@@ -7,6 +7,7 @@ import { agent } from "./agent";
 import { approvalsRoutes } from "./approvals";
 import { chatRoutes } from "./chat";
 import { connections } from "./connections";
+import { integrationsRoutes } from "./integrations";
 import { mcpIntegrationRoutes } from "./mcp";
 import { meRoutes } from "./me";
 import { authMacro } from "./middleware/auth";
@@ -22,7 +23,6 @@ import { onboardingRoutes } from "./onboarding";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
 import { replicache } from "./sync/replicache";
-import { toolTiersRoutes } from "./tool-tiers";
 import { workflowRoutes } from "./workflows";
 
 // `@alfred/http` owns the transport layer. This is its one door — a single `.`
@@ -77,10 +77,10 @@ export { agent, approvalsRoutes, chatRoutes, meRoutes };
 export type { MeInboxItem, MeInboxMessage, MeLatestBriefing, MeMeetingItem } from "./me";
 export {
   connections,
+  integrationsRoutes,
   mcpIntegrationRoutes,
   onboardingRoutes,
   skillsRoutes,
-  toolTiersRoutes,
   workflowRoutes,
 };
 
@@ -171,7 +171,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(chatRoutes)
   .use(connections)
   .use(mcpIntegrationRoutes)
-  .use(toolTiersRoutes)
+  .use(integrationsRoutes)
   .use(meRoutes)
   .use(onboardingRoutes)
   .use(skillsRoutes)

@@ -1,14 +1,12 @@
 import {
   credentialProviderOf,
   isLiveProviderSlug,
+  type ConnectedAccount,
   type CredentialProvider,
 } from "@alfred/contracts";
 import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
-import {
-  useDisconnectIntegration,
-  type ConnectedAccount,
-} from "~/lib/integrations/use-integration-status";
+import { useDisconnectIntegration } from "~/lib/integrations/use-integration-status";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { toast } from "~/lib/toast";
 import { ColumnLabel } from "./column-label";
