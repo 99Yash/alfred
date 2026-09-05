@@ -1,4 +1,3 @@
-import { render } from "@react-email/render";
 import * as React from "react";
 import { bodyStyles, EmailShell } from "./_shell";
 
@@ -67,7 +66,3 @@ WorkflowBlockedEmail.PreviewProps = {
 } satisfies WorkflowBlockedEmailProps;
 
 export default WorkflowBlockedEmail;
-
-/** Render the workflow-blocked email to an HTML string for sending. */
-export const renderWorkflowBlockedEmail = (props: WorkflowBlockedEmailProps): Promise<string> =>
-  render(<WorkflowBlockedEmail {...props} />);
