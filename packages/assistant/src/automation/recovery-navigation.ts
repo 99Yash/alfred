@@ -3,7 +3,7 @@ import {
   isGoogleSlug,
   type WorkflowRecoveryNavigation,
 } from "@alfred/contracts";
-import type { WorkflowReadinessProblem } from "./readiness";
+import type { PersistedWorkflowReadinessProblem } from "@alfred/contracts";
 
 /**
  * Convert a readiness remedy into navigation only when this server owns a flow
@@ -12,7 +12,7 @@ import type { WorkflowReadinessProblem } from "./readiness";
 export function workflowRecoveryNavigation(args: {
   workflowId: string;
   revisionId: string;
-  readiness: readonly WorkflowReadinessProblem[];
+  readiness: readonly PersistedWorkflowReadinessProblem[];
 }): WorkflowRecoveryNavigation | undefined {
   for (const problem of args.readiness) {
     const action = problem.recoveryAction;

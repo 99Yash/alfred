@@ -87,7 +87,13 @@ export {
   scheduleApprovalNotificationJob,
   removeApprovalNotificationJob,
   closeApprovalNotificationQueue,
+  notificationJobDataSchema,
+  scheduleWorkflowBlockedNotificationJob,
+  workflowBlockedNotificationJobDataSchema,
+  workflowBlockedNotificationJobId,
   type ApprovalNotificationJobData,
+  type NotificationJobData,
+  type WorkflowBlockedNotificationJobData,
 } from "./approval-notification-queue";
 
 export type ToolSurfaceSource =

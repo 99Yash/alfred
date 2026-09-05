@@ -10,4 +10,9 @@ export {
   SkillDocumentationEmail,
   type SkillDocumentationEmailProps,
 } from "./emails/skill-documentation";
+export {
+  renderWorkflowBlockedEmail,
+  WorkflowBlockedEmail,
+  type WorkflowBlockedEmailProps,
+} from "./emails/workflow-blocked";
 export type { ComposedEmail } from "./types";

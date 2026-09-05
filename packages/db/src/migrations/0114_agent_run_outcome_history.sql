@@ -1,0 +1,2 @@
+ALTER TABLE "agent_runs" ADD COLUMN "outcome" jsonb;--> statement-breakpoint
+CREATE INDEX "agent_runs_workflow_history_idx" ON "agent_runs" USING btree ("user_id","workflow_slug","created_at" DESC NULLS LAST,"id" DESC NULLS LAST);
