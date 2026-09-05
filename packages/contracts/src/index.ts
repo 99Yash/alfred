@@ -16,6 +16,7 @@ export * from "./gmail-document-content";
 export * from "./attachment-content-references";
 export * from "./integration-objects";
 export * from "./integration-availability";
+export * from "./integration-status";
 export * from "./user-model";
 export * from "./chat-memory";
 export * from "./identity-affiliation";

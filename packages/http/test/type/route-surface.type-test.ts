@@ -51,6 +51,7 @@ import {
   approvalsRoutes,
   chatRoutes,
   events,
+  integrationsRoutes,
   mcpIntegrationRoutes,
   meRoutes,
   onboardingRoutes,
@@ -102,6 +103,10 @@ export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/ap
 // reconsent and OAuth URLs by hand, so this line and the composed-app route
 // comparison pin the MCP mount prefix for the remaining surface.
 export const mcpPrefix: (typeof mcpIntegrationRoutes)["config"]["prefix"] = "/api/integrations/mcp";
+// The catalog-status read shares the `/api/integrations` prefix with the tool
+// tiers; each module sets it for itself, and the two mount side by side.
+export const integrationsPrefix: (typeof integrationsRoutes)["config"]["prefix"] =
+  "/api/integrations";
 export const toolTiersPrefix: (typeof toolTiersRoutes)["config"]["prefix"] = "/api/integrations";
 
 // The SSE endpoint, and the Eden check above buys nothing here either: the web
@@ -136,4 +141,5 @@ export const composed = new Elysia()
   .use(skillsRoutes)
   .use(workflowRoutes)
   .use(mcpIntegrationRoutes)
+  .use(integrationsRoutes)
   .use(toolTiersRoutes);
