@@ -123,7 +123,7 @@ from it. `pnpm check` fails on a `Partial<Record<…Slug, …>>` over a registry
 - `LIVE_PROVIDERS` — the live entries with their slug and credential provider attached, in
   registry order. The one loop the assistant and the web iterate.
 - Derived unions (`LiveProviderSlug`, `PlannedSlug`, `CatalogSlug`, `LoadableIntegrationSlug`,
-  `BearerSlug`, `GoogleSlug`, `CredentialProvider`, `SupportedPassthroughSlug`,
+  `BearerSlug`, `TokenPasteSlug`, `GoogleSlug`, `CredentialProvider`, `SupportedPassthroughSlug`,
   `IntegrationBrandKey`) are mapped conditionals over the record, never hand-listed. Where a
   union has a runtime list (`LIVE_PROVIDER_SLUGS`, `CATALOG_SLUGS`, `BEARER_PROVIDER_SLUGS`,
   `CREDENTIAL_PROVIDERS`, …), the list is a `filter` over the tuple and its `is*` guard is an

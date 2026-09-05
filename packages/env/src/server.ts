@@ -296,6 +296,15 @@ const serverEnvSchema = z
     ),
     VERCEL_APP_SLUG: optionalSecret(),
     /**
+     * The Sentry internal integration that Alfred's Sentry provider pairs with
+     * (Settings → Developer Settings → the integration's slug). The connect
+     * route resolves the integration's installation in the user's organization
+     * through it, so the stored credential carries the `installation.uuid` that
+     * webhook deliveries name. Optional for the same boot-before-setup reason as
+     * Notion; the connect route returns 503 while it is unset.
+     */
+    SENTRY_INTEGRATION_SLUG: optionalSecret(),
+    /**
      * Object storage for chat file uploads (ADR-0065). Backed by **Cloudflare R2**
      * (S3-compatible) via `files-sdk`'s `s3` adapter. Create an R2 bucket + an R2
      * API token, then set on the server service:

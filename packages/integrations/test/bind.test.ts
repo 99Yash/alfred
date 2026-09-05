@@ -104,6 +104,7 @@ describe("user-bound integrations", () => {
       "google",
       "notion",
       "railway",
+      "sentry",
       "vercel",
     ]);
   });
