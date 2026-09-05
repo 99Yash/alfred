@@ -224,8 +224,9 @@ export const webhookEvents = pgTable(
  * Gmail v1: `provider_delivery_id` is the Pub/Sub `message.messageId`, which
  * is stable across redeliveries. `event_type` is `gmail.message_received`.
  * `verification_result` records the OIDC outcome ('oidc_valid', 'oidc_skipped',
- * or 'oidc_failed'). `processing_status` tracks whether the ingestion job ran
- * and completed.
+ * or 'oidc_failed'); an inbound webhook row records 'signature_valid', the only
+ * value it can carry because an unverified body is never stored.
+ * `processing_status` tracks whether the ingestion job ran and completed.
  *
  * Inbound webhook sources (ADR-0097): `provider` is the source slug from
  * `EVENT_SOURCE_ENTRIES` (`github`), `provider_delivery_id` is the key the
@@ -258,11 +259,11 @@ export const eventReceipts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Event kind: 'gmail.message_received' for Gmail v1. */
+    /** The `<source>.<type>` domain-event name (`eventTypeName` in contracts): 'gmail.message_received', 'github.pull_request'. */
     eventType: text("event_type").notNull(),
     /** Gmail historyId from the push notification (presence gate + cursor). */
     historyId: text("history_id"),
-    /** OIDC verification outcome: 'oidc_valid', 'oidc_skipped' (dev), 'oidc_failed'. */
+    /** Verification outcome: 'oidc_valid', 'oidc_skipped' (dev), 'oidc_failed' for Gmail; 'signature_valid' for inbound webhook rows. */
     verificationResult: text("verification_result").notNull().default("oidc_valid"),
     /** SHA-256 hex of the raw request body for audit / re-derivation. */
     payloadHash: text("payload_hash"),

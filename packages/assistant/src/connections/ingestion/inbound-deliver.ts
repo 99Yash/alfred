@@ -1,4 +1,4 @@
-import { isEventTypeForSource, isInboundEventSource, toMessage } from "@alfred/contracts";
+import { isInboundEventSource, parseEventTypeName, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -14,7 +14,10 @@ import { publishDomainEvent } from "@alfred/assistant/triggers";
  * A receipt that is already `completed` is a no-op, so the queue's retries and
  * a redelivery's re-enqueue cannot publish twice. A `failed` receipt is retried:
  * the status records the last outcome, and the throw below is what lets the
- * queue schedule the next attempt.
+ * queue schedule the next attempt. A receipt whose stored event type is not one
+ * its source declares is a permanent data error: it is marked `failed` and the
+ * job returns, so the queue does not spend five attempts on a row that cannot
+ * change.
  */
 export async function deliverInboundReceipt(receiptId: string): Promise<void> {
   const [row] = await db()
@@ -35,12 +38,11 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
   if (!isInboundEventSource(source)) {
     throw new Error(`[ingress] receipt ${receiptId} has non-inbound provider '${source}'`);
   }
-  const type = receipt.eventType.startsWith(`${source}.`)
-    ? receipt.eventType.slice(source.length + 1)
-    : receipt.eventType;
-  if (!isEventTypeForSource(source, type)) {
+  const type = parseEventTypeName(source, receipt.eventType);
+  if (!type) {
     await markProcessed(receiptId, "failed");
-    throw new Error(`[ingress] receipt ${receiptId} has unknown event type '${receipt.eventType}'`);
+    console.error(`[ingress] receipt ${receiptId} has unknown event type '${receipt.eventType}'`);
+    return;
   }
 
   try {

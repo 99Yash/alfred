@@ -18,7 +18,11 @@ export async function readInboundTriggerHealth(
         if (!adapter) {
           return [
             slug,
-            { healthy: false, reason: "no subscription health signal", recovery: "none" },
+            {
+              healthy: false,
+              reason: "no subscription health signal",
+              recovery: { kind: "none" },
+            },
           ];
         }
         return [slug, await adapter.health(userId)];

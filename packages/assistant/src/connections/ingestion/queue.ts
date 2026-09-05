@@ -25,7 +25,7 @@ import {
   recordChatMediaEnqueueFailure,
 } from "./chat-media";
 import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
-import { deliverInboundReceipt } from "../ingress/deliver";
+import { deliverInboundReceipt } from "./inbound-deliver";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -42,7 +42,9 @@ import { deliverInboundReceipt } from "../ingress/deliver";
  *                    live observation capture.
  *  - ingress.deliver      (ADR-0097) — publish one stored inbound webhook receipt
  *                    to the trigger bus; `jobId` is the receipt id so a redelivery's
- *                    re-enqueue is idempotent.
+ *                    re-enqueue is a no-op while the job lives, and `removeOnFail`
+ *                    is set so a redelivery can revive a receipt after the last
+ *                    attempt failed.
  */
 const INGESTION_QUEUE_NAME = "ingestion-runs";
 const USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS = 10 * 60 * 1000;
@@ -373,15 +375,25 @@ export async function closeIngestionQueue(): Promise<void> {
 
 /**
  * Enqueue the delivery of one stored inbound webhook receipt (ADR-0097). The
- * `jobId` is the receipt id: the receive path calls this again when a duplicate
- * delivery finds a receipt that is not yet `completed`, and BullMQ treats the
- * second add for a live job as a no-op.
+ * `jobId` is the receipt id, and the receive path calls this again when a
+ * duplicate delivery finds a receipt that is not yet `completed`.
+ *
+ * BullMQ refuses a second `add` for a `jobId` whose record still exists, in
+ * EVERY state — waiting, delayed between attempts, completed, and failed
+ * (`addStandardJob` → `handleDuplicatedJob` only emits `duplicated`). While the
+ * job is live that is exactly the no-op we want. After the last attempt fails,
+ * the queue's default `removeOnFail` would keep the record for seven days, and
+ * every redelivery in that window would be swallowed against it: the receipt
+ * would read `failed` with nothing able to revive it. `removeOnFail: true`
+ * drops the record with the final failure, so the next redelivery adds a fresh
+ * job. The receipt row already records the failure; the queue's failed set
+ * added nothing.
  */
 export async function enqueueInboundDelivery(receiptId: string): Promise<void> {
   await getIngestionQueue().add(
     "ingress.deliver",
     { kind: "ingress.deliver", receiptId },
-    { jobId: `ingress.deliver.${receiptId}` },
+    { jobId: `ingress.deliver.${receiptId}`, removeOnFail: true },
   );
 }
 

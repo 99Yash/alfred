@@ -1,9 +1,8 @@
-import { Elysia, t } from "elysia";
+import { Elysia, t, type Context } from "elysia";
 import {
   receiveInboundDelivery,
   type InboundDeliveryOutcome,
-} from "@alfred/assistant/connections/ingress";
-import { enqueueInboundDelivery } from "@alfred/assistant/connections/ingestion";
+} from "@alfred/assistant/connections/ingestion";
 
 /**
  * The one inbound webhook door (ADR-0097).
@@ -33,7 +32,7 @@ const rawBodyRoute = {
   body: t.String(),
 } as const;
 
-function respond(outcome: InboundDeliveryOutcome, set: { status?: number | string }) {
+function respond(outcome: InboundDeliveryOutcome, set: Context["set"]) {
   switch (outcome.kind) {
     case "unknown_source":
       set.status = 404;
@@ -63,7 +62,6 @@ export const inboundWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize:
           source: params.source,
           raw: body,
           headers: request.headers,
-          enqueue: enqueueInboundDelivery,
         }),
         set,
       ),
@@ -77,7 +75,6 @@ export const inboundWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize:
           source: "github",
           raw: body,
           headers: request.headers,
-          enqueue: enqueueInboundDelivery,
         }),
         set,
       ),
