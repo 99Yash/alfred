@@ -41,6 +41,17 @@ export const EVENT_SOURCE_ENTRIES = {
     // Mirrors the GitHub App's subscribed `default_events`.
     eventTypes: ["pull_request", "push", "issues", "pull_request_review"],
   },
+  /**
+   * `classified` is the fact the triage `classify` step publishes for every thread
+   * whose row it owns; the reply-drafting gate consumes it (ADR-0098). `reply_worthy`
+   * is the trigger the `reply-drafting` builtin declares. Nothing publishes it on
+   * the bus: the gate starts the run directly, so a worthy verdict is the only
+   * thing that can fire the workflow, and the declaration still names its cause.
+   */
+  "email-triage": {
+    producer: "in_process",
+    eventTypes: ["classified", "reply_worthy"],
+  },
 } as const satisfies Record<string, EventSourceEntry>;
 
 export type EventSource = keyof typeof EVENT_SOURCE_ENTRIES;

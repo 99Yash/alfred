@@ -1,12 +1,12 @@
-import type { FeatureFlagKey } from "@alfred/contracts";
+import { isFeatureFlagOn, type FeatureFlagKey } from "@alfred/contracts";
 import { useCallback } from "react";
 import { usePreferenceMap } from "./use-preferences";
 
 export interface FeatureFlagsState {
   /**
-   * Effective on/off for a `feature.*` flag. UNSET resolves to ON — the same
-   * default the server gates apply (`resolveFeatureFlags`), so the switch
-   * shows exactly what will run.
+   * Effective on/off for a `feature.*` flag. UNSET resolves to the per-key
+   * default in `FEATURE_FLAG_DEFAULTS` — the same resolver the server gates
+   * apply (`resolveFeatureFlags`), so the switch shows exactly what will run.
    */
   isOn: (key: FeatureFlagKey) => boolean;
   /** Optimistically flip a flag; server confirms on the next pull. */
@@ -16,12 +16,6 @@ export interface FeatureFlagsState {
   retry: () => void;
 }
 
-/** A stored `feature.*` value is OFF only on an explicit false; else ON. */
-function valueIsOn(value: unknown): boolean {
-  if (value === false || value === "false" || value === 0) return false;
-  return true;
-}
-
 /**
  * Live view of the background-agent feature toggles (Settings → Features).
  *
@@ -29,13 +23,13 @@ function valueIsOn(value: unknown): boolean {
  * `key → value` map via {@link usePreferenceMap}, which is built on the
  * shared {@link useReplicacheSubscription} helper. Absence of a row means
  * the user never touched that switch, so it resolves to its server default
- * (ON) via `isOn`.
+ * (`FEATURE_FLAG_DEFAULTS`) via `isOn`.
  */
 export function useFeatureFlags(): FeatureFlagsState {
   const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
 
   const isOn = useCallback(
-    (key: FeatureFlagKey): boolean => (key in values ? valueIsOn(values[key]) : true),
+    (key: FeatureFlagKey): boolean => isFeatureFlagOn(key, values[key]),
     [values],
   );
 

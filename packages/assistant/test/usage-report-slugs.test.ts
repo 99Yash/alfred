@@ -56,6 +56,7 @@ describe("SLUG_CATEGORY drift guard", () => {
       "learn-skill",
       "memory-extraction",
       "morning-briefing",
+      "reply-drafting",
       "skill-documentation",
     ]);
   });

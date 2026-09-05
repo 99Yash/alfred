@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   type LucideIcon,
   Mail,
+  PencilLine,
   Workflow as WorkflowIcon,
   Zap,
 } from "lucide-react";
@@ -34,6 +35,7 @@ const KNOWN_PRESENTATION = new Map<string, { icon: LucideIcon; tint: WorkflowTin
   ["daily-briefing", { icon: Mail, tint: "violet" }],
   ["email-triage", { icon: CheckCircle2, tint: "emerald" }],
   ["cold-start-research", { icon: CalendarClock, tint: "amber" }],
+  ["reply-drafting", { icon: PencilLine, tint: "emerald" }],
 ]);
 
 function hashSlug(slug: string): number {

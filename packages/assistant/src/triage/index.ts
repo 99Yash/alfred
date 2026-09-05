@@ -63,7 +63,7 @@ export type {
 export { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
 export type { TriageWorkflowInput } from "./workflow-input";
 
-export { extractSenderContext } from "./sender-context";
+export { extractSenderContext, recipientAddresses } from "./sender-context";
 export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
 export { readTriageUserContext } from "./user-context";
 export type { TriageUserContext } from "./user-context";
