@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
   CredentialProofRow,
   CredentialProvider,
@@ -25,9 +26,31 @@ export interface ToolCredentialRequirement {
   anyOfScopes: readonly string[];
 }
 
+/**
+ * The health of one live integration whose credential provider has rows:
+ * `active` when one row satisfies the entry's connected rule, `needs_reauth`
+ * when none does. No rows at all is `null` at the use site, not a member. The
+ * one owner of the vocabulary: the dispatch snapshot below and the
+ * `GET /api/integrations` wire (`./integration-status`) both derive from it.
+ */
+export const integrationHealthSchema = z.enum(["active", "needs_reauth"]);
+export type IntegrationHealth = z.infer<typeof integrationHealthSchema>;
+
 export interface IntegrationAvailability {
-  health: "active" | "needs_reauth" | null;
+  health: IntegrationHealth | null;
   accountLabel: string | null;
+}
+
+/**
+ * The label a credential row shows for its account: the provider's label,
+ * trimmed, or `null` when it gave none or a blank. The one rule the dispatch
+ * snapshot, the boss preamble, and the `GET /api/integrations` body share, so a
+ * whitespace label cannot read `null` in one place and `"  "` in another.
+ */
+export function credentialAccountLabel(
+  row: Pick<ProviderAvailability, "accountLabel">,
+): string | null {
+  return row.accountLabel?.trim() || null;
 }
 
 /** Connection state consumed by tool availability policy. */

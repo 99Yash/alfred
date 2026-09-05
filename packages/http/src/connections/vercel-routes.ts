@@ -6,11 +6,7 @@ import {
   isVercelConfigured,
   vercelCredentialMetadata,
 } from "@alfred/integrations/vercel";
-import {
-  deleteIntegrationCredential,
-  listBearerCredentials,
-  upsertBearerCredential,
-} from "@alfred/integrations/shared";
+import { deleteIntegrationCredential, upsertBearerCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import {
@@ -30,8 +26,9 @@ import { requireOnboarded } from "../middleware/onboarding";
  *
  *   GET    /api/integrations/vercel/connect     → 302 to the Vercel install URL
  *   GET    /api/integrations/vercel/callback     ← Vercel redirects with code + state
- *   GET    /api/integrations/vercel/credentials  → list this user's connections
  *   DELETE /api/integrations/vercel/:id          → disconnect
+ *
+ * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
  */
 const PROVIDER = "vercel" satisfies CredentialProvider;
 
@@ -53,10 +50,6 @@ export const vercelIntegrationRoutes = new Elysia({
         set.status = 302;
         set.headers["Location"] = buildVercelInstallUrl(state);
         return null;
-      })
-      .get("/credentials", async ({ user }) => {
-        const credentials = await listBearerCredentials(user.id, PROVIDER);
-        return { credentials };
       })
       .delete(
         "/:id",

@@ -85,7 +85,7 @@ The same shape declared in `@alfred/contracts`, `@alfred/sync`, `@alfred/assista
 A shape two packages must agree on gets **one owning schema** (browser-safe → `@alfred/contracts`) plus derivation at every consumer:
 
 - Variants come from `.pick()` / `.omit()` / `.extend()` on the owner — never a restated `z.object`.
-- Producers pin themselves to the owner at compile time: map through a typed function returning the wire type (see `rowToCredentialWire` in `packages/contracts/src/credentials.ts` and its three route callers), or annotate with `satisfies z.ZodType<...>`. A field renamed on the producing side then fails `tsc` instead of silently dropping from the client.
+- Producers pin themselves to the owner at compile time: return the owner's `z.infer` type from the function that builds the body (see `readIntegrationStatus` in `packages/assistant/src/connections/availability.ts`, whose return type is `IntegrationStatus` from `packages/contracts/src/integration-status.ts`), or annotate with `satisfies z.ZodType<...>`. A field renamed on the producing side then fails `tsc` instead of silently dropping from the client.
 - A narrower local projection is legitimate when it deliberately reshapes for UI — but it derives from the owner and says so in a comment.
 
 Enforcement is compile-time pins, not a lint script: a generic "did someone hand-copy this schema" checker cannot separate legitimate projections from drift. If a third unpinned copy of an owned shape appears, revisit.
