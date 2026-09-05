@@ -61,6 +61,7 @@ describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
       eveningRecap: true,
       emailTagging: true,
       actionItems: true,
+      replyDrafting: false,
     });
   });
 
@@ -77,6 +78,7 @@ describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
       eveningRecap: false,
       emailTagging: false,
       actionItems: true,
+      replyDrafting: false,
     });
   });
 
@@ -93,6 +95,7 @@ describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
       eveningRecap: true,
       emailTagging: true,
       actionItems: true,
+      replyDrafting: false,
     });
   });
 });

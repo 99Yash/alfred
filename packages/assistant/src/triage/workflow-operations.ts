@@ -1,4 +1,8 @@
-import { publishEvent } from "@alfred/assistant/triggers";
+import {
+  publishDomainEvent,
+  publishEvent,
+  type EmailTriageClassifiedPayload,
+} from "@alfred/assistant/triggers";
 import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
 import { findActiveSenderSuppression, getSenderSignificance } from "../knowledge";
 import { suggestTodo } from "@alfred/assistant/tasks";
@@ -41,6 +45,7 @@ import {
   type AccountPersona,
   type GmailDocumentMetadata,
   type SenderContext,
+  type SignificanceBand,
   toMessage,
 } from "@alfred/contracts";
 import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/integrations/google";
@@ -258,6 +263,9 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // Gates the post-classification side effects (hoisted below the if/else
   // so they run on BOTH paths — see #157).
   let written = false;
+  // Band the row carries. Computed on the fresh path; read back from the row
+  // on the reuse path so the `classified` event below is complete either way.
+  let senderSignificanceBand: SignificanceBand | null = null;
   let todoSuggestion: ReturnType<typeof resolveTodoSuggestion> = null;
   let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
   let standingSuppressionReadFailed = false;
@@ -323,6 +331,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // (stale-lease reclaim re-enters classify with the same runId), which
     // would otherwise permanently drop the classifier-minted todo (#157).
     written = true;
+    senderSignificanceBand = existing.senderSignificanceBand ?? null;
     ({
       todoSuggestion,
       standingSuppression,
@@ -392,6 +401,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       ctx.userId,
       senderContextResult.senderAddress,
     ).catch(() => null);
+    senderSignificanceBand = senderSignificance?.band ?? null;
 
     // Resolve the todo/suppression fields before the row write so the
     // durable trace persisted with the row contains the same suppression
@@ -483,6 +493,62 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       });
     } catch (err) {
       await ctx.log(`inbox.updated publish failed: ${toMessage(err)}`);
+    }
+  }
+
+  // Publish the fact that this run owns the thread's canonical row
+  // (`email-triage.classified`, ADR-0097). Triage imports nothing from the
+  // consumers of this event; the reply-drafting gate reacts on the domain bus
+  // and decides from the snapshot carried here, so a downstream module can
+  // never pull this step into its dependency cycle. Best-effort: the consumers
+  // are `best-effort` at the seam and a publish failure is logged, not thrown.
+  if (written) {
+    // `satisfies`, not an annotation: the payload must also be a `JsonObject`,
+    // and the schema type carries an optional `note` (`undefined` is not JSON).
+    // The literal below normalizes it to `string | null`, and `satisfies` keeps
+    // that narrower inferred type while still proving the schema shape.
+    const todoDecision = classification.todoDecision;
+    const payload = {
+      triage: {
+        documentId: ctx.state.documentId,
+        sourceThreadId,
+        triageRunId: ctx.runId,
+        category: classification.category,
+        confidence: classification.confidence,
+        model,
+        todoDecision: todoDecision
+          ? { outcome: todoDecision.outcome, note: todoDecision.note ?? null }
+          : null,
+        senderRelationshipIsCold:
+          observations?.senderRelationshipIsCold ?? existing?.senderRelationshipIsCold ?? null,
+        senderSignificanceBand,
+      },
+      triageStep: { runId: ctx.runId, stepId: "classify", attempt: ctx.attempt },
+      triageReason: ctx.state.reason ?? null,
+      sender: {
+        address: senderContextResult.senderAddress,
+        effectiveAuthor: senderContext.effectiveAuthor,
+      },
+      mailbox: {
+        accountId: ctxData.document.accountId,
+        address: ctxData.identity.mailboxAddress,
+      },
+      thread: {
+        inboundAuthoredAt: ctxData.document.authoredAt?.toISOString() ?? null,
+        lastUserReplyAt: observations?.thread.lastUserReplyAt?.toISOString() ?? null,
+        newestDirection: observations?.thread.newestDirection ?? null,
+      },
+    } satisfies EmailTriageClassifiedPayload;
+    try {
+      await publishDomainEvent({
+        userId: ctx.userId,
+        source: "email-triage",
+        type: "classified",
+        eventId: `${sourceThreadId}:${ctx.state.documentId}:${ctx.runId}`,
+        payload,
+      });
+    } catch (err) {
+      await ctx.log(`email-triage.classified publish failed: ${toMessage(err)}`);
     }
   }
 
