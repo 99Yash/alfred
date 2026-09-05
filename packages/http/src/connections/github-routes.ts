@@ -1,11 +1,6 @@
-import {
-  Errors,
-  integrationRoutePrefix,
-  rowToCredentialWire,
-  type CredentialProvider,
-} from "@alfred/contracts";
+import { Errors, integrationRoutePrefix, type CredentialProvider } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials, user } from "@alfred/db/schemas";
+import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildInstallUrl,
@@ -17,7 +12,7 @@ import {
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -38,8 +33,9 @@ import { requireOnboarded } from "../middleware/onboarding";
  *
  *   GET    /api/integrations/github/connect      → 302 to the App install URL
  *   GET    /api/integrations/github/callback      ← GitHub redirects with code + installation_id
- *   GET    /api/integrations/github/credentials   → list this user's connections
  *   DELETE /api/integrations/github/:id           → disconnect (drops our token, App stays installed)
+ *
+ * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
  */
 
 const PROVIDER = "github" satisfies CredentialProvider;
@@ -50,40 +46,17 @@ export const githubIntegrationRoutes = new Elysia({
 })
   .use(authMacro)
   .use(requireOnboarded)
-  // `/connect` + `/credentials` must be reachable during onboarding
-  // step 2 so the showcase truth-checks correctly.
+  // `/connect` must be reachable during onboarding step 2, before
+  // `user.onboarded_at` is set, so the step's CTA does not 302 to a 403.
   .guard({ auth: true }, (app) =>
-    app
-      .get("/credentials", async ({ user }) => {
-        const rows = await db()
-          .select({
-            id: integrationCredentials.id,
-            accountId: integrationCredentials.accountId,
-            accountLabel: integrationCredentials.accountLabel,
-            status: integrationCredentials.status,
-            scopes: integrationCredentials.scopes,
-            installationId: integrationCredentials.installationId,
-            expiresAt: integrationCredentials.expiresAt,
-            lastRefreshedAt: integrationCredentials.lastRefreshedAt,
-            createdAt: integrationCredentials.createdAt,
-          })
-          .from(integrationCredentials)
-          .where(
-            and(
-              eq(integrationCredentials.userId, user.id),
-              eq(integrationCredentials.provider, PROVIDER),
-            ),
-          );
-        return { credentials: rows.map(rowToCredentialWire) };
-      })
-      .get("/connect", async ({ user, set }) => {
-        const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
-        const state = signOAuthState({ userId: user.id, nonce });
-        set.status = 302;
-        set.headers["Location"] = buildInstallUrl(state);
-        return null;
-      }),
+    app.get("/connect", async ({ user, set }) => {
+      const nonce = randomBytes(16).toString("hex");
+      await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
+      const state = signOAuthState({ userId: user.id, nonce });
+      set.status = 302;
+      set.headers["Location"] = buildInstallUrl(state);
+      return null;
+    }),
   )
   .guard({ auth: true, requireOnboarded: true }, (app) =>
     app.delete(

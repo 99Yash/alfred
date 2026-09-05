@@ -6,11 +6,7 @@ import {
   type CredentialProvider,
 } from "@alfred/contracts";
 import { isRailwayAuthorizationError, railwayValidateToken } from "@alfred/integrations/railway";
-import {
-  deleteIntegrationCredential,
-  listBearerCredentials,
-  upsertBearerCredential,
-} from "@alfred/integrations/shared";
+import { deleteIntegrationCredential, upsertBearerCredential } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
@@ -23,8 +19,9 @@ import { requireOnboarded } from "../middleware/onboarding";
  * at connect, not at first tool call.
  *
  *   POST   /api/integrations/railway/connect      { token }  → validate + store
- *   GET    /api/integrations/railway/credentials              → list connections
  *   DELETE /api/integrations/railway/:id                      → disconnect
+ *
+ * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
  */
 const PROVIDER = "railway" satisfies CredentialProvider;
 
@@ -75,10 +72,6 @@ export const railwayIntegrationRoutes = new Elysia({
           body: t.Object({ token: t.String({ minLength: 1, maxLength: 4000 }) }),
         },
       )
-      .get("/credentials", async ({ user }) => {
-        const credentials = await listBearerCredentials(user.id, PROVIDER);
-        return { credentials };
-      })
       .delete(
         "/:id",
         async ({ params, user }) => {
