@@ -11,7 +11,7 @@ import { AppButton, AppInput } from "~/components/ui/v2";
 import { client, API_URL } from "~/lib/eden";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { connectPathFor, type IntegrationPage } from "~/lib/integrations/integrations";
-import { credentialsQueryKey } from "~/lib/integrations/use-integration-status";
+import { INTEGRATION_STATUS_QUERY_KEY } from "~/lib/integrations/use-integration-status";
 import { toast } from "~/lib/toast";
 
 /**
@@ -123,7 +123,7 @@ function RailwayConnect({ connected }: { connected: boolean }) {
       toast.success("Connected Railway");
       setToken("");
       setOpen(false);
-      await queryClient.invalidateQueries({ queryKey: credentialsQueryKey("railway") });
+      await queryClient.invalidateQueries({ queryKey: INTEGRATION_STATUS_QUERY_KEY });
     } catch {
       toast.error("Couldn't reach the server — try again");
     } finally {

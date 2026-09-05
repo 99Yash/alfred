@@ -1,7 +1,9 @@
+import { getPath, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
+import { z } from "zod";
 import { getInstallationToken } from "./app";
 
 /**
@@ -155,14 +157,39 @@ export async function getInstallationTokenForUser(
   return { token, accountLogin: active.accountLabel?.trim() || null };
 }
 
+// GitHub sends `installation.id` as a JSON number; the credential column is text.
+const installationIdSchema = z.union([z.number().int(), z.string().min(1)]).transform(String);
+
 /**
- * Resolve the user that owns a GitHub App installation — the join from an
- * inbound webhook delivery (which carries only `installation.id`) back to a
- * user. Returns the most-recently-updated active match.
+ * The GitHub App installation id a webhook delivery came from, as the
+ * `integration_credentials.installation_id` column stores it, or `null` when
+ * the payload carries none. The join key for `findCredentialByInstallationId`.
  */
-export async function findUserByInstallationId(installationId: string): Promise<string | null> {
+export function githubInstallationId(payload: JsonObject): string | null {
+  const parsed = installationIdSchema.safeParse(getPath(payload, "installation", "id"));
+  return parsed.success ? parsed.data : null;
+}
+
+export type GithubInstallationCredential = Pick<
+  IntegrationCredential,
+  "id" | "userId" | "accountId"
+>;
+
+/**
+ * Resolve the active credential that owns a GitHub App installation — the join
+ * from an inbound webhook delivery (which carries only `installation.id`) back
+ * to a user and the account the receipt must be filed under. Returns the
+ * most-recently-updated active match.
+ */
+export async function findCredentialByInstallationId(
+  installationId: string,
+): Promise<GithubInstallationCredential | null> {
   const rows = await db()
-    .select({ userId: integrationCredentials.userId })
+    .select({
+      id: integrationCredentials.id,
+      userId: integrationCredentials.userId,
+      accountId: integrationCredentials.accountId,
+    })
     .from(integrationCredentials)
     .where(
       and(
@@ -173,5 +200,5 @@ export async function findUserByInstallationId(installationId: string): Promise<
     )
     .orderBy(desc(integrationCredentials.updatedAt))
     .limit(1);
-  return rows[0]?.userId ?? null;
+  return rows[0] ?? null;
 }

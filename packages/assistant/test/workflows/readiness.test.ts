@@ -21,7 +21,7 @@ import { validateWorkflowDefinition } from "@alfred/assistant/automation/revisio
 function resolveWorkflowReadiness(
   args: Omit<
     Parameters<typeof resolveWorkflowReadinessBase>[0],
-    "gmailEventHealth" | "toolCatalog"
+    "gmailEventHealth" | "inboundTriggerHealth" | "toolCatalog"
   > & {
     gmailEventHealth?: Parameters<typeof resolveWorkflowReadinessBase>[0]["gmailEventHealth"];
   },
@@ -29,6 +29,7 @@ function resolveWorkflowReadiness(
   return resolveWorkflowReadinessBase({
     ...args,
     gmailEventHealth: args.gmailEventHealth ?? new Map(),
+    inboundTriggerHealth: new Map(),
     toolCatalog: workflowToolCatalog(),
   });
 }
@@ -108,6 +109,7 @@ describe("workflow readiness", () => {
       availability: unavailable,
       toolCatalog: workflowToolCatalog(),
       gmailEventHealth: new Map(),
+      inboundTriggerHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["system"]);
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
@@ -122,6 +124,7 @@ describe("workflow readiness", () => {
       availability: unavailable,
       toolCatalog: workflowToolCatalog(),
       gmailEventHealth: new Map(),
+      inboundTriggerHealth: new Map(),
       resourceAccessFacts: [
         {
           tool: "system.current_time",
@@ -142,6 +145,7 @@ describe("workflow readiness", () => {
       availability: unavailable,
       toolCatalog: workflowToolCatalog(),
       gmailEventHealth: new Map(),
+      inboundTriggerHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
     assert.deepEqual(result.definition.allowedTools, []);
@@ -156,6 +160,7 @@ describe("workflow readiness", () => {
       availability: unavailable,
       toolCatalog: new Map<ToolName, WorkflowToolFacts>(),
       gmailEventHealth: new Map(),
+      inboundTriggerHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
     assert.deepEqual(result.definition.requiredCapabilities, [{ tool: "system.current_time" }]);

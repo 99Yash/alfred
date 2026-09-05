@@ -497,7 +497,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   }
 
   // Publish the fact that this run owns the thread's canonical row
-  // (`email-triage.classified`, ADR-0097). Triage imports nothing from the
+  // (`email-triage.classified`, ADR-0098). Triage imports nothing from the
   // consumers of this event; the reply-drafting gate reacts on the domain bus
   // and decides from the snapshot carried here, so a downstream module can
   // never pull this step into its dependency cycle. Best-effort: the consumers

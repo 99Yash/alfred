@@ -23,7 +23,7 @@ export function registerBuiltinWorkflows(): void {
   registerRecipe(buildMemoryExtractionWorkflow(gmailSenderAdapter));
   registerRecipe(chatMemoryCaptureWorkflow);
   registerRecipe(emailTriageWorkflow);
-  // Reply drafting (ADR-0097): started by the post-triage gate, never by the event bus.
+  // Reply drafting (ADR-0098): started by the post-triage gate, never by the event bus.
   registerRecipe(replyDraftingWorkflow);
   // Resume compatibility only: hidden from catalogs/seeding and unavailable
   // for new runs, but required by persisted nonterminal agent checkpoints.

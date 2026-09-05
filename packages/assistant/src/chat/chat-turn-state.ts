@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
   chatConnectNudgeSchema,
@@ -80,18 +81,13 @@ export const chatRunStateSchema = z
     // SHA-256 of the cache-stable system prompt. AlfredAgent is constructed per
     // model step on this workflow, so its instance-local stability assertion
     // cannot compare chat turns; the durable workflow state owns that check.
-    // Cleared only when the PDF design guide toggles into or out of the prompt,
-    // the one remaining intentional system-context change (#896; artifact
-    // mutations ride the ephemeral block). Optional for legacy checkpoints.
+    // The stability invariant holds for the whole run, including artifact
+    // mutations and resume. Once set, the pin is never cleared. Optional for
+    // checkpoints written before the first system prompt was built.
     systemPromptHash: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
-    // Pre-#896 mixed artifact block (edit rules plus per-thread facts) that
-    // lived in the system prefix. Accepted only so a pre-split checkpoint still
-    // parses; the transform below folds it away, like `started`, so
-    // `ChatRunState` has no such field and no step can read or write it.
-    artifactsContext: z.string().optional(),
     // Per-thread artifact facts (default id, selection resolution, bounded
     // index). Ephemeral per-turn text, recomposed after every artifact mutation
     // so the next model step resolves the correct edit target. Optional for
@@ -100,9 +96,12 @@ export const chatRunStateSchema = z
     // Exact selected artifact body, carried as a lower-trust assistant reference
     // message rather than system text. Empty when no artifact exists/was found.
     artifactReference: z.string().optional(),
-    // Determines whether the PDF-only authoring guide belongs in the next model
-    // prompt. Refreshed with the selected artifact context after mutations.
+    // Determines when to admit the PDF guide to the transcript. Refreshed with
+    // the selected artifact context after mutations; never changes system text.
     artifactDesignMedium: artifactFormatSchema.optional(),
+    // The PDF guide enters the durable transcript once per run. Absence means
+    // it has not been admitted yet, including on legacy checkpoints.
+    pdfDesignGuideAdmitted: z.literal(true).optional(),
     // User's IANA timezone, snapshotted once on the first turn — it can't change
     // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
     // is wasted latency. Stored as a plain string, like every other persisted
@@ -185,15 +184,11 @@ export const chatRunStateSchema = z
     // surfaced to the model.
     notedFailureToolCallIds: z.array(z.string()).default([]),
   })
-  .transform(({ started, artifactsContext, ...state }) => ({
+  .transform(({ started, ...state }) => ({
     ...foldToolSurfaceState(state),
     // The old boolean recorded only that the event fired. Runtime migration is
     // the best timestamp available for an already-started legacy checkpoint.
     startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
-    // A pre-split checkpoint pinned a prompt that carried the mixed block. The
-    // rebuilt prompt no longer contains it, so release the pin once here; the
-    // next chat step pins the new stable prompt.
-    ...(artifactsContext === undefined ? {} : { systemPromptHash: undefined }),
   }));
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
@@ -214,8 +209,19 @@ export function assertStableChatSystem(
   if (state.systemPromptHash === hash) return;
   throw new Error(
     "[chat] system prompt changed within a cache-stable chat run. " +
-      "Clear systemPromptHash only at the lifecycle seam that intentionally changes system context.",
+      "Keep changing context in the transcript; the system prompt must stay fixed for the whole run.",
   );
+}
+
+/** Reserve one guide message; the context guard admits it after compaction. */
+export function admitPdfDesignGuide(
+  state: Pick<ChatRunState, "artifactDesignMedium" | "pdfDesignGuideAdmitted">,
+): AgentTranscriptMessage | undefined {
+  if (state.artifactDesignMedium !== "pdf" || state.pdfDesignGuideAdmitted) return;
+  state.pdfDesignGuideAdmitted = true;
+  // A trailing assistant message is an unsupported prefill on the Anthropic
+  // fallback. Like finalize-guard notes, runtime guidance uses the user role.
+  return { role: "user", content: ARTIFACT_DOCUMENT_DESIGN_PROMPT };
 }
 
 /** Build the only allowed chat interrupt and invalidate wake-sensitive state. */

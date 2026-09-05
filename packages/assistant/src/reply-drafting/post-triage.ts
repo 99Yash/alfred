@@ -18,7 +18,7 @@ import {
 } from "./worthiness";
 
 /**
- * The post-triage seam (ADR-0097). Triage publishes `email-triage.classified`
+ * The post-triage seam (ADR-0098). Triage publishes `email-triage.classified`
  * for every thread whose canonical row it owns and imports nothing from this
  * module; this consumer reacts. It reads the flag, reads the sender's
  * `block_reply_draft` standing instruction, runs the pure gate, and either

@@ -32,7 +32,7 @@ import {
 } from "./worthiness";
 
 /**
- * The `reply-drafting` workflow (ADR-0097): `gate` → `gather` → `compose`.
+ * The `reply-drafting` workflow (ADR-0098): `gate` → `gather` → `compose`.
  *
  * `gate` re-runs the worthiness rubric on the live row so a run started by a
  * stale event (or by hand) decides from what is true now. `gather` proves the
@@ -224,7 +224,7 @@ export const replyDraftingWorkflow: Workflow<State> = {
   slug: REPLY_DRAFTING_WORKFLOW_SLUG,
   name: "Reply drafting",
   description:
-    "Decide whether an inbound email deserves a drafted reply and, when it does, stage one for approval (ADR-0097).",
+    "Decide whether an inbound email deserves a drafted reply and, when it does, stage one for approval (ADR-0098).",
   trigger: { kind: "event", source: "email-triage", type: "reply_worthy" },
   initialStep: "gate",
   stateSchema,

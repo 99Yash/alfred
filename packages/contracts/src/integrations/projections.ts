@@ -22,7 +22,12 @@ import {
 } from "./slugs";
 import type { LiveIntegrationEntry } from "./types";
 
-function projectSlugs<K extends string, T>(
+/**
+ * Build a record over a derived slug list. Exported for the one consumer outside
+ * this module that needs the whole live slug space at once per read: the
+ * `GET /api/integrations` body in `@alfred/assistant/connections`.
+ */
+export function projectSlugs<K extends string, T>(
   slugs: readonly K[],
   project: (slug: K) => T,
 ): Readonly<Record<K, T>> {

@@ -2,18 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ARTIFACT_DESIGN_PROMPT,
-  ARTIFACT_DOCUMENT_DESIGN_PROMPT,
   buildArtifactDocument,
   documentTemplateById,
   documentTemplates,
   pdfArtifactHtmlViolations,
 } from "@alfred/artifacts-design";
-import { updateArtifactInput } from "@alfred/contracts";
+import { updateArtifactInput, type AgentTranscriptMessage } from "@alfred/contracts";
 import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
-import { withEphemeralReference } from "@alfred/assistant/chat/compaction/index";
+import { guardTurnContext, withEphemeralReference } from "@alfred/assistant/chat/compaction/index";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
-import { assertStableChatSystem, type ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
+import {
+  admitPdfDesignGuide,
+  assertStableChatSystem,
+  type ChatRunState,
+} from "@alfred/assistant/chat/chat-turn-state";
 import {
   artifactContentHash,
   artifactReplacementMatchesBase,
@@ -136,17 +139,52 @@ test("resume prompt uses placeholders and explicitly forbids invented facts", ()
   assert.ok(resume);
   assert.match(resume.html, /\[Full name\]/);
   assert.doesNotMatch(resume.html, /Jordan Rivera|Northwind|1\.2k stars/);
-  assert.match(ARTIFACT_DOCUMENT_DESIGN_PROMPT, /Never invent a missing name, link, employer/);
+  const guide = admitPdfDesignGuide({ artifactDesignMedium: "pdf" });
+  assert.match(String(guide?.content), /Never invent a missing name, link, employer/);
   assert.doesNotMatch(ARTIFACT_DESIGN_PROMPT, /\[Full name\]/);
 });
 
-test("the PDF guide is injected only for a selected PDF artifact", () => {
-  const ordinary = buildChatSystemPrompt("July 10, 2026", "Connected: none");
-  const pdf = buildChatSystemPrompt("July 10, 2026", "Connected: none", {
-    artifactDesignMedium: "pdf",
+test("the PDF guide enters the transcript once when the selected medium becomes PDF", async () => {
+  const state: Pick<ChatRunState, "artifactDesignMedium" | "pdfDesignGuideAdmitted"> = {};
+  const transcript: AgentTranscriptMessage[] = [{ role: "user", content: "Make a PDF resume." }];
+  const system = buildChatSystemPrompt("", "Connected: none");
+  assert.doesNotMatch(system, /Authoring PDF document pages|\[Full name\]/);
+  assert.equal(admitPdfDesignGuide(state), undefined);
+
+  state.artifactDesignMedium = "pdf";
+  const guarded = await guardTurnContext({
+    turnCount: 2,
+    inFlightTailStart: 0,
+    userId: "usr_pdf_guide",
+    runId: "run_pdf_guide",
+    stepId: "step_pdf_guide",
+    attempt: 1,
+    threadId: "thread_pdf_guide",
+    latestUserMessageId: undefined,
+    systemPrompt: system,
+    tools: {},
+    model: "unused-on-passthrough",
+    storedTranscript: transcript,
+    hydratedTranscript: transcript,
+    artifactReference: "",
+    pendingGuidance: admitPdfDesignGuide(state),
+    abortSignal: new AbortController().signal,
+    onPhase: async () => {
+      assert.fail("No compaction is needed on the passthrough path.");
+    },
   });
-  assert.doesNotMatch(ordinary, /\[Full name\]/);
-  assert.match(pdf, /\[Full name\]/);
+  assert.equal(guarded.modelTranscript[1]?.role, "user");
+  assert.match(String(guarded.modelTranscript[1]?.content), /\[Full name\]/);
+  assert.deepEqual(guarded.continuationTranscript, guarded.modelTranscript);
+  assert.equal(guarded.continuationTranscript.length, 2);
+  assert.deepEqual(transcript, [{ role: "user", content: "Make a PDF resume." }]);
+  assert.equal(state.pdfDesignGuideAdmitted, true);
+
+  assert.equal(admitPdfDesignGuide(state), undefined);
+  state.artifactDesignMedium = "slides";
+  assert.equal(admitPdfDesignGuide(state), undefined);
+  state.artifactDesignMedium = "pdf";
+  assert.equal(admitPdfDesignGuide(state), undefined);
 });
 
 test("ephemeral run context is inserted before the request without entering the transcript", () => {
@@ -180,9 +218,6 @@ test("chat's prod system prompt states no date — the runtime line is the singl
 });
 
 test("chat persists system stability across short-lived AlfredAgent instances", () => {
-  // Derived from the workflow state rather than re-declared: the seam under
-  // test is `state.systemPromptHash = undefined`, which the schema-inferred
-  // type admits and a hand-written `{ systemPromptHash?: string }` does not.
   const state: Pick<ChatRunState, "systemPromptHash"> = {};
   assertStableChatSystem(state, "stable prompt");
   const pinned = state.systemPromptHash;
@@ -194,12 +229,7 @@ test("chat persists system stability across short-lived AlfredAgent instances", 
     /system prompt changed within a cache-stable chat run/,
   );
 
-  // Clearing the pin is the only sanctioned way to change the prompt. This
-  // exercises the guard alone: the workflow's seam (a PDF-guide toggle, #896)
-  // is not run here.
-  state.systemPromptHash = undefined;
-  assertStableChatSystem(state, "intentional refreshed artifact context");
-  assert.notEqual(state.systemPromptHash, pinned);
+  assert.equal(state.systemPromptHash, pinned);
 });
 
 test("chat keeps the voice contract near the end without displacing tool grounding", () => {
@@ -218,6 +248,7 @@ test("chat keeps the voice contract near the end without displacing tool groundi
 
 test("every documented PDF class exists in the render shell", () => {
   const html = buildArtifactDocument("", "pdf");
+  const guide = admitPdfDesignGuide({ artifactDesignMedium: "pdf" });
   const documentedClasses = [
     "art-doc",
     "art-doc-name",
@@ -241,7 +272,7 @@ test("every documented PDF class exists in the render shell", () => {
     "art-doc-chip",
   ] as const;
   for (const className of documentedClasses) {
-    assert.match(ARTIFACT_DOCUMENT_DESIGN_PROMPT, new RegExp(`\\b${className}\\b`));
+    assert.match(String(guide?.content), new RegExp(`\\b${className}\\b`));
     assert.match(html, new RegExp(`\\.${className}(?:[\\s.{:#>]|$)`));
   }
 });

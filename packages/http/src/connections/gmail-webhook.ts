@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   Errors,
   GMAIL_POLL_DEDUP_TTL_MS,
+  eventTypeName,
   getStringPath,
   parseJsonWith,
   toMessage,
@@ -147,7 +148,7 @@ const gmailPushNotificationSchema = z.object({
  * `@elysiajs/node` adapter that arm covers malformed JSON text, an empty-string
  * body and an absent body. Base `315823c5` answers 400 for all of them too, so
  * nothing regressed here; campaign item 210 owns whether to close the arm with
- * a `parse: ({ request }) => request.text()` hook, as `github-webhook.ts` does.
+ * a `parse: ({ request }) => request.text()` hook, as `inbound-webhook.ts` does.
  */
 export interface GmailPushEnvelope {
   messageId: string | undefined;
@@ -194,7 +195,7 @@ async function defaultPersistReceipt(args: {
       providerDeliveryId: args.providerDeliveryId,
       credentialId: args.credentialId,
       userId: args.userId,
-      eventType: "gmail.message_received",
+      eventType: eventTypeName("gmail", "message_received"),
       historyId: args.historyId,
       verificationResult: args.verificationResult,
       payloadHash: args.payloadHash,

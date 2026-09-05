@@ -2,7 +2,7 @@ import { GOOGLE_SCOPE, holdsAnyScope, type ReplyNoAccessReason } from "@alfred/c
 import { listCredentials } from "@alfred/integrations/google";
 
 /**
- * Whether Alfred could send from the mailbox at all (ADR-0097). A `no_access`
+ * Whether Alfred could send from the mailbox at all (ADR-0098). A `no_access`
  * outcome is a decision, not an error: the user connected Gmail read-only, or
  * never connected it, and the run records that instead of composing a draft
  * that no approval could ever send.
