@@ -155,14 +155,26 @@ export async function getInstallationTokenForUser(
   return { token, accountLogin: active.accountLabel?.trim() || null };
 }
 
+export type GithubInstallationCredential = Pick<
+  IntegrationCredential,
+  "id" | "userId" | "accountId"
+>;
+
 /**
- * Resolve the user that owns a GitHub App installation — the join from an
- * inbound webhook delivery (which carries only `installation.id`) back to a
- * user. Returns the most-recently-updated active match.
+ * Resolve the active credential that owns a GitHub App installation — the join
+ * from an inbound webhook delivery (which carries only `installation.id`) back
+ * to a user and the account the receipt must be filed under. Returns the
+ * most-recently-updated active match.
  */
-export async function findUserByInstallationId(installationId: string): Promise<string | null> {
+export async function findCredentialByInstallationId(
+  installationId: string,
+): Promise<GithubInstallationCredential | null> {
   const rows = await db()
-    .select({ userId: integrationCredentials.userId })
+    .select({
+      id: integrationCredentials.id,
+      userId: integrationCredentials.userId,
+      accountId: integrationCredentials.accountId,
+    })
     .from(integrationCredentials)
     .where(
       and(
@@ -173,5 +185,5 @@ export async function findUserByInstallationId(installationId: string): Promise<
     )
     .orderBy(desc(integrationCredentials.updatedAt))
     .limit(1);
-  return rows[0]?.userId ?? null;
+  return rows[0] ?? null;
 }

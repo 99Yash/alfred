@@ -32,6 +32,7 @@ export {
   enqueueChatAttachmentEnrichment,
   enqueueChatStorageCleanup,
   enqueueGmailKindRefold,
+  enqueueInboundDelivery,
   enqueueTriageRelabel,
   enqueuePendingUploadCleanup,
   getIngestionQueue,
