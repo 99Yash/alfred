@@ -142,19 +142,19 @@ describe("applyFloors — sequence order", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — threading", () => {
-  test("sender-kind demotes the category the override floor forced, not the model's", () => {
-    // The model said `fyi`, which the sender-kind floor never demotes. It
-    // demotes here only because it is handed the override floor's `urgent`.
+  test("sender-kind is handed the override floor's urgent and keeps it under the secret veto", () => {
+    // The model said `fyi`. The override floor escalates it to `urgent`, and
+    // that `urgent` — not the model's `fyi` — is what the sender-kind floor
+    // receives next.
     //
     // The fixture is a sign-in broadcast that ALSO names a leaked key, because
     // the override floor is the only floor that escalates and it fires on
-    // nothing else — so this is the only shape that can prove the threading.
-    // The final `fyi` it asserts is a PREEXISTING veto asymmetry, not a
-    // judgment that a leaked-secret mail belongs in `fyi`: the
-    // `collab_passive_activity` and `monitoring_alarm` reasons both refuse to
-    // demote when `matchesExposedSecret` hits; `broadcast_auth_signin_confirmation`
-    // does not (#580). Closing that gap should flip THIS assertion, not delete
-    // the test.
+    // nothing else. Without the leaked key this body is a textbook
+    // `broadcast_auth_signin_confirmation` demotion. With it, the sign-in reason
+    // carries the same `matchesExposedSecret` veto that `collab_passive_activity`
+    // and `monitoring_alarm` already had (#580), so the escalation survives and
+    // no demotion is stamped. Before #580 this asserted a final `fyi`; the flip
+    // is deliberate.
     const body =
       "we detected a new sign-in to your account from a new device. " +
       "if this was you, no action is needed. " +
@@ -168,12 +168,12 @@ describe("applyFloors — threading", () => {
       }),
     );
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
-    assert.equal(outcome.audits.senderKind.verdict.kind, "demote");
-    assert.equal(outcome.audits.senderKind.reason, "broadcast_auth_signin_confirmation");
-    assert.equal(outcome.classification.category, "fyi");
-    // Both floors left their mark on the one threaded classification.
+    assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
+    assert.equal(outcome.audits.senderKind.reason, null);
+    assert.equal(outcome.classification.category, "urgent");
+    // Only the override floor left its mark on the threaded classification.
     assert.match(outcome.classification.rationale, /Override floor:/);
-    assert.match(outcome.classification.rationale, /Sender-kind floor:/);
+    assert.doesNotMatch(outcome.classification.rationale, /Sender-kind floor:/);
   });
 
   test("is pure — the input classification is never mutated", () => {
@@ -220,10 +220,12 @@ describe("applyFloors — model id tags", () => {
     );
   });
 
-  test("arrive in sequence order when two floors fire on one email", () => {
-    // Same sign-in-plus-leaked-key body as the threading case above, and for the
-    // same reason: only the override floor escalates, so two floors can only fire
-    // on one email through it. See that test for the veto asymmetry it rides on.
+  test("tags only the override floor on a sign-in broadcast that names a leaked key", () => {
+    // Same sign-in-plus-leaked-key body as the threading case above. Only the
+    // override floor escalates, so two floors could only fire on one email
+    // through it — and since #580 every demoting reason that can see an
+    // `urgent` refuses to fire when `matchesExposedSecret` hits. The
+    // `+kindfloor` tag this once carried is gone on purpose.
     const outcome = applyFloors(
       classification({ category: "fyi" }),
       context({
@@ -235,7 +237,7 @@ describe("applyFloors — model id tags", () => {
         senderKind: groupKind,
       }),
     );
-    assert.deepEqual(outcome.modelIdTags, ["+floor", "+kindfloor"]);
+    assert.deepEqual(outcome.modelIdTags, ["+floor"]);
   });
 });
 
