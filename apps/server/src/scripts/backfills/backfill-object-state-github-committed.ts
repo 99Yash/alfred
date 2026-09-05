@@ -3,7 +3,7 @@
  *
  * Replays the existing `webhook_events` log through the GitHub reducer so the
  * `integration_objects` projection reflects history that predates the
- * real-time hook in `github-webhook.ts`. Without this, only PRs whose webhooks
+ * real-time fold in `github-activity-consumer.ts`. Without this, only PRs whose webhooks
  * arrive *after* deploy would ever close a briefing loop — the months of
  * already-stored deliveries (including the merges that should retire today's
  * stuck CI-failure loops) would be invisible.
