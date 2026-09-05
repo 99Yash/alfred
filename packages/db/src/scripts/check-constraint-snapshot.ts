@@ -2,14 +2,15 @@
  * Fails when a CHECK constraint in the Drizzle schema no longer matches the
  * newest migration snapshot.
  *
- * drizzle-kit 0.31 generates a migration when a CHECK constraint is added or
- * dropped, but not when its expression changes. Growing an `inList(...)` enum
- * (a new `NOTIFICATION_KINDS` member, say) therefore leaves `db:generate`
- * silent, the snapshot on the old list, and every insert of the new value
- * failing on the live constraint (seen on #972). The fix is a hand-written
- * `DROP CONSTRAINT` + `ADD CONSTRAINT` in the newest migration and a matching
- * edit of the snapshot's `checkConstraints[<name>].value`; this gate is what
- * makes forgetting that fail `pnpm check` instead of a production insert.
+ * `db:generate` diffs the schema against the newest snapshot. A schema edit
+ * made after the last generate (a new `NOTIFICATION_KINDS` member behind an
+ * `inList(...)` check, say) leaves the snapshot on the old list, the migration
+ * without the `DROP`/`ADD CONSTRAINT`, and every insert of the new value
+ * failing on the live constraint (seen on #972). Nothing else notices: the
+ * compiler sees a valid enum member, and the check is a `text` column. The fix
+ * is to run `db:generate` again (or write the `DROP`/`ADD` by hand and edit the
+ * snapshot's `checkConstraints[<name>].value`); this gate is what makes a stale
+ * snapshot fail `pnpm check` instead of a production insert.
  *
  * Both sides are read the way drizzle-kit reads them: the schema through
  * `getTableConfig(...).checks` rendered by `PgDialect`, the snapshot through
@@ -94,7 +95,7 @@ function constraintDrift(fromSchema: CheckExpressions, fromSnapshot: CheckExpres
     } else if (recorded !== expression) {
       violations.push(
         `${key}: expression changed.\n    schema:   ${expression}\n    snapshot: ${recorded}\n` +
-          `    drizzle-kit does not diff this. Add "ALTER TABLE ... DROP CONSTRAINT" + "ADD CONSTRAINT" to the newest migration and set the snapshot value to the schema text.`,
+          `    The schema moved after the last db:generate. Run db:generate again, or add "ALTER TABLE ... DROP CONSTRAINT" + "ADD CONSTRAINT" to the newest migration and set the snapshot value to the schema text.`,
       );
     }
   }
