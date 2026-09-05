@@ -117,22 +117,36 @@ export const wakeConditionSchema = z.discriminatedUnion("kind", [
 ]);
 export type WakeCondition = z.infer<typeof wakeConditionSchema>;
 
+/**
+ * The identity of one firing, without its payload. `agentRunTriggerSchema`
+ * extends the event variant with the payload; the run-history projection reads
+ * these identity variants as they are.
+ */
+export const cronRunTriggerIdentitySchema = z.object({
+  kind: z.literal("cron"),
+  scheduledFor: z.string(),
+});
+export const eventRunTriggerIdentitySchema = z.object({
+  kind: z.literal("event"),
+  // Optional for tolerant reads of historical event runs written before
+  // ADR-0047 promoted source/type to first-class trigger fields.
+  source: z.string().optional(),
+  type: z.string().optional(),
+  eventId: z.string(),
+});
+export const manualRunTriggerIdentitySchema = z.object({ kind: z.literal("manual") });
+export const signalRunTriggerIdentitySchema = z.object({
+  kind: z.literal("on_signal"),
+  signalName: z.string(),
+});
+
 export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("cron"),
-    scheduledFor: z.string(),
-  }),
-  z.object({
-    kind: z.literal("event"),
-    // Optional for tolerant reads of historical event runs written before
-    // ADR-0047 promoted source/type to first-class trigger fields.
-    source: z.string().optional(),
-    type: z.string().optional(),
-    eventId: z.string(),
+  cronRunTriggerIdentitySchema,
+  eventRunTriggerIdentitySchema.extend({
     payload: z.record(z.string(), z.unknown()).optional(),
   }),
-  z.object({ kind: z.literal("manual") }),
-  z.object({ kind: z.literal("on_signal"), signalName: z.string() }),
+  manualRunTriggerIdentitySchema,
+  signalRunTriggerIdentitySchema,
 ]);
 export type AgentRunTrigger = z.infer<typeof agentRunTriggerSchema>;
 
@@ -355,10 +369,31 @@ export const workflowBlockedSchema = z.object({
   message: z.string().min(1).max(500),
   /** ISO-8601 instant the blocker was observed. */
   detectedAt: z.string(),
+  /** ISO-8601 instant the blocked notification was sent, once it has been. */
+  notifiedAt: z.string().optional(),
   /** The revision the blocker was observed against, when known. */
   revisionId: z.string().min(1).optional(),
 });
 export type WorkflowBlocked = z.infer<typeof workflowBlockedSchema>;
+
+/**
+ * The identity of one blocker generation: the code, the sentence, and the
+ * revision it was observed against. Two blockers with the same generation are
+ * the same blocker, so a re-observed one is not "new" and owes no second
+ * email. `detectedAt` and `notifiedAt` are bookkeeping, not identity. Every
+ * comparison of two blockers (the readiness reconcile, the "newly blocked"
+ * verdict, the notification job id, and the worker's supersede check) goes
+ * through this one function.
+ */
+export function workflowBlockedGeneration(
+  blocked: Pick<WorkflowBlocked, "code" | "message" | "revisionId">,
+): string {
+  return canonicalJson({
+    code: blocked.code,
+    message: blocked.message,
+    revisionId: blocked.revisionId ?? null,
+  });
+}
 
 /**
  * The definition half of a revision — every field a run's behavior depends on,

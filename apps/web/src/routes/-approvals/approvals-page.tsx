@@ -4,12 +4,11 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ClipboardCheck, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
-import { responseErrorMessage } from "~/lib/api-error";
-import { client } from "~/lib/eden";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { cn } from "~/lib/utils";
-import { ApprovalCard, type ApprovalDecision } from "~/components/approvals/approval-card";
+import { ApprovalCard } from "~/components/approvals/approval-card";
+import { decideApproval } from "~/components/approvals/decide-approval";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 
 /** How many cards to render before "Show more" — windowing over the bounded
@@ -31,11 +30,6 @@ const RISK_DOT = {
 } satisfies Record<ToolRiskTier, string>;
 
 const CLEAR_FILTERS_LEADING = <X size={14} />;
-
-async function decideApproval(stagingId: string, decision: ApprovalDecision) {
-  const { error } = await client.api.approvals({ stagingId }).decision.post(decision);
-  if (error) throw new Error(responseErrorMessage(error.value, error.status, "Approval decision"));
-}
 
 interface Facet<T extends string> {
   value: T;

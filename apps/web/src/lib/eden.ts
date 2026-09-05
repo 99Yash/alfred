@@ -1,5 +1,6 @@
 import { treaty } from "@elysiajs/eden";
 import type { App } from "@alfred/http";
+import type { z } from "zod";
 
 // SAFETY: Vite injects VITE_API_URL at build time; the optional read keeps
 // non-Vite contexts (unit tests) working via the dev-server fallback.
@@ -34,3 +35,47 @@ export const client = treaty<App>(API_URL, {
 export type EdenData<T extends (...args: never[]) => Promise<{ data: unknown }>> = NonNullable<
   Awaited<ReturnType<T>>["data"]
 >;
+
+/**
+ * A response body as the server serialized it: JSON, with every timestamp an
+ * ISO-8601 string. This is the input shape every wire contract in
+ * `@alfred/contracts` describes.
+ */
+type WireBody = string | number | boolean | null | WireBody[] | { [key: string]: WireBody };
+
+/**
+ * Eden Treaty revives every ISO-8601-shaped string in a response body to a
+ * `Date`, recursively. A body that is then parsed with a zod contract expecting
+ * ISO strings fails on every timestamp. Walk the value once and put the
+ * strings back; arrays and plain objects recurse, JSON scalars pass through.
+ * The body came out of `JSON.parse` plus that revival, so any other leaf is a
+ * transport bug and throws rather than being smuggled into the contract parse.
+ */
+function restoreWireTimestamps(value: unknown): WireBody {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(restoreWireTimestamps);
+  if (typeof value === "object" && value !== null) {
+    const out: { [key: string]: WireBody } = {};
+    for (const [key, entry] of Object.entries(value)) out[key] = restoreWireTimestamps(entry);
+    return out;
+  }
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return value;
+  }
+  throw new TypeError(`Eden body holds a non-JSON leaf: ${typeof value}`);
+}
+
+/**
+ * Parse an Eden success body with the wire contract the server owns. The body
+ * is normalized back to its wire form first (see `restoreWireTimestamps`), so
+ * a `z.string()` timestamp parses as the server sent it. A parse failure is a
+ * contract break between the route and the hook and throws on purpose.
+ */
+export function parseEdenBody<S extends z.ZodType>(schema: S, body: unknown): z.output<S> {
+  return schema.parse(restoreWireTimestamps(body));
+}

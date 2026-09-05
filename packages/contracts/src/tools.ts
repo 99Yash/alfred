@@ -92,6 +92,15 @@ export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 export const isToolRiskTier = enumGuard(TOOL_RISK_TIERS);
 
 /**
+ * The tiers whose tools can change state outside Alfred. `low` is a read with a
+ * target worth reviewing, not a write, so it is absent on purpose. Every
+ * surface that splits tools into "reads" and "writes" (discovery preload, the
+ * approval tray labels, the run-history effect ledger) reads this one list.
+ */
+export const WRITE_RISK_TIERS = ["medium", "high"] as const satisfies readonly ToolRiskTier[];
+export const isWriteRiskTier = enumGuard(WRITE_RISK_TIERS);
+
+/**
  * Per-tier tool counts for one integration (a UX hint for the integration
  * detail page). Lives here so the server registry and the web client agree on
  * the shape without the web importing the server-only registry.

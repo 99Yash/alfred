@@ -61,8 +61,12 @@ export {
   isTerminalChildStatus,
   listSpawnedChildRuns,
   readChildRunOutcome,
+  EFFECT_RECEIPT_CAP,
+  effectReceiptColumns,
+  toEffectReceipt,
 } from "./index.domain";
 export type {
+  EffectReceiptSource,
   RunStatus,
   Step,
   StepContext,
