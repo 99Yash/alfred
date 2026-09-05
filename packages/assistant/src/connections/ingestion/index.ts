@@ -32,12 +32,16 @@ export {
   enqueueChatAttachmentEnrichment,
   enqueueChatStorageCleanup,
   enqueueGmailKindRefold,
-  enqueueInboundDelivery,
   enqueueTriageRelabel,
   enqueuePendingUploadCleanup,
   getIngestionQueue,
 } from "./queue";
 export type { IngestionJobData } from "./queue";
+export {
+  receiveInboundDelivery,
+  type InboundDeliveryOutcome,
+  type ReceiveInboundDeliveryArgs,
+} from "./inbound-receive";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
 export { installGmailWatchAndSeedCursor } from "./gmail-ingest";
 export {

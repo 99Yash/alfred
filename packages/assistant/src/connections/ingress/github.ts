@@ -1,20 +1,11 @@
-import { getPath, isEventTypeForSource, type JsonObject } from "@alfred/contracts";
+import { isEventTypeForSource } from "@alfred/contracts";
 import {
   findCredentialByInstallationId,
+  githubInstallationId,
   listGithubCredentials,
   verifyWebhookSignature,
 } from "@alfred/integrations/github";
-import { z } from "zod";
 import type { InboundSourceDescriptor } from "./descriptor";
-
-// GitHub sends `installation.id` as a JSON number; the credential column is text.
-const installationIdSchema = z.union([z.number().int(), z.string().min(1)]).transform(String);
-
-/** The GitHub App installation id a delivery came from, as the `integration_credentials` column stores it. */
-export function githubInstallationId(payload: JsonObject): string | null {
-  const parsed = installationIdSchema.safeParse(getPath(payload, "installation", "id"));
-  return parsed.success ? parsed.data : null;
-}
 
 /**
  * GitHub App activity (ADR-0052, ADR-0097). GitHub signs the raw body with the
@@ -58,7 +49,7 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
         : {
             healthy: false,
             reason: "no active GitHub App installation is connected",
-            recovery: "connect",
+            recovery: { kind: "connect", integration: "github" },
           };
     },
   },

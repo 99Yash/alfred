@@ -15,6 +15,7 @@ export {
   getInstallationTokenForUser,
   listGithubCredentials,
   findCredentialByInstallationId,
+  githubInstallationId,
 } from "./credentials";
 export type {
   UpsertGithubCredentialArgs,

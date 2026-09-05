@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  eventTypeName,
   jsonObjectSchema,
   parseJsonWith,
   toMessage,
@@ -8,8 +9,8 @@ import {
 import { db } from "@alfred/db";
 import { eventReceipts, type NewEventReceipt } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { inboundDeliveryKey } from "./descriptor";
-import { inboundSource } from "./registry";
+import { inboundDeliveryKey, inboundSource } from "../ingress";
+import { enqueueInboundDelivery } from "./queue";
 
 /**
  * Result of receiving one delivery on `POST /webhooks/inbound/:source`. The
@@ -40,24 +41,22 @@ export interface ReceiveInboundDeliveryArgs {
   /** The exact request bytes, for the descriptor's signature check and the audit hash. */
   raw: string;
   headers: Headers;
-  /**
-   * Hand one receipt id to the delivery queue. Supplied by the caller so this
-   * module never imports the ingestion queue, which would close an import
-   * cycle through `@alfred/assistant/triggers` (see `deliver.ts`).
-   */
-  enqueue: (receiptId: string) => Promise<void>;
 }
 
 /**
  * The shared receive path every inbound source runs through (ADR-0097):
  * look up the descriptor, verify the RAW body, parse, key, project, attribute,
- * persist one `event_receipts` row with `onConflictDoNothing`, then enqueue.
- * The request is acknowledged as soon as the row exists; no workflow runs
- * inline.
+ * persist one `event_receipts` row with `onConflictDoNothing`, then enqueue
+ * `ingress.deliver`. The request is acknowledged as soon as the row exists; no
+ * workflow runs inline.
+ *
+ * This is the queue's producer, so it lives beside the queue rather than in
+ * `../ingress`: that door is on the automation readiness import path and must
+ * stay free of BullMQ and the Gmail ingestion graph.
  *
  * The crash window between the insert and the enqueue is closed on the next
  * redelivery: a duplicate whose receipt is not yet `completed` is enqueued
- * again, and the queue's `jobId` (the receipt id) makes that idempotent.
+ * again. `enqueueInboundDelivery` owns what makes that safe.
  */
 export async function receiveInboundDelivery(
   args: ReceiveInboundDeliveryArgs,
@@ -93,7 +92,7 @@ export async function receiveInboundDelivery(
     providerDeliveryId: deliveryKey,
     credentialId: owner.credentialId,
     userId: owner.userId,
-    eventType: `${source}.${projection.type}`,
+    eventType: eventTypeName(source, projection.type),
     verificationResult: INBOUND_VERIFICATION_RESULT,
     payloadHash: createHash("sha256").update(args.raw).digest("hex"),
     payload,
@@ -107,7 +106,7 @@ export async function receiveInboundDelivery(
 
   const receiptId = inserted[0]?.id;
   if (receiptId) {
-    await enqueueLogged(args.enqueue, receiptId, source);
+    await enqueueLogged(receiptId, source);
     return { kind: "accepted", source, receiptId, type: projection.type };
   }
 
@@ -124,18 +123,14 @@ export async function receiveInboundDelivery(
     return { kind: "ignored", source, reason: "receipt-gone" };
   }
   if (existing.processingStatus !== "completed") {
-    await enqueueLogged(args.enqueue, existing.id, source);
+    await enqueueLogged(existing.id, source);
   }
   return { kind: "duplicate", source, receiptId: existing.id };
 }
 
-async function enqueueLogged(
-  enqueue: ReceiveInboundDeliveryArgs["enqueue"],
-  receiptId: string,
-  source: InboundEventSource,
-): Promise<void> {
+async function enqueueLogged(receiptId: string, source: InboundEventSource): Promise<void> {
   try {
-    await enqueue(receiptId);
+    await enqueueInboundDelivery(receiptId);
   } catch (error) {
     // The receipt is durable; the next redelivery re-enqueues it. Failing the
     // request here would make the provider retry a body we already stored.

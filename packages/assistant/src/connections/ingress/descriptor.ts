@@ -1,4 +1,9 @@
-import type { EventTypeForSource, InboundEventSource, JsonObject } from "@alfred/contracts";
+import type {
+  EventTypeForSource,
+  InboundEventSource,
+  IntegrationSlug,
+  JsonObject,
+} from "@alfred/contracts";
 
 /**
  * The provider-specific half of one inbound webhook source (ADR-0097). A
@@ -15,7 +20,7 @@ import type { EventTypeForSource, InboundEventSource, JsonObject } from "@alfred
  * a descriptor, or a descriptor without an entry, fails to compile.
  */
 export interface InboundSourceDescriptor<S extends InboundEventSource = InboundEventSource> {
-  /** The registry key. Must equal the `EVENT_SOURCE_ENTRIES` key; asserted at module init. */
+  /** The registry key; `S` pins it to the `EVENT_SOURCE_ENTRIES` key the descriptor is filed under. */
   slug: S;
   /**
    * Authenticate one delivery over the RAW request body and its headers,
@@ -71,14 +76,21 @@ export interface InboundOwner {
   accountRef: string;
 }
 
+/**
+ * The user action that can restore deliveries. `connect` names the integration
+ * whose connect flow restores the subscription: an event source slug and an
+ * integration slug are different spaces, so the descriptor says which one, and
+ * readiness never guesses from the source name.
+ */
+export type InboundSubscriptionRecovery =
+  | { kind: "connect"; integration: IntegrationSlug }
+  | { kind: "retry" }
+  /** Only time or an operator can restore deliveries. */
+  | { kind: "none" };
+
 export type InboundSubscriptionHealth =
   | { healthy: true }
-  | {
-      healthy: false;
-      reason: string;
-      /** The user action that can restore deliveries, or `none` when only time or an operator can. */
-      recovery: "connect" | "retry" | "none";
-    };
+  | { healthy: false; reason: string; recovery: InboundSubscriptionRecovery };
 
 export interface InboundSubscriptionAdapter {
   health(userId: string): Promise<InboundSubscriptionHealth>;

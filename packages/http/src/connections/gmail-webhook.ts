@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   Errors,
   GMAIL_POLL_DEDUP_TTL_MS,
+  eventTypeName,
   getStringPath,
   parseJsonWith,
   toMessage,
@@ -194,7 +195,7 @@ async function defaultPersistReceipt(args: {
       providerDeliveryId: args.providerDeliveryId,
       credentialId: args.credentialId,
       userId: args.userId,
-      eventType: "gmail.message_received",
+      eventType: eventTypeName("gmail", "message_received"),
       historyId: args.historyId,
       verificationResult: args.verificationResult,
       payloadHash: args.payloadHash,

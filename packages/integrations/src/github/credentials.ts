@@ -1,7 +1,9 @@
+import { getPath, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
+import { z } from "zod";
 import { getInstallationToken } from "./app";
 
 /**
@@ -153,6 +155,19 @@ export async function getInstallationTokenForUser(
   }
   const { token } = await getInstallationToken(active.installationId);
   return { token, accountLogin: active.accountLabel?.trim() || null };
+}
+
+// GitHub sends `installation.id` as a JSON number; the credential column is text.
+const installationIdSchema = z.union([z.number().int(), z.string().min(1)]).transform(String);
+
+/**
+ * The GitHub App installation id a webhook delivery came from, as the
+ * `integration_credentials.installation_id` column stores it, or `null` when
+ * the payload carries none. The join key for `findCredentialByInstallationId`.
+ */
+export function githubInstallationId(payload: JsonObject): string | null {
+  const parsed = installationIdSchema.safeParse(getPath(payload, "installation", "id"));
+  return parsed.success ? parsed.data : null;
 }
 
 export type GithubInstallationCredential = Pick<

@@ -105,3 +105,31 @@ export function isEventTypeForSource<S extends EventSource>(
   // for the runtime membership test this guard performs.
   return (EVENT_SOURCE_ENTRIES[source].eventTypes as readonly string[]).includes(value);
 }
+
+/**
+ * The `<source>.<type>` name one domain event is stored and logged under: the
+ * `event_receipts.event_type` column, the workflow trigger label, the log line.
+ * One writer and one reader, so the two never agree on the dot by convention.
+ */
+export function eventTypeName<S extends EventSource>(
+  source: S,
+  type: EventTypeForSource<S>,
+): `${S}.${EventTypeForSource<S>}` {
+  return `${source}.${type}`;
+}
+
+/**
+ * Read the `type` half back out of a stored `<source>.<type>` name for a known
+ * source, or `null` when the name is not one that source declares. Sources
+ * contain dots (`google.oauth.callback`), so the caller names the source and
+ * this strips exactly that prefix.
+ */
+export function parseEventTypeName<S extends EventSource>(
+  source: S,
+  name: string,
+): EventTypeForSource<S> | null {
+  const prefix = `${source}.`;
+  if (!name.startsWith(prefix)) return null;
+  const type = name.slice(prefix.length);
+  return isEventTypeForSource(source, type) ? type : null;
+}

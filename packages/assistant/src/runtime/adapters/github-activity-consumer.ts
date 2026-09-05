@@ -2,8 +2,8 @@ import { getStringPath, jsonObjectSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { eventReceipts, webhookEvents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
+import { githubInstallationId } from "@alfred/integrations/github";
 import { objectStateStore } from "@alfred/assistant/connections";
-import { githubInstallationId } from "@alfred/assistant/connections/ingress";
 import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assistant/triggers";
 
 /**
@@ -14,15 +14,21 @@ import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assi
  * The briefing's `integration_activity` contributor and the ADR-0062 reducer
  * keep reading `webhook_events`, so the rows they see are unchanged.
  *
- * `best-effort`: a fold failure must never fail the delivery job (the receipt
- * is durable; a backfill can replay it), the same isolation the inline handler
- * had. The reducer runs only for a newly inserted `webhook_events` row, so a
- * redelivered receipt cannot regress object state with a fresh timestamp.
+ * `propagate`: a fold failure fails the `ingress.deliver` job, the receipt
+ * reads `failed`, and the queue retries. Both writes are idempotent — the
+ * `webhook_events` insert is `onConflictDoNothing`, and `applyEvent` is
+ * monotonic on `stateDeliveredAt` with an absorbing `resolved` guard — so a
+ * retry is safe, and the reducer runs only for a newly inserted row, so a
+ * redelivered receipt cannot regress object state with a fresh timestamp. The
+ * inline handler isolated the reducer so its error could not 500 the provider;
+ * inside a queued job that reason is gone, and `best-effort` would turn a lost
+ * `webhook_events` row into a silent, permanent gap, because no reconciler
+ * reads `event_receipts.payload` back into this table.
  */
 export function githubActivityTriggerConsumer(): TriggerConsumer {
   return {
     name: "github-activity-fold",
-    mode: "best-effort",
+    mode: "propagate",
     async accept(event) {
       if (event.source !== "github") return;
       const { receiptId } = inboundDeliveryPayloadSchema.parse(event.payload ?? {});

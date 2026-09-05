@@ -413,18 +413,16 @@ export function resolveWorkflowReadiness(args: {
     // An inbound source with no healthy subscription is degraded, never quiet:
     // the absence of deliveries must not read as "nothing happened" (ADR-0097).
     const source = args.definition.trigger.source;
-    const health = args.inboundTriggerHealth.get(source) ?? {
+    const health: InboundSubscriptionHealth = args.inboundTriggerHealth.get(source) ?? {
       healthy: false,
       reason: "no subscription health signal",
-      recovery: "none",
+      recovery: { kind: "none" },
     };
     if (!health.healthy) {
+      // The descriptor names the integration its `connect` recovery points at;
+      // `connect` and `retry` are already `WorkflowRecoveryAction` shapes.
       const recoveryAction: WorkflowRecoveryAction | undefined =
-        health.recovery === "connect" && isIntegrationSlug(source)
-          ? { kind: "connect", integration: source }
-          : health.recovery === "retry"
-            ? { kind: "retry" }
-            : undefined;
+        health.recovery.kind === "none" ? undefined : health.recovery;
       problems.push({
         code: "trigger_degraded",
         message: `${humanizeSlug(source)} event delivery is degraded: ${health.reason}.`,
