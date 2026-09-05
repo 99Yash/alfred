@@ -19,9 +19,10 @@ import { enqueueInboundDelivery } from "./queue";
  * - `unknown_source`: the `:source` segment is not an inbound source (404).
  * - `rejected`: the descriptor's `verify` refused the raw body (401).
  * - `ignored`: authenticated, but nothing to store — a ping, an unsubscribed
- *   event, a body that is not a JSON object, a delivery the dedup rule cannot
- *   key, or a delivery no credential owns. Acknowledged with 200 so the
- *   provider does not retry what cannot change.
+ *   event, a body that is not a JSON object, a subscribed delivery the dedup
+ *   rule cannot key (logged at error level: that is a descriptor bug), or a
+ *   delivery no credential owns. Acknowledged with 200 so the provider does
+ *   not retry what cannot change.
  * - `duplicate`: a receipt for this dedup key already exists.
  * - `accepted`: a new receipt row exists and the delivery job is enqueued.
  */
@@ -45,7 +46,7 @@ export interface ReceiveInboundDeliveryArgs {
 
 /**
  * The shared receive path every inbound source runs through (ADR-0097):
- * look up the descriptor, verify the RAW body, parse, key, project, attribute,
+ * look up the descriptor, verify the RAW body, parse, project, key, attribute,
  * persist one `event_receipts` row with `onConflictDoNothing`, then enqueue
  * `ingress.deliver`. The request is acknowledged as soon as the row exists; no
  * workflow runs inline.
@@ -73,11 +74,21 @@ export async function receiveInboundDelivery(
   const payload = parseJsonWith(args.raw, jsonObjectSchema);
   if (!payload) return { kind: "ignored", source, reason: "bad-json" };
 
-  const deliveryKey = inboundDeliveryKey(descriptor.dedup, payload, args.headers);
-  if (!deliveryKey) return { kind: "ignored", source, reason: "no-dedup-key" };
-
+  // Project before keying: an event the source does not subscribe to is
+  // dropped quietly, but a subscribed event the dedup rule cannot key is a
+  // descriptor bug (a payload path that moved), and must be loud. It is still
+  // acknowledged: providers do not redeliver on a 4xx, and a retry could not
+  // change the body.
   const projection = descriptor.project(payload, args.headers);
   if (projection.kind === "ignore") return { kind: "ignored", source, reason: projection.reason };
+
+  const deliveryKey = inboundDeliveryKey(descriptor.dedup, payload, args.headers);
+  if (!deliveryKey) {
+    console.error(
+      `[ingress] ${source}: no dedup key for subscribed event ${projection.type}; dropped`,
+    );
+    return { kind: "ignored", source, reason: "no-dedup-key" };
+  }
 
   const owner = await descriptor.resolveOwner(payload, args.headers);
   if (!owner) {

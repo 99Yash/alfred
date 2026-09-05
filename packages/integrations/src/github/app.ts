@@ -1,9 +1,10 @@
 import { getStringPath, httpErrorFromResponse, parseOAuthScopeList } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { createHmac, createPrivateKey, timingSafeEqual, type KeyObject } from "node:crypto";
+import { createPrivateKey, type KeyObject } from "node:crypto";
 import { SignJWT } from "jose";
 import { z } from "zod";
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
+import { hmacSha256Hex, signatureMatches } from "../shared/webhook";
 import { GITHUB_API, GITHUB_REST_HEADERS } from "./rest";
 
 /**
@@ -274,10 +275,6 @@ export async function canUserAccessInstallation(args: {
  * parsed JSON would change whitespace and break the comparison.
  */
 export function verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
-  if (!signatureHeader) return false;
   const { webhookSecret } = getGithubAppConfig();
-  const expected = `sha256=${createHmac("sha256", webhookSecret).update(rawBody).digest("hex")}`;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signatureHeader);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return signatureMatches(`sha256=${hmacSha256Hex(webhookSecret, rawBody)}`, signatureHeader);
 }

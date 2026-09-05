@@ -14,13 +14,11 @@ export {
   getGithubAccessToken,
   getInstallationTokenForUser,
   listGithubCredentials,
-  findCredentialByInstallationId,
   githubInstallationId,
 } from "./credentials";
 export type {
   UpsertGithubCredentialArgs,
   GithubCredentialSummary,
-  GithubInstallationCredential,
   UserInstallationToken,
 } from "./credentials";
 // The ONE door to GitHub's REST API on a user's behalf — the curated reads plus
