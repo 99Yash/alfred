@@ -335,6 +335,7 @@ const bossTurnStep: Step<BriefRunState> = {
         state: { ...state, emptyRetries: 0 },
         transcript: nextTranscript,
         output,
+        summary: result.text,
       };
     }
 
@@ -360,6 +361,7 @@ const bossTurnStep: Step<BriefRunState> = {
         state,
         transcript: nextTranscript,
         output: { stoppedReason: result.reason },
+        summary: `Stopped: ${result.reason}`,
       };
     }
 
@@ -669,6 +671,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
           state: { ...ctx.state, readinessDeferrals: ctx.state.readinessDeferrals + 1 },
           retryAt: new Date(Date.now() + delay),
           output: { reason: verdict.reason },
+          reason: "provider_unhealthy",
         };
       },
     },

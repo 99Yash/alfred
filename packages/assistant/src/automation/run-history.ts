@@ -1,5 +1,6 @@
 import {
   runStatusSchema,
+  WRITE_RISK_TIERS,
   workflowReadinessOutputSchema,
   workflowRunHistoryTriggerSchema,
   workflowRunOutcomeSchema,
@@ -7,6 +8,7 @@ import {
   type EffectReceipt,
   type RunStatus,
   type WorkflowRunHistory,
+  type WorkflowRunHistoryOutcome,
   type WorkflowRunHistoryRow,
   type WorkflowRunOutcome,
   type WorkflowRunRecovery,
@@ -18,7 +20,7 @@ import {
   effectReceiptColumns,
   toEffectReceipt,
 } from "@alfred/assistant/execution";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { workflowRecoveryNavigation } from "./recovery-navigation";
 
 /**
@@ -46,24 +48,37 @@ export class InvalidRunHistoryCursorError extends Error {
   }
 }
 
+/**
+ * The keyset frontier. `created_at` is carried as Postgres wrote it, with all
+ * six fractional digits, never as a JavaScript `Date`: a `Date` keeps only
+ * milliseconds, so a boundary inside a group of runs created in the same
+ * millisecond (one email-triage batch does this) would drop the rest of the
+ * group from the next page. The compare then uses the plain column on both
+ * sides, so ORDER BY and the tuple compare share one expression and the
+ * history index serves both.
+ */
 interface HistoryCursor {
-  createdAt: Date;
+  /** `YYYY-MM-DDTHH:MM:SS.ffffffZ`, exactly as `createdAtMicros` renders it. */
+  createdAt: string;
   id: string;
 }
 
+const MICROSECOND_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+/** The run's `created_at` at full precision, in the one text form the cursor accepts. */
+const createdAtMicros = sql<string>`to_char(${agentRuns.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
 function encodeCursor(cursor: HistoryCursor): string {
-  return Buffer.from(`${cursor.createdAt.toISOString()}|${cursor.id}`, "utf8").toString(
-    "base64url",
-  );
+  return Buffer.from(`${cursor.createdAt}|${cursor.id}`, "utf8").toString("base64url");
 }
 
 function decodeCursor(raw: string): HistoryCursor {
   const decoded = Buffer.from(raw, "base64url").toString("utf8");
   const separator = decoded.indexOf("|");
   if (separator <= 0) throw new InvalidRunHistoryCursorError();
-  const createdAt = new Date(decoded.slice(0, separator));
+  const createdAt = decoded.slice(0, separator);
   const id = decoded.slice(separator + 1);
-  if (Number.isNaN(createdAt.getTime()) || id.length === 0) {
+  if (!MICROSECOND_INSTANT.test(createdAt) || id.length === 0) {
     throw new InvalidRunHistoryCursorError();
   }
   return { createdAt, id };
@@ -101,6 +116,7 @@ export async function listWorkflowRunHistory(
       replayOfRunId: agentRuns.replayOfRunId,
       workflowRevisionId: agentRuns.workflowRevisionId,
       createdAt: agentRuns.createdAt,
+      createdAtMicros,
       startedAt: agentRuns.startedAt,
       endedAt: agentRuns.endedAt,
       output: agentRuns.output,
@@ -120,9 +136,10 @@ export async function listWorkflowRunHistory(
         eq(agentRuns.userId, args.userId),
         eq(agentRuns.workflowSlug, workflow.slug),
         // Keyset on the same (created_at desc, id desc) order the history
-        // index serves, so every page is one index range scan.
+        // index serves, so every page is one index range scan. The cursor's
+        // instant is cast in SQL so no JavaScript `Date` rounds it.
         cursor
-          ? sql`(${agentRuns.createdAt}, ${agentRuns.id}) < (${cursor.createdAt}, ${cursor.id})`
+          ? sql`(${agentRuns.createdAt}, ${agentRuns.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id})`
           : undefined,
       ),
     )
@@ -133,7 +150,7 @@ export async function listWorkflowRunHistory(
   const last = page[page.length - 1];
   const nextCursor =
     runs.length > pageSize && last
-      ? encodeCursor({ createdAt: last.createdAt, id: last.id })
+      ? encodeCursor({ createdAt: last.createdAtMicros, id: last.id })
       : null;
 
   const effectsByRun = await readEffectsByRun(page.map((run) => run.id));
@@ -142,6 +159,7 @@ export async function listWorkflowRunHistory(
     const status = runStatusSchema.parse(run.status);
     const outcomeParsed = workflowRunOutcomeSchema.safeParse(run.outcome);
     const outcome = outcomeParsed.success ? outcomeParsed.data : null;
+    const wireOutcome = outcome ? toHistoryOutcome(outcome) : null;
     const triggerParsed = workflowRunHistoryTriggerSchema.safeParse(run.trigger);
     const effects = effectsByRun.get(run.id) ?? [];
     const coverageGaps = status === "blocked" ? readCoverageGaps(run.output) : [];
@@ -160,7 +178,7 @@ export async function listWorkflowRunHistory(
       isCurrent: revisionId !== null && revisionId === workflow.currentRevisionId,
       isPublished,
       status,
-      outcome,
+      outcome: wireOutcome,
       effects: effects.slice(0, EFFECT_RECEIPT_CAP),
       effectsTruncated: effects.length > EFFECT_RECEIPT_CAP,
       coverageGaps,
@@ -184,7 +202,12 @@ async function readEffectsByRun(runIds: string[]): Promise<Map<string, EffectRec
   const rows = await db()
     .select({ runId: actionStagings.runId, ...effectReceiptColumns })
     .from(actionStagings)
-    .where(and(inArray(actionStagings.runId, runIds), ne(actionStagings.riskTier, "no_risk")))
+    .where(
+      and(
+        inArray(actionStagings.runId, runIds),
+        inArray(actionStagings.riskTier, WRITE_RISK_TIERS),
+      ),
+    )
     .orderBy(asc(actionStagings.createdAt), asc(actionStagings.id));
   for (const row of rows) {
     const list = byRun.get(row.runId) ?? [];
@@ -192,6 +215,26 @@ async function readEffectsByRun(runIds: string[]): Promise<Map<string, EffectRec
     byRun.set(row.runId, list);
   }
   return byRun;
+}
+
+/**
+ * Drop the frozen receipt lists from the wire copy of the outcome. The row's
+ * live ledger is the same list (nothing lands after the terminal write), so
+ * shipping both would give the client two sources for one fact.
+ */
+function toHistoryOutcome(outcome: WorkflowRunOutcome): WorkflowRunHistoryOutcome {
+  switch (outcome.kind) {
+    case "completed": {
+      const { effects: _effects, ...rest } = outcome;
+      return rest;
+    }
+    case "cancelled": {
+      const { completedEffects: _completedEffects, ...rest } = outcome;
+      return rest;
+    }
+    default:
+      return outcome;
+  }
 }
 
 function readCoverageGaps(output: unknown): PersistedWorkflowReadinessProblem[] {

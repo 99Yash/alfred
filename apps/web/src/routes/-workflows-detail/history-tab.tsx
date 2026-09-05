@@ -20,7 +20,7 @@ const PLAY_LEADING = <Play size={14} />;
  */
 export function HistoryTab({ workflow }: { workflow: SyncedWorkflow }) {
   const navigate = useNavigate({ from: "/workflows/$workflow" });
-  const history = useWorkflowRunHistory(workflow.id);
+  const history = useWorkflowRunHistory(workflow);
   const replay = useReplayRun(workflow.id);
   const runNow = useRunWorkflowNow(workflow.id, workflow.slug);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);

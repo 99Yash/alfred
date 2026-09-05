@@ -8,8 +8,8 @@ import {
   type EffectReceipt,
   type RunStatus,
   type WorkflowRunHistoryRow,
+  type WorkflowRunHistoryOutcome,
   type WorkflowRunHistoryTrigger,
-  type WorkflowRunOutcome,
 } from "@alfred/contracts";
 import { formatTimestamp, shortId, triggerLabel } from "~/components/approvals/format";
 import type { WorkflowIconTone } from "./workflow-icon";
@@ -44,7 +44,10 @@ const STATUS_TONE = {
   cancelled: "muted",
 } satisfies Record<RunStatus, WorkflowIconTone>;
 
-function outcomeHeadline(outcome: WorkflowRunOutcome): RunHeadline {
+function outcomeHeadline(
+  outcome: WorkflowRunHistoryOutcome,
+  effects: readonly EffectReceipt[],
+): RunHeadline {
   switch (outcome.kind) {
     case "completed":
       return { title: "Completed", detail: outcome.summary, tone: "green" };
@@ -63,7 +66,9 @@ function outcomeHeadline(outcome: WorkflowRunOutcome): RunHeadline {
     case "failed":
       return { title: "Failed", detail: outcome.safeMessage, tone: "red" };
     case "cancelled": {
-      const landed = outcome.completedEffects.length;
+      // The live ledger is the one effect list on the wire; nothing lands
+      // after the terminal write, so its succeeded count is the frozen one.
+      const landed = effects.filter((effect) => effect.outcome === "succeeded").length;
       const unknown = outcome.unknownEffects.length;
       const parts = [
         landed === 0 ? "No write landed before the cancel." : `${landed} write(s) landed first.`,
@@ -83,7 +88,7 @@ function outcomeHeadline(outcome: WorkflowRunOutcome): RunHeadline {
 
 /** What the row says first: the frozen outcome when there is one, else the live status. */
 export function runHeadline(row: WorkflowRunHistoryRow): RunHeadline {
-  if (row.outcome) return outcomeHeadline(row.outcome);
+  if (row.outcome) return outcomeHeadline(row.outcome, row.effects);
   return { title: STATUS_TITLE[row.status], detail: null, tone: STATUS_TONE[row.status] };
 }
 

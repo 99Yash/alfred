@@ -50,15 +50,32 @@ export interface StagedAction {
  *  - `blocked` terminates on an actionable readiness failure
  *  - `interrupt` parks the run until the wake condition fires
  */
+/** The closed set of reasons a step may defer a run to a later attempt. */
+export type RunDeferReason = "provider_unhealthy" | "retry_scheduled";
+
 export type StepResult<S> =
   | { kind: "next"; state: S; nextStep: string; transcript?: AgentTranscriptMessage[] }
-  | { kind: "done"; state: S; output?: unknown; transcript?: AgentTranscriptMessage[] }
+  | {
+      kind: "done";
+      state: S;
+      output?: unknown;
+      /**
+       * One safe sentence for the run's history row (#561). The workflow that
+       * produced the output is the only code that knows which of its keys is
+       * the headline, so it names the sentence here rather than leaving the
+       * outcome derivation to guess at `output` keys.
+       */
+      summary?: string;
+      transcript?: AgentTranscriptMessage[];
+    }
   | { kind: "blocked"; state: S; output: unknown; transcript?: AgentTranscriptMessage[] }
   | {
       kind: "defer";
       state: S;
       retryAt: Date;
       output?: unknown;
+      /** Why the run stepped aside; the history row shows it. Defaults to `retry_scheduled`. */
+      reason?: RunDeferReason;
       transcript?: AgentTranscriptMessage[];
     }
   | { kind: "interrupt"; state: S; wake: WakeCondition; transcript?: AgentTranscriptMessage[] };

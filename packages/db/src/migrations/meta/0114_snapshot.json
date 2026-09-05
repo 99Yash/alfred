@@ -8194,7 +8194,7 @@
       "checkConstraints": {
         "email_sends_kind_valid": {
           "name": "email_sends_kind_valid",
-          "value": "\"email_sends\".\"kind\" IN ('briefing', 'evening_recap', 'approval', 'skill_documented', 'health_alert')"
+          "value": "\"email_sends\".\"kind\" IN ('briefing', 'evening_recap', 'approval', 'skill_documented', 'health_alert', 'workflow_blocked')"
         },
         "email_sends_status_valid": {
           "name": "email_sends_status_valid",

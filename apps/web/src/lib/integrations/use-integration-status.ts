@@ -1,11 +1,8 @@
 import {
-  connectedAccountSchema,
   GOOGLE_SLUGS,
   INTEGRATIONS,
-  integrationConnectionSchema,
   integrationStatusSchema,
   isLiveProviderSlug,
-  LIVE_PROVIDER_SLUGS,
   type ConnectedAccount,
   type CredentialProvider,
   type GoogleSlug,
@@ -14,37 +11,8 @@ import {
 } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { z } from "zod";
-import { client } from "~/lib/eden";
+import { client, parseEdenBody } from "~/lib/eden";
 import { INTEGRATION_PAGES, type IntegrationPage } from "~/lib/integrations/integrations";
-
-/**
- * Eden Treaty revives ISO-shaped response strings into `Date` objects on the
- * client, so a timestamp the wire contract honestly types as `string` arrives
- * as a `Date` at runtime. A bare `z.string()` then fails the whole status body,
- * and every provider reads as "not connected". Accept both and flatten back to
- * the ISO string the contract promises. See the same trap in
- * `use-latest-briefing`'s `toDateKey()`.
- */
-const edenTimestamp = z
-  .union([z.string(), z.date()])
-  .transform((value) => (value instanceof Date ? value.toISOString() : value));
-
-/**
- * The status body as the browser receives it: the owning wire schema from
- * `@alfred/contracts` with `connectedAt` absorbing Eden's date revival. The
- * parse is all-or-nothing on purpose: the body is one document from one
- * producer the compiler pins to the same schema, so a field that fails here is
- * a contract break to surface, not a stray row to skip.
- */
-const receivedStatusSchema = integrationStatusSchema.extend({
-  integrations: z.record(
-    z.enum(LIVE_PROVIDER_SLUGS),
-    integrationConnectionSchema.extend({
-      accounts: z.array(connectedAccountSchema.extend({ connectedAt: edenTimestamp })),
-    }),
-  ),
-});
 
 /**
  * The provider tile a UI surface actually wants to render: the static
@@ -72,7 +40,10 @@ function useIntegrationStatus() {
     queryFn: async () => {
       const res = await client.api.integrations.get();
       if (res.error) throw new Error(`integration status failed (${res.error.status})`);
-      return receivedStatusSchema.parse(res.data);
+      // The body is one document from one producer the compiler pins to this
+      // schema; `parseEdenBody` undoes Eden's date revival, and a field that
+      // fails is a contract break to surface, not a stray row to skip.
+      return parseEdenBody(integrationStatusSchema, res.data);
     },
     staleTime: 30_000,
     refetchOnWindowFocus: true,

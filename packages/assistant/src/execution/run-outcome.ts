@@ -2,8 +2,8 @@ import {
   actionStagingStatusSchema,
   canonicalJson,
   effectOutcomeSchema,
-  getStringPath,
   isToolRiskTier,
+  isWriteRiskTier,
   workflowReadinessOutputSchema,
   type EffectReceipt,
   type WorkflowRecoveryAction,
@@ -14,6 +14,7 @@ import { actionStagings, workflows, type ActionStaging, type AgentRun } from "@a
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { isInternalWorkflowSlug } from "./registry";
+import type { RunDeferReason } from "./types";
 
 /**
  * The typed verdict every terminal (and deferred) run write carries beside its
@@ -26,9 +27,15 @@ import { isInternalWorkflowSlug } from "./registry";
 /** The run columns the derivation and the workflow roll-up need. */
 export type RunOutcomeSubject = Pick<AgentRun, "id" | "userId" | "workflowSlug">;
 
-/** Which terminal write is about to land, with the inputs its kind needs. */
+/**
+ * Which terminal write is about to land, with the inputs its kind needs. The
+ * `done` and `defer` step results name their own summary and reason (see
+ * `StepResult`), so the derivation never inspects a workflow's `output` keys.
+ * A blocked run's `output` is the `check-readiness` contract and is parsed
+ * with its schema.
+ */
 export type RunOutcomeWrite =
-  | { status: "completed"; output: unknown }
+  | { status: "completed"; summary: string | undefined }
   | { status: "blocked"; output: unknown }
   | {
       status: "failed";
@@ -36,28 +43,19 @@ export type RunOutcomeWrite =
       safeMessage: string;
     }
   | { status: "cancelled" }
-  | { status: "deferred"; output: unknown; retryAt: Date };
+  | { status: "deferred"; reason: RunDeferReason | undefined; retryAt: Date };
 
-/** The staging columns an effect receipt is projected from. */
-export type EffectReceiptSource = Pick<
-  ActionStaging,
-  "effectKey" | "toolName" | "integration" | "providerRef" | "executedAt"
-> & {
-  /** Persisted enums arrive as `text`; the projection re-narrows each one. */
-  riskTier: string;
-  outcome: string;
-  status: string;
-};
+/**
+ * The staging columns an effect receipt is projected from: exactly the keys of
+ * `effectReceiptColumns`, typed as the row type reads them. The `$type<>()`
+ * enums are casts over `text`, so `toEffectReceipt` still re-narrows each one.
+ */
+export type EffectReceiptSource = Pick<ActionStaging, keyof typeof effectReceiptColumns>;
 
 /** Receipts and outcome effect lists are capped so one jsonb row stays bounded. */
 export const EFFECT_RECEIPT_CAP = 50;
 const STAGING_READ_CAP = 500;
 const SUMMARY_MAX_CHARS = 280;
-
-/** Reads never count as effects: only a tier that can change external state does. */
-export function isWriteRiskTier(riskTier: string): boolean {
-  return riskTier !== "no_risk";
-}
 
 /**
  * Project one persisted staging into a receipt. Out-of-enum tiers fall to the
@@ -91,12 +89,9 @@ export const effectReceiptColumns = {
   executedAt: actionStagings.executedAt,
 } as const;
 
-// Typed loosely so the cancel path (whose own tx is `any`) can share it.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type OutcomeTx = DbTransaction | any;
-
-async function readWriteReceipts(tx: OutcomeTx, runId: string): Promise<EffectReceipt[]> {
-  const rows: EffectReceiptSource[] = await tx
+/** Only write tiers are receipts; the tier list is the shared `WRITE_RISK_TIERS`. */
+async function readWriteReceipts(tx: DbTransaction, runId: string): Promise<EffectReceipt[]> {
+  const rows = await tx
     .select(effectReceiptColumns)
     .from(actionStagings)
     .where(eq(actionStagings.runId, runId))
@@ -105,19 +100,11 @@ async function readWriteReceipts(tx: OutcomeTx, runId: string): Promise<EffectRe
   return rows.filter((row) => isWriteRiskTier(row.riskTier)).map(toEffectReceipt);
 }
 
-function clipSummary(text: string): string {
-  const trimmed = text.trim();
+/** The step's own sentence, clipped; a `done` step that names none reads as plain completion. */
+function clipSummary(summary: string | undefined): string {
+  const trimmed = summary?.trim() ?? "";
+  if (!trimmed) return "Run completed.";
   return trimmed.length <= SUMMARY_MAX_CHARS ? trimmed : `${trimmed.slice(0, SUMMARY_MAX_CHARS)}…`;
-}
-
-/** One sentence from a `done` step's output; the shapes come from the brief workflow. */
-function summarizeOutput(output: unknown): string {
-  if (typeof output === "string" && output.trim()) return clipSummary(output);
-  const text = getStringPath(output, "text");
-  if (text && text.trim()) return clipSummary(text);
-  const stopped = getStringPath(output, "stoppedReason");
-  if (stopped && stopped.trim()) return `Stopped: ${clipSummary(stopped)}`;
-  return "Run completed.";
 }
 
 function distinctRecoveryActions(
@@ -142,7 +129,7 @@ function distinctRecoveryActions(
  * rides in the same `.set()`; the read is harmless if the guard then refuses.
  */
 export async function deriveRunOutcome(
-  tx: OutcomeTx,
+  tx: DbTransaction,
   run: RunOutcomeSubject,
   write: RunOutcomeWrite,
 ): Promise<WorkflowRunOutcome | null> {
@@ -151,7 +138,7 @@ export async function deriveRunOutcome(
   if (write.status === "deferred") {
     return {
       kind: "deferred",
-      code: getStringPath(write.output, "reason") ? "provider_unhealthy" : "retry_scheduled",
+      code: write.reason ?? "retry_scheduled",
       retryAt: write.retryAt.toISOString(),
     };
   }
@@ -179,7 +166,7 @@ export async function deriveRunOutcome(
 
   if (write.status === "completed") {
     const succeeded = receipts.filter((r) => r.outcome === "succeeded");
-    const summary = summarizeOutput(write.output);
+    const summary = clipSummary(write.summary);
     if (succeeded.length === 0) return { kind: "no_change", summary };
     return { kind: "completed", summary, effects: succeeded.slice(0, EFFECT_RECEIPT_CAP) };
   }
@@ -204,7 +191,7 @@ export async function deriveRunOutcome(
  * too. Never for `deferred`: the run is not over.
  */
 export async function recordWorkflowLastRun(
-  tx: OutcomeTx,
+  tx: DbTransaction,
   run: RunOutcomeSubject,
   status: "completed" | "blocked" | "failed" | "cancelled",
   now: Date,
@@ -223,9 +210,12 @@ export async function recordWorkflowLastRun(
 }
 
 /**
- * Wake the owner's Replicache clients after a terminal commit so the workflow
- * list and the history tab refresh. Internal runs have no workflow row to
- * refresh, so they stay silent. Call it after the transaction commits.
+ * Wake the owner's Replicache clients after a terminal commit so the synced
+ * `workflows` row (its `lastRunAt` roll-up) refreshes. The History tab is a
+ * react-query read, not a synced entity; it watches that synced `lastRunAt`
+ * and re-fetches when it moves (`useWorkflowRunHistory`). Internal runs have
+ * no workflow row to refresh, so they stay silent. Call it after the
+ * transaction commits.
  */
 export function pokeWorkflowOwner(run: RunOutcomeSubject): void {
   if (isInternalWorkflowSlug(run.workflowSlug)) return;
