@@ -54,6 +54,11 @@ export interface UpsertBearerCredentialArgs {
   expiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
   metadata?: Record<string, unknown> | undefined;
+  /**
+   * The provider-side installation id inbound webhooks name (Sentry's
+   * `installation.uuid`). Null for a bearer provider that sends no webhooks.
+   */
+  installationId?: string | null | undefined;
 }
 
 /**
@@ -80,6 +85,7 @@ export async function upsertBearerCredential(
       expiresAt: args.expiresAt ?? null,
       scopes: args.scopes ?? [],
       metadata: args.metadata ?? {},
+      installationId: args.installationId ?? null,
       status: "active",
     })
     .onConflictDoUpdate({
@@ -94,6 +100,7 @@ export async function upsertBearerCredential(
         expiresAt: args.expiresAt ?? null,
         scopes: args.scopes ?? [],
         metadata: args.metadata ?? {},
+        installationId: args.installationId ?? null,
         status: "active",
         accountLabel: args.accountLabel ?? null,
         lastRefreshedAt: new Date(),

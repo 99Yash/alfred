@@ -1464,6 +1464,145 @@ const VercelTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   );
 };
 
+const SentryTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
+  const idJitter = React.useId();
+
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <g clipPath={`url(#clip0_${idJitter})`}>
+        <rect width="50" height="50" fill={`url(#paint0_radial_${idJitter})`} />
+        <g filter={`url(#filter0_ddddi_${idJitter})`}>
+          {/* Sentry mark (simple-icons, 24-unit grid) scaled onto the 34-unit glyph region. */}
+          <g transform="translate(8 8) scale(1.41667)">
+            <path
+              d="M13.91 2.505c-.873-1.448-2.972-1.448-3.844 0L6.904 7.92a15.478 15.478 0 0 1 8.53 12.811h-2.221A13.301 13.301 0 0 0 5.784 9.814l-2.926 5.06a7.65 7.65 0 0 1 4.435 5.848H2.194a.365.365 0 0 1-.298-.534l1.413-2.402a5.16 5.16 0 0 0-1.614-.913L.296 19.275a2.182 2.182 0 0 0 .812 2.999 2.24 2.24 0 0 0 1.086.288h6.983a9.322 9.322 0 0 0-3.845-8.318l1.11-1.922a11.47 11.47 0 0 1 4.95 10.24h5.915a17.242 17.242 0 0 0-7.885-15.28l2.244-3.845a.37.37 0 0 1 .504-.13c.255.14 9.75 16.708 9.928 16.9a.365.365 0 0 1-.327.543h-2.287c.029.612.029 1.223 0 1.831h2.297a2.206 2.206 0 0 0 1.922-3.31z"
+              fill={`url(#paint1_linear_${idJitter})`}
+            />
+          </g>
+        </g>
+      </g>
+      <defs>
+        <filter
+          id={`filter0_ddddi_${idJitter}`}
+          x="4"
+          y="7"
+          width="42"
+          height="56"
+          filterUnits="userSpaceOnUse"
+          colorInterpolationFilters="sRGB"
+        >
+          <feFlood floodOpacity="0" result="BackgroundImageFix" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="1.65426" />
+          <feGaussianBlur stdDeviation="1.65426" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
+          <feBlend
+            mode="normal"
+            in2="BackgroundImageFix"
+            result={`effect1_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="4.96277" />
+          <feGaussianBlur stdDeviation="2.48138" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect1_dropShadow_${idJitter}`}
+            result={`effect2_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="11.5798" />
+          <feGaussianBlur stdDeviation="3.30851" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect2_dropShadow_${idJitter}`}
+            result={`effect3_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="21.5053" />
+          <feGaussianBlur stdDeviation="4.13564" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.01 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect3_dropShadow_${idJitter}`}
+            result={`effect4_dropShadow_${idJitter}`}
+          />
+          <feBlend
+            mode="normal"
+            in="SourceGraphic"
+            in2={`effect4_dropShadow_${idJitter}`}
+            result="shape"
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset />
+          <feGaussianBlur stdDeviation="0.661703" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0" />
+          <feBlend mode="normal" in2="shape" result={`effect5_innerShadow_${idJitter}`} />
+        </filter>
+        <radialGradient
+          id={`paint0_radial_${idJitter}`}
+          cx="0"
+          cy="0"
+          r="1"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="translate(25.333 50) rotate(-90) scale(50 167.578)"
+        >
+          <stop stopColor="#1D1D1D" />
+          <stop offset="1" stopColor="#4F4D4D" />
+        </radialGradient>
+        <linearGradient
+          id={`paint1_linear_${idJitter}`}
+          x1="25"
+          y1="11.5"
+          x2="25.9223"
+          y2="38.2"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" />
+          <stop offset="1" stopColor="white" stopOpacity="0.5" />
+        </linearGradient>
+        <clipPath id={`clip0_${idJitter}`}>
+          <rect width="50" height="50" fill="white" />
+        </clipPath>
+      </defs>
+    </svg>
+  );
+};
+
 export {
   GithubTile,
   GmailTile,
@@ -1475,6 +1614,7 @@ export {
   LinearTile,
   NotionTile,
   RailwayTile,
+  SentryTile,
   SlackTile,
   VercelTile,
 };

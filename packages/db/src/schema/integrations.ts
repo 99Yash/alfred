@@ -87,10 +87,13 @@ export const integrationCredentials = pgTable(
       .notNull()
       .default(sql`'{}'::jsonb`),
     /**
-     * GitHub App installation id (ADR-0052). NULL for every other provider
-     * and for legacy classic-OAuth GitHub rows. Inbound webhooks carry only
-     * `installation.id`, so this is the join key from a delivery back to the
-     * owning user; the indexed lookup lives in `webhook_events` resolution.
+     * The provider-side installation id an inbound webhook delivery names: the
+     * GitHub App installation id (ADR-0052) or the Sentry integration
+     * installation uuid. NULL for every provider that sends no webhooks and
+     * for legacy classic-OAuth GitHub rows. A delivery carries only this id,
+     * so it is the indexed join key from a delivery back to the owning
+     * credential; the lookup is always scoped by `provider` as well, because
+     * the id space is the provider's, not Alfred's.
      */
     installationId: text("installation_id"),
     status: text("status").notNull().default("active"),
@@ -113,7 +116,7 @@ export const integrationCredentials = pgTable(
       sql`${t.provider} IN (${inList(CREDENTIAL_PROVIDERS)})`,
     ),
     uniqueIndex("integration_credentials_unique_idx").on(t.userId, t.provider, t.accountId),
-    // Webhook deliveries resolve their owning user by GitHub installation id.
+    // Inbound webhook deliveries resolve their owning credential by installation id.
     index("integration_credentials_installation_idx").on(t.installationId),
   ],
 );
