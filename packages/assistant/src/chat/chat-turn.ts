@@ -7,13 +7,12 @@ import {
   type ModelMessage,
 } from "@alfred/ai";
 import { composeAgentInstructions } from "@alfred/ai/voice";
-import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
+import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   AWAIT_SUB_AGENT_TOOL,
   getPath,
   parseIanaTimezone,
   type AgentTranscriptMessage,
-  type ArtifactFormat,
   type ToolName,
   type ToolRunContext,
 } from "@alfred/contracts";
@@ -60,6 +59,7 @@ import {
   finalizeFailedMessage,
 } from "./chat-turn-closure";
 import {
+  admitPdfDesignGuide,
   assertStableChatSystem,
   chatRunStateSchema,
   closeLeadInNarration,
@@ -191,16 +191,7 @@ const ARTIFACT_SYSTEM_GUIDANCE = [
   "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
 ].join("\n");
 
-export function buildChatSystemPrompt(
-  grounding: string,
-  connectedSummary: string,
-  options: {
-    /** Inject the heavier document guide only while a PDF is selected. */
-    artifactDesignMedium?: ArtifactFormat | undefined;
-  } = {},
-): string {
-  const documentDesignBlock =
-    options.artifactDesignMedium === "pdf" ? `\n\n${ARTIFACT_DOCUMENT_DESIGN_PROMPT}` : "";
+export function buildChatSystemPrompt(grounding: string, connectedSummary: string): string {
   // The chat path passes no `grounding` date: its "now" (date and time both)
   // rides the single re-anchorable `formatRuntimeTimeGrounding` line in the
   // transcript. A date pinned into this cached prefix would go stale when a
@@ -221,7 +212,7 @@ export function buildChatSystemPrompt(
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: CHAT_SYSTEM_PROMPT_BASE,
-    rules: [ARTIFACT_SYSTEM_GUIDANCE, `${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}`],
+    rules: [ARTIFACT_SYSTEM_GUIDANCE, ARTIFACT_DESIGN_PROMPT],
     grounding: [dateLine, connectedSummary],
   });
 }
@@ -336,8 +327,6 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
-
       if (state.timezone === undefined) {
         state.timezone = await resolveTimezone(ctx.userId);
       }
@@ -361,25 +350,21 @@ const chatTurnStep: Step<ChatRunState> = {
           tools.context,
         );
       }
-      await tools.preload(state, hydratedTranscript);
       if (state.artifactThreadFacts === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
           state.threadId,
           state.artifactTargetId,
         );
-        // #896: per-thread facts ride the ephemeral block, so a mutation only
-        // invalidates that block. The system prefix holds the invariant constant
-        // and stays byte-identical. The one remaining mid-run system change is
-        // the PDF design guide; clear the durable pin only when its inclusion
-        // toggles (Issue 2 closes even that path).
-        const pdfToggled =
-          (state.artifactDesignMedium === "pdf") !== (artifactContext.designMedium === "pdf");
         state.artifactThreadFacts = artifactContext.threadFacts;
         state.artifactReference = artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
-        if (pdfToggled) state.systemPromptHash = undefined;
       }
+      const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
+      await tools.preload(state, hydratedTranscript);
+      // Budget the guide before compaction, then admit it to both transcripts
+      // after the guard so it cannot replace the real user's replay boundary.
+      const pendingGuidance = admitPdfDesignGuide(state);
       // No date in the system prompt: a stable cached prefix cannot carry a
       // "now" that stays fresh across a park. Both date and time ride the one
       // ephemeral runtime line below. The anchor stays stable throughout a
@@ -387,9 +372,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // re-stamps to wake-time without using elapsed time as a park proxy (#410).
       // #896: the artifact edit rules are a constant inside this cached prefix;
       // the per-thread facts ride the ephemeral block below.
-      const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, {
-        artifactDesignMedium: state.artifactDesignMedium,
-      });
+      const systemPrompt = buildChatSystemPrompt("", state.connectedSummary);
       assertStableChatSystem(state, systemPrompt);
       const runtimeGroundingAnchor = resolveRuntimeGroundingAnchor(
         state.runtimeGroundingAnchor ? new Date(state.runtimeGroundingAnchor) : undefined,
@@ -435,6 +418,7 @@ const chatTurnStep: Step<ChatRunState> = {
           storedTranscript: transcript,
           hydratedTranscript,
           artifactReference: ephemeralReference,
+          pendingGuidance,
           abortSignal: stop.signal,
           onPhase: (phase, compactionScope) =>
             publishChatCompactionPhase({
@@ -839,10 +823,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
           if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && completion.execution === "completed") {
             // The next model step must not see a stale pre-edit body/hash. Re-read
             // the per-thread facts and reference after create/update commits.
-            // #896: facts ride the ephemeral block, so the cached system prefix
-            // stays byte-identical and the durable pin stays set. The design
-            // medium refreshes on the next chat-turn (which clears the pin only
-            // when the PDF guide toggles), so no optimistic medium update here.
+            // Facts ride the ephemeral block and the PDF guide enters the
+            // transcript on the next chat step. Neither changes the system pin.
             state.artifactThreadFacts = undefined;
             state.artifactReference = undefined;
           }
