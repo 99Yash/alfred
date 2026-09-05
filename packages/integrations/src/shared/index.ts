@@ -20,6 +20,7 @@ export {
 export { authedJson, type AuthedJsonOptions } from "./authed-json";
 export { RETRY_BASE_DELAY_MS, type RetryPolicy } from "./retry";
 export { throwUpstreamError } from "./upstream-error";
+export { hmacSha256Hex, payloadIdAt, signatureMatches } from "./webhook";
 export {
   defineProviderClient,
   type ProviderClient,

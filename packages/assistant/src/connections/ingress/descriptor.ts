@@ -56,14 +56,16 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
 export type InboundDedupRule =
   /** The provider sends a delivery id that is stable across redeliveries (GitHub's `X-GitHub-Delivery`). */
   | { kind: "delivery_id"; header: string }
-  /** No stable id on the wire: the key is derived from payload identity. `null` = cannot key this delivery. */
-  | { kind: "synthetic"; key: (payload: JsonObject) => string | null }
+  /**
+   * No stable id on the wire: the key is derived from payload identity. The
+   * headers are passed too, because a provider may name the resource only
+   * there (Sentry's `Sentry-Hook-Resource`). `null` = cannot key this delivery.
+   */
+  | { kind: "synthetic"; key: InboundSyntheticKey }
   /** Prefer the header; fall back to the payload key when the header is absent. */
-  | {
-      kind: "delivery_id_or_synthetic";
-      header: string;
-      key: (payload: JsonObject) => string | null;
-    };
+  | { kind: "delivery_id_or_synthetic"; header: string; key: InboundSyntheticKey };
+
+export type InboundSyntheticKey = (payload: JsonObject, headers: Headers) => string | null;
 
 export type InboundProjection<S extends InboundEventSource> =
   | { kind: "event"; type: EventTypeForSource<S> }
@@ -106,9 +108,9 @@ export function inboundDeliveryKey(
     case "delivery_id":
       return nonEmpty(headers.get(rule.header));
     case "synthetic":
-      return nonEmpty(rule.key(payload));
+      return nonEmpty(rule.key(payload, headers));
     case "delivery_id_or_synthetic":
-      return nonEmpty(headers.get(rule.header)) ?? nonEmpty(rule.key(payload));
+      return nonEmpty(headers.get(rule.header)) ?? nonEmpty(rule.key(payload, headers));
     default: {
       const _exhaustive: never = rule;
       return _exhaustive;

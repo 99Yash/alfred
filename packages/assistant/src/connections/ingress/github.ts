@@ -1,10 +1,9 @@
 import { isEventTypeForSource } from "@alfred/contracts";
+import { githubInstallationId, verifyWebhookSignature } from "@alfred/integrations/github";
 import {
-  findCredentialByInstallationId,
-  githubInstallationId,
-  listGithubCredentials,
-  verifyWebhookSignature,
-} from "@alfred/integrations/github";
+  findActiveCredentialByInstallationId,
+  hasActiveInstallationCredential,
+} from "@alfred/integrations/shared";
 import type { InboundSourceDescriptor } from "./descriptor";
 
 /**
@@ -33,17 +32,14 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   resolveOwner: async (payload) => {
     const installationId = githubInstallationId(payload);
     if (!installationId) return null;
-    const credential = await findCredentialByInstallationId(installationId);
+    const credential = await findActiveCredentialByInstallationId("github", installationId);
     return credential
       ? { userId: credential.userId, credentialId: credential.id, accountRef: credential.accountId }
       : null;
   },
   subscription: {
     async health(userId) {
-      const credentials = await listGithubCredentials(userId);
-      const installed = credentials.some(
-        (credential) => credential.status === "active" && Boolean(credential.installationId),
-      );
+      const installed = await hasActiveInstallationCredential(userId, "github");
       return installed
         ? { healthy: true }
         : {

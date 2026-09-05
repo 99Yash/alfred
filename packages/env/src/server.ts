@@ -305,6 +305,13 @@ const serverEnvSchema = z
      */
     SENTRY_INTEGRATION_SLUG: optionalSecret(),
     /**
+     * The same internal integration's Client Secret. Sentry signs every webhook
+     * body with it (`sentry-hook-signature`, HMAC-SHA256 hex over the raw
+     * bytes). Optional so the server boots before the integration exists; the
+     * `sentry` ingress descriptor rejects every delivery while it is unset.
+     */
+    SENTRY_WEBHOOK_CLIENT_SECRET: optionalSecret(),
+    /**
      * Object storage for chat file uploads (ADR-0065). Backed by **Cloudflare R2**
      * (S3-compatible) via `files-sdk`'s `s3` adapter. Create an R2 bucket + an R2
      * API token, then set on the server service:

@@ -268,16 +268,16 @@ const INTEGRATION_PAGE_COPY = {
   sentry: {
     description: "Read Sentry issues and error events.",
     category: "Development",
-    capabilities: ["List Issues", "Read Issue Detail", "Read Stack Traces"],
+    capabilities: ["List Issues", "Read Issue Detail", "Read Stack Traces", "Receive Webhooks"],
     trust: {
       title: "Your token, your control",
       body: "You paste a token from an internal integration in your own Sentry organization. Revoke it any time from Sentry, or disconnect here.",
     },
     overview: {
-      body: "Connect Sentry with an internal integration token and your organization slug. Alfred reads your issues and events through that integration.",
+      body: "Connect Sentry with an internal integration token and your organization slug. Alfred reads your issues and events through that integration, and receives its webhooks.",
       heading: "Error Intelligence",
       detail:
-        "Alfred can list an organization's projects and issues, read one issue, and read its latest event with the stack trace and source context.",
+        "Alfred can list an organization's projects and issues, read one issue and its latest event with the stack trace, and react when Sentry sends an alert or Seer opens a pull request.",
     },
   },
 } satisfies Record<CatalogSlug, IntegrationPageCopy>;
