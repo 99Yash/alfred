@@ -1,5 +1,5 @@
 {
-  "id": "b8c5f056-4fbd-40ed-ad12-431258127c52",
+  "id": "44c89403-6fe5-42a3-a152-6007c099ef27",
   "prevId": "71f890d1-538d-4011-82dc-d7fffb90dd3a",
   "version": "7",
   "dialect": "postgresql",
@@ -850,12 +850,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "outcome": {
-          "name": "outcome",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "output": {
           "name": "output",
           "type": "jsonb",
@@ -933,39 +927,6 @@
         }
       },
       "indexes": {
-        "agent_runs_workflow_history_idx": {
-          "name": "agent_runs_workflow_history_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "workflow_slug",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "agent_runs_user_idx": {
           "name": "agent_runs_user_idx",
           "columns": [
@@ -4529,6 +4490,12 @@
         "payload_hash": {
           "name": "payload_hash",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -8194,7 +8161,7 @@
       "checkConstraints": {
         "email_sends_kind_valid": {
           "name": "email_sends_kind_valid",
-          "value": "\"email_sends\".\"kind\" IN ('briefing', 'evening_recap', 'approval', 'skill_documented', 'health_alert', 'workflow_blocked')"
+          "value": "\"email_sends\".\"kind\" IN ('briefing', 'evening_recap', 'approval', 'skill_documented', 'health_alert')"
         },
         "email_sends_status_valid": {
           "name": "email_sends_status_valid",

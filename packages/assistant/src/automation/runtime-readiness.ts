@@ -20,7 +20,11 @@ export function runtimeReadinessDisposition(
   problems: readonly WorkflowReadinessProblem[],
 ): "ready" | "deferred" | "blocked" {
   if (problems.length === 0) return "ready";
-  return problems.every((problem) => problem.code === "provider_unhealthy")
+  // Both codes describe delivery health that time or an operator can restore,
+  // not a definition the user must change, so the run waits instead of blocking.
+  return problems.every(
+    (problem) => problem.code === "provider_unhealthy" || problem.code === "trigger_degraded",
+  )
     ? "deferred"
     : "blocked";
 }
@@ -74,6 +78,7 @@ export async function checkWorkflowRunReadiness(args: {
     definition,
     availability: context.availability,
     gmailEventHealth: context.gmailEventHealth,
+    inboundTriggerHealth: context.inboundTriggerHealth,
     toolCatalog: workflowToolCatalog(),
   });
 

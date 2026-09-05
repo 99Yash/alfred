@@ -619,7 +619,8 @@ export async function refreshWorkflowActivationProposal(args: {
   });
   if (stale) return { ok: false, failure: stale };
 
-  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+  const { availability, gmailEventHealth, inboundTriggerHealth } =
+    await readWorkflowReadinessContext(args.userId);
   const toolCatalog = workflowToolCatalog();
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: requested.definition,
@@ -656,6 +657,7 @@ export async function refreshWorkflowActivationProposal(args: {
     availability,
     requestedCapabilities: definition.requiredCapabilities,
     gmailEventHealth,
+    inboundTriggerHealth,
     toolCatalog,
   });
   if (blockers.length > 0) {
@@ -739,7 +741,8 @@ export async function recoverWorkflowDraft(args: {
     };
   }
 
-  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+  const { availability, gmailEventHealth, inboundTriggerHealth } =
+    await readWorkflowReadinessContext(args.userId);
   const toolCatalog = workflowToolCatalog();
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: storedDefinition,
@@ -760,6 +763,7 @@ export async function recoverWorkflowDraft(args: {
     availability,
     requestedCapabilities: baseProposal.data.requestedCapabilities,
     gmailEventHealth,
+    inboundTriggerHealth,
     toolCatalog,
   });
 
@@ -1151,7 +1155,8 @@ export async function activateWorkflow(
 
     const definition = validated.definition;
     const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
-    const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+    const { availability, gmailEventHealth, inboundTriggerHealth } =
+      await readWorkflowReadinessContext(args.userId);
     const toolCatalog = workflowToolCatalog();
     const blockers = resolveWorkflowReadiness({
       definition,
@@ -1160,6 +1165,7 @@ export async function activateWorkflow(
         ? proposal.data.requestedCapabilities
         : definition.requiredCapabilities,
       gmailEventHealth,
+      inboundTriggerHealth,
       toolCatalog,
     });
     if (blockers[0]) {

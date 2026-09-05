@@ -4,6 +4,7 @@ import {
   isEventSource,
   isEventType,
   isEventTypeForSource,
+  isInboundEventSource,
   jsonObjectSchema,
   type EventSource,
   type EventType,
@@ -72,15 +73,32 @@ export const gmailDocumentsIngestedPayloadSchema = z
 export type GmailDocumentsIngestedPayload = z.infer<typeof gmailDocumentsIngestedPayloadSchema>;
 
 /**
- * The strict payload rule for one `source`/`type` pair. Gmail owns two distinct
- * facts — the per-received-doc `message_received` and the batch
- * `documents_ingested` — so its schema is chosen by `type`. The other two
- * sources are enumerated, not defaulted: each validates its payload as an opaque
- * JSON object by its own explicit case, and the closing `never` assertion makes
- * a future `EventSource` fail to compile until it declares a payload rule rather
- * than silently falling through to the permissive default.
+ * The payload every inbound webhook source publishes (ADR-0097): a pointer to
+ * the stored `event_receipts` row and its dedup key, never the body. A consumer
+ * that needs the body reads the receipt by id.
+ */
+export const inboundDeliveryPayloadSchema = z
+  .object({
+    receiptId: z.string().min(1).max(200),
+    deliveryKey: z.string().min(1).max(500),
+  })
+  .strict();
+
+export type InboundDeliveryPayload = z.infer<typeof inboundDeliveryPayloadSchema>;
+
+/**
+ * The strict payload rule for one `source`/`type` pair. Every inbound webhook
+ * source shares the receipt-pointer rule above, decided by the contracts
+ * record's `producer` field. Gmail owns two distinct facts — the per-received-doc
+ * `message_received` and the batch `documents_ingested` — so its schema is
+ * chosen by `type`. The other in-process sources are enumerated, not defaulted:
+ * each validates its payload as an opaque JSON object by its own explicit case,
+ * and the closing `never` assertion makes a future in-process `EventSource` fail
+ * to compile until it declares a payload rule rather than silently falling
+ * through to the permissive default.
  */
 function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unknown> {
+  if (isInboundEventSource(source)) return inboundDeliveryPayloadSchema;
   switch (source) {
     case "gmail":
       return type === "documents_ingested"
