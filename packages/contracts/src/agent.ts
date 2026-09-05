@@ -355,6 +355,8 @@ export const workflowBlockedSchema = z.object({
   message: z.string().min(1).max(500),
   /** ISO-8601 instant the blocker was observed. */
   detectedAt: z.string(),
+  /** ISO-8601 instant the blocked notification was sent, once it has been. */
+  notifiedAt: z.string().optional(),
   /** The revision the blocker was observed against, when known. */
   revisionId: z.string().min(1).optional(),
 });

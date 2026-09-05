@@ -22,6 +22,7 @@ import { normalizeDecisionTraceKey, type DecisionTraceBase } from "./decision-tr
 import { resolveWorkflowForRun } from "./resolve-workflow";
 import { rejectLateCancelledRunStagings, resolveStaleAfterMs } from "./service";
 import { finalizeFailedRun } from "./terminal-closure";
+import { deriveRunOutcome, pokeWorkflowOwner, recordWorkflowLastRun } from "./run-outcome";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
 import {
@@ -381,6 +382,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   // workflow that owns client-facing closure (chat-turn) hasn't finalized —
   // drive its `onTerminal` failure branch here, then report the terminal failure.
   if (leased.kind === "backstopped") {
+    pokeWorkflowOwner(leased.run);
     await finalizeFailedRun(leased.run, leased.error);
     return { kind: "failed", runId, error: leased.error };
   }
@@ -627,6 +629,11 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
         // `FOR UPDATE` on the row since the SELECT at the top and has already
         // checked the status under that lock, so no concurrent cancel can be
         // interleaved. Adding the guard here would re-read a row we already own.
+        const backstopOutcome = await deriveRunOutcome(tx, row, {
+          status: "failed",
+          code: "non_progressing",
+          safeMessage: backstopError,
+        });
         await tx
           // drift-ok: FOR UPDATE held since this tx's SELECT, status checked under it.
           .update(agentRuns)
@@ -637,11 +644,13 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
               step: row.currentStep,
               attempt: row.attempt,
             },
+            outcome: backstopOutcome,
             endedAt: now,
             lastCheckpointAt: now,
             updatedAt: now,
           })
           .where(eq(agentRuns.id, row.id));
+        await recordWorkflowLastRun(tx, row, "failed", now);
         await publishRunFailed(tx, {
           userId: row.userId,
           runId: row.id,
@@ -793,7 +802,7 @@ export async function commitStepSuccess(
   const cleanWake = result.kind === "interrupt" ? sanitizeToolResult(result.wake).value : undefined;
 
   try {
-    return await commitStepSuccessTx(
+    const outcome = await commitStepSuccessTx(
       run,
       stepId,
       attempt,
@@ -805,6 +814,10 @@ export async function commitStepSuccess(
       cleanOutput,
       cleanWake,
     );
+    // #561: the `workflows.last_run_*` roll-up committed with the run, so the
+    // owner's synced workflow list and history tab are stale until poked.
+    if (outcome.kind === "completed" || outcome.kind === "blocked") pokeWorkflowOwner(run);
+    return outcome;
   } catch (err) {
     // This worker lost the run while the step ran — reclaimed (attempt bumped)
     // or gone terminal (a cancel landed, #530). Either way the guard refused and
@@ -930,6 +943,9 @@ async function commitStepSuccessTx(
     }
 
     if (result.kind === "done") {
+      // #561: the typed verdict rides in the same guarded `.set()` as the
+      // status, so a superseded commit rolls both back together.
+      const outcome = await deriveRunOutcome(tx, run, { status: "completed", output: cleanOutput });
       // Guarded like the `next` branch: abort rather than mark a run completed
       // under a stale attempt while the reclaimer is mid-step, or over a
       // terminal status a cancel just wrote.
@@ -938,11 +954,13 @@ async function commitStepSuccessTx(
         state: cleanState as object,
         status: "completed",
         output: cleanOutput,
+        outcome,
         endedAt: now,
         lastCheckpointAt: now,
         updatedAt: now,
         ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
       });
+      await recordWorkflowLastRun(tx, run, "completed", now);
 
       await publishEvent({
         tx,
@@ -954,16 +972,19 @@ async function commitStepSuccessTx(
     }
 
     if (result.kind === "blocked") {
+      const outcome = await deriveRunOutcome(tx, run, { status: "blocked", output: cleanOutput });
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "blocked",
         output: cleanOutput,
+        outcome,
         endedAt: now,
         lastCheckpointAt: now,
         updatedAt: now,
         ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
       });
+      await recordWorkflowLastRun(tx, run, "blocked", now);
       await publishEvent({
         tx,
         userId: run.userId,
@@ -981,11 +1002,18 @@ async function commitStepSuccessTx(
     }
 
     if (result.kind === "defer") {
+      // Outcome only: a deferred run is not over, so no `last_run_*` roll-up.
+      const outcome = await deriveRunOutcome(tx, run, {
+        status: "deferred",
+        output: cleanOutput,
+        retryAt: result.retryAt,
+      });
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         status: "deferred",
         output: cleanOutput,
+        outcome,
         deferredUntil: result.retryAt,
         attempt: attempt + 1,
         lastCheckpointAt: now,
@@ -1088,13 +1116,20 @@ async function commitStepFailure(
           ),
         );
 
+      const outcome = await deriveRunOutcome(tx, run, {
+        status: "failed",
+        code: "step_failed",
+        safeMessage: safeError,
+      });
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         status: "failed",
         error: { message: safeError, step: stepId, attempt },
+        outcome,
         endedAt: now,
         lastCheckpointAt: now,
         updatedAt: now,
       });
+      await recordWorkflowLastRun(tx, run, "failed", now);
 
       await publishRunFailed(tx, {
         userId: run.userId,
@@ -1117,6 +1152,7 @@ async function commitStepFailure(
     }
     throw err;
   }
+  pokeWorkflowOwner(run);
   return { kind: "failed", runId: run.id, error: safeError };
 }
 
@@ -1148,11 +1184,19 @@ export async function markRunFailed(
   const safeError = boundAgentRunError(error);
   try {
     await db().transaction(async (tx) => {
+      const now = new Date();
+      const outcome = await deriveRunOutcome(tx, run, {
+        status: "failed",
+        code: "workflow_unresolved",
+        safeMessage: safeError,
+      });
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         status: "failed",
         error: { message: safeError },
-        endedAt: new Date(),
+        outcome,
+        endedAt: now,
       });
+      await recordWorkflowLastRun(tx, run, "failed", now);
 
       // ADR-0073:23 — every terminal path publishes `agent.run`. This one is
       // the resolve-failure path (no `agent_steps` row, so no step-body writer
@@ -1173,5 +1217,6 @@ export async function markRunFailed(
     if (err instanceof RunSupersededError) return err.supersedeCause;
     throw err;
   }
+  pokeWorkflowOwner(run);
   return null;
 }

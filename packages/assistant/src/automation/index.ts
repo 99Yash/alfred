@@ -64,3 +64,8 @@ export { registerWorkflowSystemToolAdapter } from "./system-tool-adapter";
 export { workflowRecoveryNavigation } from "./recovery-navigation";
 
 export { checkWorkflowRunReadiness, type RuntimeReadinessResult } from "./runtime-readiness";
+export {
+  InvalidRunHistoryCursorError,
+  listWorkflowRunHistory,
+  type ListWorkflowRunHistoryArgs,
+} from "./run-history";

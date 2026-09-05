@@ -17,6 +17,7 @@
 import { Queue } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
+import { sha256Canonical } from "@alfred/db/hash";
 import { toMessage } from "@alfred/contracts";
 
 export const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
@@ -27,7 +28,31 @@ export const approvalNotificationJobDataSchema = z.object({
 });
 export type ApprovalNotificationJobData = z.infer<typeof approvalNotificationJobDataSchema>;
 
-let _queue: Queue<ApprovalNotificationJobData> | undefined;
+/**
+ * #561: a workflow that just became blocked owes its owner one email. It rides
+ * the same queue and worker as approval notifications so no new boot wiring is
+ * needed; the `kind` discriminator is what tells the worker which branch runs
+ * (legacy approval jobs carry no `kind`).
+ */
+export const workflowBlockedNotificationJobDataSchema = z.object({
+  kind: z.literal("workflow_blocked"),
+  workflowId: z.string().min(1),
+  userId: z.string().min(1),
+  revisionId: z.string().min(1),
+  code: z.string().min(1),
+  message: z.string().min(1),
+});
+export type WorkflowBlockedNotificationJobData = z.infer<
+  typeof workflowBlockedNotificationJobDataSchema
+>;
+
+export const notificationJobDataSchema = z.union([
+  workflowBlockedNotificationJobDataSchema,
+  approvalNotificationJobDataSchema,
+]);
+export type NotificationJobData = z.infer<typeof notificationJobDataSchema>;
+
+let _queue: Queue<NotificationJobData> | undefined;
 
 export function approvalNotificationJobId(stagingId: string): string {
   // BullMQ custom job ids cannot contain `:`, so this mirrors the
@@ -35,9 +60,9 @@ export function approvalNotificationJobId(stagingId: string): string {
   return `staging-notify.${stagingId}`;
 }
 
-export function getApprovalNotificationQueue(): Queue<ApprovalNotificationJobData> {
+export function getApprovalNotificationQueue(): Queue<NotificationJobData> {
   if (_queue) return _queue;
-  _queue = new Queue<ApprovalNotificationJobData>(APPROVAL_NOTIFICATION_QUEUE_NAME, {
+  _queue = new Queue<NotificationJobData>(APPROVAL_NOTIFICATION_QUEUE_NAME, {
     connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
@@ -69,6 +94,46 @@ export async function scheduleApprovalNotificationJob(args: {
     console.warn(
       "[approvals] failed to schedule approval notification",
       args.stagingId,
+      toMessage(err),
+    );
+    return "failed";
+  }
+}
+
+/**
+ * Job id keyed by workflow AND blocker generation: the same blocker never
+ * enqueues twice while its job is still known to BullMQ, but a new code,
+ * message, or revision does.
+ */
+export function workflowBlockedNotificationJobId(args: {
+  workflowId: string;
+  revisionId: string;
+  code: string;
+  message: string;
+}): string {
+  const generation = sha256Canonical({
+    code: args.code,
+    message: args.message,
+    revisionId: args.revisionId,
+  }).slice(7, 23);
+  return `workflow-blocked.${args.workflowId}.${generation}`;
+}
+
+export async function scheduleWorkflowBlockedNotificationJob(
+  args: Omit<WorkflowBlockedNotificationJobData, "kind">,
+): Promise<"scheduled" | "disabled" | "failed"> {
+  if (!isQueueEnabled()) return "disabled";
+  try {
+    await getApprovalNotificationQueue().add(
+      "workflow.blocked",
+      { kind: "workflow_blocked", ...args },
+      { jobId: workflowBlockedNotificationJobId(args) },
+    );
+    return "scheduled";
+  } catch (err) {
+    console.warn(
+      "[workflows] failed to schedule blocked notification",
+      args.workflowId,
       toMessage(err),
     );
     return "failed";

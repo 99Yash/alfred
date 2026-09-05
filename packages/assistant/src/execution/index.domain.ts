@@ -41,6 +41,17 @@ export {
 // (executor or triage) still writes its own row (ADR-0040).
 export { isInternalWorkflowSlug, listPublicWorkflows, listResumeOnlyWorkflows } from "./registry";
 export { normalizeDecisionTraceKey } from "./decision-traces";
+// #561: the effect-receipt projection is execution's (it owns the terminal
+// write that derives the run outcome); the history reader in `automation`
+// reuses the same column list and narrowing so a receipt reads identically
+// whether it was frozen into `agent_runs.outcome` or listed live.
+export {
+  EFFECT_RECEIPT_CAP,
+  effectReceiptColumns,
+  isWriteRiskTier,
+  toEffectReceipt,
+  type EffectReceiptSource,
+} from "./run-outcome";
 // Execution's public run-start surface is `startRun` / `startRunInTx` (folded
 // persist+deliver) plus two narrow ops for the callers that legitimately hold a
 // run apart from its delivery: `redeliverRun(runId)` hands an already-persisted

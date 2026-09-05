@@ -15,6 +15,7 @@ import {
   type WorkflowCapabilityDisplay,
   type ToolUnavailabilityCode,
   type WorkflowRecoveryAction,
+  type PersistedWorkflowReadinessProblem,
   type WorkflowRequestedCapability,
   type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
@@ -31,12 +32,8 @@ type WorkflowReadinessProblemCode =
   | "trigger_not_ready"
   | "provider_unhealthy";
 
-export interface WorkflowReadinessProblem {
+export interface WorkflowReadinessProblem extends PersistedWorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
-  message: string;
-  field: string;
-  /** Omitted when no user action can truthfully make the capability runnable. */
-  recoveryAction?: WorkflowRecoveryAction;
 }
 
 /** A caller-supplied verdict for one exact account and provider resource boundary. */
