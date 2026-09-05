@@ -5,6 +5,7 @@ import {
   type AgentRunTrigger,
   type EventSource,
   type EventType,
+  type WorkflowRunOutcome,
 } from "@alfred/contracts";
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
@@ -330,6 +331,12 @@ export const agentRuns = pgTable(
     cancellationGeneration: integer("cancellation_generation").notNull().default(0),
     wakeCondition: jsonb("wake_condition"),
     error: jsonb("error").$type<AgentError>(),
+    /**
+     * Typed terminal verdict for workflow runs (#561). Written beside the
+     * terminal status in the same transaction; null for internal runs. Reads
+     * still parse it with `workflowRunOutcomeSchema`.
+     */
+    outcome: jsonb("outcome").$type<WorkflowRunOutcome>(),
     output: jsonb("output"),
     metadata: jsonb("metadata")
       .notNull()
@@ -366,6 +373,12 @@ export const agentRuns = pgTable(
       columns: [t.workflowRevisionId, t.userId],
       foreignColumns: [workflowRevisions.id, workflowRevisions.userId],
     }),
+    index("agent_runs_workflow_history_idx").on(
+      t.userId,
+      t.workflowSlug,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
     index("agent_runs_user_idx").on(t.userId, t.status),
     index("agent_runs_runnable_idx")
       .on(t.lastCheckpointAt)

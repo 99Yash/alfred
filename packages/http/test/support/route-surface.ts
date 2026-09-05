@@ -95,6 +95,7 @@ const ROUTE_SURFACE = [
   "POST /api/me/onboarding/complete",
   "POST /api/skills/",
   "POST /api/skills/:id/relearn",
+  "GET /api/workflows/:id/runs",
   "POST /api/workflows/:id/recovery",
   "GET /health",
   "GET /ready",

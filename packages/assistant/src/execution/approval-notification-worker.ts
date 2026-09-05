@@ -14,7 +14,6 @@
 import { humanizeSlug, humanizeToolName, isRecord, jsonValueSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
-import { serverEnv } from "@alfred/env/server";
 import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { Worker, type Job } from "bullmq";
@@ -24,10 +23,16 @@ import { send } from "@alfred/assistant/delivery";
 import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalNotificationJobDataSchema,
-  type ApprovalNotificationJobData,
+  workflowBlockedNotificationJobDataSchema,
+  type NotificationJobData,
 } from "@alfred/assistant/tool-runtime";
+import {
+  emailLogoUrl,
+  processWorkflowBlockedNotification,
+  webOrigin,
+} from "./workflow-blocked-notification";
 
-let _worker: Worker<ApprovalNotificationJobData> | undefined;
+let _worker: Worker<NotificationJobData> | undefined;
 
 export interface StartApprovalNotificationWorkerOpts {
   concurrency?: number;
@@ -37,9 +42,9 @@ export async function startApprovalNotificationWorker(
   opts: StartApprovalNotificationWorkerOpts = {},
 ): Promise<void> {
   if (_worker) return;
-  _worker = new Worker<ApprovalNotificationJobData>(
+  _worker = new Worker<NotificationJobData>(
     APPROVAL_NOTIFICATION_QUEUE_NAME,
-    processApprovalNotificationJob,
+    processNotificationJob,
     {
       connection: createRedisConnection("queue"),
       concurrency: opts.concurrency ?? 1,
@@ -56,10 +61,25 @@ export async function stopApprovalNotificationWorker(): Promise<void> {
   _worker = undefined;
 }
 
-async function processApprovalNotificationJob(
-  job: Job<ApprovalNotificationJobData>,
-): Promise<unknown> {
-  const { stagingId, userId } = approvalNotificationJobDataSchema.parse(job.data);
+/**
+ * One worker, two job shapes (#561): the legacy approval job (`{stagingId,
+ * userId}`, no `kind`) and the workflow-blocked job (`kind: "workflow_blocked"`).
+ * Parse the union once here and branch; each branch owns its own re-read,
+ * render, send, and stamp.
+ */
+async function processNotificationJob(job: Job<NotificationJobData>): Promise<unknown> {
+  const blocked = workflowBlockedNotificationJobDataSchema.safeParse(job.data);
+  if (blocked.success) return processWorkflowBlockedNotification(blocked.data);
+  return processApprovalNotificationJob(approvalNotificationJobDataSchema.parse(job.data));
+}
+
+async function processApprovalNotificationJob({
+  stagingId,
+  userId,
+}: {
+  stagingId: string;
+  userId: string;
+}): Promise<unknown> {
   const rows = await db()
     .select({
       id: actionStagings.id,
@@ -207,17 +227,8 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   return { subject, html, text: textLines.join("\n") };
 }
 
-function webOrigin(): string {
-  return serverEnv().CORS_ORIGIN.replace(/\/$/, "");
-}
-
 function approvalDeepLink(stagingId: string): string {
   return `${webOrigin()}/approvals#approval-${encodeURIComponent(stagingId)}`;
-}
-
-// Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
-function emailLogoUrl(): string {
-  return `${webOrigin()}/images/logo/alfred-logo-email.png`;
 }
 
 function summarizeInput(input: unknown): Array<{ label: string; value: string }> {

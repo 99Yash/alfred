@@ -1,5 +1,6 @@
 import {
   isToolName,
+  isWriteRiskTier,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
   type ToolRunContext,
@@ -321,7 +322,7 @@ function scoreTool(
   // too, since natural phrasing routinely skips the narrow catalog verbs. A
   // state-changing tool (`medium`/`high`) still requires a catalog verb, so a
   // bare read-flavored request can never force-load a write sibling.
-  const readOnly = tool.riskTier === "no_risk" || tool.riskTier === "low";
+  const readOnly = !isWriteRiskTier(tool.riskTier);
   const preloadEligible =
     matchedAlias ||
     (matchedEntity && matchedVerb) ||

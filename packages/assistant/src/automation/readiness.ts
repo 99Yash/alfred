@@ -16,6 +16,7 @@ import {
   type WorkflowCapabilityDisplay,
   type ToolUnavailabilityCode,
   type WorkflowRecoveryAction,
+  type PersistedWorkflowReadinessProblem,
   type WorkflowRequestedCapability,
   type WorkflowRequiredCapability,
   type InboundEventSource,
@@ -39,12 +40,8 @@ type WorkflowReadinessProblemCode =
 /** Per-source subscription health for the inbound sources, as `readInboundTriggerHealth` reads it. */
 export type InboundTriggerHealthMap = ReadonlyMap<InboundEventSource, InboundSubscriptionHealth>;
 
-export interface WorkflowReadinessProblem {
+export interface WorkflowReadinessProblem extends PersistedWorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
-  message: string;
-  field: string;
-  /** Omitted when no user action can truthfully make the capability runnable. */
-  recoveryAction?: WorkflowRecoveryAction;
 }
 
 /** A caller-supplied verdict for one exact account and provider resource boundary. */

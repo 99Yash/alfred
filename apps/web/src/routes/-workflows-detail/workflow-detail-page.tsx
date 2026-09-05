@@ -1,9 +1,8 @@
 import { useParams, useSearch } from "@tanstack/react-router";
 import { MoreHorizontal, Pause, Play, Share2 } from "lucide-react";
 import { useState } from "react";
-import { AppButton, AppCard, AppSegmented, AppSwitch } from "~/components/ui/v2";
+import { AppButton, AppCard, AppSegmented } from "~/components/ui/v2";
 import { useWorkflow } from "~/lib/replicache/use-workflows";
-import { cn } from "~/lib/utils";
 import { syncedWorkflowToView } from "~/routes/-workflows/workflows-utils";
 import { ApprovalsTab } from "./approvals-tab";
 import { BackLink } from "./back-link";
@@ -31,7 +30,6 @@ export function WorkflowDetailPage() {
   const { workflow, updateWorkflow, loading } = useWorkflow(slug);
   const [tab, setTab] = useState<WorkflowTab>("plan");
   const [shareOpen, setShareOpen] = useState(false);
-  const [autoApprove, setAutoApprove] = useState(false);
 
   if (!workflow) {
     return (
@@ -96,22 +94,6 @@ export function WorkflowDetailPage() {
           >
             Share
           </AppButton>
-          <label
-            htmlFor="app-workflow-auto-approve"
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full bg-app-bg-1",
-              "shadow-[0_0_0_1px_rgba(0,0,0,0.05)]",
-              "h-8 cursor-pointer px-3 text-sm text-app-fg-4 select-none",
-              "transition-colors hover:bg-app-bg-a1",
-            )}
-          >
-            <span>Auto approve</span>
-            <AppSwitch
-              id="app-workflow-auto-approve"
-              checked={autoApprove}
-              onCheckedChange={setAutoApprove}
-            />
-          </label>
           <AppButton
             variant="primary"
             size="lg"
@@ -149,8 +131,8 @@ export function WorkflowDetailPage() {
           onSave={updateWorkflow}
         />
       ) : null}
-      {tab === "history" ? <HistoryTab workflow={view} /> : null}
-      {tab === "approvals" ? <ApprovalsTab workflow={view} /> : null}
+      {tab === "history" ? <HistoryTab workflow={workflow} /> : null}
+      {tab === "approvals" ? <ApprovalsTab workflow={workflow} /> : null}
 
       <ShareDialog workflow={view} open={shareOpen} onClose={() => setShareOpen(false)} />
     </DetailShell>

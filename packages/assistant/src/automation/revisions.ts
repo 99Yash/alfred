@@ -8,6 +8,7 @@ import {
   isLoadableIntegrationSlug,
   toolCategoryOf,
   toolLabel,
+  workflowBlockedGeneration,
   workflowRevisionDefinitionSchema,
   workflowAuthoringProposalSchema,
   type ActivateWorkflowInput,
@@ -1238,25 +1239,20 @@ export async function reconcileWorkflowReadiness(args: {
 
   const first = args.readiness[0];
   if (first) {
-    const message = args.readiness.map((problem) => problem.message).join(" ");
+    const next: WorkflowBlocked = {
+      code: first.code,
+      message: args.readiness.map((problem) => problem.message).join(" "),
+      detectedAt: new Date().toISOString(),
+      revisionId: args.revisionId,
+    };
+    // Same generation = same blocker: keep the row (and its `notifiedAt`).
     if (
-      args.workflow.blocked?.code === first.code &&
-      args.workflow.blocked.message === message &&
-      args.workflow.blocked.revisionId === args.revisionId
+      args.workflow.blocked &&
+      workflowBlockedGeneration(args.workflow.blocked) === workflowBlockedGeneration(next)
     ) {
       return { ok: true, workflow: args.workflow };
     }
-    return writeBlocked(
-      args.userId,
-      args.workflow.id,
-      {
-        code: first.code,
-        message,
-        detectedAt: new Date().toISOString(),
-        revisionId: args.revisionId,
-      },
-      args.tx,
-    );
+    return writeBlocked(args.userId, args.workflow.id, next, args.tx);
   }
   if (args.target === "activation" || args.workflow.blocked === null) {
     return { ok: true, workflow: args.workflow };

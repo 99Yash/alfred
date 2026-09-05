@@ -1,9 +1,12 @@
 import type { WorkflowRevisionDefinition } from "@alfred/contracts";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, workflowBlockedGeneration } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, workflowRevisions, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { workflowToolCatalog } from "@alfred/assistant/tool-runtime";
+import {
+  scheduleWorkflowBlockedNotificationJob,
+  workflowToolCatalog,
+} from "@alfred/assistant/tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
 import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
 import { reconcileWorkflowReadiness } from "./revisions";
@@ -113,12 +116,20 @@ export async function checkWorkflowRunReadiness(args: {
     throw new Error(`[workflows:readiness] failed to record readiness verdict`);
   }
   if (disposition === "ready") return { kind: "ready" };
-  return {
-    kind: "blocked",
-    problems,
-    newlyBlocked:
-      recorded.before?.code !== recorded.reconciled.workflow.blocked?.code ||
-      recorded.before?.message !== recorded.reconciled.workflow.blocked?.message ||
-      recorded.before?.revisionId !== recorded.reconciled.workflow.blocked?.revisionId,
-  };
+  const blocked = recorded.reconciled.workflow.blocked;
+  const generation = blocked ? workflowBlockedGeneration(blocked) : null;
+  const newlyBlocked =
+    generation !== (recorded.before ? workflowBlockedGeneration(recorded.before) : null);
+  // #561: a blocker the owner has not seen yet owes them one email. The job id
+  // is keyed by the blocker generation, and the worker re-checks `notifiedAt`,
+  // so a re-observed blocker never sends twice. Scheduling returns a status
+  // string and never throws, so the readiness verdict is unaffected.
+  if (newlyBlocked && generation) {
+    await scheduleWorkflowBlockedNotificationJob({
+      workflowId: row.workflow.id,
+      userId: args.userId,
+      generation,
+    });
+  }
+  return { kind: "blocked", problems, newlyBlocked };
 }

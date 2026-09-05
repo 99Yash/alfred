@@ -36,6 +36,7 @@ import {
 } from "./sub-agent-metadata";
 import { startSubAgentWaitSpan, type SubAgentWaitOutcome } from "./runtime-spans";
 import { finalizeCancelledRun } from "./terminal-closure";
+import { deriveRunOutcome, pokeWorkflowOwner, recordWorkflowLastRun } from "./run-outcome";
 import {
   isTerminalStatus,
   type AgentDbExecutor,
@@ -793,6 +794,7 @@ export async function cancelRunInTx(
     .select({
       id: agentRuns.id,
       userId: agentRuns.userId,
+      workflowSlug: agentRuns.workflowSlug,
       status: agentRuns.status,
       currentStep: agentRuns.currentStep,
       attempt: agentRuns.attempt,
@@ -810,6 +812,9 @@ export async function cancelRunInTx(
   }
 
   const now = new Date();
+  // #561: read the effect ledger before the sweep below rejects pending
+  // stagings, so the verdict records what actually landed or went unknown.
+  const runOutcome = await deriveRunOutcome(tx, row, { status: "cancelled" });
   await tx
     // drift-ok: FOR UPDATE held since the SELECT above, which returned
     // `already_terminal` under that lock. This is the write the guard protects
@@ -826,11 +831,13 @@ export async function cancelRunInTx(
       // status='waiting' but defence-in-depth is cheap here.
       wakeCondition: null,
       error: { reason: args.reason, cancelledAt: now.toISOString() },
+      outcome: runOutcome,
       endedAt: now,
       lastCheckpointAt: now,
       updatedAt: now,
     })
     .where(eq(agentRuns.id, args.runId));
+  await recordWorkflowLastRun(tx, row, "cancelled", now);
 
   // ADR-0073: if this run is a sub-agent child, a parent boss may be parked
   // awaiting it. The cancel above nulled the wake and the terminal-child
@@ -907,6 +914,7 @@ export async function cancelRunInTx(
   return {
     outcome: "cancelled",
     afterCommit: async () => {
+      pokeWorkflowOwner(row);
       if (opts.obligations === "full") {
         await dischargeCancelObligations({
           runId: args.runId,

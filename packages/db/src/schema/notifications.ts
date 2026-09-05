@@ -13,6 +13,7 @@ export const NOTIFICATION_KINDS = [
   "approval",
   "skill_documented",
   "health_alert",
+  "workflow_blocked",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
