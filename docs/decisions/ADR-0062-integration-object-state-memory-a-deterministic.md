@@ -37,3 +37,5 @@
 **Parked.** Recurrence-decay (#212 "B" — demote-never-bury on repeat) is a separate ticket. ClickUp / Claude-Code reducers land with those integrations. Boss-tool exposure tuning. The rich extraction front-door is **ADR-0063**.
 
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
+
+**Amended 2026-09-06 (#975).** The reducer's input log is `event_receipts` (`provider = 'github'`, `event_type = 'github.<type>'`), not `webhook_events`, which ADR-0097 item 8 retired. The real-time fold is the `github-activity-fold` trigger consumer, and the committed backfill replays `event_receipts`. Idempotency now comes from the receipt's `(provider, provider_delivery_id)` dedup index plus the same monotonic `delivered_at` guard.

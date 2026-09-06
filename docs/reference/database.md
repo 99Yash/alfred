@@ -22,6 +22,8 @@ Drizzle config reads `DATABASE_URL` from `apps/server/.env`.
 
 `db()` from `@alfred/db` returns the shared pg pool singleton. Call it inside handlers and workers; do not call it at module init time.
 
+`event_receipts` is the one delivery record for every inbound event source (ADR-0090, ADR-0097). An inbound webhook row stores the verified body in `payload` under `provider = <source slug>` and `event_type = <slug>.<type>`; read the type back with `parseEventTypeName` from `@alfred/contracts`. There is no per-source copy of the body: `webhook_events` was dropped in migration 0117 (#975), and a new source must not add a `<source>_events` table.
+
 ## BullMQ / Redis
 
 `createRedisConnection(kind)` from `@alfred/db/redis` is the only factory. `kind` picks what the connection does when Redis is unreachable, refusing, or accepting but unresponsive. Read the kinds off the `RedisConnectionKind` table in `packages/db/src/redis.ts` — it is the single home of that matrix, and a copy here would drift from it. Pass `{ tracked: false }` for a short-lived probe the caller closes itself; every other connection is drained by `closeRedis()` at shutdown.

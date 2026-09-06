@@ -17,3 +17,5 @@
 **Schema.** See `packages/db/src/schema/integrations.ts` — `eventReceipts` table. The webhook handler's `defaultPersistReceipt` function writes receipts with `onConflictDoNothing` on `(provider, provider_delivery_id)`.
 
 **Provider extension.** When adding GitHub (or any new provider), the implementer must choose: write to `event_receipts` with the provider's delivery ID (`X-GitHub-Delivery`), or rely on `webhook_events` alone. This ADR says: write to `event_receipts` if the provider's delivery ID is stable across redeliveries and the provider needs gap detection or processing-status tracking. Otherwise, `webhook_events` is sufficient.
+
+**Amended 2026-09-06 (ADR-0097 item 8, #975).** `webhook_events` no longer exists. `event_receipts` is the one delivery record for every inbound source: it holds the verified body in `payload`, the processing lifecycle, and the Gmail `historyId`. The "audit-of-receipt" role this ADR gave `webhook_events` now belongs to `event_receipts` as well; migration 0117 copied the attributable GitHub rows across before the drop.
