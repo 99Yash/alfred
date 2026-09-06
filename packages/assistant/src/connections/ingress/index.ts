@@ -1,6 +1,6 @@
 /**
  * Inbound ingress registry (ADR-0097): the typed source descriptors behind
- * `POST /webhooks/inbound/:source` and the per-source subscription health that
+ * `POST /webhooks/inbound/:source`, the per-source subscription health that
  * trigger readiness reads.
  *
  * This door is light on purpose. `automation/event-source-health.ts` imports it

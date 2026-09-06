@@ -1,7 +1,12 @@
-import { readIntegrationStatus } from "@alfred/assistant/connections";
+import { readIntegrationStatus, readRawReceiptInventory } from "@alfred/assistant/connections";
 import { riskTierCountsForIntegration } from "@alfred/assistant/tool-runtime";
-import { LOADABLE_INTEGRATION_SLUGS, type RiskTierCounts } from "@alfred/contracts";
-import { Elysia } from "elysia";
+import {
+  Errors,
+  isLiveProviderSlug,
+  LOADABLE_INTEGRATION_SLUGS,
+  type RiskTierCounts,
+} from "@alfred/contracts";
+import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
 
 /**
@@ -10,8 +15,12 @@ import { authMacro } from "./middleware/auth";
  * families mount under `/api/integrations/<provider>` from `./connections`, and
  * the MCP surface under `/api/integrations/mcp`.
  *
- *   GET /api/integrations             → registry ⋈ credentials ⋈ connected rule (ADR-0093)
- *   GET /api/integrations/tool-tiers  → capability-tier counts per loadable slug
+ *   GET /api/integrations                 → registry ⋈ credentials ⋈ connected rule (ADR-0093)
+ *   GET /api/integrations/tool-tiers      → capability-tier counts per loadable slug
+ *   GET /api/integrations/raw-kinds/:slug → raw receipt inventory of one live slug (ADR-0097 item 9)
+ *
+ * The inventory sits under a static segment, not `/:slug/raw-kinds`, so it can
+ * never shadow a per-provider family's own routes.
  *
  * The status join is assistant behavior and lives in
  * `@alfred/assistant/connections`; this route is its transport (ADR-0089).
@@ -37,5 +46,15 @@ export const integrationsRoutes = new Elysia({
           tiers[slug] = riskTierCountsForIntegration(slug);
         }
         return { tiers };
-      }),
+      })
+      .get(
+        "/raw-kinds/:slug",
+        ({ user, params }) => {
+          // A planned provider has no credential rows, so it has no receipts to
+          // inventory; the web does not ask for one.
+          if (!isLiveProviderSlug(params.slug)) throw Errors.NotFoundError("Unknown integration");
+          return readRawReceiptInventory(user.id, params.slug);
+        },
+        { params: t.Object({ slug: t.String({ minLength: 1 }) }) },
+      ),
   );

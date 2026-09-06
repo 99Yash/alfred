@@ -20,7 +20,12 @@ import {
   weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents, emailTriage, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
+import {
+  documents,
+  emailTriage,
+  typedEventReceipts,
+  integrationCredentials,
+} from "@alfred/db/schemas";
 import {
   type CalendarEvent,
   getFreshAccessToken,
@@ -619,21 +624,21 @@ async function gatherIntegrationActivity(args: {
 }): Promise<IntegrationActivityItem[]> {
   const rows = await db()
     .select({
-      id: eventReceipts.id,
-      eventType: eventReceipts.eventType,
-      payload: eventReceipts.payload,
-      deliveredAt: eventReceipts.deliveredAt,
+      id: typedEventReceipts.id,
+      eventType: typedEventReceipts.eventType,
+      payload: typedEventReceipts.payload,
+      deliveredAt: typedEventReceipts.deliveredAt,
     })
-    .from(eventReceipts)
+    .from(typedEventReceipts)
     .where(
       and(
-        eq(eventReceipts.userId, args.userId),
-        eq(eventReceipts.provider, "github"),
-        gte(eventReceipts.deliveredAt, args.windowStart),
-        lte(eventReceipts.deliveredAt, args.windowEnd),
+        eq(typedEventReceipts.userId, args.userId),
+        eq(typedEventReceipts.provider, "github"),
+        gte(typedEventReceipts.deliveredAt, args.windowStart),
+        lte(typedEventReceipts.deliveredAt, args.windowEnd),
       ),
     )
-    .orderBy(desc(eventReceipts.deliveredAt))
+    .orderBy(desc(typedEventReceipts.deliveredAt))
     .limit(MAX_ACTIVITY_ITEMS);
 
   return rows.flatMap((row) => {

@@ -73,6 +73,33 @@ const TEST_TREE_FILE = "packages/assistant/test/flags.behavior.test.ts";
  */
 const CASES = [
   {
+    name: "receipt read must select the typed view, including across line breaks",
+    caught: true,
+    code: `.from(
+ eventReceipts
+)`,
+  },
+  {
+    name: "receipt joins must select the typed view",
+    caught: true,
+    code: `.innerJoin(eventReceipts, condition)`,
+  },
+  {
+    name: "typed receipt view is the safe query source",
+    caught: false,
+    code: `.from(typedEventReceipts)`,
+  },
+  ...[
+    "packages/db/src/schema/integrations.ts",
+    "packages/assistant/src/connections/ingestion/inbound-receive.ts",
+    "packages/assistant/src/connections/raw-receipt-inventory.ts",
+  ].map((file) => ({
+    name: `full receipt reader: ${file}`,
+    caught: false,
+    file,
+    code: `.from(eventReceipts)`,
+  })),
+  {
     name: "as-loose-record — direct boundary assertion",
     caught: true,
     code: `const payload = input as Record<string, unknown>;`,

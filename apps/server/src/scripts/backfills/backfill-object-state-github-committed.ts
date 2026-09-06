@@ -28,7 +28,7 @@ import { objectStateStore } from "@alfred/assistant/connections";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";
-import { eventReceipts, integrationObjects } from "@alfred/db/schemas";
+import { typedEventReceipts, integrationObjects } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { eventTypeName, getStringPath, jsonObjectSchema, toMessage } from "@alfred/contracts";
 
@@ -43,18 +43,18 @@ async function main() {
   // pulling just those keeps the replay tight.
   const rows = await db()
     .select({
-      userId: eventReceipts.userId,
-      payload: eventReceipts.payload,
-      deliveredAt: eventReceipts.deliveredAt,
+      userId: typedEventReceipts.userId,
+      payload: typedEventReceipts.payload,
+      deliveredAt: typedEventReceipts.deliveredAt,
     })
-    .from(eventReceipts)
+    .from(typedEventReceipts)
     .where(
       and(
-        eq(eventReceipts.provider, "github"),
-        eq(eventReceipts.eventType, eventTypeName("github", "pull_request")),
+        eq(typedEventReceipts.provider, "github"),
+        eq(typedEventReceipts.eventType, eventTypeName("github", "pull_request")),
       ),
     )
-    .orderBy(asc(eventReceipts.deliveredAt));
+    .orderBy(asc(typedEventReceipts.deliveredAt));
 
   // A receipt whose body is not a JSON object cannot be folded; the reducer
   // would read nothing off it, so it is left out of the count as well.

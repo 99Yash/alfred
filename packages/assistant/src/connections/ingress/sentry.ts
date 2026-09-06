@@ -32,12 +32,19 @@ import type { InboundProjection, InboundSourceDescriptor, InboundSyntheticKey } 
  * answers 200 as soon as the receipt row exists, and every internal rejection
  * is also a 200, so nothing here can make Sentry drop the subscription.
  *
+ * A `<resource>.<action>` pair the `sentry` entry does not name (`comment.created`,
+ * `metric_alert.critical`, `installation.deleted`) is a raw receipt (ADR-0097
+ * item 9) under that pair as Sentry spells it; a resource with no `action` is
+ * a raw receipt under the bare resource. Only a delivery with no resource
+ * header is dropped.
+ *
  * Known gap: Sentry sends `installation.deleted` when the user uninstalls the
- * integration, and nothing here consumes it, so the credential stays `active`
- * and health stays green until the next authenticated read fails. The connect
- * flow cannot observe an uninstall. GitHub's `installation` event with action
- * `deleted` has the same gap; the descriptor contract needs a lifecycle slot
- * for both, which is a follow-up, not a Sentry special case.
+ * integration, and nothing consumes it beyond the raw receipt, so the
+ * credential stays `active` and health stays green until the next
+ * authenticated read fails. The connect flow cannot observe an uninstall.
+ * GitHub's `installation` event with action `deleted` has the same gap; the
+ * descriptor contract needs a lifecycle slot for both, which is a follow-up,
+ * not a Sentry special case.
  */
 
 /**
@@ -98,16 +105,18 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
 
 function projectSentry(payload: JsonObject, headers: Headers): InboundProjection<"sentry"> {
   const resource = headers.get(SENTRY_HOOK_HEADERS.resource);
-  if (!resource) return { kind: "ignore", reason: "no-resource-header" };
+  if (!resource) return { kind: "ignore", reason: "no-kind-header" };
   const action = getStringPath(payload, "action");
-  if (!action) return { kind: "ignore", reason: `no-action:${resource}` };
-  // The registry is the one list of what is subscribed. `installation`,
-  // `comment`, and `metric_alert` deliveries fall out here as unsubscribed;
-  // no second list names them.
+  // A resource with no `action` is still a real delivery; GitHub keeps the bare
+  // event the same way, so the two descriptors agree on what "unnamed" means.
+  if (!action) return { kind: "raw", rawKind: resource };
+  // The registry is the one list of what is typed. `installation`, `comment`,
+  // and `metric_alert` deliveries fall out here as raw under Sentry's own
+  // `<resource>.<action>` spelling; no second list names them.
   const type = `${resource}_${action}`;
   return isEventTypeForSource("sentry", type)
     ? { kind: "event", type }
-    : { kind: "ignore", reason: `unsubscribed:${resource}.${action}` };
+    : { kind: "raw", rawKind: `${resource}.${action}` };
 }
 
 export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {

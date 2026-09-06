@@ -191,6 +191,27 @@ export function eventTypeName<S extends EventSource>(
 }
 
 /**
+ * The `type` half of a raw receipt's `event_type` (ADR-0097 item 9). A raw
+ * receipt is a verified delivery whose kind the source's entry does not name;
+ * it is stored under `<source>.raw` and carries the provider's own kind in
+ * `event_receipts.raw_kind`. The marker is not a member of any entry's
+ * `eventTypes` tuple, so `parseEventTypeName` reads a raw row as `null` and no
+ * typed reader can mistake it for a subscribed event.
+ *
+ * The marker, or `never` the day an entry declares `raw` as an event type. In
+ * that case `rawEventTypeName` no longer compiles, which is the gate: a typed
+ * `raw` would make every stored raw row read back as a subscribed event.
+ */
+type RawReceiptType = "raw" extends EventType ? never : "raw";
+
+/** The `event_type` a raw receipt of `source` is stored under. */
+export function rawEventTypeName<S extends InboundEventSource>(
+  source: S,
+): `${S}.${RawReceiptType}` {
+  return `${source}.raw`;
+}
+
+/**
  * Read the `type` half back out of a stored `<source>.<type>` name for a known
  * source, or `null` when the name is not one that source declares. Sources
  * contain dots (`google.oauth.callback`), so the caller names the source and

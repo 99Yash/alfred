@@ -1328,12 +1328,12 @@ async function loadIngestionState(
  * value reflects the highest historyId we have seen regardless of job dedup.
  */
 async function loadLatestReceiptHistoryId(credentialId: string): Promise<string | null> {
-  const { eventReceipts } = await import("@alfred/db/schemas");
+  const { typedEventReceipts } = await import("@alfred/db/schemas");
   const rows = await db()
-    .select({ historyId: eventReceipts.historyId })
-    .from(eventReceipts)
-    .where(eq(eventReceipts.credentialId, credentialId))
-    .orderBy(sql`${eventReceipts.deliveredAt} DESC`)
+    .select({ historyId: typedEventReceipts.historyId })
+    .from(typedEventReceipts)
+    .where(eq(typedEventReceipts.credentialId, credentialId))
+    .orderBy(sql`${typedEventReceipts.deliveredAt} DESC`)
     .limit(1);
   return rows[0]?.historyId ?? null;
 }

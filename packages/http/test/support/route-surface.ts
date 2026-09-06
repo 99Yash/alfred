@@ -84,6 +84,7 @@ const ROUTE_SURFACE = [
   "GET /api/integrations/mcp/callback",
   "GET /api/integrations/",
   "GET /api/integrations/tool-tiers",
+  "GET /api/integrations/raw-kinds/:slug",
   "GET /api/me/inbox",
   "GET /api/me/inbox/:documentId",
   "POST /api/me/inbox/mark-read",
