@@ -192,13 +192,19 @@ export async function listActiveBearerCredentials(
 export type InstallationCredential = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
 
 /**
- * The providers whose credential row names a provider-side installation: the
- * inbound webhook sources, because attribution of a delivery is the only reason
- * `installation_id` is stored. Narrower than {@link CredentialProvider} so
- * that a lookup for a provider that never writes the column (`notion`) is a
- * compile error, not a query that always returns `null`.
+ * The providers whose credential row names a provider-side installation. GitHub
+ * writes `installation_id` because a delivery names the App installation and
+ * nothing else. Sentry does not: an internal-integration token cannot read
+ * `/organizations/{slug}/sentry-app-installations/` (Sentry resolves that
+ * endpoint's organization through the caller's memberships, and the
+ * integration's proxy user has none, so it answers 404; verified live
+ * 2026-09-06), so the connect flow never learns the uuid and the descriptor
+ * attributes by the signing secret instead ({@link findSoleActiveCredential}).
+ * Narrower than {@link CredentialProvider} so that a lookup for a provider that
+ * never writes the column (`notion`, `sentry`) is a compile error, not a query
+ * that always returns `null`.
  */
-export type InstallationProvider = CredentialProvider & InboundEventSource;
+export type InstallationProvider = Exclude<CredentialProvider & InboundEventSource, "sentry">;
 
 /**
  * Resolve the active credential that owns one provider-side installation — the
@@ -249,6 +255,67 @@ export async function hasActiveInstallationCredential(args: {
         eq(integrationCredentials.provider, args.provider),
         eq(integrationCredentials.status, "active"),
         isNotNull(integrationCredentials.installationId),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * The one active credential for a provider across all users: the owner of an
+ * inbound delivery that carries no per-account identity and is attributed by
+ * the shared signing secret instead. One secret belongs to one provider-side
+ * app, so a verified delivery can only be that app's, and the only open
+ * question is which credential row owns it. With one active row the answer is
+ * that row. With none there is no owner. With more than one the deployment has
+ * outgrown a single secret, and the caller must refuse rather than pick.
+ */
+export type SoleActiveCredential =
+  | { kind: "one"; credential: InstallationCredential }
+  | { kind: "none" }
+  | { kind: "many" };
+
+export async function findSoleActiveCredential(args: {
+  provider: CredentialProvider;
+}): Promise<SoleActiveCredential> {
+  const rows = await db()
+    .select({
+      id: integrationCredentials.id,
+      userId: integrationCredentials.userId,
+      accountId: integrationCredentials.accountId,
+    })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.provider, args.provider),
+        eq(integrationCredentials.status, "active"),
+      ),
+    )
+    .limit(2);
+  const [first] = rows;
+  if (!first) return { kind: "none" };
+  if (rows.length > 1) return { kind: "many" };
+  return { kind: "one", credential: first };
+}
+
+/**
+ * Whether the user has any active credential for `provider`: the
+ * subscription-health signal for an inbound source attributed by signing
+ * secret rather than by installation id (compare
+ * {@link hasActiveInstallationCredential}).
+ */
+export async function hasActiveCredential(args: {
+  userId: string;
+  provider: CredentialProvider;
+}): Promise<boolean> {
+  const rows = await db()
+    .select({ id: integrationCredentials.id })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.userId, args.userId),
+        eq(integrationCredentials.provider, args.provider),
+        eq(integrationCredentials.status, "active"),
       ),
     )
     .limit(1);
