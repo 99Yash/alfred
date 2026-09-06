@@ -105,10 +105,9 @@ export function verifyReplyCandidate(
   }
 
   const self = parseEmailAddress(ctx.mailboxAddress);
-  if (self) {
-    for (const raw of recipients) {
-      if (parseEmailAddress(raw) === self) return block("recipient_is_self", raw);
-    }
+  if (!self) return block("context_mismatch", "The inbound mailbox address is unknown.");
+  for (const raw of recipients) {
+    if (parseEmailAddress(raw) === self) return block("recipient_is_self", raw);
   }
 
   const participants = canonicalSet(ctx.threadParticipants);
@@ -141,7 +140,7 @@ export function prepareReplyStaging(
   if (verifier.decision === "block") {
     return { kind: "withheld", reason: verifier.reason, detail: verifier.detail ?? null, verifier };
   }
-  const input = gmailSendDraftInput.parse({
+  const parsed = gmailSendDraftInput.safeParse({
     to: candidate.recipients.to,
     ...(candidate.recipients.cc.length > 0 ? { cc: candidate.recipients.cc } : {}),
     subject: candidate.subject,
@@ -149,5 +148,13 @@ export function prepareReplyStaging(
     // Verified non-null above; the parse keeps the thread anchor on the approval card.
     threadId: candidate.sourceThreadId ?? undefined,
   });
-  return { kind: "stage", input, verifier };
+  if (!parsed.success) {
+    const blocked: ReplyDraftVerifierDecision = {
+      decision: "block",
+      reason: "invalid_candidate",
+      boundTo: verifier.boundTo,
+    };
+    return { kind: "withheld", reason: "invalid_candidate", detail: null, verifier: blocked };
+  }
+  return { kind: "stage", input: parsed.data, verifier };
 }

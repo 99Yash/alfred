@@ -36,4 +36,4 @@ Sender/observation flow — what each stage is _for_, since the call graph alrea
 Smokes:
 
 - From `apps/server`, `pnpm exec tsx --env-file=.env src/scripts/smokes/smoke-triage.ts` exercises the Gmail-backed end-to-end workflow and requires a connected Google account plus at least one ingested email.
-- `smoke-reply-drafting.ts` in the same directory starts a `manual` `reply-drafting` run on the newest reply-expected triage row and parses the output with `replyDraftResultSchema`. It never mutates Gmail.
+- `smoke-reply-drafting.ts` in the same directory starts a `reply-drafting` run on the newest reply-expected triage row. It accepts `--document`, `--invocation`, and `--expect`. It parses the result with `replyDraftResultSchema` and checks a pending approval row for `staged`, or no row for a non-staged outcome. It can stage a reply but never approves it.

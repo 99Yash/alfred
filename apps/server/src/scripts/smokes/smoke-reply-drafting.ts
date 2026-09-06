@@ -1,39 +1,52 @@
 /**
- * Smoke test for the `reply-drafting` workflow foundation (#243, ADR-0098).
+ * Reply drafting tracer (#237, ADR-0098).
  *
- *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-reply-drafting.ts
+ * pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-reply-drafting.ts
+ * Optional: --document <id> --invocation post_triage --expect staged
  *
- * Pre-req: a server process running (`pnpm dev`) so the agent worker can pick
- * up the run, and at least one `email_triage` row with a reply-expected category
- * (run smoke-triage.ts or let the inbox triage first).
- *
- * What this verifies end-to-end:
- *   1. A `manual` run of `reply-drafting` walks gate → gather → compose and
- *      completes (never fails) on a real triaged thread.
- *   2. The run output parses as a `ReplyDraftResult` — one of the five typed
- *      outcomes — and its provenance records `invocation: "manual"`.
- *   3. At #243 the expected terminal outcome is `no_draft` (structural blocker,
- *      or `composer_unavailable` once the gate and access check pass) or
- *      `no_access` when the mailbox lacks `gmail.send`. A `staged` outcome is
- *      impossible until #237 adds a composer.
- *
- * No Gmail mutation happens here: the run never reaches a staging call.
+ * Requires a worker running this checkout. Defaults to a manual run on the
+ * newest reply-expected triage row. It can create a pending approval but never
+ * approves it. For a cold fixture use --invocation post_triage --expect no_draft;
+ * for a disabled flag use the same invocation and inspect feature_disabled.
  */
 import { randomUUID } from "node:crypto";
+import { parseArgs } from "node:util";
+import { z } from "zod";
 import { closeAgentQueue, startRun } from "@alfred/assistant/execution";
 import {
   REPLY_DRAFTING_WORKFLOW_SLUG,
   type ReplyDraftingWorkflowInput,
 } from "@alfred/assistant/reply-drafting";
-import { REPLY_EXPECTED_TRIAGE_CATEGORIES, replyDraftResultSchema } from "@alfred/contracts";
+import {
+  REPLY_EXPECTED_TRIAGE_CATEGORIES,
+  gmailSendDraftInput,
+  replyDraftInvocationSchema,
+  replyDraftOutcomeSchema,
+  replyDraftResultSchema,
+} from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
-import { agentRuns, emailTriage } from "@alfred/db/schemas";
+import { actionStagings, agentRuns, emailTriage } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 250;
-const POLL_TIMEOUT_MS = 90_000;
+const POLL_TIMEOUT_MS = 180_000;
+const options = z
+  .object({
+    document: z.string().min(1).optional(),
+    invocation: replyDraftInvocationSchema.default("manual"),
+    expect: replyDraftOutcomeSchema.optional(),
+  })
+  .parse(
+    parseArgs({
+      options: {
+        document: { type: "string" },
+        invocation: { type: "string" },
+        expect: { type: "string" },
+      },
+    }).values,
+  );
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
@@ -55,6 +68,7 @@ async function pickReplyExpectedTriageRow() {
       and(
         inArray(emailTriage.category, [...REPLY_EXPECTED_TRIAGE_CATEGORIES]),
         isNotNull(emailTriage.documentId),
+        options.document ? eq(emailTriage.documentId, options.document) : undefined,
       ),
     )
     .orderBy(desc(emailTriage.updatedAt))
@@ -67,7 +81,12 @@ async function pollRun(runId: string) {
   while (Date.now() < deadline) {
     const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
     if (!row) throw new Error(`run ${runId} not found`);
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
+    if (
+      row.status === "waiting" ||
+      row.status === "completed" ||
+      row.status === "failed" ||
+      row.status === "cancelled"
+    ) {
       return row;
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -84,7 +103,7 @@ async function main() {
     console.log(
       `[smoke-reply-drafting] no email_triage row with category in ${REPLY_EXPECTED_TRIAGE_CATEGORIES.join("|")}; triage an inbox first`,
     );
-    return;
+    throw new Error("No matching triaged Gmail document; smoke was not run.");
   }
   console.log(
     `[smoke-reply-drafting] target thread=${row.sourceThreadId} doc=${row.documentId} ` +
@@ -94,7 +113,7 @@ async function main() {
   const input: ReplyDraftingWorkflowInput = {
     documentId: row.documentId,
     sourceThreadId: row.sourceThreadId,
-    invocation: "manual",
+    invocation: options.invocation,
   };
   const { runId } = await startRun({
     userId: row.userId,
@@ -107,9 +126,11 @@ async function main() {
   console.log(`[smoke-reply-drafting] run enqueued: ${runId}`);
 
   const run = await pollRun(runId);
-  assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
-
-  const result = replyDraftResultSchema.parse(run.output);
+  assert(run.status === "completed" || run.status === "waiting", `run status=${run.status}`);
+  const result =
+    run.status === "waiting"
+      ? z.object({ result: replyDraftResultSchema }).parse(run.state).result
+      : replyDraftResultSchema.parse(run.output);
   console.log(`[smoke-reply-drafting] outcome=${result.outcome}`);
   if (result.outcome === "no_draft") {
     console.log(`[smoke-reply-drafting] reason=${result.reason} note=${result.note ?? "-"}`);
@@ -121,8 +142,45 @@ async function main() {
       `flag=${result.provenance.featureFlagEnabled} sender=${result.provenance.sender ?? "-"} ` +
       `style=${result.provenance.style?.kind ?? "-"} to=${result.provenance.recipients.to.join(",") || "-"}`,
   );
-  assert(result.provenance.invocation === "manual", "provenance must record the manual invocation");
-  assert(result.outcome !== "staged", "#243 has no composer; a staged outcome is impossible");
+  assert(
+    result.provenance.invocation === options.invocation,
+    "provenance must record the invocation",
+  );
+  if (options.expect)
+    assert(result.outcome === options.expect, `expected ${options.expect}, got ${result.outcome}`);
+  const staged = await db().select().from(actionStagings).where(eq(actionStagings.runId, runId));
+  if (result.outcome === "staged") {
+    assert(run.status === "waiting", "staged run must wait for approval");
+    assert(staged.length === 1, "exactly one approval row must exist");
+    const action = staged[0];
+    assert(action && action.id === result.stagingId, "result must identify its approval row");
+    assert(
+      action.status === "pending" && action.requiresApproval,
+      "action must require approval and remain pending",
+    );
+    assert(action.toolName === "gmail.send_draft", "approval must be for the Gmail send tool");
+    const input = gmailSendDraftInput.parse(action.proposedInput);
+    assert(input.threadId === row.sourceThreadId, "approval must target the source thread");
+    assert(
+      input.to.length === 1 && input.to[0] === result.provenance.sender,
+      "recipient must be the inbound sender",
+    );
+    assert(
+      input.bodyText.trim().length > 0 && input.subject.length > 0,
+      "approval must carry a body and subject",
+    );
+    assert(
+      result.provenance.inbound.documentId === row.documentId,
+      "source document must be preserved",
+    );
+    assert(result.provenance.verifier?.decision === "pass", "staging requires a verifier pass");
+    assert(result.provenance.style !== null, "style selection or style_missing must be recorded");
+    console.log(
+      `[smoke-reply-drafting] pending approval=${action.id}; review or reject it in Alfred`,
+    );
+  } else {
+    assert(staged.length === 0, "a non-staged decision must not create an approval row");
+  }
 
   console.log("\n[smoke-reply-drafting] PASS");
 }
