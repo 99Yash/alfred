@@ -1,5 +1,5 @@
 import { getIdPath, getStringPath, isEventTypeForSource, type JsonObject } from "@alfred/contracts";
-import { findSoleActiveCredential, hasActiveCredential } from "@alfred/integrations/shared";
+import { findSoleActiveCredential } from "@alfred/integrations/shared";
 import {
   SENTRY_HOOK_HEADERS,
   sentryWebhookSecretConfigured,
@@ -155,14 +155,23 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
           recovery: { kind: "none" },
         };
       }
-      const connected = await hasActiveCredential({ userId, provider: "sentry" });
-      return connected
-        ? { healthy: true }
-        : {
-            healthy: false,
-            reason: "no Sentry organization is connected",
-            recovery: { kind: "connect", integration: "sentry" },
-          };
+      // The same rule `resolveOwner` applies, so health cannot read green while
+      // every delivery is being dropped.
+      const sole = await findSoleActiveCredential({ provider: "sentry" });
+      if (sole.kind === "many") {
+        return {
+          healthy: false,
+          reason:
+            "more than one Sentry organization is connected; one Client Secret attributes deliveries to one",
+          recovery: { kind: "none" },
+        };
+      }
+      if (sole.kind === "one" && sole.credential.userId === userId) return { healthy: true };
+      return {
+        healthy: false,
+        reason: "no Sentry organization is connected",
+        recovery: { kind: "connect", integration: "sentry" },
+      };
     },
   },
 };

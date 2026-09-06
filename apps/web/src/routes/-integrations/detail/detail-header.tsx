@@ -155,8 +155,8 @@ function TokenPasteConnect({ slug, connected }: { slug: TokenPasteSlug; connecte
     try {
       const res = await form.submit({ token: token.trim(), scope: scope.trim() });
       if (res.error) {
-        // The connect route distinguishes a wrong token, a missing installation,
-        // an unconfigured server, and an upstream outage; show its message.
+        // The connect route distinguishes a wrong token, a wrong organization,
+        // an already-connected sibling, and an upstream outage; show its message.
         toast.error(responseErrorMessage(res.error.value, res.error.status, `Connect ${name}`));
         return;
       }
