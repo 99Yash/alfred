@@ -81,7 +81,9 @@ export async function gatherReplyContext(args: {
     cc: document.metadata.cc,
     subject: document.title,
   });
-  return replyGatherSchema.parse({
+  // Both model calls cite this same context. Keep style instructions outside
+  // the evidence: examples may guide voice but cannot establish facts.
+  const context = {
     subject: document.title ?? "",
     senderHeader: document.metadata.from ?? null,
     senderAddress: args.sender,
@@ -94,9 +96,18 @@ export async function gatherReplyContext(args: {
     now: now.toISOString(),
     timezone,
     localDate: inZone(timezone).day(now),
+  } satisfies Omit<ReplyGather, "style" | "styleInstructions" | "sources">;
+  return replyGatherSchema.parse({
+    ...context,
     style: profile ? { kind: "profile", styleProfileId: profile.id } : { kind: "style_missing" },
     styleInstructions: profile?.profileDoc ?? null,
     sources: [
+      {
+        kind: "reply_context",
+        ref: `reply-context:${document.id}`,
+        status: "resolved",
+        facts: [JSON.stringify(context)],
+      },
       {
         kind: "inbound_document",
         ref: document.id,

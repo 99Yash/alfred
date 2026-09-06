@@ -20,6 +20,7 @@ import type { ToolCallRoundAdapter } from "./internal/adapter";
 import { runToolCallRound } from "./internal/tool-call-round";
 import type { SpawnSubAgentInput } from "./sub-agent-contract";
 export { isMutatingToolName } from "./internal/result-routing";
+export { withdrawToolCallApproval } from "./approval-lifecycle";
 export { joinToolInput } from "./join-contract";
 // The tool catalog. `internal/registry.ts` owns the one
 // `Map<ToolName, RegisteredTool>` every reader in every package resolves; the
