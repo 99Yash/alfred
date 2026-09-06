@@ -1,10 +1,23 @@
-import { getPath, getStringPath, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
+import {
+  eventDeliveryAccounts,
+  getPath,
+  getStringPath,
+  type ProviderAvailability,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { ingestionState } from "@alfred/db/schemas";
-import { readGmailWatchState } from "@alfred/integrations/google";
+import { pubSubOidcConfigFromEnv, readGmailWatchState } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
-import { pubSubOidcConfigFromEnv } from "@alfred/integrations/google";
+import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
+import type { AccountDeliveryHealthReader } from "./event-source-health";
 
+/** The account space Gmail events deliver per: `google` rows that prove Gmail connected. */
+const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
+
+/** A watch whose last successful sync is older than this is degraded, not quiet. */
+const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 15 * 60_000;
+
+/** The five facts about one credential's Gmail delivery path, as the ingestion state records them. */
 export interface GmailEventHealth {
   receiverConfigured: boolean;
   topicMatches: boolean;
@@ -13,11 +26,70 @@ export interface GmailEventHealth {
   lastSyncAt: Date | null;
 }
 
+/**
+ * No live watch on the account: the user reconnects Gmail or renews the watch.
+ * A row with no ingestion state reads the same way, because it has no watch to
+ * deliver from.
+ */
+const WATCH_NOT_INSTALLED: EventDeliveryHealth = {
+  healthy: false,
+  reason: "reconnect Gmail or renew its watch",
+  recovery: { kind: "connect", integration: GMAIL_DELIVERY.integration },
+};
+
+/**
+ * Delivery health for one Gmail account (#976). A live watch is a precondition
+ * for every other fact: without one the verdict is `connect`, whatever the
+ * cursor says. With one, a receiver the server did not configure is `none`
+ * (only an operator can fix it), and a coverage gap, a missing cursor, or a
+ * stale sync is `retry` (time restores it).
+ */
+function gmailAccountDeliveryHealth(
+  row: ProviderAvailability,
+  facts: GmailEventHealth | undefined,
+  now: Date,
+): EventDeliveryHealth {
+  const watch = readGmailWatchState(row.metadata);
+  if (!facts || !watch || new Date(watch.expiresAt).getTime() <= now.getTime()) {
+    return WATCH_NOT_INSTALLED;
+  }
+  if (!facts.receiverConfigured || !facts.topicMatches) {
+    return {
+      healthy: false,
+      reason: "the push receiver is not configured for this watch",
+      recovery: { kind: "none" },
+    };
+  }
+  const stale =
+    !facts.lastSyncAt || now.getTime() - facts.lastSyncAt.getTime() > GMAIL_EVENT_HEALTH_MAX_AGE_MS;
+  if (facts.coverageGap || !facts.cursorReady || stale) {
+    return {
+      healthy: false,
+      reason: "retry after delivery coverage recovers",
+      recovery: { kind: "retry" },
+    };
+  }
+  return { healthy: true };
+}
+
+/**
+ * The pure half of Gmail's account-grain entry: the per-row verdict over facts
+ * gathered by credential id. `readGmailEventHealth` gathers the facts; the
+ * readiness tests supply them directly.
+ */
+export function gmailAccountHealth(
+  healthByCredential: ReadonlyMap<string, GmailEventHealth>,
+  now: Date,
+): (row: ProviderAvailability) => EventDeliveryHealth {
+  return (row) => gmailAccountDeliveryHealth(row, healthByCredential.get(row.credentialId), now);
+}
+
 /** Read Gmail delivery health only for workflow trigger readiness. */
-export async function readGmailEventHealth(
-  userId: string,
-  availability: IntegrationAvailabilitySnapshot,
-): Promise<ReadonlyMap<string, GmailEventHealth>> {
+export const readGmailEventHealth: AccountDeliveryHealthReader = async (
+  userId,
+  availability,
+  now,
+) => {
   const rows = await db()
     .select({
       credentialId: ingestionState.credentialId,
@@ -28,7 +100,7 @@ export async function readGmailEventHealth(
     .where(
       and(
         eq(ingestionState.userId, userId),
-        eq(ingestionState.provider, "google"),
+        eq(ingestionState.provider, GMAIL_DELIVERY.provider),
         eq(ingestionState.stream, "messages"),
       ),
     );
@@ -38,20 +110,23 @@ export async function readGmailEventHealth(
     Boolean(pushConfig.pushTopic) &&
     (pushConfig.nodeEnv !== "production" ||
       (Boolean(pushConfig.audience) && Boolean(pushConfig.expectedServiceAccount)));
-  return new Map(
-    (availability.providers.get("google") ?? []).map(({ credentialId, metadata }) => {
-      const cursor = cursorByCredential.get(credentialId);
-      const watchTopic = readGmailWatchState(metadata)?.topic;
-      return [
-        credentialId,
-        {
-          receiverConfigured,
-          topicMatches: Boolean(watchTopic && watchTopic === pushConfig.pushTopic),
-          cursorReady: Boolean(getStringPath(cursor?.state, "historyId")),
-          coverageGap: getPath(cursor?.state, "coverageGap") === true,
-          lastSyncAt: cursor?.lastSyncAt ?? null,
-        },
-      ];
-    }),
+  const healthByCredential = new Map(
+    (availability.providers.get(GMAIL_DELIVERY.provider) ?? []).map(
+      ({ credentialId, metadata }): [string, GmailEventHealth] => {
+        const cursor = cursorByCredential.get(credentialId);
+        const watchTopic = readGmailWatchState(metadata)?.topic;
+        return [
+          credentialId,
+          {
+            receiverConfigured,
+            topicMatches: Boolean(watchTopic && watchTopic === pushConfig.pushTopic),
+            cursorReady: Boolean(getStringPath(cursor?.state, "historyId")),
+            coverageGap: getPath(cursor?.state, "coverageGap") === true,
+            lastSyncAt: cursor?.lastSyncAt ?? null,
+          },
+        ];
+      },
+    ),
   );
-}
+  return gmailAccountHealth(healthByCredential, now);
+};

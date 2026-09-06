@@ -108,23 +108,36 @@ export interface InboundOwner {
 }
 
 /**
- * The user action that can restore deliveries. `connect` names the integration
- * whose connect flow restores the subscription: an event source slug and an
- * integration slug are different spaces, so the descriptor says which one, and
- * readiness never guesses from the source name.
+ * The user action that can restore deliveries from one event source. `connect`
+ * names the integration whose connect flow restores the subscription: an event
+ * source slug and an integration slug are different spaces, so the health
+ * reader says which one, and readiness never guesses from the source name.
  */
-export type InboundSubscriptionRecovery =
+export type EventDeliveryRecovery =
   | { kind: "connect"; integration: IntegrationSlug }
   | { kind: "retry" }
   /** Only time or an operator can restore deliveries. */
   | { kind: "none" };
 
-export type InboundSubscriptionHealth =
+/**
+ * Whether events from one source (or one account of it) will arrive. The one
+ * verdict shape for every producer: inbound descriptors return it from
+ * `subscription.health`, and the in-process readers in
+ * `automation/event-source-health.ts` return it per source or per account.
+ */
+export type EventDeliveryHealth =
   | { healthy: true }
-  | { healthy: false; reason: string; recovery: InboundSubscriptionRecovery };
+  | { healthy: false; reason: string; recovery: EventDeliveryRecovery };
 
+/**
+ * Provider-native health for the subscription that produces deliveries. It
+ * answers for the user as a whole, which is why an inbound source is `source`
+ * grain by type in `EVENT_SOURCE_ENTRIES`; a `connect` recovery names the
+ * integration whose connect flow restores the subscription, because an event
+ * source slug and an integration slug are different spaces.
+ */
 export interface InboundSubscriptionAdapter {
-  health(userId: string): Promise<InboundSubscriptionHealth>;
+  health(userId: string): Promise<EventDeliveryHealth>;
 }
 
 /** Resolve the dedup key one rule yields for one delivery, or `null` when it yields none. */
