@@ -7,7 +7,10 @@ export function describeInboundJson(
   kind: string,
   payload: unknown,
 ): InboundDescription {
-  const leaves = flattenJson(payload);
+  // A shortened URL can name a different resource. Omit it from text and citations.
+  const leaves = flattenJson(payload).filter(
+    (leaf) => !leaf.truncated || !/^https?:\/\//i.test(leaf.value),
+  );
   const title = `${INTEGRATION_DISPLAY_NAMES[source]}: ${kind}`;
   const text = leaves.map((leaf) => `${leaf.path.join(".")}: ${leaf.value}`).join("\n");
   // Prefer browser links over API URLs; ignore avatar and other asset fields.
