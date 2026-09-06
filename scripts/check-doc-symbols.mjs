@@ -92,7 +92,7 @@ const ALLOWED = new Map([
     "workflow_dispatch",
     "workflow_job",
     "workflow_run",
-  ].map((name) => [name, "GitHub App webhook event name"]),
+  ].map((name) => /** @type {[string, string]} */ ([name, "GitHub App webhook event name"])),
   ...[
     "root_cause_started",
     "root_cause_completed",
@@ -105,7 +105,7 @@ const ALLOWED = new Map([
     "preprod_artifact",
     "size_analysis_completed",
     "build_distribution_completed",
-  ].map((name) => [name, "Sentry integration webhook resource or action name"]),
+  ].map((name) => /** @type {[string, string]} */ ([name, "Sentry integration webhook resource or action name"])),
 ]);
 
 function referenceDocs() {
