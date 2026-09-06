@@ -81,6 +81,7 @@ export const chatRunStateSchema = z
     // Deployment identity block (`selfIdentityGrounding`): who Alfred is in this
     // deployment, read from configuration. Snapshotted with the connected
     // summary for the same reason: the system prompt must not change mid-run.
+    // Empty for pre-identity checkpoints whose existing hash pins the old prompt.
     selfIdentity: z.string().optional(),
     // SHA-256 of the cache-stable system prompt. AlfredAgent is constructed per
     // model step on this workflow, so its instance-local stability assertion
