@@ -1,5 +1,4 @@
 import { HttpError } from "@alfred/contracts";
-import { serverEnv } from "@alfred/env/server";
 import { z } from "zod";
 
 import { authedJson } from "../shared/authed-json";
@@ -12,45 +11,22 @@ import type { RetryPolicy } from "../shared/retry";
  * Sentry REST API client (https://docs.sentry.io/api/). Access is an *internal
  * integration* token: the operator creates one internal integration in the
  * Sentry organization (Settings → Developer Settings), and that integration
- * issues the token the user pastes into Alfred. The same integration is the
- * sender the Sentry ingress descriptor (#563, the next slice) will verify, which
- * is why the connect flow records its installation. Internal-integration tokens do not expire
- * and cannot be refreshed, so the credential is a plain bearer token via the
- * shared bearer-credential layer.
+ * issues the token the user pastes into Alfred. The same integration signs the
+ * webhooks the `sentry` ingress descriptor verifies (#563). Internal-integration
+ * tokens do not expire and cannot be refreshed, so the credential is a plain
+ * bearer token via the shared bearer-credential layer.
  *
- * `SENTRY_INTEGRATION_SLUG` names that integration. The connect flow uses it to
- * find the integration's *installation* in the organization the user names,
- * because a webhook delivery identifies its installation only by `installation.uuid`
- * (verified against `sentry_app_installation.py` in getsentry/sentry, 2026-09-05:
- * the installations list returns `app.slug`, `uuid`, and `status`). The uuid is
- * stored in `integration_credentials.installation_id`, the column that already
- * joins a GitHub delivery to its credential, so the Sentry descriptor's
- * `resolveOwner` will be the same indexed lookup, scoped by provider.
+ * The connect flow stores the organization the token reads, and nothing about
+ * the integration's installation. An integration token cannot read
+ * `/organizations/{slug}/sentry-app-installations/`: Sentry resolves that
+ * endpoint's organization through the caller's memberships, and the
+ * integration's proxy user has none, so it answers 404 "Could not find
+ * requested organization" (verified live 2026-09-06 on both `sentry.io` and the
+ * `de.sentry.io` region). A webhook delivery is attributed by its signature
+ * instead: one Client Secret is one integration in one organization.
  */
 
 const SENTRY_API = "https://sentry.io/api/0";
-
-export interface SentryIntegrationConfig {
-  /** The internal integration's slug, as shown in its Developer Settings URL. */
-  integrationSlug: string;
-}
-
-export function getSentryIntegrationConfig(): SentryIntegrationConfig {
-  const env = serverEnv();
-  if (!env.SENTRY_INTEGRATION_SLUG) {
-    throw new Error("[sentry] Sentry is not configured — set SENTRY_INTEGRATION_SLUG");
-  }
-  return { integrationSlug: env.SENTRY_INTEGRATION_SLUG };
-}
-
-export function isSentryConfigured(): boolean {
-  try {
-    getSentryIntegrationConfig();
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** A pasted token is wrong iff Sentry says so; a 5xx or a timeout is not the user's fault. */
 export function isSentryAuthorizationError(err: unknown): boolean {
@@ -86,63 +62,26 @@ const organizationSchema = z.object({
 
 export type SentryOrganization = z.infer<typeof organizationSchema>;
 
-const installationsSchema = z.array(
-  z.object({
-    app: z.object({ slug: z.string() }),
-    uuid: z.string(),
-    status: z.string(),
-  }),
-);
-
 export interface SentryConnection {
   organization: SentryOrganization;
-  /** The installation uuid every webhook delivery from this organization carries. */
-  installationUuid: string;
 }
 
 /**
- * Why a token that Sentry accepted still cannot be stored: the configured
- * integration is not installed in the organization the user named. An
- * authorization failure is a different arm (`isSentryAuthorizationError`).
- */
-export class SentryInstallationNotFoundError extends Error {
-  readonly _tag = "SentryInstallationNotFoundError" as const;
-  constructor(organization: string, integrationSlug: string) {
-    super(
-      `[sentry] integration '${integrationSlug}' is not installed in organization '${organization}'`,
-    );
-    this.name = "SentryInstallationNotFoundError";
-  }
-}
-
-/**
- * Validate a pasted internal-integration token for one organization and
- * resolve the installation it belongs to. Two reads, both `org:read`:
- *
- *   GET /organizations/{slug}/                          the identity the credential stores
- *   GET /organizations/{slug}/sentry-app-installations/ the installation uuid webhooks carry
- *
- * An internal integration is installed on exactly one organization, so the
- * match on `app.slug` is at most one row. `GET /organizations/` (no slug) is
- * not used: Sentry answers it only for a *user* token, not an integration token.
+ * Validate a pasted internal-integration token for one organization. One
+ * `org:read` read, `GET /organizations/{slug}/`, gives the identity the
+ * credential stores. `GET /organizations/` (no slug) is not used: Sentry answers
+ * it only for a *user* token, not an integration token. The installation list
+ * is not read either; see the module comment.
  */
 export async function sentryValidateToken(args: {
   token: string;
   organization: string;
 }): Promise<SentryConnection> {
-  const { integrationSlug } = getSentryIntegrationConfig();
   const slug = encodeURIComponent(args.organization);
   const organization = organizationSchema.parse(
     await sentryGet(args.token, `/organizations/${slug}/`),
   );
-  const installations = installationsSchema.parse(
-    await sentryGet(args.token, `/organizations/${slug}/sentry-app-installations/`),
-  );
-  const installation = installations.find(
-    (row) => row.app.slug === integrationSlug && row.status === "installed",
-  );
-  if (!installation) throw new SentryInstallationNotFoundError(organization.slug, integrationSlug);
-  return { organization, installationUuid: installation.uuid };
+  return { organization };
 }
 
 /** Resolves fresh bearer auth per call; the client stores this, not a credential. */

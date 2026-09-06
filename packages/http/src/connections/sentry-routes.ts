@@ -5,12 +5,7 @@ import {
   toMessage,
   type CredentialProvider,
 } from "@alfred/contracts";
-import {
-  isSentryAuthorizationError,
-  isSentryConfigured,
-  SentryInstallationNotFoundError,
-  sentryValidateToken,
-} from "@alfred/integrations/sentry";
+import { isSentryAuthorizationError, sentryValidateToken } from "@alfred/integrations/sentry";
 import { deleteIntegrationCredential, upsertBearerCredential } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { ZodError } from "zod";
@@ -21,10 +16,11 @@ import { requireOnboarded } from "../middleware/onboarding";
  * Sentry integration routes. Sentry's public OAuth is for *public* integrations
  * only, so the user pastes an internal-integration token together with the
  * organization slug it belongs to. The connect route validates both against the
- * Sentry API, resolves the integration's installation uuid (the join key every
- * webhook delivery carries), and stores the token via the shared bearer layer
- * with that uuid in `installation_id`. A bad token or a wrong organization is
- * rejected at connect, not at first tool call or first delivery.
+ * Sentry API and stores the token via the shared bearer layer. It stores no
+ * installation id: the token cannot read the installation list, and a webhook
+ * delivery is attributed by its signature (`@alfred/integrations/sentry`). A
+ * bad token or a wrong organization is rejected at connect, not at first tool
+ * call.
  *
  *   POST   /api/integrations/sentry/connect   { token, organization }  → validate + store
  *   DELETE /api/integrations/sentry/:id                                → disconnect
@@ -44,9 +40,6 @@ export const sentryIntegrationRoutes = new Elysia({
       .post(
         "/connect",
         async ({ user, body }) => {
-          if (!isSentryConfigured()) {
-            throw Errors.ServiceUnavailableError("Sentry integration is not configured");
-          }
           const token = body.token.trim();
           const organization = body.organization.trim();
           if (!token) throw Errors.BadRequestError("Missing token");
@@ -60,11 +53,6 @@ export const sentryIntegrationRoutes = new Elysia({
             console.error(
               `[sentry.connect] token validation failed :: ${redactSecrets(toMessage(err))}`,
             );
-            if (err instanceof SentryInstallationNotFoundError) {
-              throw Errors.BadRequestError(
-                "That organization does not have Alfred's Sentry integration installed.",
-              );
-            }
             // Only an authorization failure means the pasted token is wrong. A
             // transient upstream failure must not tell the user to regenerate a
             // token that is perfectly valid.
@@ -92,7 +80,6 @@ export const sentryIntegrationRoutes = new Elysia({
             accountId: connection.organization.id,
             accountLabel: label,
             accessToken: token,
-            installationId: connection.installationUuid,
           });
           return { id: credential.id, accountLabel: label };
         },

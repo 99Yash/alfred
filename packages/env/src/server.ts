@@ -296,19 +296,11 @@ const serverEnvSchema = z
     ),
     VERCEL_APP_SLUG: optionalSecret(),
     /**
-     * The Sentry internal integration that Alfred's Sentry provider pairs with
-     * (Settings → Developer Settings → the integration's slug). The connect
-     * route resolves the integration's installation in the user's organization
-     * through it, so the stored credential carries the `installation.uuid` that
-     * webhook deliveries name. Optional for the same boot-before-setup reason as
-     * Notion; the connect route returns 503 while it is unset.
-     */
-    SENTRY_INTEGRATION_SLUG: optionalSecret(),
-    /**
-     * The same internal integration's Client Secret. Sentry signs every webhook
-     * body with it (`sentry-hook-signature`, HMAC-SHA256 hex over the raw
-     * bytes). Optional so the server boots before the integration exists; the
-     * `sentry` ingress descriptor rejects every delivery while it is unset.
+     * The Client Secret of the Sentry internal integration Alfred's Sentry
+     * provider pairs with (Settings → Developer Settings). Sentry signs every
+     * webhook body with it (`sentry-hook-signature`, HMAC-SHA256 hex over the
+     * raw bytes). Optional so the server boots before the integration exists;
+     * the `sentry` ingress descriptor rejects every delivery while it is unset.
      */
     SENTRY_WEBHOOK_CLIENT_SECRET: optionalSecret(),
     /**

@@ -1,11 +1,7 @@
 import { getIdPath, getStringPath, isEventTypeForSource, type JsonObject } from "@alfred/contracts";
-import {
-  findActiveCredentialByInstallationId,
-  hasActiveInstallationCredential,
-} from "@alfred/integrations/shared";
+import { findSoleActiveCredential, hasActiveCredential } from "@alfred/integrations/shared";
 import {
   SENTRY_HOOK_HEADERS,
-  sentryInstallationUuid,
   sentryWebhookSecretConfigured,
   verifySentryWebhookSignature,
 } from "@alfred/integrations/sentry";
@@ -15,8 +11,13 @@ import type { InboundProjection, InboundSourceDescriptor, InboundSyntheticKey } 
  * Sentry internal-integration webhooks (ADR-0097, #563). Sentry signs the raw
  * body with the integration's Client Secret (`Sentry-Hook-Signature`), names
  * the resource in `Sentry-Hook-Resource`, and completes it with the body's
- * `action`. The owner is the credential whose `installation_id` matches
- * `installation.uuid` at the payload root, which the connect flow stored.
+ * `action`. The owner is the one active Sentry credential: the body names no
+ * organization, the connect flow cannot learn the installation uuid (an
+ * integration token gets 404 from the installations list, see
+ * `@alfred/integrations/sentry`), and one Client Secret is one integration in
+ * one organization, so a verified signature already identifies the sender. Two
+ * active credentials would need two secrets, which one env var cannot hold, so
+ * that case is refused, not guessed.
  *
  * There is no stable delivery id: `Request-ID` is a fresh uuid inside each of
  * Sentry's three retries, so keying on it would admit every retry as a new
@@ -124,16 +125,21 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
   },
   dedup: { kind: "synthetic", key: sentryDeliveryKey },
   project: projectSentry,
-  resolveOwner: async (payload) => {
-    const uuid = sentryInstallationUuid(payload);
-    if (!uuid) return null;
-    const credential = await findActiveCredentialByInstallationId({
-      provider: "sentry",
-      installationId: uuid,
-    });
-    return credential
-      ? { userId: credential.userId, credentialId: credential.id, accountRef: credential.accountId }
-      : null;
+  resolveOwner: async () => {
+    const sole = await findSoleActiveCredential({ provider: "sentry" });
+    if (sole.kind === "many") {
+      console.error(
+        "[ingress] sentry: more than one active credential shares one SENTRY_WEBHOOK_CLIENT_SECRET; delivery not attributed",
+      );
+      return null;
+    }
+    if (sole.kind === "none") return null;
+    const { credential } = sole;
+    return {
+      userId: credential.userId,
+      credentialId: credential.id,
+      accountRef: credential.accountId,
+    };
   },
   subscription: {
     async health(userId) {
@@ -149,14 +155,12 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
           recovery: { kind: "none" },
         };
       }
-      // A credential without an installation uuid cannot own a delivery, so
-      // "connected" alone is not "subscribed".
-      const installed = await hasActiveInstallationCredential({ userId, provider: "sentry" });
-      return installed
+      const connected = await hasActiveCredential({ userId, provider: "sentry" });
+      return connected
         ? { healthy: true }
         : {
             healthy: false,
-            reason: "no Sentry organization with Alfred's integration installed is connected",
+            reason: "no Sentry organization is connected",
             recovery: { kind: "connect", integration: "sentry" },
           };
     },
