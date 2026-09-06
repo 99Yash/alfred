@@ -358,7 +358,10 @@ const chatTurnStep: Step<ChatRunState> = {
         );
       }
       if (state.selfIdentity === undefined) {
-        state.selfIdentity = selfIdentityGrounding();
+        // A pre-identity checkpoint can already have a pinned system prompt.
+        // Keep its original prompt for the rest of the run; adding a block
+        // would fail the hash check on resume. New runs snapshot the live block.
+        state.selfIdentity = state.systemPromptHash === undefined ? selfIdentityGrounding() : "";
       }
       if (state.artifactThreadFacts === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(

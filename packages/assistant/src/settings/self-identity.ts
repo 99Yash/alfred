@@ -76,10 +76,9 @@ export function webOrigin(): string {
 
 /**
  * System-prompt block that tells the model who it is in this deployment. Pure
- * over {@link SelfIdentity}, so a caller can render a fixture. Principle first
- * (access granted under your own names is you), then the one boundary example
- * that motivated the block. Constant per process, so it sits in the cache-stable
- * part of a prompt.
+ * over {@link SelfIdentity}, so a caller can render a fixture. Configuration
+ * identifies Alfred; it does not prove that the user initiated an access event.
+ * Constant per process, so it sits in the cache-stable part of a prompt.
  */
 export function formatSelfIdentityGrounding(identity: SelfIdentity): string {
   const names = [identity.webHost, identity.apiHost].filter(
@@ -102,7 +101,7 @@ export function formatSelfIdentityGrounding(identity: SelfIdentity): string {
     lines.push(`- Your GitHub App is "${identity.githubAppSlug}".`);
   }
   lines.push(
-    `- The user grants providers access to you under those names. A notice that one of them was granted access, was installed, or signed in is the user connecting you: expected, not a stranger. Say so plainly when you mention it, and never advise revoking your own access as if it were unknown. Example: a Google security alert that reads "${identity.webHost} was granted access to your Google Account" is the user connecting Alfred to Google.`,
+    "- These names identify this Alfred deployment. A provider notice naming one of them may describe a connection to Alfred; the name alone does not prove that the user initiated or authorized the reported event. Describe access as expected only when the available context confirms user initiation. Preserve warnings about unrecognized sign-ins, unexpected access grants, or account compromise, even when they name Alfred. When the user confirms they connected Alfred, explain that the notice refers to that connection rather than an unknown app.",
   );
   return lines.join("\n");
 }

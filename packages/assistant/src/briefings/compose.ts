@@ -13,6 +13,7 @@ import {
 import type { ComposedEmail } from "@alfred/mailer";
 
 import { composeAgentInstructions, sanitizeVoice } from "@alfred/ai/voice";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
@@ -148,7 +149,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
         schemaName: "briefing_composer",
         schemaDescription:
           "Composes a concise daily briefing from gathered email, calendar, integration activity, weather, and day context.",
-        instructions: BRIEFING_COMPOSER_SYSTEM_PROMPT,
+        instructions: `${BRIEFING_COMPOSER_SYSTEM_PROMPT}\n\n${selfIdentityGrounding()}`,
         prompt: buildComposerPrompt(args),
         temperature: 0.2,
         maxOutputTokens: 2_500,
