@@ -19,6 +19,7 @@ import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { awaitSubAgentInputSchema, spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows/user-authored-brief";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0077 amendment: behavioral guard for the boss charter. The old rulebook
 // routed people questions inward (memory + Gmail) and never mentioned the live
@@ -72,7 +73,11 @@ const CONNECTED_SUMMARY = [
   "- system.spawn_sub_agent, system.await_sub_agent — delegate and await a focused multi-step investigation",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 const WEB_SEARCH_DESCRIPTION =
   "Search the live public web for current facts, public background on people or companies, and information outside Alfred's memory or connected services. Returns a synthesized answer plus result URLs/citations; use system.fetch_url on a promising result when you need to verify or read the page behind the search result.";
@@ -656,6 +661,7 @@ const SUB_CONNECTED_SUMMARY = [
 const SUB_SYSTEM = buildSubAgentSystemPrompt(
   formatDateGrounding(TIMEZONE, NOW),
   SUB_CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
   "sub-eval",
 );
 

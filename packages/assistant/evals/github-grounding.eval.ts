@@ -14,6 +14,7 @@ import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // GROUND / #213 / ADR-0071: behavioral guard that the boss answers GitHub
 // questions through the STRUCTURED fields (type + state + *WithinDays) instead
@@ -44,7 +45,11 @@ const CONNECTED_SUMMARY = [
   "- github.search, github.get_pull_request, github.get_issue — the user's GitHub issues and pull requests — connected as 99Yash",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 interface ExpectedGithubCall {
   type: "pr" | "issue" | "both";

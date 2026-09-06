@@ -15,6 +15,7 @@ import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // GROUND / #312: behavioral guard that when the user names a sender by
 // DESCRIPTION ("the onboarding emails", "the recruiter") and asks to stop
@@ -48,7 +49,11 @@ const CONNECTED_SUMMARY = [
   "- system.resolve_todo — dismiss live todos by resolved Gmail sender",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 interface Case {
   input: string;
