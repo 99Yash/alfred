@@ -54,11 +54,6 @@ export interface UpsertBearerCredentialArgs {
   expiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
   metadata?: Record<string, unknown> | undefined;
-  /**
-   * The provider-side installation id inbound webhooks name (Sentry's
-   * `installation.uuid`). Null for a bearer provider that sends no webhooks.
-   */
-  installationId?: string | null | undefined;
 }
 
 /**
@@ -85,7 +80,6 @@ export async function upsertBearerCredential(
       expiresAt: args.expiresAt ?? null,
       scopes: args.scopes ?? [],
       metadata: args.metadata ?? {},
-      installationId: args.installationId ?? null,
       status: "active",
     })
     .onConflictDoUpdate({
@@ -100,7 +94,6 @@ export async function upsertBearerCredential(
         expiresAt: args.expiresAt ?? null,
         scopes: args.scopes ?? [],
         metadata: args.metadata ?? {},
-        installationId: args.installationId ?? null,
         status: "active",
         accountLabel: args.accountLabel ?? null,
         lastRefreshedAt: new Date(),
@@ -189,41 +182,57 @@ export async function listActiveBearerCredentials(
   return rows.map((row) => ({ ...row, accessToken: vault.open(row.accessToken) }));
 }
 
-export type InstallationCredential = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
+/**
+ * What an inbound descriptor needs from the credential that owns a delivery:
+ * the user the receipt is filed under, the credential id, and the provider-side
+ * account the receipt names. Both owner lookups below project exactly this.
+ */
+export type CredentialOwnerRef = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
+
+const ownerRefColumns = {
+  id: integrationCredentials.id,
+  userId: integrationCredentials.userId,
+  accountId: integrationCredentials.accountId,
+};
 
 /**
- * The providers whose credential row names a provider-side installation. GitHub
- * writes `installation_id` because a delivery names the App installation and
- * nothing else. Sentry does not: an internal-integration token cannot read
+ * The inbound sources whose deliveries carry no per-account identity and are
+ * attributed by the shared signing secret instead ({@link findSoleActiveCredential}).
+ * Sentry is the one member: an internal-integration token cannot read
  * `/organizations/{slug}/sentry-app-installations/` (Sentry resolves that
  * endpoint's organization through the caller's memberships, and the
  * integration's proxy user has none, so it answers 404; verified live
- * 2026-09-06), so the connect flow never learns the uuid and the descriptor
- * attributes by the signing secret instead ({@link findSoleActiveCredential}).
+ * 2026-09-06), so the connect flow never learns the `installation.uuid` a
+ * delivery names.
+ */
+export type SecretAttributedProvider = Extract<CredentialProvider & InboundEventSource, "sentry">;
+
+/**
+ * The providers whose credential row names a provider-side installation: the
+ * inbound sources whose delivery names the installation and nothing else, so
+ * `installation_id` is the join. The secret-attributed sources are excluded.
  * Narrower than {@link CredentialProvider} so that a lookup for a provider that
  * never writes the column (`notion`, `sentry`) is a compile error, not a query
  * that always returns `null`.
  */
-export type InstallationProvider = Exclude<CredentialProvider & InboundEventSource, "sentry">;
+export type InstallationProvider = Exclude<
+  CredentialProvider & InboundEventSource,
+  SecretAttributedProvider
+>;
 
 /**
  * Resolve the active credential that owns one provider-side installation — the
  * join from an inbound webhook delivery (which carries only the installation id)
  * back to a user and the account the receipt is filed under. The id space is
- * the provider's, so the lookup is always scoped by `provider`: a GitHub App
- * installation id and a Sentry installation uuid share the indexed column and
- * nothing else. Returns the most-recently-updated active match.
+ * the provider's, so the lookup is always scoped by `provider`. Returns the
+ * most-recently-updated active match.
  */
 export async function findActiveCredentialByInstallationId(args: {
   provider: InstallationProvider;
   installationId: string;
-}): Promise<InstallationCredential | null> {
+}): Promise<CredentialOwnerRef | null> {
   const rows = await db()
-    .select({
-      id: integrationCredentials.id,
-      userId: integrationCredentials.userId,
-      accountId: integrationCredentials.accountId,
-    })
+    .select(ownerRefColumns)
     .from(integrationCredentials)
     .where(
       and(
@@ -271,19 +280,15 @@ export async function hasActiveInstallationCredential(args: {
  * outgrown a single secret, and the caller must refuse rather than pick.
  */
 export type SoleActiveCredential =
-  | { kind: "one"; credential: InstallationCredential }
+  | { kind: "one"; credential: CredentialOwnerRef }
   | { kind: "none" }
   | { kind: "many" };
 
 export async function findSoleActiveCredential(args: {
-  provider: CredentialProvider;
+  provider: SecretAttributedProvider;
 }): Promise<SoleActiveCredential> {
   const rows = await db()
-    .select({
-      id: integrationCredentials.id,
-      userId: integrationCredentials.userId,
-      accountId: integrationCredentials.accountId,
-    })
+    .select(ownerRefColumns)
     .from(integrationCredentials)
     .where(
       and(
@@ -296,30 +301,6 @@ export async function findSoleActiveCredential(args: {
   if (!first) return { kind: "none" };
   if (rows.length > 1) return { kind: "many" };
   return { kind: "one", credential: first };
-}
-
-/**
- * Whether the user has any active credential for `provider`: the
- * subscription-health signal for an inbound source attributed by signing
- * secret rather than by installation id (compare
- * {@link hasActiveInstallationCredential}).
- */
-export async function hasActiveCredential(args: {
-  userId: string;
-  provider: CredentialProvider;
-}): Promise<boolean> {
-  const rows = await db()
-    .select({ id: integrationCredentials.id })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, args.userId),
-        eq(integrationCredentials.provider, args.provider),
-        eq(integrationCredentials.status, "active"),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
 }
 
 /**
