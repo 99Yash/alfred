@@ -9,6 +9,7 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import { MAX_RATIONALE_LEN, type TriageClassification, truncateRationale } from "./classify";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import type { TriageUserContext } from "./user-context";
 
 export const DEEPEN_REASONS = ["severity_suspect_bot", "low_confidence", "unknown_human"] as const;
@@ -113,7 +114,7 @@ export async function deepenTriageClassification(
   const result = await meteredGenerateObject<DeepenOutput>(
     {
       model,
-      instructions: DEEPEN_SYSTEM_PROMPT,
+      instructions: `${DEEPEN_SYSTEM_PROMPT}\n\n${selfIdentityGrounding()}`,
       prompt: deepenUserPrompt(args),
       schema: deepenOutputSchema,
       schemaName: "triage_deepen",

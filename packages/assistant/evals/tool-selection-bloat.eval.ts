@@ -16,6 +16,7 @@ import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // LESSON 03 / context-purity experiment: does a bloated tool menu degrade the
 // boss's tool SELECTION? We run the same realistic tasks through Sonnet 4.6
@@ -152,7 +153,11 @@ async function runUnderMenu(input: string, slugs: IntegrationSlug[]): Promise<Ta
   const live = slugs.filter(isLiveProviderSlug);
   const result = await generateText({
     model: route("standard").model(),
-    instructions: buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), buildSummary(live)),
+    instructions: buildChatSystemPrompt(
+      formatDateGrounding(TIMEZONE, NOW),
+      buildSummary(live),
+      selfIdentityGrounding(),
+    ),
     prompt: input,
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },

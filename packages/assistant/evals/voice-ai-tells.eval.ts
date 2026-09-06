@@ -8,6 +8,7 @@ import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { detectAiTells, summarizeTells } from "@alfred/ai/voice";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { llmJudgeScorer } from "./lib/llm-judge";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // Behavioral guard on the shipped chat voice contract. Chat relies on the
 // prompt rather than post-processing so explicit tone, persona, and exact-copy
@@ -30,7 +31,11 @@ const CONNECTED_SUMMARY = [
   "- calendar.list_events, calendar.create_event — the user's calendar",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 interface Case {
   prompt: string;

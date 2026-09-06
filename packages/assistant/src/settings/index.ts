@@ -15,3 +15,4 @@
 export * from "./preferences";
 export * from "./flags";
 export * from "./resolve-timezone";
+export * from "./self-identity";

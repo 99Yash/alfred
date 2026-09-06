@@ -10,6 +10,7 @@ import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import type { GroundingTaskOutput } from "./lib/grounding";
 import { llmJudgeScorer } from "./lib/llm-judge";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // GROUND / ADR-0074 rung-a / epic #271: end-to-end behavioral guard for the
 // general read-only passthrough tier. Two things must hold and they are the
@@ -58,7 +59,11 @@ const CONNECTED_SUMMARY = [
   "- github.request — raw READ-ONLY GitHub REST for anything the curated github tools don't cover (workflow runs, commits, releases, branches, contents)",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 /**
  * Pull a registered tool's real description + inputSchema so the eval grades the
