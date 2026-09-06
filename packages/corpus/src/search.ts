@@ -1,6 +1,7 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import {
   parseAttachmentContentReferences,
+  getStringPath,
   type AttachmentContentReference,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -38,6 +39,10 @@ export interface SearchHit {
   documentId: string;
   source: Document["source"];
   title: string | null;
+  /** Provider receipt kind, when this hit came from an inbound delivery. */
+  kind?: string;
+  /** Provider URL retained on the document, when supplied. */
+  url?: string;
   position: number;
   /**
    * The 1-indexed PDF page the extractor proved this chunk sits on, when the
@@ -102,6 +107,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         documentId: sql<string>`${documents.id}`.as("document_id"),
         source: documents.source,
         title: documents.title,
+        url: documents.url,
         position: chunks.position,
         content: chunks.content,
         metadata: chunks.metadata,
@@ -124,6 +130,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         documentId: candidates.documentId,
         source: candidates.source,
         title: candidates.title,
+        url: candidates.url,
         position: candidates.position,
         content: candidates.content,
         metadata: candidates.metadata,
@@ -148,6 +155,9 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       similarity: 1 - Number(r.distance),
       authoredAt: r.authoredAt,
     };
+    const kind = getStringPath(r.documentMetadata, "kind");
+    if (kind) hit.kind = kind;
+    if (r.url) hit.url = r.url;
     if (r.source === "gmail_attachment") {
       const occurrences = parseAttachmentContentReferences(r.documentMetadata);
       if (occurrences.length > 0) hit.occurrences = occurrences;

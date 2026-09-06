@@ -11,9 +11,9 @@ import { getIngestionQueue, type IngestionJobData } from "./queue";
  *                        nearing their ~7-day expiry. Daily would be
  *                        fine, but 6h means a single failed run still
  *                        leaves margin to retry before expiry.
- *   - gmail.embed_sweep  every 10 minutes — re-embeds documents whose
- *                        embed step failed during ingest (the doc row
- *                        landed but no chunks were produced).
+ *   - gmail.embed_sweep  every 10 minutes — indexes chunkless Gmail and
+ *                        inbound receipt documents. Also projects older
+ *                        inbound receipts that have no corpus document.
  *   - user_model.gmail_kind_refold_sweep  daily — fans out a Gmail
  *                        kind-projection refold to every user with an
  *                        ACTIVE projection (#218 PR J). Backstop for

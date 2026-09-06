@@ -84,5 +84,9 @@ export type RawReceiptKind = z.infer<typeof rawReceiptKindSchema>;
 /** The wire shape of `GET /api/integrations/raw-kinds/:slug`, most recently seen first. */
 export const rawReceiptInventorySchema = z.object({
   kinds: z.array(rawReceiptKindSchema),
+  embedding: z.object({
+    dailyCap: z.number().int().positive(),
+    cappedCount: z.number().int().nonnegative(),
+  }),
 });
 export type RawReceiptInventory = z.infer<typeof rawReceiptInventorySchema>;

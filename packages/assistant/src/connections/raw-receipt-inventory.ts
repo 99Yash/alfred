@@ -4,7 +4,8 @@ import {
   type RawReceiptInventory,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { eventReceipts, integrationCredentials } from "@alfred/db/schemas";
+import { documents, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
+import { INBOUND_DAILY_EMBED_CAP, INBOUND_DAILY_EMBED_CAP_REASON } from "./receipt-corpus-policy";
 import { and, count, desc, eq, isNotNull, max } from "drizzle-orm";
 
 /**
@@ -39,7 +40,24 @@ export async function readRawReceiptInventory(
     .groupBy(eventReceipts.rawKind)
     .orderBy(desc(lastSeenAt));
 
+  const [capped] = await db()
+    .select({ count: count() })
+    .from(documents)
+    .innerJoin(eventReceipts, eq(documents.sourceId, eventReceipts.id))
+    .innerJoin(integrationCredentials, eq(integrationCredentials.id, eventReceipts.credentialId))
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(eventReceipts.userId, userId),
+        eq(documents.source, eventReceipts.provider),
+        eq(integrationCredentials.provider, credentialProviderOf(slug)),
+        eq(documents.lastEmbedError, INBOUND_DAILY_EMBED_CAP_REASON),
+        isNotNull(documents.embedFailedAt),
+      ),
+    );
+
   return {
+    embedding: { dailyCap: INBOUND_DAILY_EMBED_CAP, cappedCount: capped?.count ?? 0 },
     kinds: rows.flatMap((row) =>
       // `IS NOT NULL` in the WHERE clause proves both; the select type cannot see it.
       row.rawKind && row.lastSeenAt

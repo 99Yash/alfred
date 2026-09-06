@@ -18,6 +18,8 @@ import {
   type InboundProjection,
 } from "../ingress";
 import { enqueueInboundDelivery } from "./queue";
+import { writeReceiptDocument } from "./receipt-document";
+import { resolveTimezone } from "@alfred/assistant/settings";
 
 /**
  * Result of receiving one delivery on `POST /webhooks/inbound/:source`. The
@@ -201,12 +203,28 @@ async function insertReceipt(
         }),
   };
 
-  const inserted = await db()
-    .insert(eventReceipts)
-    .values(row)
-    .onConflictDoNothing({ target: [eventReceipts.provider, eventReceipts.providerDeliveryId] })
-    .returning({ id: eventReceipts.id });
-  const insertedId = inserted[0]?.id;
+  const timezone = await resolveTimezone(owner.userId);
+  const insertedId = await db().transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(eventReceipts)
+      .values(row)
+      .onConflictDoNothing({ target: [eventReceipts.provider, eventReceipts.providerDeliveryId] })
+      .returning({ id: eventReceipts.id, deliveredAt: eventReceipts.deliveredAt });
+    if (!inserted) return null;
+    await writeReceiptDocument(
+      tx,
+      {
+        ...inserted,
+        provider: source,
+        userId: owner.userId,
+        payload: args.payload,
+        kind: tier.kind === "raw" ? tier.rawKind : tier.type,
+        accountId: owner.accountRef,
+      },
+      timezone,
+    );
+    return inserted.id;
+  });
   if (insertedId) return { kind: "inserted", id: insertedId };
 
   const [existing] = await db()
