@@ -287,6 +287,7 @@ Live backends today:
 - Notion OAuth.
 - Railway token connect.
 - Vercel OAuth.
+- Sentry internal-integration token connect, prod-only webhooks.
 
 Catalog/design-only today: Slack and Linear. The web catalog can render those providers, but there are no backend routes or tools for them yet.
 

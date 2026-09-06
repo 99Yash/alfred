@@ -19,9 +19,10 @@ import { enqueueInboundDelivery } from "./queue";
  * - `unknown_source`: the `:source` segment is not an inbound source (404).
  * - `rejected`: the descriptor's `verify` refused the raw body (401).
  * - `ignored`: authenticated, but nothing to store — a ping, an unsubscribed
- *   event, a body that is not a JSON object, a delivery the dedup rule cannot
- *   key, or a delivery no credential owns. Acknowledged with 200 so the
- *   provider does not retry what cannot change.
+ *   event, a body that is not a JSON object, a subscribed delivery whose
+ *   payload lacks the identity its key reads (logged at error level: a payload
+ *   path moved, which is a descriptor bug), or a delivery no credential owns.
+ *   Acknowledged with 200 so the provider does not retry what cannot change.
  * - `duplicate`: a receipt for this dedup key already exists.
  * - `accepted`: a new receipt row exists and the delivery job is enqueued.
  */
@@ -45,7 +46,7 @@ export interface ReceiveInboundDeliveryArgs {
 
 /**
  * The shared receive path every inbound source runs through (ADR-0097):
- * look up the descriptor, verify the RAW body, parse, key, project, attribute,
+ * look up the descriptor, verify the RAW body, parse, project, key, attribute,
  * persist one `event_receipts` row with `onConflictDoNothing`, then enqueue
  * `ingress.deliver`. The request is acknowledged as soon as the row exists; no
  * workflow runs inline.
@@ -73,11 +74,27 @@ export async function receiveInboundDelivery(
   const payload = parseJsonWith(args.raw, jsonObjectSchema);
   if (!payload) return { kind: "ignored", source, reason: "bad-json" };
 
-  const deliveryKey = inboundDeliveryKey(descriptor.dedup, payload, args.headers);
-  if (!deliveryKey) return { kind: "ignored", source, reason: "no-dedup-key" };
-
+  // Project before keying: the synthetic key switches on the projected type,
+  // so an unsubscribed event is dropped quietly here and never reaches a key
+  // rule. A `null` key after projection means one thing: the payload lacks the
+  // identity the rule reads (a path that moved). That is a descriptor bug and
+  // must be loud. It is still acknowledged: providers do not redeliver on a
+  // 4xx, and a retry could not change the body.
   const projection = descriptor.project(payload, args.headers);
   if (projection.kind === "ignore") return { kind: "ignored", source, reason: projection.reason };
+
+  const payloadHash = createHash("sha256").update(args.raw).digest("hex");
+  const deliveryKey = inboundDeliveryKey(descriptor.dedup, args.headers, {
+    payload,
+    type: projection.type,
+    payloadHash,
+  });
+  if (!deliveryKey) {
+    console.error(
+      `[ingress] ${source}: ${projection.type} payload carries no identity to key on; dropped`,
+    );
+    return { kind: "ignored", source, reason: "no-dedup-key" };
+  }
 
   const owner = await descriptor.resolveOwner(payload, args.headers);
   if (!owner) {
@@ -94,7 +111,7 @@ export async function receiveInboundDelivery(
     userId: owner.userId,
     eventType: eventTypeName(source, projection.type),
     verificationResult: INBOUND_VERIFICATION_RESULT,
-    payloadHash: createHash("sha256").update(args.raw).digest("hex"),
+    payloadHash,
     payload,
     processingStatus: "pending",
   };

@@ -42,6 +42,28 @@ export const EVENT_SOURCE_ENTRIES = {
     eventTypes: ["pull_request", "push", "issues", "pull_request_review"],
   },
   /**
+   * Sentry internal-integration webhooks, one type per `<resource>_<action>`
+   * pair the descriptor subscribes to (`Sentry-Hook-Resource` header plus the
+   * body's `action`). `error_created` is plan-gated on Sentry's side
+   * (Business+); `event_alert_triggered` is the per-project alert-rule route
+   * every plan has; the `issue_*` set is the lifecycle fallback; and
+   * `seer_pr_created` is the Seer Autofix pull request the verification rung
+   * consumes (#563, #567).
+   */
+  sentry: {
+    producer: "inbound_webhook",
+    eventTypes: [
+      "error_created",
+      "event_alert_triggered",
+      "issue_created",
+      "issue_resolved",
+      "issue_unresolved",
+      "issue_assigned",
+      "issue_archived",
+      "seer_pr_created",
+    ],
+  },
+  /**
    * `classified` is the fact the triage `classify` step publishes for every thread
    * whose row it owns; the reply-drafting gate consumes it (ADR-0098). `reply_worthy`
    * is the trigger the `reply-drafting` builtin declares. Nothing publishes it on
