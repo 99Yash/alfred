@@ -19,10 +19,10 @@ import { enqueueInboundDelivery } from "./queue";
  * - `unknown_source`: the `:source` segment is not an inbound source (404).
  * - `rejected`: the descriptor's `verify` refused the raw body (401).
  * - `ignored`: authenticated, but nothing to store — a ping, an unsubscribed
- *   event, a body that is not a JSON object, a subscribed delivery the dedup
- *   rule cannot key (logged at error level: that is a descriptor bug), or a
- *   delivery no credential owns. Acknowledged with 200 so the provider does
- *   not retry what cannot change.
+ *   event, a body that is not a JSON object, a subscribed delivery whose
+ *   payload lacks the identity its key reads (logged at error level: a payload
+ *   path moved, which is a descriptor bug), or a delivery no credential owns.
+ *   Acknowledged with 200 so the provider does not retry what cannot change.
  * - `duplicate`: a receipt for this dedup key already exists.
  * - `accepted`: a new receipt row exists and the delivery job is enqueued.
  */
@@ -74,18 +74,24 @@ export async function receiveInboundDelivery(
   const payload = parseJsonWith(args.raw, jsonObjectSchema);
   if (!payload) return { kind: "ignored", source, reason: "bad-json" };
 
-  // Project before keying: an event the source does not subscribe to is
-  // dropped quietly, but a subscribed event the dedup rule cannot key is a
-  // descriptor bug (a payload path that moved), and must be loud. It is still
-  // acknowledged: providers do not redeliver on a 4xx, and a retry could not
-  // change the body.
+  // Project before keying: the synthetic key switches on the projected type,
+  // so an unsubscribed event is dropped quietly here and never reaches a key
+  // rule. A `null` key after projection means one thing: the payload lacks the
+  // identity the rule reads (a path that moved). That is a descriptor bug and
+  // must be loud. It is still acknowledged: providers do not redeliver on a
+  // 4xx, and a retry could not change the body.
   const projection = descriptor.project(payload, args.headers);
   if (projection.kind === "ignore") return { kind: "ignored", source, reason: projection.reason };
 
-  const deliveryKey = inboundDeliveryKey(descriptor.dedup, payload, args.headers);
+  const payloadHash = createHash("sha256").update(args.raw).digest("hex");
+  const deliveryKey = inboundDeliveryKey(descriptor.dedup, args.headers, {
+    payload,
+    type: projection.type,
+    payloadHash,
+  });
   if (!deliveryKey) {
     console.error(
-      `[ingress] ${source}: no dedup key for subscribed event ${projection.type}; dropped`,
+      `[ingress] ${source}: ${projection.type} payload carries no identity to key on; dropped`,
     );
     return { kind: "ignored", source, reason: "no-dedup-key" };
   }
@@ -105,7 +111,7 @@ export async function receiveInboundDelivery(
     userId: owner.userId,
     eventType: eventTypeName(source, projection.type),
     verificationResult: INBOUND_VERIFICATION_RESULT,
-    payloadHash: createHash("sha256").update(args.raw).digest("hex"),
+    payloadHash,
     payload,
     processingStatus: "pending",
   };

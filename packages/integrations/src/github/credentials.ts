@@ -1,10 +1,9 @@
-import type { JsonObject } from "@alfred/contracts";
+import { getIdPath, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { getInstallationToken } from "./app";
-import { payloadIdAt } from "../shared/webhook";
 
 /**
  * Persistence layer for GitHub `integration_credentials` (ADR-0052, GitHub
@@ -163,5 +162,5 @@ export async function getInstallationTokenForUser(
  * the payload carries none. GitHub sends it as a JSON number; the column is text.
  */
 export function githubInstallationId(payload: JsonObject): string | null {
-  return payloadIdAt(payload, "installation", "id");
+  return getIdPath(payload, "installation", "id");
 }

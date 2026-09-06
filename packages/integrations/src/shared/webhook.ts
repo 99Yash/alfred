@@ -1,10 +1,10 @@
-import { getPath, isNonEmptyString, type JsonObject } from "@alfred/contracts";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
  * The wire primitives every inbound webhook descriptor shares: a constant-time
- * signature compare, the HMAC both GitHub and Sentry sign with, and the id
- * reader that joins a delivery to the credential that owns it.
+ * signature compare and the HMAC both GitHub and Sentry sign with. The id
+ * reader that joins a delivery to its credential is `getIdPath` in
+ * `@alfred/contracts`, beside the other JSON leaf readers.
  */
 
 /**
@@ -23,18 +23,4 @@ export function signatureMatches(expected: string, presented: string | null): bo
 /** HMAC-SHA256 of the exact body bytes, hex-encoded. The UTF-8 encoding is the one every provider transmits. */
 export function hmacSha256Hex(secret: string, rawBody: string): string {
   return createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
-}
-
-/**
- * A provider id at `keys` in a webhook payload, as `integration_credentials.installation_id`
- * and the dedup key store it. Providers serialize ids both ways (GitHub's
- * `installation.id` and Sentry's `data.run_id` are integers; Sentry's
- * `issue.id` and `event_id` are strings), so both spellings collapse to one
- * string and no key or join depends on which. `null` when absent or empty.
- */
-export function payloadIdAt(payload: JsonObject, ...keys: string[]): string | null {
-  const leaf = getPath(payload, ...keys);
-  if (isNonEmptyString(leaf)) return leaf;
-  if (typeof leaf === "number" && Number.isSafeInteger(leaf)) return String(leaf);
-  return null;
 }

@@ -25,6 +25,18 @@ export const SENTRY_HOOK_HEADERS = {
   resource: "sentry-hook-resource",
 } as const;
 
+/** Whether `SENTRY_WEBHOOK_CLIENT_SECRET` is set. Without it no delivery can be verified, so the subscription is not healthy. */
+export function sentryWebhookSecretConfigured(): boolean {
+  return Boolean(serverEnv().SENTRY_WEBHOOK_CLIENT_SECRET);
+}
+
+/**
+ * The three answers a signature check can give. `no_secret` is kept apart from
+ * `mismatch` so the ingress log names a missing env var as such, instead of
+ * sending an operator to hunt for a key mismatch that does not exist.
+ */
+export type SentryWebhookVerdict = "verified" | "no_secret" | "mismatch";
+
 /**
  * Verify `Sentry-Hook-Signature` over the RAW request body. A server without
  * `SENTRY_WEBHOOK_CLIENT_SECRET` rejects every delivery: an unverifiable body
@@ -33,10 +45,12 @@ export const SENTRY_HOOK_HEADERS = {
 export function verifySentryWebhookSignature(
   rawBody: string,
   signatureHeader: string | null,
-): boolean {
+): SentryWebhookVerdict {
   const secret = serverEnv().SENTRY_WEBHOOK_CLIENT_SECRET;
-  if (!secret) return false;
-  return signatureMatches(hmacSha256Hex(secret, rawBody), signatureHeader);
+  if (!secret) return "no_secret";
+  return signatureMatches(hmacSha256Hex(secret, rawBody), signatureHeader)
+    ? "verified"
+    : "mismatch";
 }
 
 /** The installation uuid the delivery names, or `null` when the payload carries none. */
