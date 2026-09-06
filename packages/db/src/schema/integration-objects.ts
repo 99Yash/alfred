@@ -12,7 +12,7 @@ import { entities } from "./memory";
  * runs later. The deterministic sibling of the semantic user-memory in
  * `memory.ts` (ADR-0057): the same temporal + graph machinery, with the
  * fuzzy/vector/LLM half deliberately omitted from the closure path. State is
- * asserted ONLY by the per-provider webhook reducer over `webhook_events`;
+ * asserted ONLY by the per-provider webhook reducer over `event_receipts`;
  * an LLM may *propose* a candidate key (a `head_sha`) but never *assert*
  * state, so a hallucinated key resolves to nothing and cannot fake a merge
  * (the propose/dispose invariant that keeps ADR-0048's closure contract intact).
