@@ -127,6 +127,21 @@ export function getStringPath(value: unknown, ...keys: string[]): string | undef
 }
 
 /**
+ * Leaf reader for a provider id that may arrive as either a string or an
+ * integer. Webhook payloads serialize ids both ways (GitHub's `installation.id`
+ * and Sentry's `data.run_id` are integers; Sentry's `issue.id` and `event_id`
+ * are strings), and the columns and dedup keys that store them are text, so
+ * both spellings collapse to one string and no join or key depends on which.
+ * `null` when the leaf is absent, empty, or a non-integer number.
+ */
+export function getIdPath(value: unknown, ...keys: string[]): string | null {
+  const leaf = getPath(value, ...keys);
+  if (isNonEmptyString(leaf)) return leaf;
+  if (typeof leaf === "number" && Number.isSafeInteger(leaf)) return String(leaf);
+  return null;
+}
+
+/**
  * Build a membership guard for a fixed set of string literals — the
  * `typeof value === "string" && (TUPLE as readonly string[]).includes(value)`
  * boilerplate that was hand-copied onto every wire enum. Pass the `as const`
