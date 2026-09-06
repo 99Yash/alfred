@@ -3,8 +3,17 @@ import {
   type AccountPersona,
   type CredentialProvider,
 } from "@alfred/contracts";
-import { sql } from "drizzle-orm";
-import { check, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { getTableColumns, isNull, sql } from "drizzle-orm";
+import {
+  check,
+  index,
+  jsonb,
+  pgTable,
+  pgView,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import type { SealedCredentialSecret } from "../credential-vault";
 import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
@@ -187,10 +196,10 @@ export const ingestionState = pgTable(
  * Raw receipts (ADR-0097 item 9, #988): a verified, owner-attributed delivery
  * whose kind the source's entry does not name is stored too, with `raw_kind`
  * set to the provider's own kind (`comment.created`, `issue_comment.created`),
- * `event_type = <slug>.raw`, and `provider_delivery_id = payload_hash`. Such a
+ * `event_type = <slug>.raw`, and `provider_delivery_id = raw:<raw_kind>:<payload_hash>`. Such a
  * row is `completed` at insert: no `ingress.deliver` job runs for it and it
  * publishes nothing. `raw_kind IS NULL` is the typed tier; every reader that
- * folds, briefs, or triggers on receipts filters on it.
+ * folds, briefs, or triggers on receipts uses `typedEventReceipts`.
  *
  * The full unique index on `(provider, provider_delivery_id)` deduplicates
  * redeliveries at the DB level. The webhook handler uses `onConflictDoNothing`
@@ -243,7 +252,10 @@ export const eventReceipts = pgTable(
      * Processing state: 'pending' (received, not yet ingested), 'completed'
      * (ingestion job ran), 'failed' (ingestion job errored).
      */
-    processingStatus: text("processing_status").notNull().default("pending"),
+    processingStatus: text("processing_status")
+      .$type<"pending" | "completed" | "failed">()
+      .notNull()
+      .default("pending"),
     /** When the provider delivered (Pub/Sub push timestamp). Defaults to DB receive time. */
     deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull().defaultNow(),
     /** When the ingestion job completed or failed. */
@@ -251,11 +263,25 @@ export const eventReceipts = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    check(
+      "event_receipts_raw_type_check",
+      sql`(${t.rawKind} IS NULL) = (${t.eventType} NOT LIKE '%.raw')`,
+    ),
+    check(
+      "event_receipts_raw_completed_check",
+      sql`${t.rawKind} IS NULL OR (${t.processingStatus} = 'completed' AND ${t.processedAt} IS NOT NULL)`,
+    ),
     uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
     index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
     index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),
   ],
 );
+
+/** Typed consumers read this view so raw traffic cannot consume a query's LIMIT. */
+export const typedEventReceipts = pgView("typed_event_receipts").as((qb) => {
+  const { rawKind, ...columns } = getTableColumns(eventReceipts);
+  return qb.select(columns).from(eventReceipts).where(isNull(rawKind));
+});
 
 export type IntegrationCredential = typeof integrationCredentials.$inferSelect;
 export type IngestionState = typeof ingestionState.$inferSelect;

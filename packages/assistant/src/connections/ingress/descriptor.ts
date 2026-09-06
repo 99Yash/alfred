@@ -104,12 +104,12 @@ export type InboundProjection<S extends InboundEventSource> =
    * A verified delivery of a kind the entry does not declare. `rawKind` is the
    * provider's own name for it (`comment.created`, `issue_comment.created`),
    * kept verbatim: the inventory shows it, and a later typed promotion reads
-   * it back. The receive path stores it keyed on the payload hash with no
+   * it back. The receive path stores it keyed on the provider kind and payload hash with no
    * delivery job and no bus event.
    */
   | { kind: "raw"; rawKind: string }
   /** Nothing to keep: a ping, or a body that names no kind at all. */
-  | { kind: "ignore"; reason: string };
+  | { kind: "ignore"; reason: "ping" | "no-kind-header" };
 
 export interface InboundOwner {
   userId: string;

@@ -105,7 +105,7 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
 
 function projectSentry(payload: JsonObject, headers: Headers): InboundProjection<"sentry"> {
   const resource = headers.get(SENTRY_HOOK_HEADERS.resource);
-  if (!resource) return { kind: "ignore", reason: "no-resource-header" };
+  if (!resource) return { kind: "ignore", reason: "no-kind-header" };
   const action = getStringPath(payload, "action");
   // A resource with no `action` is still a real delivery; GitHub keeps the bare
   // event the same way, so the two descriptors agree on what "unnamed" means.

@@ -1,6 +1,6 @@
 import { getStringPath, jsonObjectSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { eventReceipts } from "@alfred/db/schemas";
+import { typedEventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { objectStateStore } from "@alfred/assistant/connections";
 import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assistant/triggers";
@@ -32,11 +32,13 @@ export function githubActivityTriggerConsumer(): TriggerConsumer {
       const { receiptId } = inboundDeliveryPayloadSchema.parse(event.payload ?? {});
       const [receipt] = await db()
         .select({
-          payload: eventReceipts.payload,
-          deliveredAt: eventReceipts.deliveredAt,
+          payload: typedEventReceipts.payload,
+          deliveredAt: typedEventReceipts.deliveredAt,
         })
-        .from(eventReceipts)
-        .where(and(eq(eventReceipts.id, receiptId), eq(eventReceipts.userId, event.userId)))
+        .from(typedEventReceipts)
+        .where(
+          and(eq(typedEventReceipts.id, receiptId), eq(typedEventReceipts.userId, event.userId)),
+        )
         .limit(1);
       if (!receipt) return;
       // The receive path stored a parsed JSON object; a NULL or foreign shape

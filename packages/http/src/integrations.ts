@@ -1,5 +1,4 @@
-import { readIntegrationStatus } from "@alfred/assistant/connections";
-import { readRawReceiptInventory } from "@alfred/assistant/connections/ingress";
+import { readIntegrationStatus, readRawReceiptInventory } from "@alfred/assistant/connections";
 import { riskTierCountsForIntegration } from "@alfred/assistant/tool-runtime";
 import {
   Errors,
@@ -56,6 +55,6 @@ export const integrationsRoutes = new Elysia({
           if (!isLiveProviderSlug(params.slug)) throw Errors.NotFoundError("Unknown integration");
           return readRawReceiptInventory(user.id, params.slug);
         },
-        { params: t.Object({ slug: t.String() }) },
+        { params: t.Object({ slug: t.String({ minLength: 1 }) }) },
       ),
   );

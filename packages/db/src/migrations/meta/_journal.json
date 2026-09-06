@@ -834,6 +834,13 @@
       "when": 1788680781162,
       "tag": "0118_event_receipts_raw_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1788683634299,
+      "tag": "0119_event_receipt_tiers",
+      "breakpoints": true
     }
   ]
 }

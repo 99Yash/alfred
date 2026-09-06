@@ -1,6 +1,6 @@
 import { isInboundEventSource, parseEventTypeName, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { eventReceipts, integrationCredentials } from "@alfred/db/schemas";
+import { eventReceipts, integrationCredentials, typedEventReceipts } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { publishDomainEvent } from "@alfred/assistant/triggers";
 
@@ -21,13 +21,25 @@ import { publishDomainEvent } from "@alfred/assistant/triggers";
  */
 export async function deliverInboundReceipt(receiptId: string): Promise<void> {
   const [row] = await db()
-    .select({ receipt: eventReceipts, accountRef: integrationCredentials.accountId })
-    .from(eventReceipts)
-    .innerJoin(integrationCredentials, eq(integrationCredentials.id, eventReceipts.credentialId))
-    .where(eq(eventReceipts.id, receiptId))
+    .select({
+      receipt: {
+        provider: typedEventReceipts.provider,
+        eventType: typedEventReceipts.eventType,
+        processingStatus: typedEventReceipts.processingStatus,
+        userId: typedEventReceipts.userId,
+        providerDeliveryId: typedEventReceipts.providerDeliveryId,
+      },
+      accountRef: integrationCredentials.accountId,
+    })
+    .from(typedEventReceipts)
+    .innerJoin(
+      integrationCredentials,
+      eq(integrationCredentials.id, typedEventReceipts.credentialId),
+    )
+    .where(eq(typedEventReceipts.id, receiptId))
     .limit(1);
   if (!row) {
-    // Cascaded away with its credential; there is nobody to deliver to.
+    // Raw receipts are absent from this view; deleted receipts are absent too.
     console.warn(`[ingress] receipt ${receiptId} not found; skipping delivery`);
     return;
   }
