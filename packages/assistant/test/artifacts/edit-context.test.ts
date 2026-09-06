@@ -147,7 +147,7 @@ test("resume prompt uses placeholders and explicitly forbids invented facts", ()
 test("the PDF guide enters the transcript once when the selected medium becomes PDF", async () => {
   const state: Pick<ChatRunState, "artifactDesignMedium" | "pdfDesignGuideAdmitted"> = {};
   const transcript: AgentTranscriptMessage[] = [{ role: "user", content: "Make a PDF resume." }];
-  const system = buildChatSystemPrompt("", "Connected: none");
+  const system = buildChatSystemPrompt("", "Connected: none", "");
   assert.doesNotMatch(system, /Authoring PDF document pages|\[Full name\]/);
   assert.equal(admitPdfDesignGuide(state), undefined);
 
@@ -204,7 +204,7 @@ test("chat's prod system prompt states no date — the runtime line is the singl
   // pinned into this cached prefix would go stale when a parked run resumes
   // across midnight — and re-stamping it here would trip assertStableSystem.
   const connected = "Connected: none";
-  const prompt = buildChatSystemPrompt("", connected);
+  const prompt = buildChatSystemPrompt("", connected, "");
   assert.doesNotMatch(prompt, /current date/i);
   // Connected summary still anchors the end of the prompt (ADR-0077).
   assert.ok(prompt.trimEnd().endsWith(connected));
@@ -234,7 +234,7 @@ test("chat persists system stability across short-lived AlfredAgent instances", 
 
 test("chat keeps the voice contract near the end without displacing tool grounding", () => {
   const connected = "Connected: none";
-  const prompt = buildChatSystemPrompt("July 10, 2026", connected);
+  const prompt = buildChatSystemPrompt("July 10, 2026", connected, "");
   const artifactIndex = prompt.indexOf(ARTIFACT_DESIGN_PROMPT);
   const voiceIndex = prompt.indexOf("# Voice (default)");
   const dateIndex = prompt.indexOf("The current date is July 10, 2026");

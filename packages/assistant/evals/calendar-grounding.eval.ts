@@ -9,6 +9,7 @@ import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // GROUND: behavioral guard that the boss answers relative calendar questions
 // ("today" / "tomorrow" / "this week") through the STRUCTURED `window` /
@@ -41,7 +42,7 @@ const CONNECTED_SUMMARY = [
 // Mirror prod: chat's system prompt states no date; "now" rides the ephemeral
 // runtime line delivered as an assistant turn just before the user's message
 // (see runFirstCall), the single source of the current date and time (#410).
-const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
 
 // The advertised parameters (from the model-facing JSON schema). The runtime
 // schema also tolerates window-key synonyms (`timeframe`/`range`/…), but the

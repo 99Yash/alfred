@@ -22,6 +22,7 @@ import {
   toMessage,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 import { addDays, formatDay, inZone } from "@alfred/assistant/time";
@@ -958,6 +959,17 @@ function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
 }
 
 /**
+ * The rubric plus the deployment identity block. The rubric stays the exported
+ * constant (tests couple to its literal notes); the identity block is appended
+ * at call time because it comes from configuration, not from source. Without it
+ * the classifier reads a provider's "<our hostname> was granted access" notice
+ * as an unknown third party (the 2026-09-06 evening-briefing miss).
+ */
+function classifySystemPrompt(): string {
+  return `${SYSTEM_PROMPT}\n\n${selfIdentityGrounding()}`;
+}
+
+/**
  * Run the context-rich classify sequence over a single email: first cheap pass
  * → conditional second pass on a detected conflict → override floor. Returns
  * the final classification, the resolved model id, and an audit trail.
@@ -975,7 +987,7 @@ export async function classifyEmail(
   const floorMatches = matchesExposedSecret(signalText);
 
   const firstPass = await runPass({
-    system: SYSTEM_PROMPT,
+    system: classifySystemPrompt(),
     prompt: userPrompt(args, null),
     pass: "first",
   });
@@ -992,7 +1004,7 @@ export async function classifyEmail(
     // under-classification net is for). Fall back to the first pass instead.
     try {
       secondPass = await runPass({
-        system: SYSTEM_PROMPT,
+        system: classifySystemPrompt(),
         prompt: userPrompt(args, conflict),
         pass: "second",
       });

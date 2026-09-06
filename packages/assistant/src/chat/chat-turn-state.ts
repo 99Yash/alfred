@@ -78,6 +78,10 @@ export const chatRunStateSchema = z
     // ADR-0053 connected summary, snapshotted once at run start (first turn) and
     // reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
+    // Deployment identity block (`selfIdentityGrounding`): who Alfred is in this
+    // deployment, read from configuration. Snapshotted with the connected
+    // summary for the same reason: the system prompt must not change mid-run.
+    selfIdentity: z.string().optional(),
     // SHA-256 of the cache-stable system prompt. AlfredAgent is constructed per
     // model step on this workflow, so its instance-local stability assertion
     // cannot compare chat turns; the durable workflow state owns that check.

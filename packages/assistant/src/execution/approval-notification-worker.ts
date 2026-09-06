@@ -26,11 +26,8 @@ import {
   workflowBlockedNotificationJobDataSchema,
   type NotificationJobData,
 } from "@alfred/assistant/tool-runtime";
-import {
-  emailLogoUrl,
-  processWorkflowBlockedNotification,
-  webOrigin,
-} from "./workflow-blocked-notification";
+import { webOrigin } from "@alfred/assistant/settings";
+import { emailLogoUrl, processWorkflowBlockedNotification } from "./workflow-blocked-notification";
 
 let _worker: Worker<NotificationJobData> | undefined;
 

@@ -23,7 +23,7 @@ import { publishEvent } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { resolveTimezone, selfIdentityGrounding } from "@alfred/assistant/settings";
 import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
@@ -191,7 +191,11 @@ const ARTIFACT_SYSTEM_GUIDANCE = [
   "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
 ].join("\n");
 
-export function buildChatSystemPrompt(grounding: string, connectedSummary: string): string {
+export function buildChatSystemPrompt(
+  grounding: string,
+  connectedSummary: string,
+  selfIdentity: string,
+): string {
   // The chat path passes no `grounding` date: its "now" (date and time both)
   // rides the single re-anchorable `formatRuntimeTimeGrounding` line in the
   // transcript. A date pinned into this cached prefix would go stale when a
@@ -205,7 +209,10 @@ export function buildChatSystemPrompt(grounding: string, connectedSummary: strin
   // (`@alfred/artifacts-design`) are identical every turn, so they sit right
   // after the constant base — the largest possible cache-stable prefix (#223) —
   // and ahead of the catalog so the connected catalog stays the last, strongest
-  // anchor (ADR-0077). The design block teaches the boss the
+  // anchor (ADR-0077). The deployment identity block (`selfIdentityGrounding`)
+  // sits between them: constant per process, snapshotted into run state like
+  // the catalog, so a redeploy under a new hostname cannot trip the
+  // system-prompt stability pin mid-run. The design block teaches the boss the
   // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
   // authoring rules; without it artifact styling is reconstructed from memory
   // and drifts (the "vibes" gap behind the resume shitshow — see artifacts/read.ts).
@@ -213,7 +220,7 @@ export function buildChatSystemPrompt(grounding: string, connectedSummary: strin
     purpose: "assistant_response",
     role: CHAT_SYSTEM_PROMPT_BASE,
     rules: [ARTIFACT_SYSTEM_GUIDANCE, ARTIFACT_DESIGN_PROMPT],
-    grounding: [dateLine, connectedSummary],
+    grounding: [dateLine, selfIdentity, connectedSummary],
   });
 }
 
@@ -350,6 +357,9 @@ const chatTurnStep: Step<ChatRunState> = {
           tools.context,
         );
       }
+      if (state.selfIdentity === undefined) {
+        state.selfIdentity = selfIdentityGrounding();
+      }
       if (state.artifactThreadFacts === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
@@ -372,7 +382,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // re-stamps to wake-time without using elapsed time as a park proxy (#410).
       // #896: the artifact edit rules are a constant inside this cached prefix;
       // the per-thread facts ride the ephemeral block below.
-      const systemPrompt = buildChatSystemPrompt("", state.connectedSummary);
+      const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, state.selfIdentity);
       assertStableChatSystem(state, systemPrompt);
       const runtimeGroundingAnchor = resolveRuntimeGroundingAnchor(
         state.runtimeGroundingAnchor ? new Date(state.runtimeGroundingAnchor) : undefined,

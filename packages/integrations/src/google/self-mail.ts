@@ -1,5 +1,5 @@
 import { parseEmailAddress } from "@alfred/contracts";
-import { serverEnv } from "@alfred/env/server";
+import { envFieldValue } from "@alfred/env/server";
 
 /**
  * Alfred self-mail identity. Pure identity helpers — no `documents` /
@@ -13,12 +13,16 @@ import { serverEnv } from "@alfred/env/server";
 /**
  * Alfred's own send identity, parsed from `RESEND_FROM_EMAIL` (e.g.
  * `"Alfred <hey@alfred.beauty>"`) — the single source of truth shared with
- * `@alfred/mailer`. Lazily resolved + cached for the process.
+ * `@alfred/mailer` and the deployment identity block
+ * (`@alfred/assistant/settings` `selfIdentityGrounding`). Lazily resolved +
+ * cached for the process. Read through `envFieldValue` (single field, never
+ * throws): a booted process has already validated the whole environment, and a
+ * bare test run without the variable gets `null` instead of a throw.
  */
 let _selfSenderEmail: string | null | undefined;
 export function selfSenderEmail(): string | null {
   if (_selfSenderEmail === undefined) {
-    _selfSenderEmail = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
+    _selfSenderEmail = parseEmailAddress(envFieldValue("RESEND_FROM_EMAIL"));
   }
   return _selfSenderEmail;
 }

@@ -137,6 +137,8 @@ If a PR number appears in a recent prior briefing AND no fresh signal arrived fo
 export function buildSystemPrompt(args: {
   slot: "morning" | "evening";
   recipientFirstName: string | null;
+  /** Deployment identity block (`selfIdentityGrounding`): who Alfred is, from configuration. */
+  selfIdentity: string;
 }): string {
   const namePart = args.recipientFirstName
     ? `\n\nThe user's first name is "${args.recipientFirstName}". Use it in sign-offs.`
@@ -145,6 +147,6 @@ export function buildSystemPrompt(args: {
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: BASE_PROMPT,
-    grounding: [namePart.trim(), delta],
+    grounding: [args.selfIdentity, namePart.trim(), delta],
   });
 }

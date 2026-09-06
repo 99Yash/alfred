@@ -7,6 +7,7 @@ import {
 } from "@alfred/ai";
 import type { IanaTimezone } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
 import { buildBriefingTools, type DumpedBriefing } from "./tools";
 
@@ -62,6 +63,7 @@ export async function runBriefingAgent(
   const system = buildSystemPrompt({
     slot: args.slot,
     recipientFirstName: args.recipientFirstName,
+    selfIdentity: selfIdentityGrounding(),
   });
 
   const bag = buildBriefingTools({
