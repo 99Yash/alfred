@@ -46,6 +46,8 @@ function respond(outcome: InboundDeliveryOutcome, set: Context["set"]) {
       return { ok: true as const, duplicate: true as const, receiptId: outcome.receiptId };
     case "accepted":
       return { ok: true as const, receiptId: outcome.receiptId };
+    case "raw":
+      return { ok: true as const, receiptId: outcome.receiptId, raw: true as const };
     default: {
       const _exhaustive: never = outcome;
       return _exhaustive;

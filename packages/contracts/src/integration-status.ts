@@ -1,5 +1,6 @@
 /**
- * The wire shape of `GET /api/integrations`: the registry joined with the
+ * The wire shapes of the integration status reads. `GET /api/integrations` is
+ * the main one: the registry joined with the
  * user's credentials and resolved through the connected rule (ADR-0093), one
  * read the web renders without a merge of its own. The server owns the join
  * (`readIntegrationStatus` in `@alfred/assistant/connections`); the web parses
@@ -13,6 +14,9 @@
  *
  * Timestamps are ISO strings, not `Date`s: this describes the serialized JSON
  * body, not the database row.
+ *
+ * `GET /api/integrations/raw-kinds/:slug` (ADR-0097 item 9) is the second read:
+ * the raw receipt inventory of one live slug, defined at the end of this file.
  */
 
 import { z } from "zod";
@@ -63,3 +67,22 @@ export const integrationStatusSchema = z.object({
   providers: z.partialRecord(z.enum(CREDENTIAL_PROVIDERS), z.array(activeCredentialSchema)),
 });
 export type IntegrationStatus = z.infer<typeof integrationStatusSchema>;
+
+/**
+ * One provider kind the event registry does not name, as the raw receipt tier
+ * has observed it for this integration (ADR-0097 item 9): how many verified
+ * deliveries carried it and when the last one arrived.
+ */
+export const rawReceiptKindSchema = z.object({
+  /** The provider's own kind, verbatim: `comment.created`, `issue_comment.created`. */
+  kind: z.string(),
+  count: z.number().int().nonnegative(),
+  lastSeenAt: z.string(),
+});
+export type RawReceiptKind = z.infer<typeof rawReceiptKindSchema>;
+
+/** The wire shape of `GET /api/integrations/raw-kinds/:slug`, most recently seen first. */
+export const rawReceiptInventorySchema = z.object({
+  kinds: z.array(rawReceiptKindSchema),
+});
+export type RawReceiptInventory = z.infer<typeof rawReceiptInventorySchema>;

@@ -37,9 +37,11 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
    */
   dedup: InboundDedupRule<S>;
   /**
-   * Typed projection from the verified body and headers to the event type a
-   * workflow may subscribe to, or an explicit reason to ignore the delivery
-   * (a `ping`, an event the source does not subscribe to).
+   * Typed projection from the verified body and headers to one of three
+   * verdicts: the event type a workflow may subscribe to; `raw` with the
+   * provider's own kind, for a real delivery the entry does not name (stored
+   * as a raw receipt, ADR-0097 item 9); or an explicit reason to ignore the
+   * delivery outright (a `ping`, a body with no kind to read).
    */
   project(payload: JsonObject, headers: Headers): InboundProjection<S>;
   /** Resolve the credential that owns the delivery; `null` means unattributable. */
@@ -98,6 +100,15 @@ export type InboundSyntheticKey<S extends InboundEventSource = InboundEventSourc
 
 export type InboundProjection<S extends InboundEventSource> =
   | { kind: "event"; type: EventTypeForSource<S> }
+  /**
+   * A verified delivery of a kind the entry does not declare. `rawKind` is the
+   * provider's own name for it (`comment.created`, `issue_comment.created`),
+   * kept verbatim: the inventory shows it, and a later typed promotion reads
+   * it back. The receive path stores it keyed on the payload hash with no
+   * delivery job and no bus event.
+   */
+  | { kind: "raw"; rawKind: string }
+  /** Nothing to keep: a ping, or a body that names no kind at all. */
   | { kind: "ignore"; reason: string };
 
 export interface InboundOwner {
