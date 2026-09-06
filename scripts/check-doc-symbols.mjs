@@ -105,7 +105,10 @@ const ALLOWED = new Map([
     "preprod_artifact",
     "size_analysis_completed",
     "build_distribution_completed",
-  ].map((name) => /** @type {[string, string]} */ ([name, "Sentry integration webhook resource or action name"])),
+  ].map((name) => /** @type {[string, string]} */ ([
+    name,
+    "Sentry integration webhook resource or action name",
+  ])),
 ]);
 
 function referenceDocs() {
