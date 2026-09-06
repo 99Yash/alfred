@@ -7,6 +7,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
 import { buildSystemPrompt } from "@alfred/assistant/briefings";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // #265 — the briefing composer must NOT assert a progress/status claim ("still
 // no reply", "no progress", "you haven't started X") on an item that arrived as
@@ -244,7 +245,11 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
   const { scenario, modelLane } = input;
   let dumped: { subject: string; bodyText: string; bodyMarkdown: string } | null = null;
 
-  const system = buildSystemPrompt({ slot: "morning", recipientFirstName: "Yash" });
+  const system = buildSystemPrompt({
+    slot: "morning",
+    recipientFirstName: "Yash",
+    selfIdentity: selfIdentityGrounding(),
+  });
 
   try {
     await generateText({

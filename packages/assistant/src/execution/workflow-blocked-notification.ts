@@ -15,16 +15,12 @@ import { workflowBlockedGeneration } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
 import { workflows } from "@alfred/db/schemas";
-import { serverEnv } from "@alfred/env/server";
 import { renderWorkflowBlockedEmail } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { send } from "@alfred/assistant/delivery";
+import { webOrigin } from "@alfred/assistant/settings";
 import type { WorkflowBlockedNotificationJobData } from "@alfred/assistant/tool-runtime";
-
-export function webOrigin(): string {
-  return serverEnv().CORS_ORIGIN.replace(/\/$/, "");
-}
 
 // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
 export function emailLogoUrl(): string {

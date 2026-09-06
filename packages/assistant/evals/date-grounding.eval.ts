@@ -7,6 +7,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0055: behavioral eval for agent date grounding. Guards the regression
 // where the chat agent, given "how many meetings do i have in october 2026",
@@ -110,7 +111,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
     // date, and "now" rides the ephemeral runtime line as an assistant turn just
     // before the user's message (withEphemeralReference). Grounding the eval the
     // same way keeps it a faithful guard for the single-source path (#410).
-    const system = buildChatSystemPrompt("", CONNECTED_SUMMARY);
+    const system = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
     const result = await generateText({
       model: route("standard").model(),
       system,

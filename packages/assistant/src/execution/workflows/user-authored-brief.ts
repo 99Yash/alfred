@@ -42,7 +42,7 @@ import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { resolveTimezone, selfIdentityGrounding } from "@alfred/assistant/settings";
 import {
   foldToolSurfaceState,
   systemToolKernel,
@@ -96,6 +96,9 @@ const briefRunStateSchema = z
     // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
     // and reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
+    // Deployment identity block (`selfIdentityGrounding`), snapshotted with the
+    // connected summary so the prompt prefix stays stable across a redeploy.
+    selfIdentity: z.string().optional(),
     // User's IANA timezone, snapshotted once per run so tool-dispatch windows
     // match the date grounding shown to the boss. Stored as a plain string and
     // re-parsed into a zone at each read (`parseIanaTimezone`).
@@ -167,11 +170,15 @@ const BOSS_SYSTEM_PROMPT_BASE = [
   "End the run with one user-facing summary message and no tool calls.",
 ].join("\n\n");
 
-function buildBossSystemPrompt(grounding: string, connectedSummary: string): string {
+function buildBossSystemPrompt(
+  grounding: string,
+  connectedSummary: string,
+  selfIdentity: string,
+): string {
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: BOSS_SYSTEM_PROMPT_BASE,
-    grounding: [`The current date is ${grounding}.`, connectedSummary],
+    grounding: [`The current date is ${grounding}.`, selfIdentity, connectedSummary],
   });
 }
 
@@ -199,12 +206,13 @@ function buildSubAgentSystemPromptBase(subId: string): string {
 export function buildSubAgentSystemPrompt(
   grounding: string,
   connectedSummary: string,
+  selfIdentity: string,
   subId: string,
 ): string {
   return composeAgentInstructions({
     purpose: "source_faithful",
     role: buildSubAgentSystemPromptBase(subId),
-    grounding: [`The current date is ${grounding}.`, connectedSummary],
+    grounding: [`The current date is ${grounding}.`, selfIdentity, connectedSummary],
   });
 }
 
@@ -255,12 +263,20 @@ const bossTurnStep: Step<BriefRunState> = {
         tools.context,
       );
     }
+    if (state.selfIdentity === undefined) {
+      state.selfIdentity = selfIdentityGrounding();
+    }
     await tools.preload(state, transcript);
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
       system: subAgent
-        ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
-        : buildBossSystemPrompt(grounding, state.connectedSummary),
+        ? buildSubAgentSystemPrompt(
+            grounding,
+            state.connectedSummary,
+            state.selfIdentity,
+            subAgent.subId,
+          )
+        : buildBossSystemPrompt(grounding, state.connectedSummary, state.selfIdentity),
       tools: () => tools.forModel(state.activeTools),
       model: subAgent ? route("subAgent").model() : route("boss").model(),
       attribution: {
