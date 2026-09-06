@@ -1,8 +1,5 @@
-import {
-  INBOUND_EVENT_SOURCES,
-  type EventDeliveryHealth,
-  type InboundEventSource,
-} from "@alfred/contracts";
+import { INBOUND_EVENT_SOURCES, type InboundEventSource } from "@alfred/contracts";
+import type { EventDeliveryHealth } from "./descriptor";
 import { INBOUND_SOURCES } from "./registry";
 
 /**
@@ -10,7 +7,7 @@ import { INBOUND_SOURCES } from "./registry";
  * adapter. Such a source reads as degraded, never quiet: the absence of
  * deliveries from it can never be reported as "nothing happened" (ADR-0097).
  */
-export const noSubscriptionHealthSignal: EventDeliveryHealth = {
+const NO_SUBSCRIPTION_HEALTH_SIGNAL: EventDeliveryHealth = {
   healthy: false,
   reason: "no subscription health signal",
   recovery: { kind: "none" },
@@ -18,18 +15,20 @@ export const noSubscriptionHealthSignal: EventDeliveryHealth = {
 
 /**
  * Per-source subscription health for one user, for workflow trigger readiness
- * (ADR-0097). Every inbound source has an entry; `readEventSourceHealth` in
- * `automation/event-source-health.ts` folds them into the map keyed by every
- * `EventSource` (#976).
+ * (ADR-0097). The record holds every inbound source, so the one consumer,
+ * `readEventSourceHealth` in `automation/event-source-health.ts`, folds it into
+ * the map keyed by every `EventSource` without a fallback (#976).
  */
 export async function readInboundTriggerHealth(
   userId: string,
-): Promise<ReadonlyMap<InboundEventSource, EventDeliveryHealth>> {
+): Promise<Readonly<Record<InboundEventSource, EventDeliveryHealth>>> {
   const entries = await Promise.all(
     INBOUND_EVENT_SOURCES.map(async (slug): Promise<[InboundEventSource, EventDeliveryHealth]> => {
       const adapter = INBOUND_SOURCES[slug].subscription;
-      return [slug, adapter ? await adapter.health(userId) : noSubscriptionHealthSignal];
+      return [slug, adapter ? await adapter.health(userId) : NO_SUBSCRIPTION_HEALTH_SIGNAL];
     }),
   );
-  return new Map(entries);
+  // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
+  // from INBOUND_EVENT_SOURCES, so the keys are exactly InboundEventSource.
+  return Object.fromEntries(entries) as Record<InboundEventSource, EventDeliveryHealth>;
 }

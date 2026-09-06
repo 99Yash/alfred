@@ -8,7 +8,11 @@ import {
   workflowToolCatalog,
 } from "@alfred/assistant/tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
-import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
+import {
+  resolveWorkflowReadiness,
+  type WorkflowReadinessContext,
+  type WorkflowReadinessProblem,
+} from "./readiness";
 import { reconcileWorkflowReadiness } from "./revisions";
 
 export type RuntimeReadinessResult =
@@ -55,7 +59,7 @@ export async function checkWorkflowRunReadiness(args: {
     throw new Error(`[workflows:readiness] pinned revision is unavailable: ${args.runId}`);
   }
 
-  let context: Awaited<ReturnType<typeof readWorkflowReadinessContext>>;
+  let context: WorkflowReadinessContext;
   try {
     context = await readWorkflowReadinessContext(args.userId);
   } catch (error) {
@@ -73,8 +77,7 @@ export async function checkWorkflowRunReadiness(args: {
   };
   const problems = resolveWorkflowReadiness({
     definition,
-    availability: context.availability,
-    eventSourceHealth: context.eventSourceHealth,
+    context,
     toolCatalog: workflowToolCatalog(),
   });
 

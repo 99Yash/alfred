@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 
-import type {
-  IntegrationAvailabilitySnapshot,
-  ToolName,
-  WorkflowRevisionDefinition,
+import {
+  EVENT_SOURCES,
+  eventDeliveryAccounts,
+  type EventSource,
+  type IntegrationAvailabilitySnapshot,
+  type ToolName,
+  type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { workflowToolCatalog, type WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
+import type {
+  EventSourceHealth,
+  EventSourceHealthMap,
+} from "../../src/automation/event-source-health";
 import {
-  gmailEventSourceHealth,
+  gmailAccountHealth,
   type GmailEventHealth,
 } from "../../src/automation/gmail-event-readiness";
 import {
@@ -18,32 +25,56 @@ import {
   resolveWorkflowCapabilities,
   resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness as resolveWorkflowReadinessBase,
+  type WorkflowReadinessContext,
 } from "@alfred/assistant/automation/readiness";
 import { runtimeReadinessDisposition } from "@alfred/assistant/automation/runtime-readiness";
 import { validateWorkflowDefinition } from "@alfred/assistant/automation/revisions";
 
+const HEALTHY_SOURCE: EventSourceHealth = { grain: "source", health: { healthy: true } };
+
+/** A full health map: every source healthy at source grain, except the entries given. */
+function healthMap(overrides: Partial<EventSourceHealthMap> = {}): EventSourceHealthMap {
+  // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
+  // from EVENT_SOURCES, so the keys are exactly EventSource.
+  const healthy = Object.fromEntries(
+    EVENT_SOURCES.map((source) => [source, HEALTHY_SOURCE]),
+  ) as Record<EventSource, EventSourceHealth>;
+  return { ...healthy, ...overrides };
+}
+
+function context(
+  availability: IntegrationAvailabilitySnapshot,
+  eventSourceHealth: Partial<EventSourceHealthMap> = {},
+): WorkflowReadinessContext {
+  return { availability, eventSourceHealth: healthMap(eventSourceHealth) };
+}
+
 function resolveWorkflowReadiness(
-  args: Omit<
-    Parameters<typeof resolveWorkflowReadinessBase>[0],
-    "eventSourceHealth" | "toolCatalog"
-  > & {
-    eventSourceHealth?: Parameters<typeof resolveWorkflowReadinessBase>[0]["eventSourceHealth"];
+  args: Omit<Parameters<typeof resolveWorkflowReadinessBase>[0], "context" | "toolCatalog"> & {
+    availability: IntegrationAvailabilitySnapshot;
+    eventSourceHealth?: Partial<EventSourceHealthMap>;
   },
 ) {
+  const { availability, eventSourceHealth, ...rest } = args;
   return resolveWorkflowReadinessBase({
-    ...args,
-    eventSourceHealth: args.eventSourceHealth ?? new Map(),
+    ...rest,
+    context: context(availability, eventSourceHealth),
     toolCatalog: workflowToolCatalog(),
   });
 }
 
 /** The Gmail entry of the health map for one credential's facts, as the reader would build it. */
 function gmailHealth(
-  availability: IntegrationAvailabilitySnapshot,
   facts: ReadonlyMap<string, GmailEventHealth>,
   now: Date,
-) {
-  return new Map([["gmail", gmailEventSourceHealth(availability, facts, now)] as const]);
+): Partial<EventSourceHealthMap> {
+  return {
+    gmail: {
+      grain: "account",
+      accounts: eventDeliveryAccounts("gmail"),
+      healthOf: gmailAccountHealth(facts, now),
+    },
+  };
 }
 
 before(() => registerBuiltinTools());
@@ -118,9 +149,8 @@ describe("workflow readiness", () => {
     const result = resolveWorkflowCapabilities({
       definition: definition(),
       requested: [{ tool: "system.current_time" }],
-      availability: unavailable,
+      context: context(unavailable),
       toolCatalog: workflowToolCatalog(),
-      eventSourceHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["system"]);
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
@@ -132,9 +162,8 @@ describe("workflow readiness", () => {
     const result = resolveWorkflowCapabilities({
       definition: definition(),
       requested: [{ tool: "system.current_time", resourceScope: { calendarId: "primary" } }],
-      availability: unavailable,
+      context: context(unavailable),
       toolCatalog: workflowToolCatalog(),
-      eventSourceHealth: new Map(),
       resourceAccessFacts: [
         {
           tool: "system.current_time",
@@ -152,9 +181,8 @@ describe("workflow readiness", () => {
         trigger: { kind: "event", source: "gmail", type: "message_received" },
       }),
       requested: [{ tool: "slack.send_message" }],
-      availability: unavailable,
+      context: context(unavailable),
       toolCatalog: workflowToolCatalog(),
-      eventSourceHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
     assert.deepEqual(result.definition.allowedTools, []);
@@ -166,9 +194,8 @@ describe("workflow readiness", () => {
     const result = resolveWorkflowCapabilities({
       definition: definition(),
       requested: [{ tool: "system.current_time" }],
-      availability: unavailable,
+      context: context(unavailable),
       toolCatalog: new Map<ToolName, WorkflowToolFacts>(),
-      eventSourceHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
     assert.deepEqual(result.definition.requiredCapabilities, [{ tool: "system.current_time" }]);
@@ -482,12 +509,12 @@ describe("workflow readiness", () => {
         trigger: { kind: "event", source: "gmail", type: "message_received" },
       }),
       availability: unavailable,
-      eventSourceHealth: gmailHealth(unavailable, new Map(), now),
+      eventSourceHealth: gmailHealth(new Map(), now),
     });
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
   });
 
-  test("a Gmail event watch belongs to the selected account", () => {
+  test("a Gmail trigger with no account of its own asks the user to choose one", () => {
     const now = new Date("2026-07-31T00:00:00.000Z");
     const problems = resolveWorkflowReadiness({
       definition: definition({
@@ -497,20 +524,14 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "other@example.com" }],
       }),
       availability: gmailAvailability,
-      eventSourceHealth: gmailHealth(gmailAvailability, new Map(), now),
+      eventSourceHealth: gmailHealth(new Map(), now),
     });
-    assert.equal(problems.at(-1)?.code, "trigger_not_ready");
-  });
-
-  test("a source the health map does not hold defers instead of blocking", () => {
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        trigger: { kind: "event", source: "gmail", type: "message_received" },
-      }),
-      availability: unavailable,
+    assert.equal(problems.at(-1)?.code, "choose_account");
+    assert.equal(problems.at(-1)?.field, "trigger");
+    assert.deepEqual(problems.at(-1)?.recoveryAction, {
+      kind: "choose_account",
+      integration: "gmail",
     });
-    assert.equal(problems.at(-1)?.code, "trigger_degraded");
-    assert.equal(problems.at(-1)?.recoveryAction, undefined);
   });
 
   test("a Gmail event requires receiver, cursor, and recent-sync health", () => {
@@ -551,7 +572,6 @@ describe("workflow readiness", () => {
       }),
       availability: healthy,
       eventSourceHealth: gmailHealth(
-        healthy,
         new Map([
           [
             "credential-1",
@@ -606,7 +626,6 @@ describe("workflow readiness", () => {
       }),
       availability,
       eventSourceHealth: gmailHealth(
-        availability,
         new Map([
           [
             "credential-1",
@@ -662,7 +681,6 @@ describe("workflow readiness", () => {
       }),
       availability,
       eventSourceHealth: gmailHealth(
-        availability,
         new Map([
           [
             "credential-1",
@@ -718,7 +736,6 @@ describe("workflow readiness", () => {
       }),
       availability,
       eventSourceHealth: gmailHealth(
-        availability,
         new Map([
           [
             "credential-1",
@@ -744,19 +761,16 @@ describe("workflow readiness", () => {
         trigger: { kind: "event", source: "github", type: "push" },
       }),
       availability: unavailable,
-      eventSourceHealth: new Map([
-        [
-          "github",
-          {
-            grain: "source",
-            health: {
-              healthy: false,
-              reason: "the GitHub App is not installed",
-              recovery: { kind: "connect", integration: "github" },
-            },
+      eventSourceHealth: {
+        github: {
+          grain: "source",
+          health: {
+            healthy: false,
+            reason: "the GitHub App is not installed",
+            recovery: { kind: "connect", integration: "github" },
           },
-        ],
-      ]),
+        },
+      },
     });
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
     assert.deepEqual(problems.at(-1)?.recoveryAction, { kind: "connect", integration: "github" });

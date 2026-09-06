@@ -1,9 +1,36 @@
 import { enumGuard } from "./guards";
-import type { CredentialProvider, IntegrationSlug } from "./integrations";
+import {
+  INTEGRATIONS,
+  credentialProviderOf,
+  type CredentialProvider,
+  type CredentialSpec,
+  type LiveProviderSlug,
+} from "./integrations";
+
+/**
+ * The grain at which one source's deliveries can break (#976).
+ *
+ * - `source`: one delivery verdict per user. An inbound webhook whose owner is
+ *   one installation or organization (GitHub App, Sentry) reads this way, and
+ *   so does an in-process source with no subscription to lose.
+ * - `account`: one verdict per connected account of `integration`. The rows a
+ *   trigger's `accountRef` resolves against are the integration's credential
+ *   rows that satisfy its connected rule, so the account space is declared
+ *   once here and read through {@link eventDeliveryAccounts}. Gmail's
+ *   per-account push watch reads this way.
+ */
+export type EventDeliveryGrain =
+  | { grain: "source" }
+  | { grain: "account"; integration: LiveProviderSlug };
+
+interface EventSourceEntryBase {
+  eventTypes: readonly [string, ...string[]];
+}
 
 /**
  * The browser-safe half of one event source: how its domain events are
- * produced and which event types a workflow may subscribe to.
+ * produced, at which grain their delivery can break, and which event types a
+ * workflow may subscribe to.
  *
  * - `in_process`: the source's domain events are published by code inside the
  *   server (an ingestion worker, an OAuth callback, a workflow's terminal step).
@@ -12,11 +39,13 @@ import type { CredentialProvider, IntegrationSlug } from "./integrations";
  *   `InboundSourceDescriptor` in `@alfred/assistant/connections/ingress`, and the
  *   descriptor registry is typed `Record<InboundEventSource, …>`, so adding a
  *   source here without a descriptor there fails to compile (and vice versa).
+ *   The descriptor's `subscription.health` answers for the user as a whole, so
+ *   an inbound source is `source` grain by type; a per-account inbound source
+ *   needs a new adapter shape before this union admits it.
  */
-export interface EventSourceEntry {
-  producer: "in_process" | "inbound_webhook";
-  eventTypes: readonly [string, ...string[]];
-}
+export type EventSourceEntry =
+  | (EventSourceEntryBase & { producer: "in_process"; delivery: EventDeliveryGrain })
+  | (EventSourceEntryBase & { producer: "inbound_webhook"; delivery: { grain: "source" } });
 
 /**
  * Every domain-event source, keyed by slug (ADR-0047, ADR-0097). The record's
@@ -27,18 +56,23 @@ export interface EventSourceEntry {
 export const EVENT_SOURCE_ENTRIES = {
   gmail: {
     producer: "in_process",
+    // One Pub/Sub watch per connected Google account; the watch can lapse per account.
+    delivery: { grain: "account", integration: "gmail" },
     eventTypes: ["message_received", "documents_ingested"],
   },
   "google.oauth.callback": {
     producer: "in_process",
+    delivery: { grain: "source" },
     eventTypes: ["completed"],
   },
   "learn-skill": {
     producer: "in_process",
+    delivery: { grain: "source" },
     eventTypes: ["completed"],
   },
   github: {
     producer: "inbound_webhook",
+    delivery: { grain: "source" },
     // Mirrors the GitHub App's subscribed `default_events`.
     eventTypes: ["pull_request", "push", "issues", "pull_request_review"],
   },
@@ -53,6 +87,7 @@ export const EVENT_SOURCE_ENTRIES = {
    */
   sentry: {
     producer: "inbound_webhook",
+    delivery: { grain: "source" },
     eventTypes: [
       "error_created",
       "event_alert_triggered",
@@ -73,6 +108,7 @@ export const EVENT_SOURCE_ENTRIES = {
    */
   "email-triage": {
     producer: "in_process",
+    delivery: { grain: "source" },
     eventTypes: ["classified", "reply_worthy"],
   },
 } as const satisfies Record<string, EventSourceEntry>;
@@ -95,6 +131,8 @@ export type EventSourcesWhere<P> = {
 
 export type InboundEventSource = EventSourcesWhere<{ producer: "inbound_webhook" }>;
 export type InProcessEventSource = EventSourcesWhere<{ producer: "in_process" }>;
+/** The sources whose delivery breaks per connected account, not per user. */
+export type AccountGrainEventSource = EventSourcesWhere<{ delivery: { grain: "account" } }>;
 
 export const INBOUND_EVENT_SOURCES: readonly InboundEventSource[] = EVENT_SOURCES.filter(
   (source): source is InboundEventSource =>
@@ -169,45 +207,29 @@ export function parseEventTypeName<S extends EventSource>(
 }
 
 /**
- * The user action that can restore deliveries from one event source. `connect`
- * names the integration whose connect flow restores the subscription: an event
- * source slug and an integration slug are different spaces, so the health
- * reader says which one, and readiness never guesses from the source name.
+ * The account space of an account-grain source: the integration whose connect
+ * flow restores delivery, the credential provider whose rows a trigger's
+ * `accountRef` resolves against, and the connected rule a row must satisfy to
+ * be one of those accounts (`credentialSatisfies(credential, row)`). Derived
+ * from the entry and the integration registry, so the space is declared once.
  */
-export type EventDeliveryRecovery =
-  | { kind: "connect"; integration: IntegrationSlug }
-  | { kind: "retry" }
-  /** Only time or an operator can restore deliveries. */
-  | { kind: "none" };
+export interface EventDeliveryAccounts {
+  integration: LiveProviderSlug;
+  provider: CredentialProvider;
+  credential: CredentialSpec;
+}
 
-/** Whether events from one source (or one account of it) will arrive. */
-export type EventDeliveryHealth =
-  | { healthy: true }
-  | { healthy: false; reason: string; recovery: EventDeliveryRecovery };
-
-/**
- * Delivery health for one event source, at the grain the source has (#976).
- *
- * - `source`: one verdict per user. An inbound webhook source whose owner is a
- *   single installation or organization (GitHub App, Sentry) reads this way.
- * - `account`: one verdict per connected provider account, keyed by the durable
- *   `accountId` a trigger's `accountRef` canonicalizes to. `provider` names the
- *   credential rows the ref resolves against; `unselected` is the verdict for a
- *   trigger that names no account, or one the snapshot does not hold. Gmail's
- *   per-account watch reads this way.
- *
- * The grain is a property of the source, so it sits on the value and the
- * reader of the map has to handle both; a `(source, accountRef)` key would
- * need a sentinel ref for every source-grain entry.
- */
-export type EventSourceHealth =
-  | { grain: "source"; health: EventDeliveryHealth }
-  | {
-      grain: "account";
-      provider: CredentialProvider;
-      accounts: ReadonlyMap<string, EventDeliveryHealth>;
-      unselected: EventDeliveryHealth;
-    };
-
-/** One entry per `EventSource`, as `readEventSourceHealth` fills it. */
-export type EventSourceHealthMap = ReadonlyMap<EventSource, EventSourceHealth>;
+export function eventDeliveryAccounts<S extends AccountGrainEventSource>(
+  source: S,
+): EventDeliveryAccounts;
+export function eventDeliveryAccounts(source: EventSource): EventDeliveryAccounts | null;
+/** The account space of `source`, or `null` for a source-grain source. */
+export function eventDeliveryAccounts(source: EventSource): EventDeliveryAccounts | null {
+  const delivery = EVENT_SOURCE_ENTRIES[source].delivery;
+  if (delivery.grain === "source") return null;
+  return {
+    integration: delivery.integration,
+    provider: credentialProviderOf(delivery.integration),
+    credential: INTEGRATIONS[delivery.integration].credential,
+  };
+}
