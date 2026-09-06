@@ -35,6 +35,10 @@ export type GoogleSlug = SlugsWhere<{ credential: { shape: "google_oauth" } }>;
 export type GithubAppSlug = SlugsWhere<{ credential: { shape: "github_app" } }>;
 /** The slugs whose access is one long-lived bearer token: the shared bearer persistence layer's domain. */
 export type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
+/** The bearer slugs whose token the user pastes into a form; each has its own connect body. */
+export type TokenPasteSlug = SlugsWhere<{
+  credential: { shape: "bearer"; connect: "token_paste" };
+}>;
 
 /**
  * The persisted vocabulary of `integration_credentials.provider` and the route
@@ -92,6 +96,11 @@ export const BEARER_PROVIDER_SLUGS: readonly BearerSlug[] = LIVE_PROVIDER_SLUGS.
   (slug): slug is BearerSlug => INTEGRATIONS[slug].credential.shape === "bearer",
 );
 export const isBearerProvider = enumGuard(BEARER_PROVIDER_SLUGS);
+
+export const TOKEN_PASTE_SLUGS: readonly TokenPasteSlug[] = BEARER_PROVIDER_SLUGS.filter(
+  (slug): slug is TokenPasteSlug => INTEGRATIONS[slug].credential.connect === "token_paste",
+);
+export const isTokenPasteSlug = enumGuard(TOKEN_PASTE_SLUGS);
 
 /** The credential provider of a live slug: `google` for a Google product, else the slug itself. */
 export function credentialProviderOf(slug: LiveProviderSlug): CredentialProvider {

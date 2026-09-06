@@ -813,6 +813,13 @@
       "when": 1788607635227,
       "tag": "0115_agent_run_outcome_history",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1788618564788,
+      "tag": "0116_integration_credentials_sentry_provider",
+      "breakpoints": true
     }
   ]
 }

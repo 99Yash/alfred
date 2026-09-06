@@ -218,6 +218,17 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Vercel projects and deployments",
     domain: "vercel.com",
   },
+  sentry: {
+    kind: "provider",
+    status: "live",
+    displayName: "Sentry",
+    brand: "sentry",
+    credential: { shape: "bearer", connect: "token_paste" },
+    passthrough: { transport: "rest" },
+    actions: ["request"],
+    summaryBlurb: "the user's Sentry issues and error events",
+    domain: "sentry.io",
+  },
   imessage: { kind: "channel", displayName: "iMessage", actions: [] },
 } as const satisfies Record<string, IntegrationEntry>;
 

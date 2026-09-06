@@ -16,7 +16,7 @@ import type { CredentialSpec } from "./types";
 export interface CredentialProofRow {
   readonly status: string;
   readonly scopes: Iterable<string>;
-  /** GitHub App installation id; `null` on every other shape and on a legacy classic-OAuth GitHub row. */
+  /** The provider installation id (GitHub App id, Sentry installation uuid); `null` on a legacy classic-OAuth GitHub row and on providers that send no webhooks. Only the `github_app` arm reads it. */
   readonly installationId: string | null;
 }
 

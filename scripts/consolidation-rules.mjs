@@ -58,7 +58,7 @@
  * aliases PR 4 of the registry plan deletes. Exported for the self-test, which
  * proves every `export type …Slug` in `slugs.ts` matches it.
  */
-export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
+export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|TokenPaste|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
 
 /** @type {ConsolidationRule[]} */
 export const RULES = [

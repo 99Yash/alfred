@@ -2,6 +2,7 @@ import { githubClientForUser } from "./github/client";
 import { googleClientForUser } from "./google/client";
 import { notionClientForUser } from "./notion/client";
 import { railwayClientForUser } from "./railway/client";
+import { sentryClientForUser } from "./sentry/client";
 import { vercelClientForUser } from "./vercel/client";
 
 import type { CredentialProvider } from "@alfred/contracts";
@@ -64,6 +65,7 @@ const providerRegistry = {
   google: googleClientForUser,
   notion: notionClientForUser,
   railway: railwayClientForUser,
+  sentry: sentryClientForUser,
   vercel: vercelClientForUser,
 } satisfies Record<CredentialProvider, ProviderFactory>;
 

@@ -9,6 +9,7 @@
     "./notion": "./src/notion/index.ts",
     "./railway": "./src/railway/index.ts",
     "./vercel": "./src/vercel/index.ts",
+    "./sentry": "./src/sentry/index.ts",
     "./shared": "./src/shared/index.ts"
   },
   "scripts": {
