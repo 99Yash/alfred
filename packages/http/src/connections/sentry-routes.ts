@@ -6,7 +6,11 @@ import {
   type CredentialProvider,
 } from "@alfred/contracts";
 import { isSentryAuthorizationError, sentryValidateToken } from "@alfred/integrations/sentry";
-import { deleteIntegrationCredential, upsertBearerCredential } from "@alfred/integrations/shared";
+import {
+  deleteIntegrationCredential,
+  findSoleActiveCredential,
+  upsertBearerCredential,
+} from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { ZodError } from "zod";
 import { authMacro } from "../middleware/auth";
@@ -74,6 +78,20 @@ export const sentryIntegrationRoutes = new Elysia({
             );
           }
           const label = connection.organization.slug;
+          // One Client Secret attributes deliveries to one credential, so a
+          // second organization would silence the ingress for both (the
+          // descriptor refuses the `many` state). Refuse it at the door; a
+          // re-connect of the same organization is the upsert's in-place update.
+          const existing = await findSoleActiveCredential({ provider: PROVIDER });
+          const sameRow =
+            existing.kind === "one" &&
+            existing.credential.userId === user.id &&
+            existing.credential.accountId === connection.organization.id;
+          if (existing.kind === "many" || (existing.kind === "one" && !sameRow)) {
+            throw Errors.ConflictError(
+              "Alfred pairs with one Sentry organization. Disconnect the connected one first.",
+            );
+          }
           const credential = await upsertBearerCredential({
             userId: user.id,
             provider: PROVIDER,
