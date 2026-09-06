@@ -111,7 +111,9 @@ Should Alfred answer capability questions from prompt-injected context, or shoul
 
 Partially resolved (2026-09-06): the prompt-preamble half has a first slice.
 
-`selfIdentityGrounding()` in `@alfred/assistant/settings` renders a deployment identity block from configuration (`CORS_ORIGIN`, `BETTER_AUTH_URL`, `RESEND_FROM_EMAIL`, `GITHUB_APP_SLUG`): the hostnames and addresses that are Alfred. Every prose builder (chat, brief boss and sub-agent, daily briefing agent) and both triage passes (cheap classify, boss deepen) receive it. Chat and brief snapshot it into run state beside the connected summary, so the system prompt stays stable across a redeploy. Nothing in source names the hosted domain; when the domain changes, the block follows.
+`selfIdentityGrounding()` in `@alfred/assistant/settings` renders a deployment identity block from configuration (`CORS_ORIGIN`, `BETTER_AUTH_URL`, `RESEND_FROM_EMAIL`, `GITHUB_APP_SLUG`): the hostnames and addresses that are Alfred. Every prose builder (chat, brief boss and sub-agent, daily briefing agent, legacy briefing composer) and both triage passes (cheap classify, boss deepen) receive it. Chat and brief snapshot it into run state beside the connected summary, so the system prompt stays stable across a redeploy. Chat checkpoints with an existing prompt hash but no identity block keep the old prompt for the rest of the run. New runs receive the current identity block. Nothing in source names the hosted domain; when the domain changes, the block follows.
+
+Deployment identity does not prove that the user initiated an access event. The block requires evidence of user initiation before calling access expected, and preserves warnings about unrecognized sign-ins, unexpected grants, and account compromise.
 
 The trigger: the first production evening briefing read Google's "alfred.beauty was granted access to your Google Account" alert as a stranger to revoke. The tool half (`system.describe_capabilities`) stays open.
 
