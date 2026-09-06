@@ -1,10 +1,7 @@
 export {
   createSentryClient,
-  getSentryIntegrationConfig,
   isSentryAuthorizationError,
-  isSentryConfigured,
   sentryClientForUser,
-  SentryInstallationNotFoundError,
   sentryValidateToken,
 } from "./client";
 export type {
@@ -12,7 +9,6 @@ export type {
   SentryClient,
   SentryClientOptions,
   SentryConnection,
-  SentryIntegrationConfig,
   SentryOrganization,
 } from "./client";
 // The webhook half: what the `sentry` ingress descriptor in
@@ -21,7 +17,6 @@ export type {
 export {
   parseSeerPullRequestsCreated,
   SENTRY_HOOK_HEADERS,
-  sentryInstallationUuid,
   sentryWebhookSecretConfigured,
   verifySentryWebhookSignature,
 } from "./webhook";

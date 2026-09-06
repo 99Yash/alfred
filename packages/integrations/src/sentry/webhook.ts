@@ -1,4 +1,3 @@
-import { getStringPath, isNonEmptyString, type JsonObject } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { z } from "zod";
 
@@ -15,8 +14,10 @@ import { hmacSha256Hex, signatureMatches } from "../shared/webhook";
  *   fresh uuid per send, so neither is a replay window or a dedup key.
  * - `Sentry-Hook-Resource` names the resource (`error`, `event_alert`, `issue`,
  *   `seer`, `installation`, `comment`, …); the body's `action` completes it.
- * - `installation.uuid` at the payload root is the installation the connect
- *   flow stored in `integration_credentials.installation_id`.
+ * - The body carries no organization and the connect flow cannot learn the
+ *   installation uuid (see `client.ts`), so the descriptor attributes a verified
+ *   delivery to the one active Sentry credential: one Client Secret is one
+ *   integration in one organization.
  */
 
 /** Sentry's per-delivery headers, spelled once. `Headers.get` is case-insensitive. */
@@ -51,12 +52,6 @@ export function verifySentryWebhookSignature(
   return signatureMatches(hmacSha256Hex(secret, rawBody), signatureHeader)
     ? "verified"
     : "mismatch";
-}
-
-/** The installation uuid the delivery names, or `null` when the payload carries none. */
-export function sentryInstallationUuid(payload: JsonObject): string | null {
-  const uuid = getStringPath(payload, "installation", "uuid");
-  return isNonEmptyString(uuid) ? uuid : null;
 }
 
 const seerPullRequestSchema = z.object({
