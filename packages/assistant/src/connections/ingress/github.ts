@@ -5,6 +5,7 @@ import {
   hasActiveInstallationCredential,
 } from "@alfred/integrations/shared";
 import type { InboundSourceDescriptor } from "./descriptor";
+import { describeGithubReceipt } from "./github-description";
 
 /**
  * GitHub App activity (ADR-0052, ADR-0097). GitHub signs the raw body with the
@@ -23,6 +24,7 @@ import type { InboundSourceDescriptor } from "./descriptor";
  */
 export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   slug: "github",
+  describe: describeGithubReceipt,
   verify: (raw, headers) => verifyWebhookSignature(raw, headers.get("x-hub-signature-256")),
   dedup: { kind: "delivery_id", header: "x-github-delivery" },
   project: (payload, headers) => {

@@ -6,6 +6,7 @@ import {
   verifySentryWebhookSignature,
 } from "@alfred/integrations/sentry";
 import type { InboundProjection, InboundSourceDescriptor, InboundSyntheticKey } from "./descriptor";
+import { describeInboundJson } from "./description";
 
 /**
  * Sentry internal-integration webhooks (ADR-0097, #563). Sentry signs the raw
@@ -121,6 +122,7 @@ function projectSentry(payload: JsonObject, headers: Headers): InboundProjection
 
 export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
   slug: "sentry",
+  describe: (kind, payload) => describeInboundJson("sentry", kind, payload),
   verify: (raw, headers) => {
     const verdict = verifySentryWebhookSignature(raw, headers.get(SENTRY_HOOK_HEADERS.signature));
     if (verdict === "no_secret") {
