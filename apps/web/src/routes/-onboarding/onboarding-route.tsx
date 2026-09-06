@@ -1,8 +1,8 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { OnboardingFlow, type OnboardingStep } from "~/components/onboarding/onboarding-flow";
 import { useConnectedAccountLabel } from "~/lib/integrations/use-integration-status";
+import { writeOnboardingHint } from "~/lib/onboarding/onboarding-hint";
 import { authClient } from "~/lib/auth/auth-client";
 import { client, API_URL } from "~/lib/eden";
 import { toast } from "~/lib/toast";
@@ -12,7 +12,6 @@ export type { OnboardingStep };
 export function OnboardingRoute() {
   const { step, google_connected, github_connected } = useSearch({ from: "/onboarding" });
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { data: session, isPending } = authClient.useSession();
   const [finishing, setFinishing] = useState(false);
 
@@ -53,15 +52,24 @@ export function OnboardingRoute() {
       if (error) {
         throw new Error(`onboarding complete failed (${error.status})`);
       }
-      await queryClient.invalidateQueries({ queryKey: ["me", "onboarding"] });
-      await navigate({ to: "/" });
+      // #991: seed the first-paint hint synchronously, then leave with a
+      // full-page navigation. The SPA path (`invalidateQueries` + `navigate`)
+      // raced the `AppShell` guard: its optimistic branch read a still-`false`
+      // hint while the refetched flag had not yet rendered, and pushed the
+      // user straight back to `/onboarding`. The Google callback never had
+      // this problem because it is a server 302 into a fresh document that
+      // rebuilds cache and hint from server truth — so make completion take
+      // the same shape. Nothing in-memory is worth keeping at this point.
+      writeOnboardingHint(session.user.id, true);
+      window.location.assign("/");
+      // Leave `finishing` true so the button doesn't flip back to "Start
+      // using Alfred" during the unload.
     } catch (err) {
       console.warn("[onboarding] failed to mark complete:", err);
       toast.error({
         message: "Couldn't finish setup",
         description: "Something went wrong on our end. Please try again.",
       });
-    } finally {
       setFinishing(false);
     }
   };
