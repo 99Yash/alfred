@@ -32,14 +32,17 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   resolveOwner: async (payload) => {
     const installationId = githubInstallationId(payload);
     if (!installationId) return null;
-    const credential = await findActiveCredentialByInstallationId("github", installationId);
+    const credential = await findActiveCredentialByInstallationId({
+      provider: "github",
+      installationId,
+    });
     return credential
       ? { userId: credential.userId, credentialId: credential.id, accountRef: credential.accountId }
       : null;
   },
   subscription: {
     async health(userId) {
-      const installed = await hasActiveInstallationCredential(userId, "github");
+      const installed = await hasActiveInstallationCredential({ userId, provider: "github" });
       return installed
         ? { healthy: true }
         : {

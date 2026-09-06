@@ -277,7 +277,7 @@ const INTEGRATION_PAGE_COPY = {
       body: "Connect Sentry with an internal integration token and your organization slug. Alfred reads your issues and events through that integration, and receives its webhooks.",
       heading: "Error Intelligence",
       detail:
-        "Alfred can list an organization's projects and issues, read one issue and its latest event with the stack trace, and react when Sentry sends an alert or Seer opens a pull request.",
+        "Alfred can list an organization's projects and issues, read one issue and its latest event with the stack trace, and receive the webhook when Sentry sends an alert or Seer opens a pull request.",
     },
   },
 } satisfies Record<CatalogSlug, IntegrationPageCopy>;

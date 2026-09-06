@@ -11,6 +11,7 @@
  */
 export type {
   InboundDedupRule,
+  InboundKeyInput,
   InboundOwner,
   InboundProjection,
   InboundSourceDescriptor,

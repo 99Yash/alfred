@@ -35,7 +35,7 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
    * A delivery whose rule yields no key is acknowledged and dropped, never
    * stored under a guessed key.
    */
-  dedup: InboundDedupRule;
+  dedup: InboundDedupRule<S>;
   /**
    * Typed projection from the verified body and headers to the event type a
    * workflow may subscribe to, or an explicit reason to ignore the delivery
@@ -53,19 +53,48 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
   subscription?: InboundSubscriptionAdapter;
 }
 
-export type InboundDedupRule =
+/**
+ * `key` is a method signature, not a function-typed property, on purpose. The
+ * registry stores `InboundSourceDescriptor<"sentry">` behind the union-typed
+ * `InboundSourceDescriptor`, and a property whose parameter narrows with `S`
+ * would not be assignable under strict function variance; a method is checked
+ * bivariantly. The receive path only ever calls a rule with the type its own
+ * descriptor projected, so the widening is sound in practice.
+ */
+export type InboundDedupRule<S extends InboundEventSource = InboundEventSource> =
   /** The provider sends a delivery id that is stable across redeliveries (GitHub's `X-GitHub-Delivery`). */
   | { kind: "delivery_id"; header: string }
   /**
    * No stable id on the wire: the key is derived from payload identity. The
-   * headers are passed too, because a provider may name the resource only
-   * there (Sentry's `Sentry-Hook-Resource`). `null` = cannot key this delivery.
+   * key receives the projected event type and switches on it exhaustively, so
+   * a type the entry subscribes to without a key rule does not compile. `null`
+   * = the payload lacks the identity the rule reads.
    */
-  | { kind: "synthetic"; key: InboundSyntheticKey }
+  | { kind: "synthetic"; key(input: InboundKeyInput<S>): string | null }
   /** Prefer the header; fall back to the payload key when the header is absent. */
-  | { kind: "delivery_id_or_synthetic"; header: string; key: InboundSyntheticKey };
+  | {
+      kind: "delivery_id_or_synthetic";
+      header: string;
+      key(input: InboundKeyInput<S>): string | null;
+    };
 
-export type InboundSyntheticKey = (payload: JsonObject, headers: Headers) => string | null;
+/** What a synthetic key may read. The headers are absent on purpose: the type already names the resource. */
+export interface InboundKeyInput<S extends InboundEventSource = InboundEventSource> {
+  payload: JsonObject;
+  /** The type `project` returned for this delivery; the key switches on it. */
+  type: EventTypeForSource<S>;
+  /**
+   * sha256 hex of the raw body, the same value `event_receipts.payload_hash`
+   * stores. A key may fold a slice of it in when the provider repeats an
+   * identity for distinct events and offers no other fact to tell them apart.
+   */
+  payloadHash: string;
+}
+
+/** The function type a descriptor author annotates a synthetic key with; the rule stores it as a method. */
+export type InboundSyntheticKey<S extends InboundEventSource = InboundEventSource> = (
+  input: InboundKeyInput<S>,
+) => string | null;
 
 export type InboundProjection<S extends InboundEventSource> =
   | { kind: "event"; type: EventTypeForSource<S> }
@@ -99,18 +128,18 @@ export interface InboundSubscriptionAdapter {
 }
 
 /** Resolve the dedup key one rule yields for one delivery, or `null` when it yields none. */
-export function inboundDeliveryKey(
-  rule: InboundDedupRule,
-  payload: JsonObject,
+export function inboundDeliveryKey<S extends InboundEventSource>(
+  rule: InboundDedupRule<S>,
   headers: Headers,
+  input: InboundKeyInput<S>,
 ): string | null {
   switch (rule.kind) {
     case "delivery_id":
       return nonEmpty(headers.get(rule.header));
     case "synthetic":
-      return nonEmpty(rule.key(payload, headers));
+      return nonEmpty(rule.key(input));
     case "delivery_id_or_synthetic":
-      return nonEmpty(headers.get(rule.header)) ?? nonEmpty(rule.key(payload, headers));
+      return nonEmpty(headers.get(rule.header)) ?? nonEmpty(rule.key(input));
     default: {
       const _exhaustive: never = rule;
       return _exhaustive;

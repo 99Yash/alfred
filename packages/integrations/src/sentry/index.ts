@@ -22,6 +22,7 @@ export {
   parseSeerPullRequestsCreated,
   SENTRY_HOOK_HEADERS,
   sentryInstallationUuid,
+  sentryWebhookSecretConfigured,
   verifySentryWebhookSignature,
 } from "./webhook";
-export type { SeerPullRequestsCreated } from "./webhook";
+export type { SeerPullRequestsCreated, SentryWebhookVerdict } from "./webhook";

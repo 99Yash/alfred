@@ -1,4 +1,4 @@
-import type { BearerSlug, CredentialProvider } from "@alfred/contracts";
+import type { BearerSlug, CredentialProvider, InboundEventSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
@@ -192,6 +192,15 @@ export async function listActiveBearerCredentials(
 export type InstallationCredential = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
 
 /**
+ * The providers whose credential row names a provider-side installation: the
+ * inbound webhook sources, because attribution of a delivery is the only reason
+ * `installation_id` is stored. Narrower than {@link CredentialProvider} so
+ * that a lookup for a provider that never writes the column (`notion`) is a
+ * compile error, not a query that always returns `null`.
+ */
+export type InstallationProvider = CredentialProvider & InboundEventSource;
+
+/**
  * Resolve the active credential that owns one provider-side installation — the
  * join from an inbound webhook delivery (which carries only the installation id)
  * back to a user and the account the receipt is filed under. The id space is
@@ -199,10 +208,10 @@ export type InstallationCredential = Pick<IntegrationCredential, "id" | "userId"
  * installation id and a Sentry installation uuid share the indexed column and
  * nothing else. Returns the most-recently-updated active match.
  */
-export async function findActiveCredentialByInstallationId(
-  provider: CredentialProvider,
-  installationId: string,
-): Promise<InstallationCredential | null> {
+export async function findActiveCredentialByInstallationId(args: {
+  provider: InstallationProvider;
+  installationId: string;
+}): Promise<InstallationCredential | null> {
   const rows = await db()
     .select({
       id: integrationCredentials.id,
@@ -212,8 +221,8 @@ export async function findActiveCredentialByInstallationId(
     .from(integrationCredentials)
     .where(
       and(
-        eq(integrationCredentials.provider, provider),
-        eq(integrationCredentials.installationId, installationId),
+        eq(integrationCredentials.provider, args.provider),
+        eq(integrationCredentials.installationId, args.installationId),
         eq(integrationCredentials.status, "active"),
       ),
     )
@@ -227,17 +236,17 @@ export async function findActiveCredentialByInstallationId(
  * installation: the subscription-health signal for an inbound source whose
  * deliveries are attributed by installation id (ADR-0097 item 5).
  */
-export async function hasActiveInstallationCredential(
-  userId: string,
-  provider: CredentialProvider,
-): Promise<boolean> {
+export async function hasActiveInstallationCredential(args: {
+  userId: string;
+  provider: InstallationProvider;
+}): Promise<boolean> {
   const rows = await db()
     .select({ id: integrationCredentials.id })
     .from(integrationCredentials)
     .where(
       and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, provider),
+        eq(integrationCredentials.userId, args.userId),
+        eq(integrationCredentials.provider, args.provider),
         eq(integrationCredentials.status, "active"),
         isNotNull(integrationCredentials.installationId),
       ),
