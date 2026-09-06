@@ -96,3 +96,29 @@ integration. Resources subscribed:
 `metric_alert` and `installation` are not resource checkboxes on this form.
 Sentry sends `installation` deliveries to every integration, and metric alerts
 arrive through the Alert Action on a metric alert rule.
+
+### Gmail push: Pub/Sub subscription `gmail-push-prod` (recreated 2026-09-06)
+
+Project `vermithor-485206`, topic `projects/vermithor-485206/topics/gmail-push`.
+The topic grants Pub/Sub Publisher to the Gmail push service account.
+
+| setting | value |
+| --- | --- |
+| Delivery type | Push |
+| Endpoint URL | `https://api.alfred.beauty/webhooks/gmail` |
+| Authentication | On, service account `gmail-push-pusher@vermithor-485206.iam.gserviceaccount.com` |
+| Audience | `https://api.alfred.beauty/webhooks/gmail` (must equal `GOOGLE_PUBSUB_AUDIENCE` on Railway) |
+| Retry policy | Exponential backoff, 10 s to 600 s |
+| Expiry period | **Never expire** |
+
+Why "Never expire" matters. The first subscription of this name was created on
+2026-05-20 with the console default, which deletes a subscription after 31 days
+with no subscriber activity. The production database was emptied in July 2026.
+With no credential there was no Gmail watch, no published message, and no push
+delivery, so the subscription expired on its own about a month later. The GCP
+audit log holds no DeleteSubscription entry, because the expiry is a system
+action. From then until 2026-09-06 every Gmail sync ran as `reason=poll-fallback`
+and a new email waited up to 10 minutes for a tag. If push stops again, check
+this subscription first. A `gmail.poll_recent` line in the server log proves that
+push is live: only the webhook enqueues that job. The first one after the
+recreation ran at 14:33:52 UTC on 2026-09-06, between two sweeps.
