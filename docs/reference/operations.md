@@ -53,3 +53,46 @@ node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js
 - For Gmail-mutating smokes, confirm `GMAIL_MAILBOX_WRITES_ENABLED` intent.
 - Add new scripts under the folder from the table. If no class fits, update
   this doc and `apps/server/src/scripts/README.md`.
+
+## Provider webhook subscriptions
+
+The raw receipt tier (ADR-0097 item 9) keeps every verified delivery that an
+active credential owns. It can keep only what the provider sends, so each
+provider console is set to send every event resource it offers. A future gap
+is a configuration change, not a code change. Check this list first.
+
+Rules for the GitHub App page: do not change the callback URLs, and keep
+"Redirect on update" on. A callback URL swap saves silently as a no-op.
+
+### GitHub App `alfred-99yash` (set 2026-09-06)
+
+Subscribed to all 29 events that the current repository permissions offer:
+
+`commit_comment`, `create`, `delete`, `fork`, `gollum`, `installation_target`,
+`issue_comment`, `issue_dependencies`, `issues`, `label`, `merge_queue_entry`,
+`meta`, `milestone`, `public`, `pull_request`, `pull_request_review`,
+`pull_request_review_comment`, `pull_request_review_thread`, `push`, `release`,
+`repository`, `repository_dispatch`, `security_advisory`, `star`, `sub_issues`,
+`watch`, `workflow_dispatch`, `workflow_job`, `workflow_run`.
+
+An event that needs a permission the App does not hold is not offered on the
+page. Adding a permission asks the installation to approve it again.
+
+### Sentry internal integration `Alfred` in `yashs-projects` (set 2026-09-06)
+
+Webhook URL: `https://api.alfred.beauty/webhooks/inbound/sentry`. Alert Action
+is on, so `event_alert` deliveries arrive from alert rules that target the
+integration. Resources subscribed:
+
+- `issue`: `created`, `resolved`, `assigned`, `ignored`, `unresolved`
+- `comment`: `created`, `updated`, `deleted`
+- `seer`: `root_cause_started`, `root_cause_completed`, `solution_started`,
+  `solution_completed`, `coding_started`, `coding_completed`, `pr_created`,
+  `iteration_started`, `iteration_completed`
+- `preprod_artifact`: `size_analysis_completed`, `build_distribution_completed`
+- `error` (`error.created`): not available. Sentry offers it on the Business
+  plan and up, and the checkbox is disabled on this plan.
+
+`metric_alert` and `installation` are not resource checkboxes on this form.
+Sentry sends `installation` deliveries to every integration, and metric alerts
+arrive through the Alert Action on a metric alert rule.
