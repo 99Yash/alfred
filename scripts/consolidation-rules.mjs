@@ -71,8 +71,9 @@ export const RULES = [
       "packages/db/src/schema/integrations.ts",
       "packages/assistant/src/connections/ingestion/inbound-receive.ts",
       "packages/assistant/src/connections/raw-receipt-inventory.ts",
+      "packages/assistant/src/connections/ingestion/receipt-corpus-backfill.ts",
     ],
-    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, and raw inventory may read the full eventReceipts table.",
+    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, raw inventory, and corpus backfill may read both tiers of eventReceipts.",
   },
   {
     id: "humanize-integration-slug",

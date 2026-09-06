@@ -1,6 +1,7 @@
 export * from "./bound";
 export * from "./guards";
 export * from "./json";
+export * from "./flatten-json";
 export * from "./runtime";
 export * from "./google-scopes";
 export * from "./oauth-scopes";

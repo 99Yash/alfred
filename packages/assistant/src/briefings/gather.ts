@@ -11,6 +11,7 @@ import type {
 } from "@alfred/contracts";
 import {
   GOOGLE_SCOPE,
+  getStringPath,
   isLoopClosingCategory,
   isRecord,
   parseEventTypeName,
@@ -20,6 +21,7 @@ import {
   weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { INBOUND_SOURCES } from "@alfred/assistant/connections/ingress";
 import {
   documents,
   emailTriage,
@@ -533,85 +535,6 @@ export async function gatherDayShape(args: {
 const MAX_ACTIVITY_ITEMS = 25;
 
 /**
- * The slice of a GitHub webhook body the activity line reads. The body is
- * persisted as `event_receipts.payload` (jsonb, typed `unknown` on read), so
- * this is the owning boundary that validates it. Every field is optional: an
- * older or partial delivery still yields a generic line, never an error.
- */
-const githubWebhookPayloadSchema = z.object({
-  action: z.string().optional(),
-  ref: z.string().optional(),
-  commits: z.array(z.unknown()).optional(),
-  compare: z.string().optional(),
-  pull_request: z
-    .object({
-      number: z.number().optional(),
-      title: z.string().optional(),
-      html_url: z.string().optional(),
-      merged: z.boolean().optional(),
-    })
-    .optional(),
-  issue: z
-    .object({
-      number: z.number().optional(),
-      title: z.string().optional(),
-      html_url: z.string().optional(),
-    })
-    .optional(),
-  repository: z
-    .object({ full_name: z.string().optional(), html_url: z.string().optional() })
-    .optional(),
-  review: z.object({ state: z.string().optional(), html_url: z.string().optional() }).optional(),
-});
-type GithubWebhookPayload = z.infer<typeof githubWebhookPayloadSchema>;
-
-/**
- * Turn a stored GitHub webhook into a one-line activity description. Reads
- * defensively from the retained payload — any field can be absent on an older
- * or partial delivery, so everything degrades to a sensible generic line.
- */
-interface GithubActivitySummary {
-  title: string;
-  status?: IntegrationActivityItem["status"] | undefined;
-  url?: string | undefined;
-}
-
-function describeGithubActivity(
-  eventType: string,
-  action: string | null,
-  repo: string | null,
-  payload: GithubWebhookPayload,
-): GithubActivitySummary {
-  const where = repo ? ` in ${repo}` : "";
-  switch (eventType) {
-    case "pull_request": {
-      const pr = payload.pull_request ?? {};
-      const verb = action === "closed" ? (pr.merged ? "merged" : "closed") : (action ?? "updated");
-      const title = `PR #${pr.number ?? "?"} ${verb}${where}${pr.title ? `: ${pr.title}` : ""}`;
-      return { title, status: action === "closed" ? "resolved" : "open", url: pr.html_url };
-    }
-    case "issues": {
-      const issue = payload.issue ?? {};
-      const title = `Issue #${issue.number ?? "?"} ${action ?? "updated"}${where}${issue.title ? `: ${issue.title}` : ""}`;
-      return { title, status: action === "closed" ? "resolved" : "open", url: issue.html_url };
-    }
-    case "push": {
-      const count = Array.isArray(payload.commits) ? payload.commits.length : 0;
-      const branch = (payload.ref ?? "").replace("refs/heads/", "");
-      const title = `${count} commit${count === 1 ? "" : "s"} pushed${branch ? ` to ${branch}` : ""}${where}`;
-      return { title, url: payload.compare };
-    }
-    case "pull_request_review": {
-      const pr = payload.pull_request ?? {};
-      const title = `PR #${pr.number ?? "?"} ${payload.review?.state ?? "reviewed"}${where}`;
-      return { title, status: "open", url: payload.review?.html_url ?? pr.html_url };
-    }
-    default:
-      return { title: `${eventType}${action ? ` ${action}` : ""}${where}` };
-  }
-}
-
-/**
  * Recent GitHub App activity for the briefing window (ADR-0052), sourced from
  * the `event_receipts` rows the ingress route stores for `provider = 'github'`
  * (ADR-0097). Empty when nothing fired or GitHub isn't connected —
@@ -647,11 +570,9 @@ async function gatherIntegrationActivity(args: {
     // activity line either.
     const eventType = parseEventTypeName("github", row.eventType);
     if (!eventType) return [];
-    const parsed = githubWebhookPayloadSchema.safeParse(row.payload);
-    const payload: GithubWebhookPayload = parsed.success ? parsed.data : {};
-    const action = payload.action ?? null;
-    const repo = payload.repository?.full_name ?? null;
-    const { title, status, url } = describeGithubActivity(eventType, action, repo, payload);
+    const action = getStringPath(row.payload, "action");
+    const repo = getStringPath(row.payload, "repository", "full_name");
+    const { title, status, url } = INBOUND_SOURCES.github.describe(eventType, row.payload);
     return [
       {
         id: row.id,
