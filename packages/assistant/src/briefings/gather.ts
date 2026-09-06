@@ -13,13 +13,14 @@ import {
   GOOGLE_SCOPE,
   isLoopClosingCategory,
   isRecord,
+  parseEventTypeName,
   parseGmailDocumentMetadata,
   toMessage,
   toStringArray,
   weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
+import { documents, emailTriage, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import {
   type CalendarEvent,
   getFreshAccessToken,
@@ -423,7 +424,7 @@ export async function gatherBriefingWithSuppressionAudit(
   }
 
   // Day-shape (ADR-0064 / #230): reuse the already-fetched activity count so we
-  // don't re-query webhook_events; the resolved-object recap is one cheap list.
+  // don't re-query event_receipts; the resolved-object recap is one cheap list.
   const dayShape = await gatherDayShape({
     userId: args.userId,
     windowStart: activityStart,
@@ -526,15 +527,38 @@ export async function gatherDayShape(args: {
 
 const MAX_ACTIVITY_ITEMS = 25;
 
-interface GithubWebhookPayload {
-  ref?: string;
-  commits?: unknown[];
-  compare?: string;
-  pull_request?: { number?: number; title?: string; html_url?: string; merged?: boolean };
-  issue?: { number?: number; title?: string; html_url?: string };
-  repository?: { full_name?: string; html_url?: string };
-  review?: { state?: string; html_url?: string };
-}
+/**
+ * The slice of a GitHub webhook body the activity line reads. The body is
+ * persisted as `event_receipts.payload` (jsonb, typed `unknown` on read), so
+ * this is the owning boundary that validates it. Every field is optional: an
+ * older or partial delivery still yields a generic line, never an error.
+ */
+const githubWebhookPayloadSchema = z.object({
+  action: z.string().optional(),
+  ref: z.string().optional(),
+  commits: z.array(z.unknown()).optional(),
+  compare: z.string().optional(),
+  pull_request: z
+    .object({
+      number: z.number().optional(),
+      title: z.string().optional(),
+      html_url: z.string().optional(),
+      merged: z.boolean().optional(),
+    })
+    .optional(),
+  issue: z
+    .object({
+      number: z.number().optional(),
+      title: z.string().optional(),
+      html_url: z.string().optional(),
+    })
+    .optional(),
+  repository: z
+    .object({ full_name: z.string().optional(), html_url: z.string().optional() })
+    .optional(),
+  review: z.object({ state: z.string().optional(), html_url: z.string().optional() }).optional(),
+});
+type GithubWebhookPayload = z.infer<typeof githubWebhookPayloadSchema>;
 
 /**
  * Turn a stored GitHub webhook into a one-line activity description. Reads
@@ -584,8 +608,9 @@ function describeGithubActivity(
 
 /**
  * Recent GitHub App activity for the briefing window (ADR-0052), sourced from
- * the idempotent `webhook_events` log. Empty when nothing fired or GitHub
- * isn't connected — represented as `[]`, never an error.
+ * the `event_receipts` rows the ingress route stores for `provider = 'github'`
+ * (ADR-0097). Empty when nothing fired or GitHub isn't connected —
+ * represented as `[]`, never an error.
  */
 async function gatherIntegrationActivity(args: {
   userId: string;
@@ -594,50 +619,49 @@ async function gatherIntegrationActivity(args: {
 }): Promise<IntegrationActivityItem[]> {
   const rows = await db()
     .select({
-      id: webhookEvents.id,
-      eventType: webhookEvents.eventType,
-      action: webhookEvents.action,
-      repo: webhookEvents.repo,
-      payload: webhookEvents.payload,
-      deliveredAt: webhookEvents.deliveredAt,
+      id: eventReceipts.id,
+      eventType: eventReceipts.eventType,
+      payload: eventReceipts.payload,
+      deliveredAt: eventReceipts.deliveredAt,
     })
-    .from(webhookEvents)
+    .from(eventReceipts)
     .where(
       and(
-        eq(webhookEvents.userId, args.userId),
-        eq(webhookEvents.provider, "github"),
-        gte(webhookEvents.deliveredAt, args.windowStart),
-        lte(webhookEvents.deliveredAt, args.windowEnd),
+        eq(eventReceipts.userId, args.userId),
+        eq(eventReceipts.provider, "github"),
+        gte(eventReceipts.deliveredAt, args.windowStart),
+        lte(eventReceipts.deliveredAt, args.windowEnd),
       ),
     )
-    .orderBy(desc(webhookEvents.deliveredAt))
+    .orderBy(desc(eventReceipts.deliveredAt))
     .limit(MAX_ACTIVITY_ITEMS);
 
-  return rows.map((row) => {
-    // SAFETY: documents.payload is the webhook envelope stored verbatim at
-    // ingest; this read views it as that payload shape.
-    const payload = (row.payload ?? {}) as GithubWebhookPayload;
-    const { title, status, url } = describeGithubActivity(
-      row.eventType,
-      row.action,
-      row.repo,
-      payload,
-    );
-    return {
-      id: row.id,
-      provider: "github",
-      source: "direct_api",
-      activityCategory: "work",
-      providerKind: row.action
-        ? `github.${row.eventType}.${row.action}`
-        : `github.${row.eventType}`,
-      title,
-      status,
-      severity: "info",
-      occurredAt: row.deliveredAt.toISOString(),
-      url,
-      relatedRepo: row.repo ?? undefined,
-    } satisfies IntegrationActivityItem;
+  return rows.flatMap((row) => {
+    // The receipt stores `github.<type>`; a name the github entry does not
+    // declare is a row the deliver job already marked `failed`, so it has no
+    // activity line either.
+    const eventType = parseEventTypeName("github", row.eventType);
+    if (!eventType) return [];
+    const parsed = githubWebhookPayloadSchema.safeParse(row.payload);
+    const payload: GithubWebhookPayload = parsed.success ? parsed.data : {};
+    const action = payload.action ?? null;
+    const repo = payload.repository?.full_name ?? null;
+    const { title, status, url } = describeGithubActivity(eventType, action, repo, payload);
+    return [
+      {
+        id: row.id,
+        provider: "github",
+        source: "direct_api",
+        activityCategory: "work",
+        providerKind: action ? `github.${eventType}.${action}` : `github.${eventType}`,
+        title,
+        status,
+        severity: "info",
+        occurredAt: row.deliveredAt.toISOString(),
+        url,
+        relatedRepo: repo ?? undefined,
+      } satisfies IntegrationActivityItem,
+    ];
   });
 }
 

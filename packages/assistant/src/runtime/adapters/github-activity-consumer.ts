@@ -1,29 +1,27 @@
 import { getStringPath, jsonObjectSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { eventReceipts, webhookEvents } from "@alfred/db/schemas";
+import { eventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { githubInstallationId } from "@alfred/integrations/github";
 import { objectStateStore } from "@alfred/assistant/connections";
 import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assistant/triggers";
 
 /**
  * The GitHub activity fold, as a trigger consumer (ADR-0047, ADR-0062,
- * ADR-0097). The old `/webhooks/github` handler wrote `webhook_events` and ran
- * the object-state reducer inline; the ingress route now only stores a receipt
- * and publishes `github.<event>` on the bus, and this consumer reacts to it.
- * The briefing's `integration_activity` contributor and the ADR-0062 reducer
- * keep reading `webhook_events`, so the rows they see are unchanged.
+ * ADR-0097). The ingress route stores one `event_receipts` row per verified
+ * delivery and publishes `github.<event>` on the bus; this consumer reads the
+ * receipt back by id and runs the ADR-0062 object-state reducer over its body.
+ * The receipt is the only copy of the delivery: the briefing's
+ * `integration_activity` contributor and the committed object-state backfill
+ * read the same rows (#975 retired the `webhook_events` projection).
  *
  * `propagate`: a fold failure fails the `ingress.deliver` job, the receipt
- * reads `failed`, and the queue retries. Both writes are idempotent — the
- * `webhook_events` insert is `onConflictDoNothing`, and `applyEvent` is
- * monotonic on `stateDeliveredAt` with an absorbing `resolved` guard — so a
- * retry is safe, and the reducer runs only for a newly inserted row, so a
- * redelivered receipt cannot regress object state with a fresh timestamp. The
- * inline handler isolated the reducer so its error could not 500 the provider;
- * inside a queued job that reason is gone, and `best-effort` would turn a lost
- * `webhook_events` row into a silent, permanent gap, because no reconciler
- * reads `event_receipts.payload` back into this table.
+ * reads `failed`, and the queue retries. The reducer is idempotent — monotonic
+ * on `stateDeliveredAt` with an absorbing `resolved` guard, keyed on the
+ * receipt's own `delivered_at` — so a retry re-applies the same event with the
+ * same timestamp and cannot regress object state. Redelivery dedup lives one
+ * layer up: the receive path inserts the receipt `onConflictDoNothing` on
+ * `(provider, provider_delivery_id)`, and the deliver job skips a `completed`
+ * row, so a replayed delivery never reaches this consumer twice.
  */
 export function githubActivityTriggerConsumer(): TriggerConsumer {
   return {
@@ -34,7 +32,6 @@ export function githubActivityTriggerConsumer(): TriggerConsumer {
       const { receiptId } = inboundDeliveryPayloadSchema.parse(event.payload ?? {});
       const [receipt] = await db()
         .select({
-          providerDeliveryId: eventReceipts.providerDeliveryId,
           payload: eventReceipts.payload,
           deliveredAt: eventReceipts.deliveredAt,
         })
@@ -48,32 +45,13 @@ export function githubActivityTriggerConsumer(): TriggerConsumer {
       if (!stored.success) return;
       const payload = stored.data;
 
-      const installationId = githubInstallationId(payload);
-      const action = getStringPath(payload, "action") ?? null;
-      const inserted = await db()
-        .insert(webhookEvents)
-        .values({
-          provider: "github",
-          providerEventId: receipt.providerDeliveryId,
-          eventType: event.type,
-          action,
-          repo: getStringPath(payload, "repository", "full_name") ?? null,
-          installationId,
-          userId: event.userId,
-          payload,
-          deliveredAt: receipt.deliveredAt,
-        })
-        .onConflictDoNothing({ target: [webhookEvents.provider, webhookEvents.providerEventId] })
-        .returning({ deliveredAt: webhookEvents.deliveredAt });
-      if (!inserted[0]) return;
-
       await objectStateStore.applyEvent({
         userId: event.userId,
         provider: "github",
         eventType: event.type,
-        action,
+        action: getStringPath(payload, "action") ?? null,
         payload,
-        deliveredAt: inserted[0].deliveredAt,
+        deliveredAt: receipt.deliveredAt,
       });
     },
   };
