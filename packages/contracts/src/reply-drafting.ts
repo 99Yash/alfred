@@ -94,8 +94,12 @@ export const REPLY_NO_DRAFT_REASONS = [
   "not_significant",
   /** Triage judged the ask is already handled. */
   "already_handled",
-  /** The gate passed but no composer exists yet (#237 adds it). */
+  /** Historical foundation result; retained so stored runs still parse. */
   "composer_unavailable",
+  /** Source was deleted, is not Gmail, or a newer document owns triage. */
+  "source_unavailable",
+  /** A proactive run has no current triage row. */
+  "triage_unavailable",
 ] as const;
 export type ReplyNoDraftReason = (typeof REPLY_NO_DRAFT_REASONS)[number];
 export const replyNoDraftReasonSchema = z.enum(REPLY_NO_DRAFT_REASONS);
@@ -120,6 +124,9 @@ export const REPLY_WITHHELD_REASONS = [
   /** A factual claim in the body has no gathered object behind it. */
   "unsupported_claim",
   "empty_body",
+  "context_mismatch",
+  "invalid_candidate",
+  "staging_unavailable",
 ] as const;
 export type ReplyWithheldReason = (typeof REPLY_WITHHELD_REASONS)[number];
 export const replyWithheldReasonSchema = z.enum(REPLY_WITHHELD_REASONS);
@@ -174,11 +181,18 @@ export const replyDraftStyleSelectionSchema = z.discriminatedUnion("kind", [
 export type ReplyDraftStyleSelection = z.infer<typeof replyDraftStyleSelectionSchema>;
 
 /**
- * One external object the draft may cite. A placeholder slot at #243: the
- * GitHub PR resolver (#239) fills `github_pull_request` entries; nothing
- * produces them yet, and a claim with no object behind it is `unsupported`.
+ * A source the draft may cite. The tracer supplies bounded inbound content,
+ * earlier thread excerpts, and user context. The GitHub resolver (#239) will
+ * supply live `github_pull_request` facts; an email about a PR is not proof
+ * of its current state.
  */
-export const REPLY_GATHERED_OBJECT_KINDS = ["github_pull_request"] as const;
+export const REPLY_GATHERED_OBJECT_KINDS = [
+  "github_pull_request",
+  "inbound_document",
+  "thread_context",
+  "user_context",
+  "reply_context",
+] as const;
 export const replyDraftGatheredObjectSchema = z.object({
   kind: z.enum(REPLY_GATHERED_OBJECT_KINDS),
   /** Stable reference the resolver used (URL, `owner/repo#number`). */

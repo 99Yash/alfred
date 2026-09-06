@@ -83,6 +83,8 @@ export function buildThreadSnippet(
 export interface GetThreadStateArgs {
   userId: string;
   sourceThreadId: string;
+  /** Constrain outbound drafting context to its inbound mailbox. */
+  accountId?: string | undefined;
   /**
    * Document to exclude — typically the message currently being triaged, so
    * "thread state" describes the context the new message arrives into rather
@@ -102,6 +104,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     eq(documents.userId, args.userId),
     eq(documents.source, "gmail"),
     eq(documents.sourceThreadId, args.sourceThreadId),
+    args.accountId ? eq(documents.accountId, args.accountId) : undefined,
     args.excludeDocumentId ? ne(documents.id, args.excludeDocumentId) : undefined,
   );
   const newestFirst = sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`;
