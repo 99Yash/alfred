@@ -27,7 +27,7 @@ import {
   listEvents,
   type TriageCategory,
 } from "@alfred/integrations/google";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   extractGithubKeys,
@@ -629,6 +629,9 @@ async function gatherIntegrationActivity(args: {
       and(
         eq(eventReceipts.userId, args.userId),
         eq(eventReceipts.provider, "github"),
+        // Typed tier only: raw receipts (ADR-0097 item 9) have no activity
+        // line yet, and the LIMIT must not spend its slots on them.
+        isNull(eventReceipts.rawKind),
         gte(eventReceipts.deliveredAt, args.windowStart),
         lte(eventReceipts.deliveredAt, args.windowEnd),
       ),

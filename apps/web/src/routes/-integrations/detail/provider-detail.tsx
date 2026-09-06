@@ -5,6 +5,7 @@ import { DetailHeader } from "./detail-header";
 import { HeroPanel } from "./hero-panel";
 import { Overview } from "./overview";
 import { ProviderPolicy } from "./provider-policy";
+import { RawKinds } from "./raw-kinds";
 import { RelatedSetup } from "./related-setup";
 import { TrustNotice } from "./trust-notice";
 
@@ -20,6 +21,7 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
       <TrustNotice provider={provider} />
       <RelatedSetup provider={provider} />
       <Capabilities provider={provider} />
+      <RawKinds provider={provider} />
       <Overview provider={provider} />
     </div>
   );

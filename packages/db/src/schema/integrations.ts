@@ -184,6 +184,14 @@ export const ingestionState = pgTable(
  * acknowledged. Gmail rows leave `payload` NULL because the Pub/Sub envelope
  * carries only a pointer.
  *
+ * Raw receipts (ADR-0097 item 9, #988): a verified, owner-attributed delivery
+ * whose kind the source's entry does not name is stored too, with `raw_kind`
+ * set to the provider's own kind (`comment.created`, `issue_comment.created`),
+ * `event_type = <slug>.raw`, and `provider_delivery_id = payload_hash`. Such a
+ * row is `completed` at insert: no `ingress.deliver` job runs for it and it
+ * publishes nothing. `raw_kind IS NULL` is the typed tier; every reader that
+ * folds, briefs, or triggers on receipts filters on it.
+ *
  * The full unique index on `(provider, provider_delivery_id)` deduplicates
  * redeliveries at the DB level. The webhook handler uses `onConflictDoNothing`
  * so a duplicate insert is a no-op. Failed deliveries are not retried with a
@@ -207,8 +215,19 @@ export const eventReceipts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The `<source>.<type>` domain-event name (`eventTypeName` in contracts): 'gmail.message_received', 'github.pull_request'. */
+    /**
+     * The `<source>.<type>` domain-event name (`eventTypeName` in contracts):
+     * 'gmail.message_received', 'github.pull_request'. A raw receipt stores
+     * `<source>.raw` (`rawEventTypeName`), which no entry declares.
+     */
     eventType: text("event_type").notNull(),
+    /**
+     * The provider's own kind of a raw receipt (ADR-0097 item 9): the delivery's
+     * `<resource>.<action>` as the provider names it, kept verbatim so the
+     * inventory can show a kind the registry has never seen. NULL on every typed
+     * receipt; this column is the tier discriminator.
+     */
+    rawKind: text("raw_kind"),
     /** Gmail historyId from the push notification (presence gate + cursor). */
     historyId: text("history_id"),
     /** Verification outcome: 'oidc_valid', 'oidc_skipped' (dev), 'oidc_failed' for Gmail; 'signature_valid' for inbound webhook rows. */

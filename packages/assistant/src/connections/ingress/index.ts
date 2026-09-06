@@ -1,7 +1,8 @@
 /**
  * Inbound ingress registry (ADR-0097): the typed source descriptors behind
- * `POST /webhooks/inbound/:source` and the per-source subscription health that
- * trigger readiness reads.
+ * `POST /webhooks/inbound/:source`, the per-source subscription health that
+ * trigger readiness reads, and the raw receipt inventory the integration
+ * detail page reads.
  *
  * This door is light on purpose. `automation/event-source-health.ts` imports it
  * for `readInboundTriggerHealth`, so nothing here may reach the BullMQ queue or
@@ -23,3 +24,4 @@ export type {
 export { inboundDeliveryKey } from "./descriptor";
 export { INBOUND_SOURCES, inboundSource } from "./registry";
 export { readInboundTriggerHealth } from "./health";
+export { readRawReceiptInventory } from "./inventory";
