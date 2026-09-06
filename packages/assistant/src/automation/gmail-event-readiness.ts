@@ -1,19 +1,21 @@
 import {
-  GOOGLE_SCOPE,
+  eventDeliveryAccounts,
   getPath,
   getStringPath,
-  type EventDeliveryHealth,
-  type EventSourceHealth,
-  type IntegrationAvailabilitySnapshot,
   type ProviderAvailability,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { ingestionState } from "@alfred/db/schemas";
 import { pubSubOidcConfigFromEnv, readGmailWatchState } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
+import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
+import type { AccountDeliveryHealthReader } from "./event-source-health";
+
+/** The account space Gmail events deliver per: `google` rows that prove Gmail connected. */
+const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
 
 /** A watch whose last successful sync is older than this is degraded, not quiet. */
-export const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 15 * 60_000;
+const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 15 * 60_000;
 
 /** The five facts about one credential's Gmail delivery path, as the ingestion state records them. */
 export interface GmailEventHealth {
@@ -26,13 +28,13 @@ export interface GmailEventHealth {
 
 /**
  * No live watch on the account: the user reconnects Gmail or renews the watch.
- * This is also the `unselected` verdict, because a trigger that names no
- * account, or one the snapshot does not hold, has no watch to deliver from.
+ * A row with no ingestion state reads the same way, because it has no watch to
+ * deliver from.
  */
 const WATCH_NOT_INSTALLED: EventDeliveryHealth = {
   healthy: false,
   reason: "reconnect Gmail or renew its watch",
-  recovery: { kind: "connect", integration: "gmail" },
+  recovery: { kind: "connect", integration: GMAIL_DELIVERY.integration },
 };
 
 /**
@@ -42,16 +44,15 @@ const WATCH_NOT_INSTALLED: EventDeliveryHealth = {
  * (only an operator can fix it), and a coverage gap, a missing cursor, or a
  * stale sync is `retry` (time restores it).
  */
-export function gmailAccountDeliveryHealth(
+function gmailAccountDeliveryHealth(
   row: ProviderAvailability,
-  facts: GmailEventHealth,
+  facts: GmailEventHealth | undefined,
   now: Date,
 ): EventDeliveryHealth {
-  const watch =
-    row.status === "active" && row.scopes.has(GOOGLE_SCOPE.gmail.readonly)
-      ? readGmailWatchState(row.metadata)
-      : null;
-  if (!watch || new Date(watch.expiresAt).getTime() <= now.getTime()) return WATCH_NOT_INSTALLED;
+  const watch = readGmailWatchState(row.metadata);
+  if (!facts || !watch || new Date(watch.expiresAt).getTime() <= now.getTime()) {
+    return WATCH_NOT_INSTALLED;
+  }
   if (!facts.receiverConfigured || !facts.topicMatches) {
     return {
       healthy: false,
@@ -72,33 +73,23 @@ export function gmailAccountDeliveryHealth(
 }
 
 /**
- * Gmail's entry in the event-source health map: account grain over the
- * `google` credential rows, keyed by durable `accountId`. A row with no facts
- * has no ingestion state to deliver from and reads as `connect`.
+ * The pure half of Gmail's account-grain entry: the per-row verdict over facts
+ * gathered by credential id. `readGmailEventHealth` gathers the facts; the
+ * readiness tests supply them directly.
  */
-export function gmailEventSourceHealth(
-  availability: IntegrationAvailabilitySnapshot,
+export function gmailAccountHealth(
   healthByCredential: ReadonlyMap<string, GmailEventHealth>,
   now: Date,
-): EventSourceHealth {
-  const accounts = new Map(
-    (availability.providers.get("google") ?? []).map((row): [string, EventDeliveryHealth] => {
-      const facts = healthByCredential.get(row.credentialId);
-      return [
-        row.accountId,
-        facts ? gmailAccountDeliveryHealth(row, facts, now) : WATCH_NOT_INSTALLED,
-      ];
-    }),
-  );
-  return { grain: "account", provider: "google", accounts, unselected: WATCH_NOT_INSTALLED };
+): (row: ProviderAvailability) => EventDeliveryHealth {
+  return (row) => gmailAccountDeliveryHealth(row, healthByCredential.get(row.credentialId), now);
 }
 
 /** Read Gmail delivery health only for workflow trigger readiness. */
-export async function readGmailEventHealth(
-  userId: string,
-  availability: IntegrationAvailabilitySnapshot,
-  now: Date,
-): Promise<EventSourceHealth> {
+export const readGmailEventHealth: AccountDeliveryHealthReader = async (
+  userId,
+  availability,
+  now,
+) => {
   const rows = await db()
     .select({
       credentialId: ingestionState.credentialId,
@@ -109,7 +100,7 @@ export async function readGmailEventHealth(
     .where(
       and(
         eq(ingestionState.userId, userId),
-        eq(ingestionState.provider, "google"),
+        eq(ingestionState.provider, GMAIL_DELIVERY.provider),
         eq(ingestionState.stream, "messages"),
       ),
     );
@@ -120,7 +111,7 @@ export async function readGmailEventHealth(
     (pushConfig.nodeEnv !== "production" ||
       (Boolean(pushConfig.audience) && Boolean(pushConfig.expectedServiceAccount)));
   const healthByCredential = new Map(
-    (availability.providers.get("google") ?? []).map(
+    (availability.providers.get(GMAIL_DELIVERY.provider) ?? []).map(
       ({ credentialId, metadata }): [string, GmailEventHealth] => {
         const cursor = cursorByCredential.get(credentialId);
         const watchTopic = readGmailWatchState(metadata)?.topic;
@@ -137,5 +128,5 @@ export async function readGmailEventHealth(
       },
     ),
   );
-  return gmailEventSourceHealth(availability, healthByCredential, now);
-}
+  return gmailAccountHealth(healthByCredential, now);
+};

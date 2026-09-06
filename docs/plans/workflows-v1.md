@@ -79,7 +79,7 @@ If the user asks for Slack while Slack has no tool surface, or asks for a Gmail 
    - `feature_disabled`;
    - `no_tool_surface`;
    - `trigger_not_ready`;
-   - `provider_unhealthy`.
+   - `trigger_degraded`.
 3. Offer only a truthful recovery action. `no_tool_surface` must not masquerade as “connect Slack”; Alfred cannot automate it yet.
 4. Return from connect/reauthorize to the same draft, rerun readiness, and present activation when satisfied.
 

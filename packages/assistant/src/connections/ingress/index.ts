@@ -10,6 +10,8 @@
  * the HTTP route imports `receiveInboundDelivery` from that door.
  */
 export type {
+  EventDeliveryHealth,
+  EventDeliveryRecovery,
   InboundDedupRule,
   InboundKeyInput,
   InboundOwner,
@@ -20,4 +22,4 @@ export type {
 } from "./descriptor";
 export { inboundDeliveryKey } from "./descriptor";
 export { INBOUND_SOURCES, inboundSource } from "./registry";
-export { noSubscriptionHealthSignal, readInboundTriggerHealth } from "./health";
+export { readInboundTriggerHealth } from "./health";
