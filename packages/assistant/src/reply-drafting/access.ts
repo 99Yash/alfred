@@ -8,7 +8,7 @@ import { listCredentials } from "@alfred/integrations/google";
  * that no approval could ever send.
  */
 export type GmailSendAccess =
-  | { ok: true; credentialId: string }
+  | { ok: true; credentialId: string; mailboxAddress: string | null }
   | { ok: false; reason: ReplyNoAccessReason };
 
 export async function checkGmailSendAccess(args: {
@@ -25,5 +25,5 @@ export async function checkGmailSendAccess(args: {
   if (!holdsAnyScope(mailbox.scopes, [GOOGLE_SCOPE.gmail.send])) {
     return { ok: false, reason: "gmail_send_scope_missing" };
   }
-  return { ok: true, credentialId: mailbox.id };
+  return { ok: true, credentialId: mailbox.id, mailboxAddress: mailbox.accountLabel };
 }
