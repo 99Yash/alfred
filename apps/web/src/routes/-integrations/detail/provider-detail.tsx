@@ -1,3 +1,4 @@
+import { isInboundEventSource } from "@alfred/contracts";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { Capabilities } from "./capabilities";
 import { ConnectedAccounts } from "./connected-accounts";
@@ -21,7 +22,7 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
       <TrustNotice provider={provider} />
       <RelatedSetup provider={provider} />
       <Capabilities provider={provider} />
-      <RawKinds provider={provider} />
+      {isInboundEventSource(provider.slug) && <RawKinds slug={provider.slug} />}
       <Overview provider={provider} />
     </div>
   );

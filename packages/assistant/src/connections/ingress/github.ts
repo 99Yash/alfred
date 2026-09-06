@@ -27,7 +27,7 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   dedup: { kind: "delivery_id", header: "x-github-delivery" },
   project: (payload, headers) => {
     const event = headers.get("x-github-event");
-    if (!event) return { kind: "ignore", reason: "no-event-header" };
+    if (!event) return { kind: "ignore", reason: "no-kind-header" };
     // GitHub pings once on subscription; a 200 is what makes the App show green.
     if (event === "ping") return { kind: "ignore", reason: "ping" };
     if (isEventTypeForSource("github", event)) return { kind: "event", type: event };

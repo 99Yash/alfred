@@ -197,21 +197,18 @@ export function eventTypeName<S extends EventSource>(
  * `event_receipts.raw_kind`. The marker is not a member of any entry's
  * `eventTypes` tuple, so `parseEventTypeName` reads a raw row as `null` and no
  * typed reader can mistake it for a subscribed event.
- */
-export const RAW_RECEIPT_TYPE = "raw";
-
-/**
+ *
  * The marker, or `never` the day an entry declares `raw` as an event type. In
  * that case `rawEventTypeName` no longer compiles, which is the gate: a typed
  * `raw` would make every stored raw row read back as a subscribed event.
  */
-type RawReceiptType = typeof RAW_RECEIPT_TYPE extends EventType ? never : typeof RAW_RECEIPT_TYPE;
+type RawReceiptType = "raw" extends EventType ? never : "raw";
 
 /** The `event_type` a raw receipt of `source` is stored under. */
 export function rawEventTypeName<S extends InboundEventSource>(
   source: S,
 ): `${S}.${RawReceiptType}` {
-  return `${source}.${RAW_RECEIPT_TYPE}`;
+  return `${source}.raw`;
 }
 
 /**
