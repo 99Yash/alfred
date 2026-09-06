@@ -80,7 +80,20 @@ available; the default remains OFF.
 The smoke script can select a document and invocation and require an expected
 outcome. For `staged`, it checks one pending approval row, its tool input, source
 provenance, and verifier pass. It does not approve the action. For all other
-outcomes, it checks that no action row exists.
+outcomes, it permits only refused approval rows left by recovery.
+
+An action insert can survive a failed workflow checkpoint. Before the `stage`
+step returns a terminal result, the tool runtime withdraws any pending approval
+for that run and tool call. It checks the current step lease in a transaction
+and changes only pending approval rows. A failed withdrawal prevents completion
+and is retried. Approved and executed rows are unchanged. Notification and
+expiry workers skip the withdrawn row. The smoke accepts such refused rows for
+a non-staged result, but still rejects pending or executed actions.
+
+The gather bundle also stores date, timezone, and message header facts as one
+`reply_context` evidence object. Both model calls receive it, so the grounding
+review can cite the same facts that the composer used. Style text stays outside
+this evidence object.
 
 The grounding review is model-based. Exact quote checks prove that cited text
 exists, but do not prove entailment or complete claim coverage. Missing facts can

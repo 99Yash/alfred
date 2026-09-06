@@ -179,7 +179,10 @@ async function main() {
       `[smoke-reply-drafting] pending approval=${action.id}; review or reject it in Alfred`,
     );
   } else {
-    assert(staged.length === 0, "a non-staged decision must not create an approval row");
+    assert(
+      staged.every((action) => action.status === "rejected" && action.outcome === "refused"),
+      "a non-staged decision must leave no approval or send; recovered rows must be withdrawn",
+    );
   }
 
   console.log("\n[smoke-reply-drafting] PASS");

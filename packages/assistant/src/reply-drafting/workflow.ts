@@ -13,7 +13,7 @@ import {
 import { z } from "zod";
 import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
 import { findActiveSenderSuppression } from "@alfred/assistant/knowledge";
-import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
+import { executeToolCallRound, withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { resolveFeatureFlags } from "@alfred/assistant/settings";
 import {
   extractSenderContext,
@@ -70,6 +70,8 @@ const stateSchema = z.object({
   result: replyDraftResultSchema.optional(),
 });
 type State = z.infer<typeof stateSchema>;
+
+const REPLY_TOOL_CALL_ID = "reply-draft";
 
 /**
  * The live row as a snapshot. `email_triage.document_id` is a soft pointer that
@@ -330,6 +332,23 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
 }
 
 async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
+  const result = await dispatchReply(ctx);
+  if (result.kind === "done") {
+    // The action insert and workflow checkpoint are separate commits. Close
+    // any pending row even when this attempt exits before reaching dispatch.
+    await withdrawToolCallApproval({
+      userId: ctx.userId,
+      runId: ctx.runId,
+      stepId: "stage",
+      attempt: ctx.attempt,
+      toolCallId: REPLY_TOOL_CALL_ID,
+      reason: "Reply drafting completed without a pending approval.",
+    });
+  }
+  return result;
+}
+
+async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>> {
   const { prepared, mailbox } = ctx.state;
   if (!prepared || !mailbox)
     throw new Error("[reply-drafting] stage entered without verified input");
@@ -359,7 +378,9 @@ async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
     }
   }
   const round = await executeToolCallRound({
-    calls: [{ toolCallId: "reply-draft", toolName: "gmail.send_draft", input: prepared.input }],
+    calls: [
+      { toolCallId: REPLY_TOOL_CALL_ID, toolName: "gmail.send_draft", input: prepared.input },
+    ],
     transcript: ctx.transcript,
     activeNames: ["gmail.send_draft"],
     run: {

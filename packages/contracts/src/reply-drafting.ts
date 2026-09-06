@@ -191,6 +191,7 @@ export const REPLY_GATHERED_OBJECT_KINDS = [
   "inbound_document",
   "thread_context",
   "user_context",
+  "reply_context",
 ] as const;
 export const replyDraftGatheredObjectSchema = z.object({
   kind: z.enum(REPLY_GATHERED_OBJECT_KINDS),
