@@ -11,12 +11,14 @@
  */
 export type {
   InboundDedupRule,
+  InboundKeyInput,
   InboundOwner,
   InboundProjection,
   InboundSourceDescriptor,
   InboundSubscriptionAdapter,
   InboundSubscriptionHealth,
   InboundSubscriptionRecovery,
+  InboundSyntheticKey,
 } from "./descriptor";
 export { inboundDeliveryKey } from "./descriptor";
 export { INBOUND_SOURCES, inboundSource } from "./registry";
