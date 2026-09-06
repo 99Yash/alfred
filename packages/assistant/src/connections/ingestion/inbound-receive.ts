@@ -3,13 +3,20 @@ import {
   eventTypeName,
   jsonObjectSchema,
   parseJsonWith,
+  rawEventTypeName,
   toMessage,
   type InboundEventSource,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { eventReceipts, type NewEventReceipt } from "@alfred/db/schemas";
+import { eventReceipts, type EventReceipt, type NewEventReceipt } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { inboundDeliveryKey, inboundSource } from "../ingress";
+import {
+  inboundDeliveryKey,
+  inboundSource,
+  type InboundKeyInput,
+  type InboundOwner,
+  type InboundProjection,
+} from "../ingress";
 import { enqueueInboundDelivery } from "./queue";
 
 /**
@@ -18,20 +25,22 @@ import { enqueueInboundDelivery } from "./queue";
  *
  * - `unknown_source`: the `:source` segment is not an inbound source (404).
  * - `rejected`: the descriptor's `verify` refused the raw body (401).
- * - `ignored`: authenticated, but nothing to store — a ping, an unsubscribed
- *   event, a body that is not a JSON object, a subscribed delivery whose
- *   payload lacks the identity its key reads (logged at error level: a payload
- *   path moved, which is a descriptor bug), or a delivery no credential owns.
- *   Acknowledged with 200 so the provider does not retry what cannot change.
- * - `duplicate`: a receipt for this dedup key already exists.
- * - `accepted`: a new receipt row exists and the delivery job is enqueued.
+ * - `ignored`: authenticated, but nothing to store — a ping, a body that is
+ *   not a JSON object, a subscribed delivery whose payload lacks the identity
+ *   its key reads (logged at error level: a payload path moved, which is a
+ *   descriptor bug), or a delivery no credential owns. Acknowledged with 200 so
+ *   the provider does not retry what cannot change.
+ * - `duplicate`: a receipt for this dedup key already exists (either tier).
+ * - `accepted`: a new typed receipt row exists and the delivery job is enqueued.
+ * - `raw`: a new raw receipt row exists (ADR-0097 item 9); no job, no bus event.
  */
 export type InboundDeliveryOutcome =
   | { kind: "unknown_source"; source: string }
   | { kind: "rejected"; source: InboundEventSource; reason: "invalid_signature" }
   | { kind: "ignored"; source: InboundEventSource; reason: string }
   | { kind: "duplicate"; source: InboundEventSource; receiptId: string }
-  | { kind: "accepted"; source: InboundEventSource; receiptId: string; type: string };
+  | { kind: "accepted"; source: InboundEventSource; receiptId: string; type: string }
+  | { kind: "raw"; source: InboundEventSource; receiptId: string; rawKind: string };
 
 /** The one `verification_result` value a stored inbound receipt can carry: unverified bodies are never stored. */
 export const INBOUND_VERIFICATION_RESULT = "signature_valid";
@@ -46,10 +55,18 @@ export interface ReceiveInboundDeliveryArgs {
 
 /**
  * The shared receive path every inbound source runs through (ADR-0097):
- * look up the descriptor, verify the RAW body, parse, project, key, attribute,
+ * look up the descriptor, verify the RAW body, parse, project, attribute, key,
  * persist one `event_receipts` row with `onConflictDoNothing`, then enqueue
  * `ingress.deliver`. The request is acknowledged as soon as the row exists; no
  * workflow runs inline.
+ *
+ * Two tiers leave this function as a stored row. A delivery whose kind the
+ * entry names is a typed receipt: declared dedup key, `pending`, one delivery
+ * job, one bus event. A delivery whose kind the entry does not name is a raw
+ * receipt (ADR-0097 item 9): keyed on the provider kind and payload hash, `completed` at insert,
+ * no job and no bus event, so nothing downstream of this function changes for
+ * it. Both tiers share the verify, parse, and owner steps, so a raw row is
+ * exactly as trusted and as attributed as a typed one.
  *
  * This is the queue's producer, so it lives beside the queue rather than in
  * `../ingress`: that door is on the automation readiness import path and must
@@ -75,15 +92,34 @@ export async function receiveInboundDelivery(
   if (!payload) return { kind: "ignored", source, reason: "bad-json" };
 
   // Project before keying: the synthetic key switches on the projected type,
-  // so an unsubscribed event is dropped quietly here and never reaches a key
-  // rule. A `null` key after projection means one thing: the payload lacks the
-  // identity the rule reads (a path that moved). That is a descriptor bug and
-  // must be loud. It is still acknowledged: providers do not redeliver on a
-  // 4xx, and a retry could not change the body.
+  // so a kind the entry does not name never reaches a key rule; it takes the
+  // raw branch below instead. A `null` key after projection means one thing:
+  // the payload lacks the identity the rule reads (a path that moved). That is
+  // a descriptor bug and must be loud. It is still acknowledged: providers do
+  // not redeliver on a 4xx, and a retry could not change the body.
   const projection = descriptor.project(payload, args.headers);
   if (projection.kind === "ignore") return { kind: "ignored", source, reason: projection.reason };
 
+  const owner = await descriptor.resolveOwner(payload, args.headers);
+  if (!owner) {
+    console.warn(`[ingress] ${source}: no owner for delivery; dropped`);
+    return { kind: "ignored", source, reason: "no-owner" };
+  }
+
   const payloadHash = createHash("sha256").update(args.raw).digest("hex");
+  const receipt = { source, owner, payload, payloadHash };
+  if (projection.kind === "raw") {
+    const stored = await insertReceipt({ ...receipt, tier: projection });
+    switch (stored.kind) {
+      case "inserted":
+        return { kind: "raw", source, receiptId: stored.id, rawKind: projection.rawKind };
+      case "existing":
+        return { kind: "duplicate", source, receiptId: stored.id };
+      case "gone":
+        return { kind: "ignored", source, reason: "receipt-gone" };
+    }
+  }
+
   const deliveryKey = inboundDeliveryKey(descriptor.dedup, args.headers, {
     payload,
     type: projection.type,
@@ -96,53 +132,96 @@ export async function receiveInboundDelivery(
     return { kind: "ignored", source, reason: "no-dedup-key" };
   }
 
-  const owner = await descriptor.resolveOwner(payload, args.headers);
-  if (!owner) {
-    // A delivery for an account nobody connected (or mid-disconnect) has no
-    // row to hang off `credential_id`; ack it so the provider stops retrying.
-    console.warn(`[ingress] ${source}: no owner for delivery ${deliveryKey}; dropped`);
-    return { kind: "ignored", source, reason: "no-owner" };
+  const stored = await insertReceipt({
+    ...receipt,
+    tier: { ...projection, deliveryKey },
+  });
+  switch (stored.kind) {
+    case "inserted":
+      await enqueueLogged(stored.id, source);
+      return { kind: "accepted", source, receiptId: stored.id, type: projection.type };
+    case "existing":
+      if (stored.processingStatus !== "completed") {
+        await enqueueLogged(stored.id, source);
+      }
+      return { kind: "duplicate", source, receiptId: stored.id };
+    case "gone":
+      return { kind: "ignored", source, reason: "receipt-gone" };
   }
+}
 
+/**
+ * What one receipt insert settled to. `existing` carries the status so the
+ * typed caller can re-enqueue a not-yet-completed duplicate; the raw caller
+ * ignores it because a raw row is `completed` from birth.
+ */
+type ReceiptInsert =
+  | { kind: "inserted"; id: string }
+  | ({ kind: "existing" } & Pick<EventReceipt, "id" | "processingStatus">)
+  /** The conflicting row vanished between the insert and the read-back (a cascade on credential deletion). */
+  | { kind: "gone" };
+
+/**
+ * The one insert both tiers share: `onConflictDoNothing` on the
+ * `(provider, provider_delivery_id)` unique index, then a read-back of the row
+ * that won the conflict. The index is the dedup for both tiers, so the target
+ * is named here and nowhere else.
+ */
+async function insertReceipt(
+  args: Pick<InboundKeyInput, "payload" | "payloadHash"> & {
+    source: InboundEventSource;
+    owner: InboundOwner;
+    tier:
+      | (Extract<InboundProjection<InboundEventSource>, { kind: "event" }> & {
+          deliveryKey: string;
+        })
+      | Extract<InboundProjection<InboundEventSource>, { kind: "raw" }>;
+  },
+): Promise<ReceiptInsert> {
+  const { source, owner, tier } = args;
   const row: NewEventReceipt = {
     provider: source,
-    providerDeliveryId: deliveryKey,
     credentialId: owner.credentialId,
     userId: owner.userId,
-    eventType: eventTypeName(source, projection.type),
     verificationResult: INBOUND_VERIFICATION_RESULT,
-    payloadHash,
-    payload,
-    processingStatus: "pending",
+    payloadHash: args.payloadHash,
+    payload: args.payload,
+    ...(tier.kind === "raw"
+      ? {
+          providerDeliveryId: `raw:${tier.rawKind}:${args.payloadHash}`,
+          eventType: rawEventTypeName(source),
+          rawKind: tier.rawKind,
+          processingStatus: "completed",
+          processedAt: new Date(),
+        }
+      : {
+          providerDeliveryId: tier.deliveryKey,
+          eventType: eventTypeName(source, tier.type),
+          processingStatus: "pending",
+        }),
   };
+
   const inserted = await db()
     .insert(eventReceipts)
     .values(row)
     .onConflictDoNothing({ target: [eventReceipts.provider, eventReceipts.providerDeliveryId] })
     .returning({ id: eventReceipts.id });
-
-  const receiptId = inserted[0]?.id;
-  if (receiptId) {
-    await enqueueLogged(receiptId, source);
-    return { kind: "accepted", source, receiptId, type: projection.type };
-  }
+  const insertedId = inserted[0]?.id;
+  if (insertedId) return { kind: "inserted", id: insertedId };
 
   const [existing] = await db()
     .select({ id: eventReceipts.id, processingStatus: eventReceipts.processingStatus })
     .from(eventReceipts)
     .where(
-      and(eq(eventReceipts.provider, source), eq(eventReceipts.providerDeliveryId, deliveryKey)),
+      and(
+        eq(eventReceipts.provider, row.provider),
+        eq(eventReceipts.providerDeliveryId, row.providerDeliveryId),
+      ),
     )
     .limit(1);
-  if (!existing) {
-    // The conflicting row vanished between the insert and this read (a cascade
-    // on credential deletion). Nothing to deliver.
-    return { kind: "ignored", source, reason: "receipt-gone" };
-  }
-  if (existing.processingStatus !== "completed") {
-    await enqueueLogged(existing.id, source);
-  }
-  return { kind: "duplicate", source, receiptId: existing.id };
+  return existing
+    ? { kind: "existing", id: existing.id, processingStatus: existing.processingStatus }
+    : { kind: "gone" };
 }
 
 async function enqueueLogged(receiptId: string, source: InboundEventSource): Promise<void> {

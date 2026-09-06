@@ -1,3 +1,4 @@
+import { isInboundEventSource } from "@alfred/contracts";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { Capabilities } from "./capabilities";
 import { ConnectedAccounts } from "./connected-accounts";
@@ -5,6 +6,7 @@ import { DetailHeader } from "./detail-header";
 import { HeroPanel } from "./hero-panel";
 import { Overview } from "./overview";
 import { ProviderPolicy } from "./provider-policy";
+import { RawKinds } from "./raw-kinds";
 import { RelatedSetup } from "./related-setup";
 import { TrustNotice } from "./trust-notice";
 
@@ -20,6 +22,7 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
       <TrustNotice provider={provider} />
       <RelatedSetup provider={provider} />
       <Capabilities provider={provider} />
+      {isInboundEventSource(provider.slug) && <RawKinds slug={provider.slug} />}
       <Overview provider={provider} />
     </div>
   );
