@@ -76,6 +76,39 @@ const ALLOWED = new Map([
   ["nextRunAtIso", "placeholder inside a BullMQ jobId template, not an exported name"],
   ["some_provider", "metavariable in an integration-activity `providerKind` example"],
   ["suggestedMessages", "dimension.dev's entity name, cited as the shape Alfred did NOT copy"],
+  // Provider webhook event names that docs/reference/operations.md records as
+  // the console subscriptions. The raw receipt tier stores every delivery, so
+  // no typed handler in this repo declares these names.
+  ...[
+    "commit_comment",
+    "installation_target",
+    "issue_dependencies",
+    "merge_queue_entry",
+    "pull_request_review_comment",
+    "pull_request_review_thread",
+    "repository_dispatch",
+    "security_advisory",
+    "sub_issues",
+    "workflow_dispatch",
+    "workflow_job",
+    "workflow_run",
+  ].map((name) => /** @type {[string, string]} */ ([name, "GitHub App webhook event name"])),
+  ...[
+    "root_cause_started",
+    "root_cause_completed",
+    "solution_started",
+    "solution_completed",
+    "coding_started",
+    "coding_completed",
+    "iteration_started",
+    "iteration_completed",
+    "preprod_artifact",
+    "size_analysis_completed",
+    "build_distribution_completed",
+  ].map((name) => /** @type {[string, string]} */ ([
+    name,
+    "Sentry integration webhook resource or action name",
+  ])),
 ]);
 
 function referenceDocs() {

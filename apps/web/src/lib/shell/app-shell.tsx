@@ -20,7 +20,12 @@ import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
 import type { ShellThreadViewModel } from "~/lib/shell/thread-view-model";
-import { getLocalStorageItem, LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
+import {
+  onboardingHintBelongsToAnotherUser,
+  readOnboardingHint,
+  writeOnboardingHint,
+} from "~/lib/onboarding/onboarding-hint";
+import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -243,33 +248,23 @@ export function AppShell({ children }: { children: ReactNode }) {
    * matter where the user entered. */
   useEffect(() => {
     const nextRoute = onboardingData?.routeToOnboarding;
-    if (nextRoute === undefined) return;
-    const complete = !nextRoute;
-    setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, complete);
-    if (sessionUser?.id) {
-      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID, sessionUser.id);
-    }
+    if (nextRoute === undefined || !sessionUser?.id) return;
+    writeOnboardingHint(sessionUser.id, !nextRoute);
   }, [onboardingData?.routeToOnboarding, sessionUser?.id]);
 
   /* First-paint hint: per-user so a DB wipe (old account was onboarded,
    * new account is not) doesn't keep a genuinely new user out of
-   * `/onboarding` via a stale `true`. We store the user ID alongside the
-   * boolean and only trust the hint when the IDs match. Derived during
-   * render so no effect chain is needed. */
-  const onboardingHintComplete = (() => {
-    const stored = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE);
-    const storedId = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID);
-    if (sessionUser?.id && storedId !== sessionUser.id) return false;
-    return stored;
-  })();
+   * `/onboarding` via a stale `true`. Derived during render so no effect
+   * chain is needed. The onboarding Finish button writes this same hint
+   * synchronously before its full-page navigation (#991), so the fresh boot
+   * at `/` already reads `true` while the query is still in flight. */
+  const onboardingHintComplete = readOnboardingHint(sessionUser?.id);
   useEffect(() => {
-    const curId = sessionUser?.id ?? null;
+    const curId = sessionUser?.id;
     if (!curId) return;
-    const storedId = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID);
-    if (storedId !== curId) {
+    if (onboardingHintBelongsToAnotherUser(curId)) {
       // Stale hint for a different user (DB wipe → new signup) — reset.
-      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, false);
-      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID, curId);
+      writeOnboardingHint(curId, false);
     }
   }, [sessionUser?.id]);
   // Route guard: redirect based on server truth, with optimistic hint for
