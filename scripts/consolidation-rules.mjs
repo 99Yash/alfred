@@ -63,6 +63,18 @@ export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Plann
 /** @type {ConsolidationRule[]} */
 export const RULES = [
   {
+    id: "unfiltered-event-receipt-read",
+    re: /\.(?:from|(?:left|right|inner|full)Join)\(\s*eventReceipts\b/,
+    scope: "chain",
+    severity: "gate",
+    owners: [
+      "packages/db/src/schema/integrations.ts",
+      "packages/assistant/src/connections/ingestion/inbound-receive.ts",
+      "packages/assistant/src/connections/raw-receipt-inventory.ts",
+    ],
+    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, and raw inventory may read the full eventReceipts table.",
+  },
+  {
     id: "humanize-integration-slug",
     // `humanizeSlug(tool.integration)` / `humanizeSlug(integration)` — title-casing
     // an integration slug renders `github` as "Github" and `imessage` as "Imessage".
