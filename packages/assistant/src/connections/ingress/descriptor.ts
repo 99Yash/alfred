@@ -1,7 +1,7 @@
 import type {
+  EventDeliveryHealth,
   EventTypeForSource,
   InboundEventSource,
-  IntegrationSlug,
   JsonObject,
 } from "@alfred/contracts";
 
@@ -108,23 +108,14 @@ export interface InboundOwner {
 }
 
 /**
- * The user action that can restore deliveries. `connect` names the integration
- * whose connect flow restores the subscription: an event source slug and an
- * integration slug are different spaces, so the descriptor says which one, and
- * readiness never guesses from the source name.
+ * Provider-native health for the subscription that produces deliveries. The
+ * verdict is the shared `EventDeliveryHealth` shape, so the unified event-source
+ * health map (#976) carries it unchanged; a `connect` recovery names the
+ * integration whose connect flow restores the subscription, because an event
+ * source slug and an integration slug are different spaces.
  */
-export type InboundSubscriptionRecovery =
-  | { kind: "connect"; integration: IntegrationSlug }
-  | { kind: "retry" }
-  /** Only time or an operator can restore deliveries. */
-  | { kind: "none" };
-
-export type InboundSubscriptionHealth =
-  | { healthy: true }
-  | { healthy: false; reason: string; recovery: InboundSubscriptionRecovery };
-
 export interface InboundSubscriptionAdapter {
-  health(userId: string): Promise<InboundSubscriptionHealth>;
+  health(userId: string): Promise<EventDeliveryHealth>;
 }
 
 /** Resolve the dedup key one rule yields for one delivery, or `null` when it yields none. */

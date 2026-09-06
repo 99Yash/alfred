@@ -4,11 +4,13 @@ import {
   holdsAnyScope,
   humanizeSlug,
   integrationFromToolName,
-  isInboundEventSource,
   isIntegrationSlug,
   isToolName,
   toolLabel,
   type CredentialProvider,
+  type EventDeliveryHealth,
+  type EventSourceHealth,
+  type EventSourceHealthMap,
   type IntegrationAvailabilitySnapshot,
   type ProviderAvailability,
   type ToolName,
@@ -19,26 +21,19 @@ import {
   type PersistedWorkflowReadinessProblem,
   type WorkflowRequestedCapability,
   type WorkflowRequiredCapability,
-  type InboundEventSource,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
-import { readGmailWatchState } from "@alfred/integrations/google";
 import type { WorkflowToolCatalog, WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
-import type { InboundSubscriptionHealth } from "@alfred/assistant/connections/ingress";
-import type { GmailEventHealth } from "./gmail-event-readiness";
 
 type WorkflowReadinessProblemCode =
   | ToolUnavailabilityCode
   | "no_tool_surface"
   | "choose_account"
   | "resource_not_granted"
+  /** Event delivery needs the user to act (`connect` recovery); the workflow blocks (#976). */
   | "trigger_not_ready"
-  | "provider_unhealthy"
-  /** An inbound webhook source has no healthy subscription (ADR-0097); a deferral, like `provider_unhealthy`. */
+  /** Event delivery is broken in a way time or an operator restores (ADR-0097); the run defers. */
   | "trigger_degraded";
-
-/** Per-source subscription health for the inbound sources, as `readInboundTriggerHealth` reads it. */
-export type InboundTriggerHealthMap = ReadonlyMap<InboundEventSource, InboundSubscriptionHealth>;
 
 export interface WorkflowReadinessProblem extends PersistedWorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
@@ -64,7 +59,16 @@ type WorkflowReadinessDefinition = Pick<
   "trigger" | "allowedIntegrations" | "requiredCapabilities"
 >;
 
-const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 15 * 60_000;
+/**
+ * The verdict for a source the health map does not hold. `readEventSourceHealth`
+ * fills every `EventSource`, so this only fires for a partial map a caller built
+ * by hand; it defers rather than blocks, because no one can act on it.
+ */
+const NO_DELIVERY_HEALTH_SIGNAL: EventDeliveryHealth = {
+  healthy: false,
+  reason: "no delivery health signal",
+  recovery: { kind: "none" },
+};
 
 function matchesAccountRef(row: ProviderAvailability, accountRef: string): boolean {
   const normalizedRef = accountRef.toLocaleLowerCase();
@@ -201,11 +205,9 @@ export function resolveWorkflowReadiness(args: {
   definition: WorkflowReadinessDefinition;
   availability: IntegrationAvailabilitySnapshot;
   requestedCapabilities?: readonly WorkflowRequestedCapability[];
-  gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
-  inboundTriggerHealth: InboundTriggerHealthMap;
+  eventSourceHealth: EventSourceHealthMap;
   toolCatalog: WorkflowToolCatalog;
   resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
-  now?: Date;
 }): WorkflowReadinessProblem[] {
   const problems: WorkflowReadinessProblem[] = [];
   const allowed = new Set(args.definition.allowedIntegrations);
@@ -334,95 +336,26 @@ export function resolveWorkflowReadiness(args: {
     }
   }
 
-  if (args.definition.trigger.kind === "event" && args.definition.trigger.source === "gmail") {
-    const now = args.now ?? new Date();
-    const gmailRows = args.availability.providers.get("google") ?? [];
-    const hasReadyWatch = (row: ProviderAvailability) => {
-      if (row.status !== "active" || !row.scopes.has(GOOGLE_SCOPE.gmail.readonly)) return false;
-      const watch = readGmailWatchState(row.metadata);
-      if (!watch) return false;
-      const health = args.gmailEventHealth.get(row.credentialId);
-      return Boolean(
-        new Date(watch.expiresAt).getTime() > now.getTime() &&
-        health?.receiverConfigured &&
-        health.topicMatches &&
-        health.cursorReady &&
-        !health.coverageGap &&
-        health.lastSyncAt &&
-        now.getTime() - health.lastSyncAt.getTime() <= GMAIL_EVENT_HEALTH_MAX_AGE_MS,
-      );
-    };
-    const accountRef = args.definition.trigger.accountRef;
-    const selectedRows = accountRef
-      ? gmailRows.filter((row) => matchesAccountRef(row, accountRef))
-      : [];
-    const readyWatch = Boolean(
-      accountRef && selectedRows.length === 1 && selectedRows.some((row) => hasReadyWatch(row)),
+  if (args.definition.trigger.kind === "event") {
+    // A source with no healthy delivery is degraded, never quiet: the absence
+    // of events must not read as "nothing happened" (ADR-0097 item 5). The
+    // health entry names its own recovery, so readiness never guesses an
+    // integration from the source slug. `connect` means the user must act, so
+    // the workflow blocks; `retry` and `none` describe delivery that time or an
+    // operator restores, so the run defers (#976).
+    const { source, accountRef } = args.definition.trigger;
+    const health = triggerDeliveryHealth(
+      args.eventSourceHealth.get(source),
+      args.availability,
+      accountRef,
     );
-    if (!readyWatch) {
-      const selectedRow = selectedRows[0];
-      const selectedHealth = selectedRow
-        ? args.gmailEventHealth.get(selectedRow.credentialId)
-        : undefined;
-      const selectedWatch = selectedRow ? readGmailWatchState(selectedRow.metadata) : null;
-      const watchInstalled = Boolean(
-        selectedRow?.status === "active" &&
-        selectedRow.scopes.has(GOOGLE_SCOPE.gmail.readonly) &&
-        selectedWatch &&
-        new Date(selectedWatch.expiresAt).getTime() > now.getTime(),
-      );
-      const serverConfigurationBroken = Boolean(
-        watchInstalled &&
-        selectedHealth &&
-        (!selectedHealth.receiverConfigured || !selectedHealth.topicMatches),
-      );
-      const providerUnhealthy = Boolean(
-        serverConfigurationBroken ||
-        (watchInstalled &&
-          selectedHealth &&
-          (selectedHealth.coverageGap ||
-            !selectedHealth.cursorReady ||
-            !selectedHealth.lastSyncAt ||
-            (selectedHealth.lastSyncAt &&
-              now.getTime() - selectedHealth.lastSyncAt.getTime() >
-                GMAIL_EVENT_HEALTH_MAX_AGE_MS))),
-      );
-      const recoveryAction: WorkflowRecoveryAction | undefined = serverConfigurationBroken
-        ? undefined
-        : providerUnhealthy
-          ? { kind: "retry" }
-          : { kind: "connect", integration: "gmail" };
-      problems.push({
-        code: providerUnhealthy ? "provider_unhealthy" : "trigger_not_ready",
-        message: providerUnhealthy
-          ? "Gmail event delivery is unhealthy; retry after delivery coverage recovers."
-          : "Gmail event delivery is not ready; reconnect Gmail or renew its watch.",
-        field: "trigger",
-        ...(recoveryAction ? { recoveryAction } : {}),
-      });
-    }
-  }
-
-  if (
-    args.definition.trigger.kind === "event" &&
-    isInboundEventSource(args.definition.trigger.source)
-  ) {
-    // An inbound source with no healthy subscription is degraded, never quiet:
-    // the absence of deliveries must not read as "nothing happened" (ADR-0097).
-    const source = args.definition.trigger.source;
-    const health: InboundSubscriptionHealth = args.inboundTriggerHealth.get(source) ?? {
-      healthy: false,
-      reason: "no subscription health signal",
-      recovery: { kind: "none" },
-    };
     if (!health.healthy) {
-      // The descriptor names the integration its `connect` recovery points at;
-      // `connect` and `retry` are already `WorkflowRecoveryAction` shapes.
+      const notReady = health.recovery.kind === "connect";
       const recoveryAction: WorkflowRecoveryAction | undefined =
         health.recovery.kind === "none" ? undefined : health.recovery;
       problems.push({
-        code: "trigger_degraded",
-        message: `${humanizeSlug(source)} event delivery is degraded: ${health.reason}.`,
+        code: notReady ? "trigger_not_ready" : "trigger_degraded",
+        message: `${humanizeSlug(source)} event delivery is ${notReady ? "not ready" : "degraded"}: ${health.reason}.`,
         field: "trigger",
         ...(recoveryAction ? { recoveryAction } : {}),
       });
@@ -442,10 +375,8 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
   requested: readonly WorkflowRequestedCapability[];
   availability: IntegrationAvailabilitySnapshot;
   toolCatalog: WorkflowToolCatalog;
-  gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
-  inboundTriggerHealth: InboundTriggerHealthMap;
+  eventSourceHealth: EventSourceHealthMap;
   resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
-  now?: Date;
 }): WorkflowCapabilityResolution<TDefinition> {
   const requiredCapabilities = args.requested.flatMap((requested) =>
     isToolName(requested.tool) ? [{ ...requested, tool: requested.tool }] : [],
@@ -480,11 +411,9 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     definition,
     availability: args.availability,
     requestedCapabilities: args.requested,
-    gmailEventHealth: args.gmailEventHealth,
-    inboundTriggerHealth: args.inboundTriggerHealth,
+    eventSourceHealth: args.eventSourceHealth,
     toolCatalog: args.toolCatalog,
     ...(args.resourceAccessFacts ? { resourceAccessFacts: args.resourceAccessFacts } : {}),
-    ...(args.now ? { now: args.now } : {}),
   });
   return {
     definition,
@@ -499,6 +428,28 @@ interface WorkflowApprovalDisplay {
 
 interface WorkflowRecovery {
   recoveryAction?: WorkflowRecoveryAction;
+}
+
+/**
+ * Pick the delivery verdict one event trigger reads from its source's entry. A
+ * source-grain entry is the verdict. An account-grain entry resolves the
+ * trigger's `accountRef` against the provider's rows the same way capability
+ * accounts resolve, and falls back to `unselected` when the ref names no
+ * account or more than one.
+ */
+function triggerDeliveryHealth(
+  entry: EventSourceHealth | undefined,
+  availability: IntegrationAvailabilitySnapshot,
+  accountRef: string | undefined,
+): EventDeliveryHealth {
+  if (!entry) return NO_DELIVERY_HEALTH_SIGNAL;
+  if (entry.grain === "source") return entry.health;
+  if (!accountRef) return entry.unselected;
+  const rows = (availability.providers.get(entry.provider) ?? []).filter((row) =>
+    matchesAccountRef(row, accountRef),
+  );
+  const row = rows.length === 1 ? rows[0] : undefined;
+  return (row && entry.accounts.get(row.accountId)) ?? entry.unselected;
 }
 
 function recoveryForToolProblem(

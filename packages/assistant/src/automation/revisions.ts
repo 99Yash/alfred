@@ -619,8 +619,7 @@ export async function refreshWorkflowActivationProposal(args: {
   });
   if (stale) return { ok: false, failure: stale };
 
-  const { availability, gmailEventHealth, inboundTriggerHealth } =
-    await readWorkflowReadinessContext(args.userId);
+  const { availability, eventSourceHealth } = await readWorkflowReadinessContext(args.userId);
   const toolCatalog = workflowToolCatalog();
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: requested.definition,
@@ -656,8 +655,7 @@ export async function refreshWorkflowActivationProposal(args: {
     definition,
     availability,
     requestedCapabilities: definition.requiredCapabilities,
-    gmailEventHealth,
-    inboundTriggerHealth,
+    eventSourceHealth,
     toolCatalog,
   });
   if (blockers.length > 0) {
@@ -741,8 +739,7 @@ export async function recoverWorkflowDraft(args: {
     };
   }
 
-  const { availability, gmailEventHealth, inboundTriggerHealth } =
-    await readWorkflowReadinessContext(args.userId);
+  const { availability, eventSourceHealth } = await readWorkflowReadinessContext(args.userId);
   const toolCatalog = workflowToolCatalog();
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: storedDefinition,
@@ -762,8 +759,7 @@ export async function recoverWorkflowDraft(args: {
     definition,
     availability,
     requestedCapabilities: baseProposal.data.requestedCapabilities,
-    gmailEventHealth,
-    inboundTriggerHealth,
+    eventSourceHealth,
     toolCatalog,
   });
 
@@ -1155,8 +1151,7 @@ export async function activateWorkflow(
 
     const definition = validated.definition;
     const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
-    const { availability, gmailEventHealth, inboundTriggerHealth } =
-      await readWorkflowReadinessContext(args.userId);
+    const { availability, eventSourceHealth } = await readWorkflowReadinessContext(args.userId);
     const toolCatalog = workflowToolCatalog();
     const blockers = resolveWorkflowReadiness({
       definition,
@@ -1164,8 +1159,7 @@ export async function activateWorkflow(
       requestedCapabilities: proposal.success
         ? proposal.data.requestedCapabilities
         : definition.requiredCapabilities,
-      gmailEventHealth,
-      inboundTriggerHealth,
+      eventSourceHealth,
       toolCatalog,
     });
     if (blockers[0]) {
