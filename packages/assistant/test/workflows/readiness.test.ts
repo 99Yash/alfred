@@ -10,6 +10,10 @@ import type {
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { workflowToolCatalog, type WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
 import {
+  gmailEventSourceHealth,
+  type GmailEventHealth,
+} from "../../src/automation/gmail-event-readiness";
+import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowCapabilities,
   resolveWorkflowApprovalDisplay,
@@ -21,17 +25,25 @@ import { validateWorkflowDefinition } from "@alfred/assistant/automation/revisio
 function resolveWorkflowReadiness(
   args: Omit<
     Parameters<typeof resolveWorkflowReadinessBase>[0],
-    "gmailEventHealth" | "inboundTriggerHealth" | "toolCatalog"
+    "eventSourceHealth" | "toolCatalog"
   > & {
-    gmailEventHealth?: Parameters<typeof resolveWorkflowReadinessBase>[0]["gmailEventHealth"];
+    eventSourceHealth?: Parameters<typeof resolveWorkflowReadinessBase>[0]["eventSourceHealth"];
   },
 ) {
   return resolveWorkflowReadinessBase({
     ...args,
-    gmailEventHealth: args.gmailEventHealth ?? new Map(),
-    inboundTriggerHealth: new Map(),
+    eventSourceHealth: args.eventSourceHealth ?? new Map(),
     toolCatalog: workflowToolCatalog(),
   });
+}
+
+/** The Gmail entry of the health map for one credential's facts, as the reader would build it. */
+function gmailHealth(
+  availability: IntegrationAvailabilitySnapshot,
+  facts: ReadonlyMap<string, GmailEventHealth>,
+  now: Date,
+) {
+  return new Map([["gmail", gmailEventSourceHealth(availability, facts, now)] as const]);
 }
 
 before(() => registerBuiltinTools());
@@ -91,7 +103,7 @@ describe("workflow readiness", () => {
   test("runtime defers provider health but blocks credential loss", () => {
     assert.equal(
       runtimeReadinessDisposition([
-        { code: "provider_unhealthy", message: "Provider is unavailable.", field: "trigger" },
+        { code: "trigger_degraded", message: "Provider is unavailable.", field: "trigger" },
       ]),
       "deferred",
     );
@@ -108,8 +120,7 @@ describe("workflow readiness", () => {
       requested: [{ tool: "system.current_time" }],
       availability: unavailable,
       toolCatalog: workflowToolCatalog(),
-      gmailEventHealth: new Map(),
-      inboundTriggerHealth: new Map(),
+      eventSourceHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["system"]);
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
@@ -123,8 +134,7 @@ describe("workflow readiness", () => {
       requested: [{ tool: "system.current_time", resourceScope: { calendarId: "primary" } }],
       availability: unavailable,
       toolCatalog: workflowToolCatalog(),
-      gmailEventHealth: new Map(),
-      inboundTriggerHealth: new Map(),
+      eventSourceHealth: new Map(),
       resourceAccessFacts: [
         {
           tool: "system.current_time",
@@ -144,8 +154,7 @@ describe("workflow readiness", () => {
       requested: [{ tool: "slack.send_message" }],
       availability: unavailable,
       toolCatalog: workflowToolCatalog(),
-      gmailEventHealth: new Map(),
-      inboundTriggerHealth: new Map(),
+      eventSourceHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
     assert.deepEqual(result.definition.allowedTools, []);
@@ -159,8 +168,7 @@ describe("workflow readiness", () => {
       requested: [{ tool: "system.current_time" }],
       availability: unavailable,
       toolCatalog: new Map<ToolName, WorkflowToolFacts>(),
-      gmailEventHealth: new Map(),
-      inboundTriggerHealth: new Map(),
+      eventSourceHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
     assert.deepEqual(result.definition.requiredCapabilities, [{ tool: "system.current_time" }]);
@@ -468,17 +476,19 @@ describe("workflow readiness", () => {
   });
 
   test("a Gmail event requires a live watch", () => {
+    const now = new Date("2026-07-31T00:00:00.000Z");
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: { kind: "event", source: "gmail", type: "message_received" },
       }),
       availability: unavailable,
-      now: new Date("2026-07-31T00:00:00.000Z"),
+      eventSourceHealth: gmailHealth(unavailable, new Map(), now),
     });
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
   });
 
   test("a Gmail event watch belongs to the selected account", () => {
+    const now = new Date("2026-07-31T00:00:00.000Z");
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: { kind: "event", source: "gmail", type: "message_received" },
@@ -487,12 +497,24 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "other@example.com" }],
       }),
       availability: gmailAvailability,
-      now: new Date("2026-07-31T00:00:00.000Z"),
+      eventSourceHealth: gmailHealth(gmailAvailability, new Map(), now),
     });
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
   });
 
+  test("a source the health map does not hold defers instead of blocking", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: { kind: "event", source: "gmail", type: "message_received" },
+      }),
+      availability: unavailable,
+    });
+    assert.equal(problems.at(-1)?.code, "trigger_degraded");
+    assert.equal(problems.at(-1)?.recoveryAction, undefined);
+  });
+
   test("a Gmail event requires receiver, cursor, and recent-sync health", () => {
+    const now = new Date("2026-07-31T00:10:00.000Z");
     const healthy: IntegrationAvailabilitySnapshot = {
       ...gmailAvailability,
       providers: new Map([
@@ -528,26 +550,51 @@ describe("workflow readiness", () => {
         },
       }),
       availability: healthy,
-      gmailEventHealth: new Map([
-        [
-          "credential-1",
-          {
-            receiverConfigured: true,
-            topicMatches: true,
-            cursorReady: true,
-            coverageGap: false,
-            lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
-          },
-        ],
-      ]),
-      now: new Date("2026-07-31T00:10:00.000Z"),
+      eventSourceHealth: gmailHealth(
+        healthy,
+        new Map([
+          [
+            "credential-1",
+            {
+              receiverConfigured: true,
+              topicMatches: true,
+              cursorReady: true,
+              coverageGap: false,
+              lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
+            },
+          ],
+        ]),
+        now,
+      ),
     });
     assert.deepEqual(problems, []);
   });
 
   test("an expired Gmail watch asks for renewal even when sync is stale", () => {
+    const now = new Date("2026-07-31T00:10:00.000Z");
     const selected = gmailAvailability.providers.get("google")?.[0];
     assert.ok(selected);
+    const availability: IntegrationAvailabilitySnapshot = {
+      ...gmailAvailability,
+      providers: new Map([
+        [
+          "google",
+          [
+            {
+              ...selected,
+              metadata: {
+                watch: {
+                  topic: "projects/example/topics/gmail",
+                  expiresAt: "2026-07-30T00:00:00.000Z",
+                  baselineHistoryId: "123",
+                  installedAt: "2026-07-29T00:00:00.000Z",
+                },
+              },
+            },
+          ],
+        ],
+      ]),
+    };
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: {
@@ -557,48 +604,53 @@ describe("workflow readiness", () => {
           accountRef: "account-1",
         },
       }),
-      availability: {
-        ...gmailAvailability,
-        providers: new Map([
+      availability,
+      eventSourceHealth: gmailHealth(
+        availability,
+        new Map([
           [
-            "google",
-            [
-              {
-                ...selected,
-                metadata: {
-                  watch: {
-                    topic: "projects/example/topics/gmail",
-                    expiresAt: "2026-07-30T00:00:00.000Z",
-                    baselineHistoryId: "123",
-                    installedAt: "2026-07-29T00:00:00.000Z",
-                  },
-                },
-              },
-            ],
+            "credential-1",
+            {
+              receiverConfigured: true,
+              topicMatches: true,
+              cursorReady: true,
+              coverageGap: true,
+              lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
+            },
           ],
         ]),
-      },
-      gmailEventHealth: new Map([
-        [
-          "credential-1",
-          {
-            receiverConfigured: true,
-            topicMatches: true,
-            cursorReady: true,
-            coverageGap: true,
-            lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
-          },
-        ],
-      ]),
-      now: new Date("2026-07-31T00:10:00.000Z"),
+        now,
+      ),
     });
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
     assert.match(problems.at(-1)?.message ?? "", /renew its watch/);
   });
 
-  test("a configured live watch reports delayed delivery as provider health", () => {
+  test("a configured live watch reports delayed delivery as a deferral", () => {
+    const now = new Date("2026-07-31T00:10:00.000Z");
     const selected = gmailAvailability.providers.get("google")?.[0];
     assert.ok(selected);
+    const availability: IntegrationAvailabilitySnapshot = {
+      ...gmailAvailability,
+      providers: new Map([
+        [
+          "google",
+          [
+            {
+              ...selected,
+              metadata: {
+                watch: {
+                  topic: "projects/example/topics/gmail",
+                  expiresAt: "2026-08-01T00:00:00.000Z",
+                  baselineHistoryId: "123",
+                  installedAt: "2026-07-29T00:00:00.000Z",
+                },
+              },
+            },
+          ],
+        ],
+      ]),
+    };
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: {
@@ -608,47 +660,53 @@ describe("workflow readiness", () => {
           accountRef: "account-1",
         },
       }),
-      availability: {
-        ...gmailAvailability,
-        providers: new Map([
+      availability,
+      eventSourceHealth: gmailHealth(
+        availability,
+        new Map([
           [
-            "google",
-            [
-              {
-                ...selected,
-                metadata: {
-                  watch: {
-                    topic: "projects/example/topics/gmail",
-                    expiresAt: "2026-08-01T00:00:00.000Z",
-                    baselineHistoryId: "123",
-                    installedAt: "2026-07-29T00:00:00.000Z",
-                  },
-                },
-              },
-            ],
+            "credential-1",
+            {
+              receiverConfigured: true,
+              topicMatches: true,
+              cursorReady: true,
+              coverageGap: true,
+              lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
+            },
           ],
         ]),
-      },
-      gmailEventHealth: new Map([
-        [
-          "credential-1",
-          {
-            receiverConfigured: true,
-            topicMatches: true,
-            cursorReady: true,
-            coverageGap: true,
-            lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
-          },
-        ],
-      ]),
-      now: new Date("2026-07-31T00:10:00.000Z"),
+        now,
+      ),
     });
-    assert.equal(problems.at(-1)?.code, "provider_unhealthy");
+    assert.equal(problems.at(-1)?.code, "trigger_degraded");
+    assert.deepEqual(problems.at(-1)?.recoveryAction, { kind: "retry" });
   });
 
   test("server-side Gmail delivery configuration does not offer OAuth recovery", () => {
+    const now = new Date("2026-07-31T00:10:00.000Z");
     const selected = gmailAvailability.providers.get("google")?.[0];
     assert.ok(selected);
+    const availability: IntegrationAvailabilitySnapshot = {
+      ...gmailAvailability,
+      providers: new Map([
+        [
+          "google",
+          [
+            {
+              ...selected,
+              metadata: {
+                watch: {
+                  topic: "projects/example/topics/gmail",
+                  expiresAt: "2026-08-01T00:00:00.000Z",
+                  baselineHistoryId: "123",
+                  installedAt: "2026-07-29T00:00:00.000Z",
+                },
+              },
+            },
+          ],
+        ],
+      ]),
+    };
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: {
@@ -658,42 +716,49 @@ describe("workflow readiness", () => {
           accountRef: "account-1",
         },
       }),
-      availability: {
-        ...gmailAvailability,
-        providers: new Map([
+      availability,
+      eventSourceHealth: gmailHealth(
+        availability,
+        new Map([
           [
-            "google",
-            [
-              {
-                ...selected,
-                metadata: {
-                  watch: {
-                    topic: "projects/example/topics/gmail",
-                    expiresAt: "2026-08-01T00:00:00.000Z",
-                    baselineHistoryId: "123",
-                    installedAt: "2026-07-29T00:00:00.000Z",
-                  },
-                },
-              },
-            ],
+            "credential-1",
+            {
+              receiverConfigured: false,
+              topicMatches: false,
+              cursorReady: true,
+              coverageGap: false,
+              lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
+            },
           ],
         ]),
-      },
-      gmailEventHealth: new Map([
+        now,
+      ),
+    });
+    assert.equal(problems.at(-1)?.code, "trigger_degraded");
+    assert.equal(problems.at(-1)?.recoveryAction, undefined);
+  });
+
+  test("an inbound source reads its descriptor's verdict at source grain", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: { kind: "event", source: "github", type: "push" },
+      }),
+      availability: unavailable,
+      eventSourceHealth: new Map([
         [
-          "credential-1",
+          "github",
           {
-            receiverConfigured: false,
-            topicMatches: false,
-            cursorReady: true,
-            coverageGap: false,
-            lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
+            grain: "source",
+            health: {
+              healthy: false,
+              reason: "the GitHub App is not installed",
+              recovery: { kind: "connect", integration: "github" },
+            },
           },
         ],
       ]),
-      now: new Date("2026-07-31T00:10:00.000Z"),
     });
-    assert.equal(problems.at(-1)?.code, "provider_unhealthy");
-    assert.equal(problems.at(-1)?.recoveryAction, undefined);
+    assert.equal(problems.at(-1)?.code, "trigger_not_ready");
+    assert.deepEqual(problems.at(-1)?.recoveryAction, { kind: "connect", integration: "github" });
   });
 });

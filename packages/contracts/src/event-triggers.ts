@@ -1,4 +1,5 @@
 import { enumGuard } from "./guards";
+import type { CredentialProvider, IntegrationSlug } from "./integrations";
 
 /**
  * The browser-safe half of one event source: how its domain events are
@@ -166,3 +167,47 @@ export function parseEventTypeName<S extends EventSource>(
   const type = name.slice(prefix.length);
   return isEventTypeForSource(source, type) ? type : null;
 }
+
+/**
+ * The user action that can restore deliveries from one event source. `connect`
+ * names the integration whose connect flow restores the subscription: an event
+ * source slug and an integration slug are different spaces, so the health
+ * reader says which one, and readiness never guesses from the source name.
+ */
+export type EventDeliveryRecovery =
+  | { kind: "connect"; integration: IntegrationSlug }
+  | { kind: "retry" }
+  /** Only time or an operator can restore deliveries. */
+  | { kind: "none" };
+
+/** Whether events from one source (or one account of it) will arrive. */
+export type EventDeliveryHealth =
+  | { healthy: true }
+  | { healthy: false; reason: string; recovery: EventDeliveryRecovery };
+
+/**
+ * Delivery health for one event source, at the grain the source has (#976).
+ *
+ * - `source`: one verdict per user. An inbound webhook source whose owner is a
+ *   single installation or organization (GitHub App, Sentry) reads this way.
+ * - `account`: one verdict per connected provider account, keyed by the durable
+ *   `accountId` a trigger's `accountRef` canonicalizes to. `provider` names the
+ *   credential rows the ref resolves against; `unselected` is the verdict for a
+ *   trigger that names no account, or one the snapshot does not hold. Gmail's
+ *   per-account watch reads this way.
+ *
+ * The grain is a property of the source, so it sits on the value and the
+ * reader of the map has to handle both; a `(source, accountRef)` key would
+ * need a sentinel ref for every source-grain entry.
+ */
+export type EventSourceHealth =
+  | { grain: "source"; health: EventDeliveryHealth }
+  | {
+      grain: "account";
+      provider: CredentialProvider;
+      accounts: ReadonlyMap<string, EventDeliveryHealth>;
+      unselected: EventDeliveryHealth;
+    };
+
+/** One entry per `EventSource`, as `readEventSourceHealth` fills it. */
+export type EventSourceHealthMap = ReadonlyMap<EventSource, EventSourceHealth>;
