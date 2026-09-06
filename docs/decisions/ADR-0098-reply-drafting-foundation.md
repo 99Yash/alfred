@@ -45,3 +45,59 @@ A smoke or an explicit user request is the opt-in. Recording `invocation: "manua
 - **The consumer runs inside the triage step's publish.** `mode: "best-effort"` means a consumer failure is logged, not propagated. A bug in the gate cannot fail triage, and it also cannot be seen from the triage run's status.
 - **The `classified` event carries no body text.** A consumer that needs content must load the document. This keeps the payload bounded and means the gate can never judge prose.
 - **`recordReplyDraftDecision` checks the run's user but not its step.** The consumer runs in-process during `classify`, so the step exists, but the write does not prove it.
+
+
+## Amendment — Gmail reply tracer (#237)
+
+The workflow now runs `gate` → `gather` → `compose` → `stage`. Gathering reads
+bounded inbound content, prior messages from the same mailbox, user context,
+the sender and recipients, and the current date and timezone. Audience selection
+uses the explicit `generic` fallback. It reads an active generic style profile
+or records `style_missing`; #238 still owns profile materialization.
+
+The model writes only the body. Code fixes the mailbox, recipient, subject, and
+Gmail thread id. A separate model call audits the final body for factual claims
+and commitments. Each supported claim must name a gathered source and quote
+text present in that source. Code resolves those references; the model cannot
+supply a resolved source object. The structural verifier then checks routing,
+claims, body, and tool input. Invalid candidates produce `withheld`.
+
+The verified input is saved before dispatch. The `stage` step calls
+`executeToolCallRound` with one stable tool call id and the inbound account as a
+required capability. It uses `action_stagings` and the existing high-risk approval
+floor (ADR-0069). `ctx.stageAction` is not this approval path: it writes to the
+general pending effects queue. The run records `staged` in its state and decision
+trace, then waits for approval. On resume, the dispatcher uses the stored or
+user-edited input. It records execution, rejection, or failure on the action row
+and in the transcript. The draft result remains the historical staging decision.
+
+The workflow reads the current triage row and checks that it still belongs to
+the input document. It checks the gate, sender, mailbox, and send access again
+before the first staging call. Missing source or access, a disabled feature, and
+a blocked candidate produce structured outcomes. The settings switch is now
+available; the default remains OFF.
+
+The smoke script can select a document and invocation and require an expected
+outcome. For `staged`, it checks one pending approval row, its tool input, source
+provenance, and verifier pass. It does not approve the action. For all other
+outcomes, it permits only refused approval rows left by recovery.
+
+An action insert can survive a failed workflow checkpoint. Before the `stage`
+step returns a terminal result, the tool runtime withdraws any pending approval
+for that run and tool call. It checks the current step lease in a transaction
+and changes only pending approval rows. A failed withdrawal prevents completion
+and is retried. Approved and executed rows are unchanged. Notification and
+expiry workers skip the withdrawn row. The smoke accepts such refused rows for
+a non-staged result, but still rejects pending or executed actions.
+
+The gather bundle also stores date, timezone, and message header facts as one
+`reply_context` evidence object. Both model calls receive it, so the grounding
+review can cite the same facts that the composer used. Style text stays outside
+this evidence object.
+
+The grounding review is model-based. Exact quote checks prove that cited text
+exists, but do not prove entailment or complete claim coverage. Missing facts can
+still be missed by both model calls. Human approval remains required. The source
+context is bounded and can omit parts of a long thread. No feature tests were
+added, as required by repository policy; the live smoke requires a configured
+server and was not run as part of this implementation.
