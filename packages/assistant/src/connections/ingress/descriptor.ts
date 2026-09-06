@@ -3,13 +3,14 @@ import type {
   InboundEventSource,
   IntegrationSlug,
   JsonObject,
+  IntegrationActivityItem,
 } from "@alfred/contracts";
 
 /**
  * The provider-specific half of one inbound webhook source (ADR-0097). A
  * descriptor owns exactly what differs between providers — how a delivery is
  * authenticated, how it is deduplicated, which event type it carries, and whose
- * account it belongs to — and nothing else. The shared receive path
+ * account it belongs to, and how its receipts read as text. The shared receive path
  * (`receive.ts`) owns the order of those steps, the receipt row, and the
  * handoff to the queue, so a new source is one descriptor and one entry in
  * `EVENT_SOURCE_ENTRIES`, never a new route.
@@ -44,6 +45,8 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
    * delivery outright (a `ping`, a body with no kind to read).
    */
   project(payload: JsonObject, headers: Headers): InboundProjection<S>;
+  /** Describe a stored receipt; unknown kinds use the shared JSON fallback. */
+  describe(kind: string, payload: unknown): InboundDescription;
   /** Resolve the credential that owns the delivery; `null` means unattributable. */
   resolveOwner(payload: JsonObject, headers: Headers): Promise<InboundOwner | null>;
   /**
@@ -53,6 +56,14 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
    * broken subscription.
    */
   subscription?: InboundSubscriptionAdapter;
+}
+
+export interface InboundDescription {
+  title: string;
+  summary: string;
+  body: string;
+  url?: string | undefined;
+  status?: IntegrationActivityItem["status"] | undefined;
 }
 
 /**

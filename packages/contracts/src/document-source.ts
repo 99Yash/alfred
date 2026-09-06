@@ -9,6 +9,7 @@ export const DOCUMENT_SOURCES = [
   "slack",
   "linear",
   "github",
+  "sentry",
   "notion",
   "imessage",
 ] as const;

@@ -12,16 +12,24 @@ import { useRawReceiptKinds } from "./use-raw-kinds";
  */
 export function RawKinds({ slug }: { slug: InboundEventSource }) {
   const query = useRawReceiptKinds(slug);
-  const kinds = query.data ?? [];
+  const kinds = query.data?.kinds ?? [];
 
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: "330ms" }}>
       <div className="space-y-1">
         <SectionHeading>Unmapped events</SectionHeading>
         <p className="text-[12.5px] leading-5 text-app-fg-3">
-          Delivered and stored. Nothing reacts to these yet.
+          Stored for search. These events do not start workflows.
         </p>
       </div>
+
+      {query.data && (
+        <p className="text-[12.5px] leading-5 text-app-fg-3">
+          Search limit: {query.data.embedding.dailyCap.toLocaleString()} events per day in your time
+          zone. {query.data.embedding.cappedCount.toLocaleString()} stored events were kept out of
+          search because they exceeded this limit.
+        </p>
+      )}
 
       {query.isPending ? (
         <p role="status" className="text-sm text-app-fg-3">

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Queue, Worker, type Job } from "bullmq";
-import { GMAIL_POLL_DEDUP_TTL_MS, toMessage } from "@alfred/contracts";
+import { GMAIL_POLL_DEDUP_TTL_MS, INBOUND_EVENT_SOURCES, toMessage } from "@alfred/contracts";
 import { findExpiringGmailWatches } from "@alfred/integrations/google";
 import {
   findCredentialsNeedingPoll,
@@ -26,6 +26,7 @@ import {
 } from "./chat-media";
 import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import { deliverInboundReceipt } from "./inbound-deliver";
+import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -603,17 +604,22 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       // Pick up documents whose embed step failed during ingest. Bounded
       // batch — anything left over comes back next tick. The sweep loop is
       // owned by @alfred/corpus (`retryPending`); this case only schedules it
-      // and reports the summary count. BOTH Gmail sources are covered: mail
-      // rows (`gmail`) and attachment rows (`gmail_attachment`) — the latter
-      // never re-ingest (skip-if-exists dedup), so this sweep is their only
-      // transient-embed-failure recovery path.
-      const [mail, media] = await Promise.all([
+      // and reports the summary count. Gmail, attachments, and each inbound
+      // source have separate bounded batches so a busy source cannot starve
+      // another. Inbound batches also project receipts stored before #989.
+      const [mail, media, ...inbound] = await Promise.all([
         retryPending({ source: "gmail", limit: 50 }),
         retryPending({ source: "gmail_attachment", limit: 50 }),
+        ...INBOUND_EVENT_SOURCES.map(async (source) => {
+          await backfillReceiptDocuments(source);
+          return retryPending({ source, limit: 50 });
+        }),
       ]);
-      const candidates = mail.candidates + media.candidates;
-      const succeeded = mail.succeeded + media.succeeded;
-      const failed = mail.failed + media.failed;
+      const candidates =
+        mail.candidates + media.candidates + inbound.reduce((sum, r) => sum + r.candidates, 0);
+      const succeeded =
+        mail.succeeded + media.succeeded + inbound.reduce((sum, r) => sum + r.succeeded, 0);
+      const failed = mail.failed + media.failed + inbound.reduce((sum, r) => sum + r.failed, 0);
       console.log(
         `[ingestion:worker] gmail.embed_sweep candidates=${candidates} succeeded=${succeeded} failed=${failed} ` +
           `(mail ${mail.candidates}/${mail.succeeded}/${mail.failed}, attachment ${media.candidates}/${media.succeeded}/${media.failed})`,
@@ -624,6 +630,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         failed,
         mail,
         media,
+        inbound,
       };
     }
     case "gmail.media_ingest": {
