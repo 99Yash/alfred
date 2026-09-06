@@ -8,7 +8,11 @@ import {
   workflowToolCatalog,
 } from "@alfred/assistant/tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
-import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
+import {
+  resolveWorkflowReadiness,
+  type WorkflowReadinessContext,
+  type WorkflowReadinessProblem,
+} from "./readiness";
 import { reconcileWorkflowReadiness } from "./revisions";
 
 export type RuntimeReadinessResult =
@@ -20,13 +24,10 @@ export function runtimeReadinessDisposition(
   problems: readonly WorkflowReadinessProblem[],
 ): "ready" | "deferred" | "blocked" {
   if (problems.length === 0) return "ready";
-  // Both codes describe delivery health that time or an operator can restore,
-  // not a definition the user must change, so the run waits instead of blocking.
-  return problems.every(
-    (problem) => problem.code === "provider_unhealthy" || problem.code === "trigger_degraded",
-  )
-    ? "deferred"
-    : "blocked";
+  // `trigger_degraded` describes delivery health that time or an operator can
+  // restore, not a definition the user must change, so the run waits instead
+  // of blocking (#976).
+  return problems.every((problem) => problem.code === "trigger_degraded") ? "deferred" : "blocked";
 }
 
 /** Recheck one run's exact pinned revision against mutable provider state. */
@@ -58,7 +59,7 @@ export async function checkWorkflowRunReadiness(args: {
     throw new Error(`[workflows:readiness] pinned revision is unavailable: ${args.runId}`);
   }
 
-  let context: Awaited<ReturnType<typeof readWorkflowReadinessContext>>;
+  let context: WorkflowReadinessContext;
   try {
     context = await readWorkflowReadinessContext(args.userId);
   } catch (error) {
@@ -76,9 +77,7 @@ export async function checkWorkflowRunReadiness(args: {
   };
   const problems = resolveWorkflowReadiness({
     definition,
-    availability: context.availability,
-    gmailEventHealth: context.gmailEventHealth,
-    inboundTriggerHealth: context.inboundTriggerHealth,
+    context,
     toolCatalog: workflowToolCatalog(),
   });
 

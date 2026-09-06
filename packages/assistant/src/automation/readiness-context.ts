@@ -1,13 +1,18 @@
 import { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
-import { readInboundTriggerHealth } from "@alfred/assistant/connections/ingress";
-import { readGmailEventHealth } from "./gmail-event-readiness";
+import { readEventSourceHealth } from "./event-source-health";
+import type { WorkflowReadinessContext } from "./readiness";
 
-/** Load the complete mutable context required for one workflow readiness decision. */
-export async function readWorkflowReadinessContext(userId: string) {
+/**
+ * Load the complete mutable context required for one workflow readiness
+ * decision. The health map is read against the same availability snapshot it
+ * is returned with, and the resolver takes the pair as one object, so the
+ * account a trigger resolves and the account its health was read for are
+ * always the same row.
+ */
+export async function readWorkflowReadinessContext(
+  userId: string,
+): Promise<WorkflowReadinessContext> {
   const availability = await readFreshIntegrationAvailability(userId);
-  const [gmailEventHealth, inboundTriggerHealth] = await Promise.all([
-    readGmailEventHealth(userId, availability),
-    readInboundTriggerHealth(userId),
-  ]);
-  return { availability, gmailEventHealth, inboundTriggerHealth };
+  const eventSourceHealth = await readEventSourceHealth(userId, availability, new Date());
+  return { availability, eventSourceHealth };
 }

@@ -138,7 +138,7 @@ Do not restart #560 from its original issue body. The current code already has:
 - a usable `historyId` cursor check;
 - coverage-gap and stale-sync checks; and
 - workflow activation readiness that reports `trigger_not_ready` or
-  `provider_unhealthy`.
+  `trigger_degraded`.
 
 The remaining work is the durable control-plane residue:
 
