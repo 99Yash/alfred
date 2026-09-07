@@ -12,10 +12,10 @@
  * Weights and saturation constants are tunable from data (ADR-0057/0059 open
  * item); they live here as named constants, not magic numbers.
  */
-import { type SignificanceBand, bucketSignificance, clamp01 } from "@alfred/contracts";
+import { type SignificanceBand, bucketSignificance, clamp01, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { entities, user } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   type CorrespondenceStats,
   type PersonEntityMetadata,
@@ -342,11 +342,12 @@ export async function getSenderSignificanceBatch(
           eq(entities.kind, "person"),
           sql`EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-            WHERE lower(alias) = ANY(${targetList})
+            WHERE ${inArray(sql`lower(alias)`, targetList)}
           )`,
         ),
       );
-  } catch {
+  } catch (err) {
+    console.warn(`[knowledge.significance] batch alias read failed: ${toMessage(err)}`);
     return out;
   }
 
