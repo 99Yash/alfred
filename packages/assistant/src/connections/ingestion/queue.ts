@@ -1,11 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Queue, Worker, type Job } from "bullmq";
-import {
-  GMAIL_POLL_DEDUP_TTL_MS,
-  GMAIL_POLL_SWEEP_STALE_AFTER_MS,
-  INBOUND_EVENT_SOURCES,
-  toMessage,
-} from "@alfred/contracts";
+import { INBOUND_EVENT_SOURCES, toMessage } from "@alfred/contracts";
 import { findExpiringGmailWatches } from "@alfred/integrations/google";
 import {
   findCredentialsNeedingPoll,
@@ -41,7 +36,7 @@ import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
  *  - gmail.poll_recent    (ADR-0037) — pub/sub realtime path; messages.list search index
  *  - gmail.poll_history   (m7c) — history.list catch-up; demoted to poll-fallback only
  *  - gmail.watch_renew    (m7c) — replace watch channels nearing expiry
- *  - gmail.poll_sweep     (m7c) — repeatable: enqueue polls for stale cursors
+ *  - gmail.poll_sweep     (m7c) — repeatable: enqueue polls for active Gmail cursors
  *  - gmail.embed_sweep    (m7c) — repeatable: retry embed for chunkless docs
  *  - gmail.media_ingest   (ADR-0091 amendment) — deferred attachment ingest:
  *                    fetch + extract + persist + embed one message's attachments
@@ -584,27 +579,21 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       return { renewed, failed, checked: candidates.length };
     }
     case "gmail.poll_sweep": {
-      // Fallback: enqueue per-credential polls for any cursor older than the
-      // cutoff. The cutoff is one minute short of the sweep cadence so a row
-      // polled by the previous sweep is due again on this one; with the two
-      // equal, every other sweep skipped it (#998). Webhook-driven polls keep
-      // healthy mailboxes out of this.
-      const cutoff = new Date(Date.now() - GMAIL_POLL_SWEEP_STALE_AFTER_MS);
-      const stale = await findCredentialsNeedingPoll(cutoff);
+      // Completion time must not make the next sweep skip a credential.
+      // Even a recent push can miss mail outside its search window.
+      const stale = await findCredentialsNeedingPoll();
       const queue = getIngestionQueue();
       for (const c of stale) {
         await queue.add(
           "gmail.poll_history",
           { kind: "gmail.poll_history", credentialId: c.credentialId, reason: "poll-fallback" },
-          // TTL-bounded dedup: collapses overlap between the 5-min sweep and
-          // a near-simultaneous webhook push for the same credential, but
-          // releases inside the sweep cadence so the next legitimate sync
-          // can land. The TTL is shared with gmail-webhook.ts via
-          // GMAIL_POLL_DEDUP_TTL_MS.
+          // Keep one waiting poll and at most one follow-up while active.
+          // A sweep during a long poll requests a catch-up after it finishes.
+          // Realtime polls have a separate dedup id.
           {
             deduplication: {
               id: `gmail.poll_history.${c.credentialId}`,
-              ttl: GMAIL_POLL_DEDUP_TTL_MS,
+              keepLastIfActive: true,
             },
           },
         );

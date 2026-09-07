@@ -1,10 +1,10 @@
+import { eventDeliveryAccounts, type ProviderAvailability } from "@alfred/contracts";
+import { pubSubOidcConfigFromEnv, readGmailWatchState } from "@alfred/integrations/google";
 import {
   GMAIL_POLL_SWEEP_INTERVAL_MS,
-  eventDeliveryAccounts,
-  type ProviderAvailability,
-} from "@alfred/contracts";
-import { pubSubOidcConfigFromEnv, readGmailWatchState } from "@alfred/integrations/google";
-import { readGmailDeliveryFacts } from "@alfred/assistant/connections";
+  readGmailDeliveryFacts,
+  type GmailDeliveryFacts,
+} from "@alfred/assistant/connections";
 import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
 import type { AccountDeliveryHealthReader } from "./event-source-health";
 
@@ -19,13 +19,13 @@ const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
 const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 3 * GMAIL_POLL_SWEEP_INTERVAL_MS;
 
 /** The five facts about one credential's Gmail delivery path, as the ingestion state records them. */
-export interface GmailEventHealth {
+export type GmailEventHealth = Pick<
+  GmailDeliveryFacts,
+  "cursorReady" | "coverageGap" | "lastSyncAt"
+> & {
   receiverConfigured: boolean;
   topicMatches: boolean;
-  cursorReady: boolean;
-  coverageGap: boolean;
-  lastSyncAt: Date | null;
-}
+};
 
 /**
  * No live watch on the account: the user reconnects Gmail or renews the watch.
