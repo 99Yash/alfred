@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Queue, Worker, type Job } from "bullmq";
-import { GMAIL_POLL_DEDUP_TTL_MS, INBOUND_EVENT_SOURCES, toMessage } from "@alfred/contracts";
+import {
+  GMAIL_POLL_DEDUP_TTL_MS,
+  GMAIL_POLL_SWEEP_STALE_AFTER_MS,
+  INBOUND_EVENT_SOURCES,
+  toMessage,
+} from "@alfred/contracts";
 import { findExpiringGmailWatches } from "@alfred/integrations/google";
 import {
   findCredentialsNeedingPoll,
@@ -9,6 +14,7 @@ import {
   pollGmailHistory,
   pollGmailRecent,
   runGmailMediaIngest,
+  type GmailPollHistoryReason,
 } from "./gmail-ingest";
 import { formatMediaTally } from "./gmail-media";
 import { retryPending } from "@alfred/corpus";
@@ -159,8 +165,10 @@ export type IngestionJobData =
       /**
        * `webhook` is retained for the rare manual replay or backfill case;
        * realtime traffic flows through `gmail.poll_recent` after ADR-0037.
+       * `poll-fallback` is the sweep; an insert on that path with no push
+       * delivery nearby is the evidence behind the stale-push signal (#998).
        */
-      reason?: "webhook" | "poll-fallback";
+      reason?: GmailPollHistoryReason;
     }
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
@@ -481,6 +489,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     case "gmail.poll_history": {
       const result = await pollGmailHistory({
         credentialId: data.credentialId,
+        reason: data.reason,
         scheduleMediaIngest: enqueueGmailMediaIngest,
       });
       console.log(
@@ -575,9 +584,12 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       return { renewed, failed, checked: candidates.length };
     }
     case "gmail.poll_sweep": {
-      // Fallback: enqueue per-credential polls for any cursor older than
-      // 5min. Webhook-driven polls keep healthy mailboxes out of this.
-      const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+      // Fallback: enqueue per-credential polls for any cursor older than the
+      // cutoff. The cutoff is one minute short of the sweep cadence so a row
+      // polled by the previous sweep is due again on this one; with the two
+      // equal, every other sweep skipped it (#998). Webhook-driven polls keep
+      // healthy mailboxes out of this.
+      const cutoff = new Date(Date.now() - GMAIL_POLL_SWEEP_STALE_AFTER_MS);
       const stale = await findCredentialsNeedingPoll(cutoff);
       const queue = getIngestionQueue();
       for (const c of stale) {

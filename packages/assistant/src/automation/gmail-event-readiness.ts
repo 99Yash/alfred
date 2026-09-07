@@ -1,21 +1,22 @@
 import {
+  GMAIL_POLL_SWEEP_INTERVAL_MS,
   eventDeliveryAccounts,
-  getPath,
-  getStringPath,
   type ProviderAvailability,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
-import { ingestionState } from "@alfred/db/schemas";
 import { pubSubOidcConfigFromEnv, readGmailWatchState } from "@alfred/integrations/google";
-import { and, eq } from "drizzle-orm";
+import { readGmailDeliveryFacts } from "@alfred/assistant/connections";
 import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
 import type { AccountDeliveryHealthReader } from "./event-source-health";
 
 /** The account space Gmail events deliver per: `google` rows that prove Gmail connected. */
 const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
 
-/** A watch whose last successful sync is older than this is degraded, not quiet. */
-const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 15 * 60_000;
+/**
+ * A watch whose last successful sync is older than three sweeps is degraded, not
+ * quiet: the poll-fallback sweep syncs every credential once per cadence, so
+ * three misses means the sweep itself is not running (#998 keeps the ratio).
+ */
+const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 3 * GMAIL_POLL_SWEEP_INTERVAL_MS;
 
 /** The five facts about one credential's Gmail delivery path, as the ingestion state records them. */
 export interface GmailEventHealth {
@@ -90,21 +91,7 @@ export const readGmailEventHealth: AccountDeliveryHealthReader = async (
   availability,
   now,
 ) => {
-  const rows = await db()
-    .select({
-      credentialId: ingestionState.credentialId,
-      state: ingestionState.state,
-      lastSyncAt: ingestionState.lastSyncAt,
-    })
-    .from(ingestionState)
-    .where(
-      and(
-        eq(ingestionState.userId, userId),
-        eq(ingestionState.provider, GMAIL_DELIVERY.provider),
-        eq(ingestionState.stream, "messages"),
-      ),
-    );
-  const cursorByCredential = new Map(rows.map((row) => [row.credentialId, row]));
+  const cursorByCredential = await readGmailDeliveryFacts(userId);
   const pushConfig = pubSubOidcConfigFromEnv();
   const receiverConfigured =
     Boolean(pushConfig.pushTopic) &&
@@ -120,8 +107,8 @@ export const readGmailEventHealth: AccountDeliveryHealthReader = async (
           {
             receiverConfigured,
             topicMatches: Boolean(watchTopic && watchTopic === pushConfig.pushTopic),
-            cursorReady: Boolean(getStringPath(cursor?.state, "historyId")),
-            coverageGap: getPath(cursor?.state, "coverageGap") === true,
+            cursorReady: cursor?.cursorReady ?? false,
+            coverageGap: cursor?.coverageGap ?? false,
             lastSyncAt: cursor?.lastSyncAt ?? null,
           },
         ];
