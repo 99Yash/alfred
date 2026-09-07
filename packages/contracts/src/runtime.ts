@@ -15,6 +15,31 @@ export function compactionThresholdTokens(modelContextWindow: number): number {
  */
 export const GMAIL_POLL_DEDUP_TTL_MS = 30_000;
 
+/**
+ * How often the `gmail.poll_sweep` repeatable job runs. The sweep is the
+ * backstop for Gmail push: it enqueues a `gmail.poll_history` catch-up for every
+ * credential whose last sync is older than {@link GMAIL_POLL_SWEEP_STALE_AFTER_MS}.
+ */
+export const GMAIL_POLL_SWEEP_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * How old a credential's last sync must be before the sweep polls it. Derived
+ * from the cadence with a one-minute margin so that a sweep never skips a
+ * credential the previous sweep polled: a poll at T sets `last_sync_at = T`,
+ * and at T + cadence the row is `cadence - jitter` old, which is short of a
+ * cutoff equal to the cadence. With the cutoff equal to the cadence every other
+ * sweep was a no-op and a dead push degraded to a two-cadence wait (#998).
+ */
+export const GMAIL_POLL_SWEEP_STALE_AFTER_MS = GMAIL_POLL_SWEEP_INTERVAL_MS - 60_000;
+
+/**
+ * How far a fallback insert may trail the last push delivery before Gmail push
+ * reads as stale (#998). Two cadences absorb the race where a sweep poll and a
+ * push for the same message land in the same window; only a poll-fallback
+ * insert with no push for two full sweeps is evidence that no push arrives.
+ */
+export const GMAIL_PUSH_STALE_AFTER_MS = 2 * GMAIL_POLL_SWEEP_INTERVAL_MS;
+
 export const SCRATCH_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /**

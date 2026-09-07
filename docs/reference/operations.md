@@ -122,3 +122,17 @@ and a new email waited up to 10 minutes for a tag. If push stops again, check
 this subscription first. A `gmail.poll_recent` line in the server log proves that
 push is live: only the webhook enqueues that job. The first one after the
 recreation ran at 14:33:52 UTC on 2026-09-06, between two sweeps.
+
+Two code guards sit behind this record (#998):
+
+- The sweep cutoff is one minute shorter than the sweep cadence
+  (`GMAIL_POLL_SWEEP_STALE_AFTER_MS` in `@alfred/contracts`). With push dead, the
+  sweep polls a credential on every run, so new mail waits one cadence at most.
+- The Gmail integration page shows "Push stale" on the account row when the sweep
+  inserts mail and the last push receipt in `event_receipts` is more than two
+  cadences older than that insert (`gmailPushStaleSince` in
+  `@alfred/assistant/connections`). The time shown is the last push receipt, or the
+  watch install when no push has ever arrived. A quiet mailbox never reads stale,
+  because the signal needs a message that only the sweep found. Workflow trigger
+  readiness stays healthy while the sweep delivers, so a stale push does not
+  defer Gmail-triggered runs.

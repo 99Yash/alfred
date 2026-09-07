@@ -139,6 +139,11 @@ export const integrationCredentials = pgTable(
  *  - `last_sync_at` and `last_full_sync_at` distinguish incremental
  *    pulls from full re-ingestion (used after a watch-channel expiry
  *    or a token rotation that invalidates the cursor).
+ *  - `last_fallback_insert_at` (#998) is the last time the poll-fallback
+ *    sweep inserted a message. Gmail publishes a push for every mailbox
+ *    change, so a message only the sweep found is a push that never
+ *    arrived; the stale-push reader compares this with the last push
+ *    receipt in `event_receipts` (ADR-0090 keeps push facts there).
  *  - `stream` discriminates multiple sync streams under one credential
  *    ("messages" vs "labels" vs "drafts" — we'll only use "messages"
  *    initially but the column lets us add streams without migrations).
@@ -162,6 +167,7 @@ export const ingestionState = pgTable(
       .default(sql`'{}'::jsonb`),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     lastFullSyncAt: timestamp("last_full_sync_at", { withTimezone: true }),
+    lastFallbackInsertAt: timestamp("last_fallback_insert_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
   (t) => [

@@ -8,6 +8,7 @@ import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { useDisconnectIntegration } from "~/lib/integrations/use-integration-status";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
+import { formatRelative } from "~/lib/strings";
 import { toast } from "~/lib/toast";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
@@ -50,10 +51,7 @@ export function ConnectedAccounts({
                 {formatConnectedDate(acct.connectedAt)}
               </p>
               <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-sm text-app-fg-3">
-                  <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
-                  Active
-                </span>
+                <AccountStatus account={acct} />
                 {credentialProvider ? (
                   <DisconnectControl
                     provider={credentialProvider}
@@ -69,6 +67,32 @@ export function ConnectedAccounts({
         )}
       </AppCard>
     </section>
+  );
+}
+
+/**
+ * The account is active either way; the amber variant says its Gmail push path
+ * has stopped and the five-minute sweep is carrying new mail (#998). The time
+ * is the last moment push is known to have worked. Only Gmail carries the
+ * field; every other slug reads `null` and renders the green dot.
+ */
+function AccountStatus({ account }: { account: ConnectedAccount }) {
+  if (account.pushStaleSince) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-sm text-app-fg-3"
+        title={`No Gmail push delivery since ${formatDateTime(account.pushStaleSince)}. New mail arrives by the five-minute sweep.`}
+      >
+        <span className="size-1.5 rounded-full bg-app-amber-4" aria-hidden />
+        Push stale {formatRelative(account.pushStaleSince)}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-app-fg-3">
+      <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
+      Active
+    </span>
   );
 }
 
@@ -135,6 +159,17 @@ function DisconnectControl({
       </AppButton>
     </div>
   );
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function formatConnectedDate(iso: string): string {
