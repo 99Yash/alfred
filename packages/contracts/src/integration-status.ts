@@ -30,6 +30,12 @@ export const connectedAccountSchema = z.object({
   /** The row's trimmed label, or its account id when the provider gave none. */
   accountLabel: z.string(),
   connectedAt: z.string(),
+  /**
+   * Gmail only (#998): the last moment push delivery is known to have worked,
+   * set while the poll-fallback sweep keeps finding mail that no push announced.
+   * `null` while push is live, while it is unproven, and for every other slug.
+   */
+  pushStaleSince: z.string().nullable(),
 });
 export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
 

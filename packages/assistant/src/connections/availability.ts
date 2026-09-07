@@ -27,7 +27,9 @@ import {
   userPreferences,
   type IntegrationCredential,
 } from "@alfred/db/schemas";
+import { readGmailWatchState } from "@alfred/integrations/google";
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { gmailPushStaleSince, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -108,9 +110,25 @@ export async function readFreshIntegrationAvailability(
  * which rows count.
  */
 export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
-  const byProvider = await loadCredentialRowsByProvider(userId);
+  const [byProvider, gmailDelivery] = await Promise.all([
+    loadCredentialRowsByProvider(userId),
+    readGmailDeliveryFacts(userId),
+  ]);
   const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
     byProvider.get(provider) ?? [];
+
+  // #998: the stale-push signal is a Gmail fact about the `google` credential.
+  // The other Google slugs share the row but have no push channel, so they
+  // read `null`, and the Gmail page is the one place the signal appears.
+  const pushStaleSince = (slug: LoadableIntegrationSlug, row: AvailabilityRow): string | null => {
+    if (slug !== "gmail") return null;
+    const facts = gmailDelivery.get(row.credentialId);
+    if (!facts) return null;
+    const watch = readGmailWatchState(row.metadata);
+    return (
+      gmailPushStaleSince(facts, watch ? new Date(watch.installedAt) : null)?.toISOString() ?? null
+    );
+  };
 
   const integrations = projectSlugs(LIVE_PROVIDER_SLUGS, (slug): IntegrationConnection => {
     const spec = INTEGRATIONS[slug].credential;
@@ -123,6 +141,7 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
           id: row.credentialId,
           accountLabel: credentialAccountLabel(row) ?? row.accountId,
           connectedAt: row.createdAt.toISOString(),
+          pushStaleSince: pushStaleSince(slug, row),
         })),
     };
   });

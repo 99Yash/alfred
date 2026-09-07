@@ -1,12 +1,13 @@
+import { GMAIL_POLL_SWEEP_INTERVAL_MS } from "@alfred/contracts";
 import { getIngestionQueue, type IngestionJobData } from "./queue";
 
 /**
  * Boot-time registration for the m7c repeatable jobs:
  *
- *   - gmail.poll_sweep   every 5 minutes — polls credentials whose
- *                        cursor hasn't advanced via webhook recently.
- *                        Backstop for Pub/Sub gaps + the "watch
- *                        channel never installed" case.
+ *   - gmail.poll_sweep   every GMAIL_POLL_SWEEP_INTERVAL_MS (5 minutes) —
+ *                        polls credentials whose cursor hasn't advanced
+ *                        via webhook recently. Backstop for Pub/Sub gaps +
+ *                        the "watch channel never installed" case.
  *   - gmail.watch_renew  every 6 hours — replaces watch channels
  *                        nearing their ~7-day expiry. Daily would be
  *                        fine, but 6h means a single failed run still
@@ -30,7 +31,7 @@ export async function scheduleRepeatableIngestionJobs(): Promise<void> {
 
   await queue.upsertJobScheduler(
     "gmail.poll_sweep",
-    { every: 5 * 60 * 1000 },
+    { every: GMAIL_POLL_SWEEP_INTERVAL_MS },
     {
       name: "gmail.poll_sweep",
       data: { kind: "gmail.poll_sweep" } satisfies IngestionJobData,

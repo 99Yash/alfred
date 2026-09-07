@@ -1,0 +1,1 @@
+ALTER TABLE "ingestion_state" ADD COLUMN "last_fallback_insert_at" timestamp with time zone;
