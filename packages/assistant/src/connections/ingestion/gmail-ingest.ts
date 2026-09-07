@@ -24,7 +24,7 @@ import {
   type GmailWatchState,
 } from "@alfred/integrations/google";
 import { installGmailWatch } from "@alfred/integrations/google/internal";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, max, sql } from "drizzle-orm";
 import {
   hasIngestableAttachments,
   ingestGmailMediaAttachments,
@@ -534,16 +534,17 @@ interface UpsertIngestionStateArgs {
   /** #560b: set true when a coverage gap is detected (history gone or cursor jump). */
   coverageGap?: boolean;
   /**
-   * #998: true when this write follows a `poll-fallback` history poll that
-   * inserted at least one message. Stamps `last_fallback_insert_at`; the
-   * stale-push reader compares it with the last push receipt.
+   * Start of a fallback poll that inserted an unannounced message. Completion
+   * latency must not move this observation forward.
    */
-  fallbackInserted?: boolean;
+  fallbackInsertAt?: Date | undefined;
+  /** The webhook fetch/persist pass completed without message errors. */
+  webhookSyncCompleted?: boolean | undefined;
 }
 
 async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<void> {
   const now = new Date();
-  const fallbackInsertAt = args.fallbackInserted ? now : null;
+  const fallbackInsertAt = args.fallbackInsertAt ?? null;
   const newId = args.historyId; // string | null — drizzle binds null as SQL NULL
   // #560b: merge coverageGap and lastPushHistoryId into the JSONB state.
   // coverageGap clears automatically when the cursor advances (Blocker 4 fix).
@@ -560,6 +561,7 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
         ...(args.coverageGap ? { coverageGap: true } : {}),
       },
       lastSyncAt: now,
+      lastWebhookSyncAt: args.webhookSyncCompleted ? now : null,
       lastFullSyncAt: args.fullSync ? now : null,
       lastFallbackInsertAt: fallbackInsertAt,
     })
@@ -611,8 +613,11 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
           )
         `,
         lastSyncAt: now,
+        lastWebhookSyncAt: args.webhookSyncCompleted ? now : ingestionState.lastWebhookSyncAt,
         lastFullSyncAt: args.fullSync ? now : ingestionState.lastFullSyncAt,
-        lastFallbackInsertAt: fallbackInsertAt ?? ingestionState.lastFallbackInsertAt,
+        lastFallbackInsertAt: fallbackInsertAt
+          ? sql`greatest(${ingestionState.lastFallbackInsertAt}, ${fallbackInsertAt}::timestamptz)`
+          : ingestionState.lastFallbackInsertAt,
         updatedAt: now,
       },
     });
@@ -779,6 +784,7 @@ export interface PollHistoryResult {
  * + cron poll racing on the same notification is fine.
  */
 export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHistoryResult> {
+  const startedAt = new Date();
   const cred = await loadCredentialOrThrow(args.credentialId);
   const accessToken = await getFreshAccessToken(args.credentialId);
   const cursorBefore = await loadHistoryCursor(args.credentialId);
@@ -816,7 +822,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   const maxPages = args.maxPages ?? 50;
   let pagesFetched = 0;
   let pageToken: string | undefined;
-  const messageIds = new Set<string>();
+  const messageIds = new Map<string, string>();
   let latestHistoryId: string = cursorBefore;
 
   try {
@@ -829,7 +835,11 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       pagesFetched++;
 
       for (const entry of page.entries) {
-        for (const id of collectAddedMessageIds(entry)) messageIds.add(id);
+        for (const id of collectAddedMessageIds(entry)) {
+          // The addition's revision is the evidence. messages.get can return
+          // a later revision from a label change on the same message.
+          if (!messageIds.has(id)) messageIds.set(id, entry.id);
+        }
         if (compareHistoryIds(entry.id, latestHistoryId) > 0) latestHistoryId = entry.id;
       }
       // Quiet-period safety: if no entries came back, the response's
@@ -900,12 +910,16 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   const sentDocumentIds: string[] = [];
   const touchedThreadIds = new Set<string>();
 
-  for (const id of messageIds) {
+  let insertedHistoryId: string | null = null;
+  for (const [id, addedHistoryId] of messageIds) {
     try {
       const message = await getMessage({ accessToken, id, format: "full" });
       const result = await persistMessage(cred, message, accessToken);
       if (result.outcome === "inserted") {
         inserted++;
+        if (!insertedHistoryId || compareHistoryIds(addedHistoryId, insertedHistoryId) > 0) {
+          insertedHistoryId = addedHistoryId;
+        }
         insertedDocumentIds.push(result.documentId);
         if (result.isSent) sentDocumentIds.push(result.documentId);
         else triageDocumentIds.push(result.documentId);
@@ -942,7 +956,17 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     }
   }
 
-  // #998: a sweep poll that inserted mail is a push that did not arrive. The
+  // An old internalDate can hide announced mail from the realtime search.
+  // Such an insert does not prove push failure, even when the poll ran late.
+  const pushedHistoryId =
+    args.reason === "poll-fallback" && insertedHistoryId
+      ? await loadHighestReceiptHistoryId(args.credentialId)
+      : null;
+  const unannouncedInsert =
+    insertedHistoryId !== null &&
+    (!pushedHistoryId || compareHistoryIds(insertedHistoryId, pushedHistoryId) > 0);
+
+  // #998: stamp the poll start, so fetch/index latency cannot age the evidence.
   // cursorless and history-gone branches above are excluded on purpose: a full
   // re-sync inserts a backlog that says nothing about push liveness.
   await upsertIngestionState({
@@ -950,7 +974,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     userId: cred.userId,
     historyId: latestHistoryId,
     fullSync: false,
-    fallbackInserted: args.reason === "poll-fallback" && inserted > 0,
+    fallbackInsertAt: args.reason === "poll-fallback" && unannouncedInsert ? startedAt : undefined,
   });
 
   return {
@@ -1081,7 +1105,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   // Receipts are written by every webhook handler, even when the queue
   // deduplicates the job, so this value reflects the highest historyId
   // we have seen regardless of BullMQ dedup.
-  const latestReceiptHistoryId = await loadLatestReceiptHistoryId(args.credentialId);
+  const latestReceiptHistoryId = await loadHighestReceiptHistoryId(args.credentialId);
 
   const windowExpr = args.window ?? "5m";
   const cap = args.maxMessages ?? 50;
@@ -1204,18 +1228,18 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     }
   }
 
-  // #560b: write the state when the cursor advanced OR a coverage gap was
-  // detected. The original guard skipped the DB roundtrip when the in-memory
-  // snapshot showed no advance, but that also discarded the coverageGap flag
-  // when the5-minute search window found nothing (the flag's primary case).
+  // Record successful webhook completion even for an empty or deduplicated
+  // search. Partial failures can still advance the cursor or record a gap,
+  // but must not update the successful webhook timestamp.
   const cursorAdvanced = Boolean(highWaterHistoryId && highWaterHistoryId !== cursorBefore);
-  if (cursorAdvanced || coverageGap) {
+  if (cursorAdvanced || coverageGap || errors === 0) {
     await upsertIngestionState({
       credentialId: cred.credentialId,
       userId: cred.userId,
       historyId: highWaterHistoryId,
       fullSync: false,
       coverageGap,
+      webhookSyncCompleted: errors === 0,
     });
   }
 
@@ -1304,7 +1328,7 @@ function collectAddedMessageIds(entry: GmailHistoryEntry): string[] {
   for (const m of entry.messagesAdded ?? []) out.push(m.message.id);
   // `messages` (without -Added/-Deleted) is the union per Gmail docs;
   // include it as a safety net in case we ever drop the historyTypes
-  // filter in the call. Duplicates collapse in the Set on the caller.
+  // filter in the call. Duplicates collapse in the caller's map.
   for (const m of entry.messages ?? []) out.push(m.id);
   return out;
 }
@@ -1350,28 +1374,33 @@ async function loadIngestionState(
  * written by every webhook, even when the queue deduplicates the job, so this
  * value reflects the highest historyId we have seen regardless of job dedup.
  */
-async function loadLatestReceiptHistoryId(credentialId: string): Promise<string | null> {
+async function loadHighestReceiptHistoryId(credentialId: string): Promise<string | null> {
   const { typedEventReceipts } = await import("@alfred/db/schemas");
   const rows = await db()
-    .select({ historyId: typedEventReceipts.historyId })
+    .select({
+      // Delivery order is not revision order. Validate persisted text before
+      // numeric comparison, and keep exact precision for large Gmail ids.
+      historyId: max(sql<string>`CASE
+        WHEN ${typedEventReceipts.historyId} ~ '^[0-9]+$'
+        THEN ${typedEventReceipts.historyId}::numeric
+      END`),
+    })
     .from(typedEventReceipts)
-    .where(eq(typedEventReceipts.credentialId, credentialId))
-    .orderBy(sql`${typedEventReceipts.deliveredAt} DESC`)
-    .limit(1);
+    .where(eq(typedEventReceipts.credentialId, credentialId));
   return rows[0]?.historyId ?? null;
 }
 
 /**
- * Find Gmail credentials whose `last_sync_at` is older than `before`.
- * The 5-minute polling fallback drains this list; webhook-driven polls
- * advance `last_sync_at` so a healthy mailbox never enters the fallback.
+ * Find active Gmail cursors. The sweep omits `before` so a previous poll's
+ * completion time cannot suppress the next catch-up. Diagnostic callers can
+ * still request cursors whose `last_sync_at` is older than `before`.
  *
  * Note: a credential with no `ingestion_state` row at all is *not*
  * returned — the bulk ingest seeds the row, and a credential without one
  * has nothing to delta-sync from yet.
  */
 export async function findCredentialsNeedingPoll(
-  before: Date,
+  before?: Date,
 ): Promise<{ credentialId: string; userId: string }[]> {
   const rows = await db()
     .select({
@@ -1385,6 +1414,6 @@ export async function findCredentialsNeedingPoll(
     .where(and(eq(ingestionState.provider, "google"), eq(ingestionState.stream, "messages")));
   return rows
     .filter((r) => r.status === "active")
-    .filter((r) => !r.lastSyncAt || r.lastSyncAt < before)
+    .filter((r) => !before || !r.lastSyncAt || r.lastSyncAt < before)
     .map((r) => ({ credentialId: r.credentialId, userId: r.userId }));
 }

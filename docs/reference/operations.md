@@ -123,16 +123,41 @@ this subscription first. A `gmail.poll_recent` line in the server log proves tha
 push is live: only the webhook enqueues that job. The first one after the
 recreation ran at 14:33:52 UTC on 2026-09-06, between two sweeps.
 
-Two code guards sit behind this record (#998):
+The following code supports recovery and diagnosis (#998):
 
-- The sweep cutoff is one minute shorter than the sweep cadence
-  (`GMAIL_POLL_SWEEP_STALE_AFTER_MS` in `@alfred/contracts`). With push dead, the
-  sweep polls a credential on every run, so new mail waits one cadence at most.
-- The Gmail integration page shows "Push stale" on the account row when the sweep
-  inserts mail and the last push receipt in `event_receipts` is more than two
-  cadences older than that insert (`gmailPushStaleSince` in
-  `@alfred/assistant/connections`). The time shown is the last push receipt, or the
-  watch install when no push has ever arrived. A quiet mailbox never reads stale,
-  because the signal needs a message that only the sweep found. Workflow trigger
-  readiness stays healthy while the sweep delivers, so a stale push does not
-  defer Gmail-triggered runs.
+- Each sweep considers every active Gmail cursor. It does not use the previous
+  sync completion time as a cutoff. `GMAIL_POLL_SWEEP_INTERVAL_MS` belongs to the
+  assistant ingestion policy. A sweep during an active poll retains one follow-up
+  through BullMQ `keepLastIfActive`. Queue delays, Gmail calls, and indexing can
+  still extend delivery beyond the five-minute schedule.
+- The Gmail integration page shows "Push stale" when a fallback poll inserts an
+  unannounced message and its start time is more than
+  `GMAIL_PUSH_DELIVERY_GRACE_MS` after the last push receipt. This ten-minute
+  grace is a push delivery latency budget. Poll processing time does not count.
+  A receipt with a history ID at or above the inserted addition's ID excludes
+  that change from the evidence, even if an old `internalDate` hid it from the
+  realtime search. The receipt query uses the highest numeric ID, so delivery
+  order does not change this decision.
+- `gmailPushStaleStatus` supplies the timestamp and its meaning to the account
+  row. With a receipt, the UI says "Last push". Without one, it says "Watch
+  installed". Renewal preserves `installedAt` and updates `renewedAt`.
+  Existing rows retain the installation timestamp available at this upgrade;
+  earlier installation times cannot be recovered from overwritten metadata.
+- `ingestion_state.last_webhook_sync_at` records successful webhook fetch and
+  persistence, including empty or deduplicated results. A thrown error or a
+  partial message failure does not advance it. Embedding, attachment jobs, and
+  triage run after or outside this timestamp. Receipt time proves transport
+  delivery; it does not prove successful sync completion.
+
+Workflow trigger readiness still permits delivery through the fallback sweep.
+A dead push subscription can therefore leave readiness healthy while the account
+row shows a warning. This is an explicit limit of the binary readiness model:
+marking push failure unhealthy there would defer Gmail-triggered runs that the
+sweep can deliver. A separate push health dimension is outside this change.
+
+The warning is evidence of missing delivery, not proof that the subscription is
+permanently dead. Gmail can delay or drop notifications; see the
+[Gmail push reliability limits](https://developers.google.com/workspace/gmail/api/guides/push#reliability).
+Receipt retention must preserve delivery time and the highest history ID before
+old receipts are removed. Existing fallback timestamps written before this fix
+can retain an old warning until the next push arrives.

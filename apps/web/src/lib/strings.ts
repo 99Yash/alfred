@@ -12,6 +12,18 @@ export function lowerFirst(value: string): string {
   return value.length > 0 ? value.charAt(0).toLowerCase() + value.slice(1) : value;
 }
 
+/** Local display date and time. Invalid dates retain the input, as formatRelative does. */
+export function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /**
  * ISO timestamp → coarse "5m ago" / "3h ago" / "2d ago". Returns the raw input
  * when it isn't a parseable date.

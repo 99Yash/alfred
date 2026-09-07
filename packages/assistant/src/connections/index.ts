@@ -61,8 +61,9 @@ export {
 } from "./oauth-state";
 export { publishGoogleCallbackCompleted } from "./google-callback-events";
 export { readRawReceiptInventory } from "./raw-receipt-inventory";
+export { GMAIL_POLL_SWEEP_INTERVAL_MS } from "./ingestion/gmail-delivery-policy";
 export {
-  gmailPushStaleSince,
+  gmailPushStaleStatus,
   readGmailDeliveryFacts,
   type GmailDeliveryFacts,
 } from "./ingestion/gmail-delivery-facts";

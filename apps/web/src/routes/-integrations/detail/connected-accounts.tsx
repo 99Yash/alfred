@@ -8,7 +8,7 @@ import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { useDisconnectIntegration } from "~/lib/integrations/use-integration-status";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
-import { formatRelative } from "~/lib/strings";
+import { formatDateTime, formatRelative } from "~/lib/strings";
 import { toast } from "~/lib/toast";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
@@ -73,18 +73,24 @@ export function ConnectedAccounts({
 /**
  * The account is active either way; the amber variant says its Gmail push path
  * has stopped and the five-minute sweep is carrying new mail (#998). The time
- * is the last moment push is known to have worked. Only Gmail carries the
+ * identifies either the last receipt or the watch installation. Only Gmail carries the
  * field; every other slug reads `null` and renders the green dot.
  */
 function AccountStatus({ account }: { account: ConnectedAccount }) {
-  if (account.pushStaleSince) {
+  if (account.pushStale) {
+    const { since, baseline } = account.pushStale;
+    const detail =
+      baseline === "push-received"
+        ? `Last Gmail push received ${formatDateTime(since)}.`
+        : `No Gmail push received. Watch installed ${formatDateTime(since)}.`;
     return (
       <span
         className="inline-flex items-center gap-1.5 text-sm text-app-fg-3"
-        title={`No Gmail push delivery since ${formatDateTime(account.pushStaleSince)}. New mail arrives by the five-minute sweep.`}
+        title={`${detail} The fallback sweep checks for new mail every five minutes.`}
       >
         <span className="size-1.5 rounded-full bg-app-amber-4" aria-hidden />
-        Push stale {formatRelative(account.pushStaleSince)}
+        Push stale · {baseline === "watch-installed" ? "Watch installed " : "Last push "}
+        {formatRelative(since)}
       </span>
     );
   }
@@ -159,17 +165,6 @@ function DisconnectControl({
       </AppButton>
     </div>
   );
-}
-
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function formatConnectedDate(iso: string): string {
