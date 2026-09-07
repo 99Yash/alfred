@@ -331,6 +331,10 @@ export async function getSenderSignificanceBatch(
   if (targets.size === 0) return out;
   const targetList = [...targets];
 
+  // Bind the address list as one array parameter: interpolating the raw array
+  // renders `ANY(($3, $4, $5))`, which Postgres rejects with "op ANY/ALL
+  // (array) requires array on right side".
+  const targetParam = sql.param(targetList);
   let rows: { metadata: unknown; aliases: unknown }[];
   try {
     rows = await db()
@@ -342,7 +346,7 @@ export async function getSenderSignificanceBatch(
           eq(entities.kind, "person"),
           sql`EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-            WHERE lower(alias) = ANY(${targetList})
+            WHERE lower(alias) = ANY(${targetParam})
           )`,
         ),
       );
