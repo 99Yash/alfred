@@ -42,8 +42,10 @@ export const gmailWatchStateSchema = z.object({
   expiresAt: z.iso.datetime(),
   /** The `historyId` Gmail returned at watch creation. Cold-start cursor. */
   baselineHistoryId: z.string().min(1),
-  /** When we last installed/renewed this watch (audit). */
+  /** First installation of this watch. Renewal must not reset push health. */
   installedAt: z.iso.datetime(),
+  /** Most recent installation or renewal (audit); absent on older rows. */
+  renewedAt: z.iso.datetime().optional(),
 });
 export type GmailWatchState = z.infer<typeof gmailWatchStateSchema>;
 
@@ -114,29 +116,37 @@ export async function installGmailWatch(
     labelIds: args.labelIds,
   });
 
+  const now = new Date().toISOString();
   const state: GmailWatchState = {
     topic: args.topicName,
     expiresAt: watch.expiration.toISOString(),
     baselineHistoryId: watch.historyId,
-    installedAt: new Date().toISOString(),
+    installedAt: now,
+    renewedAt: now,
   };
 
   // Merge into existing metadata jsonb so we don't clobber `token_type`
   // and other unrelated keys. Drizzle's `||` operator on jsonb merges
   // shallowly which is exactly what we want here.
-  await d
+  const [updated] = await d
     .db()
     .update(integrationCredentials)
     .set({
-      metadata: sql`${integrationCredentials.metadata} || ${JSON.stringify({ watch: state })}::jsonb`,
+      // Preserve the installation baseline atomically across concurrent renewals.
+      metadata: sql`${integrationCredentials.metadata} || jsonb_build_object('watch',
+        ${JSON.stringify(state)}::jsonb || jsonb_build_object('installedAt',
+          coalesce(${integrationCredentials.metadata}->'watch'->>'installedAt', ${now}::text)))`,
     })
-    .where(eq(integrationCredentials.id, args.credentialId));
+    .where(eq(integrationCredentials.id, args.credentialId))
+    .returning({ metadata: integrationCredentials.metadata });
 
   // The rolling `ingestion_state` cursor is seeded by the ingestion consumer
   // (`installGmailWatchAndSeedCursor`), not here — this provider package no
   // longer writes ingestion-domain tables. `state.baselineHistoryId` carries the
   // historyId the caller needs to seed from.
-  return state;
+  const saved = readGmailWatchState(updated?.metadata);
+  if (!saved) throw new Error("Gmail watch metadata was not saved");
+  return saved;
 }
 
 /**

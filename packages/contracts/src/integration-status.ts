@@ -31,11 +31,16 @@ export const connectedAccountSchema = z.object({
   accountLabel: z.string(),
   connectedAt: z.string(),
   /**
-   * Gmail only (#998): the last moment push delivery is known to have worked,
-   * set while the poll-fallback sweep keeps finding mail that no push announced.
-   * `null` while push is live, while it is unproven, and for every other slug.
+   * Gmail only: evidence that fallback found mail with no recent push delivery.
+   * The baseline distinguishes an actual receipt from a watch installation.
+   * `null` means no stale evidence; it does not prove successful push processing.
    */
-  pushStaleSince: z.string().nullable(),
+  pushStale: z
+    .object({
+      since: z.iso.datetime(),
+      baseline: z.enum(["push-received", "watch-installed"]),
+    })
+    .nullable(),
 });
 export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
 

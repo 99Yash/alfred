@@ -1,12 +1,11 @@
-import { GMAIL_POLL_SWEEP_INTERVAL_MS } from "@alfred/contracts";
+import { GMAIL_POLL_SWEEP_INTERVAL_MS } from "./gmail-delivery-policy";
 import { getIngestionQueue, type IngestionJobData } from "./queue";
 
 /**
  * Boot-time registration for the m7c repeatable jobs:
  *
  *   - gmail.poll_sweep   every GMAIL_POLL_SWEEP_INTERVAL_MS (5 minutes) —
- *                        polls credentials whose cursor hasn't advanced
- *                        via webhook recently. Backstop for Pub/Sub gaps +
+ *                        polls every active Gmail cursor. Backstop for Pub/Sub gaps +
  *                        the "watch channel never installed" case.
  *   - gmail.watch_renew  every 6 hours — replaces watch channels
  *                        nearing their ~7-day expiry. Daily would be
