@@ -61,3 +61,8 @@ export {
 } from "./oauth-state";
 export { publishGoogleCallbackCompleted } from "./google-callback-events";
 export { readRawReceiptInventory } from "./raw-receipt-inventory";
+export {
+  gmailPushStaleSince,
+  readGmailDeliveryFacts,
+  type GmailDeliveryFacts,
+} from "./ingestion/gmail-delivery-facts";

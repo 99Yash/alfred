@@ -533,10 +533,17 @@ interface UpsertIngestionStateArgs {
   fullSync: boolean;
   /** #560b: set true when a coverage gap is detected (history gone or cursor jump). */
   coverageGap?: boolean;
+  /**
+   * #998: true when this write follows a `poll-fallback` history poll that
+   * inserted at least one message. Stamps `last_fallback_insert_at`; the
+   * stale-push reader compares it with the last push receipt.
+   */
+  fallbackInserted?: boolean;
 }
 
 async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<void> {
   const now = new Date();
+  const fallbackInsertAt = args.fallbackInserted ? now : null;
   const newId = args.historyId; // string | null — drizzle binds null as SQL NULL
   // #560b: merge coverageGap and lastPushHistoryId into the JSONB state.
   // coverageGap clears automatically when the cursor advances (Blocker 4 fix).
@@ -554,6 +561,7 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
       },
       lastSyncAt: now,
       lastFullSyncAt: args.fullSync ? now : null,
+      lastFallbackInsertAt: fallbackInsertAt,
     })
     .onConflictDoUpdate({
       target: [ingestionState.credentialId, ingestionState.stream],
@@ -604,6 +612,7 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
         `,
         lastSyncAt: now,
         lastFullSyncAt: args.fullSync ? now : ingestionState.lastFullSyncAt,
+        lastFallbackInsertAt: fallbackInsertAt ?? ingestionState.lastFallbackInsertAt,
         updatedAt: now,
       },
     });
@@ -688,8 +697,18 @@ export async function installGmailWatchAndSeedCursor(args: {
 // Delta sync via users.history.list
 // ---------------------------------------------------------------------------
 
+/**
+ * Why a `gmail.poll_history` job ran. `webhook` is the manual replay or backfill
+ * case; `poll-fallback` is the sweep. The sweep's inserts are the evidence the
+ * stale-push signal reads (#998): Gmail publishes a push for every mailbox
+ * change, so a message that only the sweep found is a push that never arrived.
+ */
+export type GmailPollHistoryReason = "webhook" | "poll-fallback";
+
 export interface PollHistoryArgs {
   credentialId: string;
+  /** Who enqueued the poll; `undefined` for a direct call. */
+  reason?: GmailPollHistoryReason | undefined;
   /**
    * Cap on history pages walked in one call. Each page can yield up to
    * 500 entries; the cap is a defense against runaway loops if a watch
@@ -923,11 +942,15 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     }
   }
 
+  // #998: a sweep poll that inserted mail is a push that did not arrive. The
+  // cursorless and history-gone branches above are excluded on purpose: a full
+  // re-sync inserts a backlog that says nothing about push liveness.
   await upsertIngestionState({
     credentialId: cred.credentialId,
     userId: cred.userId,
     historyId: latestHistoryId,
     fullSync: false,
+    fallbackInserted: args.reason === "poll-fallback" && inserted > 0,
   });
 
   return {
