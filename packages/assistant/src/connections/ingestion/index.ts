@@ -68,3 +68,4 @@ export {
   workflowRecoveryStateSchema,
   type WorkflowRecoveryResult,
 } from "./workflow-recovery";
+export { GMAIL_POLL_DEDUP_TTL_MS } from "./gmail-delivery-policy";

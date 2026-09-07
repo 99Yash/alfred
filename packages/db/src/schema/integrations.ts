@@ -139,10 +139,9 @@ export const integrationCredentials = pgTable(
  *  - `last_sync_at` and `last_full_sync_at` distinguish incremental
  *    pulls from full re-ingestion (used after a watch-channel expiry
  *    or a token rotation that invalidates the cursor).
- *  - `last_fallback_insert_at` (#998) is the last time the poll-fallback
- *    sweep inserted a message. Gmail publishes a push for every mailbox
- *    change, so a message only the sweep found is a push that never
- *    arrived; the stale-push reader compares this with the last push
+ *  - `last_fallback_insert_at` (#998) is the start of a history poll that
+ *    inserted a message whose addition was not covered by a push receipt.
+ *    The stale-push reader compares this observation with the last push
  *    receipt in `event_receipts` (ADR-0090 keeps push facts there).
  *  - `stream` discriminates multiple sync streams under one credential
  *    ("messages" vs "labels" vs "drafts" — we'll only use "messages"
@@ -166,7 +165,10 @@ export const ingestionState = pgTable(
       .notNull()
       .default(sql`'{}'::jsonb`),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    /** Successful webhook-driven fetch/persist completion; excludes embedding and triage. */
+    lastWebhookSyncAt: timestamp("last_webhook_sync_at", { withTimezone: true }),
     lastFullSyncAt: timestamp("last_full_sync_at", { withTimezone: true }),
+    /** Start of the latest history poll that inserted mail not covered by a push receipt. */
     lastFallbackInsertAt: timestamp("last_fallback_insert_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
@@ -212,6 +214,9 @@ export const ingestionState = pgTable(
  * so a duplicate insert is a no-op. Failed deliveries are not retried with a
  * new row — the index prevents duplicate receipts for the same delivery.
  */
+// Gmail push health and gap detection depend on retained receipts. A reaper
+// must preserve each credential's latest delivery time and highest historyId
+// in a durable summary before it deletes the receipts that supply those facts.
 export const eventReceipts = pgTable(
   "event_receipts",
   {

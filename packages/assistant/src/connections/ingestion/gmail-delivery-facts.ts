@@ -1,7 +1,23 @@
-import { GMAIL_PUSH_STALE_AFTER_MS, getPath, getStringPath } from "@alfred/contracts";
+import {
+  eventDeliveryAccounts,
+  getPath,
+  getStringPath,
+  type ConnectedAccount,
+  type LoadableIntegrationSlug,
+  type ProviderAvailability,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { ingestionState, typedEventReceipts } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import {
+  ingestionState,
+  typedEventReceipts,
+  type IngestionState,
+  type EventReceipt,
+} from "@alfred/db/schemas";
+import { readGmailWatchState } from "@alfred/integrations/google";
+import { and, eq, max } from "drizzle-orm";
+import { GMAIL_PUSH_DELIVERY_GRACE_MS } from "./gmail-delivery-policy";
+
+const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
 
 /**
  * The delivery facts one Gmail credential's ingestion leaves behind, read for
@@ -9,49 +25,49 @@ import { and, eq, sql } from "drizzle-orm";
  * (`automation/gmail-event-readiness.ts`) and the integration status the Gmail
  * page renders (`connections/availability.ts`).
  *
- * This is a leaf on purpose. It imports the database and the contracts only, so
- * the cheap `@alfred/assistant/connections` barrel can reach it without
+ * The cheap `@alfred/assistant/connections` barrel can reach this reader without
  * evaluating the ingestion queue or the Gmail ingestor.
  */
-export interface GmailDeliveryFacts {
+export type GmailDeliveryFacts = Pick<
+  IngestionState,
+  "lastSyncAt" | "lastWebhookSyncAt" | "lastFallbackInsertAt"
+> & {
   /** The rolling `history.list` cursor is seeded. */
   cursorReady: boolean;
   /** #560b: a cursor jump or a gone history was detected and not yet repaired. */
   coverageGap: boolean;
-  /** Last successful sync on any path. */
-  lastSyncAt: Date | null;
-  /** #998: last time the poll-fallback sweep inserted a message. */
-  lastFallbackInsertAt: Date | null;
   /**
    * #998: last verified Pub/Sub push for this credential, from `event_receipts`
    * (ADR-0090). The webhook writes a receipt even when the queue deduplicates
    * the poll, so this is the push path's own heartbeat.
    */
-  lastPushDeliveredAt: Date | null;
-}
+  lastPushDeliveredAt: EventReceipt["deliveredAt"] | null;
+};
 
 /**
- * When Gmail push stopped delivering for one credential, or `null` while push is
- * live or unproven (#998).
- *
- * The evidence is an insert on the poll-fallback path: Gmail publishes a push
- * for every mailbox change, so a message only the sweep found is a push that
- * never arrived. A quiet mailbox produces no fallback insert, so it never reads
- * stale. The baseline is the last push receipt, or the watch install when no
- * push has ever arrived; the insert must trail it by
- * {@link GMAIL_PUSH_STALE_AFTER_MS} so a sweep poll that wins the race against
- * the push for the same message does not count. The value returned is the
- * baseline: the last moment push is known to have worked.
+ * Account status evidence, including the meaning of its baseline. Poll starts
+ * exclude processing delay; announced changes do not stamp fallback evidence.
+ * A quiet mailbox produces no evidence. A receipt proves transport delivery,
+ * while `lastWebhookSyncAt` separately records successful fetch/persist work.
  */
-export function gmailPushStaleSince(
-  facts: Pick<GmailDeliveryFacts, "lastFallbackInsertAt" | "lastPushDeliveredAt">,
-  watchInstalledAt: Date | null,
-): Date | null {
-  if (!facts.lastFallbackInsertAt) return null;
-  const baseline = facts.lastPushDeliveredAt ?? watchInstalledAt;
+export function gmailPushStaleStatus(
+  byCredential: ReadonlyMap<string, GmailDeliveryFacts>,
+  row: Pick<ProviderAvailability, "credentialId" | "metadata">,
+  slug: LoadableIntegrationSlug,
+): ConnectedAccount["pushStale"] {
+  if (slug !== GMAIL_DELIVERY.integration) return null;
+  const facts = byCredential.get(row.credentialId);
+  if (!facts?.lastFallbackInsertAt) return null;
+  const watch = readGmailWatchState(row.metadata);
+  const baseline = facts.lastPushDeliveredAt ?? (watch ? new Date(watch.installedAt) : null);
   if (!baseline) return null;
   const trail = facts.lastFallbackInsertAt.getTime() - baseline.getTime();
-  return trail > GMAIL_PUSH_STALE_AFTER_MS ? baseline : null;
+  return trail > GMAIL_PUSH_DELIVERY_GRACE_MS
+    ? {
+        since: baseline.toISOString(),
+        baseline: facts.lastPushDeliveredAt ? "push-received" : "watch-installed",
+      }
+    : null;
 }
 
 /**
@@ -68,25 +84,29 @@ export async function readGmailDeliveryFacts(
         credentialId: ingestionState.credentialId,
         state: ingestionState.state,
         lastSyncAt: ingestionState.lastSyncAt,
+        lastWebhookSyncAt: ingestionState.lastWebhookSyncAt,
         lastFallbackInsertAt: ingestionState.lastFallbackInsertAt,
       })
       .from(ingestionState)
       .where(
         and(
           eq(ingestionState.userId, userId),
-          eq(ingestionState.provider, "google"),
+          eq(ingestionState.provider, GMAIL_DELIVERY.provider),
           eq(ingestionState.stream, "messages"),
         ),
       ),
     db()
       .select({
         credentialId: typedEventReceipts.credentialId,
-        lastPushDeliveredAt: sql<Date | null>`max(${typedEventReceipts.deliveredAt})`.mapWith(
-          typedEventReceipts.deliveredAt,
-        ),
+        lastPushDeliveredAt: max(typedEventReceipts.deliveredAt),
       })
       .from(typedEventReceipts)
-      .where(and(eq(typedEventReceipts.userId, userId), eq(typedEventReceipts.provider, "google")))
+      .where(
+        and(
+          eq(typedEventReceipts.userId, userId),
+          eq(typedEventReceipts.provider, GMAIL_DELIVERY.provider),
+        ),
+      )
       .groupBy(typedEventReceipts.credentialId),
   ]);
   const pushByCredential = new Map(
@@ -99,6 +119,7 @@ export async function readGmailDeliveryFacts(
         cursorReady: Boolean(getStringPath(row.state, "historyId")),
         coverageGap: getPath(row.state, "coverageGap") === true,
         lastSyncAt: row.lastSyncAt,
+        lastWebhookSyncAt: row.lastWebhookSyncAt,
         lastFallbackInsertAt: row.lastFallbackInsertAt,
         lastPushDeliveredAt: pushByCredential.get(row.credentialId) ?? null,
       },

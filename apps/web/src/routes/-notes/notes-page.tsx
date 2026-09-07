@@ -2,6 +2,7 @@ import { ArrowUp, FileText, Mic } from "lucide-react";
 import { useRef, useState } from "react";
 import { AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
+import { formatDateTime } from "~/lib/strings";
 import { useDictation } from "./use-dictation";
 import { NotesShell } from "./notes-shell";
 
@@ -189,10 +190,5 @@ function formatTimestamp(iso: string): string {
       minute: "2-digit",
     })}`;
   }
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatDateTime(iso);
 }

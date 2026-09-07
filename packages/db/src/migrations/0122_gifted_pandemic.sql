@@ -1,0 +1,1 @@
+ALTER TABLE "ingestion_state" ADD COLUMN "last_webhook_sync_at" timestamp with time zone;
