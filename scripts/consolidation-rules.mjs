@@ -112,6 +112,17 @@ export const RULES = [
     fix: "Use toStringArray(x) from @alfred/contracts — it checks the element type at runtime instead of asserting it.",
   },
   {
+    id: "sql-any-of-interpolated-list",
+    // `= ANY(${list})` inside a drizzle sql`` template. Drizzle expands an
+    // interpolated JS array to a tuple (`($1, $2, $3)`), so Postgres rejects it
+    // with "op ANY/ALL (array) requires array on right side". The briefing
+    // sender-significance read failed on every run for weeks this way, and a
+    // best-effort catch hid it.
+    re: /\bANY\(\$\{/,
+    severity: "gate",
+    fix: "Use inArray(expr, list) from drizzle-orm inside the template (`WHERE ${inArray(sql`lower(alias)`, list)}`), or pass one array parameter with a cast: `ANY(${sql.param(list)}::text[])`.",
+  },
+  {
     id: "canonical-param-key",
     // The `.toLowerCase().replace(/[_-]/g, "")` key-canonicalization idiom.
     re: /\.toLowerCase\(\)\.replace\(\s*\/\[_-\]\/g\s*,\s*""\s*\)/,
