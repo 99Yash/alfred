@@ -1,8 +1,4 @@
-import {
-  isNonEmptyString,
-  type AgentTranscriptMessage,
-  type ChatModelTier,
-} from "@alfred/contracts";
+import type { AgentTranscriptMessage, ChatModelTier } from "@alfred/contracts";
 import type { StepResult } from "../types";
 
 /**
@@ -27,62 +23,70 @@ import type { StepResult } from "../types";
  * plumbing and never answered. `deep` buys more room because the user chose
  * the slower tier on purpose.
  *
- * The cap is where the turn *lands*, not where it crashes: at `chatTurnCap`
- * the chat step runs one last model turn with no tools and a note to report
- * what got done (see `chat-turn.ts`). {@link CHAT_TURN_CAP_LANDING_GRACE}
- * bounds how many regenerations the finalize guards may spend past that point
- * before the hard `chat_turn_limit_exceeded` fuse blows.
+ * The cap is where the turn *lands*, not where it crashes: see
+ * {@link chatTurnCapVerdict}.
  */
 const CHAT_TURN_CAP_BY_TIER = {
   standard: 40,
   deep: 60,
 } as const satisfies Record<ChatModelTier, number>;
 
-/** The tool-loop cap for a chat turn on `tier`; see {@link CHAT_TURN_CAP_BY_TIER}. */
+/**
+ * What the chat step does with the model turn it is about to run, given how
+ * many model turns the run has completed.
+ *
+ *  - `loop`: under the cap; offer the tool surface as usual.
+ *  - `land`: the first turn at the cap. Offer no tools, append the landing
+ *    note, log `chat_turn_cap_landing`. The model must answer from what the
+ *    transcript already holds.
+ *  - `landed`: a later turn past the cap. Still no tools; the note is already
+ *    in the transcript. Every turn here is issued by a spender with its own
+ *    bound: an empty-completion or stream-timeout retry (the budgets below), a
+ *    finalize guard's one regeneration, or a resume from a sub-agent park (one
+ *    per child, each behind a dead-man timer).
+ *
+ * There is deliberately no hard fuse past the cap. With an empty tool set no
+ * tool loop can continue, so nothing past `land` is the failure a cap exists
+ * to stop, and every legitimate spender is already bounded. The number of
+ * turns those spenders may legally add is not a constant (each regeneration
+ * refreshes the retry budgets; a park resume repeats per child), so any fixed
+ * grace would either fire on a legal path, losing a reply after every tool
+ * write persisted, or be loose enough to guard nothing.
+ */
+export type ChatTurnCapVerdict = "loop" | "land" | "landed";
+
+export function chatTurnCapVerdict(
+  tier: ChatModelTier,
+  completedTurns: number,
+): ChatTurnCapVerdict {
+  const cap = CHAT_TURN_CAP_BY_TIER[tier];
+  if (completedTurns < cap) return "loop";
+  return completedTurns === cap ? "land" : "landed";
+}
+
+/** The tool-loop cap for a chat turn on `tier`, for the landing log line. */
 export function chatTurnCap(tier: ChatModelTier): number {
   return CHAT_TURN_CAP_BY_TIER[tier];
 }
 
 /**
- * The transcript note the landing turn runs on. Appended once, when the chat
- * step first reaches {@link chatTurnCap}, alongside an empty tool set: the
- * model cannot call anything, and this tells it why the loop ended and what
- * the reply must now contain. Phrased as a `[system]` note in a user turn, the
- * same shape the finalize guards use, so the transcript stays a legal
- * turn-ender (tool results, then a user message). The user never sees the
- * note itself; the chat-turn persists only the model's reply.
+ * The transcript note the landing turn runs on, appended once by the `land`
+ * verdict alongside an empty tool set: the model cannot call anything, and this
+ * tells it why the loop ended and what the reply must now contain. Written via
+ * `appendSystemNote`, so it joins a finalize guard's note when one is already
+ * at the tail.
  */
-const CHAT_TURN_CAP_LANDING_NOTE =
-  "[system] You have used every tool step available for this reply, so no tools are offered on this turn. " +
+export const CHAT_TURN_CAP_LANDING_NOTE =
+  "You have used every tool step available for this reply, so no tools are offered on this turn. " +
   "Answer the user now from what is already in this conversation. Say plainly what you completed and what is still left, in user terms. " +
   "Do not claim anything you did not finish, and do not describe the step limit or the mechanism. If work remains, tell the user they can ask you to continue.";
-
-/**
- * `transcript` plus the landing note. A finalize guard that fired on the turn
- * just before the cap leaves its own `[system]` user note at the tail; the
- * landing note then joins that message instead of following it, so the model
- * never sees two user turns in a row (providers differ on whether they merge
- * those, and the boss route can change).
- */
-export function appendChatTurnCapLandingNote(
-  transcript: readonly AgentTranscriptMessage[],
-): AgentTranscriptMessage[] {
-  const last = transcript.at(-1);
-  if (last?.role === "user" && isNonEmptyString(last.content)) {
-    return [
-      ...transcript.slice(0, -1),
-      { ...last, content: `${last.content}\n\n${CHAT_TURN_CAP_LANDING_NOTE}` },
-    ];
-  }
-  return [...transcript, { role: "user", content: CHAT_TURN_CAP_LANDING_NOTE }];
-}
 
 /**
  * Turn-loop cap for the background brief / sub-agent workflow. Nobody is
  * watching it stream: an investigation is expected to work several distinct
  * angles, and the run has a compaction step it can spend turns on that the chat
- * path does not. Compare {@link chatTurnCap}, which is now the higher of the two
- * on both tiers because a chat turn lands instead of failing at its cap.
+ * path does not. Compare {@link chatTurnCapVerdict}: the chat cap is the higher
+ * of the two on both tiers because a chat turn lands there instead of failing.
  */
 export const BRIEF_TURN_CAP_MAX = 30;
 
@@ -110,25 +114,6 @@ const EMPTY_COMPLETION_MAX_RETRIES = 2;
  * Chat-only: the brief workflow does not stream, so it has no circuit-breaker.
  */
 const STREAM_TIMEOUT_MAX_RETRIES = 1;
-
-/**
- * Finalize guards that may each send the chat run back through `chat-turn`
- * once after the model's answer: `guardSpawnedChildren` and
- * `guardUnreportedToolFailures`. Each carries its own idempotency, so this is
- * also the most regenerations a run can see.
- */
-const FINALIZE_GUARD_REGENERATIONS = 2;
-
-/**
- * Model turns a chat run may spend *after* its landing turn at
- * {@link chatTurnCap} before the hard `chat_turn_limit_exceeded` fuse throws.
- * The landing turn offers no tools, so nothing past it can be a tool loop; the
- * only legitimate spenders are the bounded retries above and the finalize
- * guards, and this is exactly their sum. A run that exceeds it is wedged in a
- * way no budget anticipated, and the fuse is the last belt.
- */
-export const CHAT_TURN_CAP_LANDING_GRACE =
-  EMPTY_COMPLETION_MAX_RETRIES + STREAM_TIMEOUT_MAX_RETRIES + FINALIZE_GUARD_REGENERATIONS;
 
 /**
  * One retryable turn-level anomaly: which counter on the run state tracks it,

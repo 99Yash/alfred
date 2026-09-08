@@ -12,6 +12,7 @@ import {
   listSpawnedChildRuns,
   PREVIEW_CHARS,
   readChildRunOutcome,
+  appendSystemNote,
   resetChatTurnRetryBudgets,
   scheduleSubAgentJoinWakeJob,
   type ChildRunOutcome,
@@ -59,27 +60,22 @@ function renderChildOutcome(value: unknown): string {
 }
 
 /**
- * Synthetic transcript turn folding a finished-but-unawaited child's outcome
- * back to the boss, so a regenerated answer is informed by it. Phrased as a
- * system note in a user turn (there is no matching tool-call id to attach a real
- * tool result to — the boss never called `await_sub_agent`).
+ * Runtime note folding a finished-but-unawaited child's outcome back to the
+ * boss, so a regenerated answer is informed by it. Appended with
+ * `appendSystemNote` (there is no matching tool-call id to attach a real tool
+ * result to — the boss never called `await_sub_agent`).
  */
-function syntheticChildResultMessage(
-  childRunId: string,
-  outcome: ChildRunOutcome,
-): AgentTranscriptMessage {
+function syntheticChildResultNote(childRunId: string, outcome: ChildRunOutcome): string {
   if (!isTerminalChildStatus(outcome.status)) {
     // Folded WITHOUT a terminal result: the join gave up parking because it
     // couldn't schedule the dead-man timer ("disabled"/"failed") or the child
     // outran the wait-ceiling. Tell the boss to answer honestly with what it has
     // rather than inventing a result it never received.
     const why = outcome.reason ? ` (${outcome.reason})` : ` (still ${outcome.status})`;
-    return {
-      role: "user",
-      content:
-        `[system] A sub-agent you spawned (childRunId ${childRunId}) could not be awaited${why}. ` +
-        "Answer now with what you already have. Tell the user that part of the work is still in progress; do not fabricate its result.",
-    } satisfies AgentTranscriptMessage;
+    return (
+      `A sub-agent you spawned (childRunId ${childRunId}) could not be awaited${why}. ` +
+      "Answer now with what you already have. Tell the user that part of the work is still in progress; do not fabricate its result."
+    );
   }
   const detail =
     outcome.status === "completed"
@@ -87,12 +83,10 @@ function syntheticChildResultMessage(
       : outcome.status === "failed"
         ? `failed: ${renderChildOutcome(outcome.error)}`
         : outcome.status; // cancelled / other terminal
-  return {
-    role: "user",
-    content:
-      `[system] A sub-agent you spawned (childRunId ${childRunId}) finished without you awaiting it — it ${detail}. ` +
-      "Incorporate this into your answer now. Do not say you will follow up when it finishes; it already has.",
-  } satisfies AgentTranscriptMessage;
+  return (
+    `A sub-agent you spawned (childRunId ${childRunId}) finished without you awaiting it — it ${detail}. ` +
+    "Incorporate this into your answer now. Do not say you will follow up when it finishes; it already has."
+  );
 }
 
 /**
@@ -177,7 +171,7 @@ const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
  *    signal (with a dead-man timer backstop) instead of finalizing — the turn
  *    CANNOT complete while a child it spawned is non-terminal.
  *  - Once all children are terminal and folded, loops back to regenerate an
- *    informed answer (bounded by `chatTurnCap` plus its landing grace).
+ *    informed answer (one regeneration; see `chatTurnCapVerdict`).
  *
  * The park-or-fold decision per child is {@link joinChildRun}, shared verbatim
  * with the `await_sub_agent` tool — including the rule that a child which cannot
@@ -202,7 +196,7 @@ export async function guardSpawnedChildren(
   const unfolded = children.filter((c) => !state.foldedChildRunIds.includes(c.id));
   if (unfolded.length === 0) return null;
 
-  const foldMessages: AgentTranscriptMessage[] = [];
+  const foldNotes: string[] = [];
   // The signals the join minted, not the child ids — the park below can only be
   // built from something {@link joinChildRun} handed back, so this guard never
   // re-derives a signal name it might not have earned a timer for.
@@ -220,7 +214,7 @@ export async function guardSpawnedChildren(
     // Resolved: a real result, or an honest still-running note (ceiling expiry /
     // `join_timer_unavailable`). Either way stop tracking the child — that is
     // what keeps a stuck child from re-parking forever.
-    foldMessages.push(syntheticChildResultMessage(child.id, join.outcome));
+    foldNotes.push(syntheticChildResultNote(child.id, join.outcome));
     state.foldedChildRunIds = [...state.foldedChildRunIds, child.id];
   }
 
@@ -245,13 +239,16 @@ export async function guardSpawnedChildren(
   // the tail at the tool results (park with no folds) or the synthetic user
   // fold (folds present), both legal turn-enders, and keeps the regenerated
   // reply from being anchored to the uninformed answer. `state.narration`
-  // already carries that text for the UI, so nothing is lost.
+  // already carries that text for the UI, so nothing is lost. Several folds
+  // join one note (`appendSystemNote`), never a run of user turns.
   const baseTranscript =
     closedPrematureAnswer && transcript.at(-1)?.role === "assistant"
       ? transcript.slice(0, -1)
       : transcript;
-  const nextTranscript =
-    foldMessages.length > 0 ? [...baseTranscript, ...foldMessages] : baseTranscript;
+  const nextTranscript = foldNotes.reduce<AgentTranscriptMessage[]>(
+    (acc, note) => appendSystemNote(acc, note),
+    [...baseTranscript],
+  );
 
   if (parkSignals.length > 0) {
     return interruptChatRun(state, nextTranscript, { kind: "signal", name: parkSignals[0]! });
@@ -295,7 +292,7 @@ function nonExecutionRecoveredByLaterSuccess(
  *    from the transcript; same tool names can target different side effects.
  *  - For any not yet surfaced, injects a `[system]` note naming them and telling
  *    the boss not to claim they succeeded, then loops back to regenerate an honest
- *    answer (bounded by `chatTurnCap` plus its landing grace).
+ *    answer (one regeneration; see `chatTurnCapVerdict`).
  *  - Records the handled toolCallIds in `notedFailureToolCallIds` so it fires at
  *    most once per failure — the regenerated turn sees them as noted and finalizes,
  *    so there is no loop. (A genuinely new mutating failure on the regenerated turn
@@ -340,15 +337,17 @@ export async function guardUnreportedToolFailures(
   await closePrematureAnswerSegment(ctx, state, guardDeps.publish);
 
   const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
-  const note: AgentTranscriptMessage = {
-    role: "user",
-    content:
-      `[system] These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
-      "Do NOT tell the user a failed attempt succeeded. If a later successful tool result in the transcript completed the user's goal another way, say what succeeded and mention any meaningful limitation. " +
-      "Otherwise, say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.",
-  } satisfies AgentTranscriptMessage;
+  const note =
+    `These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
+    "Do NOT tell the user a failed attempt succeeded. If a later successful tool result in the transcript completed the user's goal another way, say what succeeded and mention any meaningful limitation. " +
+    "Otherwise, say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.";
 
-  return { kind: "next", state, transcript: [...transcript, note], nextStep: "chat-turn" };
+  return {
+    kind: "next",
+    state,
+    transcript: appendSystemNote(transcript, note),
+    nextStep: "chat-turn",
+  };
 }
 
 /** One guard in {@link FINALIZE_GUARD_SEQUENCE}. */

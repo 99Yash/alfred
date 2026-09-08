@@ -15,15 +15,18 @@ export type TrailItem =
 
 /**
  * The half of a call's status that decides which row it folds into. `started`
- * and `succeeded` share a class: a streaming call is drawn inside the run of
- * completed siblings from its first frame, so when it lands the count ticks up
- * in place instead of a lone "Remembering…" row appearing beneath the run and
- * then collapsing into it. `failed` stays its own class so a failure is never
- * absorbed by a success's count; a folded call that then fails leaves the run
- * on the next render, which is the one status change that *should* be visible.
+ * and `succeeded` share the `ok` class: a streaming call is drawn inside the
+ * run of completed siblings from its first frame, so when it lands the count
+ * ticks up in place instead of a lone "Remembering…" row appearing beneath the
+ * run and then collapsing into it. `failed` stays its own class so a failure is
+ * never absorbed by a success's count; a folded call that then fails leaves the
+ * run on the next render, which is the one status change that *should* be
+ * visible. Every call in a folded row shares one class; `ToolCallCard` reads a
+ * row's failure with `some`, so a row built by hand with mixed classes still
+ * shows its failure.
  */
-function foldClass(status: ToolCallView["status"]): "failed" | "live" {
-  return status === "failed" ? "failed" : "live";
+export function foldClass(status: ToolCallView["status"]): "failed" | "ok" {
+  return status === "failed" ? "failed" : "ok";
 }
 
 /**

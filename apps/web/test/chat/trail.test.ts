@@ -51,7 +51,9 @@ describe("buildTrail", () => {
     assert.equal(trail[1]?.kind === "narration" && trail[1].text, "Now searching");
   });
 
-  // Move fidelity — these folding rules predate the move and must not shift.
+  // The fold key is (toolName, foldClass): `started` and `succeeded` share a
+  // class so an in-flight call joins the run it will land in; only a failure
+  // (or a different tool, or narration) breaks a run.
   test("consecutive identical calls fold into one row, a failure breaks it", () => {
     const folded = buildTrail(
       [

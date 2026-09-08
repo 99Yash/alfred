@@ -17,7 +17,7 @@ import {
   type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { chatMessages } from "@alfred/db/schemas";
+import { CHAT_TURN_WORKFLOW_SLUG, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
@@ -28,14 +28,16 @@ import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
   buildConnectedSummaryFromAvailability,
-  appendChatTurnCapLandingNote,
-  CHAT_TURN_CAP_LANDING_GRACE,
+  appendSystemNote,
+  CHAT_TURN_CAP_LANDING_NOTE,
   chatTurnCap,
+  chatTurnCapVerdict,
   formatRuntimeTimeGrounding,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
   resolveRuntimeGroundingAnchor,
   systemToolKernel,
+  uniqueToolNames,
   toolCardTerminal,
   toolEventOutcome,
   toolRuntimeForRun,
@@ -109,7 +111,7 @@ import { emitTurnPhaseThermometer, type TurnPhaseOutcome } from "./turn-thermome
  *  - `../sub-agent-join`     — joining a spawned child, shared with the
  *                              `await_sub_agent` tool.
  */
-export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
+export { CHAT_TURN_WORKFLOW_SLUG };
 const CHAT_TOOL_RUN_CONTEXT = {
   caller: "boss",
   interaction: "live_chat",
@@ -313,35 +315,33 @@ const chatTurnStep: Step<ChatRunState> = {
       });
     };
     try {
-      // The tool-loop cap lands the turn instead of failing it. At the cap the
-      // model runs once more with no tools and a note to report what got done;
-      // the finalize guards may spend the grace regenerating on top of that.
-      // Only a run that keeps looping past the grace blows the hard fuse —
-      // that is a wedged loop, and the sentinel's failure copy says so.
-      const turnCap = chatTurnCap(state.tier);
-      if (ctx.state.turnCount > turnCap + CHAT_TURN_CAP_LANDING_GRACE) {
-        throw new Error("chat_turn_limit_exceeded");
-      }
-      const landing = ctx.state.turnCount >= turnCap;
-      if (landing) {
+      // The tool-loop cap lands the turn instead of failing it: at the cap the
+      // model runs once more with no tools and a note to report what got done,
+      // and every later turn (retry, guard regeneration, park resume) is issued
+      // by a spender with its own bound. `chatTurnCapVerdict` explains why
+      // there is no hard fuse past that point. Judged on the turns this run
+      // has completed (`ctx.state.turnCount`), which is what the log reports.
+      const capVerdict = chatTurnCapVerdict(state.tier, ctx.state.turnCount);
+      const landing = capVerdict !== "loop";
+      if (capVerdict === "land") {
         logger.warn(
           {
             event: "chat_turn_cap_landing",
             runId: ctx.runId,
             threadId: state.threadId,
             tier: state.tier,
-            turnCount: state.turnCount,
-            turnCap,
+            completedTurns: ctx.state.turnCount,
+            turnCap: chatTurnCap(state.tier),
           },
           "Chat turn reached its tool-loop cap; landing with a tool-less final turn",
         );
       }
-      // The note enters the durable transcript exactly once, on the first
-      // landing turn; a guard regeneration continues from a transcript that
-      // already carries it.
+      // The note enters the durable transcript exactly once, on the `land`
+      // turn; a step retry of that turn re-runs from the checkpoint without the
+      // note, and every later turn continues from a transcript that carries it.
       const transcript =
-        landing && ctx.state.turnCount === turnCap
-          ? appendChatTurnCapLandingNote(ctx.transcript)
+        capVerdict === "land"
+          ? appendSystemNote(ctx.transcript, CHAT_TURN_CAP_LANDING_NOTE)
           : [...ctx.transcript];
 
       // Signal "started" before any pre-stream work (transcript hydration fetches
@@ -412,7 +412,6 @@ const chatTurnStep: Step<ChatRunState> = {
           userId: ctx.userId,
           threadId: state.threadId,
           runId: ctx.runId,
-          workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
           activeTools: state.activeTools,
           allowedIntegrations: state.allowedIntegrations,
           availability,
@@ -422,7 +421,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // Carried names entered the surface without a model step, which is what
         // `preloadedTools` records, so #414 accounting measures whether the
         // carry-over paid off the same way it measures the prompt preload.
-        state.preloadedTools = [...new Set([...state.preloadedTools, ...carryover.carried])];
+        state.preloadedTools = uniqueToolNames([...state.preloadedTools, ...carryover.carried]);
         if (carryover.carried.length > 0) {
           logger.info(
             {

@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -26,12 +27,26 @@ export type RememberAndDismissResult =
   | Extract<RememberSenderSuppressionResult, { ok: false }>;
 
 /**
+ * One sender's outcome inside a batch: the single-sender result, or the error a
+ * throw mid-batch produced for that sender alone. A throw in entry seven of
+ * thirteen must not fail the whole call, because entries one to six already
+ * persisted; the honesty guard would then tell the model to report a failure
+ * for work that happened.
+ */
+export type RememberBatchEntryResult =
+  | RememberAndDismissResult
+  | { ok: false; status: "failed"; message: string };
+
+/**
  * Result of one `system.remember` call that named several senders. Each entry
- * is the same shape a single-sender call returns, so a clarification on one
- * sender never hides the instructions that did persist for the others. `ok` is
- * false only when nothing persisted, so the dispatcher's honesty routing (which
- * reads `ok`/`status`) flags an all-clarification batch as an incomplete action
- * and a partial batch as a success the per-entry results qualify.
+ * is the same shape a single-sender call returns, so a clarification or an
+ * error on one sender never hides the instructions that did persist for the
+ * others. `ok` is false only when nothing persisted, so the dispatcher's
+ * honesty routing (which reads `ok`/`status`) flags an all-miss batch as an
+ * incomplete action and a partial batch as a success the per-entry results
+ * qualify. The envelope is `ok: boolean` with counts, not a discriminated union:
+ * the honesty routing sees one verdict per call, and a twelve-of-thirteen batch
+ * routes as a success whose one miss only the per-entry results show.
  *
  * A literal, not derived: this envelope is minted here and has no schema or row
  * to derive from; the entries inside it are the derived single-sender result.
@@ -39,9 +54,10 @@ export type RememberAndDismissResult =
 export interface RememberAndDismissBatchResult {
   ok: boolean;
   status: "batch";
-  results: Array<{ senderEmail: string; result: RememberAndDismissResult }>;
+  results: Array<{ senderEmail: string; result: RememberBatchEntryResult }>;
   rememberedCount: number;
   clarificationCount: number;
+  failedCount: number;
 }
 
 interface SenderSuppressionDependencies {
@@ -51,10 +67,12 @@ interface SenderSuppressionDependencies {
 
 type RememberRequest = SystemToolRequest<"system.remember">;
 type RememberInput = RememberRequest["input"];
-/** One sender to remember: the single-sender fields of the tool input. */
+/**
+ * One sender to remember: the single-sender fields of the tool input. A
+ * `senders[]` entry is the same pair with the email required, so it is
+ * assignable here without a second name.
+ */
 type SenderEntry = Pick<RememberInput, "senderEmail" | "senderLabel">;
-/** One entry of the batch form; its email is always present. */
-type BatchSenderEntry = NonNullable<RememberInput["senders"]>[number];
 
 /**
  * Persist one sender suppression and dismiss its live todos. The
@@ -111,29 +129,39 @@ export function createRememberSenderSuppressionCoordinator(
       });
     }
 
-    const seen = new Set<string>();
-    const entries: BatchSenderEntry[] = [];
-    const candidates: BatchSenderEntry[] = input.senderEmail
-      ? [{ senderEmail: input.senderEmail, senderLabel: input.senderLabel }, ...input.senders]
-      : input.senders;
-    for (const entry of candidates) {
-      if (seen.has(entry.senderEmail)) continue;
-      seen.add(entry.senderEmail);
-      entries.push(entry);
+    // Keyed by email so a sender named twice (or once at the top level and
+    // once in the array) is remembered once; the first spelling's label wins.
+    const entries = new Map<string, SenderEntry>();
+    if (input.senderEmail) {
+      entries.set(input.senderEmail, {
+        senderEmail: input.senderEmail,
+        senderLabel: input.senderLabel,
+      });
+    }
+    for (const entry of input.senders) {
+      if (!entries.has(entry.senderEmail)) entries.set(entry.senderEmail, entry);
     }
 
     const results: RememberAndDismissBatchResult["results"] = [];
-    for (const entry of entries) {
-      const result = await rememberOneSender(dependencies, args, entry);
-      results.push({ senderEmail: entry.senderEmail, result });
+    for (const [senderEmail, entry] of entries) {
+      try {
+        results.push({ senderEmail, result: await rememberOneSender(dependencies, args, entry) });
+      } catch (error) {
+        results.push({
+          senderEmail,
+          result: { ok: false, status: "failed", message: toMessage(error) },
+        });
+      }
     }
     const rememberedCount = results.filter(({ result }) => result.ok).length;
+    const failedCount = results.filter(({ result }) => result.status === "failed").length;
     return {
       ok: rememberedCount > 0,
       status: "batch",
       results,
       rememberedCount,
-      clarificationCount: results.length - rememberedCount,
+      clarificationCount: results.length - rememberedCount - failedCount,
+      failedCount,
     };
   };
 }
