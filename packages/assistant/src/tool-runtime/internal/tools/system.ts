@@ -501,7 +501,10 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "remember",
     riskTier: "no_risk",
     description:
-      "Persist a resolved sender-level suppression standing instruction. Only persists when the sender email is resolved; otherwise returns a clarification request.",
+      "Persist a resolved sender-level suppression standing instruction. Only persists when the " +
+      "sender email is resolved; otherwise returns a clarification request. When the user names " +
+      "several senders, pass them all in `senders` in ONE call; each gets its own instruction and " +
+      "its own result. Never call this once per sender.",
     inputSchema: rememberInput,
     execute: async (input, ctx) => {
       return await rememberSenderSuppressionAndDismissTodos({

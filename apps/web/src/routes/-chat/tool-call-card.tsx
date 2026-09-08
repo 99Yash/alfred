@@ -18,6 +18,7 @@ import {
 } from "./evidence";
 import { Favicon } from "./favicon";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
+import { foldClass } from "./trail";
 
 /** The single accordion item value — one card holds one expandable panel. */
 const PANEL_ITEM = "panel";
@@ -77,16 +78,22 @@ export function ToolCallCard({
 }) {
   const panelId = useId();
   // A run of identical calls collapsed into one row (see buildTrail); they
-  // share a tool name and status, so the first stands in for the label/glyph
-  // and the rest only add to the count and the stacked results below.
+  // share a tool name and `foldClass`, so the first stands in for the label and
+  // glyph and the rest only add to the count and the stacked results below.
+  // Both verdicts are read across the whole run, not off its head: it reads as
+  // running while any call is still out, and as failed if any call failed, so
+  // a row that somehow mixes classes can never hide a failure.
   const tool = tools[0]!;
   const count = tools.length;
-  const running = tool.status === "started";
-  const failed = tool.status === "failed";
+  const running = tools.some((t) => t.status === "started");
+  const failed = tools.some((t) => foldClass(t.status) === "failed");
   // ADR-0070: the result had non-text bytes stripped before storage, so the
   // preview may be incomplete — flag it instead of letting it look pristine.
-  const trimmed = !running && !failed && tools.some((t) => Boolean(t.sanitized));
-  const expandable = !running && tools.some((t) => Boolean(t.resultPreview));
+  const trimmed = !failed && tools.some((t) => Boolean(t.sanitized));
+  // Expandable as soon as any call has a result. Not gated on `running`: a run
+  // the user opened mid-turn would otherwise slam shut each time a sibling call
+  // starts, and a still-streaming call simply contributes no block below.
+  const expandable = tools.some((t) => Boolean(t.resultPreview));
 
   const {
     brand,

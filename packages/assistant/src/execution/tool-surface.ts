@@ -59,8 +59,9 @@ export const toolSurfaceStateFields = {
   // Persisted under an older deploy, so names may refer to tools that have
   // since been retired. The fold drops anything not in today's registry.
   activeTools: z.array(z.string()).optional(),
-  // Exact first-turn deterministic selections, persisted so #414 can measure
-  // preload hits/misses against the durable transcript. Optional for legacy runs.
+  // Exact first-turn deterministic selections (prompt preload and, for chat,
+  // names carried over from the thread's previous run), persisted so #414 can
+  // measure hits/misses against the durable transcript. Optional for legacy runs.
   preloadedTools: z.array(z.string()).default([]),
   // Read only while resuming checkpoints created before exact tool surfaces.
   activeIntegrations: z.array(z.string().min(1)).optional(),
@@ -128,7 +129,8 @@ function isRegisteredToolName(name: string): name is ToolName {
   return isToolName(name) && restoreToolSurface({ kind: "exact", names: [name] })[0] === name;
 }
 
-function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
+/** The one spelling of a tool-name set: deduplicated and sorted, so two surfaces compare by value. */
+export function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
   return [...new Set(toolNames)].sort();
 }
 
