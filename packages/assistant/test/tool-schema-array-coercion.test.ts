@@ -159,6 +159,14 @@ const FIXTURES = {
     },
     arrayFields: ["resolvedAccounts", "resolvedCapabilities"],
   },
+  "system.remember": {
+    base: {
+      kind: "sender_suppression",
+      directive: "suppress",
+      senders: [{ senderEmail: "noreply@example.com" }, { senderEmail: "promo@example.com" }],
+    },
+    arrayFields: ["senders"],
+  },
   "system.suggest_todo": {
     base: {
       name: "Reply to the vendor contract",
