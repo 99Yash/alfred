@@ -52,7 +52,7 @@ describe("buildTrail", () => {
   });
 
   // Move fidelity — these folding rules predate the move and must not shift.
-  test("consecutive identical calls fold into one row, a status change breaks it", () => {
+  test("consecutive identical calls fold into one row, a failure breaks it", () => {
     const folded = buildTrail(
       [
         call("gmail.search", "succeeded", 0, "a"),

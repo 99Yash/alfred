@@ -1489,6 +1489,23 @@ export const rememberInput = z
       .max(200)
       .nullish()
       .describe("Human display label for the sender, if known."),
+    senders: z
+      .array(
+        z
+          .object({
+            senderEmail: z.string().trim().toLowerCase().max(320),
+            senderLabel: z.string().trim().max(200).nullish(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(50)
+      .optional()
+      .describe(
+        "Every resolved sender to suppress when the user names more than one. One call persists one " +
+          "instruction per entry; `accountId`, `directive`, and `phrasing` apply to all of them. Use " +
+          "this instead of one call per sender.",
+      ),
     accountId: z
       .string()
       .trim()

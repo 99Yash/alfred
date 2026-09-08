@@ -177,7 +177,7 @@ const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
  *    signal (with a dead-man timer backstop) instead of finalizing — the turn
  *    CANNOT complete while a child it spawned is non-terminal.
  *  - Once all children are terminal and folded, loops back to regenerate an
- *    informed answer (bounded by `CHAT_TURN_CAP_MAX`).
+ *    informed answer (bounded by `chatTurnCap` plus its landing grace).
  *
  * The park-or-fold decision per child is {@link joinChildRun}, shared verbatim
  * with the `await_sub_agent` tool — including the rule that a child which cannot
@@ -295,7 +295,7 @@ function nonExecutionRecoveredByLaterSuccess(
  *    from the transcript; same tool names can target different side effects.
  *  - For any not yet surfaced, injects a `[system]` note naming them and telling
  *    the boss not to claim they succeeded, then loops back to regenerate an honest
- *    answer (bounded by `CHAT_TURN_CAP_MAX`).
+ *    answer (bounded by `chatTurnCap` plus its landing grace).
  *  - Records the handled toolCallIds in `notedFailureToolCallIds` so it fires at
  *    most once per failure — the regenerated turn sees them as noted and finalizes,
  *    so there is no loop. (A genuinely new mutating failure on the regenerated turn

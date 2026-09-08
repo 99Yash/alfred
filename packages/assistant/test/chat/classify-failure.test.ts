@@ -96,7 +96,7 @@ test("structured signals still classify correctly (image flags don't touch them)
     new HttpError({ provider: "test", status, url: "https://x.test", body: "" });
   assert.equal(classifyChatFailure(http(429), NO_IMAGE), "rate_limited");
   assert.equal(classifyChatFailure(http(503), NO_IMAGE), "overloaded");
-  assert.equal(classifyChatFailure(new Error("chat_turn_limit_exceeded"), NO_IMAGE), "too_long");
+  assert.equal(classifyChatFailure(new Error("chat_turn_limit_exceeded"), NO_IMAGE), "step_limit");
   assert.equal(
     classifyChatFailure(new Error("prompt is too long for the model"), NO_IMAGE),
     "too_long",

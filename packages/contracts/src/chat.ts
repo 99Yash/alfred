@@ -46,7 +46,11 @@ export const chatModelTierSchema = z.enum(chatModelTierValues);
  *                       pre-turn transcript; this kind surfaces only when that
  *                       is exhausted. Recoverable: retry (thinking time is
  *                       non-deterministic, so a fresh attempt may finish).
- *   - `too_long`      — the turn hit a length/turn cap and can't continue.
+ *   - `too_long`      — the provider rejected the request as over its context
+ *                       ceiling. Not recoverable in this thread.
+ *   - `step_limit`    — the run kept looping past its tool-loop cap and the
+ *                       landing grace (`chat_turn_limit_exceeded`). The thread
+ *                       is fine; a retry of the same message is the offer.
  *   - `generic`       — anything else; an unclassified interruption.
  */
 export const chatErrorKindValues = [
@@ -56,6 +60,7 @@ export const chatErrorKindValues = [
   "rate_limited",
   "timeout",
   "too_long",
+  "step_limit",
   "generic",
 ] as const;
 export type ChatErrorKind = (typeof chatErrorKindValues)[number];

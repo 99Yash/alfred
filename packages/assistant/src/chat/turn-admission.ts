@@ -36,6 +36,7 @@ import {
 } from "./attachments";
 import { releasePendingUploadBudget } from "./attachment-upload-quota";
 import { resolveAttachmentDegradation, schedulePendingUploadCleanup } from "./attachment-ingest";
+import { chatThreadRunsWhere } from "./chat-thread-runs";
 import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
 import { requestChatStop } from "./stop-signal";
 import {
@@ -128,9 +129,7 @@ async function findBlockingChatTurnRun(
     .from(agentRuns)
     .where(
       and(
-        eq(agentRuns.userId, userId),
-        eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
-        sql`${agentRuns.metadata} ->> 'threadId' = ${threadId}`,
+        chatThreadRunsWhere({ userId, threadId, workflowSlug: CHAT_TURN_WORKFLOW_SLUG }),
         // Must match CHAT_THREAD_ACTIVE_RUN_INDEX's predicate exactly or this
         // fast path and the index it fronts disagree about which runs are
         // active. Both call `runIsNotTerminal`, so they can't.
