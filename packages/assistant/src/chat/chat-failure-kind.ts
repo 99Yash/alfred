@@ -83,8 +83,6 @@ export function classifyChatFailure(
     // No image anywhere → not an attachment failure; fall through to generic.
   }
 
-  // Our own turn-cap sentinel (see `CHAT_TURN_CAP_MAX`) — the turn can't continue.
-  if (msg.includes("chat_turn_limit_exceeded")) return "too_long";
   // Context / token ceilings reported by the provider.
   if (
     msg.includes("context length") ||

@@ -103,8 +103,11 @@ export {
   systemToolKernel,
   toolRuntimeForRun,
   toolSurfaceStateFields,
+  uniqueToolNames,
 } from "./tool-surface";
+export { toolNamesFromState } from "./tool-surface-usage";
 export { appendModelResponseMessages } from "./transcript-dedup";
+export { appendSystemNote } from "./transcript-notes";
 export { aggregateRunUsage } from "./usage-fold";
 export {
   shouldPublishToolStarted,
@@ -114,7 +117,9 @@ export {
 export { toolEventOutcome } from "./workflows/tool-event-outcome";
 export { pendingToolCallSchema } from "./workflows/pending-tool-call";
 export {
-  CHAT_TURN_CAP_MAX,
+  CHAT_TURN_CAP_LANDING_NOTE,
+  chatTurnCap,
+  chatTurnCapVerdict,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
 } from "./workflows/turn-budgets";

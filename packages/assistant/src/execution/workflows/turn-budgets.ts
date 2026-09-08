@@ -1,4 +1,4 @@
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { AgentTranscriptMessage, ChatModelTier } from "@alfred/contracts";
 import type { StepResult } from "../types";
 
 /**
@@ -15,19 +15,78 @@ import type { StepResult } from "../types";
  */
 
 /**
- * Turn-loop cap for the interactive chat workflow. Lower than
- * {@link BRIEF_TURN_CAP_MAX} on purpose: a user is watching this one stream, so
- * a wedged loop has to fail while they are still willing to wait, and the two
- * finalize guards can each spend a turn regenerating on top of the model's own
- * tool loop.
+ * Turn-loop cap for the interactive chat workflow, per model tier. A user is
+ * watching this one stream, so a wedged loop has to land while they are still
+ * willing to wait. Sized against a real turn (prod `run_tsevusjk1poq`): with
+ * two steps per lazy tool load and one tool call per model step, a legitimate
+ * thirteen-sender standing-instruction ask burned the old flat cap of 24 on
+ * plumbing and never answered. `deep` buys more room because the user chose
+ * the slower tier on purpose.
+ *
+ * The cap is where the turn *lands*, not where it crashes: see
+ * {@link chatTurnCapVerdict}.
  */
-export const CHAT_TURN_CAP_MAX = 24;
+const CHAT_TURN_CAP_BY_TIER = {
+  standard: 40,
+  deep: 60,
+} as const satisfies Record<ChatModelTier, number>;
 
 /**
- * Turn-loop cap for the background brief / sub-agent workflow. Higher than
- * {@link CHAT_TURN_CAP_MAX} because nobody is watching it stream: an
- * investigation is expected to work several distinct angles, and the run has a
- * compaction step it can spend turns on that the chat path does not.
+ * What the chat step does with the model turn it is about to run, given how
+ * many model turns the run has completed.
+ *
+ *  - `loop`: under the cap; offer the tool surface as usual.
+ *  - `land`: the first turn at the cap. Offer no tools, append the landing
+ *    note, log `chat_turn_cap_landing`. The model must answer from what the
+ *    transcript already holds.
+ *  - `landed`: a later turn past the cap. Still no tools; the note is already
+ *    in the transcript. Every turn here is issued by a spender with its own
+ *    bound: an empty-completion or stream-timeout retry (the budgets below), a
+ *    finalize guard's one regeneration, or a resume from a sub-agent park (one
+ *    per child, each behind a dead-man timer).
+ *
+ * There is deliberately no hard fuse past the cap. With an empty tool set no
+ * tool loop can continue, so nothing past `land` is the failure a cap exists
+ * to stop, and every legitimate spender is already bounded. The number of
+ * turns those spenders may legally add is not a constant (each regeneration
+ * refreshes the retry budgets; a park resume repeats per child), so any fixed
+ * grace would either fire on a legal path, losing a reply after every tool
+ * write persisted, or be loose enough to guard nothing.
+ */
+export type ChatTurnCapVerdict = "loop" | "land" | "landed";
+
+export function chatTurnCapVerdict(
+  tier: ChatModelTier,
+  completedTurns: number,
+): ChatTurnCapVerdict {
+  const cap = CHAT_TURN_CAP_BY_TIER[tier];
+  if (completedTurns < cap) return "loop";
+  return completedTurns === cap ? "land" : "landed";
+}
+
+/** The tool-loop cap for a chat turn on `tier`, for the landing log line. */
+export function chatTurnCap(tier: ChatModelTier): number {
+  return CHAT_TURN_CAP_BY_TIER[tier];
+}
+
+/**
+ * The transcript note the landing turn runs on, appended once by the `land`
+ * verdict alongside an empty tool set: the model cannot call anything, and this
+ * tells it why the loop ended and what the reply must now contain. Written via
+ * `appendSystemNote`, so it joins a finalize guard's note when one is already
+ * at the tail.
+ */
+export const CHAT_TURN_CAP_LANDING_NOTE =
+  "You have used every tool step available for this reply, so no tools are offered on this turn. " +
+  "Answer the user now from what is already in this conversation. Say plainly what you completed and what is still left, in user terms. " +
+  "Do not claim anything you did not finish, and do not describe the step limit or the mechanism. If work remains, tell the user they can ask you to continue.";
+
+/**
+ * Turn-loop cap for the background brief / sub-agent workflow. Nobody is
+ * watching it stream: an investigation is expected to work several distinct
+ * angles, and the run has a compaction step it can spend turns on that the chat
+ * path does not. Compare {@link chatTurnCapVerdict}: the chat cap is the higher
+ * of the two on both tiers because a chat turn lands there instead of failing.
  */
 export const BRIEF_TURN_CAP_MAX = 30;
 

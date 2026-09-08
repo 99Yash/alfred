@@ -14,11 +14,12 @@ import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
   agentRuns,
   artifacts,
+  CHAT_THREAD_ACTIVE_RUN_INDEX,
   chatAttachments,
   chatMessages,
+  chatThreadRunMatch,
   chatThreads,
   runIsNotTerminal,
-  CHAT_THREAD_ACTIVE_RUN_INDEX,
 } from "@alfred/db/schemas";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
@@ -128,12 +129,12 @@ async function findBlockingChatTurnRun(
     .from(agentRuns)
     .where(
       and(
-        eq(agentRuns.userId, userId),
-        eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
-        sql`${agentRuns.metadata} ->> 'threadId' = ${threadId}`,
-        // Must match CHAT_THREAD_ACTIVE_RUN_INDEX's predicate exactly or this
-        // fast path and the index it fronts disagree about which runs are
-        // active. Both call `runIsNotTerminal`, so they can't.
+        // CHAT_THREAD_ACTIVE_RUN_INDEX's predicate, expression for expression:
+        // `chatThreadRunMatch` is generated from the index's own key
+        // expressions and `runIsNotTerminal` is the index's status filter, so
+        // this fast path and the index it fronts cannot disagree about which
+        // runs are active.
+        chatThreadRunMatch(agentRuns, { userId, threadId }),
         runIsNotTerminal(agentRuns.status),
       ),
     )

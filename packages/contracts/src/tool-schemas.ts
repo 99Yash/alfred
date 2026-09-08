@@ -1469,51 +1469,66 @@ export const readChatHistoryInput = z
     path: ["kind"],
   });
 
-export const rememberInput = z
-  .object({
-    kind: z
-      .literal("sender_suppression")
-      .describe("Persist a resolved sender-level standing instruction."),
-    senderEmail: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .max(320)
-      .optional()
-      .describe(
-        "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
-      ),
-    senderLabel: z
-      .string()
-      .trim()
-      .max(200)
-      .nullish()
-      .describe("Human display label for the sender, if known."),
-    accountId: z
-      .string()
-      .trim()
-      .max(200)
-      .nullable()
-      .optional()
-      .describe(
-        "Optional account scope. Null or omitted means suppress this sender across accounts.",
-      ),
-    directive: z
-      .string()
-      .trim()
-      .max(1_000)
-      .optional()
-      .describe(
-        "Resolved instruction sentence. Omit to use the default open-loop suppression wording.",
-      ),
-    phrasing: z
-      .string()
-      .trim()
-      .max(1_000)
-      .optional()
-      .describe("Verbatim user phrasing that asked Alfred to remember this."),
-  })
-  .strict();
+/** A resolved sender email as `system.remember` accepts it, in both its single and batch forms. */
+const rememberSenderEmail = z.string().trim().toLowerCase().max(320);
+const rememberSenderLabel = z
+  .string()
+  .trim()
+  .max(200)
+  .nullish()
+  .describe("Human display label for the sender, if known.");
+
+export const rememberInput = coerceJsonArrayFields(
+  ["senders"],
+  z
+    .object({
+      kind: z
+        .literal("sender_suppression")
+        .describe("Persist a resolved sender-level standing instruction."),
+      senderEmail: rememberSenderEmail
+        .optional()
+        .describe(
+          "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
+        ),
+      senderLabel: rememberSenderLabel,
+      senders: z
+        .array(
+          z.object({ senderEmail: rememberSenderEmail, senderLabel: rememberSenderLabel }).strict(),
+        )
+        .min(1)
+        .max(50)
+        .optional()
+        .describe(
+          "Every resolved sender to suppress when the user names more than one. One call persists one " +
+            "instruction per entry; `accountId`, `directive`, and `phrasing` apply to all of them. Use " +
+            "this instead of one call per sender.",
+        ),
+      accountId: z
+        .string()
+        .trim()
+        .max(200)
+        .nullable()
+        .optional()
+        .describe(
+          "Optional account scope. Null or omitted means suppress this sender across accounts.",
+        ),
+      directive: z
+        .string()
+        .trim()
+        .max(1_000)
+        .optional()
+        .describe(
+          "Resolved instruction sentence. Omit to use the default open-loop suppression wording.",
+        ),
+      phrasing: z
+        .string()
+        .trim()
+        .max(1_000)
+        .optional()
+        .describe("Verbatim user phrasing that asked Alfred to remember this."),
+    })
+    .strict(),
+);
 
 /**
  * List the user's active standing instructions so the model can reference a
