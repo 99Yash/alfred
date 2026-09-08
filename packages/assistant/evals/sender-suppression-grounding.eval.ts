@@ -113,7 +113,9 @@ function runFirstCall(input: string) {
       [REMEMBER_TOOL]: tool({
         description:
           "Persist a resolved sender-level suppression standing instruction. Only persists when the " +
-          "sender email is resolved; otherwise returns a clarification request.",
+          "sender email is resolved; otherwise returns a clarification request. When the user names " +
+          "several senders, pass them all in `senders` in ONE call; each gets its own instruction and " +
+          "its own result. Never call this once per sender.",
         inputSchema: rememberInput,
       }),
       [RESOLVE_TODO_TOOL]: tool({

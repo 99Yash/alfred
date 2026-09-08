@@ -28,7 +28,9 @@ import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
   buildConnectedSummaryFromAvailability,
-  CHAT_TURN_CAP_MAX,
+  appendChatTurnCapLandingNote,
+  CHAT_TURN_CAP_LANDING_GRACE,
+  chatTurnCap,
   formatRuntimeTimeGrounding,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
@@ -70,6 +72,7 @@ import {
   type PendingToolCall,
 } from "./chat-turn-state";
 import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
+import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { isChatStopRequested } from "./stop-signal";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
@@ -310,10 +313,36 @@ const chatTurnStep: Step<ChatRunState> = {
       });
     };
     try {
-      if (ctx.state.turnCount >= CHAT_TURN_CAP_MAX) {
+      // The tool-loop cap lands the turn instead of failing it. At the cap the
+      // model runs once more with no tools and a note to report what got done;
+      // the finalize guards may spend the grace regenerating on top of that.
+      // Only a run that keeps looping past the grace blows the hard fuse —
+      // that is a wedged loop, and the sentinel's failure copy says so.
+      const turnCap = chatTurnCap(state.tier);
+      if (ctx.state.turnCount > turnCap + CHAT_TURN_CAP_LANDING_GRACE) {
         throw new Error("chat_turn_limit_exceeded");
       }
-      const transcript = [...ctx.transcript];
+      const landing = ctx.state.turnCount >= turnCap;
+      if (landing) {
+        logger.warn(
+          {
+            event: "chat_turn_cap_landing",
+            runId: ctx.runId,
+            threadId: state.threadId,
+            tier: state.tier,
+            turnCount: state.turnCount,
+            turnCap,
+          },
+          "Chat turn reached its tool-loop cap; landing with a tool-less final turn",
+        );
+      }
+      // The note enters the durable transcript exactly once, on the first
+      // landing turn; a guard regeneration continues from a transcript that
+      // already carries it.
+      const transcript =
+        landing && ctx.state.turnCount === turnCap
+          ? appendChatTurnCapLandingNote(ctx.transcript)
+          : [...ctx.transcript];
 
       // Signal "started" before any pre-stream work (transcript hydration fetches
       // every image's bytes from storage, which is slow on image-heavy threads).
@@ -374,7 +403,39 @@ const chatTurnStep: Step<ChatRunState> = {
         state.artifactDesignMedium = artifactContext.designMedium;
       }
       const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
-      await tools.preload(state, hydratedTranscript);
+      // First model step of the run: inherit the tools the thread's previous
+      // turn loaded before the prompt-ranked preload adds its own. Gated on the
+      // same flag the preload uses, so a step retry repeats it harmlessly. A
+      // landing turn offers no tools, so neither seeding step runs for it.
+      if (!state.preloadApplied && !landing) {
+        const carryover = await carryForwardThreadTools({
+          userId: ctx.userId,
+          threadId: state.threadId,
+          runId: ctx.runId,
+          workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
+          activeTools: state.activeTools,
+          allowedIntegrations: state.allowedIntegrations,
+          availability,
+          context: tools.context,
+        });
+        state.activeTools = carryover.activeTools;
+        // Carried names entered the surface without a model step, which is what
+        // `preloadedTools` records, so #414 accounting measures whether the
+        // carry-over paid off the same way it measures the prompt preload.
+        state.preloadedTools = [...new Set([...state.preloadedTools, ...carryover.carried])];
+        if (carryover.carried.length > 0) {
+          logger.info(
+            {
+              event: "chat_thread_tools_carried",
+              runId: ctx.runId,
+              threadId: state.threadId,
+              tools: carryover.carried,
+            },
+            "Chat turn inherited the previous turn's loaded tools",
+          );
+        }
+      }
+      if (!landing) await tools.preload(state, hydratedTranscript);
       // Budget the guide before compaction, then admit it to both transcripts
       // after the guard so it cannot replace the real user's replay boundary.
       const pendingGuidance = admitPdfDesignGuide(state);
@@ -398,7 +459,9 @@ const chatTurnStep: Step<ChatRunState> = {
       ]
         .filter((value) => value.length > 0)
         .join("\n\n");
-      const sdkTools = tools.forModel(state.activeTools);
+      // A landing turn offers no tools at all: the model must answer, and the
+      // dispatcher never sees another round from this run.
+      const sdkTools = landing ? {} : tools.forModel(state.activeTools);
       const chatRoute = route(state.tier);
       const chatModel = chatRoute.model();
 

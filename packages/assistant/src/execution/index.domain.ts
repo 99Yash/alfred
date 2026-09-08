@@ -99,7 +99,9 @@ export {
 export { buildConnectedSummaryFromAvailability } from "./connected-summary";
 export { formatRuntimeTimeGrounding, resolveRuntimeGroundingAnchor } from "./grounding";
 export {
+  activateTool,
   foldToolSurfaceState,
+  migrateRecordedToolNames,
   systemToolKernel,
   toolRuntimeForRun,
   toolSurfaceStateFields,
@@ -114,7 +116,9 @@ export {
 export { toolEventOutcome } from "./workflows/tool-event-outcome";
 export { pendingToolCallSchema } from "./workflows/pending-tool-call";
 export {
-  CHAT_TURN_CAP_MAX,
+  appendChatTurnCapLandingNote,
+  CHAT_TURN_CAP_LANDING_GRACE,
+  chatTurnCap,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
 } from "./workflows/turn-budgets";
