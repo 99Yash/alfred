@@ -167,6 +167,58 @@ export function runIsNotTerminal(status: SQLWrapper): SQL {
   return sql`${status} NOT IN (${sql.raw(statuses)})`;
 }
 
+/**
+ * Slug of the interactive chat-turn workflow. Owned here, not in the chat
+ * package, because {@link CHAT_THREAD_ACTIVE_RUN_INDEX} renders it into DDL and
+ * every thread query must spell it the same way.
+ */
+export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
+
+/** The `agent_runs` columns a chat thread's runs are identified by. */
+interface ChatThreadRunColumns {
+  userId: SQLWrapper;
+  workflowSlug: SQLWrapper;
+  metadata: SQLWrapper;
+}
+
+/**
+ * The chat-turn workflow keeps its thread id in `metadata.threadId`. This one
+ * expression is both the second key column of
+ * {@link CHAT_THREAD_ACTIVE_RUN_INDEX} and the thread half of every thread
+ * query, so the two cannot drift (the same rule `EVENT_RUN_IDENTITY_PARTS`
+ * applies to the event index).
+ */
+function chatThreadIdExpr(t: Pick<ChatThreadRunColumns, "metadata">): SQL {
+  return sql`(${t.metadata} ->> 'threadId')`;
+}
+
+/** `workflow_slug = '__chat-turn__'`, inlined so it can render into index DDL. */
+function isChatTurnRun(t: Pick<ChatThreadRunColumns, "workflowSlug">): SQL {
+  return sql`${t.workflowSlug} = ${sql.raw(`'${CHAT_TURN_WORKFLOW_SLUG}'`)}`;
+}
+
+/**
+ * WHERE for "the chat-turn runs of this user's thread", generated from the same
+ * expressions as {@link CHAT_THREAD_ACTIVE_RUN_INDEX}. Every reader of a
+ * thread's runs composes this: turn admission adds {@link runIsNotTerminal} to
+ * get exactly the index's predicate (`= value` implies the index's
+ * `IS NOT NULL`); the tool carry-over reads every run, terminal or not, and
+ * walks `agent_runs_workflow_history_idx` for the order.
+ */
+export function chatThreadRunMatch(
+  t: ChatThreadRunColumns,
+  identity: { userId: string; threadId: string },
+): SQL {
+  return sql.join(
+    [
+      sql`${t.userId} = ${identity.userId}`,
+      isChatTurnRun(t),
+      sql`${chatThreadIdExpr(t)} = ${identity.threadId}`,
+    ],
+    sql` AND `,
+  );
+}
+
 /** The dedup identity of an inbound event's run (#531). */
 export interface EventRunIdentity {
   userId: string;
@@ -450,10 +502,12 @@ export const agentRuns = pgTable(
     // typed "thread busy" response. `completed` is excluded (unlike the dedup
     // index) so the next turn is admitted once the prior run reaches any
     // terminal state.
+    // Key and predicate come from `chatThreadIdExpr` / `isChatTurnRun`, the
+    // same expressions `chatThreadRunMatch` queries with.
     uniqueIndex(CHAT_THREAD_ACTIVE_RUN_INDEX)
-      .on(t.userId, sql`(${t.metadata} ->> 'threadId')`)
+      .on(t.userId, chatThreadIdExpr(t))
       .where(
-        sql`${t.workflowSlug} = '__chat-turn__' AND (${t.metadata} ->> 'threadId') IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
+        sql`${isChatTurnRun(t)} AND ${chatThreadIdExpr(t)} IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
       ),
   ],
 );

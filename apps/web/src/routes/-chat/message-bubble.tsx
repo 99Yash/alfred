@@ -80,11 +80,6 @@ const FAILURE_PRESENTATION = {
     message: "This conversation got too long for me to continue. Start a new chat to keep going.",
     retry: "none",
   },
-  step_limit: {
-    message:
-      "I ran out of steps before I could finish this reply. Try again, or ask me to continue.",
-    retry: "same",
-  },
   generic: { message: "Something interrupted this reply.", retry: "same" },
 } satisfies Record<
   ChatErrorKind,

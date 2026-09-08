@@ -1469,34 +1469,29 @@ export const readChatHistoryInput = z
     path: ["kind"],
   });
 
+/** A resolved sender email as `system.remember` accepts it, in both its single and batch forms. */
+const rememberSenderEmail = z.string().trim().toLowerCase().max(320);
+const rememberSenderLabel = z
+  .string()
+  .trim()
+  .max(200)
+  .nullish()
+  .describe("Human display label for the sender, if known.");
+
 export const rememberInput = z
   .object({
     kind: z
       .literal("sender_suppression")
       .describe("Persist a resolved sender-level standing instruction."),
-    senderEmail: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .max(320)
+    senderEmail: rememberSenderEmail
       .optional()
       .describe(
         "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
       ),
-    senderLabel: z
-      .string()
-      .trim()
-      .max(200)
-      .nullish()
-      .describe("Human display label for the sender, if known."),
+    senderLabel: rememberSenderLabel,
     senders: z
       .array(
-        z
-          .object({
-            senderEmail: z.string().trim().toLowerCase().max(320),
-            senderLabel: z.string().trim().max(200).nullish(),
-          })
-          .strict(),
+        z.object({ senderEmail: rememberSenderEmail, senderLabel: rememberSenderLabel }).strict(),
       )
       .min(1)
       .max(50)

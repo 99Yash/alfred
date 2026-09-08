@@ -129,7 +129,8 @@ function isRegisteredToolName(name: string): name is ToolName {
   return isToolName(name) && restoreToolSurface({ kind: "exact", names: [name] })[0] === name;
 }
 
-function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
+/** The one spelling of a tool-name set: deduplicated and sorted, so two surfaces compare by value. */
+export function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
   return [...new Set(toolNames)].sort();
 }
 
