@@ -102,7 +102,14 @@ export function isParkedAgentStepStatus(status: string): boolean {
   return parsed.success && AGENT_STEP_STATUS_KIND[parsed.data] === "parked_progress";
 }
 
-export const approvalKindSchema = z.enum(["step", "action_staging"]);
+/**
+ * What a `hil` wake is waiting on. `step` is a workflow step gate (ADR-0017),
+ * `action_staging` is a gated tool call (ADR-0034), and `question` is a
+ * `system.ask_user` call that parks the chat turn until the user answers
+ * (ADR-0099). A question rides the same `action_stagings` row and decision
+ * route as a write approval; the kind only selects the card and the copy.
+ */
+export const approvalKindSchema = z.enum(["step", "action_staging", "question"]);
 export type ApprovalKind = z.infer<typeof approvalKindSchema>;
 
 export const wakeConditionSchema = z.discriminatedUnion("kind", [

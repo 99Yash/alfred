@@ -48,6 +48,7 @@ export const INTEGRATIONS = {
       "append_artifact_page",
       "append_artifact_section",
       "update_artifact",
+      "ask_user",
     ],
   },
   // Not loadable: not an OAuth-connectable provider with a passthrough surface,

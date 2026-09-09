@@ -374,6 +374,11 @@ export const TOOL_LABELS = {
     done: "Updated an artifact",
     title: "update an artifact",
   },
+  "system.ask_user": {
+    running: "Waiting for your answer",
+    done: "Got your answer",
+    title: "ask you a question",
+  },
 
   "mcp.call": {
     running: "Calling a connected tool",
@@ -669,6 +674,7 @@ export const TOOL_CATEGORIES = {
   "system.append_artifact_page": "action",
   "system.append_artifact_section": "action",
   "system.update_artifact": "action",
+  "system.ask_user": "system",
 
   "mcp.call": "action",
   "mcp.list_tools": "system",

@@ -12,6 +12,7 @@ import {
 } from "@alfred/assistant/execution";
 import { cancelRunInTx } from "@alfred/assistant/execution/service";
 import {
+  approvalKindForTool,
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
   scheduleApprovalExpiryJob,
@@ -157,7 +158,10 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               match: {
                 kind: "hil",
                 approvalId: params.stagingId,
-                approvalKind: "action_staging",
+                // Derived from the registered tool, as the dispatcher derived
+                // the wake (ADR-0099); a hand-spelled kind here would answer
+                // `wake_mismatch` for a parked question.
+                approvalKind: approvalKindForTool(row.toolName),
               },
             });
             const conflict = signalOutcomeConflict(signalOutcome);
@@ -206,7 +210,10 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               match: {
                 kind: "hil",
                 approvalId: params.stagingId,
-                approvalKind: "action_staging",
+                // Derived from the registered tool, as the dispatcher derived
+                // the wake (ADR-0099); a hand-spelled kind here would answer
+                // `wake_mismatch` for a parked question.
+                approvalKind: approvalKindForTool(row.toolName),
               },
             });
             const conflict = signalOutcomeConflict(signalOutcome);

@@ -1835,6 +1835,140 @@ export const updateArtifactInput = coerceJsonArrayFields(
   ),
 );
 
+/** One option the user can pick for a `system.ask_user` question. */
+const askUserOptionSchema = z
+  .object({
+    label: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .describe("Short option text, one to five words. The answer carries this exact label."),
+    description: z
+      .string()
+      .trim()
+      .max(400)
+      .describe("What choosing this option means or implies for the task."),
+  })
+  .strict();
+
+/** One question inside a `system.ask_user` call. */
+export const askUserQuestionSchema = z
+  .object({
+    question: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_000)
+      .describe("The complete question, phrased to the user, ending with a question mark."),
+    header: z
+      .string()
+      .trim()
+      .min(1)
+      .max(24)
+      .describe(
+        "Very short chip label for the question, at most 24 characters, e.g. 'Recipients'.",
+      ),
+    options: z
+      .array(askUserOptionSchema)
+      .min(2)
+      .max(6)
+      .describe(
+        "Two to six distinct choices. The card always adds a free-text answer, so never add an 'Other' option.",
+      ),
+    multiSelect: z
+      .boolean()
+      .default(false)
+      .describe("True when the user may pick several options at once."),
+  })
+  .strict();
+export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
+
+/**
+ * The user's answer to one question, in question order. `selectedOptions`
+ * carries option labels; `customAnswer` is the free-text answer, or null.
+ */
+export const askUserAnswerSchema = z
+  .object({
+    selectedOptions: z.array(z.string().trim().min(1).max(120)).max(6),
+    customAnswer: z.string().trim().max(4_000).nullable(),
+  })
+  .strict();
+export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>;
+
+/**
+ * `system.ask_user` (ADR-0099). The model fills `context` and `questions`; the
+ * chat turn parks on a `question` approval. The decision route fills `answers`
+ * into the approved row's decided input, so the dispatcher's ordinary
+ * "re-validate the decided input against the tool schema" path carries the
+ * answer back and the tool's `execute` returns it. The model never sends
+ * `answers`; the dispatcher refuses a fresh call that does.
+ */
+export const askUserInput = coerceJsonArrayFields(
+  ["questions", "answers"],
+  z
+    .object({
+      context: z
+        .string()
+        .trim()
+        .max(4_000)
+        .optional()
+        .describe(
+          "Optional short markdown paragraph that frames why you ask, shown above the questions.",
+        ),
+      questions: z
+        .array(askUserQuestionSchema)
+        .min(1)
+        .max(4)
+        .describe(
+          "One to four questions the user answers before the turn continues. Ask everything you need in ONE call.",
+        ),
+      answers: z
+        .array(askUserAnswerSchema)
+        .optional()
+        .describe(
+          "Filled by the user, never by the model. One entry per question, in the same order.",
+        ),
+    })
+    .strict()
+    .refine((v) => v.answers === undefined || v.answers.length === v.questions.length, {
+      message: "answers must carry exactly one entry per question",
+      path: ["answers"],
+    }),
+);
+export type AskUserInput = z.infer<typeof askUserInput>;
+
+/**
+ * Why the user's answers did not arrive. `dismissed` and `expired` come from
+ * the dispatcher, which synthesizes the result from the parked row's status
+ * without running the tool. `no_answers` comes from the tool itself when the
+ * row was approved with no edit, so the decided input carries no `answers`.
+ */
+export const askUserUnansweredReasonSchema = z.enum(["dismissed", "expired", "no_answers"]);
+export type AskUserUnansweredReason = z.infer<typeof askUserUnansweredReasonSchema>;
+
+/**
+ * What the model sees after a `system.ask_user` park settles. One shape for
+ * the tool's own `execute` and for the dispatcher's synthesized results, so the
+ * two cannot drift. The dispatcher adds its envelope fields (`toolName`,
+ * `retryPolicy`) on top of the `unanswered` variant.
+ */
+export const askUserResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("answered"),
+    questions: z.array(askUserQuestionSchema),
+    answers: z.array(askUserAnswerSchema),
+  }),
+  z.object({
+    status: z.literal("unanswered"),
+    reason: askUserUnansweredReasonSchema,
+    questions: z.array(askUserQuestionSchema),
+    message: z.string(),
+  }),
+]);
+export type AskUserResult = z.infer<typeof askUserResultSchema>;
+export type AskUserUnansweredResult = Extract<AskUserResult, { status: "unanswered" }>;
+
 /**
  * Every tool whose input shape lives here, keyed by `ToolName`. The dispatcher
  * resolves the schema from the owning module (which re-exports these); this
@@ -1906,6 +2040,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.append_artifact_page": appendArtifactPageInput,
   "system.append_artifact_section": appendArtifactSectionInput,
   "system.update_artifact": updateArtifactInput,
+  "system.ask_user": askUserInput,
   "mcp.call": mcpCallInput,
   "mcp.list_tools": mcpListToolsInput,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
@@ -1918,4 +2053,5 @@ export const TOOL_INPUT_SCHEMAS = {
  */
 export const TOOL_OUTPUT_SCHEMAS = {
   "gmail.search": gmailSearchResultSchema,
+  "system.ask_user": askUserResultSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;

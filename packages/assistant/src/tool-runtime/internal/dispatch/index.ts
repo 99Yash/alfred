@@ -33,6 +33,7 @@
  */
 
 import type {
+  AskUserUnansweredReason,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   PolicyMode,
@@ -74,9 +75,12 @@ import {
   type ToolSpanInput,
 } from "@alfred/ai";
 import { stagingStore, type StagingCommit, type StagingRow } from "./staging-store";
+import type { RejectedToolResult, UnansweredQuestionsToolResult } from "../adapter";
 import {
+  approvalKindForTool,
   callerLabel,
   joinToolInput,
+  questionToolInput,
   registerToolCallRoundAdapter,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
@@ -499,10 +503,11 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     };
   }
   // Routing declared by the registration (`RegisteredTool.staging`), not
-  // re-derived from the tool name here. Both non-default arms intercept BEFORE
-  // the staging/execute path below; everything else falls through to it. The
-  // availability and active-surface checks above already authorized the call, so
-  // the bypass is of the approval gate only.
+  // re-derived from the tool name here. `join` and `fast_path` intercept BEFORE
+  // the staging/execute path below; `question` refuses one input shape and then
+  // takes the staged path with a forced approval; everything else falls through
+  // to it. The availability and active-surface checks above already authorized
+  // the call, so the bypass is of the approval gate only.
   switch (tool.staging) {
     case "join":
       // ADR-0073. Park the parent on the child's completion signal instead of
@@ -511,6 +516,32 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       return await resolveAwaitSubAgentWithSpan(tool, input, ctx);
     case "fast_path":
       return executeFastPath(tool, input, ctx);
+    case "question": {
+      // ADR-0099. `answers` is the user's half of the exchange: the decision
+      // route writes it into the decided input and the `approved` case below
+      // re-parses it. A fresh call that already carries answers is the model
+      // answering its own question, so refuse it before any row is written.
+      // PARSED with the question contract the registry proved at boot, not cast.
+      const question = questionToolInput.parse(input);
+      if (question.answers !== undefined) {
+        const message =
+          `Tool '${toolName}' input must not include 'answers'. The user fills the answers on ` +
+          "the question card; send only 'context' and 'questions'.";
+        recordRejection({
+          dispatch: args,
+          outcome: "invalid_input",
+          reason: message,
+          toolName,
+          tool,
+          input,
+        });
+        return {
+          kind: "invalid_input",
+          result: { status: "invalid_input", toolName, message },
+        };
+      }
+      break;
+    }
     case "staged":
       break;
     default: {
@@ -524,6 +555,11 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   }
 
   const proposedInputHash = hashToolInput(toolName, input);
+  // ADR-0099. The question arm parks on its own approval kind and never reads
+  // policy: `resolvePolicyMode` would answer `autonomy` for a `system` tool, and
+  // a question the user never sees is not a question. Every `isQuestion` branch
+  // below is one place the staged path and the question arm differ.
+  const isQuestion = tool.staging === "question";
 
   // #559b: recheck the cancellation fence before any staging write. The step
   // started under `args.fence`; `cancelRunInTx` bumps the run's generation
@@ -572,11 +608,15 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // tool + input hash means the user has already said no to this exact
   // proposal; synthesize the same rejection without writing a new row
   // or firing a new notification. Limited to the same run because
-  // ADR-0034 scopes the partial index that way.
+  // ADR-0034 scopes the partial index that way. A question set the user
+  // dismissed OR let expire is likewise not asked twice (ADR-0099): an
+  // expired write is a write the model may re-propose, but an expired question
+  // re-asked on the next step would park the turn on the same silence.
   const priorReject = await stagingStore().findPriorRejection({
     runId: args.runId,
     toolName,
     proposedInputHash,
+    ...(isQuestion ? { statuses: ["rejected", "expired"] as const } : {}),
   });
 
   if (priorReject) {
@@ -588,11 +628,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     return {
       kind: "rejected",
       stagingId: null,
-      result: synthesizeRejection({
-        toolName,
-        proposedInput: input,
-        reason,
-      }),
+      result: isQuestion
+        ? synthesizeUnansweredQuestions({
+            toolName,
+            input,
+            reason: priorReject.status === "expired" ? "expired" : "dismissed",
+          })
+        : synthesizeRejection({
+            toolName,
+            proposedInput: input,
+            reason,
+          }),
     };
   }
 
@@ -623,7 +669,8 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // effective tier drives both the approval decision and the persisted row.
   const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
-  const requiresApproval = toolRequiresApproval(policyMode, riskTier);
+  // A question ALWAYS parks (ADR-0099); the policy gate decides everything else.
+  const requiresApproval = isQuestion || toolRequiresApproval(policyMode, riskTier);
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
     : null;
@@ -681,7 +728,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     );
   }
   let promotedPendingApproval = false;
-  const riskFloorRequiresApproval = toolRequiresApproval("autonomy", riskTier);
+  const riskFloorRequiresApproval = isQuestion || toolRequiresApproval("autonomy", riskTier);
   if (
     !insertedNew &&
     row.status === "pending" &&
@@ -744,14 +791,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
             delayMs: expiryDelayMs,
           });
         }
+        // The kind is derived from the registration, and the decision route and
+        // expiry worker derive it the same way, so `signalRunInTx` sees one
+        // spelling on both sides (ADR-0099).
         return {
           kind: "staged",
           stagingId: row.id,
           wake: {
             kind: "hil",
             approvalId: row.id,
-            approvalKind: "action_staging",
-            prompt: `Approve ${toolName}`,
+            approvalKind: approvalKindForTool(toolName),
+            prompt: isQuestion ? "Answer Alfred's questions" : `Approve ${toolName}`,
           },
         };
       }
@@ -825,14 +875,23 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
         tool,
         input: row.proposedInput,
       });
+      // A dismissed question is not a refused action (ADR-0099): the model
+      // learns the user did not answer and must continue on a stated
+      // assumption, not that a write was vetoed.
       return {
         kind: "rejected",
         stagingId: row.id,
-        result: synthesizeRejection({
-          toolName,
-          proposedInput: row.proposedInput,
-          reason,
-        }),
+        result: isQuestion
+          ? synthesizeUnansweredQuestions({
+              toolName,
+              input: row.proposedInput,
+              reason: "dismissed",
+            })
+          : synthesizeRejection({
+              toolName,
+              proposedInput: row.proposedInput,
+              reason,
+            }),
       };
     }
 
@@ -848,11 +907,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       return {
         kind: "rejected",
         stagingId: row.id,
-        result: synthesizeRejection({
-          toolName,
-          proposedInput: row.proposedInput,
-          reason: "auto-expired",
-        }),
+        result: isQuestion
+          ? synthesizeUnansweredQuestions({
+              toolName,
+              input: row.proposedInput,
+              reason: "expired",
+            })
+          : synthesizeRejection({
+              toolName,
+              proposedInput: row.proposedInput,
+              reason: "auto-expired",
+            }),
       };
 
     case "executed":
@@ -1008,6 +1073,10 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
   const policyMode = await resolvePolicyMode(userId, toolName);
   const tool = getTool(toolName);
   if (!tool) return false;
+  // A question parks on its own approval kind without reading policy
+  // (ADR-0099), so it must never share a batch with free calls: the turn parks
+  // on a single `approvalId`, and a sibling question would 409 on resume.
+  if (tool.staging === "question") return true;
   // The hint has no validated input or execution context. Keep any dynamic
   // resolver in the serial approval lane; the live dispatch remains the source
   // of truth and may still execute a lower-tier call without parking.
@@ -1528,14 +1597,46 @@ function synthesizeCancelledByFence(): CancellationEnvelope {
   });
 }
 
-function synthesizeRejection(
-  args: SynthesizeRejectionArgs,
-): Extract<DispatchResult, { kind: "rejected" }>["result"] {
+function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult {
   return {
     status: "rejected_by_user",
     toolName: args.toolName,
     proposedInput: args.proposedInput,
     reason: args.reason,
+    retryPolicy: "do_not_retry_identical",
+  };
+}
+
+/**
+ * The tool result a `staging: "question"` call yields when the user dismissed
+ * the card or let it expire (ADR-0099). Carries the questions back so the model
+ * can name the assumption it proceeds on, and tells it in plain words not to
+ * park the turn on the same set again — the retry-suppression check above
+ * enforces that for byte-identical input; this is the instruction that keeps a
+ * reworded repeat from happening either. `input` is a stored or validated
+ * question-tool input; the question contract parse is the same one the routing
+ * switch and the registry's boot proof use.
+ */
+function synthesizeUnansweredQuestions(args: {
+  toolName: ToolName;
+  input: unknown;
+  reason: Exclude<AskUserUnansweredReason, "no_answers">;
+}): UnansweredQuestionsToolResult {
+  const parsed = questionToolInput.safeParse(args.input);
+  const questions = parsed.success ? parsed.data.questions : [];
+  const what =
+    args.reason === "expired"
+      ? "The user did not answer these questions before the card expired."
+      : "The user dismissed these questions without answering.";
+  return {
+    status: "unanswered",
+    toolName: args.toolName,
+    reason: args.reason,
+    questions,
+    message:
+      `${what} Do not ask them again, in these words or in others. Continue the task on a ` +
+      "reasonable assumption, state that assumption to the user in one sentence, and invite a " +
+      "correction.",
     retryPolicy: "do_not_retry_identical",
   };
 }

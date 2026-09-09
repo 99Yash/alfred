@@ -255,7 +255,7 @@ export function runStagingStoreContract(
           toolName: "system.load_tool",
           proposedInputHash: hash,
         }),
-        { reason: "nope" },
+        { reason: "nope", status: "rejected" },
       );
       assert.equal(
         await h.store.findPriorRejection({
@@ -292,7 +292,7 @@ export function runStagingStoreContract(
           toolName: "system.load_tool",
           proposedInputHash: hash,
         }),
-        { reason: "newer" },
+        { reason: "newer", status: "rejected" },
       );
     });
 
@@ -312,7 +312,7 @@ export function runStagingStoreContract(
           toolName: "system.load_tool",
           proposedInputHash: values.proposedInputHash,
         }),
-        { reason: null },
+        { reason: null, status: "rejected" },
       );
     });
 

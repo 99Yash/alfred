@@ -28,6 +28,7 @@ import { startApprovalWaitSpan } from "./runtime-spans";
 import {
   APPROVAL_EXPIRY_QUEUE_NAME,
   approvalExpiryJobDataSchema,
+  approvalKindForTool,
   removeApprovalNotificationJob,
   type ApprovalExpiryJobData,
 } from "@alfred/assistant/tool-runtime";
@@ -138,7 +139,13 @@ export async function expireStaging(args: {
 
     const signalOutcome = await signalRunInTx(tx, {
       runId: row.runId,
-      match: { kind: "hil", approvalId: stagingId, approvalKind: "action_staging" },
+      // The kind follows the registered tool (ADR-0099): a question row parks
+      // on `question`, and a hand-spelled `action_staging` would never wake it.
+      match: {
+        kind: "hil",
+        approvalId: stagingId,
+        approvalKind: approvalKindForTool(row.toolName),
+      },
     });
     // Only expire when the run is genuinely parked on this approval. A
     // terminal/mismatched run shouldn't leave a pending gated row, but if

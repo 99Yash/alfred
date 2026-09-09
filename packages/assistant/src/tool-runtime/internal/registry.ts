@@ -44,6 +44,7 @@ import type { Integrations } from "@alfred/integrations";
 import type { SearchArgs, SearchHit } from "@alfred/corpus";
 import { z } from "zod";
 import { joinToolInput } from "../join-contract";
+import { QUESTION_TOOL_PROBE_INPUT, questionToolInput } from "../question-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
 export interface ToolDiscoveryMetadata {
@@ -109,8 +110,21 @@ interface ToolAvailabilityMetadata {
  *   resolves the child named by {@link joinToolInput}, so a tool declaring it must
  *   accept that input. `registerTool` proves both that and single occupancy at
  *   boot, so the arm never has to trust the declaration.
+ * - `"question"` — ADR-0099. The call is a question for the user, and the
+ *   dispatcher parks the chat turn on a `question` approval the way a gated
+ *   write parks on `action_staging`: an `action_stagings` row, the same decision
+ *   route, the same expiry. The arm exists because `resolvePolicyMode` forces
+ *   every `system.*` tool to autonomy, so the only risk tier that could gate a
+ *   `system` tool is the `high` floor, and `high` means an irreversible action,
+ *   which a question is not. The
+ *   dispatcher forces `requiresApproval` for this arm without reading policy,
+ *   refuses a fresh call that already carries `answers`, and turns a rejected or
+ *   expired row into an `unanswered` result instead of a rejection. Like `join`
+ *   it is a PROTOCOL: the tool must accept {@link questionToolInput}, be a
+ *   `system` tool, and be visible only to the chat boss on a live thread.
+ *   `registerTool` proves all of that and single occupancy at boot.
  */
-type ToolStagingPolicy = "staged" | "fast_path" | "join";
+type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question";
 
 // The join contract (`joinToolInput`, imported above from tool-runtime) is the
 // shape every `staging: "join"` tool must accept. `registerTool` proves at boot
@@ -624,6 +638,52 @@ export function registerTool(tool: RegisteredTool): void {
       throw new Error(
         `[tools] '${tool.name}' declares staging='join' but '${existingJoin.name}' already does — ` +
           "the join arm has one implementation (ADR-0073 sub-agent join), so a second declarer " +
+          "would silently route into it",
+      );
+    }
+  }
+  // `question` is a protocol too (ADR-0099): the dispatcher reads `questions`
+  // and `answers` off the call (see `questionToolInput`), forces the approval
+  // without a policy read, and echoes the questions back on dismissal. Prove the
+  // schema accepts a question WITH an answer, because the decision route writes
+  // `answers` into the decided input and the resume path re-parses it with this
+  // same schema; a schema that refused the answer would fail at first resume.
+  if (tool.staging === "question") {
+    const probe = tool.inputSchema.safeParse(QUESTION_TOOL_PROBE_INPUT);
+    if (!probe.success || !questionToolInput.safeParse(probe.data).success) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='question' but its inputSchema does not accept ` +
+          "`{ questions, answers }` — the dispatcher's question arm reads both fields off the call",
+      );
+    }
+    // The arm bypasses `resolvePolicyMode` and forces the approval itself. That
+    // is only safe when the policy would have said `autonomy` anyway, which is
+    // the `system` rule; on any other integration the arm would silently replace
+    // the user's policy with a hard-coded one.
+    if (tool.integration !== "system") {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='question' on integration='${tool.integration}' — ` +
+          "the question arm forces its own approval and is only defined for 'system' tools",
+      );
+    }
+    // A question needs a person watching a chat thread. A background workflow
+    // has no browser, and a sub-agent must return a clarification request to
+    // its parent instead of parking the parent's turn from below.
+    const callers = tool.availability?.callers ?? [];
+    const bossOnly = callers.length === 1 && callers[0] === "boss";
+    if (!bossOnly || tool.availability?.requiresLiveChat !== true) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='question' but is not limited to the chat boss on a ` +
+          "live thread — declare availability: { callers: ['boss'], requiresLiveChat: true }",
+      );
+    }
+    const existingQuestion = [...REGISTRY.values()].find(
+      (other) => other.staging === "question" && other.name !== tool.name,
+    );
+    if (existingQuestion) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='question' but '${existingQuestion.name}' already does — ` +
+          "the question arm has one implementation (ADR-0099 ask the user), so a second declarer " +
           "would silently route into it",
       );
     }

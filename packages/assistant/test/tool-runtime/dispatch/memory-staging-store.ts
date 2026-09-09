@@ -22,6 +22,8 @@ import {
   attemptKeyFor,
   effectKeyFor,
   outcomeForInsert,
+  priorRejectionStatusSchema,
+  priorRejectionStatuses,
   type StagingInsertValues,
   type StagingRow,
   type StagingStore,
@@ -135,16 +137,21 @@ export function memoryStagingStore(): MemoryStagingStore {
       // `DESC` puts them FIRST; the gate only ever writes `decided_at` with
       // the rejection, so a rejected row without one does not occur. The
       // contract suite pins the ordering that does.)
+      const statuses = priorRejectionStatuses(query.statuses);
       const candidates = [...byId.values()].filter(
         (row) =>
           row.runId === query.runId &&
           row.toolName === query.toolName &&
           row.proposedInputHash === query.proposedInputHash &&
-          row.status === "rejected",
+          statuses.some((status) => status === row.status),
       );
       if (candidates.length === 0) return null;
       candidates.sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
-      return { reason: candidates[0]!.rejectReason };
+      const hit = candidates[0]!;
+      return {
+        reason: hit.rejectReason,
+        status: priorRejectionStatusSchema.parse(hit.status),
+      };
     },
 
     async findUnresolvedUnknown(query) {
