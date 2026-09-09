@@ -4,6 +4,7 @@ import {
   AUTHORABLE_EVENT_SOURCES,
   authorableEventTriggerIssue,
   EVENT_SOURCES,
+  rawEventKindSchema,
 } from "./event-triggers";
 import { canonicalJson, toolNameSchema } from "./tools";
 import { isRecord } from "./guards";
@@ -144,7 +145,7 @@ export const eventRunTriggerIdentitySchema = z.object({
   source: z.string().optional(),
   type: z.string().optional(),
   /** The provider kind a raw event (`type: "raw"`) fired under (#990). */
-  rawKind: z.string().optional(),
+  rawKind: rawEventKindSchema.optional(),
   eventId: z.string(),
 });
 export const manualRunTriggerIdentitySchema = z.object({ kind: z.literal("manual") });
@@ -180,7 +181,7 @@ export const eventWorkflowTriggerSchema = z.object({
    * `type` is the raw marker; the matcher compares it with the raw receipt's
    * `raw_kind`. The revision service enforces the pairing.
    */
-  rawKind: z.string().min(1).max(200).optional(),
+  rawKind: rawEventKindSchema.optional(),
   /** Durable provider account identity for user-authored external events. */
   accountRef: z.string().min(1).max(200).optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
@@ -441,51 +442,50 @@ export const workflowRevisionDefinitionSchema = z.object({
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
 
 /**
- * The trigger subset a user may author in workflows v1 (#556, #990).
- *
- * One `event` member carries both authorable shapes, because a zod
- * discriminated union admits one object per `kind` value; the `superRefine`
- * applies `authorableEventTriggerIssue`, the same rule the editor mutator
- * schema in `@alfred/sync` applies, so chat and editor authoring agree.
+ * The event trigger a user may author (#990): one object for the editor
+ * mutator schema in `@alfred/sync` and the chat authoring schema below, so
+ * the two surfaces cannot drift. The check applies
+ * {@link authorableEventTriggerIssue}: Gmail names one of its declared types;
+ * GitHub and Sentry name `type: "raw"` plus the `rawKind` the integration
+ * delivered. Whether the source has seen that kind is a database fact the
+ * server's revision service checks.
  */
-export const authorableWorkflowTriggerSchema = z
-  .discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal("cron"),
-      schedule: z
-        .string()
-        .trim()
-        .refine(
-          (value) => value.split(/\s+/).length === 5,
-          "Expected a five-field cron expression",
-        ),
-      timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
-    }),
-    z.object({
-      kind: z.literal("event"),
-      source: z.enum(AUTHORABLE_EVENT_SOURCES),
-      type: z
-        .string()
-        .min(1)
-        .describe("gmail: 'message_received'. github/sentry: 'raw' plus rawKind."),
-      rawKind: z
-        .string()
-        .min(1)
-        .max(200)
-        .optional()
-        .describe(
-          "A kind from the integration's unmapped events (e.g. 'comment.created'). Required with type 'raw'.",
-        ),
-      /** Canonical provider account id after server resolution. */
-      accountRef: z.string().min(1).max(200).optional(),
-    }),
-    manualWorkflowTriggerSchema,
-  ])
+export const authorableEventTriggerSchema = z
+  .object({
+    kind: z.literal("event"),
+    source: z.enum(AUTHORABLE_EVENT_SOURCES),
+    type: z
+      .string()
+      .min(1)
+      .describe("gmail: 'message_received'. github/sentry: 'raw' plus rawKind."),
+    rawKind: rawEventKindSchema
+      .optional()
+      .describe(
+        "A kind from the integration's unmapped events (e.g. 'comment.created'). Required with type 'raw'.",
+      ),
+    /** Canonical provider account id after server resolution. */
+    accountRef: z.string().min(1).max(200).optional(),
+  })
   .superRefine((trigger, ctx) => {
-    if (trigger.kind !== "event") return;
     const issue = authorableEventTriggerIssue(trigger);
     if (issue) ctx.addIssue({ code: "custom", message: issue.message, path: [issue.path] });
   });
+
+/**
+ * The trigger subset a user may author in workflows v1 (#556, #990).
+ */
+export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    schedule: z
+      .string()
+      .trim()
+      .refine((value) => value.split(/\s+/).length === 5, "Expected a five-field cron expression"),
+    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
+  }),
+  authorableEventTriggerSchema,
+  manualWorkflowTriggerSchema,
+]);
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
 
 /** Model-facing proposal accepted by `system.author_workflow`. */

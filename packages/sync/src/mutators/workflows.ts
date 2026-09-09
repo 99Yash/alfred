@@ -1,6 +1,5 @@
 import {
-  AUTHORABLE_EVENT_SOURCES,
-  authorableEventTriggerIssue,
+  authorableEventTriggerSchema,
   isIanaTimezone,
   LOADABLE_INTEGRATION_SLUGS,
 } from "@alfred/contracts";
@@ -93,11 +92,12 @@ export function isLikelyValidWorkflowCron(schedule: string): boolean {
  *     evaluate filters, so accepting one would silently lie. The
  *     empty-filter-only contract is enforced here by simply not modelling
  *     the field.
- *   - an event trigger obeys `authorableEventTriggerIssue` from
- *     `@alfred/contracts`: Gmail names one of its declared types; GitHub and
- *     Sentry name `type: "raw"` plus the `rawKind` the integration delivered
- *     (#990). Whether the source has seen that kind is a database fact the
- *     server's revision service checks.
+ *   - the event member is `authorableEventTriggerSchema` from
+ *     `@alfred/contracts`, the same object the chat authoring schema embeds,
+ *     so the editor and chat obey one rule (#990). Whether an inbound source
+ *     has seen a raw kind is a database fact the server's revision service
+ *     checks; the client accepts any kind, so an unseen kind shows in the
+ *     optimistic put until the next pull reverts it.
  */
 export const authorableWorkflowTriggerSchema = z
   .discriminatedUnion("kind", [
@@ -106,36 +106,24 @@ export const authorableWorkflowTriggerSchema = z
       schedule: z.string().min(1).max(120),
       timezone: z.string().max(64).optional(),
     }),
-    z.object({
-      kind: z.literal("event"),
-      source: z.enum(AUTHORABLE_EVENT_SOURCES),
-      type: z.string().min(1),
-      rawKind: z.string().min(1).max(200).optional(),
-    }),
+    authorableEventTriggerSchema,
     z.object({ kind: z.literal("manual") }),
   ])
   .superRefine((trigger, ctx) => {
-    if (trigger.kind === "cron") {
-      if (!isLikelyValidWorkflowCron(trigger.schedule)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Use a valid 5-field cron expression",
-          path: ["schedule"],
-        });
-      }
-      if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `'${trigger.timezone}' is not a valid IANA timezone`,
-          path: ["timezone"],
-        });
-      }
-      return;
+    if (trigger.kind !== "cron") return;
+    if (!isLikelyValidWorkflowCron(trigger.schedule)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Use a valid 5-field cron expression",
+        path: ["schedule"],
+      });
     }
-    if (trigger.kind !== "event") return;
-    const issue = authorableEventTriggerIssue(trigger);
-    if (issue) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue.message, path: [issue.path] });
+    if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `'${trigger.timezone}' is not a valid IANA timezone`,
+        path: ["timezone"],
+      });
     }
   });
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;

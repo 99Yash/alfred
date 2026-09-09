@@ -4,7 +4,7 @@
  * scope and these stay trivially testable.
  */
 
-import { humanizeSlug, integrationDisplayName } from "@alfred/contracts";
+import { eventTriggerPhrase, humanizeSlug } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
@@ -27,11 +27,15 @@ export function triggerLabel(trigger: {
     case "on_signal":
       return "Signal";
     case "event": {
-      const source = trigger.source ? integrationDisplayName(trigger.source) : "an event";
-      // A raw event's kind is the provider's own name, shown as it arrived (#990).
-      if (trigger.rawKind) return `Triggered by ${source} ${trigger.rawKind}`;
-      const noun = trigger.type ? humanizeSlug(trigger.type.replace(/_received$/, "")) : "";
-      return noun ? `Triggered by ${source} ${noun.toLowerCase()}` : `Triggered by ${source}`;
+      // Historical runs written before ADR-0047 carry no source.
+      const phrase = trigger.source
+        ? eventTriggerPhrase({
+            source: trigger.source,
+            type: trigger.type,
+            rawKind: trigger.rawKind,
+          })
+        : "an event";
+      return `Triggered by ${phrase}`;
     }
     default:
       return humanizeSlug(trigger.kind);
