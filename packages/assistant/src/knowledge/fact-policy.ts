@@ -211,19 +211,20 @@ export function isSingleValuedKey(canonicalKey: string): boolean {
 // authorship ("is this document authored by the user?")
 // ---------------------------------------------------------------------------
 
-export type AuthorshipSource =
-  | "gmail"
-  | "slack"
-  | "github"
-  | "gcal"
-  | "notion"
-  | "imessage"
-  | "upload"
-  | "unknown";
+/**
+ * The document sources authorship can speak about. Only a source a live writer
+ * emits is listed (#987): `DOCUMENT_SOURCES` is `gmail`, `gmail_attachment`,
+ * `github`, and `sentry`, so `slack` / `gcal` / `notion` / `imessage` could
+ * never reach this function and their branches were unreachable code. A
+ * mailbox attachment and a Sentry event carry no author identity, so both map
+ * to `unknown` — the conservative reject. `unknown` is also the sentinel the
+ * cleanup backfill passes for a missing document.
+ */
+export type AuthorshipSource = "gmail" | "github" | "unknown";
 
 export type AuthorshipIdentity =
   | { kind: "email"; value: string; accountId?: string }
-  | { kind: "provider_user_id"; provider: "slack" | "github"; value: string; workspaceId?: string }
+  | { kind: "provider_user_id"; provider: "github"; value: string; workspaceId?: string }
   | { kind: "provider_login"; provider: "github"; value: string };
 
 export type AuthorshipProof =
@@ -240,12 +241,6 @@ export type AuthorshipProof =
       accountId: string | null;
       accountEmail: string;
       fromEmail: string;
-    }
-  | {
-      source: "slack";
-      method: "author_user_id" | "author_email";
-      observed: AuthorshipIdentity;
-      matchedSelf: AuthorshipIdentity;
     }
   | {
       source: "github";
@@ -279,7 +274,7 @@ export type Authorship =
  * `sender` is the already-parsed Gmail authorship observation the caller injects
  * (ADR-0089) — memory no longer parses `From:`/SENT itself. Required so the
  * compiler pins that every gmail caller supplies it; `null` for non-gmail docs
- * (github/slack read `metadata` directly) and where no Gmail metadata exists.
+ * (github reads `metadata` directly) and where no Gmail metadata exists.
  */
 export type AuthorshipDocument =
   | (Pick<Document, "source" | "metadata" | "accountId"> & {
@@ -311,30 +306,30 @@ export interface SelfIdentity {
   readonly gmailAccountEmailById?: Readonly<Record<string, string>>;
   /** Self GitHub identity, if known. */
   readonly github?: { login?: string | null; userId?: string | null };
-  /** Self Slack identity, if known (stable user-id and/or verified emails). */
-  readonly slack?: { userId?: string | null; emails?: readonly string[] };
 }
 
-function toAuthorshipSource(source: string): AuthorshipSource {
+/**
+ * Map a document source onto the authorship vocabulary. The parameter is
+ * `AuthorshipDocument["source"]`, NOT `string`, so the compiler — not a reader
+ * — decides which cases exist: a change to `DOCUMENT_SOURCES` breaks this
+ * switch instead of silently stranding a dead branch.
+ */
+function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSource {
   switch (source) {
     case "gmail":
       return "gmail";
-    case "slack":
-      return "slack";
     case "github":
       return "github";
-    case "gcal":
-    case "google_calendar":
-      return "gcal";
-    case "notion":
-      return "notion";
-    case "imessage":
-      return "imessage";
-    case "upload":
-    case "uploads":
-      return "upload";
-    default:
+    // An attachment carries the mail body's bytes, not an author; a Sentry
+    // event is machine-generated. Neither can prove user authorship.
+    case "gmail_attachment":
+    case "sentry":
+    case "unknown":
       return "unknown";
+    default: {
+      const _exhaustive: never = source;
+      return _exhaustive;
+    }
   }
 }
 
@@ -483,57 +478,12 @@ function authoredByGithub(metadata: unknown, self: SelfIdentity): Authorship {
   };
 }
 
-function authoredBySlack(metadata: unknown, self: SelfIdentity): Authorship {
-  const selfUserId = self.slack?.userId || null;
-  const selfEmails = new Set((self.slack?.emails ?? []).map((e) => e.toLowerCase()));
-  if (!selfUserId && selfEmails.size === 0) {
-    return { authoredByUser: false, source: "slack", reason: "missing_self_identity" };
-  }
-  const authorUserId = firstMetaString(metadata, ["authorUserId", "author_user_id", "userId"]);
-  const authorEmail = firstMetaString(metadata, ["authorEmail", "author_email"])?.toLowerCase();
-  if (!authorUserId && !authorEmail) {
-    return { authoredByUser: false, source: "slack", reason: "missing_author_identity" };
-  }
-  if (selfUserId && authorUserId && authorUserId === selfUserId) {
-    return {
-      authoredByUser: true,
-      source: "slack",
-      proof: {
-        source: "slack",
-        method: "author_user_id",
-        observed: { kind: "provider_user_id", provider: "slack", value: authorUserId },
-        matchedSelf: { kind: "provider_user_id", provider: "slack", value: selfUserId },
-      },
-    };
-  }
-  if (authorEmail && selfEmails.has(authorEmail)) {
-    return {
-      authoredByUser: true,
-      source: "slack",
-      proof: {
-        source: "slack",
-        method: "author_email",
-        observed: { kind: "email", value: authorEmail },
-        matchedSelf: { kind: "email", value: authorEmail },
-      },
-    };
-  }
-  return {
-    authoredByUser: false,
-    source: "slack",
-    reason: "identity_mismatch",
-    observed: authorUserId
-      ? { kind: "provider_user_id", provider: "slack", value: authorUserId }
-      : { kind: "email", value: authorEmail ?? "" },
-  };
-}
-
 /**
  * Evidence-returning authorship decision, conservative-default-`false`. Answers
  * "is this document authored by the user?", NOT "is it about the user?" (the
- * latter is LLM territory). `gcal`/`notion`/`imessage`/uploads/unknown describe
- * attendees, organizers, or third-party content — never durable user identity —
- * so they are `unsupported_source` in this slice.
+ * latter is LLM territory). A source that carries no author identity —
+ * attachments, Sentry events, and the missing-document sentinel — folds to
+ * `unknown` and rejects as `unsupported_source`.
  */
 export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Authorship {
   const source = toAuthorshipSource(doc.source);
@@ -542,12 +492,6 @@ export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Aut
       return authoredByGmail(doc.sender, doc.accountId, self);
     case "github":
       return authoredByGithub(doc.metadata, self);
-    case "slack":
-      return authoredBySlack(doc.metadata, self);
-    case "gcal":
-    case "notion":
-    case "imessage":
-    case "upload":
     case "unknown":
       return { authoredByUser: false, source, reason: "unsupported_source" };
     default: {

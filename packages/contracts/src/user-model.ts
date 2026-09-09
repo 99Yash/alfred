@@ -30,97 +30,110 @@ import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Where an observation came from. Integrations feed the graph passively;
- * `user` / `alfred_chat` are first-class high-precedence sources (D14) — a
- * chat-captured standing instruction or a `/settings` correction is an
- * observation, not a side-channel write.
- *
- * Every member has a writer in the tree (#987): `gmail` is the Gmail reducer,
- * `google_account` is the connect-time org-affiliation emitter (ADR-0080 §4a),
- * `alfred_chat` / `user` are the standing-instruction writer. A source with no
- * reducer is NOT pre-registered here — a reader would recover a shape the
- * traffic does not have. A new reducer registers its source, its rank in
- * `OBSERVATION_SOURCE_RANK`, and its kinds in `OBSERVATION_KINDS_BY_SOURCE` in
- * the same change that lands its first write (ADR-0067 P2 GitHub, P3 Calendar +
- * Directory, post-v1 enrichment).
+ * The kinds a user-authored source may emit (D14). `user` (a `/settings` edit)
+ * and `alfred_chat` (the same correction typed into a thread) share the whole
+ * set, so the two reducers point at one tuple rather than restating it.
  */
-export const OBSERVATION_SOURCES = ["gmail", "google_account", "alfred_chat", "user"] as const;
-export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
-export type ObservationSource = (typeof OBSERVATION_SOURCES)[number];
-
-/**
- * Conflict precedence for the fold (D14): rank first, then recency within a
- * rank. `user` (0) beats `alfred_chat` (1) beats first-party integrations (2)
- * beats enrichment (3) — regardless of time. Lower number wins. A projection may
- * *propose* facts from integrations, but must never overwrite a
- * user-authoritative correction. Only sources that write are listed; a new
- * first-party reducer joins at 2 and an enrichment writer at 3.
- */
-export const OBSERVATION_SOURCE_RANK = {
-  user: 0,
-  alfred_chat: 1,
-  // First-party integrations share rank 2 — recency breaks ties between them.
-  gmail: 2,
-  google_account: 2,
-} satisfies Readonly<Record<ObservationSource, number>>;
-
-/**
- * Relationship-evidence kinds (D4/D15). A provider event can produce several
- * observations, but only relationship-bearing occurrences affect
- * significance/co-occurrence — a calendar reminder edit is not another meeting.
- * Extensible: a new reducer registers its evidence kinds here first, in the
- * change that lands the reducer (see `OBSERVATION_SOURCES`).
- */
-export const OBSERVATION_KINDS = [
-  // gmail
-  "email_message",
-  // user / alfred_chat (D14)
+const USER_AUTHORED_KINDS = [
   "user_standing_instruction",
   "user_correction",
   "user_confirmation",
   "user_rejection",
   "user_profile_edit",
-  // identity affiliation — a connected account asserting the user's org domain
-  // (ADR-0080 §4a). Subject is always `{ kind: "user" }`; the SOURCE is the
-  // integration that owns the account (NOT `user`), so an explicit user
-  // correction outranks it. Emitted by integration connect/sweep, not a reducer
-  // over inbound content.
-  "user_org_affiliation",
 ] as const;
-export const observationKindSchema = z.enum(OBSERVATION_KINDS);
-export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
+
+/** One reducer's precedence and the evidence kinds it may emit. */
+interface ObservationReducerEntry {
+  /**
+   * Conflict precedence for the fold (D14): rank first, then recency within a
+   * rank. Lower number wins, regardless of time. `user` (0) beats
+   * `alfred_chat` (1) beats first-party integrations (2) beats enrichment (3).
+   * A projection may *propose* facts from an integration, but must never
+   * overwrite a user-authoritative correction.
+   */
+  readonly rank: number;
+  /**
+   * Relationship-evidence kinds (D4/D15). A provider event can produce several
+   * observations, but only relationship-bearing occurrences affect
+   * significance and co-occurrence — a calendar reminder edit is not another
+   * meeting.
+   */
+  readonly kinds: readonly [string, ...string[]];
+}
 
 /**
- * Closed `source → kind` map (D1/D15). `source` and `kind` are NOT independent
- * vocabularies: a kind is legal only for the source whose reducer emits it, so
- * `{ source: "gmail", kind: "user_org_affiliation" }` is rejected. A source
- * with no reducer is not listed at all (see `OBSERVATION_SOURCES`); its kinds
- * register here with the reducer.
- * `user` and `alfred_chat` share the full user-authored set (D14): the same
- * correction/confirmation can arrive from a `/settings` edit or from chat.
+ * Every observation reducer in the tree, keyed by the source it writes under
+ * (#987). The record keys ARE the source space, so a reducer states its source,
+ * its rank, and its kinds ONCE and the four tables below derive from it.
+ * `OBSERVATION_SOURCES`, `OBSERVATION_SOURCE_RANK`, `OBSERVATION_KINDS`, and
+ * `OBSERVATION_KINDS_BY_SOURCE` are projections of this record and hold no
+ * vocabulary of their own.
+ *
+ * Integrations feed the graph passively; `user` and `alfred_chat` are
+ * first-class high-precedence sources (D14) — a chat-captured standing
+ * instruction or a `/settings` correction is an observation, not a
+ * side-channel write.
+ *
+ * A source with NO reducer is not pre-registered, because a reader would
+ * recover a shape the traffic does not have. A new reducer joins here in the
+ * same change that lands its first write (ADR-0067 P2 GitHub, P3 Calendar and
+ * Directory, post-v1 enrichment). Adding the key is the whole registration:
+ * there is no second table to forget.
  */
-export const OBSERVATION_KINDS_BY_SOURCE = {
-  gmail: ["email_message"],
-  // `user_org_affiliation`: the connected Google account asserts the user's org
-  // domain (ADR-0080 §4a). This is account-level provenance, not a Gmail message
-  // reducer event; keeping it on `google_account` prevents the connect-time
-  // emitter from pretending a generic Google credential came from Gmail.
-  google_account: ["user_org_affiliation"],
-  alfred_chat: [
-    "user_standing_instruction",
-    "user_correction",
-    "user_confirmation",
-    "user_rejection",
-    "user_profile_edit",
-  ],
-  user: [
-    "user_standing_instruction",
-    "user_correction",
-    "user_confirmation",
-    "user_rejection",
-    "user_profile_edit",
-  ],
-} as const satisfies Record<ObservationSource, readonly ObservationKind[]>;
+export const OBSERVATION_REDUCERS = {
+  /** A `/settings` edit or another explicit user statement. */
+  user: { rank: 0, kinds: USER_AUTHORED_KINDS },
+  /** The standing-instruction writer, capturing the same set from a thread. */
+  alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS },
+  /** The Gmail message reducer. First-party integrations share rank 2. */
+  gmail: { rank: 2, kinds: ["email_message"] },
+  /**
+   * The connect-time org-affiliation emitter (ADR-0080 §4a): the connected
+   * Google account asserts the user's org domain. This is account-level
+   * provenance, not a Gmail message reducer event; keeping it on its own source
+   * stops the emitter pretending a generic Google credential came from Gmail.
+   */
+  google_account: { rank: 2, kinds: ["user_org_affiliation"] },
+} as const satisfies Record<string, ObservationReducerEntry>;
+
+/** Where an observation came from — the reducer keys, in record order. */
+export type ObservationSource = keyof typeof OBSERVATION_REDUCERS;
+export const OBSERVATION_SOURCES: readonly ObservationSource[] =
+  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
+  // non-indexed literal are exactly `keyof typeof OBSERVATION_REDUCERS`.
+  Object.keys(OBSERVATION_REDUCERS) as ObservationSource[];
+export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
+
+/** Fold precedence, projected off the registry. See `ObservationReducerEntry.rank`. */
+export const OBSERVATION_SOURCE_RANK: {
+  readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"];
+} =
+  // SAFETY: `Object.fromEntries` types its result as `{ [k: string]: T }`; the
+  // pairs are built from `OBSERVATION_SOURCES`, so the keys are exactly
+  // `ObservationSource` and each value is that reducer's own rank.
+  Object.fromEntries(
+    OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].rank]),
+  ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"] };
+
+/**
+ * Closed `source -> kind` map (D1/D15). `source` and `kind` are NOT independent
+ * vocabularies: a kind is legal only for the source whose reducer emits it, so
+ * `{ source: "gmail", kind: "user_org_affiliation" }` is rejected.
+ */
+export const OBSERVATION_KINDS_BY_SOURCE: {
+  readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"];
+} =
+  // SAFETY: same shape argument as `OBSERVATION_SOURCE_RANK` above.
+  Object.fromEntries(
+    OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].kinds]),
+  ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"] };
+
+/** Every evidence kind some reducer emits, deduplicated across shared tuples. */
+export type ObservationKind = (typeof OBSERVATION_REDUCERS)[ObservationSource]["kinds"][number];
+export const OBSERVATION_KINDS: readonly ObservationKind[] = [
+  ...new Set(OBSERVATION_SOURCES.flatMap((source) => OBSERVATION_REDUCERS[source].kinds)),
+];
+export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 
 /** True iff `kind` is one of the kinds the reducer for `source` may emit. */
 export function isObservationKindForSource(
@@ -1112,29 +1125,26 @@ export const PROMOTION_MIN_FAMILIES = 2;
  * reply needs ~5 touches to promote, a direct thread ~7, and cc/list exposure
  * basically never promotes unless repeatedly real.
  *
- * Provenance note: P1 can only calibrate the Gmail weights against prod —
- * `github_*` and `calendar_meeting` stay provisional until P2/P3 shadow
- * validation. `github_push` is a strong object/repo signal but a weak
- * person↔person one, so it is intentionally low. `gmail_blast` is 0 (the
- * fan-out cutoff already zeroes its co-occurrence; kept explicit for non-person
- * significance accounting).
+ * Only the classes a LIVE reducer can produce are listed (#987), on the same
+ * rule as `OBSERVATION_REDUCERS`: a weight for a provider that cannot write is
+ * a shape the traffic does not have. Gmail is the one such reducer, and its
+ * single kind `email_message` fans out into the four classes here. The
+ * `github_*` and `calendar_meeting` weights were provisional, uncalibrated, and
+ * unreachable, so P2 and P3 register their classes with the folds that consume
+ * them rather than inheriting a guess. `gmail_blast` is 0 (the fan-out cutoff
+ * already zeroes its co-occurrence; kept explicit for non-person significance
+ * accounting).
  *
- * NOTE — these keys are fold-derived INTERACTION CLASSES, not the raw
- * `OBSERVATION_KINDS` vocabulary (`gmail`'s one kind `email_message` fans out
- * into `gmail_reply`/`gmail_direct`/`gmail_cc`/`gmail_blast` here). So the
- * `github_pull_request` observation kind has no 1:1 key on purpose: P2 owns the
- * decision of which class a PR-open contributes to (author↔reviewer/assignee
+ * A P2 GitHub PR-open has no key here on purpose, and adding one before the
+ * fold lands would re-create exactly the false shape this list just dropped:
+ * P2 owns the decision of which class it contributes to (author-reviewer
  * co-occurrence) versus what it only emits as an object edge (`authored_by`,
- * D9). It is registered as a person-co-occurrence class at P2, not dropped — do
- * not add a `github_pull_request` weight here before that fold lands.
+ * D9).
  */
 export const SOURCE_WEIGHTS = {
-  github_review: 1.0,
-  calendar_meeting: 0.9,
   gmail_reply: 0.8,
   gmail_direct: 0.65,
   gmail_cc: 0.25,
-  github_push: 0.25,
   gmail_blast: 0.0,
 } as const;
 export type SourceWeightKey = keyof typeof SOURCE_WEIGHTS;

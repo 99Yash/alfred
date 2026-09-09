@@ -1,11 +1,20 @@
-import { parseEventTypeName, type InboundEventSource } from "@alfred/contracts";
+import { parseEventTypeName, toMessage, type InboundEventSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { and, asc, eq, notExists } from "drizzle-orm";
 import { resolveTimezone } from "@alfred/assistant/settings";
 import { receiptDocumentJoin, writeReceiptDocument } from "./receipt-document";
 
-/** Bounded recovery for receipts stored before corpus projection was installed. */
+/**
+ * Bounded recovery for receipts stored before corpus projection was installed.
+ *
+ * Each receipt is projected in its own try/catch. The caller runs one backfill
+ * per inbound source inside a single `Promise.all` in the `gmail.embed_sweep`
+ * job, so an unhandled throw here would fail the whole sweep — every source's
+ * batch, plus the Gmail and attachment batches — on one bad row. A row that
+ * cannot be projected is logged and skipped; the next tick retries it, because
+ * the `notExists` filter still selects it.
+ */
 export async function backfillReceiptDocuments(source: InboundEventSource): Promise<void> {
   const rows = await db()
     .select({ receipt: eventReceipts, accountId: integrationCredentials.accountId })
@@ -23,18 +32,25 @@ export async function backfillReceiptDocuments(source: InboundEventSource): Prom
   for (const { receipt, accountId } of rows) {
     const kind =
       receipt.rawKind ?? parseEventTypeName(source, receipt.eventType) ?? receipt.eventType;
-    const timezone = await resolveTimezone(receipt.userId);
-    await db().transaction((tx) =>
-      writeReceiptDocument(
-        tx,
-        {
-          ...receipt,
-          provider: source,
-          kind,
-          accountId,
-        },
-        timezone,
-      ),
-    );
+    try {
+      const timezone = await resolveTimezone(receipt.userId);
+      await db().transaction((tx) =>
+        writeReceiptDocument(
+          tx,
+          {
+            ...receipt,
+            provider: source,
+            kind,
+            accountId,
+          },
+          timezone,
+        ),
+      );
+    } catch (err) {
+      console.warn(
+        `[ingestion:backfill] ${source} receipt ${receipt.id} not projected:`,
+        toMessage(err),
+      );
+    }
   }
 }
