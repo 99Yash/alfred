@@ -23,7 +23,7 @@ import { dbBackedSkip } from "./support/db-backed";
  *
  * `retryPending` is a global sweep keyed only on `source` (matching the
  * original worker loop, which passed no `userId`), so the test isolates on the
- * `imessage` source — no other DB-backed suite inserts an `imessage` document.
+ * `sentry` source — no other DB-backed suite inserts a `sentry` document.
  *
  * The `succeeded` path (a real chunk+embed) needs Voyage credentials the local
  * env lacks; it is covered by the `smoke-embed` script, not here.
@@ -35,7 +35,7 @@ import { dbBackedSkip } from "./support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-retrypending-";
-const SOURCE = "imessage" as const;
+const SOURCE = "sentry" as const;
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
