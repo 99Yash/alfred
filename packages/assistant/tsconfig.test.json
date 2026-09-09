@@ -59,7 +59,6 @@
     "test/chat/attachments/attachment-enrichment.test.ts",
     "test/chat/chat-history-retrieval.test.ts",
     "test/knowledge/drift-audit/metrics.test.ts",
-    "test/knowledge/fact-policy.test.ts",
     "test/knowledge/user-context.test.ts",
     "test/mcp/manager-lifecycle.test.ts",
     "test/mcp/risk.test.ts",

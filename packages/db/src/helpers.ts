@@ -38,9 +38,21 @@ export function createId(prefix?: string, { length = 12, separator = "_" } = {})
  * Shared by the enum `CHECK` constraints so the closed-set idiom lives once.
  * `values` are trusted enum constants (never user input), so raw interpolation
  * is safe.
+ *
+ * The output is SORTED, so the rendered SQL depends on the SET of values and
+ * not on the order the constant happens to declare them in. Without this, a
+ * cosmetic reorder of a source constant — or of a record `inList` derives from,
+ * such as `EVENT_SOURCE_ENTRIES` behind `DOCUMENT_SOURCES` — changes the CHECK
+ * text and `check:constraint-snapshot` then demands a no-op DROP/ADD migration.
+ * `IN` is order-independent, so sorting changes no semantics.
  */
 export const inList = (values: readonly string[]): SQL =>
-  sql.raw(values.map((v) => `'${v}'`).join(", "));
+  sql.raw(
+    [...values]
+      .sort()
+      .map((v) => `'${v}'`)
+      .join(", "),
+  );
 
 export function generateRandomCode(length: number = 8) {
   return customAlphabet("123456789", length)();
