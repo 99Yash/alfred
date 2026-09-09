@@ -65,9 +65,9 @@ describe("summarizeRunBottlenecks", () => {
         },
       ],
       stagings: [
-        { status: "approved", createdAt: t(2000), decidedAt: t(4000) },
-        { status: "rejected", createdAt: t(6300), decidedAt: t(6300) },
-        { status: "expired", createdAt: t(100), decidedAt: t(100) },
+        { toolName: "gmail.send", status: "approved", createdAt: t(2000), decidedAt: t(4000) },
+        { toolName: "gmail.send", status: "rejected", createdAt: t(6300), decidedAt: t(6300) },
+        { toolName: "gmail.send", status: "expired", createdAt: t(100), decidedAt: t(100) },
       ],
     };
 
@@ -141,7 +141,9 @@ describe("summarizeRunBottlenecks", () => {
           errorReason: null,
         },
       ],
-      stagings: [{ status: "approved", createdAt: t(400), decidedAt: t(1400) }],
+      stagings: [
+        { toolName: "gmail.send", status: "approved", createdAt: t(400), decidedAt: t(1400) },
+      ],
     };
 
     const summary = summarizeRunBottlenecks(input);

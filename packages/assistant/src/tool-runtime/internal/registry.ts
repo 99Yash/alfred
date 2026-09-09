@@ -26,6 +26,7 @@ import type {
   ToolRiskTier,
 } from "@alfred/contracts";
 import {
+  ASK_USER_TOOL,
   buildToolName,
   holdsAnyScope,
   INTEGRATION_ACTIONS,
@@ -110,21 +111,16 @@ interface ToolAvailabilityMetadata {
  *   resolves the child named by {@link joinToolInput}, so a tool declaring it must
  *   accept that input. `registerTool` proves both that and single occupancy at
  *   boot, so the arm never has to trust the declaration.
- * - `"question"` — ADR-0099. The call is a question for the user, and the
+ * - `"question"` — ADR-0099. The call is a question for the user. The
  *   dispatcher parks the chat turn on a `question` approval the way a gated
  *   write parks on `action_staging`: an `action_stagings` row, the same decision
- *   route, the same expiry. The arm exists because `resolvePolicyMode` forces
- *   every `system.*` tool to autonomy, so the only risk tier that could gate a
- *   `system` tool is the `high` floor, and `high` means an irreversible action,
- *   which a question is not. The
- *   dispatcher forces `requiresApproval` for this arm without reading policy,
- *   refuses a fresh call that already carries `answers`, and turns a rejected or
- *   expired row into an `unanswered` result instead of a rejection. Like `join`
- *   it is a PROTOCOL: the tool must accept {@link questionToolInput}, be a
+ *   route, the same expiry. What the staged path does differently for this arm
+ *   is one table, `STAGING_ARM` in the dispatcher. Like `join` it is a PROTOCOL:
+ *   the tool must be `ASK_USER_TOOL`, accept {@link questionToolInput}, be a
  *   `system` tool, and be visible only to the chat boss on a live thread.
  *   `registerTool` proves all of that and single occupancy at boot.
  */
-type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question";
+export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question";
 
 // The join contract (`joinToolInput`, imported above from tool-runtime) is the
 // shape every `staging: "join"` tool must accept. `registerTool` proves at boot
@@ -649,6 +645,15 @@ export function registerTool(tool: RegisteredTool): void {
   // `answers` into the decided input and the resume path re-parses it with this
   // same schema; a schema that refused the answer would fail at first resume.
   if (tool.staging === "question") {
+    // Every reader without the registry in hand (the decision route, the
+    // notification email, the recent-rejection note, run metrics) recognizes a
+    // question by `ASK_USER_TOOL`. The arm and the name must be the same tool.
+    if (tool.name !== ASK_USER_TOOL) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='question' but only '${ASK_USER_TOOL}' may — ` +
+          "readers outside the registry key a question on that name (ADR-0099)",
+      );
+    }
     const probe = tool.inputSchema.safeParse(QUESTION_TOOL_PROBE_INPUT);
     if (!probe.success || !questionToolInput.safeParse(probe.data).success) {
       throw new Error(
@@ -656,9 +661,9 @@ export function registerTool(tool: RegisteredTool): void {
           "`{ questions, answers }` — the dispatcher's question arm reads both fields off the call",
       );
     }
-    // The arm bypasses `resolvePolicyMode` and forces the approval itself. That
-    // is only safe when the policy would have said `autonomy` anyway, which is
-    // the `system` rule; on any other integration the arm would silently replace
+    // The arm forces the approval without a policy read. That is only safe
+    // where `resolvePolicyMode` would answer `autonomy` anyway, which is the
+    // `system` rule; on any other integration the arm would silently replace
     // the user's policy with a hard-coded one.
     if (tool.integration !== "system") {
       throw new Error(

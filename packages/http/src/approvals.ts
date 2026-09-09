@@ -12,7 +12,6 @@ import {
 } from "@alfred/assistant/execution";
 import { cancelRunInTx } from "@alfred/assistant/execution/service";
 import {
-  approvalKindForTool,
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
   scheduleApprovalExpiryJob,
@@ -21,7 +20,7 @@ import {
   startApprovalWaitSpan,
   type ApprovalWaitOutcome,
 } from "@alfred/assistant/execution/runtime-spans";
-import { Errors, jsonValueSchema, toMessage } from "@alfred/contracts";
+import { ASK_USER_TOOL, askUserInput, Errors, jsonValueSchema, toMessage } from "@alfred/contracts";
 import {
   prepareWorkflowApprovalEdit,
   restageWorkflowApproval,
@@ -93,7 +92,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         const editedInput =
           body.editedInput === undefined ? undefined : jsonValueSchema.parse(body.editedInput);
 
-        if ((decision === "reject" || decision === "cancel_run") && !reason) {
+        // The plain-reject reason rule needs the locked row (a question needs
+        // none, see below); the cancel rule does not.
+        if (decision === "cancel_run" && !reason) {
           throw Errors.BadRequestError("Rejecting an action requires a reason");
         }
 
@@ -114,7 +115,11 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         }
 
         const outcome = await db().transaction<
-          DecisionOutcome | RefreshedOutcome | { notFound: true } | { conflict: string }
+          | DecisionOutcome
+          | RefreshedOutcome
+          | { notFound: true }
+          | { conflict: string }
+          | { badRequest: string }
         >(async (tx) => {
           const rows = await tx
             .select({
@@ -144,8 +149,29 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             return { conflict: "The approval changed. Review the latest contract." };
           }
 
+          // A rejection reason is the revision note the model reads back. A
+          // question has no revision: dismissing it IS the answer (ADR-0099),
+          // so the user is not made to invent a reason to skip it.
+          if (decision === "reject" && !reason && row.toolName !== ASK_USER_TOOL) {
+            return { badRequest: "Rejecting an action requires a reason" };
+          }
+
           const now = new Date();
           if (decision === "approve") {
+            // A question's edited input is the whole tool input with the
+            // user's `answers` filled in. Validate it here, so a wrong-length
+            // answer list is a 400 the card shows, not a failed row and a
+            // generic `tool_input_invalid` the model re-asks past (ADR-0099).
+            if (row.toolName === ASK_USER_TOOL && editedInput !== undefined) {
+              const answered = askUserInput.safeParse(editedInput);
+              if (!answered.success) {
+                const issue = answered.error.issues[0];
+                const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
+                return {
+                  badRequest: `Answers do not fit the questions${where}: ${issue?.message ?? "invalid input"}`,
+                };
+              }
+            }
             // Workflow activation edits change the exact unattended contract.
             // Rebuild the full card and require a second approval instead of
             // waking the run with fields the user did not see.
@@ -153,16 +179,12 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               const expiresAt = await restageWorkflowApproval(tx, row.id, workflowEdit.input);
               return { runId: row.runId, status: "pending", refreshed: true, expiresAt };
             }
+            // Match on the staging id alone: the wake already carries the kind
+            // the dispatcher wrote, and a kind re-derived here could only
+            // disagree with it (ADR-0099).
             const signalOutcome = await signalRunInTx(tx, {
               runId: row.runId,
-              match: {
-                kind: "hil",
-                approvalId: params.stagingId,
-                // Derived from the registered tool, as the dispatcher derived
-                // the wake (ADR-0099); a hand-spelled kind here would answer
-                // `wake_mismatch` for a parked question.
-                approvalKind: approvalKindForTool(row.toolName),
-              },
+              match: { kind: "hil", approvalId: params.stagingId },
             });
             const conflict = signalOutcomeConflict(signalOutcome);
             if (conflict) return { conflict };
@@ -183,7 +205,10 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               decision,
               status: "approved",
               shouldEnqueue: signalOutcome === "woken",
-              approvalWait: approvalWaitEmit(row, "approved"),
+              approvalWait: approvalWaitEmit(
+                row,
+                row.toolName === ASK_USER_TOOL ? "answered" : "approved",
+              ),
             };
           }
 
@@ -207,14 +232,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           } else {
             const signalOutcome = await signalRunInTx(tx, {
               runId: row.runId,
-              match: {
-                kind: "hil",
-                approvalId: params.stagingId,
-                // Derived from the registered tool, as the dispatcher derived
-                // the wake (ADR-0099); a hand-spelled kind here would answer
-                // `wake_mismatch` for a parked question.
-                approvalKind: approvalKindForTool(row.toolName),
-              },
+              match: { kind: "hil", approvalId: params.stagingId },
             });
             const conflict = signalOutcomeConflict(signalOutcome);
             if (conflict) return { conflict };
@@ -225,7 +243,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             .update(actionStagings)
             .set({
               status: "rejected",
-              rejectReason: reason,
+              rejectReason: reason ?? null,
               decidedAt: now,
               rowVersion: sql`${actionStagings.rowVersion} + 1`,
             })
@@ -235,12 +253,16 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             decision,
             status: "rejected",
             shouldEnqueue,
-            approvalWait: approvalWaitEmit(row, "rejected"),
+            approvalWait: approvalWaitEmit(
+              row,
+              row.toolName === ASK_USER_TOOL ? "dismissed" : "rejected",
+            ),
           };
         });
 
         if ("notFound" in outcome) throw Errors.NotFoundError("Approval not found");
         if ("conflict" in outcome) throw Errors.ConflictError(outcome.conflict);
+        if ("badRequest" in outcome) throw Errors.BadRequestError(outcome.badRequest);
 
         emitReplicachePokes([user.id], params.stagingId);
         if ("refreshed" in outcome) {

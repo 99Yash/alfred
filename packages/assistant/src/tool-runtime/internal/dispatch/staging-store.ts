@@ -62,7 +62,6 @@ import {
   type NewActionStaging,
 } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { z } from "zod";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 
@@ -129,20 +128,9 @@ export function attemptKeyFor(runId: string, toolCallId: string): string {
  * The statuses `findPriorRejection` may match. `rejected` is the classic
  * retry-suppression match. The `question` arm (ADR-0099) adds `expired`,
  * because a question set the user let lapse must not park the turn again on
- * the next step. Derived from the owner enum, so a status rename lands here.
+ * the next step. Each staging arm names its own list in `STAGING_ARM`.
  */
-export const priorRejectionStatusSchema = actionStagingStatusSchema.extract([
-  "rejected",
-  "expired",
-]);
-export type PriorRejectionStatus = z.infer<typeof priorRejectionStatusSchema>;
-
-/** Default the retry-suppression match to `rejected`; both adapters share it. */
-export function priorRejectionStatuses(
-  statuses: readonly PriorRejectionStatus[] | undefined,
-): readonly PriorRejectionStatus[] {
-  return statuses && statuses.length > 0 ? statuses : ["rejected"];
-}
+export type PriorRejectionStatus = Extract<ActionStaging["status"], "rejected" | "expired">;
 
 export type PendingApprovalPromotion = Pick<
   ActionStaging,
@@ -176,17 +164,18 @@ export type StagingCommit =
 
 export interface StagingStore {
   /**
-   * Most recent row in one of `statuses` (default: `rejected` only) for this
-   * run + tool + input hash, or `null`. Scoped to the run because ADR-0034
-   * scopes the partial index that way. The matched row's own status comes back
-   * so a caller that asked for several can tell which one it hit.
+   * Most recent row in one of `statuses` for this run + tool + input hash, or
+   * `null`. Scoped to the run because ADR-0034 scopes the partial index that
+   * way. The matched row's own status comes back so a caller that asked for
+   * several can tell which one it hit; the WHERE admits only `statuses`, so the
+   * caller narrows it by comparison, not by a second parse.
    */
   findPriorRejection(query: {
     runId: string;
     toolName: ToolName;
     proposedInputHash: string;
-    statuses?: readonly PriorRejectionStatus[] | undefined;
-  }): Promise<{ reason: string | null; status: PriorRejectionStatus } | null>;
+    statuses: readonly PriorRejectionStatus[];
+  }): Promise<{ reason: string | null; status: ActionStaging["status"] } | null>;
 
   /**
    * An unresolved `unknown` staging row for this user + canonical request hash,
@@ -327,7 +316,6 @@ function commitColumns(commit: StagingCommit) {
 
 export const postgresStagingStore: StagingStore = {
   async findPriorRejection(query) {
-    const statuses = priorRejectionStatuses(query.statuses);
     const rows = await db()
       .select({
         reason: actionStagings.rejectReason,
@@ -340,16 +328,13 @@ export const postgresStagingStore: StagingStore = {
           eq(actionStagings.runId, query.runId),
           eq(actionStagings.toolName, query.toolName),
           eq(actionStagings.proposedInputHash, query.proposedInputHash),
-          inArray(actionStagings.status, statuses),
+          inArray(actionStagings.status, query.statuses),
         ),
       )
       .orderBy(desc(actionStagings.decidedAt))
       .limit(1);
     const row = rows[0];
-    if (!row) return null;
-    // The WHERE above admits only `statuses`, so a parse miss here is a bug in
-    // that clause, not a row shape to tolerate.
-    return { reason: row.reason, status: priorRejectionStatusSchema.parse(row.status) };
+    return row ? { reason: row.reason, status: row.status } : null;
   },
 
   async findUnresolvedUnknown(query) {

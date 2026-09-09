@@ -1835,6 +1835,18 @@ export const updateArtifactInput = coerceJsonArrayFields(
   ),
 );
 
+/**
+ * The list bounds of a `system.ask_user` call. One table, read by the schema
+ * bounds and by every prose string that quotes them, so the tool description
+ * and the field descriptions cannot disagree with what the parser accepts.
+ */
+export const ASK_USER_LIMITS = {
+  /** Questions per call. */
+  questions: { min: 1, max: 4 },
+  /** Options per question. */
+  options: { min: 2, max: 6 },
+} as const;
+
 /** One option the user can pick for a `system.ask_user` question. */
 const askUserOptionSchema = z
   .object({
@@ -1871,10 +1883,10 @@ export const askUserQuestionSchema = z
       ),
     options: z
       .array(askUserOptionSchema)
-      .min(2)
-      .max(6)
+      .min(ASK_USER_LIMITS.options.min)
+      .max(ASK_USER_LIMITS.options.max)
       .describe(
-        "Two to six distinct choices. The card always adds a free-text answer, so never add an 'Other' option.",
+        `${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} distinct choices. The card always adds a free-text answer, so never add an 'Other' option.`,
       ),
     multiSelect: z
       .boolean()
@@ -1890,7 +1902,7 @@ export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
  */
 export const askUserAnswerSchema = z
   .object({
-    selectedOptions: z.array(z.string().trim().min(1).max(120)).max(6),
+    selectedOptions: z.array(z.string().trim().min(1).max(120)).max(ASK_USER_LIMITS.options.max),
     customAnswer: z.string().trim().max(4_000).nullable(),
   })
   .strict();
@@ -1898,11 +1910,11 @@ export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>;
 
 /**
  * `system.ask_user` (ADR-0099). The model fills `context` and `questions`; the
- * chat turn parks on a `question` approval. The decision route fills `answers`
- * into the approved row's decided input, so the dispatcher's ordinary
- * "re-validate the decided input against the tool schema" path carries the
- * answer back and the tool's `execute` returns it. The model never sends
- * `answers`; the dispatcher refuses a fresh call that does.
+ * chat turn parks on a `question` approval. The decision route validates the
+ * edited input against this schema and stores it as the row's decided input, so
+ * the dispatcher's ordinary "re-validate the decided input against the tool
+ * schema" path carries the answer back and the tool's `execute` returns it. The
+ * model never sends `answers`; the dispatcher refuses a fresh call that does.
  */
 export const askUserInput = coerceJsonArrayFields(
   ["questions", "answers"],
@@ -1918,10 +1930,10 @@ export const askUserInput = coerceJsonArrayFields(
         ),
       questions: z
         .array(askUserQuestionSchema)
-        .min(1)
-        .max(4)
+        .min(ASK_USER_LIMITS.questions.min)
+        .max(ASK_USER_LIMITS.questions.max)
         .describe(
-          "One to four questions the user answers before the turn continues. Ask everything you need in ONE call.",
+          `${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions the user answers before the turn continues. Ask everything you need in ONE call.`,
         ),
       answers: z
         .array(askUserAnswerSchema)
@@ -2053,5 +2065,4 @@ export const TOOL_INPUT_SCHEMAS = {
  */
 export const TOOL_OUTPUT_SCHEMAS = {
   "gmail.search": gmailSearchResultSchema,
-  "system.ask_user": askUserResultSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
