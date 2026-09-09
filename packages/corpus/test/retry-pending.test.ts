@@ -21,9 +21,12 @@ import { dbBackedSkip } from "./support/db-backed";
  *      `empty: true` WITHOUT a Voyage call, so it must NOT count as
  *      `succeeded`, and the empty path throws nothing (`failed` stays 0).
  *
- * `retryPending` is a global sweep keyed only on `source` (matching the
- * original worker loop, which passed no `userId`), so the test isolates on the
- * `sentry` source — no other DB-backed suite inserts a `sentry` document.
+ * `retryPending` sweeps every user when the caller omits `userId` (matching
+ * the original worker loop). `source` is NOT isolation — every source in
+ * `DOCUMENT_SOURCES` has a live writer, so one local Sentry webhook would put
+ * a real un-embedded row in this sweep and the assertion counts would move.
+ * So the test passes its own seeded `userId` and the sweep can only reach the
+ * three documents below.
  *
  * The `succeeded` path (a real chunk+embed) needs Voyage credentials the local
  * env lacks; it is covered by the `smoke-embed` script, not here.
@@ -102,7 +105,7 @@ describe("corpus retryPending sweep (DB-backed)", { skip: SKIP }, () => {
     const emptyB = await seedEmptyDocument(userId);
     const dead = await seedEmptyDocument(userId, true);
 
-    const result = await retryPending({ source: SOURCE, limit: 1000 });
+    const result = await retryPending({ userId, source: SOURCE, limit: 1000 });
 
     assert.equal(
       result.candidates,
@@ -118,7 +121,7 @@ describe("corpus retryPending sweep (DB-backed)", { skip: SKIP }, () => {
     assert.ok(await readFailedAt(emptyB), "candidate B dead-lettered after the sweep");
     assert.ok(await readFailedAt(dead), "pre-dead-lettered doc still carries its marker");
 
-    const rerun = await retryPending({ source: SOURCE, limit: 1000 });
+    const rerun = await retryPending({ userId, source: SOURCE, limit: 1000 });
     assert.equal(
       rerun.candidates,
       0,

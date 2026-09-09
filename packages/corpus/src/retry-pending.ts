@@ -20,6 +20,15 @@ import { findUnembeddedDocumentIds, indexDocument } from "./embed-document";
  * here.
  */
 export interface RetryPendingArgs {
+  /**
+   * Scope the sweep to one user. The scheduled job omits it and sweeps every
+   * user, which is what the worker loop did. A caller that must not touch a
+   * row it does not own — a DB-backed test on a shared local database, a
+   * per-user backfill — passes it, because `source` alone is NOT isolation:
+   * every source in `DOCUMENT_SOURCES` has a live writer, so any value can
+   * match a real row.
+   */
+  userId?: string;
   source?: Document["source"];
   limit?: number;
 }
@@ -32,6 +41,7 @@ export interface RetryPendingResult {
 
 export async function retryPending(args: RetryPendingArgs = {}): Promise<RetryPendingResult> {
   const ids = await findUnembeddedDocumentIds({
+    ...(args.userId ? { userId: args.userId } : {}),
     ...(args.source ? { source: args.source } : {}),
     limit: args.limit ?? 50,
   });
