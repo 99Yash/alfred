@@ -92,16 +92,19 @@ interface NarrowedTrigger {
   kind: string;
   source?: string;
   type?: string;
+  rawKind?: string;
 }
 
 function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   if (!trigger) return { kind: "manual" };
   const source = "source" in trigger ? trigger.source : undefined;
   const type = "type" in trigger ? trigger.type : undefined;
+  const rawKind = "rawKind" in trigger ? trigger.rawKind : undefined;
   return {
     kind: trigger.kind,
     ...(source ? { source } : {}),
     ...(type ? { type } : {}),
+    ...(rawKind ? { rawKind } : {}),
   };
 }
 

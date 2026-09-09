@@ -4,7 +4,7 @@
  * scope and these stay trivially testable.
  */
 
-import { humanizeSlug } from "@alfred/contracts";
+import { humanizeSlug, integrationDisplayName } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
@@ -17,6 +17,7 @@ export function triggerLabel(trigger: {
   kind: string;
   source?: string | null | undefined;
   type?: string | null | undefined;
+  rawKind?: string | null | undefined;
 }): string {
   switch (trigger.kind) {
     case "manual":
@@ -26,7 +27,9 @@ export function triggerLabel(trigger: {
     case "on_signal":
       return "Signal";
     case "event": {
-      const source = trigger.source ? humanizeSlug(trigger.source) : "an event";
+      const source = trigger.source ? integrationDisplayName(trigger.source) : "an event";
+      // A raw event's kind is the provider's own name, shown as it arrived (#990).
+      if (trigger.rawKind) return `Triggered by ${source} ${trigger.rawKind}`;
       const noun = trigger.type ? humanizeSlug(trigger.type.replace(/_received$/, "")) : "";
       return noun ? `Triggered by ${source} ${noun.toLowerCase()}` : `Triggered by ${source}`;
     }

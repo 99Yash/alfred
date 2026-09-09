@@ -862,6 +862,13 @@
       "when": 1788746512917,
       "tag": "0122_gifted_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1788936612419,
+      "tag": "0123_drop_raw_completed_check",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import {
-  EVENT_TYPES_BY_SOURCE,
+  AUTHORABLE_EVENT_SOURCES,
+  authorableEventTriggerIssue,
   isIanaTimezone,
   LOADABLE_INTEGRATION_SLUGS,
 } from "@alfred/contracts";
@@ -8,8 +9,6 @@ import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import { workflowStatusSchema } from "../schemas";
 import type { SyncedWorkflow } from "../types";
-
-export const AUTHORABLE_EVENT_SOURCES = ["gmail"] as const;
 
 const CRON_MONTH_NAMES = {
   JAN: 1,
@@ -94,7 +93,11 @@ export function isLikelyValidWorkflowCron(schedule: string): boolean {
  *     evaluate filters, so accepting one would silently lie. The
  *     empty-filter-only contract is enforced here by simply not modelling
  *     the field.
- *   - event `type` must be a known type for the chosen `source`.
+ *   - an event trigger obeys `authorableEventTriggerIssue` from
+ *     `@alfred/contracts`: Gmail names one of its declared types; GitHub and
+ *     Sentry name `type: "raw"` plus the `rawKind` the integration delivered
+ *     (#990). Whether the source has seen that kind is a database fact the
+ *     server's revision service checks.
  */
 export const authorableWorkflowTriggerSchema = z
   .discriminatedUnion("kind", [
@@ -107,6 +110,7 @@ export const authorableWorkflowTriggerSchema = z
       kind: z.literal("event"),
       source: z.enum(AUTHORABLE_EVENT_SOURCES),
       type: z.string().min(1),
+      rawKind: z.string().min(1).max(200).optional(),
     }),
     z.object({ kind: z.literal("manual") }),
   ])
@@ -129,16 +133,9 @@ export const authorableWorkflowTriggerSchema = z
       return;
     }
     if (trigger.kind !== "event") return;
-    // SAFETY: the per-source row is a const tuple of that source's event-type
-    // literals; widening to readonly string[] only types the .includes
-    // receiver for the runtime membership test below.
-    const types = EVENT_TYPES_BY_SOURCE[trigger.source] as readonly string[];
-    if (!types.includes(trigger.type)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `'${trigger.type}' is not a valid event type for '${trigger.source}'`,
-        path: ["type"],
-      });
+    const issue = authorableEventTriggerIssue(trigger);
+    if (issue) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue.message, path: [issue.path] });
     }
   });
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;

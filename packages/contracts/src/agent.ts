@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { integrationSlugSchema, isIanaTimezone } from "./briefing";
-import { EVENT_SOURCES } from "./event-triggers";
+import {
+  AUTHORABLE_EVENT_SOURCES,
+  authorableEventTriggerIssue,
+  EVENT_SOURCES,
+} from "./event-triggers";
 import { canonicalJson, toolNameSchema } from "./tools";
 import { isRecord } from "./guards";
 import { jsonObjectSchema } from "./user-model";
@@ -139,6 +143,8 @@ export const eventRunTriggerIdentitySchema = z.object({
   // ADR-0047 promoted source/type to first-class trigger fields.
   source: z.string().optional(),
   type: z.string().optional(),
+  /** The provider kind a raw event (`type: "raw"`) fired under (#990). */
+  rawKind: z.string().optional(),
   eventId: z.string(),
 });
 export const manualRunTriggerIdentitySchema = z.object({ kind: z.literal("manual") });
@@ -169,6 +175,12 @@ export const eventWorkflowTriggerSchema = z.object({
   // can match. Per-source type validity is enforced in `emitEvent`.
   source: z.enum(EVENT_SOURCES),
   type: z.string(),
+  /**
+   * The provider kind a raw trigger subscribes to (#990). Present exactly when
+   * `type` is the raw marker; the matcher compares it with the raw receipt's
+   * `raw_kind`. The revision service enforces the pairing.
+   */
+  rawKind: z.string().min(1).max(200).optional(),
   /** Durable provider account identity for user-authored external events. */
   accountRef: z.string().min(1).max(200).optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
@@ -428,25 +440,52 @@ export const workflowRevisionDefinitionSchema = z.object({
 });
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
 
-/** The trigger subset a user may author in workflows v1 (#556). */
-export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("cron"),
-    schedule: z
-      .string()
-      .trim()
-      .refine((value) => value.split(/\s+/).length === 5, "Expected a five-field cron expression"),
-    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
-  }),
-  z.object({
-    kind: z.literal("event"),
-    source: z.literal("gmail"),
-    type: z.literal("message_received"),
-    /** Canonical provider account id after server resolution. */
-    accountRef: z.string().min(1).max(200).optional(),
-  }),
-  manualWorkflowTriggerSchema,
-]);
+/**
+ * The trigger subset a user may author in workflows v1 (#556, #990).
+ *
+ * One `event` member carries both authorable shapes, because a zod
+ * discriminated union admits one object per `kind` value; the `superRefine`
+ * applies `authorableEventTriggerIssue`, the same rule the editor mutator
+ * schema in `@alfred/sync` applies, so chat and editor authoring agree.
+ */
+export const authorableWorkflowTriggerSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("cron"),
+      schedule: z
+        .string()
+        .trim()
+        .refine(
+          (value) => value.split(/\s+/).length === 5,
+          "Expected a five-field cron expression",
+        ),
+      timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
+    }),
+    z.object({
+      kind: z.literal("event"),
+      source: z.enum(AUTHORABLE_EVENT_SOURCES),
+      type: z
+        .string()
+        .min(1)
+        .describe("gmail: 'message_received'. github/sentry: 'raw' plus rawKind."),
+      rawKind: z
+        .string()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe(
+          "A kind from the integration's unmapped events (e.g. 'comment.created'). Required with type 'raw'.",
+        ),
+      /** Canonical provider account id after server resolution. */
+      accountRef: z.string().min(1).max(200).optional(),
+    }),
+    manualWorkflowTriggerSchema,
+  ])
+  .superRefine((trigger, ctx) => {
+    if (trigger.kind !== "event") return;
+    const issue = authorableEventTriggerIssue(trigger);
+    if (issue) ctx.addIssue({ code: "custom", message: issue.message, path: [issue.path] });
+  });
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
 
 /** Model-facing proposal accepted by `system.author_workflow`. */

@@ -40,9 +40,13 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // read-only search over the ingested corpus.
 // Measured 2026-09-05: full 86,649 B across 75 tools — the Sentry provider (#563) added one lazy
 // read-only `sentry.request` REST passthrough, the same ~1.9 KB shape as the Vercel/Notion ones.
+// Measured 2026-09-09: full 90,494 B across 76 tools — the surface stood at 89,982 B before #990
+// (the ask_user tool, #1016, used the remaining margin without a bump); #990 adds `rawKind` and
+// its one-line grounding to the authorable event trigger, which both `system.author_workflow`
+// and `system.activate_workflow` embed (+256 B each). Ceiling raised 90,000 → 95,000.
 const KERNEL_SCHEMA_BYTES_CEILING = 6_600;
 const KERNEL_SCHEMA_TOKENS_CEILING = 1_700;
-const FULL_SCHEMA_BYTES_CEILING = 90_000;
+const FULL_SCHEMA_BYTES_CEILING = 95_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
 const NON_KERNEL_GIANTS: readonly ToolName[] = [

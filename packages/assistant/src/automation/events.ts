@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { isInboundEventSource, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -8,6 +8,7 @@ import { startRun } from "@alfred/assistant/execution";
 import {
   domainEventSchema,
   gmailMessagePayloadSchema,
+  inboundDeliveryPayloadSchema,
   type DomainEvent,
 } from "@alfred/assistant/triggers";
 
@@ -44,6 +45,12 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
   // outbound-reply re-eval, issue #282) bypasses the triage already-tagged
   // skip guard instead of no-op'ing.
   const force = gmailPayload?.force;
+  // An inbound receipt (typed or raw) carries the pointer to its
+  // `event_receipts` row, not the body (ADR-0097). The run keeps the pointer so
+  // the trigger message can read the receipt's describe-slot document (#990).
+  const receiptId = isInboundEventSource(args.source)
+    ? inboundDeliveryPayloadSchema.parse(args.payload ?? {}).receiptId
+    : undefined;
 
   const rows = await db()
     .select({
@@ -64,6 +71,10 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
           and(
             sql`${workflows.trigger}->>'source' = ${args.source}`,
             sql`${workflows.trigger}->>'type' = ${args.type}`,
+            // A raw trigger names the provider kind it subscribes to; a typed
+            // trigger and a typed event both leave it unset, so the two empty
+            // strings compare equal (#990).
+            sql`coalesce(${workflows.trigger}->>'rawKind', '') = ${args.rawKind ?? ""}`,
             or(
               sql`${workflows.trigger}->>'accountRef' IS NULL`,
               args.accountRef
@@ -116,25 +127,30 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
             },
             input: {
               documentId,
+              receiptId,
               reason,
               force,
               source: args.source,
               type: args.type,
+              rawKind: args.rawKind,
               accountRef: args.accountRef,
             },
             metadata: {
               source: args.source,
               type: args.type,
+              rawKind: args.rawKind,
               eventId: args.eventId,
               documentId,
+              receiptId,
               accountRef: args.accountRef,
             },
             trigger: {
               kind: "event",
               source: args.source,
               type: args.type,
+              rawKind: args.rawKind,
               eventId: args.eventId,
-              payload: { documentId, reason, accountRef: args.accountRef },
+              payload: { documentId, receiptId, reason, accountRef: args.accountRef },
             },
           }));
         } catch (err) {

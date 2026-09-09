@@ -4,8 +4,11 @@ import {
   canonicalJson,
   getPath,
   integrationFromToolName,
+  isInboundEventSource,
   isIntegrationSlug,
   isLoadableIntegrationSlug,
+  isRawEventType,
+  rawEventTriggerIssue,
   toolCategoryOf,
   toolLabel,
   workflowBlockedGeneration,
@@ -17,6 +20,7 @@ import {
   type WorkflowBlocked,
   type IanaTimezone,
   type WorkflowRevisionDefinition,
+  type WorkflowTrigger,
 } from "@alfred/contracts";
 import { db, type DbRoot, type DbTransaction } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
@@ -28,7 +32,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
-import { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
+import { readFreshIntegrationAvailability, seenRawKinds } from "@alfred/assistant/connections";
 import { workflowToolCatalog, type WorkflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import {
   canonicalizeWorkflowAccounts,
@@ -78,6 +82,10 @@ export type WorkflowRevisionProblemCode =
   | "invalid_definition"
   | "invalid_cron"
   | "unschedulable_cron"
+  /** A raw event trigger without an inbound source or a kind, or a typed trigger carrying a kind (#990). */
+  | "invalid_raw_trigger"
+  /** A raw event trigger on a kind the source has never delivered to this user (#990). */
+  | "unseen_raw_kind"
   | "empty_integration_ceiling"
   | "trigger_source_not_allowed"
   | "tool_outside_ceiling"
@@ -177,6 +185,20 @@ export function validateWorkflowDefinition(
   const definition = canonicalWorkflowDefinition(parsed.data);
   const problems: WorkflowRevisionProblem[] = [];
   const { trigger, allowedIntegrations, allowedTools, requiredCapabilities } = definition;
+
+  // The raw-tier shape rule is pure and shared with authoring (#990). Whether
+  // the source has delivered the kind is a database fact; the create and revise
+  // paths ask {@link unseenRawKindProblem} for it after this function returns.
+  if (trigger.kind === "event") {
+    const issue = rawEventTriggerIssue(trigger);
+    if (issue) {
+      problems.push({
+        code: "invalid_raw_trigger",
+        message: issue.message,
+        field: `trigger.${issue.path}`,
+      });
+    }
+  }
 
   if (trigger.kind === "cron") {
     const cron = validateCronTrigger(trigger, { timezone: opts.timezone });
@@ -285,6 +307,34 @@ export function validateWorkflowDefinition(
   return problems.length > 0 ? { ok: false, problems } : { ok: true, definition };
 }
 
+/**
+ * A raw event trigger may name only a kind its source has delivered to this
+ * user (#990). The inventory is the source of truth for "what kinds exist", so
+ * the message lists what it holds: chat authoring reads the problem back and
+ * proposes again with a real kind. Runs on the definition-writing paths
+ * (create, revise, and the patch and activation edits that delegate to
+ * revise), not on activation itself: activation republishes a definition that
+ * already passed here.
+ */
+async function unseenRawKindProblem(
+  userId: string,
+  trigger: WorkflowTrigger,
+): Promise<WorkflowRevisionProblem | null> {
+  if (trigger.kind !== "event" || !isRawEventType(trigger.type)) return null;
+  if (!isInboundEventSource(trigger.source) || !trigger.rawKind) return null;
+  const kinds = await seenRawKinds(userId, trigger.source);
+  if (kinds.includes(trigger.rawKind)) return null;
+  const seen =
+    kinds.length > 0
+      ? `Kinds it has delivered: ${kinds.join(", ")}.`
+      : "It has delivered no unmapped events yet.";
+  return {
+    code: "unseen_raw_kind",
+    message: `'${trigger.source}' has not delivered a '${trigger.rawKind}' event. ${seen}`,
+    field: "trigger.rawKind",
+  };
+}
+
 // ── Create ───────────────────────────────────────────────────────────────────
 
 export interface CreateWorkflowDraftArgs {
@@ -315,6 +365,8 @@ export async function createWorkflowDraft(
   if (!validated.ok) {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
+  const unseen = await unseenRawKindProblem(args.userId, validated.definition.trigger);
+  if (unseen) return { ok: false, failure: { kind: "validation_failed", problems: [unseen] } };
 
   const definition = validated.definition;
   const revisionId = createId("wfr");
@@ -410,6 +462,8 @@ export async function reviseWorkflow(
   if (!validated.ok) {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
+  const unseen = await unseenRawKindProblem(args.userId, validated.definition.trigger);
+  if (unseen) return { ok: false, failure: { kind: "validation_failed", problems: [unseen] } };
 
   const definition = validated.definition;
   const run = async (tx: DbTransaction): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> => {

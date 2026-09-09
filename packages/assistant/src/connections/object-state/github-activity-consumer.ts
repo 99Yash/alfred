@@ -1,4 +1,4 @@
-import { getStringPath, jsonObjectSchema } from "@alfred/contracts";
+import { getStringPath, isRawEventType, jsonObjectSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { typedEventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
@@ -22,13 +22,17 @@ import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assi
  * layer up: the receive path inserts the receipt `onConflictDoNothing` on
  * `(provider, provider_delivery_id)`, and the deliver job skips a `completed`
  * row, so a replayed delivery never reaches this consumer twice.
+ *
+ * A raw GitHub event (`github.raw`, #990) is a kind the registry does not
+ * name, so the reducer has no rule for it; the consumer returns before the
+ * receipt read rather than fetching a row the typed view would not return.
  */
 export function githubActivityTriggerConsumer(): TriggerConsumer {
   return {
     name: "github-activity-fold",
     mode: "propagate",
     async accept(event) {
-      if (event.source !== "github") return;
+      if (event.source !== "github" || isRawEventType(event.type)) return;
       const { receiptId } = inboundDeliveryPayloadSchema.parse(event.payload ?? {});
       const [receipt] = await db()
         .select({

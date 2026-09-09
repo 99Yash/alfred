@@ -137,6 +137,8 @@ export const syncedActionStagingSchema = z.object({
     kind: z.string(),
     source: z.string().nullish(),
     type: z.string().nullish(),
+    /** The provider kind a raw event run fired under (#990). */
+    rawKind: z.string().nullish(),
   }),
   /** Server-truncated (~280c) preview of the run's brief, for provenance. */
   brief: z.string().nullable(),
