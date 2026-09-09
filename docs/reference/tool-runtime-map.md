@@ -37,6 +37,12 @@ a provider or database graph. `system.corpus_search`
 | tool-runtime        | owns definitions, dispatch, catalog, discovery, schema projection, and boot seams; imports no user surface directly |
 | runtime composition | installs product adapters without adding reverse owner dependencies                                                 |
 
+Runtime composition follows the same rule for trigger consumers. A consumer
+lives beside the state it drives, and `runtime/adapters/trigger-consumers.ts`
+holds only the registration line. The GitHub object-state fold is the example:
+`packages/assistant/src/connections/object-state/github-activity-consumer.ts`
+sits beside the ADR-0062 reducer and store it calls (#986).
+
 ## The eight seams
 
 Each seam is a `bootPort<T>` slot. The composition root installs one concrete

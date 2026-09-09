@@ -2,7 +2,7 @@ import { getStringPath, jsonObjectSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { typedEventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { objectStateStore } from "@alfred/assistant/connections";
+import { objectStateStore } from "./store";
 import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assistant/triggers";
 
 /**
