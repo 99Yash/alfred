@@ -1,3 +1,4 @@
+import { eventTriggerPhrase } from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
 import { lowerFirst } from "~/lib/strings";
 import {
@@ -96,12 +97,11 @@ function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
     };
   }
   if (trigger.kind === "event") {
-    const source = titleCase(trigger.source);
-    const event = titleCase(trigger.type.replace(/_received$/, ""));
+    const phrase = eventTriggerPhrase(trigger);
     return {
       type: "Event",
-      summary: `Run when a ${source} ${event.toLowerCase()} arrives.`,
-      cadence: `On ${source} ${event.toLowerCase()}`,
+      summary: `Run when a ${phrase} event arrives.`,
+      cadence: `On ${phrase}`,
     };
   }
   if (trigger.kind === "on_signal") {

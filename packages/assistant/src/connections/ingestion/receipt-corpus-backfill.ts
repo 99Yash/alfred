@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { documents, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { and, asc, eq, notExists } from "drizzle-orm";
 import { resolveTimezone } from "@alfred/assistant/settings";
-import { writeReceiptDocument } from "./receipt-document";
+import { receiptDocumentJoin, writeReceiptDocument } from "./receipt-document";
 
 /** Bounded recovery for receipts stored before corpus projection was installed. */
 export async function backfillReceiptDocuments(source: InboundEventSource): Promise<void> {
@@ -14,18 +14,7 @@ export async function backfillReceiptDocuments(source: InboundEventSource): Prom
     .where(
       and(
         eq(eventReceipts.provider, source),
-        notExists(
-          db()
-            .select({ id: documents.id })
-            .from(documents)
-            .where(
-              and(
-                eq(documents.userId, eventReceipts.userId),
-                eq(documents.source, source),
-                eq(documents.sourceId, eventReceipts.id),
-              ),
-            ),
-        ),
+        notExists(db().select({ id: documents.id }).from(documents).where(receiptDocumentJoin())),
       ),
     )
     .orderBy(asc(eventReceipts.deliveredAt))

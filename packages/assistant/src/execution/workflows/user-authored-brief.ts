@@ -6,6 +6,8 @@ import {
 } from "@alfred/ai";
 import {
   compactionThresholdTokens,
+  getStringPath,
+  isInboundEventSource,
   parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
@@ -14,6 +16,7 @@ import {
   workflowRevisionDefinitionSchema,
   workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
+  type InboundEventSource,
   type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -38,7 +41,7 @@ import {
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
 import { writeScratch } from "../scratchpad/index";
-import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { readIntegrationAvailability, readReceiptDocument } from "@alfred/assistant/connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
@@ -762,6 +765,7 @@ async function buildTriggerEventMessage(input: {
     kind: string;
     source?: string | undefined;
     type?: string | undefined;
+    rawKind?: string | undefined;
     payload?: Record<string, unknown> | undefined;
   };
 }): Promise<AgentTranscriptMessage | null> {
@@ -770,7 +774,18 @@ async function buildTriggerEventMessage(input: {
 
   const documentId =
     typeof trigger.payload?.documentId === "string" ? trigger.payload.documentId : undefined;
+  const receiptId =
+    typeof trigger.payload?.receiptId === "string" ? trigger.payload.receiptId : undefined;
   const reason = typeof trigger.payload?.reason === "string" ? trigger.payload.reason : undefined;
+  if (!documentId && receiptId && trigger.source && isInboundEventSource(trigger.source)) {
+    return buildReceiptTriggerMessage({
+      userId: input.userId,
+      source: trigger.source,
+      type: trigger.type,
+      rawKind: trigger.rawKind,
+      receiptId,
+    });
+  }
   if (!documentId) {
     return {
       role: "user",
@@ -818,8 +833,6 @@ async function buildTriggerEventMessage(input: {
   }
 
   const metadata = toRecord(doc.metadata);
-  const excerpt = doc.content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
-  const truncated = doc.content.length > excerpt.length;
   const metadataSubset = pickTriggerMetadata(metadata);
 
   return {
@@ -835,14 +848,78 @@ async function buildTriggerEventMessage(input: {
       doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
       doc.url ? xmlTag("url", doc.url) : "",
       reason ? xmlTag("reason", reason) : "",
-      xmlTag("truncated", String(truncated)),
       xmlTag("metadata", JSON.stringify(metadataSubset)),
-      xmlTag("excerpt", excerpt),
+      ...triggerEventExcerptTags(doc.content),
       "</trigger_event>",
     ]
       .filter(Boolean)
       .join("\n"),
   };
+}
+
+/**
+ * The `<trigger_event>` for an inbound receipt (ADR-0097, #990). The run
+ * carries only the receipt pointer, and the receipt's body is never handed to
+ * the model as JSON: the corpus document the receive path wrote for it already
+ * holds the describe slot's title, summary, body, and provider URL, so the
+ * message reads that row through `readReceiptDocument` (the key's one owner)
+ * and bounds the body. `documents.raw` is the stored payload and stays out.
+ */
+async function buildReceiptTriggerMessage(input: {
+  userId: string;
+  source: InboundEventSource;
+  type: string | undefined;
+  rawKind: string | undefined;
+  receiptId: string;
+}): Promise<AgentTranscriptMessage> {
+  const doc = await readReceiptDocument({
+    id: input.receiptId,
+    userId: input.userId,
+    provider: input.source,
+  });
+  const identity = [
+    xmlTag("source", input.source),
+    xmlTag("type", input.type ?? "unknown"),
+    input.rawKind ? xmlTag("raw_kind", input.rawKind) : "",
+    xmlTag("receipt_id", input.receiptId),
+  ];
+
+  if (!doc) {
+    return {
+      role: "user",
+      content: [
+        '<trigger_event unavailable="true">',
+        ...identity,
+        xmlTag("unavailable_reason", "receipt_document_not_found"),
+        "</trigger_event>",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  }
+
+  const summary = getStringPath(toRecord(doc.metadata), "summary");
+  return {
+    role: "user",
+    content: [
+      "<trigger_event>",
+      ...identity,
+      doc.title ? xmlTag("title", doc.title) : "",
+      doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
+      doc.url ? xmlTag("url", doc.url) : "",
+      summary ? xmlTag("summary", summary) : "",
+      ...triggerEventExcerptTags(doc.content),
+      "</trigger_event>",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+/** The bounded body every `<trigger_event>` carries, and whether the bound cut it. */
+function triggerEventExcerptTags(content: string): string[] {
+  const excerpt = content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
+  return [xmlTag("truncated", String(content.length > excerpt.length)), xmlTag("excerpt", excerpt)];
 }
 
 function pickTriggerMetadata(metadata: Record<string, unknown>): Record<string, unknown> {

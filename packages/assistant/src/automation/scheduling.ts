@@ -1,4 +1,10 @@
-import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
+import {
+  eventTriggerPhrase,
+  isRawEventType,
+  parseIanaTimezone,
+  type IanaTimezone,
+  type WorkflowTrigger,
+} from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "@alfred/assistant/time";
 import { resolveTimezone } from "@alfred/assistant/settings";
@@ -95,7 +101,13 @@ export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
     case "cron":
       return describeCronSchedule(trigger.schedule, trigger.timezone);
     case "event":
-      return "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
+      // A typed trigger keeps the exact pre-#990 string: activation compares
+      // this summary with the staged preview (`validateActivationSchedule`),
+      // so an approval staged before a deploy must still activate after it.
+      // Only a raw trigger names the provider's own kind.
+      return isRawEventType(trigger.type) && trigger.rawKind
+        ? `For every ${eventTriggerPhrase(trigger)} event; Alfred evaluates semantic conditions inside the run`
+        : "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
     case "manual":
       return "Manual runs only";
     case "on_signal":

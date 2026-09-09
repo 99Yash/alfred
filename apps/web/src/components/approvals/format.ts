@@ -4,7 +4,7 @@
  * scope and these stay trivially testable.
  */
 
-import { humanizeSlug } from "@alfred/contracts";
+import { eventTriggerPhrase, humanizeSlug } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
@@ -17,6 +17,7 @@ export function triggerLabel(trigger: {
   kind: string;
   source?: string | null | undefined;
   type?: string | null | undefined;
+  rawKind?: string | null | undefined;
 }): string {
   switch (trigger.kind) {
     case "manual":
@@ -26,9 +27,15 @@ export function triggerLabel(trigger: {
     case "on_signal":
       return "Signal";
     case "event": {
-      const source = trigger.source ? humanizeSlug(trigger.source) : "an event";
-      const noun = trigger.type ? humanizeSlug(trigger.type.replace(/_received$/, "")) : "";
-      return noun ? `Triggered by ${source} ${noun.toLowerCase()}` : `Triggered by ${source}`;
+      // Historical runs written before ADR-0047 carry no source.
+      const phrase = trigger.source
+        ? eventTriggerPhrase({
+            source: trigger.source,
+            type: trigger.type,
+            rawKind: trigger.rawKind,
+          })
+        : "an event";
+      return `Triggered by ${phrase}`;
     }
     default:
       return humanizeSlug(trigger.kind);
