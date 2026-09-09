@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
@@ -10,6 +9,7 @@ import {
   type SuppressionEffect,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { sha256Canonical } from "@alfred/db/hash";
 import { rejectedInferences, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -500,7 +500,7 @@ async function appendStandingInstructionObservation(
     reason: args.reason ?? null,
     source,
   };
-  const evidenceHash = hashJson(payload);
+  const evidenceHash = sha256Canonical(payload);
 
   await insertObservation(
     {
@@ -521,10 +521,6 @@ async function appendStandingInstructionObservation(
 
 function observationSourceForMemorySource(source: MemorySource): ObservationSource {
   return source.kind === "user" ? "user" : "alfred_chat";
-}
-
-function hashJson(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function normalizeOptionalLabel(value: string | null | undefined): string | null {

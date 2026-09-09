@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   USER_MODEL_PROJECTION_NAME,
   getStringPath,
@@ -9,6 +8,7 @@ import {
   type ProjectionCursorValue,
   type ProjectionProvenance,
 } from "@alfred/contracts";
+import { sha256Canonical } from "@alfred/db/hash";
 import { db } from "@alfred/db";
 import {
   entityProfiles,
@@ -331,5 +331,5 @@ function checksumRow(
 
 function checksumFor(rows: readonly ProfileChecksumRow[]): string {
   const stable = [...rows].sort((a, b) => a.entityId.localeCompare(b.entityId));
-  return `sha256:${createHash("sha256").update(JSON.stringify(stable)).digest("hex")}`;
+  return sha256Canonical(stable);
 }

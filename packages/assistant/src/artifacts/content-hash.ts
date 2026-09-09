@@ -1,5 +1,5 @@
 import type { ArtifactContent } from "@alfred/contracts";
-import { createHash } from "node:crypto";
+import { sha256Canonical } from "@alfred/db/hash";
 
 /**
  * Optimistic-concurrency token for full artifact-body replacements.
@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
  * silently replace the canonical row and lose everything it never saw.
  */
 export function artifactContentHash(content: ArtifactContent | null): string {
-  return createHash("sha256").update(JSON.stringify(content)).digest("hex");
+  return sha256Canonical(content);
 }
 
 /** Allow same-run edits, otherwise require an exact hash of the current body. */
