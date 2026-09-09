@@ -33,6 +33,7 @@
  */
 
 import type {
+  AskUserUnansweredReason,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   PolicyMode,
@@ -73,10 +74,18 @@ import {
   type ToolSpanCloser,
   type ToolSpanInput,
 } from "@alfred/ai";
-import { stagingStore, type StagingCommit, type StagingRow } from "./staging-store";
+import {
+  stagingStore,
+  type PriorRejectionStatus,
+  type StagingCommit,
+  type StagingRow,
+} from "./staging-store";
+import { STAGING_ARM, type GatedArmPolicy } from "./staging-arm";
+import type { RejectedToolResult, UnansweredQuestionsToolResult } from "../adapter";
 import {
   callerLabel,
   joinToolInput,
+  questionToolInput,
   registerToolCallRoundAdapter,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
@@ -499,10 +508,11 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     };
   }
   // Routing declared by the registration (`RegisteredTool.staging`), not
-  // re-derived from the tool name here. Both non-default arms intercept BEFORE
-  // the staging/execute path below; everything else falls through to it. The
-  // availability and active-surface checks above already authorized the call, so
-  // the bypass is of the approval gate only.
+  // re-derived from the tool name here. `join` and `fast_path` intercept BEFORE
+  // the staging/execute path below; `question` refuses one input shape and then
+  // takes the staged path with a forced approval; everything else falls through
+  // to it. The availability and active-surface checks above already authorized
+  // the call, so the bypass is of the approval gate only.
   switch (tool.staging) {
     case "join":
       // ADR-0073. Park the parent on the child's completion signal instead of
@@ -511,6 +521,32 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       return await resolveAwaitSubAgentWithSpan(tool, input, ctx);
     case "fast_path":
       return executeFastPath(tool, input, ctx);
+    case "question": {
+      // ADR-0099. `answers` is the user's half of the exchange: the decision
+      // route writes it into the decided input and the `approved` case below
+      // re-parses it. A fresh call that already carries answers is the model
+      // answering its own question, so refuse it before any row is written.
+      // PARSED with the question contract the registry proved at boot, not cast.
+      const question = questionToolInput.parse(input);
+      if (question.answers !== undefined) {
+        const message =
+          `Tool '${toolName}' input must not include 'answers'. The user fills the answers on ` +
+          "the question card; send only 'context' and 'questions'.";
+        recordRejection({
+          dispatch: args,
+          outcome: "invalid_input",
+          reason: message,
+          toolName,
+          tool,
+          input,
+        });
+        return {
+          kind: "invalid_input",
+          result: { status: "invalid_input", toolName, message },
+        };
+      }
+      break;
+    }
     case "staged":
       break;
     default: {
@@ -524,6 +560,10 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   }
 
   const proposedInputHash = hashToolInput(toolName, input);
+  // The routing switch above returned for every arm without a gated policy, so
+  // this is `staged` or `question`. Everything the two do differently below
+  // reads off this one row (ADR-0099).
+  const arm: GatedArmPolicy = STAGING_ARM[tool.staging];
 
   // #559b: recheck the cancellation fence before any staging write. The step
   // started under `args.fence`; `cancelRunInTx` bumps the run's generation
@@ -568,32 +608,31 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     };
   }
 
-  // Retry suppression — Phase 3c. A prior `rejected` row for this run +
-  // tool + input hash means the user has already said no to this exact
-  // proposal; synthesize the same rejection without writing a new row
-  // or firing a new notification. Limited to the same run because
+  // Retry suppression — Phase 3c. A prior settled row for this run + tool +
+  // input hash (the arm says which statuses count) means the user has already
+  // answered this exact proposal; synthesize the same result without writing a
+  // new row or firing a new notification. Limited to the same run because
   // ADR-0034 scopes the partial index that way.
   const priorReject = await stagingStore().findPriorRejection({
     runId: args.runId,
     toolName,
     proposedInputHash,
+    statuses: arm.priorRejectionStatuses,
   });
 
   if (priorReject) {
-    const reason = priorReject.reason ?? "rejected by user";
-    // Retry-suppression: the boss re-proposed byte-identical input the user
-    // already rejected. This is exactly the "bounce on the same wall" pattern
-    // #345 wants countable — the shared signature buckets every repeat.
-    recordRejection({ dispatch: args, outcome: "rejected", reason, toolName, tool, input });
-    return {
-      kind: "rejected",
+    // The boss re-proposed byte-identical input the user already settled. This
+    // is exactly the "bounce on the same wall" pattern #345 wants countable —
+    // the shared signature buckets every repeat.
+    return settleWithoutExecution(arm, {
+      dispatch: args,
+      tool,
+      toolName,
       stagingId: null,
-      result: synthesizeRejection({
-        toolName,
-        proposedInput: input,
-        reason,
-      }),
-    };
+      input,
+      status: priorReject.status === "expired" ? "expired" : "rejected",
+      reason: priorReject.reason,
+    });
   }
 
   // Cancellation is allowed while a step body is running. The staging insert
@@ -623,7 +662,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // effective tier drives both the approval decision and the persisted row.
   const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
-  const requiresApproval = toolRequiresApproval(policyMode, riskTier);
+  const requiresApproval = arm.forcesApproval || toolRequiresApproval(policyMode, riskTier);
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
     : null;
@@ -681,7 +720,8 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     );
   }
   let promotedPendingApproval = false;
-  const riskFloorRequiresApproval = toolRequiresApproval("autonomy", riskTier);
+  const riskFloorRequiresApproval =
+    arm.forcesApproval || toolRequiresApproval("autonomy", riskTier);
   if (
     !insertedNew &&
     row.status === "pending" &&
@@ -744,14 +784,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
             delayMs: expiryDelayMs,
           });
         }
+        // The wake is the only place the approval kind is written. The decision
+        // route and the expiry worker match on (runId, approvalId) alone and
+        // never re-derive it (ADR-0099), so nothing can disagree with this row.
         return {
           kind: "staged",
           stagingId: row.id,
           wake: {
             kind: "hil",
             approvalId: row.id,
-            approvalKind: "action_staging",
-            prompt: `Approve ${toolName}`,
+            approvalKind: arm.approvalKind,
+            prompt: arm.wakePrompt(toolName),
           },
         };
       }
@@ -815,45 +858,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       });
     }
 
-    case "rejected": {
-      const reason = row.rejectReason ?? "rejected by user";
-      recordRejection({
-        dispatch: args,
-        outcome: "rejected",
-        reason,
-        toolName,
-        tool,
-        input: row.proposedInput,
-      });
-      return {
-        kind: "rejected",
-        stagingId: row.id,
-        result: synthesizeRejection({
-          toolName,
-          proposedInput: row.proposedInput,
-          reason,
-        }),
-      };
-    }
-
+    case "rejected":
     case "expired":
-      recordRejection({
+      return settleWithoutExecution(arm, {
         dispatch: args,
-        outcome: "rejected",
-        reason: "auto-expired",
-        toolName,
         tool,
-        input: row.proposedInput,
-      });
-      return {
-        kind: "rejected",
+        toolName,
         stagingId: row.id,
-        result: synthesizeRejection({
-          toolName,
-          proposedInput: row.proposedInput,
-          reason: "auto-expired",
-        }),
-      };
+        input: row.proposedInput,
+        status: row.status,
+        reason: row.rejectReason,
+      });
 
     case "executed":
       // Idempotent re-dispatch. The model proposed the same tool call
@@ -1008,6 +1023,11 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
   const policyMode = await resolvePolicyMode(userId, toolName);
   const tool = getTool(toolName);
   if (!tool) return false;
+  // An arm that forces its approval (the `question` arm, ADR-0099) parks on
+  // every dispatch, so it belongs in the serial approval lane, where the batch
+  // loop stops at the first park. In the concurrent bucket it would park the
+  // turn beside a gated sibling that then stages a second card.
+  if (STAGING_ARM[tool.staging]?.forcesApproval) return true;
   // The hint has no validated input or execution context. Keep any dynamic
   // resolver in the serial approval lane; the live dispatch remains the source
   // of truth and may still execute a lower-tier call without parking.
@@ -1528,14 +1548,97 @@ function synthesizeCancelledByFence(): CancellationEnvelope {
   });
 }
 
-function synthesizeRejection(
-  args: SynthesizeRejectionArgs,
-): Extract<DispatchResult, { kind: "rejected" }>["result"] {
+function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult {
   return {
     status: "rejected_by_user",
     toolName: args.toolName,
     proposedInput: args.proposedInput,
     reason: args.reason,
+    retryPolicy: "do_not_retry_identical",
+  };
+}
+
+/**
+ * The dispatch result for a call whose row the user settled without an
+ * execution: a `rejected` or `expired` row met on resume, or a prior such row
+ * matched by retry suppression. Records the trace node and shapes the result
+ * per the arm (ADR-0099): a write reads back as a rejection, a question as
+ * `unanswered`. The one place the two terminal shapes are spelled.
+ */
+function settleWithoutExecution(
+  arm: GatedArmPolicy,
+  args: {
+    dispatch: ToolCallDispatchArgs;
+    tool: RegisteredTool;
+    toolName: ToolName;
+    stagingId: string | null;
+    input: unknown;
+    status: PriorRejectionStatus;
+    reason: string | null;
+  },
+): DispatchResult {
+  const reason =
+    args.status === "expired" ? "auto-expired" : (args.reason ?? arm.rejectedWithoutReason);
+  recordRejection({
+    dispatch: args.dispatch,
+    outcome: "rejected",
+    reason,
+    toolName: args.toolName,
+    tool: args.tool,
+    input: args.input,
+  });
+  if (arm.settled === "unanswered") {
+    return {
+      kind: "unanswered",
+      stagingId: args.stagingId,
+      result: synthesizeUnansweredQuestions({
+        toolName: args.toolName,
+        input: args.input,
+        reason: args.status === "expired" ? "expired" : "dismissed",
+      }),
+    };
+  }
+  return {
+    kind: "rejected",
+    stagingId: args.stagingId,
+    result: synthesizeRejection({
+      toolName: args.toolName,
+      proposedInput: args.input,
+      reason,
+    }),
+  };
+}
+
+/**
+ * The tool result a `staging: "question"` call yields when the user dismissed
+ * the card or let it expire (ADR-0099). Carries the questions back so the model
+ * can name the assumption it proceeds on, and tells it in plain words not to
+ * park the turn on the same set again — the retry-suppression check above
+ * enforces that for byte-identical input; this is the instruction that keeps a
+ * reworded repeat from happening either. `input` is a stored or validated
+ * question-tool input; the question contract parse is the same one the routing
+ * switch and the registry's boot proof use.
+ */
+function synthesizeUnansweredQuestions(args: {
+  toolName: ToolName;
+  input: unknown;
+  reason: Exclude<AskUserUnansweredReason, "no_answers">;
+}): UnansweredQuestionsToolResult {
+  const parsed = questionToolInput.safeParse(args.input);
+  const questions = parsed.success ? parsed.data.questions : [];
+  const what =
+    args.reason === "expired"
+      ? "The user did not answer these questions before the card expired."
+      : "The user dismissed these questions without answering.";
+  return {
+    status: "unanswered",
+    toolName: args.toolName,
+    reason: args.reason,
+    questions,
+    message:
+      `${what} Do not ask them again, in these words or in others. Continue the task on a ` +
+      "reasonable assumption, state that assumption to the user in one sentence, and invite a " +
+      "correction.",
     retryPolicy: "do_not_retry_identical",
   };
 }

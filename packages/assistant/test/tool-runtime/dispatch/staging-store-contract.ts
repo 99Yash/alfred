@@ -223,6 +223,7 @@ export function runStagingStoreContract(
           runId: run.runId,
           toolName: "system.load_tool",
           proposedInputHash: values.proposedInputHash,
+          statuses: ["rejected"],
         }),
         null,
         "a pending row is not a prior rejection",
@@ -254,14 +255,16 @@ export function runStagingStoreContract(
           runId: run.runId,
           toolName: "system.load_tool",
           proposedInputHash: hash,
+          statuses: ["rejected"],
         }),
-        { reason: "nope" },
+        { reason: "nope", status: "rejected" },
       );
       assert.equal(
         await h.store.findPriorRejection({
           runId: run.runId,
           toolName: "system.load_tool",
           proposedInputHash: `${hash}-different`,
+          statuses: ["rejected"],
         }),
         null,
         "a different input hash is a different proposal",
@@ -291,8 +294,9 @@ export function runStagingStoreContract(
           runId: run.runId,
           toolName: "system.load_tool",
           proposedInputHash: hash,
+          statuses: ["rejected"],
         }),
-        { reason: "newer" },
+        { reason: "newer", status: "rejected" },
       );
     });
 
@@ -311,8 +315,9 @@ export function runStagingStoreContract(
           runId: run.runId,
           toolName: "system.load_tool",
           proposedInputHash: values.proposedInputHash,
+          statuses: ["rejected"],
         }),
-        { reason: null },
+        { reason: null, status: "rejected" },
       );
     });
 

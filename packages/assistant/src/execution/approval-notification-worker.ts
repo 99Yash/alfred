@@ -11,7 +11,14 @@
  * schedule the notification without forming an import cycle.
  */
 
-import { humanizeSlug, humanizeToolName, isRecord, jsonValueSchema } from "@alfred/contracts";
+import {
+  ASK_USER_TOOL,
+  humanizeSlug,
+  humanizeToolName,
+  isRecord,
+  jsonValueSchema,
+  type ToolName,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
@@ -178,7 +185,7 @@ interface RenderApprovalNotificationArgs {
   runId: string;
   stepId: string;
   workflowSlug: string;
-  toolName: string;
+  toolName: ToolName;
   integration: string;
   riskTier: string;
   displayInput: unknown;
@@ -190,9 +197,13 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   html: string;
   text: string;
 }> {
+  // A question is an approval with a different card (ADR-0099): the same row,
+  // the same email door, but the copy asks for an answer, not a decision, and
+  // a risk prefix on a question would mislead.
+  const isQuestion = args.toolName === ASK_USER_TOOL;
   const action = humanizeToolName(args.toolName);
-  const heading = `Alfred wants to ${action}`;
-  const subject = `[${args.riskTier}] ${heading}`;
+  const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
+  const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
   const inputFields = summarizeInput(args.displayInput);
   // Workflow / Tool / Risk lead the table, then the summarized input fields.
   const fields: ApprovalEmailField[] = [
