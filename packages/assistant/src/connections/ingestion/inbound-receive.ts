@@ -34,7 +34,8 @@ import { resolveTimezone } from "@alfred/assistant/settings";
  *   the provider does not retry what cannot change.
  * - `duplicate`: a receipt for this dedup key already exists (either tier).
  * - `accepted`: a new typed receipt row exists and the delivery job is enqueued.
- * - `raw`: a new raw receipt row exists (ADR-0097 item 9); no job, no bus event.
+ * - `raw`: a new raw receipt row exists (ADR-0097 items 9 and 11) and the same
+ *   delivery job is enqueued; it publishes the row as a raw event.
  */
 export type InboundDeliveryOutcome =
   | { kind: "unknown_source"; source: string }
@@ -62,13 +63,15 @@ export interface ReceiveInboundDeliveryArgs {
  * `ingress.deliver`. The request is acknowledged as soon as the row exists; no
  * workflow runs inline.
  *
- * Two tiers leave this function as a stored row. A delivery whose kind the
- * entry names is a typed receipt: declared dedup key, `pending`, one delivery
- * job, one bus event. A delivery whose kind the entry does not name is a raw
- * receipt (ADR-0097 item 9): keyed on the provider kind and payload hash, `completed` at insert,
- * no job and no bus event, so nothing downstream of this function changes for
- * it. Both tiers share the verify, parse, and owner steps, so a raw row is
- * exactly as trusted and as attributed as a typed one.
+ * Two tiers leave this function as a stored row, and both take the same road
+ * from here. A delivery whose kind the entry names is a typed receipt: declared
+ * dedup key, `pending`, one delivery job, one `<source>.<type>` bus event. A
+ * delivery whose kind the entry does not name is a raw receipt (ADR-0097 items
+ * 9 and 11): keyed on the provider kind and payload hash, `pending`, the same
+ * delivery job, one `<source>.raw` bus event carrying the kind, so a
+ * user-authored trigger on that kind can match (#990). Both tiers share the
+ * verify, parse, and owner steps, so a raw row is exactly as trusted and as
+ * attributed as a typed one.
  *
  * This is the queue's producer, so it lives beside the queue rather than in
  * `../ingress`: that door is on the automation readiness import path and must
@@ -114,8 +117,12 @@ export async function receiveInboundDelivery(
     const stored = await insertReceipt({ ...receipt, tier: projection });
     switch (stored.kind) {
       case "inserted":
+        await enqueueLogged(stored.id, source);
         return { kind: "raw", source, receiptId: stored.id, rawKind: projection.rawKind };
       case "existing":
+        if (stored.processingStatus !== "completed") {
+          await enqueueLogged(stored.id, source);
+        }
         return { kind: "duplicate", source, receiptId: stored.id };
       case "gone":
         return { kind: "ignored", source, reason: "receipt-gone" };
@@ -153,9 +160,8 @@ export async function receiveInboundDelivery(
 }
 
 /**
- * What one receipt insert settled to. `existing` carries the status so the
- * typed caller can re-enqueue a not-yet-completed duplicate; the raw caller
- * ignores it because a raw row is `completed` from birth.
+ * What one receipt insert settled to. `existing` carries the status so either
+ * tier's caller can re-enqueue a not-yet-completed duplicate.
  */
 type ReceiptInsert =
   | { kind: "inserted"; id: string }
@@ -188,18 +194,16 @@ async function insertReceipt(
     verificationResult: INBOUND_VERIFICATION_RESULT,
     payloadHash: args.payloadHash,
     payload: args.payload,
+    processingStatus: "pending",
     ...(tier.kind === "raw"
       ? {
           providerDeliveryId: `raw:${tier.rawKind}:${args.payloadHash}`,
           eventType: rawEventTypeName(source),
           rawKind: tier.rawKind,
-          processingStatus: "completed",
-          processedAt: new Date(),
         }
       : {
           providerDeliveryId: tier.deliveryKey,
           eventType: eventTypeName(source, tier.type),
-          processingStatus: "pending",
         }),
   };
 

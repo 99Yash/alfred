@@ -1,0 +1,1 @@
+ALTER TABLE "event_receipts" DROP CONSTRAINT "event_receipts_raw_completed_check";

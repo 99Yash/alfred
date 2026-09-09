@@ -1,5 +1,6 @@
 import {
   credentialProviderOf,
+  type InboundEventSource,
   type LiveProviderSlug,
   type RawReceiptInventory,
 } from "@alfred/contracts";
@@ -65,4 +66,34 @@ export async function readRawReceiptInventory(
         : [],
     ),
   };
+}
+
+/** Bound on the kinds one source lists; a provider's kind space is a few dozen at most. */
+const SEEN_RAW_KINDS_LIMIT = 100;
+
+/**
+ * The raw kinds one event source has delivered to this user, newest first
+ * (#990). The revision service reads it to refuse a raw trigger on a kind the
+ * source has never sent, and to name the kinds it has, so authoring can
+ * self-correct. This filters on `event_receipts.provider`, unlike the inventory
+ * above: a trigger's `source` is an event-source slug, so here the two spaces
+ * do not need the credential join to meet.
+ */
+export async function seenRawKinds(userId: string, source: InboundEventSource): Promise<string[]> {
+  const lastSeenAt = max(eventReceipts.deliveredAt);
+  const rows = await db()
+    .select({ rawKind: eventReceipts.rawKind })
+    .from(eventReceipts)
+    .where(
+      and(
+        eq(eventReceipts.userId, userId),
+        eq(eventReceipts.provider, source),
+        isNotNull(eventReceipts.rawKind),
+      ),
+    )
+    .groupBy(eventReceipts.rawKind)
+    .orderBy(desc(lastSeenAt))
+    .limit(SEEN_RAW_KINDS_LIMIT);
+  // `IS NOT NULL` in the WHERE clause proves it; the select type cannot see it.
+  return rows.flatMap((row) => (row.rawKind ? [row.rawKind] : []));
 }

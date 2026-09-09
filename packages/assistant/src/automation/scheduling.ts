@@ -1,4 +1,10 @@
-import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
+import {
+  humanizeSlug,
+  integrationDisplayName,
+  parseIanaTimezone,
+  type IanaTimezone,
+  type WorkflowTrigger,
+} from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "@alfred/assistant/time";
 import { resolveTimezone } from "@alfred/assistant/settings";
@@ -94,8 +100,13 @@ export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
   switch (trigger.kind) {
     case "cron":
       return describeCronSchedule(trigger.schedule, trigger.timezone);
-    case "event":
-      return "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
+    case "event": {
+      // A raw trigger's kind is the provider's own name (`comment.created`);
+      // a typed one is a slug the registry declares (#990).
+      const source = integrationDisplayName(trigger.source);
+      const kind = trigger.rawKind ?? humanizeSlug(trigger.type).toLowerCase();
+      return `For every ${source} ${kind} event; Alfred evaluates semantic conditions inside the run`;
+    }
     case "manual":
       return "Manual runs only";
     case "on_signal":

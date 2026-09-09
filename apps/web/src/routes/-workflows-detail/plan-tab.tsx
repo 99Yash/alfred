@@ -1,13 +1,16 @@
 import {
-  enumGuard,
+  AUTHORABLE_EVENT_SOURCES,
   EVENT_TYPES_BY_SOURCE,
   integrationDisplayName,
+  isAuthorableEventSource,
   isIanaTimezone,
+  isInboundEventSource,
   LOADABLE_INTEGRATION_SLUGS,
+  RAW_EVENT_TYPE,
+  type AuthorableEventSource,
   type LoadableIntegrationSlug,
 } from "@alfred/contracts";
 import {
-  AUTHORABLE_EVENT_SOURCES as AUTHORABLE_EVENT_SOURCE_VALUES,
   isLikelyValidWorkflowCron,
   type SyncedWorkflow,
   type WorkflowUpdateArgs,
@@ -16,15 +19,19 @@ import { AlertTriangle, Link2, Lock } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill, AppSegmented, AppTextarea } from "~/components/ui/v2";
 import { AppInput } from "~/components/ui/v2/input";
+import { AppSelect } from "~/components/ui/v2/select";
+import { useRawReceiptKinds } from "~/lib/integrations/use-raw-kinds";
 import { cn } from "~/lib/utils";
 import { WorkflowIcon } from "./workflow-icon";
 
 /**
  * Trigger kinds a user can author. `on_signal` is intentionally absent —
  * no signal producer exists yet (ADR-0047 8b deferred), so the editor
- * never offers it. Event sources are limited to user-facing ones; the
- * internal sources (`google.oauth.callback`, `learn-skill`) drive built-in
- * flows and aren't authorable.
+ * never offers it. Event sources are the curated `AUTHORABLE_EVENT_SOURCES`;
+ * the internal sources (`google.oauth.callback`, `learn-skill`) drive built-in
+ * flows and aren't authorable. Gmail offers its typed events; an inbound
+ * source (GitHub, Sentry) offers the raw kinds its inventory has seen, and the
+ * saved trigger is `{ type: "raw", rawKind }` (#990).
  */
 type TriggerKind = "cron" | "event" | "manual";
 
@@ -34,17 +41,23 @@ const TRIGGER_TABS: ReadonlyArray<{ value: TriggerKind; label: string }> = [
   { value: "manual", label: "Manual" },
 ];
 
-type AuthorableEventSource = (typeof AUTHORABLE_EVENT_SOURCE_VALUES)[number];
-
 const AUTHORABLE_EVENT_SOURCE_OPTIONS: ReadonlyArray<{
   value: AuthorableEventSource;
   label: string;
-}> = [{ value: "gmail", label: "Gmail" }];
-
-const isAuthorableEventSource = enumGuard(AUTHORABLE_EVENT_SOURCE_VALUES);
+}> = AUTHORABLE_EVENT_SOURCES.map((source) => ({
+  value: source,
+  label: integrationDisplayName(source),
+}));
 
 function eventTypeLabel(type: string): string {
   return type.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** The typed events the editor offers for a source; empty for an inbound (raw-only) source. */
+function typedEventTypes(source: AuthorableEventSource): readonly string[] {
+  // SAFETY: the per-source row is a const tuple of event-type literals;
+  // widening only types downstream .includes / index reads on it.
+  return isInboundEventSource(source) ? [] : (EVENT_TYPES_BY_SOURCE[source] as readonly string[]);
 }
 
 interface Draft {
@@ -55,6 +68,8 @@ interface Draft {
   cronTimezone: string;
   eventSource: AuthorableEventSource;
   eventType: string;
+  /** The provider kind for an inbound source; empty until the user picks one. */
+  eventRawKind: string;
   allowed: LoadableIntegrationSlug[];
 }
 
@@ -69,7 +84,8 @@ function draftFromWorkflow(w: SyncedWorkflow): Draft {
     cronSchedule: t.kind === "cron" ? t.schedule : "0 8 * * *",
     cronTimezone: t.kind === "cron" ? (t.timezone ?? "") : "",
     eventSource,
-    eventType: t.kind === "event" ? t.type : (EVENT_TYPES_BY_SOURCE[eventSource][0] ?? ""),
+    eventType: t.kind === "event" ? t.type : (typedEventTypes(eventSource)[0] ?? ""),
+    eventRawKind: t.kind === "event" ? (t.rawKind ?? "") : "",
     allowed: w.allowedIntegrations.filter((s): s is LoadableIntegrationSlug =>
       // SAFETY: widening the const tuple only types the .includes receiver for
       // this membership test.
@@ -88,6 +104,14 @@ function buildTrigger(draft: Draft): WorkflowUpdateArgs["trigger"] {
     };
   }
   if (draft.kind === "event") {
+    if (isInboundEventSource(draft.eventSource)) {
+      return {
+        kind: "event",
+        source: draft.eventSource,
+        type: RAW_EVENT_TYPE,
+        rawKind: draft.eventRawKind,
+      };
+    }
     return { kind: "event", source: draft.eventSource, type: draft.eventType };
   }
   return { kind: "manual" };
@@ -116,9 +140,18 @@ export function PlanTab({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // SAFETY: the per-source row is a const tuple of event-type literals;
-  // widening only types downstream .includes / index reads on it.
-  const eventTypes = EVENT_TYPES_BY_SOURCE[draft.eventSource] as readonly string[];
+  const eventTypes = typedEventTypes(draft.eventSource);
+  // The raw inventory is the option list for an inbound source. The hook call
+  // stays unconditional; `null` disables the query for Gmail and non-event kinds.
+  const rawSource =
+    draft.kind === "event" && isInboundEventSource(draft.eventSource) ? draft.eventSource : null;
+  const rawKinds = useRawReceiptKinds(rawSource);
+  const rawKindOptions = useMemo(
+    () => (rawKinds.data?.kinds ?? []).map((entry) => ({ value: entry.kind, label: entry.kind })),
+    [rawKinds.data],
+  );
+  const rawInventoryEmpty = rawSource !== null && rawKinds.isSuccess && rawKindOptions.length === 0;
+  const rawKindMissing = rawSource !== null && draft.eventRawKind === "";
 
   // The event trigger source must be inside a non-empty allowed-integration
   // cap, or the run can't act on what fired it (server rejects this too).
@@ -135,7 +168,8 @@ export function PlanTab({
     draft.cronTimezone.trim() !== "" &&
     !isIanaTimezone(draft.cronTimezone.trim());
   const nameEmpty = draft.name.trim() === "";
-  const invalid = nameEmpty || cronEmpty || cronInvalid || timezoneInvalid || eventCapViolation;
+  const invalid =
+    nameEmpty || cronEmpty || cronInvalid || timezoneInvalid || eventCapViolation || rawKindMissing;
 
   const dirty = useMemo(() => {
     const original = draftFromWorkflow(workflow);
@@ -147,6 +181,7 @@ export function PlanTab({
       draft.cronTimezone !== original.cronTimezone ||
       draft.eventSource !== original.eventSource ||
       draft.eventType !== original.eventType ||
+      draft.eventRawKind !== original.eventRawKind ||
       !sameAllowed(draft.allowed, original.allowed)
     );
   }, [draft, workflow]);
@@ -262,28 +297,54 @@ export function PlanTab({
                   setDraft((d) => ({
                     ...d,
                     eventSource,
-                    // SAFETY: same const-tuple row read as above.
-                    eventType: (EVENT_TYPES_BY_SOURCE[eventSource] as readonly string[])[0] ?? "",
+                    eventType: typedEventTypes(eventSource)[0] ?? "",
+                    eventRawKind: "",
                   }))
                 }
                 items={AUTHORABLE_EVENT_SOURCE_OPTIONS}
                 label="Event source"
               />
               <span className="text-app-fg-3">when</span>
-              <AppSegmented<string>
-                value={draft.eventType}
-                onValueChange={(eventType) => !readOnly && setDraft((d) => ({ ...d, eventType }))}
-                items={eventTypes.map((t) => ({
-                  value: t,
-                  label: eventTypeLabel(t),
-                }))}
-                label="Event type"
-              />
+              {rawSource === null ? (
+                <AppSegmented<string>
+                  value={draft.eventType}
+                  onValueChange={(eventType) => !readOnly && setDraft((d) => ({ ...d, eventType }))}
+                  items={eventTypes.map((t) => ({
+                    value: t,
+                    label: eventTypeLabel(t),
+                  }))}
+                  label="Event type"
+                />
+              ) : (
+                <AppSelect
+                  value={draft.eventRawKind === "" ? undefined : draft.eventRawKind}
+                  onChange={(eventRawKind) =>
+                    !readOnly && setDraft((d) => ({ ...d, eventRawKind: eventRawKind ?? "" }))
+                  }
+                  options={rawKindOptions}
+                  placeholder={rawKinds.isPending ? "Loading events…" : "Pick an event kind"}
+                  disabled={readOnly || rawKinds.isPending || rawKindOptions.length === 0}
+                  className="min-w-56 font-mono"
+                  label="Event kind"
+                />
+              )}
             </div>
             <p className="text-xs text-app-fg-3">
               Alfred runs this workflow each time the selected event arrives, with the triggering
               item passed in as context.
             </p>
+            {rawInventoryEmpty ? (
+              <p className="text-xs text-app-amber-4">
+                {integrationDisplayName(draft.eventSource)} has not delivered any events yet. Kinds
+                appear here the day the first one arrives; see the integration page under Unmapped
+                events.
+              </p>
+            ) : null}
+            {rawSource !== null && rawKinds.isError ? (
+              <p className="text-xs text-app-red-4">
+                Could not load the event kinds for {integrationDisplayName(draft.eventSource)}.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
