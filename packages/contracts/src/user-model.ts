@@ -34,66 +34,46 @@ import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
  * `user` / `alfred_chat` are first-class high-precedence sources (D14) — a
  * chat-captured standing instruction or a `/settings` correction is an
  * observation, not a side-channel write.
+ *
+ * Every member has a writer in the tree (#987): `gmail` is the Gmail reducer,
+ * `google_account` is the connect-time org-affiliation emitter (ADR-0080 §4a),
+ * `alfred_chat` / `user` are the standing-instruction writer. A source with no
+ * reducer is NOT pre-registered here — a reader would recover a shape the
+ * traffic does not have. A new reducer registers its source, its rank in
+ * `OBSERVATION_SOURCE_RANK`, and its kinds in `OBSERVATION_KINDS_BY_SOURCE` in
+ * the same change that lands its first write (ADR-0067 P2 GitHub, P3 Calendar +
+ * Directory, post-v1 enrichment).
  */
-export const OBSERVATION_SOURCES = [
-  "gmail",
-  "google_account",
-  "google_calendar",
-  "google_directory",
-  "github",
-  "clickup",
-  "notion",
-  "railway",
-  "vercel",
-  "enrichment",
-  "alfred_chat",
-  "user",
-] as const;
+export const OBSERVATION_SOURCES = ["gmail", "google_account", "alfred_chat", "user"] as const;
 export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
 export type ObservationSource = (typeof OBSERVATION_SOURCES)[number];
 
 /**
  * Conflict precedence for the fold (D14): rank first, then recency within a
- * rank. `user` beats `alfred_chat` beats first-party integrations beats
- * enrichment — regardless of time. Lower number wins. A projection may
+ * rank. `user` (0) beats `alfred_chat` (1) beats first-party integrations (2)
+ * beats enrichment (3) — regardless of time. Lower number wins. A projection may
  * *propose* facts from integrations, but must never overwrite a
- * user-authoritative correction.
+ * user-authoritative correction. Only sources that write are listed; a new
+ * first-party reducer joins at 2 and an enrichment writer at 3.
  */
 export const OBSERVATION_SOURCE_RANK = {
   user: 0,
   alfred_chat: 1,
   // First-party integrations share rank 2 — recency breaks ties between them.
-  // `google_directory` is first-party (and its verified identities anchor at the
-  // strongest non-user IDENTITY tier, D2/D3), but identity-anchor strength and
-  // fold-conflict precedence are different axes: a Directory-sourced FACT must
-  // not silently beat a `user` correction, so it sits at the first-party rank.
   gmail: 2,
   google_account: 2,
-  google_calendar: 2,
-  google_directory: 2,
-  github: 2,
-  clickup: 2,
-  notion: 2,
-  railway: 2,
-  vercel: 2,
-  enrichment: 3,
 } satisfies Readonly<Record<ObservationSource, number>>;
 
 /**
  * Relationship-evidence kinds (D4/D15). A provider event can produce several
  * observations, but only relationship-bearing occurrences affect
  * significance/co-occurrence — a calendar reminder edit is not another meeting.
- * Extensible: a new reducer registers its evidence kinds here first.
+ * Extensible: a new reducer registers its evidence kinds here first, in the
+ * change that lands the reducer (see `OBSERVATION_SOURCES`).
  */
 export const OBSERVATION_KINDS = [
   // gmail
   "email_message",
-  // google_calendar
-  "calendar_meeting",
-  // github
-  "github_pull_request",
-  "github_review",
-  "github_push",
   // user / alfred_chat (D14)
   "user_standing_instruction",
   "user_correction",
@@ -106,7 +86,6 @@ export const OBSERVATION_KINDS = [
   // correction outranks it. Emitted by integration connect/sweep, not a reducer
   // over inbound content.
   "user_org_affiliation",
-  "enrichment_fact",
 ] as const;
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
@@ -114,14 +93,9 @@ export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
 /**
  * Closed `source → kind` map (D1/D15). `source` and `kind` are NOT independent
  * vocabularies: a kind is legal only for the source whose reducer emits it, so
- * `{ source: "gmail", kind: "github_push" }` is rejected. Sources whose reducers
- * don't exist yet (`google_directory`/`clickup`/`notion`/`railway`/`vercel`) map
- * to `[]` — no observation kind is legal for them until their reducer registers
- * one here. (`google_directory` is registered as a source in P0 — its identity
- * kind `google_directory_id` and verified-directory anchor tier already exist —
- * so a Directory-originated identity/observation has a real `source` to attribute
- * to instead of masquerading as `google_calendar`; its profile/org-membership
- * kinds land with the P3 People-API reducer.)
+ * `{ source: "gmail", kind: "user_org_affiliation" }` is rejected. A source
+ * with no reducer is not listed at all (see `OBSERVATION_SOURCES`); its kinds
+ * register here with the reducer.
  * `user` and `alfred_chat` share the full user-authored set (D14): the same
  * correction/confirmation can arrive from a `/settings` edit or from chat.
  */
@@ -129,17 +103,9 @@ export const OBSERVATION_KINDS_BY_SOURCE = {
   gmail: ["email_message"],
   // `user_org_affiliation`: the connected Google account asserts the user's org
   // domain (ADR-0080 §4a). This is account-level provenance, not a Gmail message
-  // reducer event; keeping it on `google_account` prevents the future connect-time
+  // reducer event; keeping it on `google_account` prevents the connect-time
   // emitter from pretending a generic Google credential came from Gmail.
   google_account: ["user_org_affiliation"],
-  google_calendar: ["calendar_meeting"],
-  google_directory: [],
-  github: ["github_pull_request", "github_review", "github_push"],
-  clickup: [],
-  notion: [],
-  railway: [],
-  vercel: [],
-  enrichment: ["enrichment_fact"],
   alfred_chat: [
     "user_standing_instruction",
     "user_correction",
@@ -168,7 +134,7 @@ export function isObservationKindForSource(
 /**
  * The `(source, kind)` pair every reducer must satisfy before an observation is
  * written — closes the half-open vocabulary that independent `source`/`kind`
- * validation leaves (a `gmail` row carrying a `github_*` kind). P1's full
+ * validation leaves (a `gmail` row carrying a user-authored kind). P1's full
  * observation-insert schema composes this.
  *
  * HARD P1 GATE: this pair-check is necessary but not sufficient. No raw
@@ -659,7 +625,7 @@ function boundedKeySchema(maxBytes: number, label: string) {
  * pieces the schema comments name as its obligations:
  *
  *   - `source` × `kind` validated as a PAIR (`isObservationKindForSource`), closing
- *     the half-open vocabulary a `gmail` row carrying a `github_*` kind would slip;
+ *     the half-open vocabulary a `gmail` row carrying a user-authored kind would slip;
  *   - `subjectIdentity` as an `ObservationSubject` (a canonical `IdentityRef` OR the
  *     `{ kind: "user" }` self-subject), `objectIdentity` as a canonical `IdentityRef`
  *     or null — both inherit the kind-specific FORMAT + canonicalization refines;

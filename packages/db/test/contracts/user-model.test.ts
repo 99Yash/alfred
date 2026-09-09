@@ -403,10 +403,16 @@ describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
 });
 
 describe("user-model observation contracts", () => {
-  test("keeps enrichment as a lower-precedence source than first-party integrations", () => {
-    assert.equal(observationSourceSchema.parse("enrichment"), "enrichment");
-    assert.equal(OBSERVATION_SOURCE_RANK.gmail < OBSERVATION_SOURCE_RANK.enrichment, true);
+  test("ranks user above alfred_chat above first-party integrations", () => {
     assert.equal(OBSERVATION_SOURCE_RANK.user < OBSERVATION_SOURCE_RANK.alfred_chat, true);
+    assert.equal(OBSERVATION_SOURCE_RANK.alfred_chat < OBSERVATION_SOURCE_RANK.gmail, true);
+    assert.equal(OBSERVATION_SOURCE_RANK.gmail, OBSERVATION_SOURCE_RANK.google_account);
+  });
+
+  test("lists only sources that have a writer (#987)", () => {
+    assert.equal(observationSourceSchema.safeParse("google_directory").success, false);
+    assert.equal(observationSourceSchema.safeParse("enrichment").success, false);
+    assert.equal(observationSourceSchema.safeParse("github").success, false);
   });
 
   test("validates the participant envelope reducers must write", () => {
@@ -558,15 +564,6 @@ describe("user-model observation contracts", () => {
         recipientCount: 1,
       }),
     );
-  });
-
-  test("registers google_directory as a first-party source with no kinds until P3", () => {
-    // The identity kind `google_directory_id` + the verified-directory anchor tier
-    // already exist in P0, so a Directory row needs a real source to attribute to
-    // rather than masquerading as google_calendar. Reducer (and its kinds) land at P3.
-    assert.equal(observationSourceSchema.parse("google_directory"), "google_directory");
-    assert.equal(OBSERVATION_SOURCE_RANK.google_directory, OBSERVATION_SOURCE_RANK.gmail);
-    assert.equal(isObservationKindForSource("google_directory", "calendar_meeting"), false);
   });
 
   test("registers google_account for account-level identity affiliation", () => {
@@ -789,23 +786,20 @@ describe("user-model observation contracts", () => {
   test("closes the source→kind vocabulary so a kind can't ride the wrong source", () => {
     assert.equal(isObservationKindForSource("gmail", "email_message"), true);
     assert.equal(isObservationKindForSource("google_account", "user_org_affiliation"), true);
-    assert.equal(isObservationKindForSource("github", "github_push"), true);
+    assert.equal(isObservationKindForSource("user", "user_correction"), true);
     // The half-open bug: independently-valid source + kind that don't belong together.
-    assert.equal(isObservationKindForSource("gmail", "github_push"), false);
+    assert.equal(isObservationKindForSource("gmail", "user_org_affiliation"), false);
+    assert.equal(isObservationKindForSource("google_account", "email_message"), false);
 
     assert.equal(
-      observationSourceKindSchema.parse({ source: "github", kind: "github_review" }).kind,
-      "github_review",
-    );
-    assert.throws(() =>
-      observationSourceKindSchema.parse({ source: "gmail", kind: "github_push" }),
+      observationSourceKindSchema.parse({ source: "alfred_chat", kind: "user_correction" }).kind,
+      "user_correction",
     );
     assert.throws(() =>
       observationSourceKindSchema.parse({ source: "gmail", kind: "user_org_affiliation" }),
     );
-    // A source whose reducer isn't built yet accepts no kind.
     assert.throws(() =>
-      observationSourceKindSchema.parse({ source: "clickup", kind: "email_message" }),
+      observationSourceKindSchema.parse({ source: "google_account", kind: "email_message" }),
     );
   });
 
@@ -871,19 +865,20 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
   });
 
   test("closes the half-open vocabulary: a kind not valid for its source is rejected", () => {
-    // `github_push` is a real kind, but not for `gmail` — the exact split a
+    // `user_correction` is a real kind, but not for `gmail` — the exact split a
     // separate source-check + kind-check would wave through.
     assert.throws(
-      () => observationInsertSchema.parse({ ...minimal, kind: "github_push" }),
+      () => observationInsertSchema.parse({ ...minimal, kind: "user_correction" }),
       /not valid for its source/,
     );
     // The same kind IS legal under its own source.
     assert.doesNotThrow(() =>
       observationInsertSchema.parse({
         ...minimal,
-        source: "github",
-        kind: "github_push",
-        familyKey: "github:push:owner/repo:abc",
+        source: "user",
+        kind: "user_correction",
+        subjectIdentity: { kind: "user" },
+        familyKey: "user:correction:abc",
       }),
     );
   });
