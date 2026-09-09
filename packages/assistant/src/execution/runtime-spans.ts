@@ -114,8 +114,17 @@ function waitMsBetween(startedAt: Date, endedAt: Date): number {
 /** Stable observation name for the approval-wait runtime span (PRD #405). */
 export const RUNTIME_APPROVAL_WAIT = "runtime.approval.wait";
 
-/** How a gated action's approval wait ended. */
-export type ApprovalWaitOutcome = "approved" | "rejected" | "expired" | "cancelled";
+/**
+ * How a gated action's approval wait ended. `answered` and `dismissed` are the
+ * question-card outcomes (ADR-0099): the user settled a question, not a write.
+ */
+export type ApprovalWaitOutcome =
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "cancelled"
+  | "answered"
+  | "dismissed";
 
 export interface ApprovalWaitSpanArgs {
   /** Run id whose gated action was parked — doubles as the trace id. */

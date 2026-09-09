@@ -77,6 +77,15 @@ export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
  */
 export const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent" satisfies ToolName;
 export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
+/**
+ * The one tool that parks a chat turn on a `question` approval (ADR-0099). The
+ * dispatcher routes it by its registered staging arm; every reader without the
+ * registry in hand (the decision route's reason rule, the notification email
+ * copy, the recent-rejection card note, run metrics) keys on this name. The
+ * registry proves at boot that the arm's single declarer IS this tool, so the
+ * two cannot drift.
+ */
+export const ASK_USER_TOOL = "system.ask_user" satisfies ToolName;
 
 export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
@@ -376,7 +385,9 @@ export const TOOL_LABELS = {
   },
   "system.ask_user": {
     running: "Waiting for your answer",
-    done: "Got your answer",
+    // Also the label for a dismissed or expired question: the call landed
+    // without an answer, so the copy must not claim one arrived.
+    done: "Asked you a question",
     title: "ask you a question",
   },
 

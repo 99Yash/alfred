@@ -74,10 +74,15 @@ import {
   type ToolSpanCloser,
   type ToolSpanInput,
 } from "@alfred/ai";
-import { stagingStore, type StagingCommit, type StagingRow } from "./staging-store";
+import {
+  stagingStore,
+  type PriorRejectionStatus,
+  type StagingCommit,
+  type StagingRow,
+} from "./staging-store";
+import { STAGING_ARM, type GatedArmPolicy } from "./staging-arm";
 import type { RejectedToolResult, UnansweredQuestionsToolResult } from "../adapter";
 import {
-  approvalKindForTool,
   callerLabel,
   joinToolInput,
   questionToolInput,
@@ -555,11 +560,10 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   }
 
   const proposedInputHash = hashToolInput(toolName, input);
-  // ADR-0099. The question arm parks on its own approval kind and never reads
-  // policy: `resolvePolicyMode` would answer `autonomy` for a `system` tool, and
-  // a question the user never sees is not a question. Every `isQuestion` branch
-  // below is one place the staged path and the question arm differ.
-  const isQuestion = tool.staging === "question";
+  // The routing switch above returned for every arm without a gated policy, so
+  // this is `staged` or `question`. Everything the two do differently below
+  // reads off this one row (ADR-0099).
+  const arm: GatedArmPolicy = STAGING_ARM[tool.staging];
 
   // #559b: recheck the cancellation fence before any staging write. The step
   // started under `args.fence`; `cancelRunInTx` bumps the run's generation
@@ -604,42 +608,31 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     };
   }
 
-  // Retry suppression — Phase 3c. A prior `rejected` row for this run +
-  // tool + input hash means the user has already said no to this exact
-  // proposal; synthesize the same rejection without writing a new row
-  // or firing a new notification. Limited to the same run because
-  // ADR-0034 scopes the partial index that way. A question set the user
-  // dismissed OR let expire is likewise not asked twice (ADR-0099): an
-  // expired write is a write the model may re-propose, but an expired question
-  // re-asked on the next step would park the turn on the same silence.
+  // Retry suppression — Phase 3c. A prior settled row for this run + tool +
+  // input hash (the arm says which statuses count) means the user has already
+  // answered this exact proposal; synthesize the same result without writing a
+  // new row or firing a new notification. Limited to the same run because
+  // ADR-0034 scopes the partial index that way.
   const priorReject = await stagingStore().findPriorRejection({
     runId: args.runId,
     toolName,
     proposedInputHash,
-    ...(isQuestion ? { statuses: ["rejected", "expired"] as const } : {}),
+    statuses: arm.priorRejectionStatuses,
   });
 
   if (priorReject) {
-    const reason = priorReject.reason ?? "rejected by user";
-    // Retry-suppression: the boss re-proposed byte-identical input the user
-    // already rejected. This is exactly the "bounce on the same wall" pattern
-    // #345 wants countable — the shared signature buckets every repeat.
-    recordRejection({ dispatch: args, outcome: "rejected", reason, toolName, tool, input });
-    return {
-      kind: "rejected",
+    // The boss re-proposed byte-identical input the user already settled. This
+    // is exactly the "bounce on the same wall" pattern #345 wants countable —
+    // the shared signature buckets every repeat.
+    return settleWithoutExecution(arm, {
+      dispatch: args,
+      tool,
+      toolName,
       stagingId: null,
-      result: isQuestion
-        ? synthesizeUnansweredQuestions({
-            toolName,
-            input,
-            reason: priorReject.status === "expired" ? "expired" : "dismissed",
-          })
-        : synthesizeRejection({
-            toolName,
-            proposedInput: input,
-            reason,
-          }),
-    };
+      input,
+      status: priorReject.status === "expired" ? "expired" : "rejected",
+      reason: priorReject.reason,
+    });
   }
 
   // Cancellation is allowed while a step body is running. The staging insert
@@ -669,8 +662,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // effective tier drives both the approval decision and the persisted row.
   const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
-  // A question ALWAYS parks (ADR-0099); the policy gate decides everything else.
-  const requiresApproval = isQuestion || toolRequiresApproval(policyMode, riskTier);
+  const requiresApproval = arm.forcesApproval || toolRequiresApproval(policyMode, riskTier);
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
     : null;
@@ -728,7 +720,8 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     );
   }
   let promotedPendingApproval = false;
-  const riskFloorRequiresApproval = isQuestion || toolRequiresApproval("autonomy", riskTier);
+  const riskFloorRequiresApproval =
+    arm.forcesApproval || toolRequiresApproval("autonomy", riskTier);
   if (
     !insertedNew &&
     row.status === "pending" &&
@@ -791,17 +784,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
             delayMs: expiryDelayMs,
           });
         }
-        // The kind is derived from the registration, and the decision route and
-        // expiry worker derive it the same way, so `signalRunInTx` sees one
-        // spelling on both sides (ADR-0099).
+        // The wake is the only place the approval kind is written. The decision
+        // route and the expiry worker match on (runId, approvalId) alone and
+        // never re-derive it (ADR-0099), so nothing can disagree with this row.
         return {
           kind: "staged",
           stagingId: row.id,
           wake: {
             kind: "hil",
             approvalId: row.id,
-            approvalKind: approvalKindForTool(toolName),
-            prompt: isQuestion ? "Answer Alfred's questions" : `Approve ${toolName}`,
+            approvalKind: arm.approvalKind,
+            prompt: arm.wakePrompt(toolName),
           },
         };
       }
@@ -865,60 +858,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       });
     }
 
-    case "rejected": {
-      const reason = row.rejectReason ?? "rejected by user";
-      recordRejection({
-        dispatch: args,
-        outcome: "rejected",
-        reason,
-        toolName,
-        tool,
-        input: row.proposedInput,
-      });
-      // A dismissed question is not a refused action (ADR-0099): the model
-      // learns the user did not answer and must continue on a stated
-      // assumption, not that a write was vetoed.
-      return {
-        kind: "rejected",
-        stagingId: row.id,
-        result: isQuestion
-          ? synthesizeUnansweredQuestions({
-              toolName,
-              input: row.proposedInput,
-              reason: "dismissed",
-            })
-          : synthesizeRejection({
-              toolName,
-              proposedInput: row.proposedInput,
-              reason,
-            }),
-      };
-    }
-
+    case "rejected":
     case "expired":
-      recordRejection({
+      return settleWithoutExecution(arm, {
         dispatch: args,
-        outcome: "rejected",
-        reason: "auto-expired",
-        toolName,
         tool,
-        input: row.proposedInput,
-      });
-      return {
-        kind: "rejected",
+        toolName,
         stagingId: row.id,
-        result: isQuestion
-          ? synthesizeUnansweredQuestions({
-              toolName,
-              input: row.proposedInput,
-              reason: "expired",
-            })
-          : synthesizeRejection({
-              toolName,
-              proposedInput: row.proposedInput,
-              reason: "auto-expired",
-            }),
-      };
+        input: row.proposedInput,
+        status: row.status,
+        reason: row.rejectReason,
+      });
 
     case "executed":
       // Idempotent re-dispatch. The model proposed the same tool call
@@ -1073,10 +1023,11 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
   const policyMode = await resolvePolicyMode(userId, toolName);
   const tool = getTool(toolName);
   if (!tool) return false;
-  // A question parks on its own approval kind without reading policy
-  // (ADR-0099), so it must never share a batch with free calls: the turn parks
-  // on a single `approvalId`, and a sibling question would 409 on resume.
-  if (tool.staging === "question") return true;
+  // An arm that forces its approval (the `question` arm, ADR-0099) parks on
+  // every dispatch, so it belongs in the serial approval lane, where the batch
+  // loop stops at the first park. In the concurrent bucket it would park the
+  // turn beside a gated sibling that then stages a second card.
+  if (STAGING_ARM[tool.staging]?.forcesApproval) return true;
   // The hint has no validated input or execution context. Keep any dynamic
   // resolver in the serial approval lane; the live dispatch remains the source
   // of truth and may still execute a lower-tier call without parking.
@@ -1604,6 +1555,57 @@ function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult 
     proposedInput: args.proposedInput,
     reason: args.reason,
     retryPolicy: "do_not_retry_identical",
+  };
+}
+
+/**
+ * The dispatch result for a call whose row the user settled without an
+ * execution: a `rejected` or `expired` row met on resume, or a prior such row
+ * matched by retry suppression. Records the trace node and shapes the result
+ * per the arm (ADR-0099): a write reads back as a rejection, a question as
+ * `unanswered`. The one place the two terminal shapes are spelled.
+ */
+function settleWithoutExecution(
+  arm: GatedArmPolicy,
+  args: {
+    dispatch: ToolCallDispatchArgs;
+    tool: RegisteredTool;
+    toolName: ToolName;
+    stagingId: string | null;
+    input: unknown;
+    status: PriorRejectionStatus;
+    reason: string | null;
+  },
+): DispatchResult {
+  const reason =
+    args.status === "expired" ? "auto-expired" : (args.reason ?? arm.rejectedWithoutReason);
+  recordRejection({
+    dispatch: args.dispatch,
+    outcome: "rejected",
+    reason,
+    toolName: args.toolName,
+    tool: args.tool,
+    input: args.input,
+  });
+  if (arm.settled === "unanswered") {
+    return {
+      kind: "unanswered",
+      stagingId: args.stagingId,
+      result: synthesizeUnansweredQuestions({
+        toolName: args.toolName,
+        input: args.input,
+        reason: args.status === "expired" ? "expired" : "dismissed",
+      }),
+    };
+  }
+  return {
+    kind: "rejected",
+    stagingId: args.stagingId,
+    result: synthesizeRejection({
+      toolName: args.toolName,
+      proposedInput: args.input,
+      reason,
+    }),
   };
 }
 
