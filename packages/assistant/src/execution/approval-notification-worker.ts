@@ -22,6 +22,7 @@ import { createRedisConnection } from "@alfred/db/redis";
 import { send } from "@alfred/assistant/delivery";
 import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
+  approvalKindForTool,
   approvalNotificationJobDataSchema,
   workflowBlockedNotificationJobDataSchema,
   type NotificationJobData,
@@ -190,9 +191,13 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   html: string;
   text: string;
 }> {
+  // A question is an approval with a different card (ADR-0099): the same row,
+  // the same email door, but the copy asks for an answer, not a decision, and
+  // a risk prefix on a question would mislead.
+  const isQuestion = approvalKindForTool(args.toolName) === "question";
   const action = humanizeToolName(args.toolName);
-  const heading = `Alfred wants to ${action}`;
-  const subject = `[${args.riskTier}] ${heading}`;
+  const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
+  const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
   const inputFields = summarizeInput(args.displayInput);
   // Workflow / Tool / Risk lead the table, then the summarized input fields.
   const fields: ApprovalEmailField[] = [

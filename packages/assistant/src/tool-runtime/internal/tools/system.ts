@@ -2,6 +2,7 @@ import {
   appendArtifactPageInput,
   appendArtifactSectionInput,
   activateWorkflowInput,
+  askUserInput,
   authorWorkflowInput,
   createArtifactInput,
   editInstructionInput,
@@ -24,7 +25,7 @@ import {
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
-import type { IanaTimezone } from "@alfred/contracts";
+import type { AskUserResult, IanaTimezone } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import {
   appendArtifactPage,
@@ -385,6 +386,36 @@ export const systemTools: readonly RegisteredTool[] = [
         userId: ctx.userId,
         childRunId: input.childRunId,
       });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "ask_user",
+    riskTier: "no_risk",
+    description:
+      "Ask the user one to four questions and wait for the answers before you continue. Use it when the task cannot proceed without a choice only the user can make. Each question offers two to six options; the card always adds a free-text answer. Ask everything you need in one call. Never fill `answers` yourself.",
+    // Boss-only and live-chat-only: a question needs a person watching the
+    // thread. Background workflows have no browser, and a sub-agent returns a
+    // clarification request to its parent instead. Lazy, not kernel — slice
+    // #1019 owns the prompt guidance that would justify the kernel cost.
+    availability: { requiresLiveChat: true, callers: ["boss"] },
+    // ADR-0099: the dispatcher parks the chat turn on a `question` approval and
+    // never reads policy for this arm. `execute` runs only on resume, with the
+    // decided input the decision route wrote `answers` into; a row approved with
+    // no edit reaches it without answers and says so.
+    staging: "question",
+    inputSchema: askUserInput,
+    execute: async (input): Promise<AskUserResult> => {
+      if (input.answers === undefined) {
+        return {
+          status: "unanswered",
+          reason: "no_answers",
+          questions: input.questions,
+          message:
+            "The user resumed the turn without answering. Continue on a reasonable assumption and state it in one sentence.",
+        };
+      }
+      return { status: "answered", questions: input.questions, answers: input.answers };
     },
   }),
   liveTool({
