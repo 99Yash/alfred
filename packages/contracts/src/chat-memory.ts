@@ -73,11 +73,14 @@ export type Volatility = (typeof VOLATILITY_CLASSES)[number];
  * asserting, confirming, correcting, or rejecting a claim, and distinguishes
  * all of those from something Alfred merely inferred (e.g. from a web search).
  *
- * The mapping onto the concrete `(OBSERVATION_SOURCE, OBSERVATION_KIND)` pair
- * (`user`/`alfred_chat` + `user_correction`/`user_confirmation`/…; `enrichment`
- * + `enrichment_fact`) is deliberately NOT encoded here — it lives with the
- * observation writer in #399 so this extractor stays free of the write
- * boundary. See `OBSERVATION_KINDS_BY_SOURCE` in `user-model.ts`.
+ * The mapping onto the concrete `(source, kind)` pair (`user` / `alfred_chat`
+ * plus `user_correction` / `user_confirmation` / …) is deliberately NOT encoded
+ * here — it lives with the observation writer in #399 so this extractor stays
+ * free of the write boundary. See `OBSERVATION_REDUCERS` in `user-model.ts`.
+ *
+ * `alfred_enrichment` has no pair yet on purpose: no enrichment reducer writes,
+ * so no enrichment source is registered (#987). The writer that lands one
+ * registers its source and kinds in the same change.
  */
 export const PROPOSITION_ATTRIBUTIONS = [
   /** User stated a new fact about themselves or an entity. */

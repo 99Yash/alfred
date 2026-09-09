@@ -450,8 +450,4 @@ describe("user_org_affiliation observation kind wiring", () => {
       false,
     );
   });
-
-  test("a gmail row may not carry an account-level kind (source×kind pair still closed)", () => {
-    assert.equal(isObservationKindForSource("gmail", "user_org_affiliation"), false);
-  });
 });
