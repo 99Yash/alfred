@@ -58,6 +58,7 @@ function dispatchResultToToolOutput(
         value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
       };
     case "rejected":
+    case "unanswered":
     case "blocked":
     case "fenced":
     case "invalid_input":
@@ -162,6 +163,9 @@ export function toolCallLogStatus(
   toolName: string,
   result: TerminalToolCallDispatchResult,
 ): "succeeded" | "failed" {
+  // ADR-0099: a question the user dismissed or let expire is a settled
+  // exchange, not a failed call. The card and the log show it landed.
+  if (result.kind === "unanswered") return "succeeded";
   if (result.kind !== "executed") return "failed";
   if (isMutatingToolName(toolName) && executedResultIsIncomplete(result.toolResult)) {
     return "failed";
@@ -195,7 +199,7 @@ export function completedToolCall<Call extends ProposedToolCall>(
     result: value,
     status,
     execution:
-      result.kind === "executed"
+      result.kind === "executed" || result.kind === "unanswered"
         ? "completed"
         : result.kind === "failed" ||
             result.kind === "rejected" ||

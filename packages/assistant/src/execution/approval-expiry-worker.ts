@@ -136,9 +136,13 @@ export async function expireStaging(args: {
       return { kind: "deferred", expiresAt: row.expiresAt };
     }
 
+    // Match on the staging id alone. The wake already carries the approval
+    // kind the dispatcher wrote, and a kind re-derived here could only disagree
+    // with it (ADR-0099), so this worker needs neither the tool registry nor a
+    // boot order.
     const signalOutcome = await signalRunInTx(tx, {
       runId: row.runId,
-      match: { kind: "hil", approvalId: stagingId, approvalKind: "action_staging" },
+      match: { kind: "hil", approvalId: stagingId },
     });
     // Only expire when the run is genuinely parked on this approval. A
     // terminal/mismatched run shouldn't leave a pending gated row, but if

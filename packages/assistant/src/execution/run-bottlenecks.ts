@@ -33,7 +33,7 @@
 
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, apiCallLog } from "@alfred/db/schemas";
-import { isParkedAgentStepStatus } from "@alfred/contracts";
+import { ASK_USER_TOOL, isParkedAgentStepStatus } from "@alfred/contracts";
 import { asc, eq } from "drizzle-orm";
 
 /**
@@ -67,6 +67,7 @@ export interface RunBottleneckStep {
 
 /** One `action_stagings` row, as fed to the pure aggregator. */
 export interface RunBottleneckStaging {
+  toolName: string;
   status: string;
   createdAt: Date;
   decidedAt: Date | null;
@@ -165,6 +166,9 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
   let stagingsExpired = 0;
   for (const staging of input.stagings) {
     if (staging.decidedAt) approvalWaitMs += nonNegativeMs(staging.createdAt, staging.decidedAt);
+    // A question the user dismissed or let lapse is a settled exchange, not a
+    // vetoed write (ADR-0099). Its wait counts; its status does not.
+    if (staging.toolName === ASK_USER_TOOL) continue;
     if (staging.status === "rejected") stagingsRejected += 1;
     if (staging.status === "expired") stagingsExpired += 1;
   }
@@ -230,6 +234,7 @@ export async function getRunBottleneckSummary(runId: string): Promise<RunBottlen
       .orderBy(asc(agentSteps.id)),
     db()
       .select({
+        toolName: actionStagings.toolName,
         status: actionStagings.status,
         createdAt: actionStagings.createdAt,
         decidedAt: actionStagings.decidedAt,

@@ -11,7 +11,7 @@ import {
 } from "@alfred/assistant/execution";
 import type { SignalArgs } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
-import { Errors, toMessage } from "@alfred/contracts";
+import { approvalKindSchema, Errors, toMessage } from "@alfred/contracts";
 import { requireOnboarded } from "./middleware/onboarding";
 
 export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
@@ -124,13 +124,13 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               if (!body.match.approvalId) {
                 throw Errors.BadRequestError("match.kind='hil' requires approvalId");
               }
+              // The kind enum lives in contracts; an unknown value is dropped,
+              // which keeps the pre-m13 "match any hil wake on this id" reading.
+              const approvalKind = approvalKindSchema.safeParse(body.match.approvalKind);
               match = {
                 kind: "hil",
                 approvalId: body.match.approvalId,
-                ...(body.match.approvalKind === "step" ||
-                body.match.approvalKind === "action_staging"
-                  ? { approvalKind: body.match.approvalKind }
-                  : {}),
+                ...(approvalKind.success ? { approvalKind: approvalKind.data } : {}),
               };
             } else if (kind === "signal") {
               if (!body.match.name) {

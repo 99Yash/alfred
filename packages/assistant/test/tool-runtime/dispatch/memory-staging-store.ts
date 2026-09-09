@@ -140,11 +140,12 @@ export function memoryStagingStore(): MemoryStagingStore {
           row.runId === query.runId &&
           row.toolName === query.toolName &&
           row.proposedInputHash === query.proposedInputHash &&
-          row.status === "rejected",
+          query.statuses.some((status) => status === row.status),
       );
       if (candidates.length === 0) return null;
       candidates.sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
-      return { reason: candidates[0]!.rejectReason };
+      const hit = candidates[0]!;
+      return { reason: hit.rejectReason, status: hit.status };
     },
 
     async findUnresolvedUnknown(query) {

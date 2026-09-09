@@ -181,6 +181,24 @@ const FIXTURES = {
     },
     arrayFields: ["pages"],
   },
+  "system.ask_user": {
+    base: {
+      context: "Need a choice to proceed.",
+      questions: [
+        {
+          question: "Which inbox should I triage first?",
+          header: "Inbox",
+          options: [
+            { label: "Work", description: "Triage the work inbox." },
+            { label: "Personal", description: "Triage the personal inbox." },
+          ],
+          multiSelect: false,
+        },
+      ],
+      answers: [{ selectedOptions: ["Work"], customAnswer: null }],
+    },
+    arrayFields: ["questions", "answers"],
+  },
 } satisfies Record<string, ArrayCoercionFixture>;
 
 /** Every array-typed top-level field, read from the model-facing JSON schema. */

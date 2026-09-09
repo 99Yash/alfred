@@ -22,6 +22,7 @@ import type { SpawnSubAgentInput } from "./sub-agent-contract";
 export { isMutatingToolName } from "./internal/result-routing";
 export { withdrawToolCallApproval } from "./approval-lifecycle";
 export { joinToolInput } from "./join-contract";
+export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
 // The tool catalog. `internal/registry.ts` owns the one
 // `Map<ToolName, RegisteredTool>` every reader in every package resolves; the
 // map itself and its sorted cache are module-locals that no export can name.
