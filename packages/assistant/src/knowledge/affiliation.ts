@@ -42,7 +42,7 @@ import {
 } from "@alfred/contracts";
 import { db, type DbRoot } from "@alfred/db";
 import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schemas";
-import { createHash } from "node:crypto";
+import { sha256Canonical } from "@alfred/db/hash";
 import { and, eq } from "drizzle-orm";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { insertObservation } from "./observations";
@@ -109,10 +109,6 @@ function hostedDomainFromMetadata(metadata: unknown): string | null {
   if (!isRecord(metadata)) return null;
   const hd = metadata["googleHostedDomain"];
   return isNonEmptyString(hd) ? hd : null;
-}
-
-function hashJson(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function payloadsMatchForCurrentAffiliation(
@@ -187,7 +183,7 @@ export function buildOrgAffiliationObservationInput(
   const familyKey = `org_affiliation:${accountId}:${orgDomain}`;
   // The hash carries `occurredAtMs` so distinct lifecycle EVENTS never dedup,
   // while a re-auth/backfill at the same connect time DOES (stable `createdAt`).
-  const evidenceHash = hashJson({
+  const evidenceHash = sha256Canonical({
     accountId,
     orgDomain,
     domainClass,

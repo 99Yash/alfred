@@ -440,6 +440,21 @@ export const RULES = [
     fix: 'Use dbBackedSkip("database") from ./support/db-backed in this test tree — it skips on a laptop with no Postgres and THROWS when CI is set, so a job that reached no service cannot exit 0. Do not hand-roll a `{ skip }` on a service variable. If this line is not a skip guard, append `// drift-ok: <reason>`.',
   },
   {
+    id: "sha256-over-json-stringify",
+    // `createHash("sha256").update(JSON.stringify(v))` — a content hash whose
+    // pre-image depends on object key INSERTION order. Three copies fed the
+    // `observations` dedup index `(user_id, family_key, evidence_hash)` (#571):
+    // the same logical payload built along two code paths hashes differently,
+    // so dedup silently misses and an append-only log double-counts. Chain
+    // scope, because a formatter splits `.update(` onto its own line. Hashing
+    // raw bytes (`createHash("sha256").update(rawString)`) is a different
+    // operation and is left alone.
+    re: /createHash\(\s*["']sha256["']\s*\)\s*\.update\(\s*JSON\.stringify\(/,
+    scope: "chain",
+    severity: "gate",
+    fix: "Use sha256Canonical(value) from @alfred/db/hash — SHA-256 over canonicalJson (keys sorted, present-undefined skipped), prefixed `sha256:`. It is the one content hash for observations.evidence_hash and every other dedup / change-detection digest. If the digest is audit-only and never compared, append `// drift-ok: <why order-dependence is safe here>`.",
+  },
+  {
     id: "no-constants-re-export",
     // The single-owner rule for module constants. `constants.ts` owns the fact,
     // `index.ts` (the barrel) is the only sanctioned re-exporter. A logic file
