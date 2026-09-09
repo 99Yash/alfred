@@ -1,7 +1,7 @@
 import { registerTriggerConsumer } from "@alfred/assistant/triggers";
 import { acceptEvent } from "@alfred/assistant/automation";
 import { replyDraftingTriggerConsumer } from "@alfred/assistant/reply-drafting";
-import { githubActivityTriggerConsumer } from "./github-activity-consumer";
+import { githubActivityTriggerConsumer } from "@alfred/assistant/connections";
 import { gmailIngestedTriggerConsumers } from "./gmail-ingested-consumers";
 
 let unregisterConsumers: (() => void)[] | undefined;
