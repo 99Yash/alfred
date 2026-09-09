@@ -15,6 +15,7 @@ import {
   type ObservationParticipant,
   type ObservationParticipantRole,
 } from "@alfred/contracts";
+import { sha256Canonical } from "@alfred/db/hash";
 
 const GMAIL_REDUCER_VERSION = 1;
 const UNKNOWN_ACCOUNT_FAMILY_KEY_PART = "unknown-account";
@@ -118,7 +119,7 @@ export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReduct
     kind: "email_message",
     occurredAt,
     familyKey: `gmail:message:${row.accountId ?? UNKNOWN_ACCOUNT_FAMILY_KEY_PART}:${row.sourceId}`,
-    evidenceHash: buildEvidenceHash({
+    evidenceHash: sha256Canonical({
       participants: participants.items.map(canonicalParticipantForHash),
       recipientCount: participants.recipientCount,
       isSent,
@@ -357,22 +358,6 @@ function canonicalParticipantForHash(participant: ObservationParticipant): JsonV
   };
 }
 
-function buildEvidenceHash(value: JsonValue): string {
-  return `sha256:${sha256(stableStringify(value))}`;
-}
-
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function stableStringify(value: JsonValue): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  // Undefined-valued keys are skipped, matching `JSON.stringify`: an optional
-  // property that is present-and-undefined must hash the same as one that is
-  // absent, or two payloads with identical JSON would get different hashes.
-  const entries = Object.entries(value)
-    .filter((entry): entry is [string, JsonValue] => entry[1] !== undefined)
-    .sort(([a], [b]) => a.localeCompare(b));
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
 }

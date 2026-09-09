@@ -257,6 +257,7 @@ export function makeGmailWebhookRoutes(
       // #560a: SHA-256 of JSON.stringify(body) for audit. Key order matters —
       // the same logical payload with different key order produces a different
       // hash. This is acceptable for audit purposes; not used for dedup.
+      // drift-ok: audit-only receipt digest, never compared against another hash; dedup is the (provider, provider_delivery_id) index
       const payloadHash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
       const historyId = String(notification.historyId);
       const receipt = messageId
