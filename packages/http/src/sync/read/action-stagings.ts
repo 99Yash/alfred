@@ -7,7 +7,7 @@ import {
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
 import { ASK_USER_TOOL } from "@alfred/contracts";
-import { SYNC_MODEL } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
@@ -86,22 +86,21 @@ async function loadRecentRejectionsByTool(
 
 /**
  * Project the run trigger down to the display-only fields the card needs.
- * Never forwards `eventId`/`payload`/document ids (ADR-0034 amendment).
+ * Never forwards `eventId`/`payload`/document ids (ADR-0034 amendment). The
+ * shape is the synced entity's own `trigger`, so the two cannot drift.
  */
-interface NarrowedTrigger {
-  kind: string;
-  source?: string;
-  type?: string;
-}
+type NarrowedTrigger = SyncedActionStaging["trigger"];
 
 function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   if (!trigger) return { kind: "manual" };
   const source = "source" in trigger ? trigger.source : undefined;
   const type = "type" in trigger ? trigger.type : undefined;
+  const rawKind = "rawKind" in trigger ? trigger.rawKind : undefined;
   return {
     kind: trigger.kind,
     ...(source ? { source } : {}),
     ...(type ? { type } : {}),
+    ...(rawKind ? { rawKind } : {}),
   };
 }
 

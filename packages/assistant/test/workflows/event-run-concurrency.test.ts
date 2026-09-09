@@ -60,8 +60,11 @@ const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-event-dedup-";
 const EVENT_WORKFLOW_SLUG = "__test-event-dedup";
 const SINGLETON_WORKFLOW_SLUG = "__test-event-dedup-singleton";
+const RAW_WORKFLOW_SLUG = "__test-event-dedup-raw";
 const SOURCE = "gmail";
 const TYPE = "message_received";
+const RAW_SOURCE = "sentry";
+const RAW_KIND = "comment.created";
 const createdUserIds: string[] = [];
 
 const finishStep: StepResult<Record<string, never>> = { kind: "done", state: {} };
@@ -105,6 +108,28 @@ const singletonEventWorkflow: Workflow<Record<string, never>> = {
   },
 };
 
+/**
+ * A workflow subscribed to one raw kind of an inbound source (#990, ADR-0097
+ * item 11). The deliver job publishes a raw receipt as `sentry.raw` with its
+ * `rawKind`; the matcher compares the kind, and the receipt's own dedup key is
+ * the event id, so a redelivered receipt collides on the event identity index
+ * exactly as a typed event does.
+ */
+const rawEventWorkflow: Workflow<Record<string, never>> = {
+  slug: RAW_WORKFLOW_SLUG,
+  name: "event dedup raw kind test",
+  trigger: { kind: "event", source: RAW_SOURCE, type: "raw", rawKind: RAW_KIND },
+  initialState: () => ({}),
+  initialStep: "finish",
+  closure: { kind: "none" },
+  steps: {
+    finish: {
+      id: "finish",
+      run: async (): Promise<StepResult<Record<string, never>>> => finishStep,
+    },
+  },
+};
+
 async function seedUser(): Promise<string> {
   const userId = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(userId);
@@ -140,6 +165,22 @@ async function seedUserWithEventWorkflow(
       status: "active",
       // The runtime body is registered above, so this is a built-in fixture.
       // Built-ins do not pin database revisions; user-authored rows must.
+      isBuiltin: true,
+    });
+  return userId;
+}
+
+async function seedUserWithRawEventWorkflow(): Promise<string> {
+  const userId = await seedUser();
+  await db()
+    .insert(workflows)
+    .values({
+      userId,
+      slug: RAW_WORKFLOW_SLUG,
+      name: "event dedup raw kind test",
+      trigger: { kind: "event", source: RAW_SOURCE, type: "raw", rawKind: RAW_KIND },
+      allowedIntegrations: [RAW_SOURCE],
+      status: "active",
       isBuiltin: true,
     });
   return userId;
@@ -237,6 +278,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   before(() => {
     if (!getWorkflow(EVENT_WORKFLOW_SLUG)) registerRecipe(eventWorkflow);
     if (!getWorkflow(SINGLETON_WORKFLOW_SLUG)) registerRecipe(singletonEventWorkflow);
+    if (!getWorkflow(RAW_WORKFLOW_SLUG)) registerRecipe(rawEventWorkflow);
     if (!getWorkflow(COLD_START_WORKFLOW_SLUG)) registerRecipe(coldStartResearchWorkflow);
     registerTriggerConsumers();
   });
@@ -310,6 +352,42 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     assert.deepEqual(a, { acceptedConsumers: 7 });
     assert.deepEqual(b, { acceptedConsumers: 7 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
+  });
+
+  test("a raw kind trigger fires once per receipt and only on its own kind (#990)", async () => {
+    const userId = await seedUserWithRawEventWorkflow();
+    // The deliver job's event id for a raw receipt is the receipt's dedup key,
+    // so a redelivery of the same body carries the same id.
+    const eventId = `raw:${RAW_KIND}:${randomUUID()}`;
+    const payload = { receiptId: `rcpt-${randomUUID()}`, deliveryKey: eventId };
+    const dispatch = () =>
+      publishDomainEvent({
+        userId,
+        source: RAW_SOURCE,
+        type: "raw",
+        rawKind: RAW_KIND,
+        eventId,
+        payload,
+      });
+
+    // Same seven consumers as the typed case above: the six that are not the
+    // workflow trigger no-op on a Sentry source but still accept the event.
+    const [a, b] = await Promise.all([dispatch(), dispatch()]);
+    assert.deepEqual(a, { acceptedConsumers: 7 });
+    assert.deepEqual(b, { acceptedConsumers: 7 });
+    assert.equal(await countActiveEventRuns(userId, eventId, RAW_WORKFLOW_SLUG), 1);
+
+    // A different kind of the same source is not this workflow's event.
+    const otherKind = await acceptEvent({
+      userId,
+      source: RAW_SOURCE,
+      type: "raw",
+      rawKind: "issue.ignored",
+      eventId: `raw:issue.ignored:${randomUUID()}`,
+      payload: { receiptId: `rcpt-${randomUUID()}`, deliveryKey: "other" },
+    });
+    assert.equal(otherKind.matched, 0);
+    assert.equal(otherKind.created, 0);
   });
 
   test("a completed Google callback starts cold-start research with the signup reason", async () => {

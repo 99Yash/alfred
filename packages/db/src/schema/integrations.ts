@@ -278,10 +278,6 @@ export const eventReceipts = pgTable(
       "event_receipts_raw_type_check",
       sql`(${t.rawKind} IS NULL) = (${t.eventType} NOT LIKE '%.raw')`,
     ),
-    check(
-      "event_receipts_raw_completed_check",
-      sql`${t.rawKind} IS NULL OR (${t.processingStatus} = 'completed' AND ${t.processedAt} IS NOT NULL)`,
-    ),
     uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
     index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
     index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),

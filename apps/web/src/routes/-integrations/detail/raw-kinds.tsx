@@ -3,12 +3,13 @@ import type { InboundEventSource } from "@alfred/contracts";
 import { formatRelative } from "~/lib/strings";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
-import { useRawReceiptKinds } from "./use-raw-kinds";
+import { useRawReceiptKinds } from "~/lib/integrations/use-raw-kinds";
 
 /**
- * Every event kind this provider has delivered that Alfred stores but does not
- * yet act on (ADR-0097 item 9). A new provider resource shows up here the day
- * it starts to arrive, with explicit loading, error, and empty states.
+ * Every event kind this provider has delivered that no built-in flow acts on
+ * (ADR-0097 item 9). A new provider resource shows up here the day it starts
+ * to arrive, with explicit loading, error, and empty states. A workflow can
+ * subscribe to any kind listed here from its editor (#990).
  */
 export function RawKinds({ slug }: { slug: InboundEventSource }) {
   const query = useRawReceiptKinds(slug);
@@ -19,7 +20,7 @@ export function RawKinds({ slug }: { slug: InboundEventSource }) {
       <div className="space-y-1">
         <SectionHeading>Unmapped events</SectionHeading>
         <p className="text-[12.5px] leading-5 text-app-fg-3">
-          Stored for search. These events do not start workflows.
+          Stored for search. A workflow can subscribe to any of these kinds from its editor.
         </p>
       </div>
 

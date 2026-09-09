@@ -6,10 +6,14 @@ import {
   isEventType,
   isEventTypeForSource,
   isInboundEventSource,
+  isRawEventType,
   jsonObjectSchema,
+  rawEventKindSchema,
+  rawEventTriggerIssue,
   replyDraftTriageSnapshotSchema,
   type EventSource,
   type EventType,
+  type RawReceiptType,
   eventPayloadSchemas,
   type EventKind,
   type EventPayload,
@@ -162,6 +166,11 @@ function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unkno
  * The legal source/type taxonomy stays owned by `@alfred/contracts` because it
  * also shapes persisted run identity and browser workflow authoring. This
  * module adds only the source-specific payload rule it owns.
+ *
+ * A raw event (#990) is `type: "raw"` plus `rawKind`, published only for an
+ * inbound source by the `ingress.deliver` job; its payload is the same receipt
+ * pointer a typed inbound event carries. Every consumer that narrows on
+ * `source`/`type` equality is unaffected: `raw` equals no declared type.
  */
 export const domainEventSchema = z
   .object({
@@ -170,15 +179,22 @@ export const domainEventSchema = z
       (value) => typeof value === "string" && isEventSource(value),
       "Unknown event source",
     ),
-    type: z.custom<EventType>(
-      (value) => typeof value === "string" && isEventType(value),
+    type: z.custom<EventType | RawReceiptType>(
+      (value) => typeof value === "string" && (isEventType(value) || isRawEventType(value)),
       "Unknown event type",
     ),
+    /** The provider's own kind of a raw event; present exactly when `type` is `raw`. */
+    rawKind: rawEventKindSchema.optional(),
     payload: jsonObjectSchema.optional(),
   })
   .strict()
   .superRefine((event, context) => {
-    if (!isEventTypeForSource(event.source, event.type)) {
+    // The raw pairing rule (`raw` needs an inbound source and a rawKind; every
+    // other type leaves rawKind unset) is the shared contracts rule (#990).
+    const tierIssue = rawEventTriggerIssue(event);
+    if (tierIssue) {
+      context.addIssue({ code: "custom", message: tierIssue.message, path: [tierIssue.path] });
+    } else if (!isRawEventType(event.type) && !isEventTypeForSource(event.source, event.type)) {
       context.addIssue({
         code: "custom",
         message: `Event type '${event.type}' is invalid for source '${event.source}'`,
@@ -187,7 +203,10 @@ export const domainEventSchema = z
     }
 
     if (event.payload === undefined) return;
-    const parsedPayload = payloadSchemaFor(event.source, event.type).safeParse(event.payload);
+    const schema = isRawEventType(event.type)
+      ? inboundDeliveryPayloadSchema
+      : payloadSchemaFor(event.source, event.type);
+    const parsedPayload = schema.safeParse(event.payload);
     if (parsedPayload.success) return;
     for (const issue of parsedPayload.error.issues) {
       context.addIssue({
