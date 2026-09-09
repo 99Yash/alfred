@@ -41,7 +41,7 @@ import {
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
 import { writeScratch } from "../scratchpad/index";
-import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { readIntegrationAvailability, readReceiptDocument } from "@alfred/assistant/connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
@@ -833,8 +833,6 @@ async function buildTriggerEventMessage(input: {
   }
 
   const metadata = toRecord(doc.metadata);
-  const excerpt = doc.content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
-  const truncated = doc.content.length > excerpt.length;
   const metadataSubset = pickTriggerMetadata(metadata);
 
   return {
@@ -850,9 +848,8 @@ async function buildTriggerEventMessage(input: {
       doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
       doc.url ? xmlTag("url", doc.url) : "",
       reason ? xmlTag("reason", reason) : "",
-      xmlTag("truncated", String(truncated)),
       xmlTag("metadata", JSON.stringify(metadataSubset)),
-      xmlTag("excerpt", excerpt),
+      ...triggerEventExcerptTags(doc.content),
       "</trigger_event>",
     ]
       .filter(Boolean)
@@ -863,9 +860,9 @@ async function buildTriggerEventMessage(input: {
 /**
  * The `<trigger_event>` for an inbound receipt (ADR-0097, #990). The run
  * carries only the receipt pointer, and the receipt's body is never handed to
- * the model as JSON: the corpus document the receive path wrote for it (source
- * = the event source, sourceId = the receipt id) already holds the describe
- * slot's title, summary, body, and provider URL, so the message reads that row
+ * the model as JSON: the corpus document the receive path wrote for it already
+ * holds the describe slot's title, summary, body, and provider URL, so the
+ * message reads that row through `readReceiptDocument` (the key's one owner)
  * and bounds the body. `documents.raw` is the stored payload and stays out.
  */
 async function buildReceiptTriggerMessage(input: {
@@ -875,24 +872,11 @@ async function buildReceiptTriggerMessage(input: {
   rawKind: string | undefined;
   receiptId: string;
 }): Promise<AgentTranscriptMessage> {
-  const rows = await db()
-    .select({
-      title: documents.title,
-      content: documents.content,
-      url: documents.url,
-      authoredAt: documents.authoredAt,
-      metadata: documents.metadata,
-    })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.userId, input.userId),
-        eq(documents.source, input.source),
-        eq(documents.sourceId, input.receiptId),
-      ),
-    )
-    .limit(1);
-  const doc = rows[0];
+  const doc = await readReceiptDocument({
+    id: input.receiptId,
+    userId: input.userId,
+    provider: input.source,
+  });
   const identity = [
     xmlTag("source", input.source),
     xmlTag("type", input.type ?? "unknown"),
@@ -915,8 +899,6 @@ async function buildReceiptTriggerMessage(input: {
   }
 
   const summary = getStringPath(toRecord(doc.metadata), "summary");
-  const excerpt = doc.content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
-  const truncated = doc.content.length > excerpt.length;
   return {
     role: "user",
     content: [
@@ -926,13 +908,18 @@ async function buildReceiptTriggerMessage(input: {
       doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
       doc.url ? xmlTag("url", doc.url) : "",
       summary ? xmlTag("summary", summary) : "",
-      xmlTag("truncated", String(truncated)),
-      xmlTag("excerpt", excerpt),
+      ...triggerEventExcerptTags(doc.content),
       "</trigger_event>",
     ]
       .filter(Boolean)
       .join("\n"),
   };
+}
+
+/** The bounded body every `<trigger_event>` carries, and whether the bound cut it. */
+function triggerEventExcerptTags(content: string): string[] {
+  const excerpt = content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
+  return [xmlTag("truncated", String(content.length > excerpt.length)), xmlTag("excerpt", excerpt)];
 }
 
 function pickTriggerMetadata(metadata: Record<string, unknown>): Record<string, unknown> {

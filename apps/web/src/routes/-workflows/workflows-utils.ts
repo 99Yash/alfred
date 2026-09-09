@@ -1,4 +1,4 @@
-import { integrationDisplayName } from "@alfred/contracts";
+import { eventTriggerPhrase } from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
 import { lowerFirst } from "~/lib/strings";
 import {
@@ -97,14 +97,11 @@ function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
     };
   }
   if (trigger.kind === "event") {
-    const source = integrationDisplayName(trigger.source);
-    // A raw trigger's kind is the provider's own name, shown as it arrived (#990).
-    const event =
-      trigger.rawKind ?? titleCase(trigger.type.replace(/_received$/, "")).toLowerCase();
+    const phrase = eventTriggerPhrase(trigger);
     return {
       type: "Event",
-      summary: `Run when a ${source} ${event} event arrives.`,
-      cadence: `On ${source} ${event}`,
+      summary: `Run when a ${phrase} event arrives.`,
+      cadence: `On ${phrase}`,
     };
   }
   if (trigger.kind === "on_signal") {

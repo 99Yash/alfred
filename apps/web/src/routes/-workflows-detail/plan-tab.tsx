@@ -4,7 +4,8 @@ import {
   integrationDisplayName,
   isAuthorableEventSource,
   isIanaTimezone,
-  isInboundEventSource,
+  isRawAuthorableEventSource,
+  isTypedAuthorableEventSource,
   LOADABLE_INTEGRATION_SLUGS,
   RAW_EVENT_TYPE,
   type AuthorableEventSource,
@@ -27,11 +28,11 @@ import { WorkflowIcon } from "./workflow-icon";
 /**
  * Trigger kinds a user can author. `on_signal` is intentionally absent —
  * no signal producer exists yet (ADR-0047 8b deferred), so the editor
- * never offers it. Event sources are the curated `AUTHORABLE_EVENT_SOURCES`;
- * the internal sources (`google.oauth.callback`, `learn-skill`) drive built-in
- * flows and aren't authorable. Gmail offers its typed events; an inbound
- * source (GitHub, Sentry) offers the raw kinds its inventory has seen, and the
- * saved trigger is `{ type: "raw", rawKind }` (#990).
+ * never offers it. Event sources and what each offers derive from the entry's
+ * `authoring` field in `@alfred/contracts` (#990): a `typed` source (Gmail)
+ * offers its declared events; a `raw` source (GitHub, Sentry) offers the raw
+ * kinds its inventory has seen, and the saved trigger is
+ * `{ type: "raw", rawKind }`. The editor holds no policy of its own.
  */
 type TriggerKind = "cron" | "event" | "manual";
 
@@ -53,11 +54,9 @@ function eventTypeLabel(type: string): string {
   return type.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** The typed events the editor offers for a source; empty for an inbound (raw-only) source. */
+/** The typed events the editor offers for a source; empty for a raw-authorable source. */
 function typedEventTypes(source: AuthorableEventSource): readonly string[] {
-  // SAFETY: the per-source row is a const tuple of event-type literals;
-  // widening only types downstream .includes / index reads on it.
-  return isInboundEventSource(source) ? [] : (EVENT_TYPES_BY_SOURCE[source] as readonly string[]);
+  return isTypedAuthorableEventSource(source) ? EVENT_TYPES_BY_SOURCE[source] : [];
 }
 
 interface Draft {
@@ -104,7 +103,7 @@ function buildTrigger(draft: Draft): WorkflowUpdateArgs["trigger"] {
     };
   }
   if (draft.kind === "event") {
-    if (isInboundEventSource(draft.eventSource)) {
+    if (isRawAuthorableEventSource(draft.eventSource)) {
       return {
         kind: "event",
         source: draft.eventSource,
@@ -141,10 +140,12 @@ export function PlanTab({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const eventTypes = typedEventTypes(draft.eventSource);
-  // The raw inventory is the option list for an inbound source. The hook call
-  // stays unconditional; `null` disables the query for Gmail and non-event kinds.
+  // The raw inventory is the option list for a raw-authorable source. The hook
+  // call stays unconditional; `null` disables the query for Gmail and non-event kinds.
   const rawSource =
-    draft.kind === "event" && isInboundEventSource(draft.eventSource) ? draft.eventSource : null;
+    draft.kind === "event" && isRawAuthorableEventSource(draft.eventSource)
+      ? draft.eventSource
+      : null;
   const rawKinds = useRawReceiptKinds(rawSource);
   const rawKindOptions = useMemo(
     () => (rawKinds.data?.kinds ?? []).map((entry) => ({ value: entry.kind, label: entry.kind })),

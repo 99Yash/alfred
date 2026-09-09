@@ -1,6 +1,6 @@
 import {
-  humanizeSlug,
-  integrationDisplayName,
+  eventTriggerPhrase,
+  isRawEventType,
   parseIanaTimezone,
   type IanaTimezone,
   type WorkflowTrigger,
@@ -100,13 +100,14 @@ export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
   switch (trigger.kind) {
     case "cron":
       return describeCronSchedule(trigger.schedule, trigger.timezone);
-    case "event": {
-      // A raw trigger's kind is the provider's own name (`comment.created`);
-      // a typed one is a slug the registry declares (#990).
-      const source = integrationDisplayName(trigger.source);
-      const kind = trigger.rawKind ?? humanizeSlug(trigger.type).toLowerCase();
-      return `For every ${source} ${kind} event; Alfred evaluates semantic conditions inside the run`;
-    }
+    case "event":
+      // A typed trigger keeps the exact pre-#990 string: activation compares
+      // this summary with the staged preview (`validateActivationSchedule`),
+      // so an approval staged before a deploy must still activate after it.
+      // Only a raw trigger names the provider's own kind.
+      return isRawEventType(trigger.type) && trigger.rawKind
+        ? `For every ${eventTriggerPhrase(trigger)} event; Alfred evaluates semantic conditions inside the run`
+        : "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
     case "manual":
       return "Manual runs only";
     case "on_signal":

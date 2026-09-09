@@ -8,6 +8,8 @@ import {
   isInboundEventSource,
   isRawEventType,
   jsonObjectSchema,
+  rawEventKindSchema,
+  rawEventTriggerIssue,
   replyDraftTriageSnapshotSchema,
   type EventSource,
   type EventType,
@@ -182,41 +184,22 @@ export const domainEventSchema = z
       "Unknown event type",
     ),
     /** The provider's own kind of a raw event; present exactly when `type` is `raw`. */
-    rawKind: z.string().min(1).max(200).optional(),
+    rawKind: rawEventKindSchema.optional(),
     payload: jsonObjectSchema.optional(),
   })
   .strict()
   .superRefine((event, context) => {
-    if (isRawEventType(event.type)) {
-      if (!isInboundEventSource(event.source)) {
-        context.addIssue({
-          code: "custom",
-          message: `Raw events exist only for inbound sources, not '${event.source}'`,
-          path: ["type"],
-        });
-      }
-      if (event.rawKind === undefined) {
-        context.addIssue({
-          code: "custom",
-          message: "A raw event must carry rawKind",
-          path: ["rawKind"],
-        });
-      }
-    } else {
-      if (!isEventTypeForSource(event.source, event.type)) {
-        context.addIssue({
-          code: "custom",
-          message: `Event type '${event.type}' is invalid for source '${event.source}'`,
-          path: ["type"],
-        });
-      }
-      if (event.rawKind !== undefined) {
-        context.addIssue({
-          code: "custom",
-          message: "rawKind is only valid on a raw event",
-          path: ["rawKind"],
-        });
-      }
+    // The raw pairing rule (`raw` needs an inbound source and a rawKind; every
+    // other type leaves rawKind unset) is the shared contracts rule (#990).
+    const tierIssue = rawEventTriggerIssue(event);
+    if (tierIssue) {
+      context.addIssue({ code: "custom", message: tierIssue.message, path: [tierIssue.path] });
+    } else if (!isRawEventType(event.type) && !isEventTypeForSource(event.source, event.type)) {
+      context.addIssue({
+        code: "custom",
+        message: `Event type '${event.type}' is invalid for source '${event.source}'`,
+        path: ["type"],
+      });
     }
 
     if (event.payload === undefined) return;

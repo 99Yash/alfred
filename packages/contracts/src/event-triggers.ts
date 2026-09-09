@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { enumGuard } from "./guards";
 import {
   INTEGRATIONS,
@@ -6,6 +7,7 @@ import {
   type CredentialSpec,
   type LiveProviderSlug,
 } from "./integrations";
+import { humanizeSlug, integrationDisplayName } from "./tools";
 
 /**
  * The grain at which one source's deliveries can break (#976).
@@ -23,8 +25,24 @@ export type EventDeliveryGrain =
   | { grain: "source" }
   | { grain: "account"; integration: LiveProviderSlug };
 
+/**
+ * How a user may subscribe a workflow to a source (ADR-0097 item 6, #990).
+ * This one field is the authoring policy: `AUTHORABLE_EVENT_SOURCES`, the
+ * typed and raw subsets, their guards, and the editor's option list all derive
+ * from it, so a new source states its policy once.
+ *
+ * - `typed`: the user names one of the entry's declared event types.
+ * - `raw`: the user names `type: "raw"` plus a provider kind the source's raw
+ *   inventory has seen. The entry's typed kinds keep their built-in consumers
+ *   and dedup rules and stay non-authorable. Only an inbound source has raw
+ *   receipts, so an in-process entry cannot declare this.
+ * - `none`: the source drives built-in flows only.
+ */
+export type EventSourceAuthoring = "typed" | "raw" | "none";
+
 interface EventSourceEntryBase {
   eventTypes: readonly [string, ...string[]];
+  authoring: EventSourceAuthoring;
 }
 
 /**
@@ -44,7 +62,11 @@ interface EventSourceEntryBase {
  *   needs a new adapter shape before this union admits it.
  */
 export type EventSourceEntry =
-  | (EventSourceEntryBase & { producer: "in_process"; delivery: EventDeliveryGrain })
+  | (EventSourceEntryBase & {
+      producer: "in_process";
+      delivery: EventDeliveryGrain;
+      authoring: Exclude<EventSourceAuthoring, "raw">;
+    })
   | (EventSourceEntryBase & { producer: "inbound_webhook"; delivery: { grain: "source" } });
 
 /**
@@ -58,21 +80,25 @@ export const EVENT_SOURCE_ENTRIES = {
     producer: "in_process",
     // One Pub/Sub watch per connected Google account; the watch can lapse per account.
     delivery: { grain: "account", integration: "gmail" },
+    authoring: "typed",
     eventTypes: ["message_received", "documents_ingested"],
   },
   "google.oauth.callback": {
     producer: "in_process",
     delivery: { grain: "source" },
+    authoring: "none",
     eventTypes: ["completed"],
   },
   "learn-skill": {
     producer: "in_process",
     delivery: { grain: "source" },
+    authoring: "none",
     eventTypes: ["completed"],
   },
   github: {
     producer: "inbound_webhook",
     delivery: { grain: "source" },
+    authoring: "raw",
     // Mirrors the GitHub App's subscribed `default_events`.
     eventTypes: ["pull_request", "push", "issues", "pull_request_review"],
   },
@@ -88,6 +114,7 @@ export const EVENT_SOURCE_ENTRIES = {
   sentry: {
     producer: "inbound_webhook",
     delivery: { grain: "source" },
+    authoring: "raw",
     eventTypes: [
       "error_created",
       "event_alert_triggered",
@@ -109,6 +136,7 @@ export const EVENT_SOURCE_ENTRIES = {
   "email-triage": {
     producer: "in_process",
     delivery: { grain: "source" },
+    authoring: "none",
     eventTypes: ["classified", "reply_worthy"],
   },
 } as const satisfies Record<string, EventSourceEntry>;
@@ -215,6 +243,14 @@ export function isRawEventType(value: string): value is RawReceiptType {
   return value === RAW_EVENT_TYPE;
 }
 
+/**
+ * A provider's own kind of a raw receipt, kept verbatim (`comment.created`).
+ * The one schema for the field wherever a trigger or event carries it: the bus
+ * event, the stored workflow trigger, the run trigger, and both authoring
+ * schemas (#990).
+ */
+export const rawEventKindSchema = z.string().min(1).max(200);
+
 /** The `event_type` a raw receipt of `source` is stored under. */
 export function rawEventTypeName<S extends InboundEventSource>(
   source: S,
@@ -223,28 +259,35 @@ export function rawEventTypeName<S extends InboundEventSource>(
 }
 
 /**
- * The sources a user may subscribe a workflow to (ADR-0097 item 6, #990). A
- * curated subset of `EVENT_SOURCES`: the internal sources
- * (`google.oauth.callback`, `learn-skill`, `email-triage`) drive built-in flows
- * and are not authorable. Gmail is authorable on its typed events; the inbound
- * sources are authorable on a raw kind their inventory has seen, so a new
- * provider resource becomes a trigger the day it first arrives, with no code edit.
+ * The sources a user may subscribe a workflow to (ADR-0097 item 6, #990):
+ * every entry whose `authoring` is not `none`, in record order. The internal
+ * sources (`google.oauth.callback`, `learn-skill`, `email-triage`) drive
+ * built-in flows and declare `none`.
  */
-export const AUTHORABLE_EVENT_SOURCES = [
-  "gmail",
-  "github",
-  "sentry",
-] as const satisfies readonly EventSource[];
-export type AuthorableEventSource = (typeof AUTHORABLE_EVENT_SOURCES)[number];
-export const isAuthorableEventSource = enumGuard(AUTHORABLE_EVENT_SOURCES);
+export type AuthorableEventSource = EventSourcesWhere<{ authoring: "typed" | "raw" }>;
+/** The authorable sources whose declared (typed) event types a user may name. */
+export type TypedAuthorableEventSource = EventSourcesWhere<{ authoring: "typed" }>;
+/** The authorable sources a user reaches only through a raw kind the inventory has seen. */
+export type RawAuthorableEventSource = EventSourcesWhere<{ authoring: "raw" }>;
 
-/**
- * The authorable sources whose declared (typed) event types a user may name.
- * The inbound sources are deliberately absent: their typed kinds keep their
- * built-in consumers and dedup rules, and a user reaches them only through the
- * raw tier (#990 keeps typed triggers unchanged).
- */
-export const AUTHORABLE_TYPED_EVENT_SOURCES = ["gmail"] as const satisfies readonly EventSource[];
+export function eventSourceAuthoring(source: EventSource): EventSourceAuthoring {
+  return EVENT_SOURCE_ENTRIES[source].authoring;
+}
+
+export const AUTHORABLE_EVENT_SOURCES: readonly AuthorableEventSource[] = EVENT_SOURCES.filter(
+  (source): source is AuthorableEventSource => eventSourceAuthoring(source) !== "none",
+);
+export const AUTHORABLE_TYPED_EVENT_SOURCES: readonly TypedAuthorableEventSource[] =
+  EVENT_SOURCES.filter(
+    (source): source is TypedAuthorableEventSource => eventSourceAuthoring(source) === "typed",
+  );
+export const AUTHORABLE_RAW_EVENT_SOURCES: readonly RawAuthorableEventSource[] =
+  EVENT_SOURCES.filter(
+    (source): source is RawAuthorableEventSource => eventSourceAuthoring(source) === "raw",
+  );
+export const isAuthorableEventSource = enumGuard(AUTHORABLE_EVENT_SOURCES);
+export const isTypedAuthorableEventSource = enumGuard(AUTHORABLE_TYPED_EVENT_SOURCES);
+export const isRawAuthorableEventSource = enumGuard(AUTHORABLE_RAW_EVENT_SOURCES);
 
 export interface AuthorableEventTriggerIssue {
   path: "source" | "type" | "rawKind";
@@ -298,10 +341,14 @@ export function authorableEventTriggerIssue(trigger: {
 }): AuthorableEventTriggerIssue | null {
   const tierIssue = rawEventTriggerIssue(trigger);
   if (tierIssue) return tierIssue;
-  if (isRawEventType(trigger.type)) return null;
-  // SAFETY: the tuple is a const list of EventSource literals; widening to
-  // readonly string[] only types the .includes receiver for this membership test.
-  if (!(AUTHORABLE_TYPED_EVENT_SOURCES as readonly string[]).includes(trigger.source)) {
+  if (isRawEventType(trigger.type)) {
+    if (isRawAuthorableEventSource(trigger.source)) return null;
+    return {
+      path: "type",
+      message: `'${trigger.source}' does not accept a raw event trigger; name one of its event types`,
+    };
+  }
+  if (!isTypedAuthorableEventSource(trigger.source)) {
     return {
       path: "type",
       message: `'${trigger.source}' triggers use type 'raw' with a rawKind the integration has delivered`,
@@ -330,6 +377,26 @@ export function parseEventTypeName<S extends EventSource>(
   if (!name.startsWith(prefix)) return null;
   const type = name.slice(prefix.length);
   return isEventTypeForSource(source, type) ? type : null;
+}
+
+/**
+ * The display phrase for an event trigger, shared by the approvals card, the
+ * workflow list, and the schedule summary so the three surfaces never disagree
+ * (#990). A raw trigger shows the provider's own kind as it arrived
+ * (`Sentry comment.created`); a typed one shows its slug as words with the
+ * `_received` suffix dropped (`Gmail message`).
+ */
+export function eventTriggerPhrase(trigger: {
+  source: string;
+  type?: string | null | undefined;
+  rawKind?: string | null | undefined;
+}): string {
+  const source = integrationDisplayName(trigger.source);
+  if (trigger.rawKind) return `${source} ${trigger.rawKind}`;
+  const noun = trigger.type
+    ? humanizeSlug(trigger.type.replace(/_received$/, "")).toLowerCase()
+    : "";
+  return noun ? `${source} ${noun}` : source;
 }
 
 /**

@@ -1,11 +1,69 @@
 import type { IanaTimezone, InboundEventSource } from "@alfred/contracts";
 import { sha256 } from "@alfred/corpus";
-import type { DbTransaction } from "@alfred/db";
-import { documents, type EventReceipt } from "@alfred/db/schemas";
-import { and, count, eq, gte, lt, sql } from "drizzle-orm";
+import { db, type DbTransaction } from "@alfred/db";
+import { documents, eventReceipts, type Document, type EventReceipt } from "@alfred/db/schemas";
+import { and, count, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { inZone } from "@alfred/assistant/time";
 import { INBOUND_SOURCES } from "../ingress";
 import { INBOUND_DAILY_EMBED_CAP, INBOUND_DAILY_EMBED_CAP_REASON } from "../receipt-corpus-policy";
+
+/**
+ * The corpus document of one receipt is keyed `(userId, source = the event
+ * source, sourceId = the receipt id)`. This file is the one place that key is
+ * spelled: the writer below inserts under it, {@link receiptDocumentJoin} is
+ * the same key as a SQL join for the inventory and the backfill, and
+ * {@link readReceiptDocument} reads it back for a run's `<trigger_event>`.
+ * A re-key of the document changes these three and nothing else.
+ */
+export function receiptDocumentKey(receipt: {
+  id: string;
+  userId: string;
+  provider: InboundEventSource;
+}): Pick<Document, "userId" | "source" | "sourceId"> {
+  return { userId: receipt.userId, source: receipt.provider, sourceId: receipt.id };
+}
+
+/** {@link receiptDocumentKey} as the join from an `eventReceipts` row to its document. */
+export function receiptDocumentJoin(): SQL | undefined {
+  return and(
+    eq(documents.userId, eventReceipts.userId),
+    eq(documents.source, eventReceipts.provider),
+    eq(documents.sourceId, eventReceipts.id),
+  );
+}
+
+/** The display fields of a receipt's document. `raw` is the stored payload and is never selected. */
+export type ReceiptDocument = Pick<
+  Document,
+  "title" | "content" | "url" | "authoredAt" | "metadata"
+>;
+
+/** The document the receive path wrote for one receipt, or `null` when none exists. */
+export async function readReceiptDocument(receipt: {
+  id: string;
+  userId: string;
+  provider: InboundEventSource;
+}): Promise<ReceiptDocument | null> {
+  const key = receiptDocumentKey(receipt);
+  const rows = await db()
+    .select({
+      title: documents.title,
+      content: documents.content,
+      url: documents.url,
+      authoredAt: documents.authoredAt,
+      metadata: documents.metadata,
+    })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, key.userId),
+        eq(documents.source, key.source),
+        eq(documents.sourceId, key.sourceId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
 
 /**
  * Called for a new receipt or a stored receipt without a document. The receipt's
@@ -43,9 +101,7 @@ export async function writeReceiptDocument(
   await tx
     .insert(documents)
     .values({
-      userId: receipt.userId,
-      source: receipt.provider,
-      sourceId: receipt.id,
+      ...receiptDocumentKey(receipt),
       accountId: receipt.accountId,
       title: description.title,
       content: description.body,
