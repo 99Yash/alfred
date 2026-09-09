@@ -775,7 +775,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         entityId: nodeA,
         kind: "github_login",
         value: "alice",
-        source: "github",
+        source: "gmail",
         validFrom: SEED_FIRST_SEEN_AT,
       })
       .returning({ id: entityIdentities.id });
@@ -790,7 +790,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           entityId: nodeB,
           kind: "github_login",
           value: "alice",
-          source: "github",
+          source: "gmail",
           validFrom: SEED_FIRST_SEEN_AT,
         }),
       { code: "23505", constraint: "entity_identities_active_unique_idx" },
@@ -810,7 +810,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         entityId: nodeB,
         kind: "github_login",
         value: "alice",
-        source: "github",
+        source: "gmail",
         validFrom: SEED_VALID_UNTIL,
       }),
     );
@@ -965,7 +965,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             entityId: node,
             kind: "slack_id",
             value: "x".repeat(1025),
-            source: "github",
+            source: "gmail",
             validFrom: SEED_FIRST_SEEN_AT,
           }),
       { code: "23514", constraint: "entity_identities_value_nonempty" },

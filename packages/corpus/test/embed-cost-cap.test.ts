@@ -31,13 +31,13 @@ import { sha256 } from "../src/hash";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
  * Postgres; skipped otherwise. Isolates on throwaway `test-embedcap-*` users
- * writing `drive` documents (no other suite seeds that source) and cascades
+ * writing `github` documents under throwaway users and cascades
  * them away on teardown.
  */
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-embedcap-";
-const SOURCE = "drive" as const;
+const SOURCE = "github" as const;
 /** 0.5 / 500_000 * 1e6 = 1 → any chunk of ≥2 tokens exceeds the budget. */
 const ABSURD_PRICE_PER_MTOK = 500_000;
 const createdUserIds: string[] = [];
