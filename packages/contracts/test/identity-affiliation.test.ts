@@ -285,7 +285,7 @@ describe("user_org_affiliation observation kind wiring", () => {
   test("is a legal kind for the account-level Google source, illegal for unrelated sources", () => {
     assert.equal(isObservationKindForSource("google_account", "user_org_affiliation"), true);
     assert.equal(isObservationKindForSource("gmail", "user_org_affiliation"), false);
-    assert.equal(isObservationKindForSource("github", "user_org_affiliation"), false);
+    assert.equal(isObservationKindForSource("alfred_chat", "user_org_affiliation"), false);
     assert.equal(isObservationKindForSource("user", "user_org_affiliation"), false);
   });
 
@@ -451,7 +451,7 @@ describe("user_org_affiliation observation kind wiring", () => {
     );
   });
 
-  test("a gmail row may not carry a github kind (source×kind pair still closed)", () => {
-    assert.equal(isObservationKindForSource("gmail", "github_push"), false);
+  test("a gmail row may not carry an account-level kind (source×kind pair still closed)", () => {
+    assert.equal(isObservationKindForSource("gmail", "user_org_affiliation"), false);
   });
 });

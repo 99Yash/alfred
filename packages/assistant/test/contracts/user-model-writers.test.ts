@@ -279,7 +279,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       () =>
         insertObservation({
           ...gmailObs(userId, `gmail:${randomUUID()}`, "hash-x"),
-          kind: "github_push",
+          kind: "user_org_affiliation",
         }),
       /not valid for its source/,
     );
