@@ -1,14 +1,21 @@
 import { INBOUND_EVENT_SOURCES, type InboundEventSource } from "@alfred/contracts";
-import type { EventDeliveryHealth, EventDeliveryRecovery } from "./descriptor";
+import type { EventDeliveryFailure, EventDeliveryHealth } from "./descriptor";
 import { INBOUND_SOURCES } from "./registry";
 
 /**
  * The verdict for an inbound source whose descriptor has no `subscription`
  * adapter. Such a source reads as degraded, never quiet: the absence of
  * deliveries from it can never be reported as "nothing happened" (ADR-0097).
+ *
+ * `cause: "unknown"` is what makes that statement readable from the value
+ * (ADR-0100). Before it, this sentinel was shape-identical to a real broken
+ * verdict, so a second reader had to re-derive "the descriptor declares no
+ * adapter" from the registry — two folds over the same registry that answered
+ * the no-adapter case oppositely, held together by a comment.
  */
 const NO_SUBSCRIPTION_HEALTH_SIGNAL: EventDeliveryHealth = {
   healthy: false,
+  cause: "unknown",
   reason: "no subscription health signal",
   recovery: { kind: "none" },
 };
@@ -34,38 +41,34 @@ export async function readInboundTriggerHealth(
 }
 
 /**
- * One inbound source that its own subscription check reported broken (#1035).
- * `reason` and `recovery` come from the descriptor verbatim, so the caller
- * never restates a per-source rule.
+ * One inbound source whose own subscription check reported it broken (#1035).
+ * The verdict is the descriptor's, spread whole: derived from
+ * {@link EventDeliveryFailure} rather than restated, so a field added to the
+ * verdict reaches this reader and a field dropped here stops compiling.
  */
-export interface DegradedInboundSource {
-  slug: InboundEventSource;
-  reason: string;
-  recovery: EventDeliveryRecovery;
-}
+export type DegradedInboundSource = EventDeliveryFailure & { slug: InboundEventSource };
 
 /**
  * The inbound sources that are broken right now, for one user (#1035).
  *
  * A source that produces deliveries only while it is healthy cannot report its
  * own silence, so only a pull check answers the question. This is that pull
- * read: the scheduled reconciler in the briefing gather calls it, and the
- * per-source verdict stays the descriptor's own.
+ * read, and the per-source verdict stays the descriptor's own.
  *
- * A descriptor that declares no `subscription` adapter is skipped, not
- * reported. Trigger readiness reads such a source as degraded on purpose —
- * silence from it proves nothing — but that verdict is a statement about what
- * Alfred can know, not a broken subscription a user can repair, so it is not a
- * line worth a briefing.
+ * `broken` is the whole filter, and it is read off the value (ADR-0100). A
+ * source the user never connected is not broken, and a source with no adapter
+ * is not a claim about delivery at all. Both are correct verdicts for workflow
+ * readiness, which must refuse a trigger it cannot arm; neither is something a
+ * user can repair, so neither reaches this list.
+ *
+ * The fold runs over {@link readInboundTriggerHealth}, so there is exactly one
+ * place where a source becomes a verdict, and the two readers cannot drift.
  */
 export async function readDegradedInboundSources(userId: string): Promise<DegradedInboundSource[]> {
-  const verdicts = await Promise.all(
-    INBOUND_EVENT_SOURCES.map(async (slug): Promise<DegradedInboundSource[]> => {
-      const adapter = INBOUND_SOURCES[slug].subscription;
-      if (!adapter) return [];
-      const health = await adapter.health(userId);
-      return health.healthy ? [] : [{ slug, reason: health.reason, recovery: health.recovery }];
-    }),
-  );
-  return verdicts.flat();
+  const health = await readInboundTriggerHealth(userId);
+  return INBOUND_EVENT_SOURCES.flatMap((slug): DegradedInboundSource[] => {
+    const verdict = health[slug];
+    if (verdict.healthy || verdict.cause !== "broken") return [];
+    return [{ slug, ...verdict }];
+  });
 }

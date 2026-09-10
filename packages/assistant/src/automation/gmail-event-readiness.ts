@@ -34,6 +34,9 @@ export type GmailEventHealth = Pick<
  */
 const WATCH_NOT_INSTALLED: EventDeliveryHealth = {
   healthy: false,
+  // Account grain: this verdict is only ever asked of a row that exists, so
+  // the user connected Gmail and the watch has since lapsed (ADR-0100).
+  cause: "broken",
   reason: "reconnect Gmail or renew its watch",
   recovery: { kind: "connect", integration: GMAIL_DELIVERY.integration },
 };
@@ -57,6 +60,7 @@ function gmailAccountDeliveryHealth(
   if (!facts.receiverConfigured || !facts.topicMatches) {
     return {
       healthy: false,
+      cause: "broken",
       reason: "the push receiver is not configured for this watch",
       recovery: { kind: "none" },
     };
@@ -66,6 +70,7 @@ function gmailAccountDeliveryHealth(
   if (facts.coverageGap || !facts.cursorReady || stale) {
     return {
       healthy: false,
+      cause: "broken",
       reason: "retry after delivery coverage recovers",
       recovery: { kind: "retry" },
     };

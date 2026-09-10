@@ -271,6 +271,33 @@ export async function hasActiveInstallationCredential(args: {
 }
 
 /**
+ * Whether the user holds any credential row for `provider` at all, whatever its
+ * status. This is the one fact that separates "never connected" from
+ * "connected and broken" (ADR-0100): a user with no row never had a delivery
+ * subscription to lose, so an alert surface owes them nothing, while a user
+ * with a row set something up that has since stopped working.
+ *
+ * Status is deliberately not filtered. A revoked or expired row is exactly the
+ * case the distinction exists for.
+ */
+export async function hasAnyCredential(args: {
+  userId: string;
+  provider: CredentialProvider;
+}): Promise<boolean> {
+  const rows = await db()
+    .select({ id: integrationCredentials.id })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.userId, args.userId),
+        eq(integrationCredentials.provider, args.provider),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * The one active credential for a provider across all users: the owner of an
  * inbound delivery that carries no per-account identity and is attributed by
  * the shared signing secret instead. One secret belongs to one provider-side

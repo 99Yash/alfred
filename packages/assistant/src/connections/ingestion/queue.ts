@@ -27,6 +27,7 @@ import {
 } from "./chat-media";
 import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import { deliverInboundReceipt } from "./inbound-deliver";
+import { runDeliveryAlertSweepForAllUsers } from "./delivery-alert-sweep";
 import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
 
 /**
@@ -47,6 +48,10 @@ import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
  *                    re-enqueue is a no-op while the job lives, and `removeOnFail`
  *                    is set so a redelivery can revive a receipt after the last
  *                    attempt failed.
+ *  - ingress.health_sweep (ADR-0100) — repeatable: pull each inbound source's own
+ *                    subscription health and email the user about one that
+ *                    stopped delivering. A broken source sends nothing, so a
+ *                    schedule is the only thing that can notice.
  */
 const INGESTION_QUEUE_NAME = "ingestion-runs";
 const USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS = 10 * 60 * 1000;
@@ -168,6 +173,7 @@ export type IngestionJobData =
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
   | { kind: "gmail.embed_sweep" }
+  | { kind: "ingress.health_sweep" }
   | {
       /**
        * Deferred attachment ingest for one Gmail message (ADR-0091
@@ -699,6 +705,9 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
     case "ingress.deliver": {
       return deliverInboundReceipt(data.receiptId);
+    }
+    case "ingress.health_sweep": {
+      return runDeliveryAlertSweepForAllUsers();
     }
     default: {
       const _exhaustive: never = data;

@@ -142,6 +142,27 @@ export type EventDeliveryRecovery =
   | { kind: "none" };
 
 /**
+ * Why deliveries from one source are not arriving (ADR-0100). Every unhealthy
+ * verdict names one, because the three answer different questions and only one
+ * of them is news:
+ *
+ * - `never_connected` — the user has not connected this source. Nothing broke,
+ *   and nothing ever delivered. Workflow readiness still refuses a trigger
+ *   armed on it, because such a trigger cannot fire; an alert surface must stay
+ *   silent, because there is nothing to repair that the user did not choose.
+ * - `broken` — the user connected this source and deliveries stopped. Only the
+ *   user knows it used to work, so this is the one verdict an alert reports.
+ * - `unknown` — Alfred holds no health signal for this source, so its silence
+ *   proves nothing either way. Readiness treats it as degraded; no alert
+ *   surface reports it, because "I cannot tell" is not a repair request.
+ *
+ * The cause is independent of {@link EventDeliveryRecovery}. The cause says
+ * what happened; the recovery says who can act. A user-facing surface needs
+ * both to be true before it prints anything.
+ */
+export type EventDeliveryCause = "never_connected" | "broken" | "unknown";
+
+/**
  * Whether events from one source (or one account of it) will arrive. The one
  * verdict shape for every producer: inbound descriptors return it from
  * `subscription.health`, and the in-process readers in
@@ -149,7 +170,19 @@ export type EventDeliveryRecovery =
  */
 export type EventDeliveryHealth =
   | { healthy: true }
-  | { healthy: false; reason: string; recovery: EventDeliveryRecovery };
+  | {
+      healthy: false;
+      cause: EventDeliveryCause;
+      reason: string;
+      recovery: EventDeliveryRecovery;
+    };
+
+/**
+ * The unhealthy arm on its own. Derived, never restated: a field added to the
+ * verdict above reaches every reader that narrows to a failure, and a reader
+ * that drops one stops compiling.
+ */
+export type EventDeliveryFailure = Extract<EventDeliveryHealth, { healthy: false }>;
 
 /**
  * Provider-native health for the subscription that produces deliveries. It

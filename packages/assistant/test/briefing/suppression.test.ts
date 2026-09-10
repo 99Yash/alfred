@@ -16,7 +16,7 @@ import { dbBackedSkip } from "../support/db-backed";
  * cold ask) no longer forces a send and promotes itself to the headline.
  */
 describe("isQuietMorning", () => {
-  const base = { emailCount: 0, activityCount: 0, meetingCount: 0, degradedSourceCount: 0 };
+  const base = { emailCount: 0, activityCount: 0, meetingCount: 0 };
 
   test("no demanding email + no activity + no meetings ⇒ quiet (suppress)", () => {
     assert.equal(isQuietMorning({ ...base, demandingEmailCount: 0, emailCount: 5 }), true);

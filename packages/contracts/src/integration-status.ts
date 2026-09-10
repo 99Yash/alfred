@@ -71,11 +71,52 @@ export const activeCredentialSchema = z.object({
 });
 export type ActiveCredential = z.infer<typeof activeCredentialSchema>;
 
+/**
+ * One integration whose event deliveries stopped for a user who connected it
+ * (ADR-0100). A source that only produces deliveries while it is healthy cannot
+ * report its own silence, so the server pulls the verdict and puts it here,
+ * beside the connect state the same read already carries.
+ *
+ * Two rules bound the list, and both are applied server-side:
+ *
+ * 1. The user connected this integration and delivery has since stopped. A
+ *    source nobody connected is not on this list, and neither is one Alfred
+ *    holds no health signal for.
+ * 2. The one recovery is an action the user can take here. A verdict only an
+ *    operator or the passage of time can clear is logged, never printed.
+ *
+ * The wire carries slugs and one sentence, never display copy and never a URL.
+ * The web already owns the display name and the integration route, so it
+ * resolves both at render time; a stored or transmitted label would freeze
+ * today's wording into tomorrow's page.
+ */
+export const deliveryAlertSchema = z.object({
+  /**
+   * The integration whose connect flow restores deliveries. This is the
+   * recovery's own integration slug, not the event source's: the two are
+   * different spaces that only happen to collide today (ADR-0097).
+   */
+  integration: z.enum(LIVE_PROVIDER_SLUGS),
+  /** The one sentence the source's own health check gave, for the banner's body. */
+  reason: z.string().min(1).max(200),
+});
+export type DeliveryAlert = z.infer<typeof deliveryAlertSchema>;
+
 export const integrationStatusSchema = z.object({
   /** Every live slug, in registry order. */
   integrations: z.record(z.enum(LIVE_PROVIDER_SLUGS), integrationConnectionSchema),
   /** Each credential provider with at least one `active` row, its active rows oldest first. */
   providers: z.partialRecord(z.enum(CREDENTIAL_PROVIDERS), z.array(activeCredentialSchema)),
+  /**
+   * Integrations that stopped delivering, at most one entry per integration.
+   * Empty on a healthy account, which is the ordinary case.
+   *
+   * The default is what makes this field safe to deploy: a browser holding the
+   * new bundle against a server that has not restarted yet reads an absent key
+   * as an empty list, instead of failing the parse and reporting every
+   * integration as disconnected.
+   */
+  deliveryAlerts: z.array(deliveryAlertSchema).default([]),
 });
 export type IntegrationStatus = z.infer<typeof integrationStatusSchema>;
 

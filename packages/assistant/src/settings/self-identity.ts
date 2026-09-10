@@ -75,6 +75,17 @@ export function webOrigin(): string {
 }
 
 /**
+ * Absolute URL of the logo every Alfred email renders in its shell. Raster PNG,
+ * not SVG: Gmail and Outlook drop an inline SVG `<img>` to its alt text.
+ *
+ * It sits here, beside {@link webOrigin} it derives from, so a sender reaches
+ * it without importing another sender's module graph.
+ */
+export function emailLogoUrl(): string {
+  return `${webOrigin()}/images/logo/alfred-logo-email.png`;
+}
+
+/**
  * System-prompt block that tells the model who it is in this deployment. Pure
  * over {@link SelfIdentity}, so a caller can render a fixture. Configuration
  * identifies Alfred; it does not prove that the user initiated an access event.

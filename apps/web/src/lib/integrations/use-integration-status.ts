@@ -5,6 +5,7 @@ import {
   isLiveProviderSlug,
   type ConnectedAccount,
   type CredentialProvider,
+  type DeliveryAlert,
   type GoogleSlug,
   type IntegrationConnection,
   type IntegrationStatus,
@@ -226,5 +227,27 @@ export function useGithubNeedsReconnect(): GithubReconnect {
       needsReconnect: stale !== undefined,
       accountLabel: stale?.accountLabel ?? null,
     };
+  }, [data]);
+}
+
+/**
+ * Integrations that stopped delivering events and that the user can restore
+ * (ADR-0100). The server owns which verdicts qualify; the web owns whether one
+ * is worth a banner, the same split `providers` already uses.
+ *
+ * An integration some active credential already fails the connected rule for is
+ * dropped here. Such a row is the subject of a reconnect nag of its own
+ * ({@link useGithubNeedsReconnect}, {@link useGoogleScopeGaps}), which names the
+ * same integration and offers the same repair. Two cards asking for one click
+ * read as two problems.
+ */
+export function useDeliveryAlerts(): readonly DeliveryAlert[] {
+  const { data } = useIntegrationStatus();
+  return useMemo(() => {
+    if (!data) return [];
+    const alreadyNagged = new Set(
+      Object.values(data.providers).flatMap((rows) => rows?.flatMap((row) => row.missing) ?? []),
+    );
+    return data.deliveryAlerts.filter((alert) => !alreadyNagged.has(alert.integration));
   }, [data]);
 }

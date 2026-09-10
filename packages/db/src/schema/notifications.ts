@@ -35,6 +35,10 @@ export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
  *   `briefing:{userId}:{YYYY-MM-DD-in-user-tz}:{slot}` — slotted briefing
  *   `approval:{userId}:{runId}:{stepId}`               — HIL approval ping
  *   `health_alert:{userId}:{metric}:{YYYY-MM-DD-in-user-tz}` — drift breach (≤1/metric/local day)
+ *   `health_alert:{userId}:inbound_delivery.{source}:{YYYY-MM-DD-in-user-tz}` — an
+ *       inbound source stopped delivering (ADR-0100). The key bounds one local
+ *       day; the sender additionally reads this table for a 7-day window, so a
+ *       broken source is emailed at most once a week.
  *
  * `notification_preferences` (ADR-0020's per-kind channel routing) is
  * deliberately deferred. Every send today goes via email; once a second

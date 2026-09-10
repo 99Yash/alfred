@@ -36,6 +36,11 @@
  */
 
 export * from "./availability";
+export {
+  readInboundDeliveryAlerts,
+  toDeliveryAlerts,
+  type InboundDeliveryAlert,
+} from "./delivery-alerts";
 export * from "./google-credential-lifecycle";
 export {
   createPinnedDispatcher,
