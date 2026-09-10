@@ -1,9 +1,11 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import * as Accordion from "@radix-ui/react-accordion";
-import { AWAIT_SUB_AGENT_TOOL, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
+import { AWAIT_SUB_AGENT_TOOL, isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
+import { askUserSummary, type AskUserSummary } from "~/components/approvals/ask-user";
+import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
@@ -18,6 +20,21 @@ import { buildTrail } from "./trail";
 const ITEM = "tools";
 
 const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
+
+/**
+ * A settled `system.ask_user` call draws its questions and the user's answers
+ * instead of the ordinary tool row, so the turn keeps a record of what was
+ * asked (ADR-0099). Null while the call is still parked — the approval tray
+ * below owns that state — and null when the result preview was pruned past
+ * reading, which falls back to the ordinary row.
+ *
+ * Module scope, unlike its two neighbours inside the component: those close
+ * over `subAgents`, this closes over nothing.
+ */
+function questionSummary(item: ToolCallView[]): AskUserSummary | null {
+  const only = item.length === 1 ? item[0]! : null;
+  return only && isQuestionApproval(only.toolName) ? askUserSummary(only) : null;
+}
 
 /**
  * A turn's tool calls and the model's narration, woven into one collapsible
@@ -103,8 +120,10 @@ export function ToolCallGroup({
   const only = trail.length === 1 ? trail[0]! : undefined;
   if (only?.kind === "tool" && only.tools.length === 1) {
     const loneTrail = trailFor(only.tools);
-    return loneTrail ? (
-      <SubAgentCard tool={only.tools[0]!} trail={loneTrail} />
+    if (loneTrail) return <SubAgentCard tool={only.tools[0]!} trail={loneTrail} />;
+    const loneQuestion = questionSummary(only.tools);
+    return loneQuestion ? (
+      <QuestionAnswersCard summary={loneQuestion} />
     ) : (
       <ToolCallCard tools={only.tools} />
     );
@@ -124,8 +143,10 @@ export function ToolCallGroup({
         if (item.kind !== "tool") return <NarrationRow key={item.key} text={item.text} />;
         if (isRedundantAwait(item.tools)) return null;
         const subAgent = trailFor(item.tools);
-        return subAgent ? (
-          <SubAgentCard key={item.key} tool={item.tools[0]!} trail={subAgent} />
+        if (subAgent) return <SubAgentCard key={item.key} tool={item.tools[0]!} trail={subAgent} />;
+        const question = questionSummary(item.tools);
+        return question ? (
+          <QuestionAnswersCard key={item.key} summary={question} inTrail />
         ) : (
           <ToolCallCard key={item.key} tools={item.tools} inTrail />
         );

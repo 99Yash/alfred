@@ -65,7 +65,9 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       definitions.push(definition);
       tools[name] = tool({
         description: definition.description,
-        inputSchema: definition.inputSchema,
+        // The MODEL-facing schema, which is `inputSchema` for every tool that
+        // does not split the two. See `LiveToolArgs.modelInputSchema`.
+        inputSchema: definition.modelInputSchema,
       });
     }
 

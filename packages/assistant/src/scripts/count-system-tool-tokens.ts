@@ -54,7 +54,7 @@ async function realCount(
       return {
         name: name.replace(/\./g, "__"),
         description: t.description,
-        input_schema: await asSchema(t.inputSchema).jsonSchema,
+        input_schema: await asSchema(t.modelInputSchema).jsonSchema,
       };
     }),
   );

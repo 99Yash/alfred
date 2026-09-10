@@ -5,8 +5,8 @@
 Three sub-decisions follow:
 
 1. **A question is an approval with a different card.** Alfred already has one complete human-in-the-loop path (ADR-0034): a staging row, a synced inline card, a decision route with row-version checks, a 24-hour expiry worker, and a debounced email. A question needs every one of those parts and no other part. opencode (`question` tool) and Dimension (`ASK_QUESTIONS` on the same `interrupts` row as write approvals) made the same choice. An in-process wait inside the tool is not possible: the dispatch lease is 60 seconds and a tool has no abort signal.
-2. **The `system` autonomy rule forces a fourth staging arm.** `resolvePolicyMode` answers `autonomy` for every `system.*` tool before it reads the user's policy. The only risk tier that still gates under autonomy is `high`, and `high` means an irreversible action. A question is not an irreversible action, so it cannot reach the gate through a risk tier without a false label. The dispatcher gets a fourth arm, `staging: "question"`, next to `staged`, `fast_path`, and `join`. The arm forces `requiresApproval` without a policy read. Boot proves that only one tool declares the arm, that the tool is a `system` tool, that it accepts the question contract, and that it is visible only to the chat boss on a live thread. This mirrors the `join` proof (ADR-0073).
-3. **The tool schema carries the answer.** `askUserInput` has an optional `answers` list, one entry per question. The model never fills it; the dispatcher refuses a fresh call that does. The decision route writes the user's answers into the row's `decided_input`. The dispatcher's ordinary resume path re-parses the decided input against the tool schema and runs `execute`, which returns the answers as a normal tool result. No new validation code or new route exists for the answer.
+2. **The `system` autonomy rule forces a fourth staging arm.** `resolvePolicyMode` answers `autonomy` for every `system.*` tool before it reads the user's policy. The only risk tier that still gates under autonomy is `high`, and `high` means an irreversible action. A question is not an irreversible action, so it cannot reach the gate through a risk tier without a false label. The dispatcher gets a fourth arm, `staging: "question"`, next to `staged`, `fast_path`, and `join`. The arm forces `requiresApproval` without a policy read. Boot proves that only one tool declares the arm, that the tool is a `system` tool, that it accepts the question contract, that its model-facing schema hides the answer half, and that it is visible only to the chat boss on a live thread. This mirrors the `join` proof (ADR-0073).
+3. **The tool schema carries the answer, and the model sees a narrower one.** `askUserInput` has an optional `answers` list, one entry per question. The decision route writes the user's answers into the row's `decided_input`. The dispatcher's ordinary resume path re-parses the decided input against the tool schema and runs `execute`, which returns the answers as a normal tool result. No new validation code or new route exists for the answer. The model is shown `askUserModelInput`, which has no `answers` key at all, so it cannot fill the user's field. The dispatcher still refuses a fresh call that carries answers, as a backstop. See **Two schemas, one tool** below.
 
 **The kind is written once, on the wake, and never matched.** No column on `action_stagings` holds the approval kind. It lives in `agent_runs.wake_condition`, where the dispatcher writes it from the staging arm's row in `STAGING_ARM`. The decision route and the expiry worker match a wake on `(runId, approvalId)` alone. The staging id is a UUID, so the kind adds nothing to the match, and a kind re-derived at the match site could only disagree with the stored one. This keeps the tool registry out of `@alfred/http` and out of the workers. Readers that need to know a row is a question without the registry (the reason rule in the decision route, the notification email copy, the recent-rejection note, run metrics) compare the row's tool name to `ASK_USER_TOOL` from `@alfred/contracts`. Boot proves that the single `question` declarer is that tool, so the name and the arm cannot drift.
 
@@ -20,7 +20,9 @@ Three sub-decisions follow:
 
 The boss calls `system.ask_user` with an optional `context` paragraph and one to four questions. Each question has a text, a short header, two to six options with a label and a description, and a multi-select flag. The turn parks with `status = waiting`. The approval card appears in the chat and in the approvals tray. The composer stays disabled, as it does for a write approval. The user picks options or types a free-text answer and approves. The run wakes. The model receives `{ status: "answered", questions, answers }` and continues the same turn.
 
-In slice 1 the generic approval card with a JSON editor shows the row. The user can approve with `answers` typed in by hand. The ported Dimension card is slice #1018. The tool description and prompt guidance are slice #1019.
+The card is the ported Dimension answer sheet (#1018). One question renders flat; two or more page one at a time, with a pager that marks which pages are still blank. Each question draws its options and a free-text field, and the primary button reads "Continue anyway" while any question is blank. The chat tray and the `/approvals` queue draw the same sheet from one component and differ only in the chrome above it. Slice 1's generic JSON editor is gone: a staged input the question schema refuses falls back to the ordinary write card, not to a raw editor. The tool description and prompt guidance are slice #1019.
+
+Once the call settles, the turn keeps a read-only record of what was asked and what the user said, drawn from the tool result. See **The settled card reads a preview** below.
 
 ## Dismissal and expiry
 
@@ -30,7 +32,31 @@ An unanswered question rides its own dispatch kind, `unanswered`. It is not a fa
 
 ## The answer sheet
 
-The decision route validates a question's edited input against `askUserInput` before it stores it. The edited input is the whole tool input, with `answers` filled in, not the `answers` list alone. A wrong-length answer list is a 400 the card can show, not a failed row at resume and a generic `tool_input_invalid` the model re-asks past.
+The decision route validates a question's edited input against `askUserDecidedInput` before it stores it. The edited input is the whole tool input, with `answers` filled in, not the `answers` list alone. A wrong-length answer list is a 400 the card can show, not a failed row at resume and a generic `tool_input_invalid` the model re-asks past.
+
+## Two schemas, one tool
+
+*Amended after slice 1 (#1017) ran live.* Slice 1 gave the model and the runtime one schema. The model read the optional `answers` key as a field to fill, and the two rules that guard the field then contradicted each other: `askUserInput` refused `answers: []` because the list did not match the question count, and the dispatcher refused the two blank answers the model sent to satisfy that message. Four calls failed in a row and the turn ended with no card. So one `system.ask_user` call now has three schemas:
+
+| Schema | Who reads it | Holds `answers` |
+| --- | --- | --- |
+| `askUserModelInput` | the model, through `RegisteredTool.modelInputSchema` | no |
+| `askUserInput` | the tool runtime: dispatch validation, the resume re-parse, `execute` | yes, with no cross-field rule |
+| `askUserDecidedInput` | the decision route, which writes the answers | yes, one entry per question |
+
+`askUserInput` holds no pairing rule on purpose. A stray `answers` must reach the dispatcher's question arm, which names the one repair; a rule on the tool schema would answer first and send the model back to fill the field.
+
+`modelInputSchema` is a general slot on the tool registry, not a special case in the dispatcher. It defaults to `inputSchema`, so every other tool is unchanged, and each model-facing reader takes it instead: the SDK tool surface, the schema budget, the "this tool accepts only these parameters" repair line, the param-key normalizer that renames a casing variant of an accepted key, and the discovery derivation that indexes a tool by its field names. The last two were found by the #1018 review. The normalizer would otherwise rename a model key into the user's field, and discovery would otherwise rank `system.ask_user` against the search word `answers`, which names a field the model cannot write.
+
+Registration proves the subset claim. A tool that declares both schemas must keep every top-level model-facing key inside the runtime schema, or boot refuses it. A model-facing field the runtime rejects would be advertised, filled, and then bounced as an unrecognized key, and the model could not repair it from the surface it was given.
+
+## The settled card reads a preview
+
+The read-only card in the transcript draws from the tool call's result *preview*, not from the stored result. `preview()` prunes a payload that overflows its character budget: strings shorten, arrays slice, and object keys past a limit drop. Pruning cuts `questions` and `answers` to the same length, so a pruned preview still parses and still pairs each question with its own answer. It simply omits whole questions, and no reader can detect that by looking.
+
+So the producer states it. `preview()` returns whether it truncated, and `resultTruncated` rides the tool call through the live event, the durable row, and the synced entity. The card returns nothing for a truncated preview and the turn shows the ordinary tool row instead. A card headed "Your answers" must not hide answers. Measured at three options per question, a three-question call with 120-character descriptions already overflows, so this is the common case for the pager rather than a corner.
+
+The rejected alternative was a `questionCount` field written by the tool and compared against the preview's list length. It made the result schema carry a number only one reader wanted, and it proved one list's length rather than the payload's completeness.
 
 ## The gate hint
 
@@ -55,6 +81,6 @@ No feature tests. The compiler carries the type widening and the arm table. The 
 
 Retry suppression matches a byte-identical input hash. A reworded repeat is stopped only by the prose in the `unanswered` message. The only structural cap on a model that rewords after each unanswered result is the chat turn cap, so a run can park up to that many times, 24 hours each, with the composer disabled.
 
-Until slice #1018 lands the question card, the generic approval card still gates its reject button on a typed reason and labels it as a revision note. The route no longer requires the reason; the card does.
+A dismissal goes on the wire as a plain reason-less `reject`. The card types its two decisions as their own union, so a `cancel_run` from a question card and a reason-less write rejection are both uncompilable, but nothing outside the type system separates a dismissal from a write rejection on the route. The route tells them apart by the row's tool name, as every other registry-free reader does.
 
 The tool is lazy and has no prompt guidance until slice #1019, so the boss has little reason to load it in a normal chat today.

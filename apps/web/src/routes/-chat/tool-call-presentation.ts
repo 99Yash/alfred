@@ -16,6 +16,12 @@ export interface ToolCallView {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string | undefined;
   resultPreview?: string | undefined;
+  /**
+   * `preview()` pruned `resultPreview` to fit its cap. A pruned preview still
+   * parses, so any reader that re-reads it as the record it came from must
+   * check this before trusting the shape (#1018 review, S2).
+   */
+  resultTruncated?: boolean | undefined;
   /** ADR-0070: non-text bytes were stripped from this result before storage. */
   sanitized?: boolean | undefined;
   /** Narration segment this call follows — orders it against the narration trail. */

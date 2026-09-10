@@ -1,4 +1,4 @@
-import { SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
+import { isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import type { ToolCallView } from "./tool-call-presentation";
 
@@ -76,8 +76,11 @@ export function buildTrail(
         head.toolName === tool.toolName &&
         foldClass(head.status) === foldClass(tool.status) &&
         // Never fold spawns together: each one owns a distinct sub-agent trail,
-        // and a folded "2×" row could only ever host one of them.
-        tool.toolName !== SPAWN_SUB_AGENT_TOOL
+        // and a folded "2×" row could only ever host one of them. A question
+        // is the same shape (ADR-0099): each call owns the answers the user
+        // gave it, so a folded row would drop every record but the first.
+        tool.toolName !== SPAWN_SUB_AGENT_TOOL &&
+        !isQuestionApproval(tool.toolName)
       ) {
         prev.tools.push(tool);
       } else {

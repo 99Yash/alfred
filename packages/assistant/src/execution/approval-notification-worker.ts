@@ -12,9 +12,9 @@
  */
 
 import {
-  ASK_USER_TOOL,
   humanizeSlug,
   humanizeToolName,
+  isQuestionApproval,
   isRecord,
   jsonValueSchema,
   type ToolName,
@@ -200,7 +200,7 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   // A question is an approval with a different card (ADR-0099): the same row,
   // the same email door, but the copy asks for an answer, not a decision, and
   // a risk prefix on a question would mislead.
-  const isQuestion = args.toolName === ASK_USER_TOOL;
+  const isQuestion = isQuestionApproval(args.toolName);
   const action = humanizeToolName(args.toolName);
   const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
   const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;

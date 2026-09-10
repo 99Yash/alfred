@@ -4,6 +4,7 @@ import {
   activateWorkflowInput,
   ASK_USER_LIMITS,
   askUserInput,
+  askUserModelInput,
   authorWorkflowInput,
   createArtifactInput,
   editInstructionInput,
@@ -408,7 +409,14 @@ export const systemTools: readonly RegisteredTool[] = [
     // validated and wrote `answers` into; a row approved with no edit reaches it
     // without answers and says so.
     staging: "question",
+    // Two schemas on purpose (ADR-0099). `inputSchema` is what the runtime
+    // validates, so it must accept the `answers` the decision route writes into
+    // the decided input and the resume path re-parses. `modelInputSchema` is
+    // what the model is shown, and it has no `answers` key at all — a model
+    // that can see the key fills it, and then the question arm refuses the
+    // call.
     inputSchema: askUserInput,
+    modelInputSchema: askUserModelInput,
     execute: async (input): Promise<AskUserResult> => {
       if (input.answers === undefined) {
         return {

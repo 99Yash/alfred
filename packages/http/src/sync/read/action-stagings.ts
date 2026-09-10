@@ -6,7 +6,7 @@ import {
   type ActionStaging,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
-import { ASK_USER_TOOL } from "@alfred/contracts";
+import { isQuestionApproval } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
@@ -48,7 +48,7 @@ async function loadRecentRejectionsByTool(
   // warn about (ADR-0099); every question shares one tool name, so the note
   // would follow every card.
   const toolNames = Array.from(
-    new Set(pendingRows.map((r) => r.staging.toolName).filter((name) => name !== ASK_USER_TOOL)),
+    new Set(pendingRows.map((r) => r.staging.toolName).filter((name) => !isQuestionApproval(name))),
   );
   if (toolNames.length === 0) return new Map();
   const cutoff = new Date(Date.now() - RECENT_REJECTION_WINDOW_MS);

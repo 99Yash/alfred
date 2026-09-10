@@ -1845,6 +1845,13 @@ export const ASK_USER_LIMITS = {
   questions: { min: 1, max: 4 },
   /** Options per question. */
   options: { min: 2, max: 6 },
+  /**
+   * Characters of free text per answer. The card reads it too: it caps the
+   * textarea at this number, because the draft is re-parsed against
+   * `askUserAnswerSchema` on every keystroke and a longer paste would fail
+   * that parse and replace the card with a raw-JSON editor mid-edit.
+   */
+  customAnswer: { max: 4_000 },
 } as const;
 
 /** One option the user can pick for a `system.ask_user` question. */
@@ -1893,62 +1900,123 @@ export const askUserQuestionSchema = z
       .default(false)
       .describe("True when the user may pick several options at once."),
   })
-  .strict();
+  .strict()
+  // The label IS the option's identity: an answer carries labels, and the card
+  // keys each row on its label and marks it selected by membership. Two options
+  // sharing a label therefore render as one selection and un-toggle together.
+  // "Distinct choices" was prose in a `.describe()`, which the model may read
+  // and no boundary enforced; this makes the duplicate a validation error the
+  // dispatcher hands back with the repair.
+  .refine((v) => new Set(v.options.map((option) => option.label)).size === v.options.length, {
+    message: "options must carry distinct labels",
+    path: ["options"],
+  });
 export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
 
 /**
  * The user's answer to one question, in question order. `selectedOptions`
  * carries option labels; `customAnswer` is the free-text answer, or null.
+ *
+ * `customAnswer` is deliberately NOT trimmed. The question card holds its
+ * draft as the tool input and re-reads it through this schema on every
+ * keystroke, so a trim here deleted the space the user had just typed and made
+ * the free-text field unable to accept a space at all. The labels in
+ * `selectedOptions` are still trimmed: the card writes them from the question,
+ * so no one ever types them. The card decides emptiness for itself, and the
+ * model reads prose, so no boundary needs the whitespace removed.
  */
 export const askUserAnswerSchema = z
   .object({
     selectedOptions: z.array(z.string().trim().min(1).max(120)).max(ASK_USER_LIMITS.options.max),
-    customAnswer: z.string().trim().max(4_000).nullable(),
+    customAnswer: z.string().max(ASK_USER_LIMITS.customAnswer.max).nullable(),
   })
   .strict();
 export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>;
 
 /**
- * `system.ask_user` (ADR-0099). The model fills `context` and `questions`; the
- * chat turn parks on a `question` approval. The decision route validates the
- * edited input against this schema and stores it as the row's decided input, so
- * the dispatcher's ordinary "re-validate the decided input against the tool
- * schema" path carries the answer back and the tool's `execute` returns it. The
- * model never sends `answers`; the dispatcher refuses a fresh call that does.
+ * The fields of a `system.ask_user` call that the model writes. Kept
+ * unwrapped so the three schemas below can each add their own tolerance
+ * wrapper and their own rules on top of one field list.
  */
-export const askUserInput = coerceJsonArrayFields(
+const askUserFields = z.object({
+  context: z
+    .string()
+    .trim()
+    .max(4_000)
+    .optional()
+    .describe(
+      "Optional short markdown paragraph that frames why you ask, shown above the questions.",
+    ),
+  questions: z
+    .array(askUserQuestionSchema)
+    .min(ASK_USER_LIMITS.questions.min)
+    .max(ASK_USER_LIMITS.questions.max)
+    .describe(
+      `${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions the user answers before the turn continues. Ask everything you need in ONE call.`,
+    ),
+});
+
+/**
+ * The user's half, added by the decision route and never by the model.
+ */
+const askUserAnswersField = z
+  .array(askUserAnswerSchema)
+  .optional()
+  .describe("Filled by the user, never by the model. One entry per question, in the same order.");
+
+/**
+ * The half of `system.ask_user` the model may write (ADR-0099): the framing
+ * paragraph and the questions. It has no `answers` key at all, and it is the
+ * schema the tool surface advertises, so the model cannot answer its own
+ * question. Slice 1 shipped one schema for both halves; the model then read
+ * the optional `answers` key as a field to fill, and the two rules that guard
+ * it contradicted each other on every retry. See {@link askUserInput}.
+ */
+export const askUserModelInput = coerceJsonArrayFields(["questions"], askUserFields.strict());
+export type AskUserModelInput = z.infer<typeof askUserModelInput>;
+
+/**
+ * The whole sheet: the model's questions plus the user's answers. Named once
+ * because the two schemas below must stay byte-identical apart from the
+ * pairing rule — "the same shape plus one rule" is only true while one
+ * expression states the shape.
+ */
+const askUserAnswerSheet = askUserFields.extend({ answers: askUserAnswersField }).strict();
+
+/**
+ * `system.ask_user` (ADR-0099) as the tool runtime validates it. The chat turn
+ * parks on a `question` approval, the decision route writes the user's
+ * `answers` into the row's decided input, and the dispatcher's ordinary
+ * "re-validate the decided input against the tool schema" path carries the
+ * answer back to the tool's `execute`. So this schema accepts `answers` while
+ * {@link askUserModelInput} hides it.
+ *
+ * It holds no cross-field rule on purpose. A stray `answers` on a fresh call
+ * must reach the dispatcher's question arm, which names the one repair ("send
+ * only context and questions"); a length rule here would answer first and tell
+ * the model to fill the field instead. {@link askUserDecidedInput} adds the
+ * rule at the one boundary that writes answers.
+ */
+export const askUserInput = coerceJsonArrayFields(["questions", "answers"], askUserAnswerSheet);
+export type AskUserInput = z.infer<typeof askUserInput>;
+
+/**
+ * The answer sheet the decision route accepts (ADR-0099). Same shape as
+ * {@link askUserInput} plus the pairing rule, so a wrong-length answer list is
+ * a 400 the question card shows instead of a failed row and a generic
+ * `tool_input_invalid` the model re-asks past.
+ */
+export const askUserDecidedInput = coerceJsonArrayFields(
   ["questions", "answers"],
-  z
-    .object({
-      context: z
-        .string()
-        .trim()
-        .max(4_000)
-        .optional()
-        .describe(
-          "Optional short markdown paragraph that frames why you ask, shown above the questions.",
-        ),
-      questions: z
-        .array(askUserQuestionSchema)
-        .min(ASK_USER_LIMITS.questions.min)
-        .max(ASK_USER_LIMITS.questions.max)
-        .describe(
-          `${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions the user answers before the turn continues. Ask everything you need in ONE call.`,
-        ),
-      answers: z
-        .array(askUserAnswerSchema)
-        .optional()
-        .describe(
-          "Filled by the user, never by the model. One entry per question, in the same order.",
-        ),
-    })
-    .strict()
-    .refine((v) => v.answers === undefined || v.answers.length === v.questions.length, {
+  askUserAnswerSheet.refine(
+    (v) => v.answers === undefined || v.answers.length === v.questions.length,
+    {
       message: "answers must carry exactly one entry per question",
       path: ["answers"],
-    }),
+    },
+  ),
 );
-export type AskUserInput = z.infer<typeof askUserInput>;
+export type AskUserDecidedInput = z.infer<typeof askUserDecidedInput>;
 
 /**
  * Why the user's answers did not arrive. `dismissed` and `expired` come from

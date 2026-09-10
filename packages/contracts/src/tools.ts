@@ -87,6 +87,19 @@ export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
  */
 export const ASK_USER_TOOL = "system.ask_user" satisfies ToolName;
 
+/**
+ * Does this staged row hold a question rather than a write? The one reader-side
+ * spelling of {@link ASK_USER_TOOL}, so "is this a question?" is answered by a
+ * named predicate at every call site instead of by a repeated comparison.
+ *
+ * Takes a plain `string` on purpose: every caller reads the tool name off a
+ * database row, a synced entity, or an event payload, none of which prove
+ * `ToolName`.
+ */
+export function isQuestionApproval(toolName: string): boolean {
+  return toolName === ASK_USER_TOOL;
+}
+
 export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 

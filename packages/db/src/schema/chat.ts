@@ -46,6 +46,13 @@ export interface ChatMessageToolCall {
   argsPreview?: string | undefined;
   resultPreview?: string | undefined;
   /**
+   * `preview()` pruned the result to fit its cap: a string shortened, an array
+   * sliced, or an object key dropped. Persisted because a pruned preview still
+   * parses, so a reader that re-reads it as the record it came from cannot
+   * tell (#1018 review, S2).
+   */
+  resultTruncated?: boolean | undefined;
+  /**
    * ADR-0070: the dispatch-boundary sanitizer stripped non-text bytes from this
    * result before storage. Persisted so a reload re-renders the "trimmed" flag
    * the user saw live, rather than showing a scrubbed result as pristine.
