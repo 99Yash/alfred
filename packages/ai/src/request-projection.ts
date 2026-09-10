@@ -26,7 +26,7 @@ export function attachProviderTurnPolicy(
   cacheTtl: CacheTtl | undefined,
 ): SharedV4ProviderOptions {
   return {
-    ...(providerOptions ?? {}),
+    ...providerOptions,
     [INTERNAL_PROVIDER_NAMESPACE]: { cacheTtl: cacheTtl ?? null },
   } as SharedV4ProviderOptions;
 }
@@ -128,10 +128,10 @@ interface CleanProviderRequest {
 function cleanProviderRequest(params: LanguageModelV4CallOptions): CleanProviderRequest {
   const { cacheTtl, providerOptions } = consumeTurnEnvelope(params.providerOptions);
   const { providerOptions: _internalOptions, ...rest } = params;
+  // SAFETY: rest preserves all LanguageModelV4CallOptions fields minus providerOptions which we replace.
   const clean = {
     ...rest,
     ...(providerOptions ? { providerOptions } : {}),
-    // SAFETY: rest preserves all LanguageModelV4CallOptions fields minus providerOptions which we replace.
   } as LanguageModelV4CallOptions;
   return { clean, cacheTtl };
 }
