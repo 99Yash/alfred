@@ -3,10 +3,10 @@
  * `POST /webhooks/inbound/:source`, the per-source subscription health that
  * trigger readiness reads.
  *
- * This door is light on purpose. `automation/event-source-health.ts` imports it
- * for `readInboundTriggerHealth`, and `connections/delivery-alerts.ts` for
- * `readDegradedInboundSources`, so nothing here may reach the BullMQ queue or
- * the trigger bus. The receive path (the queue's producer) and the
+ * This door is light on purpose. `connections/event-source-health.ts` imports
+ * it for `readInboundTriggerHealth`, and that fold feeds both workflow trigger
+ * readiness and the inbound delivery alert, so nothing here may reach the
+ * BullMQ queue or the trigger bus. The receive path (the queue's producer) and the
  * `ingress.deliver` job body live in `../ingestion`, beside the queue they use;
  * the HTTP route imports `receiveInboundDelivery` from that door.
  */
@@ -25,5 +25,4 @@ export type {
 } from "./descriptor";
 export { inboundDeliveryKey } from "./descriptor";
 export { INBOUND_SOURCES, inboundSource } from "./registry";
-export { readDegradedInboundSources, readInboundTriggerHealth } from "./health";
-export type { DegradedInboundSource } from "./health";
+export { readInboundTriggerHealth } from "./health";

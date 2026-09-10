@@ -1,12 +1,9 @@
 import { eventDeliveryAccounts, type ProviderAvailability } from "@alfred/contracts";
 import { pubSubOidcConfigFromEnv, readGmailWatchState } from "@alfred/integrations/google";
-import {
-  GMAIL_POLL_SWEEP_INTERVAL_MS,
-  readGmailDeliveryFacts,
-  type GmailDeliveryFacts,
-} from "@alfred/assistant/connections";
-import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
-import type { AccountDeliveryHealthReader } from "./event-source-health";
+import type { AccountDeliveryHealthReader } from "../event-source-health";
+import type { EventDeliveryHealth } from "../ingress/descriptor";
+import { GMAIL_POLL_SWEEP_INTERVAL_MS } from "./gmail-delivery-policy";
+import { readGmailDeliveryFacts, type GmailDeliveryFacts } from "./gmail-delivery-facts";
 
 /** The account space Gmail events deliver per: `google` rows that prove Gmail connected. */
 const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
@@ -91,11 +88,7 @@ export function gmailAccountHealth(
 }
 
 /** Read Gmail delivery health only for workflow trigger readiness. */
-export const readGmailEventHealth: AccountDeliveryHealthReader = async (
-  userId,
-  availability,
-  now,
-) => {
+export const readGmailEventHealth: AccountDeliveryHealthReader = async (userId, rows, now) => {
   const cursorByCredential = await readGmailDeliveryFacts(userId);
   const pushConfig = pubSubOidcConfigFromEnv();
   const receiverConfigured =
@@ -103,7 +96,7 @@ export const readGmailEventHealth: AccountDeliveryHealthReader = async (
     (pushConfig.nodeEnv !== "production" ||
       (Boolean(pushConfig.audience) && Boolean(pushConfig.expectedServiceAccount)));
   const healthByCredential = new Map(
-    (availability.providers.get(GMAIL_DELIVERY.provider) ?? []).map(
+    (rows.get(GMAIL_DELIVERY.provider) ?? []).map(
       ({ credentialId, metadata }): [string, GmailEventHealth] => {
         const cursor = cursorByCredential.get(credentialId);
         const watchTopic = readGmailWatchState(metadata)?.topic;

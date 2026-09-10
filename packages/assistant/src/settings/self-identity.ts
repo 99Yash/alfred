@@ -79,10 +79,12 @@ export function webOrigin(): string {
  * not SVG: Gmail and Outlook drop an inline SVG `<img>` to its alt text.
  *
  * It sits here, beside {@link webOrigin} it derives from, so a sender reaches
- * it without importing another sender's module graph.
+ * it without importing another sender's module graph. `origin` exists for the
+ * one sender that accepts a caller-supplied origin; every other caller wants
+ * this deployment's own, which is the default.
  */
-export function emailLogoUrl(): string {
-  return `${webOrigin()}/images/logo/alfred-logo-email.png`;
+export function emailLogoUrl(origin: string = webOrigin()): string {
+  return `${stripTrailingSlash(origin)}/images/logo/alfred-logo-email.png`;
 }
 
 /**

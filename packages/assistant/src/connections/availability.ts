@@ -13,6 +13,7 @@ import {
   toMessage,
   toStringArray,
   type CredentialProvider,
+  type CredentialRowsByProvider,
   type CredentialSpec,
   type DeliveryAlert,
   type IntegrationAvailability,
@@ -31,7 +32,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
-import { readInboundDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
+import { readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -112,10 +113,12 @@ export async function readFreshIntegrationAvailability(
  * which rows count.
  */
 export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
-  const [byProvider, gmailDelivery, deliveryAlerts] = await Promise.all([
-    loadCredentialRowsByProvider(userId),
+  // The rows come first because the alert read runs on them; the two reads that
+  // need nothing from each other still go together.
+  const byProvider = await loadCredentialRowsByProvider(userId);
+  const [gmailDelivery, deliveryAlerts] = await Promise.all([
     readGmailDeliveryFacts(userId),
-    readWireDeliveryAlerts(userId),
+    readWireDeliveryAlerts(userId, byProvider),
   ]);
   const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
     byProvider.get(provider) ?? [];
@@ -160,15 +163,26 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
  * The delivery alerts for the status body (ADR-0100), or none when the health
  * read fails.
  *
+ * It runs on the rows this read already loaded, so it issues no credential
+ * query of its own and cannot disagree with the tiles beside it about which
+ * rows exist.
+ *
  * It is caught here on purpose. This read is the source of every integration
- * tile in the app, and the web polls it; a provider check that throws must cost
+ * tile in the app, and the web polls it; a health check that throws must cost
  * the user one missing banner, not a page that reports every integration
- * disconnected. The health checks are small indexed credential reads, so they
- * add little to a read the web already makes.
+ * disconnected.
+ *
+ * Not a pure fold over the rows: Gmail's verdict also reads the ingestion
+ * state, so this repeats the `readGmailDeliveryFacts` select that the `pushStale`
+ * column above makes. That is one indexed read per status poll, and the price of
+ * keeping the generic health reader free of a Gmail-shaped parameter.
  */
-async function readWireDeliveryAlerts(userId: string): Promise<DeliveryAlert[]> {
+async function readWireDeliveryAlerts(
+  userId: string,
+  rows: CredentialRowsByProvider,
+): Promise<DeliveryAlert[]> {
   try {
-    return toDeliveryAlerts(await readInboundDeliveryAlerts(userId));
+    return toDeliveryAlerts(await readDeliveryAlerts(userId, rows));
   } catch (err) {
     console.error(
       `[integrations] inbound delivery health read failed for user=${userId}: ${toMessage(err)}`,

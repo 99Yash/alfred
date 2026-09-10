@@ -1,5 +1,5 @@
 /**
- * The scheduled inbound-delivery health sweep (#1035, ADR-0100) — worker side.
+ * The scheduled event-delivery health sweep (#1035, ADR-0100) — worker side.
  *
  * A source that produces deliveries only while it is healthy cannot report its
  * own silence: it sends nothing when it breaks, so no push signal exists to
@@ -11,20 +11,21 @@
  * The app banner reads the same verdict live, so it is always current, but it
  * waits for the user to open Alfred. This sweep is the half that does not wait.
  *
- * It lives beside the queue that runs it, not beside the health reader, because
- * it reaches `../../delivery` and `@alfred/mailer`; the ingress door stays light
- * enough for workflow readiness to import.
+ * It lives beside the queue that runs it, not beside the alert rule, because it
+ * reaches `../../delivery` and `@alfred/mailer`; the alert rule's own door has
+ * to stay light enough for the polled integration-status read to import.
  */
 
-import { INTEGRATION_DISPLAY_NAMES, toMessage } from "@alfred/contracts";
+import { INTEGRATIONS, toMessage, type EventSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { emailSends, user as userTable } from "@alfred/db/schemas";
+import { emailSends } from "@alfred/db/schemas";
 import { renderDeliveryAlertEmail } from "@alfred/mailer";
 import { and, desc, eq, gt } from "drizzle-orm";
-import { send } from "@alfred/assistant/delivery";
+import { selectEmailableUsers, send } from "@alfred/assistant/delivery";
 import { emailLogoUrl, resolveTimezone, webOrigin } from "@alfred/assistant/settings";
-import { inZone } from "@alfred/assistant/time";
-import { readInboundDeliveryAlerts, type InboundDeliveryAlert } from "../delivery-alerts";
+import { inZone, type LocalDateKey } from "@alfred/assistant/time";
+import { readIntegrationAvailability } from "../availability";
+import { readDeliveryAlerts, type DeliveryAlertVerdict } from "../delivery-alerts";
 
 /**
  * How long one emailed alert silences the next one for the same source.
@@ -43,9 +44,12 @@ import { readInboundDeliveryAlerts, type InboundDeliveryAlert } from "../deliver
 const ALERT_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * How many recent `health_alert` rows the window read pulls back. The window is
- * a week and this alert is at most one row per source per week, so the cap only
- * bounds the read against the drift alerts that share the kind.
+ * How many recent `delivery_alert` rows the window read pulls back. One row per
+ * broken source per week, over a handful of sources, so the cap is slack rather
+ * than a limit. It is safe to state that only because the kind is this
+ * feature's alone: a cap shared with another sender is a cap that another
+ * sender's volume can exhaust, and an exhausted page reads as "never alerted"
+ * and re-sends.
  */
 const ALERT_LOOKBACK_LIMIT = 50;
 
@@ -58,7 +62,7 @@ export interface DeliveryAlertSweepResult {
 }
 
 /**
- * Alert the user about every inbound source that stopped delivering and that
+ * Alert the user about every event source that stopped delivering and that
  * they can restore, at most once per source per {@link ALERT_REPEAT_MS}.
  *
  * A failed send throws so BullMQ retries the sweep. `send` is idempotent on its
@@ -68,7 +72,8 @@ export async function runDeliveryAlertSweep(
   userId: string,
   now: Date = new Date(),
 ): Promise<DeliveryAlertSweepResult> {
-  const alerts = await readInboundDeliveryAlerts(userId);
+  const availability = await readIntegrationAvailability(userId);
+  const alerts = await readDeliveryAlerts(userId, availability.providers, now);
   if (alerts.length === 0) return { userId, alerts: 0, sent: 0 };
 
   const recentKeys = await listRecentAlertKeys(userId, new Date(now.getTime() - ALERT_REPEAT_MS));
@@ -99,10 +104,10 @@ export async function runDeliveryAlertSweep(
 
 async function sendDeliveryAlert(
   userId: string,
-  alert: InboundDeliveryAlert,
-  day: string,
+  alert: DeliveryAlertVerdict,
+  day: LocalDateKey,
 ): Promise<"sent" | "duplicate"> {
-  const integrationName = INTEGRATION_DISPLAY_NAMES[alert.integration];
+  const integrationName = INTEGRATIONS[alert.integration].displayName;
   const integrationUrl = `${webOrigin()}/integrations/${alert.integration}`;
   const subject = `Alfred stopped receiving ${integrationName} activity`;
   const html = await renderDeliveryAlertEmail({
@@ -121,7 +126,7 @@ async function sendDeliveryAlert(
 
   const result = await send({
     userId,
-    kind: "health_alert",
+    kind: "delivery_alert",
     idempotencyKey: `${alertKeyPrefix(userId, alert.source)}${day}`,
     subject,
     html,
@@ -134,30 +139,31 @@ async function sendDeliveryAlert(
 
 /**
  * The prefix every delivery alert's idempotency key carries, following the
- * `health_alert:{userId}:{subject}:{local-day}` convention the `email_sends`
- * schema documents. The source sits in the subject segment, so one broken
- * source never silences another.
+ * `{kind}:{userId}:{subject}:{local-day}` convention the `email_sends` schema
+ * documents. The source sits in the subject segment, so one broken source never
+ * silences another.
  */
-function alertKeyPrefix(userId: string, source: string): string {
-  return `health_alert:${userId}:inbound_delivery.${source}:`;
+function alertKeyPrefix(userId: string, source: EventSource): string {
+  return `delivery_alert:${userId}:${source}:`;
 }
 
 /**
  * Whether a delivery alert for this source already went out inside the window.
  * Pure over the keys, so the repeat rule is readable without a database.
  */
-function wasAlerted(keys: readonly string[], userId: string, source: string): boolean {
+function wasAlerted(keys: readonly string[], userId: string, source: EventSource): boolean {
   const prefix = alertKeyPrefix(userId, source);
   return keys.some((key) => key.startsWith(prefix));
 }
 
 /**
- * Idempotency keys of the `health_alert` emails this user actually received
+ * Idempotency keys of the `delivery_alert` emails this user actually received
  * inside the window.
  *
  * `sent` only: a queued or failed row means the user was told nothing, so the
- * source still owes them an alert. The read is covered by
- * `email_sends_user_kind_idx` on `(user_id, kind, created_at)`.
+ * source still owes them an alert. `email_sends_user_kind_idx` on
+ * `(user_id, kind, created_at)` serves the read; `status` is filtered on the
+ * heap, which is why the read is capped.
  */
 async function listRecentAlertKeys(userId: string, since: Date): Promise<string[]> {
   const rows = await db()
@@ -166,7 +172,7 @@ async function listRecentAlertKeys(userId: string, since: Date): Promise<string[
     .where(
       and(
         eq(emailSends.userId, userId),
-        eq(emailSends.kind, "health_alert"),
+        eq(emailSends.kind, "delivery_alert"),
         eq(emailSends.status, "sent"),
         gt(emailSends.createdAt, since),
       ),
@@ -184,7 +190,12 @@ export interface DeliveryAlertSweepTally {
 }
 
 /**
- * The repeatable job body: sweep every user.
+ * The repeatable job body: sweep every user Alfred may email.
+ *
+ * `selectEmailableUsers` is the scope, not every `user` row. This is the second
+ * recurring outbound fan-out in the codebase, and the first one billed real
+ * work against 83 leftover `@example.test` rows before it gained the same
+ * filter.
  *
  * Single-user today; the per-user fan-out carries us forward. One user's
  * failure must not hide the rest, so every user runs and the failures are
@@ -192,7 +203,7 @@ export interface DeliveryAlertSweepTally {
  * idempotent on its key, so the users already alerted are not alerted twice.
  */
 export async function runDeliveryAlertSweepForAllUsers(): Promise<DeliveryAlertSweepTally> {
-  const users = await db().select({ id: userTable.id }).from(userTable);
+  const users = await selectEmailableUsers();
   const failures: string[] = [];
   let broken = 0;
   let sent = 0;

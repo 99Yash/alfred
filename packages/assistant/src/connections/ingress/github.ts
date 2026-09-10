@@ -1,12 +1,16 @@
-import { getStringPath, isEventTypeForSource } from "@alfred/contracts";
-import { githubInstallationId, verifyWebhookSignature } from "@alfred/integrations/github";
 import {
-  findActiveCredentialByInstallationId,
-  hasActiveInstallationCredential,
-  hasAnyCredential,
-} from "@alfred/integrations/shared";
+  credentialSatisfies,
+  getStringPath,
+  INTEGRATIONS,
+  isEventTypeForSource,
+} from "@alfred/contracts";
+import { githubInstallationId, verifyWebhookSignature } from "@alfred/integrations/github";
+import { findActiveCredentialByInstallationId } from "@alfred/integrations/shared";
 import type { InboundSourceDescriptor } from "./descriptor";
 import { describeGithubReceipt } from "./github-description";
+
+/** GitHub's connected rule (ADR-0093), read once. */
+const GITHUB_CREDENTIAL = INTEGRATIONS.github.credential;
 
 /**
  * GitHub App activity (ADR-0052, ADR-0097). GitHub signs the raw body with the
@@ -49,22 +53,38 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
       : null;
   },
   subscription: {
-    async health(userId) {
-      if (await hasActiveInstallationCredential({ userId, provider: "github" })) {
+    async health(_userId, rows) {
+      const github = rows.get("github") ?? [];
+      // The connected rule (ADR-0093) is the same one the tile reads: an active
+      // row that carries an `installation_id`. Reading it here, off the
+      // caller's rows, is what keeps the tile and this verdict from disagreeing.
+      if (github.some((row) => credentialSatisfies(GITHUB_CREDENTIAL, row))) {
         return { healthy: true };
       }
-      // A user with a GitHub row set this up and lost it — a classic-OAuth row
-      // that predates the App migration, an installation the user removed on
-      // GitHub's side, or a revoked credential. A user with no row at all never
-      // had deliveries, so the cause is `never_connected` and no alert surface
-      // prints it (ADR-0100).
-      const everConnected = await hasAnyCredential({ userId, provider: "github" });
+      // `installation_id` on ANY row, at any status, is the fact that separates
+      // the two unhealthy answers (ADR-0100). It is a durable record that this
+      // user once completed Install & Authorize, so App deliveries did flow and
+      // have stopped: the row was revoked, expired, or the installation was
+      // removed on GitHub's side. An alert speaks for that user.
+      //
+      // A row with no installation id at all is NOT a loss. A classic-OAuth row
+      // that predates the App migration (ADR-0052) never received one delivery,
+      // so "Alfred stopped receiving GitHub activity" would be false, and
+      // `GithubReconnectBanner` already names that row and offers that repair.
+      // Reading "any row at all" here is what made this verdict claim a break
+      // that never happened, on the one state the deployment actually holds.
+      if (github.some((row) => row.installationId !== null)) {
+        return {
+          healthy: false,
+          cause: "broken",
+          reason: "the GitHub App installation for this account is no longer active",
+          recovery: { kind: "connect", integration: "github" },
+        };
+      }
       return {
         healthy: false,
-        cause: everConnected ? "broken" : "never_connected",
-        reason: everConnected
-          ? "the GitHub App installation for this account is no longer active"
-          : "no active GitHub App installation is connected",
+        cause: "never_connected",
+        reason: "no GitHub App installation is connected",
         recovery: { kind: "connect", integration: "github" },
       };
     },

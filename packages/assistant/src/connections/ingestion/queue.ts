@@ -48,10 +48,10 @@ import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
  *                    re-enqueue is a no-op while the job lives, and `removeOnFail`
  *                    is set so a redelivery can revive a receipt after the last
  *                    attempt failed.
- *  - ingress.health_sweep (ADR-0100) — repeatable: pull each inbound source's own
- *                    subscription health and email the user about one that
- *                    stopped delivering. A broken source sends nothing, so a
- *                    schedule is the only thing that can notice.
+ *  - ingress.health_sweep (ADR-0100) — repeatable: pull each event source's own
+ *                    delivery health and email the user about one that stopped
+ *                    delivering. A broken source sends nothing, so a schedule
+ *                    is the only thing that can notice.
  */
 const INGESTION_QUEUE_NAME = "ingestion-runs";
 const USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS = 10 * 60 * 1000;

@@ -1,5 +1,9 @@
-import { INBOUND_EVENT_SOURCES, type InboundEventSource } from "@alfred/contracts";
-import type { EventDeliveryFailure, EventDeliveryHealth } from "./descriptor";
+import {
+  INBOUND_EVENT_SOURCES,
+  type CredentialRowsByProvider,
+  type InboundEventSource,
+} from "@alfred/contracts";
+import type { EventDeliveryHealth } from "./descriptor";
 import { INBOUND_SOURCES } from "./registry";
 
 /**
@@ -12,6 +16,10 @@ import { INBOUND_SOURCES } from "./registry";
  * verdict, so a second reader had to re-derive "the descriptor declares no
  * adapter" from the registry — two folds over the same registry that answered
  * the no-adapter case oppositely, held together by a comment.
+ *
+ * No descriptor reaches it today: both `github` and `sentry` declare an
+ * adapter. It is the verdict the next descriptor gets for free, and the reason
+ * a descriptor may leave `subscription` off at all.
  */
 const NO_SUBSCRIPTION_HEALTH_SIGNAL: EventDeliveryHealth = {
   healthy: false,
@@ -21,54 +29,26 @@ const NO_SUBSCRIPTION_HEALTH_SIGNAL: EventDeliveryHealth = {
 };
 
 /**
- * Per-source subscription health for one user, for workflow trigger readiness
- * (ADR-0097). The record holds every inbound source, so the one consumer,
- * `readEventSourceHealth` in `automation/event-source-health.ts`, folds it into
- * the map keyed by every `EventSource` without a fallback (#976).
+ * Per-source subscription health for one user (ADR-0097). The record holds
+ * every inbound source, so the one consumer, `readEventSourceHealth` in
+ * `connections/event-source-health.ts`, folds it into the map keyed by every
+ * `EventSource` without a fallback (#976).
+ *
+ * `rows` is the caller's credential read. An adapter that answers from
+ * credential state reads it instead of issuing its own query, so this fold adds
+ * no round trip to the read that carries it.
  */
 export async function readInboundTriggerHealth(
   userId: string,
+  rows: CredentialRowsByProvider,
 ): Promise<Readonly<Record<InboundEventSource, EventDeliveryHealth>>> {
   const entries = await Promise.all(
     INBOUND_EVENT_SOURCES.map(async (slug): Promise<[InboundEventSource, EventDeliveryHealth]> => {
       const adapter = INBOUND_SOURCES[slug].subscription;
-      return [slug, adapter ? await adapter.health(userId) : NO_SUBSCRIPTION_HEALTH_SIGNAL];
+      return [slug, adapter ? await adapter.health(userId, rows) : NO_SUBSCRIPTION_HEALTH_SIGNAL];
     }),
   );
   // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
   // from INBOUND_EVENT_SOURCES, so the keys are exactly InboundEventSource.
   return Object.fromEntries(entries) as Record<InboundEventSource, EventDeliveryHealth>;
-}
-
-/**
- * One inbound source whose own subscription check reported it broken (#1035).
- * The verdict is the descriptor's, spread whole: derived from
- * {@link EventDeliveryFailure} rather than restated, so a field added to the
- * verdict reaches this reader and a field dropped here stops compiling.
- */
-export type DegradedInboundSource = EventDeliveryFailure & { slug: InboundEventSource };
-
-/**
- * The inbound sources that are broken right now, for one user (#1035).
- *
- * A source that produces deliveries only while it is healthy cannot report its
- * own silence, so only a pull check answers the question. This is that pull
- * read, and the per-source verdict stays the descriptor's own.
- *
- * `broken` is the whole filter, and it is read off the value (ADR-0100). A
- * source the user never connected is not broken, and a source with no adapter
- * is not a claim about delivery at all. Both are correct verdicts for workflow
- * readiness, which must refuse a trigger it cannot arm; neither is something a
- * user can repair, so neither reaches this list.
- *
- * The fold runs over {@link readInboundTriggerHealth}, so there is exactly one
- * place where a source becomes a verdict, and the two readers cannot drift.
- */
-export async function readDegradedInboundSources(userId: string): Promise<DegradedInboundSource[]> {
-  const health = await readInboundTriggerHealth(userId);
-  return INBOUND_EVENT_SOURCES.flatMap((slug): DegradedInboundSource[] => {
-    const verdict = health[slug];
-    if (verdict.healthy || verdict.cause !== "broken") return [];
-    return [{ slug, ...verdict }];
-  });
 }

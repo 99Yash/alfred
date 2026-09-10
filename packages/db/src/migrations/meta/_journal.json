@@ -883,6 +883,13 @@
       "when": 1788952033873,
       "tag": "0125_solid_valkyrie",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1789023448124,
+      "tag": "0126_bitter_lionheart",
+      "breakpoints": true
     }
   ]
 }

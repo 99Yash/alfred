@@ -232,22 +232,20 @@ export function useGithubNeedsReconnect(): GithubReconnect {
 
 /**
  * Integrations that stopped delivering events and that the user can restore
- * (ADR-0100). The server owns which verdicts qualify; the web owns whether one
- * is worth a banner, the same split `providers` already uses.
+ * (ADR-0100).
  *
- * An integration some active credential already fails the connected rule for is
- * dropped here. Such a row is the subject of a reconnect nag of its own
- * ({@link useGithubNeedsReconnect}, {@link useGoogleScopeGaps}), which names the
- * same integration and offers the same repair. Two cards asking for one click
- * read as two problems.
+ * A thin read, on purpose. Every rule about which verdict a person may see is
+ * the server's, including the one that drops an integration whose credential
+ * already carries a reconnect nag of its own ({@link useGithubNeedsReconnect},
+ * {@link useGoogleScopeGaps}). The first revision of this feature applied that
+ * last rule here instead, which left the emailed alert with no such filter: the
+ * banner and the email then disagreed about what counts, and only the email
+ * could reach the state that mattered.
  */
 export function useDeliveryAlerts(): readonly DeliveryAlert[] {
   const { data } = useIntegrationStatus();
-  return useMemo(() => {
-    if (!data) return [];
-    const alreadyNagged = new Set(
-      Object.values(data.providers).flatMap((rows) => rows?.flatMap((row) => row.missing) ?? []),
-    );
-    return data.deliveryAlerts.filter((alert) => !alreadyNagged.has(alert.integration));
-  }, [data]);
+  return data?.deliveryAlerts ?? EMPTY_ALERTS;
 }
+
+/** Stable identity, so a caller's `useMemo` on the result does not re-run per poll. */
+const EMPTY_ALERTS: readonly DeliveryAlert[] = [];

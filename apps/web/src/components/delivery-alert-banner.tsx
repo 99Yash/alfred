@@ -1,7 +1,7 @@
-import { INTEGRATIONS } from "@alfred/contracts";
-import { useNavigate } from "@tanstack/react-router";
+import { credentialProviderOf, INTEGRATIONS, integrationRoutePrefix } from "@alfred/contracts";
 import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
+import { API_URL } from "~/lib/eden";
 import { useDeliveryAlerts } from "~/lib/integrations/use-integration-status";
 
 /**
@@ -13,9 +13,9 @@ import { useDeliveryAlerts } from "~/lib/integrations/use-integration-status";
  * on the same read that builds every integration tile; this card is where that
  * verdict meets the button that fixes it.
  *
- * Generic on purpose. It names no provider: the display name and the route both
- * come from the integration slug the verdict carried, so a new inbound source
- * reaches this banner with no edit here. Sibling of `ScopeGapBanner` and
+ * Generic on purpose. It names no provider: the display name and the connect
+ * route both come from the integration slug the verdict carried, so a new
+ * source reaches this banner with no edit here. Sibling of `ScopeGapBanner` and
  * `GithubReconnectBanner`, which nag about a credential rather than a delivery.
  *
  * One card at a time. Two alerts are two separate repairs, and stacking them
@@ -24,7 +24,6 @@ import { useDeliveryAlerts } from "~/lib/integrations/use-integration-status";
  */
 export function DeliveryAlertBanner() {
   const alerts = useDeliveryAlerts();
-  const navigate = useNavigate();
   const [dismissed, setDismissed] = useState<readonly string[]>([]);
 
   const alert = alerts.find((entry) => !dismissed.includes(entry.integration));
@@ -42,7 +41,12 @@ export function DeliveryAlertBanner() {
       }
       actionLabel={`Reconnect ${name}`}
       onAction={() => {
-        void navigate({ to: "/integrations/$slug", params: { slug: alert.integration } });
+        // Full-page redirect to the provider's connect endpoint, as both
+        // siblings do. The alert's whole claim is that this integration needs
+        // reconnecting, so sending the user to a page to press one more button
+        // adds a step and no information.
+        const prefix = integrationRoutePrefix(credentialProviderOf(alert.integration));
+        window.location.href = `${API_URL}${prefix}/connect`;
       }}
       onDismiss={() => setDismissed((prev) => [...prev, alert.integration])}
     />

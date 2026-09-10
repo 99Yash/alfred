@@ -20,8 +20,8 @@ import { getIngestionQueue, type IngestionJobData } from "./queue";
  *                        missed live-capture refolds / out-of-band
  *                        backfills; each per-user refold passes the
  *                        frozen-logic gate before it activates.
- *   - ingress.health_sweep  every 6 hours — pulls each inbound source's own
- *                        subscription health and emails the user about one that
+ *   - ingress.health_sweep  every 6 hours — pulls each event source's own
+ *                        delivery health and emails the user about one that
  *                        stopped delivering (ADR-0100). A broken source sends
  *                        nothing, so no push signal exists and only a schedule
  *                        can notice. Six hours, not daily: the email is rate
