@@ -11,13 +11,13 @@ import {
   meteredGenerateObject,
   meteredGenerateText,
   meteredStreamText,
-  type ModelId,
 } from "../index";
+import { openAiLeg } from "../provider-adapter";
 
-const MODEL_IDS = ["gpt-5.6-sol", "gpt-5.6-luna"] as const satisfies readonly ModelId[];
+const MODEL_IDS = ["gpt-5.6-sol", "gpt-5.6-luna"] as const;
 
 async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
-  const modelRoute = route(modelId, "medium");
+  const modelRoute = route(openAiLeg(modelId), "medium");
   const model = modelRoute.model();
   const providerOptions = modelRoute.providerOptions();
   const attribution = { requestMeta: { smoke: "gpt-5.6", surface: modelId } } as const;

@@ -29,8 +29,8 @@ const PROVIDERS = ["anthropic", "google", "openai", "perplexity"] as const;
 /**
  * A single reasoning-control mechanism from models.dev. The catalog-wide universe
  * is a closed 3-type set (`effort` | `budget_tokens` | `toggle`); `values` is
- * present only on `effort` (the vocabulary the `verify-capabilities` audit diffs
- * against `MODEL_CAPABILITIES.effortValues`).
+ * present only on `effort`. Captured into `model_prices.metadata.capabilities`
+ * as a change-detection snapshot; the provider packages own the runtime mapping.
  */
 const modelsDevReasoningOptionSchema = z
   .object({
@@ -214,11 +214,10 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
           capabilities: {
             reasoning: m.reasoning ?? false,
             toolCall: m.tool_call ?? false,
-            // Captured for the `verify-capabilities` audit (ADR-0078): the per-
-            // model effort vocabulary + temperature support that `@alfred/ai`'s
-            // `MODEL_CAPABILITIES` hard-codes. models.dev is the *audit oracle*,
-            // not a runtime source — the audit diffs the snapshot against the
-            // code-resident values and fails on drift.
+            // Catalog change-detection snapshot. The AI SDK and its provider
+            // packages own runtime reasoning mapping (ADR-0078 amendment
+            // 2026-08-09); these fields stay so a models.dev shift is visible in
+            // the price-snapshot diff, never a runtime source.
             reasoningOptions: m.reasoning_options ?? null,
             temperature: m.temperature ?? null,
           },

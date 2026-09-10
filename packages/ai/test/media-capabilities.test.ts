@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { mediaEnrichmentModelRoutes } from "../src/provider";
+import { identifyLanguageModel } from "../src/models";
+import { getMediaEnrichmentModels } from "../src/provider";
 
-describe("media enrichment capability routing", () => {
+function modelIds(modality: "image" | "audio" | "video" | "pdf", byteSize: number): string[] {
+  return getMediaEnrichmentModels(modality, byteSize).map(
+    (model) => identifyLanguageModel(model).modelId,
+  );
+}
+
+describe("media enrichment routing", () => {
   test("routes images through both Flash models, Flash-Lite, then Sonnet", () => {
-    assert.deepEqual(mediaEnrichmentModelRoutes("image", 1_000), [
+    assert.deepEqual(modelIds("image", 1_000), [
       "gemini-3.8-flash",
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
@@ -14,7 +21,7 @@ describe("media enrichment capability routing", () => {
   });
 
   test("skips 2.5-flash for PDF input it does not advertise", () => {
-    assert.deepEqual(mediaEnrichmentModelRoutes("pdf", 1_000), [
+    assert.deepEqual(modelIds("pdf", 1_000), [
       "gemini-3.8-flash",
       "gemini-2.5-flash-lite",
       "claude-sonnet-4-6",
@@ -22,6 +29,9 @@ describe("media enrichment capability routing", () => {
   });
 
   test("rejects payloads beyond every compatible inline limit", () => {
-    assert.deepEqual(mediaEnrichmentModelRoutes("video", 60 * 1024 * 1024), []);
+    assert.throws(
+      () => getMediaEnrichmentModels("video", 60 * 1024 * 1024),
+      /media_enrichment_input_unsupported/,
+    );
   });
 });

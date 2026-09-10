@@ -1,7 +1,6 @@
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
 import { isCallerAbort } from "../abort";
-import { findModelProvider } from "../models";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
@@ -25,19 +24,18 @@ export async function flushMeteringWrites(): Promise<void> {
 
 /**
  * Reconcile the pre-call attribution (`meta.provider`/`meta.model`, resolved
- * from the model object before dispatch) with the model the provider reports
- * actually serving (`extracted.served`, from `response.modelId`). The two
- * diverge when a `withFallback` cascade switches providers mid-call.
+ * from the model object before dispatch) with the model the provider object
+ * reports actually serving. The two diverge when a `withFallback` cascade
+ * switches providers mid-call: the composed model proxies `provider`/`modelId`
+ * to whichever leg currently serves, and the extractor reads it after the call.
  *
- * Registry-gated: only a served id that maps to a known `MODEL_REGISTRY`
- * entry overrides the meta — providers echo dated aliases of the requested
- * model (e.g. a dated Gemini alias) and those must not knock attribution to
- * `unknown`. A divergent-but-unrecognized id is still surfaced on
+ * Identity comes off the model object, so a provider's dated alias echo never
+ * knocks attribution to `unknown`. A divergence is surfaced on
  * `response_meta.servedModelId` so the row is auditable.
  */
 function reconcileServed(meta: MeteredMeta, extracted: MeteredResult) {
-  const served = extracted.served?.model;
-  if (!served || served === meta.model) {
+  const served = extracted.served;
+  if (!served || (served.provider === meta.provider && served.model === meta.model)) {
     return { provider: meta.provider, model: meta.model, responseMeta: extracted.responseMeta };
   }
   // `requestedModelId` is the pre-call attribution — the route's primary when a
@@ -46,14 +44,10 @@ function reconcileServed(meta: MeteredMeta, extracted: MeteredResult) {
   // `servedModelId`, so the common same-model row stays untouched.
   const responseMeta = {
     ...extracted.responseMeta,
-    servedModelId: served,
+    servedModelId: served.model,
     requestedModelId: meta.model,
   };
-  const provider = findModelProvider(served);
-  if (!provider) {
-    return { provider: meta.provider, model: meta.model, responseMeta };
-  }
-  return { provider, model: served, responseMeta };
+  return { provider: served.provider, model: served.model, responseMeta };
 }
 
 /**

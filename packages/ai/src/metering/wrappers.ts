@@ -72,6 +72,7 @@ const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_M
 function extractTextUsage(
   result: GenerateTextResult<ToolSet, never, never>,
   cacheWriteTtl: AttributedCall["cacheWriteTtl"],
+  model: LanguageModel,
 ): MeteredResult {
   return {
     usage: usageFromSdk(result.usage, cacheWriteTtl),
@@ -86,7 +87,7 @@ function extractTextUsage(
     // drop the one thing a trajectory replay needs — what the model decided to
     // call (see captureOutput).
     output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
-    ...servedFromResponse(result.finalStep.response),
+    ...servedFromModel(model),
   };
 }
 
@@ -138,14 +139,16 @@ function captureInput(args: { instructions?: unknown; prompt?: unknown; messages
 }
 
 /**
- * Pull the served model id off the SDK's response metadata so `metered()`
- * can re-attribute calls a `withFallback` cascade routed to the fallback
- * provider (the pre-call meta still names the primary).
+ * Pull the served provider + model id off the model object after the call so
+ * `metered()` can re-attribute calls a `withFallback` cascade routed to the
+ * fallback provider (the pre-call meta still names the primary). ai-retry's
+ * composed model proxies `provider`/`modelId` to whichever leg currently
+ * serves, so reading it here reflects the model that actually answered.
  */
-function servedFromResponse(
-  response: { modelId?: string } | undefined,
-): Pick<MeteredResult, "served"> {
-  return response?.modelId ? { served: { model: response.modelId } } : {};
+function servedFromModel(model: LanguageModel): Pick<MeteredResult, "served"> {
+  const { provider, modelId } = identifyLanguageModel(model);
+  if (provider === "unknown") return {};
+  return { served: { provider, model: modelId } };
 }
 
 function extractEmbedUsage(result: EmbedResult): MeteredResult {
@@ -220,9 +223,12 @@ export async function meteredGenerateText(
   // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   return metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
-  ) => extractTextUsage(result, attribution.cacheWriteTtl)) as never) as unknown as Promise<
-    GenerateTextResult<ToolSet, never, never>
-  >;
+  ) =>
+    extractTextUsage(
+      result,
+      attribution.cacheWriteTtl,
+      args.model,
+    )) as never) as unknown as Promise<GenerateTextResult<ToolSet, never, never>>;
 }
 
 /**
@@ -264,7 +270,12 @@ export async function meteredGenerateObject<O>(
   /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
   return (await metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
-  ) => extractTextUsage(result, attribution.cacheWriteTtl)) as never)) as unknown as Result;
+  ) =>
+    extractTextUsage(
+      result,
+      attribution.cacheWriteTtl,
+      rest.model,
+    )) as never)) as unknown as Result;
   /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
 }
 
@@ -319,7 +330,7 @@ export function meteredStreamText(
           // Same fold as the non-streaming path: a streamed tool-call turn emits
           // no prose, so capture the proposed calls or the replay loses them.
           output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
-          ...servedFromResponse(event.finalStep.response),
+          ...servedFromModel(args.model),
         });
         callerOnEnd?.(event);
       },
@@ -328,10 +339,10 @@ export function meteredStreamText(
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {
-        // No top-level `response` on an abort, so mine the served model id
-        // off the last finished step — otherwise a stop/timeout after a
+        // No top-level `response` on an abort, so read the served model off the
+        // composed model object — otherwise a stop/timeout after a
         // `withFallback` cascade gets logged as the nominal primary (#216).
-        const served = servedFromSteps(event.steps);
+        const served = servedFromModel(args.model);
         abort({
           usage: usageFromSteps(event.steps, attribution.cacheWriteTtl),
           responseMeta: {
@@ -348,21 +359,9 @@ export function meteredStreamText(
 }
 
 /**
- * Latest served model id across finished steps. Walks from the end so the
- * most recent step (the one the cascade landed on) wins; returns `{}` when no
- * step reported a `response.modelId`, so the caller can flag the attribution
- * as unknown rather than silently keeping the pre-call primary.
+ * Sum usage across the steps a streamed turn completed before it aborted.
+ * Returns `undefined` when no step reported usage, matching `usageFromSdk`.
  */
-function servedFromSteps(
-  steps: readonly { response?: { modelId?: string } }[],
-): Pick<MeteredResult, "served"> {
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const modelId = steps[i]?.response?.modelId;
-    if (modelId) return { served: { model: modelId } };
-  }
-  return {};
-}
-
 export function usageFromSteps(
   steps: readonly { usage?: LanguageModelUsage }[],
   cacheWriteTtl?: "5m" | "1h",

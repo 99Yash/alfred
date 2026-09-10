@@ -115,15 +115,15 @@ export interface MeteredResult {
    */
   output?: unknown;
   /**
-   * Model id the provider reported actually serving the call
-   * (`result.response.modelId`). `MeteredMeta.provider/model` are resolved
-   * from the model object *before* the call, so when a `withFallback`
+   * Provider + model id the served model object reports after the call
+   * (`identifyLanguageModel(args.model)`). `MeteredMeta.provider/model` are
+   * resolved from the model object *before* the call, so when a `withFallback`
    * cascade switches providers mid-call the meta misattributes — `metered()`
-   * re-resolves provider + price from this id (via `MODEL_REGISTRY`) when it
-   * differs. Registry-gated: an unrecognized served id (e.g. a provider's
-   * dated alias of the same model) leaves the pre-call meta untouched.
+   * re-resolves provider + price from this pair when it differs. Identity comes
+   * off the model object, never a model-to-provider registry, so a provider's
+   * dated alias echo does not knock attribution to `unknown`.
    */
-  served?: { model: string } | undefined;
+  served?: { provider: string; model: string } | undefined;
 }
 
 export type ResultExtractor<T> = (value: T) => MeteredResult;
