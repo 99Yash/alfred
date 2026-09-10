@@ -1,4 +1,3 @@
-import { briefingDegradedSourceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { DAILY_BRIEFING_WORKFLOW_SLUG, dailyBriefingWorkflowInputSchema } from "./workflow-input";
@@ -19,8 +18,6 @@ const stateSchema = z.object({
   untilIngestedAt: z.string().optional(),
   briefingId: z.string().optional(),
   quietDay: z.boolean().optional(),
-  /** Inbound sources this run reports as broken (#1035); gather resolves, compose renders. */
-  degradedSources: z.array(briefingDegradedSourceSchema).optional(),
   composed: z
     .object({
       subject: z.string(),

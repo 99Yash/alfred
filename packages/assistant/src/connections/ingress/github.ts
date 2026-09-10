@@ -3,6 +3,7 @@ import { githubInstallationId, verifyWebhookSignature } from "@alfred/integratio
 import {
   findActiveCredentialByInstallationId,
   hasActiveInstallationCredential,
+  hasAnyCredential,
 } from "@alfred/integrations/shared";
 import type { InboundSourceDescriptor } from "./descriptor";
 import { describeGithubReceipt } from "./github-description";
@@ -49,14 +50,23 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   },
   subscription: {
     async health(userId) {
-      const installed = await hasActiveInstallationCredential({ userId, provider: "github" });
-      return installed
-        ? { healthy: true }
-        : {
-            healthy: false,
-            reason: "no active GitHub App installation is connected",
-            recovery: { kind: "connect", integration: "github" },
-          };
+      if (await hasActiveInstallationCredential({ userId, provider: "github" })) {
+        return { healthy: true };
+      }
+      // A user with a GitHub row set this up and lost it — a classic-OAuth row
+      // that predates the App migration, an installation the user removed on
+      // GitHub's side, or a revoked credential. A user with no row at all never
+      // had deliveries, so the cause is `never_connected` and no alert surface
+      // prints it (ADR-0100).
+      const everConnected = await hasAnyCredential({ userId, provider: "github" });
+      return {
+        healthy: false,
+        cause: everConnected ? "broken" : "never_connected",
+        reason: everConnected
+          ? "the GitHub App installation for this account is no longer active"
+          : "no active GitHub App installation is connected",
+        recovery: { kind: "connect", integration: "github" },
+      };
     },
   },
 };

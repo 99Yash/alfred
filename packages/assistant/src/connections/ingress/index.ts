@@ -4,13 +4,15 @@
  * trigger readiness reads.
  *
  * This door is light on purpose. `automation/event-source-health.ts` imports it
- * for `readInboundTriggerHealth`, and the briefing gather for
+ * for `readInboundTriggerHealth`, and `connections/delivery-alerts.ts` for
  * `readDegradedInboundSources`, so nothing here may reach the BullMQ queue or
  * the trigger bus. The receive path (the queue's producer) and the
  * `ingress.deliver` job body live in `../ingestion`, beside the queue they use;
  * the HTTP route imports `receiveInboundDelivery` from that door.
  */
 export type {
+  EventDeliveryCause,
+  EventDeliveryFailure,
   EventDeliveryHealth,
   EventDeliveryRecovery,
   InboundDedupRule,

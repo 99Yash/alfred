@@ -766,6 +766,7 @@ describe("workflow readiness", () => {
           grain: "source",
           health: {
             healthy: false,
+            cause: "broken",
             reason: "the GitHub App is not installed",
             recovery: { kind: "connect", integration: "github" },
           },

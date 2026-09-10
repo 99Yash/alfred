@@ -10,9 +10,11 @@ import {
   LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
   projectSlugs,
+  toMessage,
   toStringArray,
   type CredentialProvider,
   type CredentialSpec,
+  type DeliveryAlert,
   type IntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
   type IntegrationConnection,
@@ -29,6 +31,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
+import { readInboundDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -109,9 +112,10 @@ export async function readFreshIntegrationAvailability(
  * which rows count.
  */
 export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
-  const [byProvider, gmailDelivery] = await Promise.all([
+  const [byProvider, gmailDelivery, deliveryAlerts] = await Promise.all([
     loadCredentialRowsByProvider(userId),
     readGmailDeliveryFacts(userId),
+    readWireDeliveryAlerts(userId),
   ]);
   const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
     byProvider.get(provider) ?? [];
@@ -149,7 +153,28 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
     }));
   }
 
-  return { integrations, providers };
+  return { integrations, providers, deliveryAlerts };
+}
+
+/**
+ * The delivery alerts for the status body (ADR-0100), or none when the health
+ * read fails.
+ *
+ * It is caught here on purpose. This read is the source of every integration
+ * tile in the app, and the web polls it; a provider check that throws must cost
+ * the user one missing banner, not a page that reports every integration
+ * disconnected. The health checks are small indexed credential reads, so they
+ * add little to a read the web already makes.
+ */
+async function readWireDeliveryAlerts(userId: string): Promise<DeliveryAlert[]> {
+  try {
+    return toDeliveryAlerts(await readInboundDeliveryAlerts(userId));
+  } catch (err) {
+    console.error(
+      `[integrations] inbound delivery health read failed for user=${userId}: ${toMessage(err)}`,
+    );
+    return [];
+  }
 }
 
 /**

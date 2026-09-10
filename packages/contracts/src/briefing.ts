@@ -10,7 +10,6 @@
 import { z } from "zod";
 
 import { attentionBandSchema } from "./attention";
-import { inboundEventSourceSchema } from "./event-triggers";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug, type IntegrationSlug } from "./integrations";
 
@@ -309,35 +308,6 @@ export const integrationActivityContributionSchema = z.object({
   items: z.array(integrationActivityItemSchema),
 });
 
-/**
- * One inbound source whose own subscription health check reported it broken
- * (#1035). A source that produces deliveries only while it is healthy sends
- * nothing when it breaks, so no push signal exists; the briefing schedule pulls
- * the verdict instead and renders it as one more open loop.
- *
- * The entry is already resolved for display: `reason` is verbatim from the
- * descriptor's check, and `action` plus `actionUrl` are the one recovery the
- * check named. Resolving at gather time keeps the recovery union server-side
- * and lets the render stay a deterministic append, with no model judgment
- * between the check and the user.
- */
-export const briefingDegradedSourceSchema = z
-  .object({
-    /** The inbound event-source slug the check answered for. */
-    source: inboundEventSourceSchema,
-    /** Display name of that source. */
-    label: z.string().min(1).max(80),
-    /** The reason the descriptor's own check gave, unedited. */
-    reason: z.string().min(1).max(200),
-    /** What the user does to restore deliveries. */
-    action: z.string().min(1).max(200),
-    /** Where the user does it; absent when only time or an operator can restore it. */
-    actionUrl: z.url().optional(),
-  })
-  .strict();
-
-export type BriefingDegradedSource = z.infer<typeof briefingDegradedSourceSchema>;
-
 export const briefingGatherSchema = z.object({
   email: emailContributionSchema,
   calendar: calendarContributionSchema.nullable(),
@@ -350,15 +320,6 @@ export const briefingGatherSchema = z.object({
    * treats its absence as "no day-shape signal," never an error.
    */
   day_shape: dayShapeSchema.optional(),
-  /**
-   * Inbound sources reported broken by their own health check (#1035). Holds
-   * only the sources this run actually renders: a source a recent briefing
-   * already reported is filtered out before the payload is persisted, so the
-   * stored list is both the render input and the "already told you" record.
-   * Optional + additive, like `day_shape`; absent means "no degraded source",
-   * never an error.
-   */
-  degraded_sources: z.array(briefingDegradedSourceSchema).max(8).optional(),
 });
 
 export const fullBriefingSectionSchema = z.object({

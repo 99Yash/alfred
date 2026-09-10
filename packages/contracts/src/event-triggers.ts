@@ -168,20 +168,6 @@ export const INBOUND_EVENT_SOURCES: readonly InboundEventSource[] = EVENT_SOURCE
 );
 export const isInboundEventSource = enumGuard(INBOUND_EVENT_SOURCES);
 
-/**
- * Parser for one inbound source slug. `INBOUND_EVENT_SOURCES` is a filtered
- * array, not a literal tuple, so `z.enum` cannot read it; the guard above is
- * the same closed set and is the only place the membership rule lives.
- */
-export const inboundEventSourceSchema = z
-  .string()
-  .refine(isInboundEventSource, { message: "Expected a known inbound event source" })
-  .transform((value) => {
-    // SAFETY: the refine above ran `isInboundEventSource`, which certifies
-    // exactly the `InboundEventSource` union; this narrows a proven string.
-    return value as InboundEventSource;
-  });
-
 export type EventTypeForSource<S extends EventSource> = EventSourceEntryOf<S>["eventTypes"][number];
 
 export type EventType = {

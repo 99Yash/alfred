@@ -436,6 +436,9 @@ function triggerProblem(
   if (rows.length === 0) {
     return deliveryProblem(trigger.source, {
       healthy: false,
+      // No row satisfies the connected rule, so nothing was ever delivering
+      // for this trigger to lose (ADR-0100).
+      cause: "never_connected",
       reason: `no connected ${INTEGRATIONS[integration].displayName} account`,
       recovery: { kind: "connect", integration },
     });
