@@ -40,6 +40,7 @@
     "./knowledge/style-profiles": "./src/knowledge/style-profiles.ts",
     "./knowledge/team-graph": "./src/knowledge/team-graph.ts",
     "./knowledge/workflow-operations": "./src/knowledge/workflow-operations.ts",
+    "./context-fabric": "./src/context-fabric/index.ts",
     "./tasks": "./src/tasks/index.ts",
     "./tasks/resolve": "./src/tasks/resolve.ts",
     "./tasks/suggest": "./src/tasks/suggest.ts",

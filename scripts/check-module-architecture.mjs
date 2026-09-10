@@ -69,6 +69,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "tool-runtime",
   "connections",
   "chat",
+  "context-fabric",
   "corpus",
   "delivery",
   "triggers",
