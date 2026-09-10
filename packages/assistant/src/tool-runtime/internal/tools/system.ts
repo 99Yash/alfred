@@ -427,7 +427,14 @@ export const systemTools: readonly RegisteredTool[] = [
             "The user resumed the turn without answering. Continue on a reasonable assumption and state it in one sentence.",
         };
       }
-      return { status: "answered", questions: input.questions, answers: input.answers };
+      // `questionCount` is the one field the preview pruner cannot shrink, so
+      // the web card can tell a complete answer sheet from a truncated one.
+      return {
+        status: "answered",
+        questions: input.questions,
+        answers: input.answers,
+        questionCount: input.questions.length,
+      };
     },
   }),
   liveTool({

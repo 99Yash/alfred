@@ -80,12 +80,18 @@ export type AskUserSummary =
  * Read the settled summary off a finished tool call's result preview.
  *
  * The preview is capped at 2000 characters and pruned array-by-array when it
- * overflows, so a very long question set can arrive with trailing pairs
- * dropped. Pruning slices `questions` and `answers` to the same length, so the
- * pairs that survive stay correctly matched; a mismatched pair count means the
- * preview is not readable and this returns null, and the caller shows the
- * ordinary tool row instead of a card that could attribute the wrong answer to
- * the wrong question.
+ * overflows, so a long question set can arrive with trailing pairs dropped.
+ * Pruning cuts `questions` and `answers` to the *same* length, which is why an
+ * equal pair count proves nothing: a truncated preview still parses and still
+ * pairs correctly, it just omits whole questions. The answered arm therefore
+ * carries `questionCount`, a scalar the pruner leaves alone. Fewer pairs than
+ * that count means the preview is lossy, this returns null, and the caller
+ * draws the ordinary tool row rather than a card that hides answers under the
+ * heading "Your answers".
+ *
+ * Two lesser losses survive the guard on purpose: one long question or answer
+ * string can arrive truncated with `…`, and a `selectedOptions` list of 6 can
+ * arrive holding 5. Neither attributes an answer to the wrong question.
  */
 export function askUserSummary(resultPreview: string | undefined): AskUserSummary | null {
   if (!resultPreview) return null;
@@ -95,6 +101,7 @@ export function askUserSummary(resultPreview: string | undefined): AskUserSummar
     return { status: "unanswered", reason: result.reason, questions: result.questions };
   }
   if (result.questions.length !== result.answers.length) return null;
+  if (result.questions.length !== result.questionCount) return null;
   return {
     status: "answered",
     answered: result.questions.map((question, index) => ({
