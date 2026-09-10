@@ -268,7 +268,7 @@ function PagerButton({
         "focus-visible:ring-2 focus-visible:ring-app-purple-2",
         inert
           ? "cursor-not-allowed opacity-40"
-          : "hover:bg-app-bg-a2 hover:text-app-fg-4 cursor-pointer",
+          : "cursor-pointer hover:bg-app-bg-a2 hover:text-app-fg-4",
       )}
     >
       {children}
@@ -316,6 +316,11 @@ function OptionList({
     });
   };
 
+  // `askUserOptionSchema` requires distinct labels, so the label is a sound key
+  // and membership is a sound selection test. Read once per render rather than
+  // per option: a scan inside the loop re-walks the whole selection each time.
+  const selected = new Set(answer.selectedOptions);
+
   return (
     <div
       className="mt-2.5 flex flex-col gap-1"
@@ -323,9 +328,7 @@ function OptionList({
       aria-labelledby={labelledBy}
     >
       {question.options.map((option) => {
-        // `askUserOptionSchema` requires distinct labels, so the label is a
-        // sound key and membership is a sound selection test.
-        const checked = answer.selectedOptions.includes(option.label);
+        const checked = selected.has(option.label);
         return (
           <label
             key={option.label}
