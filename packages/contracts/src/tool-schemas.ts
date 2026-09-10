@@ -2016,6 +2016,17 @@ export const askUserResultSchema = z.discriminatedUnion("status", [
     status: z.literal("answered"),
     questions: z.array(askUserQuestionSchema),
     answers: z.array(askUserAnswerSchema),
+    /**
+     * How many questions the call asked. The web card reads this result back
+     * from a *preview*, which `preview()` caps at 2000 characters and prunes
+     * array-by-array on overflow — and it cuts `questions` and `answers` to the
+     * same length, so an equal pair count does not prove the pair set is
+     * complete. This scalar is what the pruner cannot touch: it shortens
+     * strings, slices arrays, and drops object keys past a limit this object
+     * stays far below. A card that reads fewer pairs than this number knows its
+     * preview is lossy and draws the plain tool row instead.
+     */
+    questionCount: z.number().int().nonnegative(),
   }),
   z.object({
     status: z.literal("unanswered"),
