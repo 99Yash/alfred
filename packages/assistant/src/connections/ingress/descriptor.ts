@@ -51,9 +51,10 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
   /**
    * Resolve the credential that owns the delivery. An `unowned` verdict is
    * ADR-0097 alternative (e): the delivery is unattributable, so it is dropped.
-   * It carries the account reference the payload named, because the shared
-   * path reports that drop and the reference is the one fact that tells an
-   * operator whether a credential is missing or merely stale (#1033).
+   * It says why attribution failed and names the provider-side reference the
+   * payload carried, because the shared path reports that drop and the
+   * reference is the one fact that tells an operator whether a credential is
+   * missing or merely stale (#1033).
    */
   resolveOwner(payload: JsonObject, headers: Headers): Promise<InboundAttribution>;
   /**
@@ -132,30 +133,45 @@ export type InboundProjection<S extends InboundEventSource> =
 export interface InboundOwner {
   userId: string;
   credentialId: string;
-  /** The provider account id, carried on the domain event as `accountRef`. */
+  /**
+   * The provider account id (`integration_credentials.account_id`), carried on
+   * the domain event as `accountRef`.
+   */
   accountRef: string;
+}
+
+/**
+ * The `integration_credentials` column an unattributable delivery's payload
+ * reference is compared against, and the value the payload carried. GitHub's
+ * body names `installation.id`, so a reader compares `installation_id`; a
+ * source that attributes by its account id reports `account_id`.
+ */
+export interface UnattributedReference {
+  column: "account_id" | "installation_id";
+  value: string;
 }
 
 /**
  * What attribution settled to for one verified delivery.
  *
- * The failure arm is a value rather than `null` because the two questions an
+ * The failure arm is a value rather than `null` because the questions an
  * operator asks about a dropped delivery are answered by different facts, and
- * only the descriptor holds them. `accountRef` is the account the PAYLOAD
- * named — GitHub's `installation.id`, and nothing at all for a source that
- * attributes by a shared secret. A reader compares it against
- * `integration_credentials` and learns which of the two states holds: no
- * credential was ever stored, or a stored one names a different account. A
- * `null` verdict answered neither, so the drop that motivated #1033 was
- * indistinguishable from a delivery that arrived before its connect flow.
+ * only the descriptor holds them. `reason` separates the two ways attribution
+ * fails: `ambiguous` is more than one active credential for a source that
+ * attributes by a shared secret (Sentry's two organizations behind one Client
+ * Secret), and `no_match` is every other miss.
  *
- * `accountRef` is `null` when the payload names no account. That is a real and
- * ordinary answer, not a missing one: Sentry's descriptor attributes by one
- * shared Client Secret, so its body carries no organization to read.
+ * `reference` is the provider-side id the PAYLOAD named, with the credential
+ * column it is compared against. GitHub's body names `installation.id`, which
+ * a reader compares against `integration_credentials.installation_id`. The
+ * owned arm's `InboundOwner.accountRef` is a different column (`account_id`),
+ * so the failure arm names its own rather than borrowing that tag. `reference`
+ * is `null` when the payload names no account at all: a true answer for a
+ * source that attributes by one shared secret, not a missing one.
  */
 export type InboundAttribution =
   | { kind: "owned"; owner: InboundOwner }
-  | { kind: "unowned"; accountRef: string | null };
+  | { kind: "unowned"; reason: "no_match" | "ambiguous"; reference: UnattributedReference | null };
 
 /**
  * The user action that can restore deliveries from one event source. `connect`
@@ -250,6 +266,17 @@ export interface InboundSubscriptionAdapter {
    * one shared signing secret across users) ignores it.
    */
   health(userId: string, rows: CredentialRowsByProvider): Promise<EventDeliveryHealth>;
+}
+
+/**
+ * The provider's own kind for a projection: the typed event type, or the raw
+ * kind on the raw tier. The one derivation the receipt writer and the drop
+ * report both read, so the two cannot spell it differently.
+ */
+export function projectionKind(
+  projection: Exclude<InboundProjection<InboundEventSource>, { kind: "ignore" }>,
+): string {
+  return projection.kind === "raw" ? projection.rawKind : projection.type;
 }
 
 /** Resolve the dedup key one rule yields for one delivery, or `null` when it yields none. */

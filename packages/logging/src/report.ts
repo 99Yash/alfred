@@ -1,5 +1,13 @@
 import * as Sentry from "@sentry/node";
+import type { SeverityLevel } from "@sentry/node";
 import { logger } from "./logger";
+
+/**
+ * The levels a handled condition may report at, in Sentry's spelling. Derived
+ * from the SDK, so a rename on its side fails tsc instead of quietly dropping
+ * the event into an unleveled default.
+ */
+export type ReportedLevel = Extract<SeverityLevel, "warning" | "error">;
 
 /**
  * The door for an operator signal that is not an exception.
@@ -27,44 +35,60 @@ import { logger } from "./logger";
 export interface ReportedSignal {
   /**
    * The stable dotted name of the condition (`ingress.no_owner`). It leads the
-   * fingerprint and the Sentry title, so it must not carry an id: a name that
-   * varies per occurrence is a group of one, and a group of one cannot be
-   * counted.
+   * fingerprint, so it must not carry an id: a name that varies per occurrence
+   * is a group of one, and a group of one cannot be counted. The Sentry title
+   * comes from {@link ReportedSignal.message}, not from this name.
    */
   event: string;
   /**
    * One sentence describing what the process did, written for whoever opens
    * the issue months later. Keep it constant per `event`; the facts that vary
-   * belong in `tags`.
+   * belong in {@link ReportedSignal.tags}.
    */
   message: string;
-  /**
-   * `warning` for a condition the design admits and expects to see sometimes;
-   * `error` for one that always means a fault. The level is what decides
-   * whether an alert rule can fire on the issue, so it is the caller's choice
-   * rather than a default.
-   */
-  level: "warning" | "error";
+  /** `warning` for a condition the design admits and expects to see sometimes; `error` for one that always means a fault. */
+  level: ReportedLevel;
   /**
    * The facts that vary, as scalars. Sentry indexes them, so a reader filters
    * and compares on them without opening anything.
    *
    * Never a request body, never a credential, never a secret. Values are
    * truncated to {@link TAG_VALUE_CAP}, which bounds what a hostile provider
-   * field can push into the sink but does not make an unsafe value safe: only
+   * field can push into a sink but does not make an unsafe value safe: only
    * the call site knows which fields those are.
    */
   tags: Readonly<Record<string, string>>;
   /**
-   * What makes two reports one issue, and therefore what the count counts.
-   * Name only the dimensions worth separating; a fact left out of the
-   * fingerprint is still readable on the event and still filterable as a tag.
+   * The values that separate one instance of this condition from another, in
+   * order. The fingerprint is `[event, ...dimensions]`, so the event name is
+   * never repeated here and the two cannot disagree. Keep per-occurrence ids
+   * out: a dimension that changes per delivery makes every event its own
+   * issue.
    */
-  fingerprint: readonly string[];
+  dimensions: readonly string[];
 }
 
-/** Sentry drops a tag value past 200 characters, so the cut happens here, where it is visible. */
+/**
+ * A tag value is cut here so a hostile provider field cannot push unbounded
+ * text into either sink. Neither sink promises this exact limit; the cut is a
+ * local bound, applied before the value reaches either.
+ */
 const TAG_VALUE_CAP = 200;
+
+/**
+ * The field names pino writes into the line itself. A tag with one of these
+ * keys would emit a duplicate JSON key, and the later one wins on parse, so
+ * pino's own `level`, `time`, or `pid` would be lost. Those tags stay on the
+ * Sentry event; only the log line drops them.
+ */
+const PINO_OWNED_KEYS: ReadonlySet<string> = new Set([
+  "level",
+  "time",
+  "pid",
+  "hostname",
+  "name",
+  "msg",
+]);
 
 /**
  * Report one handled condition to the log and to Sentry.
@@ -75,22 +99,38 @@ const TAG_VALUE_CAP = 200;
  */
 export function report(signal: ReportedSignal): void {
   const tags = boundedTags(signal.tags);
-  // Pino spells the level `warn` and Sentry spells it `warning`. The interface
-  // takes Sentry's spelling, because the Sentry event is the half that carries
-  // the count, and the mapping stays here rather than at every call site.
-  const line = { event: signal.event, ...tags };
-  if (signal.level === "error") logger.error(line, signal.message);
-  else logger.warn(line, signal.message);
+  // Caller tags first: a tag keyed `event` must not replace the stable name
+  // that leads the fingerprint, and one keyed a pino field must not shadow the
+  // field pino owns. Each sink is independent, so a failure in one cannot
+  // suppress the other or reach the caller.
+  const line = pinoLine(tags, signal.event);
+  // Pino spells the level `warn` and Sentry spells it `warning`; the mapping
+  // stays here rather than in every caller.
+  try {
+    if (signal.level === "error") logger.error(line, signal.message);
+    else logger.warn(line, signal.message);
+  } catch {
+    // The Sentry event below is the other half of the report.
+  }
   try {
     Sentry.captureMessage(signal.message, {
       level: signal.level,
-      tags: { event: signal.event, ...tags },
-      fingerprint: [...signal.fingerprint],
+      tags: { ...tags, event: signal.event },
+      fingerprint: [signal.event, ...signal.dimensions],
     });
   } catch {
     // The log line above already landed. Losing the Sentry copy is not worth
     // failing a caller that was in the middle of handling something else.
   }
+}
+
+function pinoLine(tags: Readonly<Record<string, string>>, event: string) {
+  const line: Record<string, string> = {};
+  for (const [key, value] of Object.entries(tags)) {
+    if (!PINO_OWNED_KEYS.has(key)) line[key] = value;
+  }
+  line.event = event;
+  return line;
 }
 
 function boundedTags(tags: Readonly<Record<string, string>>): Record<string, string> {
