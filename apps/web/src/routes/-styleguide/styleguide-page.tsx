@@ -2157,7 +2157,9 @@ const V2_STAGING_QUESTION: SyncedActionStaging = {
   toolCallId: "call_3",
   toolName: "system.ask_user",
   integration: "system",
-  riskTier: "high",
+  // What the tool declares. A question is not an irreversible action, so
+  // ADR-0099 rejects the `high` tier for it by name.
+  riskTier: "no_risk",
   brief: "Ask which recipients and tone to use before sending the update.",
   proposedInput: {
     context: "I drafted the update. Two things are ambiguous before I send it.",
@@ -2192,7 +2194,7 @@ function V2QuestionAnswersSection() {
     <Section
       id="v2-question-answers"
       title="Chat question, settled"
-      recipe="routes/-chat/question-answers-card.tsx — what a `system.ask_user` call leaves in the transcript once it settles. Rendered from the tool result, so a reload shows the same thing. Left: answered. Right: dismissed."
+      recipe="components/approvals/question-answers-card.tsx — what a `system.ask_user` call leaves in the transcript once it settles. Rendered from the tool result, so a reload shows the same thing. Left: answered. Right: dismissed."
     >
       <ThemePanes
         stacked

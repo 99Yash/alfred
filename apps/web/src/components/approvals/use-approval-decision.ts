@@ -14,12 +14,16 @@ export type ApprovalDecision =
   | { decision: "cancel_run"; expectedRowVersion: number; reason: string };
 
 /**
- * Dismissing a parked `system.ask_user` question. The wire decision is still
- * `reject`, but dismissing IS the answer (ADR-0099), so the route takes it
- * with no revision note. Kept out of {@link ApprovalDecision} so a *write*
- * rejection still cannot compile without a reason.
+ * Dismissing a parked `system.ask_user` question. Dismissing IS the answer
+ * (ADR-0099), so the route takes it with no revision note.
+ *
+ * The client kind is `dismiss`, not `reject`, and it is kept out of
+ * {@link ApprovalDecision}. Both facts serve one rule: a *write* rejection
+ * still cannot compile without a reason, even where a parameter widens to
+ * {@link RecordedDecision}. `approvalDecisionBody` maps this to the wire
+ * `reject` the route already allows for `ASK_USER_TOOL`.
  */
-export type QuestionDismissal = { decision: "reject"; expectedRowVersion: number };
+export type QuestionDismissal = { decision: "dismiss"; expectedRowVersion: number };
 
 /** Anything a reviewer can record against one staged row. */
 export type RecordedDecision = ApprovalDecision | QuestionDismissal;

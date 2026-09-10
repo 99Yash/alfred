@@ -1,7 +1,7 @@
 import type { AskUserUnansweredReason } from "@alfred/contracts";
 import { Check, MessageCircleQuestion, X } from "lucide-react";
 import { cn } from "~/lib/utils";
-import type { AskUserSummary } from "./ask-user";
+import { isAnswerEmpty, type AskUserSummary } from "./ask-user";
 
 /**
  * A settled `system.ask_user` call, read-only, in the transcript (ADR-0099).
@@ -80,7 +80,7 @@ export function QuestionAnswersCard({
                 {answer.customAnswer ? (
                   <span className="text-[13px] leading-5 text-app-fg-4">{answer.customAnswer}</span>
                 ) : null}
-                {answer.selectedOptions.length === 0 && !answer.customAnswer ? (
+                {isAnswerEmpty(answer) ? (
                   <span className="text-[12px] leading-5 text-app-fg-3 italic">Skipped</span>
                 ) : null}
               </dd>
