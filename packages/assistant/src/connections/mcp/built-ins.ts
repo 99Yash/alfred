@@ -150,6 +150,7 @@ export type BuiltInProvider = keyof typeof BUILT_IN_REGISTRY;
  */
 function lookupBuiltIn(endpoint: URL): ResolvedDefinition | undefined {
   if (endpoint.search !== "" || endpoint.hash !== "") return undefined;
+
   return BY_ENDPOINT.get(endpointKey(endpoint));
 }
 
@@ -203,6 +204,7 @@ type BuiltInClientPolicy = Pick<BuiltInDefinition, "readOnlyCatalog" | "pinLegac
 
 export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   const definition = lookupBuiltInHref(endpointUrl);
+
   return {
     readOnlyCatalog: definition?.readOnlyCatalog ?? false,
     pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
@@ -244,6 +246,7 @@ export function builtInProviderForEndpoint(endpointUrl: string): BuiltInProvider
  */
 function endpointKey(url: URL): string {
   const path = url.pathname.replace(/\/+$/, "");
+
   return `${url.origin}${path === "" ? "/" : path}`;
 }
 
@@ -286,12 +289,16 @@ export function resolveBuiltInClient(
   issuerHint?: string | undefined,
 ): BuiltInOAuthConfig | undefined {
   const definition = lookupBuiltIn(endpoint);
+
   if (!definition) return undefined;
   const clientId = envFieldValue(definition.env.clientIdKey);
+
   if (typeof clientId !== "string") return undefined;
   const issuer = issuerHint ? boundIssuer(definition, issuerHint) : definition.issuer;
+
   if (!issuer) return undefined;
   const clientSecret = envFieldValue(definition.env.clientSecretKey);
+
   return {
     issuer,
     clientId,
@@ -301,10 +308,12 @@ export function resolveBuiltInClient(
 
 function boundIssuer(definition: ResolvedDefinition, issuerHint: string): string | undefined {
   let hint: URL;
+
   try {
     hint = new URL(issuerHint);
   } catch {
     return undefined;
   }
+
   return hint.origin === definition.issuerOrigin ? hint.href : undefined;
 }

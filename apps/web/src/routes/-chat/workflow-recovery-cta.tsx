@@ -9,6 +9,7 @@ import type { ToolCallView } from "./tool-call-presentation";
 export function WorkflowRecoveryCta({ tools }: { tools: readonly ToolCallView[] }) {
   for (let index = tools.length - 1; index >= 0; index--) {
     const tool = tools[index];
+
     if (
       !tool ||
       tool.status !== "succeeded" ||
@@ -16,9 +17,12 @@ export function WorkflowRecoveryCta({ tools }: { tools: readonly ToolCallView[] 
     ) {
       continue;
     }
+
     const result = parseJsonRecord(tool.resultPreview);
     const recovery = workflowRecoveryNavigationSchema.safeParse(result?.recovery);
+
     if (!recovery.success) continue;
+
     return (
       <a
         href={`${API_URL}${recovery.data.path}`}
@@ -29,5 +33,6 @@ export function WorkflowRecoveryCta({ tools }: { tools: readonly ToolCallView[] 
       </a>
     );
   }
+
   return null;
 }

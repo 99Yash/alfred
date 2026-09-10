@@ -23,6 +23,7 @@ const listMessagesResponseSchema = z.object({
   nextPageToken: z.string().optional(),
   resultSizeEstimate: z.number().optional(),
 });
+
 export type GmailMessageRef = z.infer<typeof messageRefSchema>;
 
 const headerSchema = z.object({ name: z.string(), value: z.string() });
@@ -65,6 +66,7 @@ const messageSchema = z.object({
   payload: messagePartSchema.optional(),
   sizeEstimate: z.number().optional(),
 });
+
 export type GmailMessage = z.infer<typeof messageSchema>;
 
 export interface ListMessagesArgs {
@@ -89,11 +91,15 @@ export async function listMessages(
 ): Promise<ListMessagesResult> {
   const url = new URL(`${API_BASE}/messages`);
   url.searchParams.set("maxResults", String(args.maxResults ?? 100));
+
   if (args.q) url.searchParams.set("q", args.q);
+
   if (args.pageToken) url.searchParams.set("pageToken", args.pageToken);
+
   if (args.labelIds) for (const l of args.labelIds) url.searchParams.append("labelIds", l);
 
   const parsed = await getJson(listMessagesResponseSchema, url.toString(), args.accessToken, retry);
+
   return {
     messages: parsed.messages ?? [],
     nextPageToken: parsed.nextPageToken,
@@ -116,6 +122,7 @@ export async function getMessage(
 ): Promise<GmailMessage> {
   const url = new URL(`${API_BASE}/messages/${args.id}`);
   url.searchParams.set("format", args.format ?? "full");
+
   return getJson(messageSchema, url.toString(), args.accessToken, retry);
 }
 
@@ -145,6 +152,7 @@ export async function getThreadMessageLabels(args: {
   const url = new URL(`${API_BASE}/threads/${args.threadId}`);
   url.searchParams.set("format", "minimal");
   const parsed = await getJson(threadGetMinResponseSchema, url.toString(), args.accessToken);
+
   return (parsed.messages ?? []).map((m) => ({
     id: m.id,
     labelIds: m.labelIds ?? [],
@@ -237,12 +245,16 @@ export interface ListHistoryResult {
 export async function listHistory(args: ListHistoryArgs): Promise<ListHistoryResult> {
   const url = new URL(`${API_BASE}/history`);
   url.searchParams.set("startHistoryId", args.startHistoryId);
+
   for (const t of args.historyTypes ?? ["messageAdded"]) {
     url.searchParams.append("historyTypes", t);
   }
+
   if (args.pageToken) url.searchParams.set("pageToken", args.pageToken);
+
   if (args.maxResults) url.searchParams.set("maxResults", String(args.maxResults));
   const parsed = await getJson(historyListResponseSchema, url.toString(), args.accessToken);
+
   return {
     entries: parsed.history ?? [],
     nextPageToken: parsed.nextPageToken,
@@ -258,6 +270,7 @@ export async function listHistory(args: ListHistoryArgs): Promise<ListHistoryRes
  */
 export function isHistoryGoneError(err: unknown): boolean {
   const msg = toMessage(err);
+
   return /\[gmail\] 404 /.test(msg) && /history/.test(msg);
 }
 
@@ -294,12 +307,14 @@ export async function startWatch(args: StartWatchArgs): Promise<StartWatchResult
     ...(args.labelIds?.length ? { labelIds: args.labelIds } : {}),
     ...(args.labelFilterAction ? { labelFilterAction: args.labelFilterAction } : {}),
   };
+
   const parsed = await postJson(
     watchResponseSchema,
     `${API_BASE}/watch`,
     args.accessToken,
     payload,
   );
+
   return {
     historyId: parsed.historyId,
     expiration: new Date(Number(parsed.expiration)),
@@ -321,6 +336,7 @@ const labelSchema = z.object({
   messageListVisibility: z.enum(["show", "hide"]).optional(),
   labelListVisibility: z.enum(["labelShow", "labelShowIfUnread", "labelHide"]).optional(),
 });
+
 export type GmailLabel = z.infer<typeof labelSchema>;
 
 const listLabelsResponseSchema = z.object({
@@ -329,6 +345,7 @@ const listLabelsResponseSchema = z.object({
 
 export async function listLabels(args: { accessToken: string }): Promise<GmailLabel[]> {
   const parsed = await getJson(listLabelsResponseSchema, `${API_BASE}/labels`, args.accessToken);
+
   return parsed.labels ?? [];
 }
 
@@ -348,6 +365,7 @@ export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
     messageListVisibility: args.messageListVisibility ?? "show",
     labelListVisibility: args.labelListVisibility ?? "labelShow",
   };
+
   return postJson(labelSchema, `${API_BASE}/labels`, args.accessToken, payload);
 }
 
@@ -372,6 +390,7 @@ export async function modifyMessageLabels(args: ModifyMessageLabelsArgs): Promis
     ...(args.addLabelIds?.length ? { addLabelIds: args.addLabelIds } : {}),
     ...(args.removeLabelIds?.length ? { removeLabelIds: args.removeLabelIds } : {}),
   };
+
   return postJson(
     messageSchema,
     `${API_BASE}/messages/${args.messageId}/modify`,
@@ -406,16 +425,19 @@ export async function batchModifyMessages(args: BatchModifyMessagesArgs): Promis
   if (args.messageIds.length === 0) {
     throw new Error("[gmail] batchModifyMessages called with empty messageIds");
   }
+
   if (args.messageIds.length > 1000) {
     throw new Error(
       `[gmail] batchModifyMessages exceeds Gmail's 1000-id cap (got ${args.messageIds.length})`,
     );
   }
+
   const payload = {
     ids: args.messageIds,
     ...(args.addLabelIds?.length ? { addLabelIds: args.addLabelIds } : {}),
     ...(args.removeLabelIds?.length ? { removeLabelIds: args.removeLabelIds } : {}),
   };
+
   await postJson(uncheckedResponse, `${API_BASE}/messages/batchModify`, args.accessToken, payload);
 }
 
@@ -448,6 +470,7 @@ function encodeHeaderValue(value: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ASCII range test
   // oxlint-disable-next-line no-control-regex -- ASCII range test, not a control-char match
   if (/^[\x00-\x7F]*$/.test(value)) return value;
+
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
@@ -467,10 +490,13 @@ export async function sendMessage(args: SendMessageArgs): Promise<SendMessageRes
   for (const value of [...args.to, ...(args.cc ?? []), ...(args.bcc ?? [])]) {
     assertHeaderSafe("recipient", value);
   }
+
   assertHeaderSafe("subject", args.subject);
 
   const headers = [`To: ${args.to.join(", ")}`];
+
   if (args.cc?.length) headers.push(`Cc: ${args.cc.join(", ")}`);
+
   if (args.bcc?.length) headers.push(`Bcc: ${args.bcc.join(", ")}`);
   headers.push(`Subject: ${encodeHeaderValue(args.subject)}`);
   headers.push("MIME-Version: 1.0");
@@ -491,6 +517,7 @@ export async function sendMessage(args: SendMessageArgs): Promise<SendMessageRes
     args.accessToken,
     payload,
   );
+
   return { id: parsed.id, threadId: parsed.threadId };
 }
 
@@ -526,10 +553,13 @@ export function extractMessageContent(message: GmailMessage): ExtractedMessage {
   const headers = headersToMap(message.payload?.headers ?? []);
   const text = collectText(message.payload, "text/plain");
   let body = text;
+
   if (!body) {
     const html = collectText(message.payload, "text/html");
+
     if (html) body = stripHtml(html);
   }
+
   if (!body) body = message.snippet ?? "";
 
   // `headersToMap` lowercases all keys so we can do single lookups
@@ -571,6 +601,7 @@ export interface ExtractedAttachment {
 export function extractAttachments(message: GmailMessage): ExtractedAttachment[] {
   const out: ExtractedAttachment[] = [];
   walkAttachments(message.payload, out);
+
   return out;
 }
 
@@ -578,6 +609,7 @@ function walkAttachments(part: MessagePart | undefined, out: ExtractedAttachment
   if (!part) return;
   const filename = part.filename?.trim();
   const attachmentId = part.body?.attachmentId;
+
   if (filename && attachmentId) {
     out.push({
       partId: part.partId ?? null,
@@ -587,6 +619,7 @@ function walkAttachments(part: MessagePart | undefined, out: ExtractedAttachment
       size: part.body?.size ?? 0,
     });
   }
+
   for (const sub of part.parts ?? []) walkAttachments(sub, out);
 }
 
@@ -622,12 +655,14 @@ export async function getAttachment(
   // Gmail returns URL-safe base64. Node's base64 decoder accepts the
   // `-`/`_` alphabet and missing padding, so no normalization is needed.
   const bytes = dataBase64Url ? Buffer.from(dataBase64Url, "base64") : Buffer.alloc(0);
+
   if (parsed.size !== undefined && parsed.size !== bytes.byteLength) {
     console.warn(
       `[gmail] attachment size mismatch for message=${args.messageId} ` +
         `attachment=${args.attachmentId}: reported=${parsed.size} decoded=${bytes.byteLength}`,
     );
   }
+
   return {
     size: parsed.size ?? bytes.byteLength,
     bytes: new Uint8Array(bytes),
@@ -636,31 +671,39 @@ export async function getAttachment(
 
 export function extractMessageHtml(message: GmailMessage): string | null {
   const html = collectText(message.payload, "text/html");
+
   return html || null;
 }
 
 function headersToMap(headers: { name: string; value: string }[]): Map<string, string> {
   const out = new Map<string, string>();
+
   for (const h of headers) out.set(h.name.toLowerCase(), h.value);
+
   return out;
 }
 
 function collectText(part: MessagePart | undefined, mimeType: string): string {
   if (!part) return "";
+
   if (part.mimeType === mimeType && part.body?.data) {
     return decodeBase64Url(part.body.data);
   }
+
   if (part.parts) {
     for (const sub of part.parts) {
       const text = collectText(sub, mimeType);
+
       if (text) return text;
     }
   }
+
   return "";
 }
 
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
+
   return Buffer.from(normalized, "base64").toString("utf8");
 }
 

@@ -77,6 +77,7 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
  */
 export function NotFound() {
   const router = useRouter();
+
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-5 px-6 text-center">
       <FrostPanel className="flex max-w-md flex-col items-center gap-3 p-6">

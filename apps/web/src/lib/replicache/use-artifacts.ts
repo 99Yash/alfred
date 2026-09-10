@@ -19,6 +19,7 @@ export interface RecentArtifactsState {
  */
 export function useRecentArtifacts(): RecentArtifactsState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     rows: SyncedArtifact[];
@@ -27,8 +28,10 @@ export function useRecentArtifacts(): RecentArtifactsState {
   useEffect(() => {
     if (!rep) {
       setSnapshot(null);
+
       return;
     }
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.artifact.scan(tx),
       (rows) => {
@@ -40,6 +43,7 @@ export function useRecentArtifacts(): RecentArtifactsState {
 
   const current = snapshot?.rep === rep ? snapshot.rows : null;
   const error = loadError ?? pullError;
+
   return {
     artifacts: current ?? [],
     loading: !error && (current === null || (current.length === 0 && initialPullPending)),
@@ -57,6 +61,7 @@ export function useRecentArtifacts(): RecentArtifactsState {
  */
 export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact[] {
   const rep = useReplicache();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     threadId: string;
@@ -65,6 +70,7 @@ export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact
 
   useEffect(() => {
     if (!rep || !threadId) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.artifact.scan(tx),
       (values) => {
@@ -84,6 +90,7 @@ export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact
  */
 export function useArtifact(artifactId: string | undefined): SyncedArtifact | null {
   const rep = useReplicache();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     artifactId: string;
@@ -92,6 +99,7 @@ export function useArtifact(artifactId: string | undefined): SyncedArtifact | nu
 
   useEffect(() => {
     if (!rep || !artifactId) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.artifact.get(tx, { id: artifactId }),
       (artifact) => setSnapshot({ rep, artifactId, artifact }),

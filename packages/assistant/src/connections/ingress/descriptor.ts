@@ -294,6 +294,7 @@ export function inboundDeliveryKey<S extends InboundEventSource>(
       return nonEmpty(headers.get(rule.header)) ?? nonEmpty(rule.key(input));
     default: {
       const _exhaustive: never = rule;
+
       return _exhaustive;
     }
   }

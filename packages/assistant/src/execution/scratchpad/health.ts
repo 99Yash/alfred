@@ -31,8 +31,11 @@ import { createHash } from "node:crypto";
 
 /** Stable observation names for the scratchpad runtime spans (PRD #405). */
 export const RUNTIME_SCRATCH_READ = "runtime.scratch.read";
+
 export const RUNTIME_SCRATCH_WRITE = "runtime.scratch.write";
+
 export const RUNTIME_SCRATCH_PROMOTE = "runtime.scratch.promote";
+
 export const RUNTIME_SCRATCH_SNAPSHOT = "runtime.scratch.snapshot";
 
 /**
@@ -149,6 +152,7 @@ export function _setScratchRuntimeSpanStarterForTests(
 ): () => void {
   const previous = runtimeSpanStarter;
   runtimeSpanStarter = starter;
+
   return () => {
     runtimeSpanStarter = previous;
   };

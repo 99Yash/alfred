@@ -17,6 +17,7 @@ let _auth: ReturnType<typeof betterAuth<BetterAuthOptions>> | undefined;
 export function auth() {
   if (_auth) return _auth;
   const env = serverEnv();
+
   const sessionPolicy = authSessionPolicy({
     databaseHooks: {
       user: {
@@ -26,15 +27,18 @@ export function auth() {
             // array (see packages/env). Signup is permitted only for an email
             // on that allowlist.
             const allowedEmails = serverEnv().ALFRED_ALLOWED_EMAIL;
+
             if (!allowedEmails.includes(user.email.toLowerCase())) {
               throw new Error("Signup not permitted for this email address");
             }
+
             if (!user.name) {
               // Last-resort fallback when the provider gave us no name. Title-
               // case the email local-part so it at least reads like a name
               // ("yashgouravkar" → "Yashgouravkar") rather than raw handle.
               const prefix = user.email.split("@")[0] || "Alfred";
               const titled = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+
               return { data: { ...user, name: titled } };
             }
           },
@@ -115,5 +119,6 @@ export function auth() {
       ...authCookiePolicy(env.NODE_ENV),
     },
   });
+
   return _auth;
 }

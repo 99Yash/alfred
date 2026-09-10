@@ -42,6 +42,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
   // avoid a flash, and the user can still toggle freely between transitions.
   const [value, setValue] = useState(live ? ITEM : "");
   const [prevLive, setPrevLive] = useState(live);
+
   if (prevLive !== live) {
     setPrevLive(live);
     setValue(live ? ITEM : "");
@@ -69,6 +70,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
           : spawn.done;
 
   const spawnIcon = animatedToolIcon(tool.toolName);
+
   const stepCount =
     steps.length > 0 ? `${steps.length} step${steps.length === 1 ? "" : "s"}` : null;
 

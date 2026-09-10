@@ -48,7 +48,9 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // and `system.activate_workflow` embed (+256 B each). Ceiling raised 90,000 → 92,000: the #990
 // delta plus ~1.5 KB, so the next tool addition trips it and records its own line.
 const KERNEL_SCHEMA_BYTES_CEILING = 6_600;
+
 const KERNEL_SCHEMA_TOKENS_CEILING = 1_700;
+
 const FULL_SCHEMA_BYTES_CEILING = 92_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
@@ -62,6 +64,7 @@ function toolsByName(names: readonly ToolName[]): RegisteredTool[] {
   return names.map((name) => {
     const tool = getTool(name);
     assert.ok(tool, `${name} should be registered for this budget scenario`);
+
     return tool;
   });
 }
@@ -83,12 +86,15 @@ describe("tool-schema budget", () => {
 
   test("kernel, preloaded, and subsequently loaded surfaces grow predictably", () => {
     const kernel = estimateToolSurfaceBudget(toolsByName(systemToolKernel()));
+
     const preloaded = estimateToolSurfaceBudget(
       toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search"]),
     );
+
     const loaded = estimateToolSurfaceBudget(
       toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search", "github.search"]),
     );
+
     const full = estimateToolSurfaceBudget([...listRegisteredTools()]);
 
     // The lazy-tool win: each exact activation pays only for its own schema,
@@ -112,6 +118,7 @@ describe("tool-schema budget", () => {
 
   test("the large artifact/search schemas are never in the kernel", () => {
     const kernel = new Set(systemToolKernel());
+
     for (const giant of NON_KERNEL_GIANTS) {
       assert.ok(!kernel.has(giant), `${giant} must stay lazy, not bootstrap the kernel`);
     }
@@ -120,6 +127,7 @@ describe("tool-schema budget", () => {
   test("per-tool sizes are deterministic and memoized to a stable value", () => {
     const tool = getTool("system.web_search");
     assert.ok(tool, "system.web_search should be registered");
+
     if (!tool) return;
     const first = toolSchemaSize(tool);
     const second = toolSchemaSize(tool);
@@ -130,11 +138,13 @@ describe("tool-schema budget", () => {
 
   test("tools sharing one schema keep distinct name/description sizes", () => {
     const sharedSchema = z.object({ query: z.string() });
+
     const compact = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail",
       modelInputSchema: sharedSchema,
     });
+
     const verbose = toolSchemaSize({
       name: "github.search",
       description: "Search repositories, issues, and pull requests across GitHub",
@@ -151,6 +161,7 @@ describe("tool-schema budget", () => {
       description: "Search mail - quickly",
       modelInputSchema: z.object({}),
     });
+
     const unicode = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail — quickly",

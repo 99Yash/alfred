@@ -59,6 +59,7 @@ export async function runMemoryPickDocuments<State extends MemoryExtractionOpera
   // process — bypass the freshness query so the test isn't subject
   // to "did the doc land within the sliding window" timing.
   let ids: string[];
+
   if (ctx.state.mode === "manual" && ctx.state.manualProposals) {
     ids = Object.keys(ctx.state.manualProposals).slice(0, ctx.state.maxDocs);
   } else {
@@ -77,10 +78,12 @@ export async function runMemoryPickDocuments<State extends MemoryExtractionOpera
       )
       .orderBy(desc(documents.authoredAt))
       .limit(ctx.state.maxDocs);
+
     ids = rows.map((r) => r.id);
   }
 
   await ctx.log(`pick-documents: selected ${ids.length} doc(s) for extraction`);
+
   return {
     kind: "next",
     state: { ...ctx.state, documentIds: ids },
@@ -100,6 +103,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   // hints so it doesn't re-propose what we already know. Cheap.
   const existing =
     ctx.state.mode === "auto" ? await listFactsByStatus(ctx.userId, "confirmed", 50) : [];
+
   const existingForPrompt = existing.map((f) => ({ key: f.key, value: f.value }));
 
   // Team-graph capture (ADR-0059 P4a) rides this same per-doc loop:
@@ -108,9 +112,11 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   // Capture is gated by its OWN marker (`captured_into_graph_at`), not by
   // extraction state, so the two stay independent.
   const captureEnabled = ctx.state.mode === "auto";
+
   const [selfRow] = captureEnabled
     ? await db().select({ email: user.email }).from(user).where(eq(user.id, ctx.userId)).limit(1)
     : [];
+
   const selfEmail = (selfRow?.email ?? "").trim().toLowerCase();
 
   // Self-identity for the Tier-B authorship gate (#330, ADR-0079). Prefer
@@ -121,10 +127,12 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   const selfIdentity = captureEnabled
     ? await loadSelfIdentity(ctx.userId)
     : { emails: selfEmail ? [selfEmail] : [] };
+
   const captureContacts = new Map<string, ContactAggregate>();
   // Docs whose headers we fold this run; stamped captured only after the
   // increments commit (see the post-loop transaction).
   const capturedThisRun: string[] = [];
+
   // Docs in this batch already folded on a prior run — skip them.
   const alreadyCaptured =
     captureEnabled && ctx.state.documentIds.length > 0
@@ -146,12 +154,14 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
 
   for (const docId of ctx.state.documentIds) {
     const doc = await loadDocument(docId, ctx.userId);
+
     if (!doc) {
       // Doc disappeared between picking and processing — skip.
       continue;
     }
 
     let proposals: FactProposal[];
+
     if (ctx.state.mode === "manual") {
       proposals = ctx.state.manualProposals?.[docId] ?? [];
     } else {
@@ -172,10 +182,12 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
 
     let docProposed = 0;
     let docBlocked = 0;
+
     for (const p of proposals) {
       let key = p.key;
       let value: unknown = p.value;
       let sourceMeta: JsonObject = { rationale: p.rationale };
+
       // Per-document write gate (#330): the contextual authorship check
       // `proposeFact` can't do. Manual mode bypasses it (test fixtures);
       // `proposeFact` still backstops canonicalization + the document
@@ -193,18 +205,22 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
           },
           selfIdentity,
         });
+
         if (!gate.ok) {
           docBlocked++;
+
           const authorshipReason =
             gate.authorship && !gate.authorship.authoredByUser
               ? ` authorship=${gate.authorship.reason}`
               : "";
+
           await ctx.log(
             `memory-gate blocked doc=${doc.id} key=${JSON.stringify(p.key)} ` +
               `reason=${gate.reason}${authorshipReason}`,
           );
           continue;
         }
+
         key = gate.key;
         value = gate.value;
         sourceMeta = {
@@ -221,6 +237,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
             : {}),
         };
       }
+
       const result = await proposeFact({
         userId: ctx.userId,
         key,
@@ -228,6 +245,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         confidence: p.confidence,
         source: { kind: "document", id: doc.id, meta: sourceMeta },
       });
+
       if (result) docProposed++;
       else docBlocked++;
     }
@@ -294,8 +312,10 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
               inArray(memoryExtractionStatus.documentId, capturedThisRun),
             ),
           );
+
         return res;
       });
+
       await ctx.log(
         `team-graph capture: ${capturedThisRun.length} new doc(s) → ` +
           `${applied.contacts} contact(s), ${applied.organizations} org(s), ${applied.relations} edge(s)`,
@@ -308,6 +328,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   }
 
   await ctx.log(`process: docs=${processed} proposed=${proposed} blocked=${blocked}`);
+
   return {
     kind: "next",
     state: { ...ctx.state, processed, proposed, blocked },
@@ -323,6 +344,7 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
   // (not just the contacts touched this run) keeps the scalar fresh. Cheap
   // and in-memory; skipped in manual mode. Best-effort — never fails the run.
   let significanceScored = 0;
+
   if (ctx.state.mode === "auto") {
     try {
       const pass = await runSignificancePass(ctx.userId, { commit: true });
@@ -386,6 +408,7 @@ async function loadDocument(docId: string, userId: string) {
     .from(documents)
     .where(and(eq(documents.id, docId), eq(documents.userId, userId)))
     .limit(1);
+
   return row;
 }
 

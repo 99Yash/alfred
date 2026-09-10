@@ -31,6 +31,7 @@ export function QuestionApprovalCard({
   onDecide: (decision: QuestionDecision) => Promise<void>;
 }) {
   const staging = question.staging;
+
   const { draftInput, setDraftInput, busy, decided, error, approveDecision, run } =
     useApprovalDecision(staging);
 

@@ -5,9 +5,13 @@ import type { ReplyGather } from "./gather";
 import type { ReplyDraftClaim } from "./verifier";
 
 const MODEL_TIMEOUT_MS = 45_000;
+
 const REPLY_MAX_CHARS = 4_000;
+
 const OUTPUT_TOKEN_LIMIT = 2_000;
+
 const replyBodySchema = z.object({ bodyText: z.string().max(REPLY_MAX_CHARS) });
+
 const reviewSchema = z.object({
   claims: z.array(
     z.object({
@@ -26,12 +30,14 @@ export async function composeReply(args: {
   idempotencyKey: string;
 }): Promise<{ bodyText: string; claims: ReplyDraftClaim[] }> {
   const model = route("standard");
+
   const attribution = {
     userId: args.userId,
     runId: args.runId,
     stepId: "compose",
     kind: "llm" as const,
   };
+
   const composed = await meteredGenerateObject<z.infer<typeof replyBodySchema>>(
     {
       model: model.model(),
@@ -58,7 +64,9 @@ return an empty body. No placeholders or explanations outside the reply.`,
       name: "reply-drafting.compose",
     },
   );
+
   const bodyText = sanitizeVoice(replyBodySchema.parse(composed.output).bodyText.trim());
+
   if (!bodyText) return { bodyText, claims: [] };
 
   // Review the final sanitized body independently. The composer cannot omit
@@ -89,6 +97,7 @@ Do not approve a claim just because it sounds plausible.`,
       name: "reply-drafting.verify-grounding",
     },
   );
+
   return {
     bodyText,
     claims: reviewSchema.parse(review.output).claims.map((claim) => ({

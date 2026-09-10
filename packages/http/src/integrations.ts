@@ -42,9 +42,11 @@ export const integrationsRoutes = new Elysia({
       .get("/", ({ user }) => readIntegrationStatus(user.id))
       .get("/tool-tiers", () => {
         const tiers: Record<string, RiskTierCounts> = {};
+
         for (const slug of LOADABLE_INTEGRATION_SLUGS) {
           tiers[slug] = riskTierCountsForIntegration(slug);
         }
+
         return { tiers };
       })
       .get(
@@ -53,6 +55,7 @@ export const integrationsRoutes = new Elysia({
           // A planned provider has no credential rows, so it has no receipts to
           // inventory; the web does not ask for one.
           if (!isLiveProviderSlug(params.slug)) throw Errors.NotFoundError("Unknown integration");
+
           return readRawReceiptInventory(user.id, params.slug);
         },
         { params: t.Object({ slug: t.String({ minLength: 1 }) }) },

@@ -25,6 +25,7 @@ const VIDEO_FOR_CONDITION = {
 } satisfies Record<WeatherCondition, string>;
 
 const NIGHT_VIDEO = "/videos/night.mp4";
+
 const DEFAULT_VIDEO = "/videos/partly_cloudy.mp4";
 
 /**
@@ -40,6 +41,7 @@ const DEFAULT_VIDEO = "/videos/partly_cloudy.mp4";
 function isLocalNight(): boolean {
   if (typeof window === "undefined") return false;
   const hour = new Date().getHours();
+
   return hour < 6 || hour >= 18;
 }
 
@@ -68,6 +70,7 @@ export function WeatherVideoSurface({ condition, isDay, className }: WeatherVide
   // rail at least matches the user's wall-time. Skipping this fallback
   // is how we ended up showing partly-cloudy at 7pm in Bhubaneswar.
   const isNightFallback = !hasData && isLocalNight();
+
   const videoSrc = !hasData
     ? isNightFallback
       ? NIGHT_VIDEO
@@ -144,6 +147,7 @@ function WeatherVideoLayer({
   // from 0 → 100 instead of painting at full opacity immediately.
   useEffect(() => {
     const raf = requestAnimationFrame(() => setShown(true));
+
     return () => cancelAnimationFrame(raf);
   }, []);
 
@@ -152,18 +156,23 @@ function WeatherVideoLayer({
   // toggles the setting while the rail is open.
   useEffect(() => {
     const el = videoRef.current;
+
     if (!el) return;
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+
     const apply = () => {
       el.playbackRate = 0.5;
+
       if (query.matches) {
         el.pause();
       } else {
         void el.play().catch(() => {});
       }
     };
+
     apply();
     query.addEventListener("change", apply);
+
     return () => query.removeEventListener("change", apply);
   }, [src]);
 

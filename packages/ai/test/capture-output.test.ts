@@ -26,6 +26,7 @@ describe("captureOutput", () => {
       text: "",
       toolCalls: [{ toolName: "github.search", toolCallId: "call_1", input: { q: "is:open" } }],
     });
+
     assert.deepEqual(out, {
       toolCalls: [{ toolName: "github.search", toolCallId: "call_1", input: { q: "is:open" } }],
     });
@@ -39,6 +40,7 @@ describe("captureOutput", () => {
         { toolName: "system.read_user_context", toolCallId: "c2", input: { query: "client" } },
       ],
     });
+
     assert.deepEqual(out, {
       text: "Let me check that.",
       toolCalls: [
@@ -59,6 +61,7 @@ describe("captureOutput", () => {
       },
       { type: "tool-call", providerMetadata: { anthropic: {} } },
     );
+
     const out = captureOutput({ text: "", toolCalls: [sdkCall] });
     assert.deepEqual(out, {
       toolCalls: [

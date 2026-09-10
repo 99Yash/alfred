@@ -180,6 +180,7 @@ function repositoryFromUrl(repositoryUrl: unknown): string {
   if (typeof repositoryUrl !== "string") return "";
   const marker = "/repos/";
   const idx = repositoryUrl.indexOf(marker);
+
   return idx >= 0 ? repositoryUrl.slice(idx + marker.length) : "";
 }
 
@@ -205,6 +206,7 @@ export function createGithubClient(options: GithubClientOptions) {
     // tool call diagnosable. Stated, not inherited.
     bodyPolicy: "summarize",
   });
+
   const passthrough = restPassthroughCapability({
     slug: "github",
     retry: options.retry,
@@ -221,9 +223,11 @@ export function createGithubClient(options: GithubClientOptions) {
   }): Promise<PullRequestDetail> {
     const { owner, repo, number } = args;
     const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`;
+
     const pr = pullRequestSchema.parse(
       await client.json(path, { label: `repos/${owner}/${repo}/pulls/${number}` }),
     );
+
     return {
       number: pr.number,
       title: pr.title,
@@ -282,6 +286,7 @@ export function createGithubClient(options: GithubClientOptions) {
           },
         }),
       );
+
       return {
         totalCount: json.total_count,
         incompleteResults: json.incomplete_results,
@@ -291,6 +296,7 @@ export function createGithubClient(options: GithubClientOptions) {
           // `merged` derives from it. Two independent reads of one field can
           // report a merged PR as unmerged.
           const mergedAt = it.pull_request?.merged_at ?? null;
+
           return {
             number: it.number,
             title: it.title,
@@ -336,6 +342,7 @@ export function createGithubClient(options: GithubClientOptions) {
       );
       // Keep the caller's order; drop the slots a failure left empty.
       const ok = fetched.filter((pr): pr is PullRequestDetail => pr !== undefined);
+
       return {
         items: ok,
         failed,
@@ -355,14 +362,17 @@ export function createGithubClient(options: GithubClientOptions) {
     async getIssue(args: { owner: string; repo: string; number: number }): Promise<IssueDetail> {
       const { owner, repo, number } = args;
       const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`;
+
       const issue = issueSchema.parse(
         await client.json(path, { label: `repos/${owner}/${repo}/issues/${number}` }),
       );
+
       // GitHub returns labels as objects, but older payloads (and some search
       // shapes) use bare strings — accept both and drop anything unnamed.
       const labels = (issue.labels ?? [])
         .map((label) => (typeof label === "string" ? label : (label.name ?? "")))
         .filter((label) => label.length > 0);
+
       return {
         number: issue.number,
         title: issue.title,
@@ -394,9 +404,12 @@ export type GithubClient = ReturnType<typeof createGithubClient>;
  */
 export function githubClientForUser(options: ProviderBindOptions): GithubClient {
   const { userId, retry } = options;
+
   const resolveToken = async () => {
     const { token, accountLogin } = await getInstallationTokenForUser(userId, options.accountRef);
+
     return { token: redacted(token), accountLogin };
   };
+
   return createGithubClient({ resolveToken, retry });
 }

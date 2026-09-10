@@ -35,24 +35,31 @@ const RESPONSE_BODY_LOG_CAP = 4_000;
  */
 function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   const out: Partial<SafeErrorLog> = {};
+
   if (err instanceof Error && err.message) out.message = err.message;
   const statusCode = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
+
   if (typeof statusCode === "number") out.statusCode = statusCode;
   const url = stringField(err, "url");
+
   if (url) out.url = url;
   const responseBody = stringField(err, "responseBody");
+
   if (responseBody) out.responseBody = responseBody.slice(0, RESPONSE_BODY_LOG_CAP);
+
   return out;
 }
 
 function stringField(value: unknown, key: string): string | undefined {
   if (!isIndexable(value)) return undefined;
   const field = Reflect.get(value, key);
+
   return typeof field === "string" ? field : undefined;
 }
 
 function isPostgresDiagnostic(value: unknown): boolean {
   const code = stringField(value, "code");
+
   return code !== undefined && /^[0-9A-Z]{5}$/.test(code);
 }
 
@@ -69,9 +76,11 @@ function isPostgresDiagnostic(value: unknown): boolean {
 export function serializeError(err: unknown, verbose = false): SafeErrorLog {
   const error = err instanceof Error ? err : undefined;
   let databaseSource: unknown;
+
   for (const level of pgErrorChain(err)) {
     if (isPostgresDiagnostic(level)) databaseSource = level;
   }
+
   const database = {
     code: stringField(databaseSource, "code"),
     constraint: stringField(databaseSource, "constraint"),
@@ -79,12 +88,15 @@ export function serializeError(err: unknown, verbose = false): SafeErrorLog {
     table: stringField(databaseSource, "table"),
     column: stringField(databaseSource, "column"),
   };
+
   const hasDatabaseField = Object.values(database).some((value) => value !== undefined);
+
   const stack = error?.stack
     ?.split("\n")
     .filter((line) => /^\s*at\s/.test(line))
     .join("\n")
     .trim();
+
   return {
     type: error?.name ?? typeof err,
     ...(stack ? { stack } : {}),
@@ -97,6 +109,7 @@ export function serializeError(err: unknown, verbose = false): SafeErrorLog {
 export function safeErrorDiagnostic(err: unknown): string {
   const serialized = serializeError(err);
   const database = serialized.database;
+
   return [
     err instanceof AppError ? err.code : serialized.type,
     database?.code ? `sqlstate=${database.code}` : undefined,
@@ -115,11 +128,13 @@ export function createLogger(destination?: DestinationStream, opts?: { verboseEr
   // Outside production the operator owns the logs, so verbose is safe there.
   // Tests pass `verboseErrors` explicitly.
   const verbose = opts?.verboseErrors ?? nodeEnv() !== "production";
+
   const options = {
     name: "alfred-api",
     serializers: { err: (err: unknown) => serializeError(err, verbose) },
     redact: { paths: [...SENSITIVE_LOG_PATHS], censor: "[redacted]" },
   };
+
   return destination ? pino(options, destination) : pino(options);
 }
 

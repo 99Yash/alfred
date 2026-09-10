@@ -16,10 +16,12 @@ export const NOTIFICATION_KINDS = [
   "delivery_alert",
   "workflow_blocked",
 ] as const;
+
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 /** `queued` on insert, then `sent` on Resend success or `failed` on error. */
 export const EMAIL_SEND_STATUSES = ["queued", "sent", "failed"] as const;
+
 export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
 
 /**

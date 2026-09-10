@@ -90,17 +90,20 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
           ),
         )
         .limit(1);
+
       if (!existing) {
         throw new Error(
           `[skill-revisions] revision insert conflicted but no row found for run ${createdByRunId}`,
         );
       }
+
       return { revisionId: existing.id, skillStatus: skill.status, created: false };
     }
 
     // First revision flips draft → active. Subsequent revisions only
     // touch the pointer; documentation / manual edits don't reset state.
     const flippingFromDraft = args.kind === "distilled" && skill.status === "draft";
+
     const updatePatch = {
       currentRevisionId: revision.id,
       rowVersion: sql`${skills.rowVersion} + 1`,
@@ -120,6 +123,7 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
   // The revision and skill pointer are now visible to Replicache pulls. Do not
   // poke on an idempotent retry that found the run's existing revision.
   if (result.created) emitReplicachePokes([args.userId], args.skillId);
+
   return { revisionId: result.revisionId, skillStatus: result.skillStatus };
 }
 
@@ -154,6 +158,7 @@ export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: st
 
   if (inserted[0]) {
     emitReplicachePokes([args.userId], args.skillId);
+
     return inserted[0];
   }
 
@@ -162,9 +167,11 @@ export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: st
     .from(skillRuns)
     .where(eq(skillRuns.agentRunId, args.agentRunId))
     .limit(1);
+
   if (!existing) {
     throw new Error(`[skill-revisions] skill_runs upsert conflicted but no row found on lookup`);
   }
+
   return existing;
 }
 
@@ -193,5 +200,6 @@ export async function finalizeSkillRun(args: FinalizeSkillRunArgs): Promise<void
     .returning({ userId: skillRuns.userId, skillId: skillRuns.skillId });
 
   const run = updated[0];
+
   if (run) emitReplicachePokes([run.userId], run.skillId);
 }

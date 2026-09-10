@@ -22,12 +22,14 @@ import { applySenderKindDemotionFloor } from "./sender-kind";
  * for their unit tests; `classifyEmail` consumes only {@link applyFloors}.
  */
 export { applyOverrideFloor, matchesExposedSecret } from "./override";
+
 export {
   applySenderKindDemotionFloor,
   isGithubNotificationSender,
   matchesCollabIntrinsicStake,
   matchesPrThread,
 } from "./sender-kind";
+
 export { applyMeetingDemotionFloor } from "./meeting";
 
 /** Everything the floor sequence reads about one email. Assembled by `classifyEmail`. */
@@ -81,6 +83,7 @@ function floor<N extends string, R extends FloorResult>(
     name,
     run: (input: TriageClassification, ctx: FloorContext) => {
       const audit = apply(input, ctx);
+
       return {
         classification: applyFloorVerdict(input, audit.verdict),
         audit,
@@ -187,12 +190,15 @@ export function applyFloors(classification: TriageClassification, ctx: FloorCont
   let current = classification;
   const modelIdTags: string[] = [];
   const audits: Record<string, unknown> = {};
+
   for (const step of FLOOR_SEQUENCE) {
     const result = step.run(current, ctx);
     current = result.classification;
     audits[step.name] = result.audit;
+
     if (result.modelIdTag) modelIdTags.push(result.modelIdTag);
   }
+
   // Localized cast: the loop fills exactly one key per sequence entry, which is
   // the same set `FloorAudits` derives from it. The public type stays precise per
   // floor via that mapped type, so callers never see this widening.

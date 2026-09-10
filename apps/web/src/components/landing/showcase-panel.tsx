@@ -59,6 +59,7 @@ export function ShowcaseVideo({
 
   useEffect(() => {
     const video = ref.current;
+
     if (!video || !active) return;
     video.currentTime = 0;
     void video.play().catch(() => {

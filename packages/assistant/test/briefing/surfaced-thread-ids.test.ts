@@ -45,6 +45,7 @@ describe("collectSurfacedThreadIds", () => {
       action_needed: [emailItem("d1", "thr_a"), emailItem("d2", "thr_b")],
       urgent: [emailItem("d3", "thr_c")],
     });
+
     const lastNight = gatherWith({
       awaiting_reply: [emailItem("d4", "thr_d")],
     });
@@ -87,9 +88,11 @@ describe("collectSurfacedLoopKeys", () => {
     // differ, so a thread-keyed dedup misses it — but the task-title subject is
     // identical, so the loop key collapses the two.
     const subject = "Netsmart: Save view issues";
+
     const evening = gatherWith({
       urgent: [emailItemWithSubject("d-eve", "thr_evening", subject)],
     });
+
     const morning = gatherWith({
       // Later notification: different thread, same underlying task.
       urgent: [emailItemWithSubject("d-morn", "thr_morning", `Re: ${subject}`)],
@@ -130,6 +133,7 @@ describe("collectSurfacedKeys", () => {
   test("uses only document ids the delivered prose actually surfaced", () => {
     const surfacedSubject = "Netsmart: Save view issues";
     const omittedSubject = "Conservice: Fix imports not triggering deal driver messages";
+
     const gather = gatherWith({
       urgent: [
         emailItemWithSubject("d-surfaced", "thr_surfaced", surfacedSubject),
@@ -160,6 +164,7 @@ describe("collectSurfacedKeys", () => {
     const missingAuditField = collectSurfacedKeys([
       { gather, fullBriefing: { headline: "Something else", sections: [] } },
     ]);
+
     const uncited = collectSurfacedKeys([
       {
         gather,

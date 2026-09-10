@@ -12,6 +12,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-rfact-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -20,6 +21,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -41,6 +43,7 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
     if (createdUserIds.length) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 

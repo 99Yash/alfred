@@ -49,14 +49,17 @@ import { parseEmailAddress } from "./guards";
 
 /** Owner/repo bracket in a GitHub notification subject: `[owner/repo]`. */
 const GITHUB_REPO_RE = /\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\]/;
+
 /** Trailing PR/issue number GitHub appends: `(PR #786)`, `(Issue #12)`, `(#12)`. */
 const GITHUB_NUMBER_RE = /\((?:(PR|Issue)\s*)?#(\d+)\)/i;
+
 /**
  * Linear / Jira issue key, either bracket/paren-enclosed or at the very start
  * of the subject. Anchoring keeps it from matching version-ish tokens buried
  * mid-sentence; the `{2,}` prefix avoids single-letter false positives.
  */
 const ISSUE_KEY_ENCLOSED_RE = /[[(]([A-Z][A-Z0-9]{1,9}-\d+)[\])]/;
+
 const ISSUE_KEY_LEADING_RE = /^([A-Z][A-Z0-9]{1,9}-\d+)\b/;
 
 /** Reply / forward prefixes across a few common locales, stripped repeatedly. */
@@ -89,6 +92,7 @@ const TRACKER_SENDER_PATTERNS = [
 export type TrackerSenderKey = (typeof TRACKER_SENDER_PATTERNS)[number]["key"];
 
 const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
+
 const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\s*:\s*(.+?)\s*$/i;
 
 interface LoopKeyContext {
@@ -147,26 +151,34 @@ export function deriveLoopEntityRef(
 ): LoopEntityRef | null {
   if (!subject) return null;
   const raw = subject.trim();
+
   if (raw.length === 0) return null;
   const prefixStripped = stripReplyPrefixes(raw);
 
   const monitoring = monitoringAlarmLoopEntityRef(prefixStripped, context.sender);
+
   if (monitoring) return monitoring;
 
   const tracker = trackerSenderKey(context.sender);
 
   const github = githubLoopEntityRef(prefixStripped);
+
   if (github && (!context.requireTrackerSender || tracker === "github")) return github;
 
   const issue = issueLoopEntityRef(prefixStripped, tracker);
+
   if (issue && (!context.requireTrackerSender || tracker === "linear" || tracker === "jira")) {
     return issue;
   }
 
   const normalized = normalizeSubject(prefixStripped);
+
   if (!normalized || normalized === NO_SUBJECT_SENTINEL) return null;
+
   if (!isSpecificFallbackSubject(normalized)) return null;
+
   if (!tracker) return null;
+
   return {
     key: `subj:${tracker}:${normalized}`,
     provider: tracker,
@@ -180,8 +192,10 @@ function githubLoopEntityRef(subject: string): LoopEntityRef | null {
   const numberMatch = subject.match(GITHUB_NUMBER_RE);
   const type = numberMatch?.[1]?.toLowerCase();
   const number = numberMatch?.[2];
+
   if (!repo || !number) return null;
   const normalizedRepo = repo.toLowerCase();
+
   return {
     key: `gh:${normalizedRepo}#${number}`,
     provider: "github",
@@ -195,8 +209,10 @@ function issueLoopEntityRef(
   tracker: TrackerSenderKey | null | undefined,
 ): LoopEntityRef | null {
   const key = subject.match(ISSUE_KEY_ENCLOSED_RE)?.[1] ?? subject.match(ISSUE_KEY_LEADING_RE)?.[1];
+
   if (!key) return null;
   const normalized = key.toLowerCase();
+
   return {
     key: `issue:${normalized}`,
     provider: tracker === "jira" || tracker === "linear" ? tracker : "issue",
@@ -217,8 +233,10 @@ export function trackerSenderKey(sender: string | null | undefined): TrackerSend
   if (!sender) return null;
   const parts = [sender];
   const address = parseEmailAddress(sender);
+
   if (address) parts.push(address, address.split("@")[1] ?? "");
   const haystack = parts.join(" ");
+
   return TRACKER_SENDER_PATTERNS.find((pattern) => pattern.re.test(haystack))?.key ?? null;
 }
 
@@ -227,22 +245,31 @@ function monitoringAlarmLoopEntityRef(
   sender: string | null | undefined,
 ): LoopEntityRef | null {
   const match = subject.match(MONITORING_ALARM_SUBJECT_RE);
+
   if (!match) return null;
+
   if (!sender || !MONITORING_SENDER_RE.test(sender)) return null;
   const remainder = (match[1] ?? "").trim();
+
   if (!remainder) return null;
   // CloudWatch alarm subjects are `ALARM: "Name" in region — breached …`.
   // The quoted name is the stable entity; the region/suffix is noise.
   const quoted = remainder.match(/"([^"]+)"|'([^']+)'/);
+
   const rawName = quoted
     ? (quoted[1] ?? quoted[2] ?? "")
     : (remainder.split(/\s+in\s+|\s+-\s+/i)[0] ?? remainder);
+
   const trimmed = rawName.trim();
+
   if (!trimmed) return null;
   const normalized = normalizeSubject(trimmed);
+
   if (!normalized || normalized === NO_SUBJECT_SENTINEL) return null;
+
   // Alarm names are often 1-2 tokens ("baserow-response-time") — still a real entity.
   if (GENERIC_SUBJECTS.has(normalized)) return null;
+
   return {
     key: `alarm:${normalized}`,
     provider: "monitoring",
@@ -254,6 +281,7 @@ function monitoringAlarmLoopEntityRef(
 function isSpecificFallbackSubject(normalized: string): boolean {
   if (GENERIC_SUBJECTS.has(normalized)) return false;
   const tokens = normalized.split(/\s+/).filter(Boolean);
+
   return tokens.length >= 3 || normalized.includes(":");
 }
 
@@ -261,10 +289,12 @@ function stripReplyPrefixes(subject: string): string {
   let out = subject;
   // Strip stacked prefixes ("Re: Fwd: …") one layer at a time.
   let prev: string;
+
   do {
     prev = out;
     out = out.replace(REPLY_PREFIX_RE, "");
   } while (out !== prev);
+
   return out;
 }
 

@@ -43,6 +43,7 @@ export interface ToolEventOutcome {
 
 export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcome {
   const result = preview(completion.result);
+
   return {
     status: completion.status,
     resultPreview: result.text,

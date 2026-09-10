@@ -90,9 +90,11 @@ const SUPPRESSED_CATEGORIES = [
 ] as const satisfies readonly TriageCategory[];
 
 export type PriorityCategory = (typeof PRIORITY_CATEGORIES)[number];
+
 export type SuppressedCategory = (typeof SUPPRESSED_CATEGORIES)[number];
 
 const PRIORITY_CATEGORY_SET: ReadonlySet<string> = new Set(PRIORITY_CATEGORIES);
+
 const SUPPRESSED_CATEGORY_SET: ReadonlySet<string> = new Set(SUPPRESSED_CATEGORIES);
 
 export interface BriefingItem {
@@ -176,8 +178,11 @@ export interface GatherBriefingWithSuppressionAuditResult {
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
+
 const DEFAULT_MAX_PER_BUCKET = 8;
+
 const MAX_CALENDAR_EVENTS = 40;
+
 const WEATHER_FETCH_TIMEOUT_MS = 30_000;
 
 /**
@@ -189,8 +194,10 @@ export async function gatherBriefingDigest(
   args: GatherBriefingDigestArgs,
 ): Promise<BriefingDigest> {
   const windowEnd = args.windowEnd ?? new Date();
+
   const windowStart =
     args.windowStart ?? new Date(windowEnd.getTime() - DEFAULT_WINDOW_HOURS * 3_600_000);
+
   const maxPerBucket = args.maxPerBucket ?? DEFAULT_MAX_PER_BUCKET;
 
   // One query gets every triaged document in window — we partition into
@@ -233,6 +240,7 @@ export async function gatherBriefingDigest(
   ]);
 
   const newPriorityBucket = (): BriefingItem[] => [];
+
   const buckets = {
     urgent: newPriorityBucket(),
     action_needed: newPriorityBucket(),
@@ -241,12 +249,14 @@ export async function gatherBriefingDigest(
     meeting: newPriorityBucket(),
     payment: newPriorityBucket(),
   };
+
   const suppressedCounts = {
     fyi: 0,
     done: 0,
     newsletter: 0,
     marketing: 0,
   };
+
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
   // documentId → candidate GitHub `head_sha`s, for the post-partition
   // loop-reconciliation pass (ADR-0062). Only GitHub-notification priority
@@ -262,14 +272,17 @@ export async function gatherBriefingDigest(
       suppressedCounts[cat] += 1;
       continue;
     }
+
     if (!isPriority(cat)) continue;
 
     const from = meta.from ?? null;
+
     const instructionSuppression = findSenderSuppression(suppressionInstructions, {
       senderEmail: from,
       accountId: r.accountId,
       effect: "exclude_briefing_priority",
     });
+
     if (instructionSuppression) {
       suppressedByInstruction.push({
         documentId: r.documentId,
@@ -299,6 +312,7 @@ export async function gatherBriefingDigest(
       const shas = extractGithubKeys({ subject: r.title, content: r.content }).map(
         (k) => k.keyValue,
       );
+
       if (shas.length > 0) githubShasByDoc.set(r.documentId, shas);
     }
   }
@@ -307,6 +321,7 @@ export async function gatherBriefingDigest(
   // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
   // live (absence never closes — ADR-0048-D).
   const closedLoops = await reconcileGithubLoops(args.userId, buckets, githubShasByDoc);
+
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
   }
@@ -314,6 +329,7 @@ export async function gatherBriefingDigest(
   const totalPriority = PRIORITY_CATEGORIES.reduce((sum, category) => {
     return sum + buckets[category].length;
   }, 0);
+
   const totalSuppressed = Object.values(suppressedCounts).reduce((sum, n) => sum + n, 0);
 
   return {
@@ -350,21 +366,26 @@ async function reconcileGithubLoops(
   await Promise.all(
     distinctShas.map(async (sha) => {
       const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", sha);
+
       if (!ref) return; // unknown PR → loop stays live
       const state = await objectStateStore.getState(userId, ref);
+
       if (state) stateBySha.set(sha, state);
     }),
   );
 
   const closedLoops: BriefingClosedLoop[] = [];
+
   for (const category of PRIORITY_CATEGORIES) {
     const kept: BriefingItem[] = [];
+
     for (const item of buckets[category]) {
       const terminal = (shasByDoc.get(item.documentId) ?? [])
         .map((sha) => stateBySha.get(sha))
         .find(
           (state): state is ObjectState => !!state && isLoopClosingCategory(state.stateCategory),
         );
+
       if (terminal) {
         closedLoops.push({
           documentId: item.documentId,
@@ -379,8 +400,10 @@ async function reconcileGithubLoops(
         kept.push(item);
       }
     }
+
     buckets[category] = kept;
   }
+
   return closedLoops;
 }
 
@@ -396,6 +419,7 @@ export async function gatherBriefingWithSuppressionAudit(
   // Integration activity shares the email digest's window so the briefing
   // covers one coherent slice of time across sources.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
+
   const [digest, calendar, weather, integrationActivity] = await Promise.all([
     gatherBriefingDigest({
       userId: args.userId,
@@ -419,7 +443,9 @@ export async function gatherBriefingWithSuppressionAudit(
       windowEnd,
     }),
   ]);
+
   const categories: BriefingGather["email"]["categories"] = {};
+
   for (const category of PRIORITY_CATEGORIES) {
     categories[category] = digest.buckets[category].map((item) => ({
       documentId: item.documentId,
@@ -486,6 +512,7 @@ export async function gatherBriefingWithSuppressionAudit(
  * "quiet" — the whole point of #230 is that any real activity disqualifies it.
  */
 const DAY_SHAPE_BUSY_AT = 8;
+
 const MAX_SHIPPED = 6;
 
 /**
@@ -521,6 +548,7 @@ export async function gatherDayShape(args: {
     deliveredWithin: { start: args.windowStart, end: args.windowEnd },
     limit: MAX_SHIPPED,
   });
+
   const shipped = resolved
     .filter((o): o is ObjectState & { title: string } => typeof o.title === "string" && !!o.title)
     .slice(0, MAX_SHIPPED)
@@ -569,10 +597,12 @@ async function gatherIntegrationActivity(args: {
     // declare is a row the deliver job already marked `failed`, so it has no
     // activity line either.
     const eventType = parseEventTypeName("github", row.eventType);
+
     if (!eventType) return [];
     const action = getStringPath(row.payload, "action");
     const repo = getStringPath(row.payload, "repository", "full_name");
     const { title, status, url } = INBOUND_SOURCES.github.describe(eventType, row.payload);
+
     return [
       {
         id: row.id,
@@ -618,11 +648,13 @@ export async function gatherCalendarContribution(
 
   const calendarCreds = creds.filter((cred) => {
     const granted = toStringArray(cred.scopes);
+
     return (
       granted.includes(GOOGLE_SCOPE.calendar.readonly) ||
       granted.includes(GOOGLE_SCOPE.calendar.events)
     );
   });
+
   if (calendarCreds.length === 0) return null;
 
   const { timeMin, timeMax } = calendarWindow(args.briefingDate, args.timezone, args.slot);
@@ -632,6 +664,7 @@ export async function gatherCalendarContribution(
   for (const cred of calendarCreds) {
     try {
       const accessToken = await getFreshAccessToken(cred.id);
+
       const result = await listEvents({
         accessToken,
         timeMin: timeMin.toISOString(),
@@ -640,7 +673,9 @@ export async function gatherCalendarContribution(
         orderBy: "startTime",
         maxResults: MAX_CALENDAR_EVENTS,
       });
+
       successfulReads++;
+
       for (const event of result.events) {
         events.push(calendarEventToContributionEvent(cred.id, event));
       }
@@ -651,6 +686,7 @@ export async function gatherCalendarContribution(
 
   if (successfulReads === 0) return null;
   events.sort((a, b) => a.start.localeCompare(b.start));
+
   return { events: events.slice(0, MAX_CALENDAR_EVENTS) };
 }
 
@@ -660,6 +696,7 @@ function calendarWindow(briefingDate: LocalDateKey, timezone: IanaTimezone, slot
   const windowEnd = zone.startOf(addDays(briefingDate, 2));
   const now = new Date();
   const timeMin = slot === "evening" && now > dayStart && now < windowEnd ? now : dayStart;
+
   return { timeMin, timeMax: windowEnd };
 }
 
@@ -675,6 +712,7 @@ function calendarEventToContributionEvent(
     attendees: (event.attendees ?? [])
       .map((a) => {
         if (!a.email) return null;
+
         return a.displayName ? `${a.displayName} <${a.email}>` : a.email;
       })
       .filter((a): a is string => a !== null),
@@ -688,6 +726,7 @@ async function gatherWeatherContribution(args: {
   timezone: IanaTimezone;
 }): Promise<WeatherContribution | null> {
   const location = await resolveWeatherLocation(args.userId, args.timezone);
+
   if (!location) return null;
 
   try {
@@ -704,13 +743,16 @@ async function gatherWeatherContribution(args: {
     url.searchParams.set("timezone", "auto");
 
     const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
+
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`[weather] ${res.status} ${body.slice(0, 300)}`);
     }
+
     const parsed = openMeteoSchema.parse(await res.json());
     const current = parsed.current;
     const daily = parsed.daily;
+
     if (!current) return null;
 
     return {
@@ -731,6 +773,7 @@ async function gatherWeatherContribution(args: {
       `[briefing.gather] weather unavailable location=${location.label}:`,
       toMessage(err),
     );
+
     return null;
   }
 }
@@ -759,6 +802,7 @@ async function resolveWeatherLocation(
 ): Promise<WeatherFallbackLocation | null> {
   const pref = await getPreference(userId, "location");
   const parsed = parseWeatherLocation(pref?.value);
+
   return parsed ?? weatherFallbackFor(timezone);
 }
 
@@ -767,7 +811,9 @@ function parseWeatherLocation(value: unknown): WeatherFallbackLocation | null {
   const record = value;
   const lat = parseCoord(record.lat ?? record.latitude);
   const lng = parseCoord(record.lng ?? record.lon ?? record.longitude);
+
   if (lat === null || lng === null) return null;
+
   const label =
     typeof record.label === "string"
       ? record.label
@@ -776,30 +822,45 @@ function parseWeatherLocation(value: unknown): WeatherFallbackLocation | null {
         : typeof record.name === "string"
           ? record.name
           : `${lat},${lng}`;
+
   return { lat, lng, label };
 }
 
 function parseCoord(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
+
   if (typeof value === "string") {
     const n = Number.parseFloat(value);
+
     return Number.isFinite(n) ? n : null;
   }
+
   return null;
 }
 
 function describeWeatherCode(code: number): string {
   if (code === 0) return "clear sky";
+
   if (code === 1) return "mainly clear";
+
   if (code === 2) return "partly cloudy";
+
   if (code === 3) return "overcast";
+
   if (code >= 45 && code <= 48) return "fog";
+
   if (code >= 51 && code <= 57) return "drizzle";
+
   if (code >= 61 && code <= 67) return "rain";
+
   if (code >= 71 && code <= 77) return "snow";
+
   if (code >= 80 && code <= 82) return "rain showers";
+
   if (code >= 85 && code <= 86) return "snow showers";
+
   if (code >= 95 && code <= 99) return "thunderstorm";
+
   return "unknown conditions";
 }
 
@@ -824,10 +885,12 @@ function gmailThreadUrl(threadId: string): string {
 function threadIdFromGmailUrl(url: string | null): string {
   if (!url) return "";
   const tail = url.slice(url.lastIndexOf("/") + 1);
+
   return decodeURIComponent(tail);
 }
 
 const SUNDAY = 0;
+
 const SATURDAY = 6;
 
 // `briefingDate` is already a local date key in the user's zone, so the weekday
@@ -840,6 +903,7 @@ const SATURDAY = 6;
 // load-bearing for a briefing decision.
 function dayContribution(briefingDate: LocalDateKey): BriefingGather["day_of_week"] {
   const index = weekdayIndex(briefingDate);
+
   return {
     dayName: formatDay(briefingDate, "weekday"),
     isWeekend: index === SATURDAY || index === SUNDAY,

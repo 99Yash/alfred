@@ -64,9 +64,11 @@ const FIX_KIND_SET = {
   start_new_thread: true,
   none: true,
 } satisfies Record<Fix["kind"], true>;
+
 export const FIX_KINDS: readonly Fix["kind"][] =
   // SAFETY: `Object.keys` of the exhaustive record enumerates exactly `Fix["kind"]`.
   Object.keys(FIX_KIND_SET) as Fix["kind"][];
+
 export const isFixKind = enumGuard(FIX_KINDS);
 
 /**
@@ -78,6 +80,7 @@ type ClosedParamSchema =
   | z.ZodNumber
   | z.ZodOptional<z.ZodEnum>
   | z.ZodOptional<z.ZodNumber>;
+
 type ClosedParamsSchema = z.ZodObject<Record<string, ClosedParamSchema>>;
 
 /** What every value of a parsed `ClosedParamsSchema` is once `undefined` is dropped. */
@@ -108,6 +111,7 @@ interface ParamEntry<S extends ClosedParamsSchema = ClosedParamsSchema> {
   /** Validate `params` against `this.params` and render; `undefined` when they fail. */
   readonly render: (params: unknown) => Rendered | undefined;
 }
+
 type CatalogEntry = StaticEntry | ParamEntry;
 
 function withParams<S extends ClosedParamsSchema>(
@@ -123,7 +127,9 @@ function withParams<S extends ClosedParamsSchema>(
     why: entry.why,
     render(raw) {
       const parsed = params.safeParse(raw);
+
       if (!parsed.success) return undefined;
+
       return {
         params: definedParams(parsed.data),
         message: entry.message(parsed.data),
@@ -151,12 +157,15 @@ function defineFailureCatalog<const C extends Record<string, CatalogEntry>>(cata
 }
 
 const integrationParams = z.object({ integration: integrationSlug });
+
 type IntegrationParams = z.output<typeof integrationParams>;
 
 function label(integration: IntegrationSlug): string {
   return INTEGRATION_DISPLAY_NAMES[integration];
 }
+
 const connect = ({ integration }: IntegrationParams): Fix => ({ kind: "connect", integration });
+
 const reconnect = ({ integration }: IntegrationParams): Fix => ({ kind: "reconnect", integration });
 
 export const APP_ERROR_REGISTRY = defineFailureCatalog({
@@ -248,6 +257,7 @@ type AppErrorArgs<C extends AppErrorCode> = [AppErrorParams<C>] extends [never]
   : [params: AppErrorParams<C>, options?: ErrorOptions];
 
 declare const publicMessageBrand: unique symbol;
+
 /** A message rendered by the catalog. The brand is what keeps `err.message` out. */
 export type PublicAppErrorMessage = string & { readonly [publicMessageBrand]: true };
 
@@ -264,6 +274,7 @@ export const FALLBACK_APP_ERROR_CODE = "tool_execution_failed" satisfies StaticA
 export const APP_ERROR_CODES: readonly AppErrorCode[] =
   // SAFETY: `Object.keys` of the catalog literal enumerates exactly `AppErrorCode`.
   Object.keys(APP_ERROR_REGISTRY) as AppErrorCode[];
+
 export const isAppErrorCode = enumGuard(APP_ERROR_CODES);
 
 function isParamEntry(entry: CatalogEntry): entry is ParamEntry {
@@ -286,9 +297,12 @@ function brand(message: string): PublicAppErrorMessage {
  */
 function renderEntry(code: AppErrorCode, params: unknown): PublicAppError | undefined {
   const entry: CatalogEntry = APP_ERROR_REGISTRY[code];
+
   if (!isParamEntry(entry)) return { code, message: brand(entry.message), fix: entry.fix };
   const rendered = entry.render(params);
+
   if (!rendered) return undefined;
+
   return { code, params: rendered.params, message: brand(rendered.message), fix: rendered.fix };
 }
 
@@ -299,6 +313,7 @@ function renderEntry(code: AppErrorCode, params: unknown): PublicAppError | unde
  */
 function mint(code: AppErrorCode, params: unknown): PublicAppError {
   const rendered = renderEntry(code, params);
+
   if (rendered) return rendered;
   throw new TypeError(`AppError "${code}" was minted with params that fail its schema`);
 }
@@ -323,9 +338,11 @@ export class AppError<C extends AppErrorCode = AppErrorCode> extends Error {
     // not the tuple type, decides which slot holds params and which holds
     // options. `args` is `unknown[]` on purpose: `mint` parses the params slot.
     const args: readonly unknown[] = rest;
+
     const [params, options] = isParamEntry(entry)
       ? [args[0], asErrorOptions(args[1])]
       : [undefined, asErrorOptions(args[0])];
+
     const rendered = mint(code, params);
     super(rendered.message, options);
     this.name = "AppError";
@@ -364,6 +381,7 @@ export function toPublicAppError(
   fallback: PublicAppError = publicAppError(FALLBACK_APP_ERROR_CODE),
 ): PublicAppError {
   if (err instanceof AppError) return err.public;
+
   if (isHttpError(err) && err.perInputPermanent) {
     return publicAppError("upstream_rejected_input", {
       // A provider label that is not a slug (an embedding vendor, say) renders
@@ -372,6 +390,7 @@ export function toPublicAppError(
       status: err.status,
     });
   }
+
   return fallback;
 }
 
@@ -384,6 +403,8 @@ export function toPublicAppError(
  */
 export function publicAppErrorFromStored(stored: unknown): PublicAppError {
   const fallback = publicAppError(FALLBACK_APP_ERROR_CODE);
+
   if (!isRecord(stored) || !isAppErrorCode(stored.code)) return fallback;
+
   return renderEntry(stored.code, stored.params) ?? fallback;
 }

@@ -32,6 +32,7 @@ const SERVER_ENV_FIXTURES = {
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
   ENTITY_ID_NAMESPACE: "stable namespace secret for tests",
 } satisfies Record<string, string>;
+
 for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }

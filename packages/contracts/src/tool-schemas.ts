@@ -121,13 +121,17 @@ export const canonicalParamKey = (key: string): string => key.toLowerCase().repl
  */
 function withQueryAlias<S extends z.ZodTypeAny>(canonical: "q" | "query", schema: S) {
   const alias = canonical === "q" ? "query" : "q";
+
   return z.preprocess((value) => {
     if (isRecord(value) && typeof value[alias] === "string") {
       const rest = { ...value };
+
       if (!(canonical in rest)) rest[canonical] = rest[alias];
       delete rest[alias];
+
       return rest;
     }
+
     return value;
   }, schema);
 }
@@ -169,6 +173,7 @@ function withKeyAliases<S extends z.ZodObject>(
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const [alias, canonical] of Object.entries(aliases)) {
       // Match the alias case/underscore-insensitively (`Limit` → `limit`): the
       // dispatch normalizer only canonicalizes toward accepted keys, and an
@@ -177,14 +182,18 @@ function withKeyAliases<S extends z.ZodObject>(
         alias in next
           ? alias
           : Object.keys(next).find((k) => canonicalParamKey(k) === canonicalParamKey(alias));
+
       if (key === undefined) continue;
+
       if (next === value) next = { ...value };
+
       // An alias is never itself an accepted key, so always remove it: fold it
       // into the canonical field when that's absent, else drop it as redundant
       // (the explicit canonical wins rather than the call bouncing).
       if (!(canonical in next)) next[canonical] = next[key];
       delete next[key];
     }
+
     return next;
   }, schema);
 }
@@ -209,12 +218,14 @@ function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], 
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const field of fields) {
       if (typeof next[field] === "string" && next[field].trim() === "") {
         if (next === value) next = { ...value };
         delete next[field];
       }
     }
+
     return next;
   }, schema);
 }
@@ -241,13 +252,18 @@ export function coerceJsonArrayFields<S extends z.ZodTypeAny>(
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const field of fields) {
       const raw = next[field];
+
       if (typeof raw !== "string") continue;
       const trimmed = raw.trim();
+
       if (!trimmed.startsWith("[")) continue;
+
       try {
         const parsed: unknown = JSON.parse(trimmed);
+
         if (Array.isArray(parsed)) {
           if (next === value) next = { ...value };
           next[field] = parsed;
@@ -256,6 +272,7 @@ export function coerceJsonArrayFields<S extends z.ZodTypeAny>(
         // Not valid JSON — leave it for the array schema to reject normally.
       }
     }
+
     return next;
   }, schema);
 }
@@ -323,11 +340,13 @@ function promoteWindowSynonym(value: unknown): unknown {
   // The preprocessor deliberately hands back an untyped record for the schema
   // to validate, so build it as a plain record rather than a literal.
   const obj = Object.assign({}, value);
+
   if (obj.window !== undefined) return obj;
   // SAFETY: CALENDAR_WINDOW_VALUES is the closed const table of window
   // literals; widening it to readonly string[] only types the receiver of
   // .includes so a candidate field value can be tested against the table.
   const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
+
   for (const [key, val] of Object.entries(obj)) {
     if (typeof val === "string" && windowValues.includes(val)) {
       obj.window = val;
@@ -335,6 +354,7 @@ function promoteWindowSynonym(value: unknown): unknown {
       break;
     }
   }
+
   return obj;
 }
 
@@ -368,14 +388,19 @@ function padDatetimeSeconds<S extends z.ZodTypeAny>(fields: readonly string[], s
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const field of fields) {
       const raw = next[field];
+
       if (typeof raw !== "string") continue;
       const match = MINUTE_PRECISION_DATETIME_RE.exec(raw);
+
       if (!match) continue;
+
       if (next === value) next = { ...value };
       next[field] = `${match[1]}:00${match[2]}`;
     }
+
     return next;
   }, schema);
 }
@@ -452,16 +477,21 @@ const driveFileId = z.string().min(1).max(200).describe("The Drive file id.");
  * `name contains '…'` itself.
  */
 const DRIVE_BARE_TERM_RE = /^[\w.-]+$/;
+
 function promoteDriveBareQuery(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const q = value.q;
+
   if (typeof q !== "string") return value;
   const trimmed = q.trim();
+
   if (trimmed === "*") {
     const next = Object.assign({}, value);
     delete next.q;
+
     return next;
   }
+
   if (DRIVE_BARE_TERM_RE.test(trimmed)) {
     // The regex admits only word chars / `.` / `-`, so `trimmed` can never carry
     // a quote or backslash — it's safe to interpolate into the single-quoted
@@ -470,6 +500,7 @@ function promoteDriveBareQuery(value: unknown): unknown {
       q: `name contains '${trimmed}' or fullText contains '${trimmed}'`,
     });
   }
+
   return value;
 }
 
@@ -589,6 +620,7 @@ const GITHUB_ITEM_URL_RE = /github\.com\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/
  * tied to the wrapped object's keys, so it can't drift from the schema.
  */
 const GITHUB_OWNER_REPO_SLUG_RE = /^([^/\s]+)\/([^/\s]+)$/;
+
 /**
  * Canonical forms (see {@link canonicalParamKey}) of the number synonyms the model
  * actually reaches for. Kept a closed set on purpose — see the wrapper's note.
@@ -599,6 +631,7 @@ const GITHUB_ITEM_NUMBER_SYNONYMS: ReadonlySet<string> = new Set([
   "pullrequestnumber",
   "issuenumber",
 ]);
+
 function withGithubItemUrl<S extends z.ZodObject>(
   numberKey: keyof S["shape"] & ("pull_number" | "issue_number"),
   schema: S,
@@ -606,6 +639,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     const fork = () => {
       if (next === value) next = { ...value };
     };
@@ -613,10 +647,14 @@ function withGithubItemUrl<S extends z.ZodObject>(
     // 1. Decompose a full github.com URL the model was handed by github.search.
     if (typeof next.url === "string") {
       const match = GITHUB_ITEM_URL_RE.exec(next.url);
+
       if (match) {
         fork();
+
         if (!("owner" in next)) next.owner = match[1];
+
         if (!("repo" in next)) next.repo = match[2];
+
         if (!(numberKey in next)) next[numberKey] = Number(match[3]);
         delete next.url;
       }
@@ -626,6 +664,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
     //    a real repo name never contains a slash, so this can only be the slug.
     if (typeof next.repo === "string" && !("owner" in next)) {
       const slug = GITHUB_OWNER_REPO_SLUG_RE.exec(next.repo.trim());
+
       if (slug) {
         fork();
         next.owner = slug[1];
@@ -637,6 +676,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
     if (!(numberKey in next)) {
       for (const key of Object.keys(next)) {
         if (key === "owner" || key === "repo") continue;
+
         if (!GITHUB_ITEM_NUMBER_SYNONYMS.has(canonicalParamKey(key))) continue;
         fork();
         next[numberKey] = next[key];
@@ -644,6 +684,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
         break;
       }
     }
+
     return next;
   }, schema);
 }
@@ -747,6 +788,7 @@ export const githubSearchInput = withKeyAliases(
   // Runs on the wrapper output (post key-alias fold), so it sees canonical keys.
   .superRefine((value, ctx) => {
     const { sanitized } = sanitizeGithubSearchQuery(value);
+
     for (const message of githubSearchQueryIssues(sanitized)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
     }
@@ -812,6 +854,7 @@ export const gmailSearchHitSchema = z
     url: z.string().nullable(),
   })
   .strict();
+
 export type GmailSearchHit = z.infer<typeof gmailSearchHitSchema>;
 
 export const gmailSearchResultSchema = z
@@ -820,6 +863,7 @@ export const gmailSearchResultSchema = z
     nextPageToken: z.string().nullable(),
   })
   .strict();
+
 export type GmailSearchResult = z.infer<typeof gmailSearchResultSchema>;
 
 export const gmailSearchInput = withQueryAlias(
@@ -875,18 +919,24 @@ export const gmailSearchInput = withQueryAlias(
  * only the server gets more tolerant.
  */
 const GMAIL_RECIPIENT_FIELDS = ["to", "cc", "bcc"] as const;
+
 function wrapScalarRecipients(value: unknown): unknown {
   if (!isRecord(value)) return value;
   let next = value;
+
   for (const field of GMAIL_RECIPIENT_FIELDS) {
     const raw = next[field];
+
     if (typeof raw !== "string") continue;
+
     // A `[`-prefixed string is a malformed JSON array coerceJsonArrayFields
     // already declined; leave it to fail strict validation, don't wrap it.
     if (raw.trim().startsWith("[")) continue;
+
     if (next === value) next = { ...value };
     next[field] = [raw];
   }
+
   return next;
 }
 
@@ -924,6 +974,7 @@ export const gmailSendDraftInput = coerceJsonArrayFields(
     ),
   ),
 );
+
 export type GmailSendDraftInput = z.infer<typeof gmailSendDraftInput>;
 
 export const gmailReadMessageInput = z
@@ -965,6 +1016,7 @@ export const gmailReadMessageInput = z
 
 /** A single cell on write: string, number, boolean, or null (blank). */
 const cellValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
 const cellGrid = z
   .array(z.array(cellValue))
   .min(1)
@@ -1341,13 +1393,16 @@ export const recoverWorkflowInput = z
 const copiedWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
   tool: z.string().min(1).max(200),
 });
+
 const copiedWorkflowDefinitionSchema = authorableWorkflowDefinitionSchema.extend({
   allowedTools: z.array(z.string().min(1).max(200)).max(100),
   requiredCapabilities: z.array(copiedWorkflowCapabilitySchema).max(50),
 });
+
 const copiedWorkflowCapabilityDisplaySchema = workflowCapabilityDisplaySchema.extend({
   tool: z.string().min(1).max(200),
 });
+
 export const activateWorkflowInput = coerceJsonArrayFields(
   ["resolvedAccounts", "resolvedCapabilities"],
   activateWorkflowInputSchema.extend({
@@ -1471,6 +1526,7 @@ export const readChatHistoryInput = z
 
 /** A resolved sender email as `system.remember` accepts it, in both its single and batch forms. */
 const rememberSenderEmail = z.string().trim().toLowerCase().max(320);
+
 const rememberSenderLabel = z
   .string()
   .trim()
@@ -1911,6 +1967,7 @@ export const askUserQuestionSchema = z
     message: "options must carry distinct labels",
     path: ["options"],
   });
+
 export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
 
 /**
@@ -1931,6 +1988,7 @@ export const askUserAnswerSchema = z
     customAnswer: z.string().max(ASK_USER_LIMITS.customAnswer.max).nullable(),
   })
   .strict();
+
 export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>;
 
 /**
@@ -1973,6 +2031,7 @@ const askUserAnswersField = z
  * it contradicted each other on every retry. See {@link askUserInput}.
  */
 export const askUserModelInput = coerceJsonArrayFields(["questions"], askUserFields.strict());
+
 export type AskUserModelInput = z.infer<typeof askUserModelInput>;
 
 /**
@@ -1998,6 +2057,7 @@ const askUserAnswerSheet = askUserFields.extend({ answers: askUserAnswersField }
  * rule at the one boundary that writes answers.
  */
 export const askUserInput = coerceJsonArrayFields(["questions", "answers"], askUserAnswerSheet);
+
 export type AskUserInput = z.infer<typeof askUserInput>;
 
 /**
@@ -2016,6 +2076,7 @@ export const askUserDecidedInput = coerceJsonArrayFields(
     },
   ),
 );
+
 export type AskUserDecidedInput = z.infer<typeof askUserDecidedInput>;
 
 /**
@@ -2025,6 +2086,7 @@ export type AskUserDecidedInput = z.infer<typeof askUserDecidedInput>;
  * row was approved with no edit, so the decided input carries no `answers`.
  */
 export const askUserUnansweredReasonSchema = z.enum(["dismissed", "expired", "no_answers"]);
+
 export type AskUserUnansweredReason = z.infer<typeof askUserUnansweredReasonSchema>;
 
 /**
@@ -2046,7 +2108,9 @@ export const askUserResultSchema = z.discriminatedUnion("status", [
     message: z.string(),
   }),
 ]);
+
 export type AskUserResult = z.infer<typeof askUserResultSchema>;
+
 export type AskUserUnansweredResult = Extract<AskUserResult, { status: "unanswered" }>;
 
 /**

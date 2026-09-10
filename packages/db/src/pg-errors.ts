@@ -28,6 +28,7 @@ export interface PgErrorLike {
  */
 export function* pgErrorChain(err: unknown, maxDepth = 5): Generator<PgErrorLike> {
   let cur: unknown = err;
+
   for (let depth = 0; depth < maxDepth && isIndexable(cur); depth++) {
     // SAFETY: isIndexable in the loop condition proved cur is an object;
     // PgErrorLike reads only optional fields off it via Reflect.get.
@@ -54,6 +55,7 @@ export function isUniqueViolation(err: unknown): boolean {
   for (const e of pgErrorChain(err)) {
     if (e.code === PG_UNIQUE_VIOLATION) return true;
   }
+
   return false;
 }
 
@@ -70,5 +72,6 @@ export function uniqueViolationConstraint(err: unknown): string | null {
   for (const e of pgErrorChain(err)) {
     if (e.code === PG_UNIQUE_VIOLATION) return e.constraint ?? null;
   }
+
   return null;
 }

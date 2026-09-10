@@ -713,6 +713,7 @@ interface TaskOutput {
  */
 function isTransientOverload(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+
   return /high demand|overloaded|rate.?limit|too many requests|\b429\b|\b503\b|temporarily unavailable|AI_RetryError/i.test(
     msg,
   );
@@ -730,6 +731,7 @@ function isTransientOverload(err: unknown): boolean {
  */
 function isEmptyOutput(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+
   return /AI_NoOutputGeneratedError|AI_NoObjectGeneratedError|No output generated|No object generated/i.test(
     msg,
   );
@@ -748,22 +750,26 @@ async function classifyWithRetry(
   args: ClassifyEmailArgs,
 ): Promise<Awaited<ReturnType<typeof classifyEmail>>> {
   let lastErr: unknown;
+
   for (let attempt = 1; attempt <= EMPTY_OUTPUT_ATTEMPTS; attempt++) {
     try {
       return await classifyEmail(args);
     } catch (err) {
       lastErr = err;
+
       if (!isEmptyOutput(err) || attempt === EMPTY_OUTPUT_ATTEMPTS) throw err;
       // Brief escalating backoff so the flash-lite pool can drain between tries.
       await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
     }
   }
+
   throw lastErr;
 }
 
 function buildArgs(c: Case): ClassifyEmailArgs {
   const authoredAt = c.authoredAt ?? NOW;
   const signalText = [c.subject, c.body, c.snippet ?? ""].join("\n");
+
   const observations = assembleObservations({
     senderKey: c.senderKey ?? null,
     senderPrior: c.senderPrior
@@ -783,6 +789,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     labelIds: c.labelIds ?? ["INBOX"],
     signalText,
   });
+
   return {
     identity: USER,
     document: {
@@ -824,6 +831,7 @@ function renderJudgeContext(c: Case): string {
           .map(([category, count]) => `${category}:${count}`)
           .join(", ")
       : "no history";
+
     lines.push(`Sender prior [${c.senderKey}]: ${prior}`);
   }
 
@@ -831,9 +839,11 @@ function renderJudgeContext(c: Case): string {
     lines.push(
       `Thread: ${c.messageCount ?? 0} prior message(s); newest is ${c.newestDirection ?? "unknown"}`,
     );
+
     if (c.lastUserReplyAt) {
       lines.push(`You last replied on ${c.lastUserReplyAt.toISOString().slice(0, 10)}`);
     }
+
     for (const message of c.recentMessages ?? []) {
       const who = message.direction === "sent" ? "you sent" : "received";
       lines.push(`Recent thread message [${who}]: ${message.snippet}`);
@@ -858,6 +868,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     const context = renderJudgeContext(input);
 
     let classification;
+
     try {
       ({ classification } = await classifyWithRetry(args));
     } catch (err) {
@@ -870,9 +881,12 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       // until the CI job's wall-clock timeout. So skip the case (scores 0) and
       // log it loudly — many skips mean a provider/SDK outage, not a regression.
       const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+
       const kind =
         isTransientOverload(err) || isEmptyOutput(err) ? "provider overload" : "classify error";
+
       console.warn(`[triage-eval] SKIP "${input.label}" — ${kind}: ${reason}`);
+
       return {
         category: "fyi",
         confidence: 0,
@@ -889,12 +903,14 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     }
 
     const authoredAt = input.authoredAt ?? NOW;
+
     // Fixtures carry no user, so the anchor zone is fixed at UTC — the assist
     // dates the cases assert are relative to that.
     const resolved = resolveTodoSuggestion(classification, {
       sentAt: authoredAt,
       timezone: DEFAULT_USER_TIMEZONE,
     });
+
     const suppression = todoSuppressionReason({
       sender: input.from,
       subject: input.subject,
@@ -902,7 +918,9 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       category: classification.category,
       isColdContact: input.isColdContact ?? false,
     });
+
     const wouldMintTodo = resolved !== null && suppression === null;
+
     return {
       category: classification.category,
       confidence: classification.confidence,
@@ -923,6 +941,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       name: "Category match",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+
         return {
           score: expected && output.category === expected.category ? 1 : 0,
           metadata: expected
@@ -938,12 +957,15 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       name: "Todo mint decision",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+
         if (!expected) return { score: 0, metadata: "no expectation" };
         const want = expected.todo === "mint";
         const ok = output.wouldMintTodo === want;
+
         const got = output.wouldMintTodo
           ? `mint "${output.todoName}"`
           : `suppress (${output.suppression ?? output.todoOutcome ?? "no todo"})`;
+
         return {
           score: ok ? 1 : 0,
           metadata: `${got}; want ${expected.todo}`,
@@ -954,11 +976,14 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       name: "CollabActivity match",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+
         if (!("collabActivity" in (expected ?? {}))) {
           return { score: 1, metadata: "not asserted" };
         }
+
         const gotPartition = collabActivityPartition(output.collabActivity);
         const wantPartition = collabActivityPartition(expected?.collabActivity);
+
         return {
           score: gotPartition === wantPartition ? 1 : 0,
           metadata:

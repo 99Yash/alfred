@@ -10,6 +10,7 @@ export const noteCreateArgsSchema = z.object({
   text: z.string().min(1).max(10_000),
   createdAt: isoDateTimeStringSchema,
 });
+
 export type NoteCreateArgs = z.infer<typeof noteCreateArgsSchema>;
 
 export async function noteCreateClient(tx: WriteTransaction, args: NoteCreateArgs): Promise<void> {

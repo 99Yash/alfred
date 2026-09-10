@@ -33,6 +33,7 @@ const TINT = {
 export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition; index: number }) {
   const Icon: LucideIcon = workflow.icon;
   const tint = TINT[workflow.tint];
+
   return (
     <Link
       to="/workflows/$workflow"

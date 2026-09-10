@@ -24,6 +24,7 @@ export function TopBar({
   onCloseArtifact: () => void;
 }) {
   const { open: sidebarOpen, setOpen: setSidebarOpen } = useSidebarState();
+
   return (
     <header
       className={cn(

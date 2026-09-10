@@ -59,6 +59,7 @@ function parsePricingMetadata(metadata: unknown) {
     .object({ pricing: modelPricingMetadataSchema.optional() })
     .passthrough()
     .safeParse(metadata);
+
   return parsed.success
     ? (parsed.data.pricing ?? { cacheWrite1hPerMtok: null, tiers: [] })
     : { cacheWrite1hPerMtok: null, tiers: [] };
@@ -81,9 +82,12 @@ async function fetchPrice(provider: string, model: string): Promise<PriceLookup 
     )
     .orderBy(desc(modelPrices.validFrom))
     .limit(1);
+
   const row = rows[0];
+
   if (!row) return null;
   const pricing = parsePricingMetadata(row.metadata);
+
   return {
     inputPerMtok: Number(row.inputPerMtok),
     outputPerMtok: Number(row.outputPerMtok),
@@ -100,6 +104,7 @@ async function fetchPrice(provider: string, model: string): Promise<PriceLookup 
 export async function getPrice(provider: string, model: string): Promise<PriceLookup | null> {
   const key = cacheKey(provider, model);
   const cached = cache.get(key);
+
   if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
     return {
       inputPerMtok: cached.inputPerMtok,
@@ -112,9 +117,12 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
       contextWindow: cached.contextWindow,
     };
   }
+
   const fresh = await fetchPrice(provider, model);
+
   if (!fresh) return null;
   cache.set(key, { ...fresh, fetchedAt: Date.now() });
+
   return fresh;
 }
 
@@ -153,19 +161,24 @@ const FALLBACK_CONTEXT_WINDOWS = {
 export async function resolveModelContextWindow(model: LanguageModel): Promise<number> {
   const { provider, modelId } = identifyLanguageModel(model);
   const price = await getPrice(provider, modelId);
+
   if (price?.contextWindow != null) return price.contextWindow;
   const key = `${provider}/${modelId}`;
+
   // SAFETY: `in` guard ensures key is a known literal before indexing the const table.
   const fallback =
     key in FALLBACK_CONTEXT_WINDOWS
       ? FALLBACK_CONTEXT_WINDOWS[key as keyof typeof FALLBACK_CONTEXT_WINDOWS]
       : undefined;
+
   if (fallback != null) {
     console.warn(
       `[metering] using fallback context_window=${fallback} for ${key} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
     );
+
     return fallback;
   }
+
   throw new Error(
     `[metering] no context_window for ${key} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
   );
@@ -179,7 +192,9 @@ export async function resolveModelContextWindow(model: LanguageModel): Promise<n
  */
 export function computeCost(price: PriceLookup | null, usage: CallUsage | undefined): number {
   if (!price) return 0;
+
   if (price.perCallUsd != null) return price.perCallUsd;
+
   if (!usage) return 0;
   // The SDK's `inputTokens` is the TOTAL prompt, INCLUDING cache reads
   // (anthropic/google both report total = uncached + cache_creation +
@@ -189,18 +204,22 @@ export function computeCost(price: PriceLookup | null, usage: CallUsage | undefi
   const rates = resolveRates(price, usage.inputTokens ?? 0);
   const cachedInputTokens = usage.cachedInputTokens ?? 0;
   const cacheWriteInputTokens = usage.cacheWriteInputTokens ?? 0;
+
   const uncachedInputTokens =
     usage.noCacheInputTokens ??
     Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens - cacheWriteInputTokens);
+
   const uncachedInput = uncachedInputTokens / 1_000_000;
   const cachedInput = cachedInputTokens / 1_000_000;
   const cacheWriteInput = cacheWriteInputTokens / 1_000_000;
   const output = (usage.outputTokens ?? 0) / 1_000_000;
   const cachedRate = rates.cachedInputPerMtok ?? rates.inputPerMtok;
+
   const cacheWriteRate =
     usage.cacheWriteTtl === "1h" && rates.cacheWrite1hPerMtok != null
       ? rates.cacheWrite1hPerMtok
       : (rates.cacheWriteInputPerMtok ?? rates.inputPerMtok);
+
   return (
     uncachedInput * rates.inputPerMtok +
     cachedInput * cachedRate +
@@ -216,6 +235,7 @@ function resolveRates(
   const tier = [...price.tiers]
     .sort((a, b) => b.minInputTokens - a.minInputTokens)
     .find((candidate) => inputTokens > candidate.minInputTokens);
+
   return tier ?? price;
 }
 

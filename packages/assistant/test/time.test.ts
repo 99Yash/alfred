@@ -15,12 +15,15 @@ import {
 // tests goes through them, which is the point: outside this module a value has
 // to be parsed into its type before it can be used as one.
 const tz = parseIanaTimezone;
+
 const day = parseLocalDateKey;
 
 // The zones these tests keep returning to: UTC, a half-hour offset east, and a
 // DST-observing zone west.
 const utc = inZone(tz("UTC"));
+
 const kolkata = inZone(tz("Asia/Kolkata"));
+
 const newYork = inZone(tz("America/New_York"));
 
 describe("parseLocalDateKey", () => {

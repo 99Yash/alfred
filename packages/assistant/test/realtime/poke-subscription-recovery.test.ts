@@ -63,7 +63,9 @@ const ENV_DUMMIES = {
 
 /** One user per subtest: the bus is a module singleton and keeps its refcounts. */
 const LATER_LISTENER_USER = "poke-recovery-user";
+
 const RECONNECT_USER = "poke-reconnect-user";
+
 const DEADLINE_MS = 5_000;
 
 /** Split one inbound RESP array into its arguments. Returns null if incomplete. */
@@ -71,16 +73,22 @@ function readCommand(buffer: string): { args: string[]; rest: string } | null {
   if (!buffer.startsWith("*")) return null;
   const lines = buffer.split("\r\n");
   const count = Number(lines[0]?.slice(1));
+
   if (!Number.isInteger(count) || count < 0) return null;
+
   // Each argument is a `$len` line plus its payload line.
   if (lines.length < 1 + count * 2) return null;
   const args: string[] = [];
+
   for (let index = 0; index < count; index++) {
     const value = lines[2 + index * 2];
+
     if (value === undefined) return null;
     args.push(value);
   }
+
   const consumed = lines.slice(0, 1 + count * 2).join("\r\n").length + 2;
+
   return { args, rest: buffer.slice(consumed) };
 }
 
@@ -102,14 +110,17 @@ class FlakySubscribeRedis {
 
   static async start(): Promise<FlakySubscribeRedis> {
     let self: FlakySubscribeRedis | undefined;
+
     const server = createServer((socket) => {
       self?.attach(socket);
     });
+
     self = new FlakySubscribeRedis(server);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => resolve());
     });
+
     return self;
   }
 
@@ -121,8 +132,10 @@ class FlakySubscribeRedis {
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => {
       buffer += chunk;
+
       for (;;) {
         const parsed = readCommand(buffer);
+
         if (!parsed) return;
         buffer = parsed.rest;
         socket.write(this.reply(parsed.args));
@@ -143,21 +156,28 @@ class FlakySubscribeRedis {
   private reply(args: string[]): string {
     const name = (args[0] ?? "").toLowerCase();
     const channel = args[1] ?? "";
+
     if (name === "subscribe") {
       this.subscribesByChannel.set(channel, this.subscribesFor(channel) + 1);
+
       if (this.refuseSubscribes) return "-ERR simulated subscribe failure\r\n";
+
       return `*3\r\n${bulk("subscribe")}${bulk(channel)}:1\r\n`;
     }
+
     if (name === "unsubscribe") return `*3\r\n${bulk("unsubscribe")}${bulk(channel)}:0\r\n`;
+
     // CLIENT SETINFO and anything else ioredis sends during its handshake.
     return "+OK\r\n";
   }
 
   get url(): string {
     const address = this.server.address();
+
     if (address === null || typeof address === "string") {
       throw new Error(`unexpected address: ${String(address)}`);
     }
+
     return `redis://127.0.0.1:${address.port}`;
   }
 
@@ -169,6 +189,7 @@ class FlakySubscribeRedis {
 
 async function waitFor(predicate: () => boolean, what: string): Promise<void> {
   const deadline = Date.now() + DEADLINE_MS;
+
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -182,6 +203,7 @@ describe("replicache poke bus recovers from a rejected SUBSCRIBE", () => {
 
   before(async () => {
     redis = await FlakySubscribeRedis.start();
+
     for (const [key, value] of Object.entries(ENV_DUMMIES)) process.env[key] ??= value;
     // Unconditional: an ambient REDIS_URL pointing at a healthy Redis would
     // make the first SUBSCRIBE succeed and delete the whole point of the file.

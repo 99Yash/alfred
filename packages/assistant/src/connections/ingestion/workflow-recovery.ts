@@ -43,6 +43,7 @@ export function registerWorkflowRecoveryHandler(handler: WorkflowRecoveryHandler
   if (recoveryHandler) {
     throw new Error("[integrations] a workflow recovery handler is already registered");
   }
+
   recoveryHandler = handler;
 
   return () => {
@@ -58,11 +59,13 @@ export function registerWorkflowRecoveryHandler(handler: WorkflowRecoveryHandler
 export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<string> {
   try {
     const parsedRequest = workflowRecoveryRequestSchema.parse(request);
+
     if (!recoveryHandler) {
       throw new Error("[integrations] no workflow recovery handler is registered");
     }
 
     const recovered = workflowRecoveryResultSchema.parse(await recoveryHandler(parsedRequest));
+
     if (recovered.status === "failure") {
       return `/workflows?workflow_recovery=${encodeURIComponent(recovered.failureKind)}`;
     }
@@ -73,6 +76,7 @@ export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<s
       `[google.callback] failed to recover workflow ${getStringPath(request, "workflowId") ?? "unknown"}:`,
       toMessage(err),
     );
+
     return "/workflows?workflow_recovery=failed";
   }
 }

@@ -73,27 +73,35 @@ const ALLOWED = new Map([
 // check that works. Run the fixtures first, so "no failures" means "looked and
 // found nothing" rather than "looked at nothing".
 const selfTest = proseLocatorSelfTestFailures();
+
 if (selfTest.length > 0) {
   console.error("Prose-locator self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the rules before trusting this check.");
   process.exit(1);
 }
 
 const listed = new Set(listGitSourceFiles(["."], ROOT));
+
 const { packages } = workspaceExportIndex(ROOT);
+
 const { workspaces, failures: workspaceFailures } = listWorkspaces(ROOT);
 
 const docFiles = [];
+
 for (const file of listed) {
   if (file.startsWith("docs/reference/") && file.endsWith(".md")) docFiles.push(file);
 }
+
 for (const file of ["README.md", "CLAUDE.md", "CONTEXT.md", "docs/README.md"]) {
   if (listed.has(file)) docFiles.push(file);
 }
+
 for (const workspace of workspaces) {
   for (const name of ["AGENTS.md", "CLAUDE.md"]) {
     const guide = `${workspace.dir}/${name}`;
+
     if (listed.has(guide)) {
       docFiles.push(guide);
       break;
@@ -106,6 +114,7 @@ const sourceFiles = [...listed].filter(
 );
 
 const docs = docFiles.map((file) => ({ file, text: readFileSync(join(ROOT, file), "utf8") }));
+
 const sources = sourceFiles.map((file) => ({ file, text: readFileSync(join(ROOT, file), "utf8") }));
 
 const { failures, checked } = proseLocatorFailures({
@@ -118,12 +127,14 @@ const { failures, checked } = proseLocatorFailures({
 
 if (workspaceFailures.length > 0) {
   console.error("The workspace enumeration did not resolve, so some guides went unread:\n");
+
   for (const failure of workspaceFailures) console.error(`- ${failure}`);
   console.error("");
 }
 
 if (failures.length > 0) {
   console.error("Prose names locators that do not resolve:\n");
+
   for (const failure of failures) console.error(`- ${failure}`);
   console.error(
     "\nRepoint each locator at the thing that owns the door now, or reword the prose" +

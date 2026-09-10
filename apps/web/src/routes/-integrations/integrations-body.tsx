@@ -15,9 +15,11 @@ export function IntegrationsBody() {
 
   const connectedBrands = useMemo<ReadonlyArray<IntegrationBrand>>(() => {
     const brands: IntegrationBrand[] = [];
+
     for (const p of resolved) {
       if (p.status === "connected") brands.push(p.brand);
     }
+
     return brands;
   }, [resolved]);
 

@@ -35,9 +35,11 @@ describe("execution public run-start surface (item 09)", () => {
 
   test("agent barrel exposes the folded + narrow ops, not the raw create/enqueue pair", () => {
     const barrel = asRecord(agentBarrel);
+
     for (const name of [...FOLDED_AND_NARROW, "persistChatTurnRunInTx"]) {
       assert.equal(typeof barrel[name], "function", `barrel must export ${name}`);
     }
+
     for (const name of REMOVED_PAIR) {
       assert.equal(barrel[name], undefined, `barrel must NOT re-export ${name}`);
     }

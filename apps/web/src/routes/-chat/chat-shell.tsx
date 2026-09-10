@@ -47,6 +47,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // the breakpoint — wide screens get the inline rail, narrow screens hide
   // the overlay so it doesn't ambush the user on resize.
   const [prevMode, setPrevMode] = useState(railMode);
+
   if (prevMode !== railMode) {
     setPrevMode(railMode);
     setRailOpen(railMode === "inline");
@@ -55,10 +56,13 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // ESC closes the overlay rail.
   useEffect(() => {
     if (railMode !== "overlay" || !railOpen) return;
+
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") setRailOpen(false);
     };
+
     window.addEventListener("keydown", handler);
+
     return () => window.removeEventListener("keydown", handler);
   }, [railMode, railOpen]);
 
@@ -68,6 +72,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     error: messagesError,
     retry: retryMessages,
   } = useChatMessages(threadId);
+
   const { stream, stopStream } = useChatStream(threadId);
   useRunComplete(stream);
   const showStream = shouldShowStream(messages, stream);
@@ -87,9 +92,11 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // resolve the open target's live body to hand the sidebar.
   const artifactStream = useArtifactStream(threadId);
   const artifact = useArtifactPanel(threadId, activeRunId, artifactStream);
+
   const liveArtifact = useMemo(() => {
     if (!artifact.selectedId) return null;
     const pendingTcid = pendingToolCallId(artifact.selectedId);
+
     return pendingTcid
       ? artifactStream.byToolCallId(pendingTcid)
       : artifactStream.byArtifactId(artifact.selectedId);
@@ -104,6 +111,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const [editPrefill, setEditPrefill] = useState<
     (ArtifactEditSuggestion & { nonce: number; threadId: string | undefined }) | null
   >(null);
+
   const onSuggestArtifactEdit = useCallback(
     (suggestion: ArtifactEditSuggestion) => {
       setEditPrefill((prev) => ({
@@ -130,6 +138,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     ),
     [railOpen, railMode, railData],
   );
+
   const artifactNode = useMemo(
     () =>
       artifact.selectedId ? (
@@ -153,6 +162,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       onSuggestArtifactEdit,
     ],
   );
+
   // One shell slot, two occupants: the artifact panel wins while open.
   useRightRail(artifactNode ?? railNode);
 
@@ -175,16 +185,19 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // during render so the next thread never commits with the previous thread's
   // send gate.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
+
   if (prevThreadId !== threadId) {
     setPrevThreadId(threadId);
     prevShowStreamRef.current = false;
     lastErrorStreamIdRef.current = null;
     setQueueSending(false);
   }
+
   const onSend = useCallback(
     async (text: string, files?: File[], artifactTargetId?: string): Promise<boolean> => {
       const trimmed = text.trim();
       const hasFiles = Boolean(files && files.length > 0);
+
       // Fast pre-check before enqueue/send so the composer does not clear on an
       // empty submit. Canonical predicate lives in `@alfred/contracts`.
       if (
@@ -195,6 +208,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         })
       )
         return false;
+
       // While a turn is active (streaming or stream done but durable not yet
       // synced) enqueue locally so the previous reply can finish rendering
       // before the next turn starts. This keeps the auto-send FIFO waiting for
@@ -203,8 +217,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       // bubble.
       if (showStream) {
         const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
+
         return ok;
       }
+
       const result = await send(
         threadId,
         text,
@@ -214,21 +230,27 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         undefined,
         artifactTargetId,
       );
+
       if (result.ok) return true;
+
       if (result.reason === "busy") {
         // Per-thread concurrency guard (#488) — the start created no run because
         // a different turn is still in flight. Keep the message queued and retry
         // on the next completion signal rather than dropping it (#489 AC 4).
         const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
+
         return ok;
       }
+
       if (result.reason === "empty") return false;
+
       // Hard failure already toasted by `useSendMessage`; keep composer content
       // so the user can retry manually rather than losing their draft.
       return false;
     },
     [showStream, enqueue, send, threadId, tier],
   );
+
   // On turn completion (stream done + durable synced), auto-start the oldest
   // queued message as its own turn, one at a time. A `busy` reply keeps the
   // entry queued for the next completion; other failures keep it for manual
@@ -241,6 +263,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     const prev = prevShowStreamRef.current;
     prevShowStreamRef.current = showStream;
     const completed = prev && !showStream;
+
     // Also handle the error case where the stream is done with an inline error
     // but no durable message ever arrives (SSE disconnect). In that window
     // `showStream` stays true, yet the run is terminal and the next turn should
@@ -250,19 +273,24 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     // trigger one auto-send attempt until a new completion edge arrives.
     const errorId =
       streamDone && streamError ? `${streamRunId ?? "unknown"}:${String(streamError)}` : null;
+
     const isNewErrorCompletion =
       Boolean(errorId) &&
       errorId !== lastErrorStreamIdRef.current &&
       queue.length > 0 &&
       !queueSending &&
       !isStreaming;
+
     if (isNewErrorCompletion && errorId) lastErrorStreamIdRef.current = errorId;
+
     // Reset the error dedup when the stream clears so a future error on a new
     // run is not suppressed.
     if (!streamDone || !streamError) lastErrorStreamIdRef.current = null;
     const shouldFlush = completed || isNewErrorCompletion;
+
     if (!shouldFlush || queue.length === 0 || queueSending || isStreaming) return;
     const next = queue[0];
+
     if (!next) return;
     setQueueSending(true);
     void (async () => {
@@ -275,6 +303,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         next.retryAttachmentMessageId,
         next.artifactTargetId,
       );
+
       if (result.ok) {
         dequeue();
       } else if (result.reason === "busy") {
@@ -289,6 +318,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         // Hard error: leave the entry queued so the user does not lose it.
         // `useSendMessage` already toasted the failure; the chip stays removable.
       }
+
       setQueueSending(false);
     })();
   }, [
@@ -303,6 +333,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     streamError,
     streamRunId,
   ]);
+
   // Retry re-sends the prior user turn as a fresh turn. It carries that
   // message's attachment ids (not File objects — the bytes are already in the
   // bucket); the server copies them onto the new message. This is what lets an
@@ -318,6 +349,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           retryAttachmentIds,
           retryAttachmentMessageId,
         );
+
         if (!result.ok && result.reason === "busy") {
           // For a retry that collided, queue the text (with its faithful
           // attachment ids) so it is not dropped; the queue's completion effect
@@ -336,12 +368,15 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     },
     [send, threadId, tier, enqueue],
   );
+
   const awaitingApproval = Boolean(showStream && stream.awaitingApproval);
   const { rows: approvalRows } = useActionStagings();
+
   const runApprovals = useMemo(
     () => (activeRunId ? approvalRows.filter((row) => row.runId === activeRunId) : []),
     [approvalRows, activeRunId],
   );
+
   const hasPendingApproval = runApprovals.length > 0;
   const approvalTrayActive = awaitingApproval || hasPendingApproval;
   const hasConversation = messages.length > 0 || showStream;
@@ -355,6 +390,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
   const autoApprove = policy?.defaultMode === "autonomy";
   const autoApprovePending = policyLoading;
+
   const onToggleAutoApprove = useCallback(() => {
     // Wait for the subscription to settle, then let the server mutator upsert
     // the baseline row if this is a legacy user without a synced policy yet.
@@ -370,14 +406,17 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     () => (showStream ? [] : buildFollowUpSuggestions(messages)),
     [messages, showStream],
   );
+
   const chipFollowUps = useMemo(() => (followUps.length >= 2 ? followUps : []), [followUps]);
   const lastMessageId = messages.length > 0 ? (messages[messages.length - 1]?.id ?? null) : null;
   // Ghost dismissal is per-reply: accepting or Escaping hides it until the
   // next assistant message produces a fresh suggestion.
   const [ghostDismissedFor, setGhostDismissedFor] = useState<string | null>(null);
   const ghostSuggestion = followUps.length === 1 ? followUps[0] : undefined;
+
   const ghostText =
     ghostSuggestion && ghostDismissedFor !== lastMessageId ? ghostSuggestion.text : undefined;
+
   const onGhostDone = useCallback(() => setGhostDismissedFor(lastMessageId), [lastMessageId]);
 
   // Stop the in-flight turn (composer stop button). We freeze the bubble and

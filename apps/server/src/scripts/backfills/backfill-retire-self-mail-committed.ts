@@ -57,11 +57,13 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 function parseTargetEmails(): string[] {
   const flag = process.argv.find((a) => a.startsWith("--emails="));
   const raw = flag ? flag.slice("--emails=".length) : "yashgouravkar@gmail.com";
+
   return raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
 const TARGET_EMAILS = parseTargetEmails();
 
 const COMMIT = process.argv.includes("--commit");
@@ -87,10 +89,12 @@ async function processUser(u: { userId: string; email: string }, selfAddr: strin
         sql`lower(${documents.metadata}->>'from') like ${"%" + selfAddr + "%"}`,
       ),
     );
+
   const selfDocs = candidates.filter((d) => parseEmailAddress(d.from) === selfAddr);
 
   if (selfDocs.length === 0) {
     console.log("  no self-authored documents on file — nothing to retire");
+
     return;
   }
 
@@ -114,10 +118,13 @@ async function processUser(u: { userId: string; email: string }, selfAddr: strin
           ),
         )
     : [];
+
   const mixedSet = new Set<string>();
+
   for (const d of threadDocs) {
     if (d.threadId && parseEmailAddress(d.from) !== selfAddr) mixedSet.add(d.threadId);
   }
+
   const pureThreadIds = threadIds.filter((t) => !mixedSet.has(t));
   const pureThreadSet = new Set(pureThreadIds);
 
@@ -132,20 +139,24 @@ async function processUser(u: { userId: string; email: string }, selfAddr: strin
   const docIds = deletableDocs.map((d) => d.id);
 
   console.log(`  ${selfDocs.length} self-authored docs across ${threadIds.length} threads`);
+
   if (mixedSet.size) {
     console.log(
       `  ! ${mixedSet.size} mixed thread(s) also contain non-self mail — docs AND triage LEFT intact (${skippedMixedDocs} self-doc(s) skipped)`,
     );
   }
+
   for (const d of deletableDocs.slice(0, 15)) {
     console.log(`    doc=${d.id} thread=${d.threadId} | ${d.from} | ${d.title ?? "(no subject)"}`);
   }
+
   if (deletableDocs.length > 15) console.log(`    … and ${deletableDocs.length - 15} more`);
 
   if (!COMMIT) {
     console.log(
       `  DRY — would delete ${docIds.length} docs and triage for ${pureThreadIds.length} pure threads`,
     );
+
     return;
   }
 
@@ -175,9 +186,11 @@ async function main() {
   // Shared with the ingestion guard via `@alfred/integrations/google`, so the
   // candidate→exact match here retires exactly the set the runtime filter drops.
   const selfAddr = selfSenderEmail();
+
   if (!selfAddr) {
     throw new Error(`RESEND_FROM_EMAIL has no parseable address: ${serverEnv().RESEND_FROM_EMAIL}`);
   }
+
   console.log(
     `# Self-mail retirement — mode=${COMMIT ? "COMMIT" : "DRY"} | self=${selfAddr} | targets=${TARGET_EMAILS.join(", ")}`,
   );
@@ -188,6 +201,7 @@ async function main() {
     .where(inArray(userTable.email, TARGET_EMAILS));
 
   const found = new Set(users.map((u) => u.email));
+
   for (const email of TARGET_EMAILS) {
     if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
   }

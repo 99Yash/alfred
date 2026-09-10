@@ -95,6 +95,7 @@ function referentValue(provider: string, segment: ReferentSegment, externalId: s
 
 /** Provider/kind segments of the sender-scoped fallback key. */
 const FALLBACK_PROVIDER = "alfred";
+
 const FALLBACK_SEGMENT: ReferentSegment = "referent";
 
 /** How the referent was recognized. Evidence only — never switched on for a key. */
@@ -173,6 +174,7 @@ export function referentKeyForEmail(input: ReferentKeyInput): ReferentKey | null
 
   if (tracker === "github") {
     const fromHeaders = githubReferentFromThreadingHeaders(input.headers);
+
     if (fromHeaders) return fromHeaders;
   }
 
@@ -182,6 +184,7 @@ export function referentKeyForEmail(input: ReferentKeyInput): ReferentKey | null
     sender: input.sender,
     requireTrackerSender: true,
   });
+
   return loopRef ? referentKeyFromLoopEntityRef(loopRef) : null;
 }
 
@@ -201,9 +204,11 @@ export function senderScopedReferentIdentity(
   senderEntityId: string,
 ): IdentityRef {
   const trimmed = senderEntityId.trim();
+
   if (trimmed.length === 0) {
     throw new Error(`[user-model.referent-identity] sender-scoped key needs a sender node id`);
   }
+
   return assertLegalReferentIdentity(
     referentValue(FALLBACK_PROVIDER, FALLBACK_SEGMENT, `${trimmed}/${key.name}`),
   );
@@ -218,9 +223,13 @@ export function senderScopedReferentIdentity(
  * must fall through, not improvise.
  */
 const GITHUB_NOTIFICATION_HOST = "github.com";
+
 const GITHUB_OWNER_REPO_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+
 const DIGITS_RE = /^\d+$/;
+
 const COMMIT_SHA_RE = /^[0-9a-fA-F]{7,40}$/;
+
 /** GitHub GraphQL node id (`CS_kwDO…`) — opaque and CASE-SIGNIFICANT. */
 const GITHUB_NODE_ID_RE = /^[A-Za-z0-9_-]+$/;
 
@@ -266,16 +275,20 @@ function githubReferentFromThreadingHeaders(
 ): GlobalReferentKey | null {
   if (!headers) return null;
   const candidates = [headers.inReplyTo, ...(headers.references ?? []), headers.messageId];
+
   for (const candidate of candidates) {
     const key = githubReferentFromMessageId(candidate);
+
     if (key) return key;
   }
+
   return null;
 }
 
 function githubReferentFromMessageId(raw: string | null | undefined): GlobalReferentKey | null {
   if (!raw) return null;
   const parsed = parseGitHubMessageIdAddress(raw);
+
   if (!parsed) return null;
 
   const { owner, repo, objectType, objectId } = parsed;
@@ -285,16 +298,20 @@ function githubReferentFromMessageId(raw: string | null | undefined): GlobalRefe
 
   for (const entry of GITHUB_HEADER_OBJECT_REGISTRY) {
     if (entry.objectType !== objectType) continue;
+
     if (!entry.idPattern.test(objectId)) return null;
     const foldedId = entry.foldId(objectId);
+
     const id =
       entry.kind === "commit"
         ? `${fullName}@${foldedId}`
         : entry.kind === "check_suite"
           ? `${fullName}/${foldedId}`
           : `${fullName}#${foldedId}`;
+
     return githubKey(entry.kind, id, "github_threading_header");
   }
+
   return null;
 }
 
@@ -307,21 +324,28 @@ function parseGitHubMessageIdAddress(raw: string): {
 } | null {
   const addr = stripAngleBrackets(raw.trim());
   const at = addr.lastIndexOf("@");
+
   if (at <= 0) return null;
+
   if (addr.slice(at + 1).toLowerCase() !== GITHUB_NOTIFICATION_HOST) return null;
 
   const segments = addr.slice(0, at).split("/");
   const [owner, repo, objectType, objectId] = segments;
+
   if (!owner || !repo || !objectType || !objectId) return null;
+
   if (!GITHUB_OWNER_REPO_SEGMENT_RE.test(owner) || !GITHUB_OWNER_REPO_SEGMENT_RE.test(repo)) {
     return null;
   }
+
   return { owner, repo, objectType, objectId };
 }
 
 function stripAngleBrackets(value: string): string {
   const trimmed = value.trim();
+
   if (trimmed.startsWith("<") && trimmed.endsWith(">")) return trimmed.slice(1, -1).trim();
+
   // Tolerate a single leading `<` or trailing `>` when the peer bracket was
   // stripped upstream — keep the old two-replace behaviour as fallback.
   return trimmed.replace(/^</, "").replace(/>$/, "").trim();
@@ -352,6 +376,7 @@ function githubKey(
   evidence: ReferentEvidence,
 ): GlobalReferentKey | null {
   if (!withinExternalIdBudget(id)) return null;
+
   return {
     scope: "global",
     value: referentValue("github", kind, id),
@@ -370,6 +395,7 @@ function githubKey(
  */
 function referentKeyFromLoopEntityRef(ref: LoopEntityRef): ReferentKey | null {
   const trimmedId = ref.id.trim();
+
   if (trimmedId.length === 0) return null;
 
   // Case-insensitive external ids are folded before mint so `Owner/Repo#786` and
@@ -391,16 +417,19 @@ function referentKeyFromLoopEntityRef(ref: LoopEntityRef): ReferentKey | null {
       if (ref.provider === "github") {
         return githubKey(ref.kind, foldedId, "loop_key_entity");
       }
+
       if (ref.kind === "issue") {
         // `deriveLoopEntityRef` already lowercases the issue key; the provider is
         // `linear` / `jira` under `requireTrackerSender`, `issue` only without it.
         return globalIssueKey(ref.provider, foldedId);
       }
+
       // Fallthrough for `pull_request` with non-github provider (should not happen
       // under current contract but keep exhaustive — treat as sender-scoped rather
       // than minting a bogus global key).
       return senderScopedKey(foldedId);
     }
+
     default: {
       // Exhaustiveness guard. `LoopEntityKind` is a closed union, so this
       // assignment stops compiling the moment a kind is added there — no cast,
@@ -409,6 +438,7 @@ function referentKeyFromLoopEntityRef(ref: LoopEntityRef): ReferentKey | null {
       // kind guessed wrong mints a permanent node, so the build must stop here.
       const _exhaustive: never = ref.kind;
       void _exhaustive;
+
       return senderScopedKey(foldedId);
     }
   }
@@ -416,6 +446,7 @@ function referentKeyFromLoopEntityRef(ref: LoopEntityRef): ReferentKey | null {
 
 function globalIssueKey(provider: LoopEntityProvider, foldedId: string): GlobalReferentKey | null {
   if (!withinExternalIdBudget(foldedId)) return null;
+
   return {
     scope: "global",
     value: referentValue(provider, "issue", foldedId),
@@ -426,6 +457,7 @@ function globalIssueKey(provider: LoopEntityProvider, foldedId: string): GlobalR
 
 function senderScopedKey(foldedName: string): SenderScopedReferentKey | null {
   if (!withinExternalIdBudget(foldedName)) return null;
+
   return {
     scope: "sender",
     name: foldedName,
@@ -454,11 +486,13 @@ function senderScopedKey(foldedName: string): SenderScopedReferentKey | null {
  */
 function assertLegalReferentIdentity(value: string): IdentityRef {
   const parsed = identityRefSchema.safeParse({ kind: REFERENT_IDENTITY_KIND, value });
+
   if (!parsed.success) {
     throw new Error(
       `[user-model.referent-identity] minted an illegal ${REFERENT_IDENTITY_KIND} value ` +
         `${JSON.stringify(value)}: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
     );
   }
+
   return parsed.data;
 }

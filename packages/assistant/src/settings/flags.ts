@@ -45,6 +45,7 @@ export interface FeatureFlags {
  * only `resolveFeatureFlags` calls it, so it stays off the settings interface. */
 async function getFeatureFlag(userId: string, key: FeatureFlagKey): Promise<boolean> {
   const row = await getPreference(userId, key);
+
   return isFeatureFlagOn(key, row?.value);
 }
 
@@ -58,5 +59,6 @@ export async function resolveFeatureFlags(userId: string): Promise<FeatureFlags>
       getFeatureFlag(userId, FEATURE_FLAG_KEYS.actionItems),
       getFeatureFlag(userId, FEATURE_FLAG_KEYS.replyDrafting),
     ]);
+
   return { morningBriefing, eveningRecap, emailTagging, actionItems, replyDrafting };
 }

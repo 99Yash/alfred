@@ -27,6 +27,7 @@ describe("batchForVoyage", () => {
     const batches = batchForVoyage([text(half), text(half), text(half)]);
     assert.equal(batches.length, 2);
     assert.deepEqual(batches.flat(), [text(half), text(half), text(half)]);
+
     for (const batch of batches) {
       const tokens = batch.reduce((sum, t) => sum + t.length / 4, 0);
       assert.ok(tokens <= VOYAGE_MAX_BATCH_TOKENS);

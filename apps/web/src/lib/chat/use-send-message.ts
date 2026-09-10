@@ -50,6 +50,7 @@ function safeRandomId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
+
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
@@ -78,7 +79,9 @@ export function useSendMessage(): SendMessage {
       const content = text.trim();
       const pickedFiles = files ?? [];
       const retryIds = retryAttachmentIds ?? [];
+
       if (!rep || !userId) return { ok: false, reason: "error" } satisfies SendResult;
+
       if (
         isEmptyChatTurnInput({
           content,
@@ -101,6 +104,7 @@ export function useSendMessage(): SendMessage {
       // run is enqueued. A per-file failure drops just that file (toast); the rest
       // of the turn still goes through. (ADR-0065)
       let uploaded: ChatAttachmentDescriptor[] = [];
+
       if (pickedFiles.length > 0) {
         const uploadResults = await Promise.all(
           pickedFiles.map(async (file): Promise<ChatAttachmentDescriptor | null> => {
@@ -114,12 +118,15 @@ export function useSendMessage(): SendMessage {
             } catch (err) {
               console.warn("[chat] attachment upload failed:", toMessage(err));
               toast.error(`Couldn't upload ${file.name}.`);
+
               return null;
             }
           }),
         );
+
         uploaded = uploadResults.filter((a): a is ChatAttachmentDescriptor => a !== null);
         uploaded = uploaded.map((a, position) => ({ ...a, position }));
+
         // Every file failed and there's no text or re-attached file — nothing to send.
         if (
           isEmptyChatTurnInput({
@@ -133,8 +140,10 @@ export function useSendMessage(): SendMessage {
       }
 
       let successPayload: { runId: string | null; assistantMessageId: string } | null = null;
+
       try {
         markChatTimingByUser(userMessageId, "turn_request_started");
+
         const res = await fetch(`${API_URL}/api/chat/threads/${tid}/turn`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -155,6 +164,7 @@ export function useSendMessage(): SendMessage {
           }),
           signal: AbortSignal.timeout(TURN_START_TIMEOUT_MS),
         });
+
         if (!res.ok) {
           const body = await res.text().catch(() => "");
           markChatTimingByUser(
@@ -165,10 +175,12 @@ export function useSendMessage(): SendMessage {
           );
           console.error("[chat] turn start failed:", res.status, body);
           toast.error("Couldn't send your message. Please try again.");
+
           return { ok: false, reason: "error" } satisfies SendResult;
         }
 
         const payload = turnStartResponseSchema.safeParse(await res.json().catch(() => null));
+
         if (payload.success) {
           if (payload.data.outcome === "busy") {
             // The thread already has a turn in flight (#488). No run was created
@@ -181,12 +193,14 @@ export function useSendMessage(): SendMessage {
               { status: res.status, blockingRunId: payload.data.runId },
               { summarize: true },
             );
+
             return {
               ok: false,
               reason: "busy",
               blockingRunId: payload.data.runId,
             } satisfies SendResult;
           }
+
           attachChatAssistantTiming({
             userMessageId,
             assistantMessageId: payload.data.assistantMessageId,
@@ -205,10 +219,12 @@ export function useSendMessage(): SendMessage {
             { summarize: true },
           );
         }
+
         try {
           if (isNew) {
             await rep.mutate.chatThreadCreate({ id: tid, userId, createdAt: now });
           }
+
           await rep.mutate.chatMessageCreate({
             id: userMessageId,
             threadId: tid,
@@ -216,6 +232,7 @@ export function useSendMessage(): SendMessage {
             content,
             createdAt: now,
           });
+
           // Local display patch only: the HTTP route has already verified the
           // bucket object and inserted the canonical attachment rows. Replicache
           // serializes write mutations internally, so preserve explicit order
@@ -235,6 +252,7 @@ export function useSendMessage(): SendMessage {
         } catch (err) {
           console.warn("[chat] local turn mirror failed:", toMessage(err));
         }
+
         if (isNew) {
           void navigate({ to: "/chat/$threadId", params: { threadId: tid } });
         }
@@ -247,8 +265,10 @@ export function useSendMessage(): SendMessage {
         );
         console.error("[chat] turn start error:", toMessage(err));
         toast.error("Couldn't send your message. Please try again.");
+
         return { ok: false, reason: "error" } satisfies SendResult;
       }
+
       // Success path: the payload already validated the ids; fall back to a
       // minimal shape when the ack was unparseable but the turn still durably
       // succeeded (Replicache mirror above already staged it). This masks a
@@ -260,7 +280,9 @@ export function useSendMessage(): SendMessage {
           assistantMessageId: successPayload.assistantMessageId,
         } satisfies SendResult;
       }
+
       console.warn("[chat] turn start ack unparseable but Replicache staged — using fallback id");
+
       return { ok: true, runId: null, assistantMessageId: userMessageId } satisfies SendResult;
     },
     [rep, session?.user?.id, navigate],

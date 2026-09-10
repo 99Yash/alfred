@@ -79,12 +79,15 @@ export async function readDeliveryAlerts(
 ): Promise<DeliveryAlertVerdict[]> {
   const health = await readEventSourceHealth(userId, rows, now);
   const suppressed = nagsOwnCredential(rows);
+
   return EVENT_SOURCES.flatMap((source): DeliveryAlertVerdict[] => {
     const entry = health[source];
+
     const verdicts =
       entry.grain === "source"
         ? [entry.health]
         : eventDeliveryRows(rows, entry.accounts).map(entry.healthOf);
+
     return verdicts.flatMap((verdict) =>
       verdict.healthy ? [] : alertable(source, verdict, suppressed),
     );
@@ -97,10 +100,14 @@ function alertable(
   suppressed: ReadonlySet<LiveProviderSlug>,
 ): DeliveryAlertVerdict[] {
   if (verdict.cause !== "broken") return [];
+
   if (verdict.recovery.kind !== "connect") return [];
   const { integration } = verdict.recovery;
+
   if (!isLiveProviderSlug(integration)) return [];
+
   if (suppressed.has(integration)) return [];
+
   return [{ source, integration, reason: verdict.reason }];
 }
 
@@ -116,11 +123,15 @@ function alertable(
  */
 function nagsOwnCredential(rows: CredentialRowsByProvider): ReadonlySet<LiveProviderSlug> {
   const nagged = new Set<LiveProviderSlug>();
+
   for (const entry of LIVE_PROVIDERS) {
     const active = (rows.get(entry.provider) ?? []).filter((row) => row.status === "active");
+
     if (active.length === 0) continue;
+
     if (!active.some((row) => credentialSatisfies(entry.credential, row))) nagged.add(entry.slug);
   }
+
   return nagged;
 }
 
@@ -142,20 +153,25 @@ function nagsOwnCredential(rows: CredentialRowsByProvider): ReadonlySet<LiveProv
 export function toDeliveryAlerts(alerts: readonly DeliveryAlertVerdict[]): DeliveryAlert[] {
   const seen = new Set<LiveProviderSlug>();
   const wire: DeliveryAlert[] = [];
+
   for (const alert of alerts) {
     if (seen.has(alert.integration)) continue;
+
     const parsed = deliveryAlertSchema.safeParse({
       integration: alert.integration,
       reason: alert.reason,
     });
+
     if (!parsed.success) {
       console.error(
         `[integrations] delivery alert for source=${alert.source} does not fit the wire schema; dropped: ${parsed.error.message}`,
       );
       continue;
     }
+
     seen.add(alert.integration);
     wire.push(parsed.data);
   }
+
   return wire;
 }

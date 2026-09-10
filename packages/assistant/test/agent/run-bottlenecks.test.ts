@@ -176,6 +176,7 @@ describe("summarizeRunBottlenecks", () => {
       ],
       stagings: [],
     };
+
     const summary = summarizeRunBottlenecks(input);
     assert.equal(summary.queueMs, 900); // 1000 - 100
   });
@@ -214,6 +215,7 @@ describe("summarizeRunBottlenecks", () => {
       steps: [],
       stagings: [],
     });
+
     assert.equal(running.wallClockMs, null);
 
     const empty = summarizeRunBottlenecks({
@@ -222,6 +224,7 @@ describe("summarizeRunBottlenecks", () => {
       steps: [],
       stagings: [],
     });
+
     assert.equal(empty.wallClockMs, null);
     assert.equal(empty.modelMs, 0);
     assert.equal(empty.queueMs, 0);
@@ -237,6 +240,7 @@ describe("summarizeRunBottlenecks", () => {
       steps: [],
       stagings: [],
     });
+
     assert.equal(summary.modelMs, 250);
     assert.equal(summary.inputTokens, 10);
     assert.equal(summary.outputTokens, 5);

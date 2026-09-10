@@ -49,27 +49,35 @@ export function buildTrail(
   narration: readonly SyncedChatNarration[],
 ): TrailItem[] {
   const toolsBySegment = new Map<number, ToolCallView[]>();
+
   for (const tool of tools) {
     const seg = tool.segmentIndex ?? 0;
     const list = toolsBySegment.get(seg) ?? [];
     list.push(tool);
     toolsBySegment.set(seg, list);
   }
+
   const narrationBySegment = new Map<number, string>();
+
   for (const segment of narration) narrationBySegment.set(segment.index, segment.text);
 
   const segments = Array.from(
     new Set([...toolsBySegment.keys(), ...narrationBySegment.keys()]),
   ).toSorted((a, b) => a - b);
+
   const items: TrailItem[] = [];
+
   for (const seg of segments) {
     const text = narrationBySegment.get(seg);
+
     if (text && text.trim().length > 0) {
       items.push({ kind: "narration", key: `narration-${seg}`, text });
     }
+
     for (const tool of toolsBySegment.get(seg) ?? []) {
       const prev = items[items.length - 1];
       const head = prev?.kind === "tool" ? prev.tools[0] : undefined;
+
       if (
         prev?.kind === "tool" &&
         head &&
@@ -88,5 +96,6 @@ export function buildTrail(
       }
     }
   }
+
   return items;
 }

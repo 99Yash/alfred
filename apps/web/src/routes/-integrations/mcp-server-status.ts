@@ -5,6 +5,7 @@ export function mcpConnectionStatusText(
   connection: { status: McpConnectionStatus; lastError: string | null } | undefined,
 ): string {
   if (!connection) return MCP_SECTION.description;
+
   switch (connection.status) {
     case "ready":
       return "Connected";
@@ -20,6 +21,7 @@ export function mcpConnectionStatusText(
       return connection.lastError ?? "Connection failed";
     default: {
       const _exhaustive: never = connection.status;
+
       return _exhaustive;
     }
   }

@@ -52,6 +52,7 @@ const SUB_ID = sql<
 >`case when ${apiCallLog.runId} = ${chatMessages.runId} then null else coalesce(${agentRuns.metadata}->'subAgent'->>'subId', 'sub-agent') end`;
 
 const MODEL = sql<string>`coalesce(${apiCallLog.model}, 'unknown')`;
+
 const CALL_ROLE = sql<string | null>`${apiCallLog.requestMeta}->>'role'`;
 
 /**
@@ -131,15 +132,19 @@ async function loadGroups(): Promise<
  */
 function foldUsage(groups: Awaited<ReturnType<typeof loadGroups>>): Map<string, ChatMessageUsage> {
   const rowsByMessage = new Map<string, Awaited<ReturnType<typeof loadGroups>>>();
+
   for (const row of groups) {
     const rows = rowsByMessage.get(row.messageId) ?? [];
     rows.push(row);
     rowsByMessage.set(row.messageId, rows);
   }
+
   const byMessage = new Map<string, ChatMessageUsage>();
+
   for (const [messageId, rows] of rowsByMessage) {
     byMessage.set(messageId, foldModelUsage(rows));
   }
+
   return byMessage;
 }
 
@@ -149,13 +154,16 @@ async function main(): Promise<void> {
 
   let written = 0;
   let skipped = 0;
+
   for (const [messageId, raw] of byMessage) {
     // Validate the fold against the wire schema before it becomes a durable row.
     const parsed = chatMessageUsageSchema.safeParse(raw);
+
     if (!parsed.success || parsed.data.calls === 0) {
       skipped++;
       continue;
     }
+
     const usage = parsed.data;
     const models = usage.models.map((m) => `${m.model}×${m.calls}`).join(", ");
     const workers = usage.agents.filter((a) => a.subId !== null).length;
@@ -164,6 +172,7 @@ async function main(): Promise<void> {
         `$${usage.costUsd.toFixed(4)}, in=${usage.inputTokens} out=${usage.outputTokens} — [${models}]` +
         (workers > 0 ? ` — +${workers} worker(s)` : ""),
     );
+
     if (COMMIT) {
       // Bump rowVersion + updatedAt so the change is delivered on the next
       // Replicache pull (the synced read model carries `usage`).
@@ -176,6 +185,7 @@ async function main(): Promise<void> {
         })
         .where(eq(chatMessages.id, messageId));
     }
+
     written++;
   }
 

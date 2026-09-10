@@ -36,8 +36,10 @@ export function useActionPolicy(): ActionPolicyState {
     if (!rep) {
       setPolicy(null);
       setLoaded(false);
+
       return;
     }
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.actionpolicy.scan(tx),
       (values) => {

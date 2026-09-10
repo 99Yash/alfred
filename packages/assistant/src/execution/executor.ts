@@ -209,10 +209,14 @@ async function guardRunOwnership(
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .for("update");
+
   const row = rows[0];
+
   // A vanished row is a reclaim-shaped miss (nothing to resurrect).
   if (!row) return "reclaim";
+
   if (row.attempt !== attempt) return "reclaim";
+
   // #559b: the monotonic cancellation fence. `cancelRunInTx` bumps the
   // generation the moment it lands; a step that started under an older value
   // must not commit, even if a future path ever advances the fence without
@@ -221,6 +225,7 @@ async function guardRunOwnership(
   // and reports `run_already_terminal`.
   if (row.cancellationGeneration !== expectedGeneration) return "terminal";
   const status = runStatusSchema.safeParse(row.status);
+
   // Persisted protocol drift must fail closed. Treat an unknown status as
   // terminal so this worker rolls back and skips instead of retrying forever
   // against the same unparsable row.
@@ -254,6 +259,7 @@ async function commitGuardedRunUpdate(
   set: PgUpdateSetSource<typeof agentRuns>,
 ): Promise<void> {
   const cause = await guardRunOwnership(tx, run.id, attempt, run.cancellationGeneration);
+
   if (cause) throw new RunSupersededError(run.id, stepId, attempt, cause);
   await tx.update(agentRuns).set(set).where(eq(agentRuns.id, run.id));
 }
@@ -374,9 +380,11 @@ export interface RunOnceOptions {
 export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise<RunOutcome> {
   // 1) Lease the run. If another worker holds it, or it's terminal, skip.
   const leased = await leaseRun(runId);
+
   if (leased.kind === "none") {
     return { kind: "skipped", runId, reason: "no_lease" };
   }
+
   // The backstop already terminal-failed the run inside the lease tx (and
   // published `agent.run failed`). It runs *outside* any step body, so a
   // workflow that owns client-facing closure (chat-turn) hasn't finalized —
@@ -384,6 +392,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   if (leased.kind === "backstopped") {
     pokeWorkflowOwner(leased.run);
     await finalizeFailedRun(leased.run, leased.error);
+
     return { kind: "failed", runId, error: leased.error };
   }
 
@@ -409,6 +418,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   //    silent skip would leave a zombie run.
   let workflow: Workflow<unknown>;
   let step: Step<unknown>;
+
   try {
     workflow = (
       await resolveWorkflowForRun({
@@ -426,13 +436,16 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     // failure bubble on a turn the user had already ended (D1). On a miss the
     // cancel path owns closure, so we must not drive failure closure here.
     const superseded = await markRunFailed(run, stepId, attempt, error);
+
     if (superseded) {
       return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[superseded] };
     }
+
     // A post-deploy step-resolution failure also never enters a step body, so
     // drive workflow-level closure (e.g. chat-turn's failed-message finalize)
     // the same way the backstop does.
     await finalizeFailedRun(run, sanitizeErrorMessage(error));
+
     return { kind: "failed", runId: run.id, error };
   }
 
@@ -440,9 +453,11 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   //    this exact attempt already committed — re-enqueue so the worker
   //    picks up whatever the row says happened.
   const inserted = await tryInsertStepRow(run.id, stepId, attempt, run.state);
+
   if (!inserted) {
     return { kind: "skipped", runId: run.id, reason: "step_already_committed" };
   }
+
   opts.onLeased?.({ runId: run.id, stepId, attempt });
 
   await publishEvent({
@@ -457,6 +472,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   const staged: StagedAction[] = [];
   const traces: DecisionTraceBase[] = [];
   const seenTraceKeys = new Set<string>();
+
   const ctx: StepContext<unknown> = {
     runId: run.id,
     userId: run.userId,
@@ -479,25 +495,30 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     trace(kind, record, options) {
       const decisionKey = normalizeDecisionTraceKey(options?.decisionKey);
       const slot = `${kind}\u0000${decisionKey}`;
+
       if (seenTraceKeys.has(slot)) {
         throw new Error(
           `[agent] duplicate decision trace kind=${kind} decisionKey=${decisionKey} in step=${stepId}`,
         );
       }
+
       seenTraceKeys.add(slot);
       traces.push({ kind, decisionKey, record });
     },
   };
 
   let result: StepResult<unknown>;
+
   try {
     result = await step.run(ctx);
   } catch (err) {
     const error = toMessage(err);
     const outcome = await commitStepFailure(run, stepId, attempt, error);
+
     if (outcome.kind === "failed") {
       await finalizeFailedRun(run, outcome.error);
     }
+
     return outcome;
   }
 
@@ -524,11 +545,15 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     `);
 
     const row = rowsFromExecute<RunRow & { staleMs: number | string | null }>(result)[0];
+
     if (!row) return { kind: "none" };
 
     const status = runStatusSchema.parse(row.status);
+
     if (isTerminalStatus(status)) return { kind: "none" };
+
     if (status === "waiting") return { kind: "none" }; // signal will flip to runnable first
+
     if (status === "deferred" && row.deferredUntil && row.deferredUntil > new Date()) {
       return { kind: "none" };
     }
@@ -550,11 +575,13 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
           : row.staleMs;
 
     let isStaleRunning = false;
+
     if (status === "running") {
       // Per-step stale window (ADR-0070 §1.4, Lever A): a long model-call step
       // (a boss turn) declares a wider window so a heartbeat blip can't reclaim
       // a live, expensive turn. Unset steps use the default STALE_RUN_LEASE_MS.
       const staleAfterMs = resolveStaleAfterMs(row.workflowSlug, row.currentStep);
+
       if (staleMs == null || staleMs >= staleAfterMs) {
         isStaleRunning = true;
       } else {
@@ -593,12 +620,16 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
             -1
           )
       `);
+
       const priorReclaims = rowsFromExecute<{ reclaims: number }>(countResult)[0]?.reclaims ?? 0;
+
       if (priorReclaims + 1 >= BACKSTOP_RECLAIM_LIMIT) {
         const now = new Date();
+
         const backstopError = boundAgentRunError(
           `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`,
         );
+
         // Mark the orphan step failed for audit, with the same structured
         // marker so the history reads consistently.
         await tx
@@ -619,6 +650,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
               eq(agentSteps.status, "running"),
             ),
           );
+
         // Terminal-fail the run. The message MUST be this synthetic clean
         // string and must NOT echo the original error — else the terminal
         // write would re-throw on the same poison and the run would survive
@@ -634,6 +666,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
           code: "non_progressing",
           safeMessage: backstopError,
         });
+
         await tx
           // drift-ok: FOR UPDATE held since this tx's SELECT, status checked under it.
           .update(agentRuns)
@@ -658,6 +691,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
           attempt: row.attempt,
           error: backstopError,
         });
+
         // Do not re-lease — the run is now terminal. Hand the caller the run
         // row + clean message so it can drive workflow-level failure closure.
         return {
@@ -723,15 +757,18 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       fromStatus: status as QueueLeaseFromStatus,
       reclaimed: isStaleRunning,
     };
+
     return { kind: "leased", run: { ...row, status, attempt }, attempt, queue };
   });
 }
 
 function requireStep<S>(workflow: Workflow<S>, stepId: string): Step<S> {
   const step = workflow.steps[stepId];
+
   if (!step) {
     throw new Error(`[agent] workflow=${workflow.slug} has no step=${stepId}; deploy mismatch?`);
   }
+
   return step;
 }
 
@@ -759,6 +796,7 @@ async function tryInsertStepRow(
         // `input` column verbatim.
         input: state as object,
       });
+
     return true;
   } catch (err) {
     // Treat a unique-violation as "already committed" — that's the only
@@ -793,12 +831,15 @@ export async function commitStepSuccess(
   // message/run split ADR-0072 kills. Strip every sink once, here, for ALL
   // workflows. Clean values pass through by reference (no extra allocation).
   const cleanState = sanitizeToolResult(result.state).value;
+
   const cleanTranscript =
     result.transcript === undefined ? undefined : sanitizeToolResult(result.transcript).value;
+
   const cleanOutput =
     result.kind === "done" || result.kind === "blocked" || result.kind === "defer"
       ? sanitizeToolResult(result.output ?? null).value
       : null;
+
   const cleanWake = result.kind === "interrupt" ? sanitizeToolResult(result.wake).value : undefined;
 
   try {
@@ -814,9 +855,11 @@ export async function commitStepSuccess(
       cleanOutput,
       cleanWake,
     );
+
     // #561: the `workflows.last_run_*` roll-up committed with the run, so the
     // owner's synced workflow list and history tab are stale until poked.
     if (outcome.kind === "completed" || outcome.kind === "blocked") pokeWorkflowOwner(run);
+
     return outcome;
   } catch (err) {
     // This worker lost the run while the step ran — reclaimed (attempt bumped)
@@ -827,8 +870,10 @@ export async function commitStepSuccess(
       if (err.supersedeCause === "terminal") {
         await rejectLateCancelledRunStagings(run.id, "run cancelled before step commit");
       }
+
       return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[err.supersedeCause] };
     }
+
     throw err;
   }
 }
@@ -875,6 +920,7 @@ async function commitStepSuccessTx(
     // same action will be silently dropped — exactly what we want.
     for (const action of staged) {
       const key = action.idempotencyKey ?? `${run.id}:${stepId}:${attempt}:${action.kind}`;
+
       try {
         await tx.insert(pendingActions).values({
           runId: run.id,
@@ -939,6 +985,7 @@ async function commitStepSuccessTx(
         kind: "agent.run",
         payload: { runId: run.id, phase: "step_completed", step: stepId, attempt },
       });
+
       return { kind: "advanced", runId: run.id, nextStep: result.nextStep };
     }
 
@@ -949,6 +996,7 @@ async function commitStepSuccessTx(
         status: "completed",
         summary: result.summary,
       });
+
       // Guarded like the `next` branch: abort rather than mark a run completed
       // under a stale attempt while the reclaimer is mid-step, or over a
       // terminal status a cancel just wrote.
@@ -971,6 +1019,7 @@ async function commitStepSuccessTx(
         kind: "agent.run",
         payload: { runId: run.id, phase: "completed", step: stepId, attempt },
       });
+
       return { kind: "completed", runId: run.id };
     }
 
@@ -1001,6 +1050,7 @@ async function commitStepSuccessTx(
           error: boundAgentRunError("Workflow blocked: action is required."),
         },
       });
+
       return { kind: "blocked", runId: run.id };
     }
 
@@ -1011,6 +1061,7 @@ async function commitStepSuccessTx(
         reason: result.reason,
         retryAt: result.retryAt,
       });
+
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
@@ -1035,6 +1086,7 @@ async function commitStepSuccessTx(
           retryAt: result.retryAt.toISOString(),
         },
       });
+
       return { kind: "deferred", runId: run.id, retryAt: result.retryAt };
     }
 
@@ -1083,6 +1135,7 @@ async function commitStepSuccessTx(
         wake,
       },
     });
+
     return { kind: "interrupted", runId: run.id, wake };
   });
 }
@@ -1101,6 +1154,7 @@ async function commitStepFailure(
   // its branded result is the frame's `error` type, so the persisted
   // `error.message` and the frame `error` carry the identical string.
   const safeError = boundAgentRunError(error);
+
   try {
     await db().transaction(async (tx) => {
       const now = new Date();
@@ -1124,6 +1178,7 @@ async function commitStepFailure(
         code: "step_failed",
         safeMessage: safeError,
       });
+
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         status: "failed",
         error: { message: safeError, step: stepId, attempt },
@@ -1151,11 +1206,15 @@ async function commitStepFailure(
       if (err.supersedeCause === "terminal") {
         await rejectLateCancelledRunStagings(run.id, "run cancelled before step commit");
       }
+
       return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[err.supersedeCause] };
     }
+
     throw err;
   }
+
   pokeWorkflowOwner(run);
+
   return { kind: "failed", runId: run.id, error: safeError };
 }
 
@@ -1185,14 +1244,17 @@ export async function markRunFailed(
   // `safeParse` throw, rolls this guarded `failed` write back, and re-enters the
   // reclaim loop.
   const safeError = boundAgentRunError(error);
+
   try {
     await db().transaction(async (tx) => {
       const now = new Date();
+
       const outcome = await deriveRunOutcome(tx, run, {
         status: "failed",
         code: "workflow_unresolved",
         safeMessage: safeError,
       });
+
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         status: "failed",
         error: { message: safeError },
@@ -1220,6 +1282,8 @@ export async function markRunFailed(
     if (err instanceof RunSupersededError) return err.supersedeCause;
     throw err;
   }
+
   pokeWorkflowOwner(run);
+
   return null;
 }

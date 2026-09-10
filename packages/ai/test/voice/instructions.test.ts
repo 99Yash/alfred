@@ -42,6 +42,7 @@ describe("composeAgentInstructions", () => {
       role: "role",
       voice: "none",
     });
+
     assert.equal(prompt, "role");
   });
 
@@ -64,6 +65,7 @@ describe("composeAgentInstructions", () => {
     function visit(path: string): void {
       for (const name of readdirSync(path)) {
         const child = `${path}/${name}`;
+
         if (statSync(child).isDirectory()) visit(child);
         else if (
           name.endsWith(".ts") &&

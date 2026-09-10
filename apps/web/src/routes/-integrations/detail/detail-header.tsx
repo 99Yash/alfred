@@ -32,9 +32,11 @@ function ConnectAction({ provider, connected }: { provider: IntegrationPage; con
       </AppButton>
     );
   }
+
   if (isTokenPasteSlug(provider.slug)) {
     return <TokenPasteConnect slug={provider.slug} connected={connected} />;
   }
+
   return <RedirectConnect slug={provider.slug} connected={connected} />;
 }
 
@@ -78,6 +80,7 @@ function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connecte
   const redirect = () => {
     window.location.href = `${API_URL}${connectPathFor(slug)}`;
   };
+
   const onConnect = isGoogle ? () => setConsentOpen(true) : redirect;
 
   return (
@@ -152,14 +155,18 @@ function TokenPasteConnect({ slug, connected }: { slug: TokenPasteSlug; connecte
   async function submit() {
     if (!complete) return;
     setPending(true);
+
     try {
       const res = await form.submit({ token: token.trim(), scope: scope.trim() });
+
       if (res.error) {
         // The connect route distinguishes a wrong token, a wrong organization,
         // an already-connected sibling, and an upstream outage; show its message.
         toast.error(responseErrorMessage(res.error.value, res.error.status, `Connect ${name}`));
+
         return;
       }
+
       toast.success(`Connected ${name}`);
       setToken("");
       setScope("");
@@ -182,6 +189,7 @@ function TokenPasteConnect({ slug, connected }: { slug: TokenPasteSlug; connecte
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") void submit();
+
     if (e.key === "Escape") setOpen(false);
   };
 

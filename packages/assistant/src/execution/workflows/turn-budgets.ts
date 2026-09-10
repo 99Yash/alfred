@@ -60,7 +60,9 @@ export function chatTurnCapVerdict(
   completedTurns: number,
 ): ChatTurnCapVerdict {
   const cap = CHAT_TURN_CAP_BY_TIER[tier];
+
   if (completedTurns < cap) return "loop";
+
   return completedTurns === cap ? "land" : "landed";
 }
 
@@ -163,7 +165,9 @@ function planTurnRetry<S>(
   preTurnTranscript: AgentTranscriptMessage[],
 ): PlannedTurnRetry<S> | null {
   const spent = budget.read(state);
+
   if (spent >= budget.max) return null;
+
   return {
     step: {
       kind: "next",

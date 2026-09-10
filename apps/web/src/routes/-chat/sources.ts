@@ -27,13 +27,17 @@ export function toSource(citation: unknown): Source | null {
   if (typeof citation === "string") {
     if (citation.length === 0) return null;
     const domain = domainOf(citation);
+
     return { label: domain, faviconDomain: domain, href: citation };
   }
+
   const record = asRecord(citation);
   const href = typeof record?.url === "string" ? record.url : undefined;
+
   if (!href) return null;
   const title = typeof record?.title === "string" ? record.title.trim() : "";
   const hostFallback = domainOf(href);
+
   return {
     label: title || hostFallback,
     faviconDomain: title && looksLikeDomain(title) ? title : hostFallback,
@@ -50,15 +54,20 @@ export function toSource(citation: unknown): Source | null {
  */
 export function collectSources(tools: ToolCallView[]): Source[] {
   const byKey = new Map<string, Source>();
+
   for (const tool of tools) {
     if (tool.status !== "succeeded") continue;
     const result = parseJsonRecord(tool.resultPreview);
     const citations = result?.citations;
+
     if (!Array.isArray(citations)) continue;
+
     for (const citation of citations) {
       const source = toSource(citation);
+
       if (source && !byKey.has(source.faviconDomain)) byKey.set(source.faviconDomain, source);
     }
   }
+
   return [...byKey.values()];
 }

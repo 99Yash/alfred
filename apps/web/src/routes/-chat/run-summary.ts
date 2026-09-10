@@ -28,21 +28,26 @@ export type RunGlyph =
 export function runGlyphs(tools: ToolCallView[]): RunGlyph[] {
   const glyphs: RunGlyph[] = [];
   const seen = new Set<string>();
+
   for (const tool of tools) {
     const { brand } = presentTool(tool);
+
     if (brand) {
       if (seen.has(`brand:${brand}`)) continue;
       seen.add(`brand:${brand}`);
       glyphs.push({ kind: "brand", key: brand, brand });
       continue;
     }
+
     const animatedIcon = animatedToolIcon(tool.toolName);
+
     if (animatedIcon) {
       if (seen.has(`icon:${animatedIcon.key}`)) continue;
       seen.add(`icon:${animatedIcon.key}`);
       glyphs.push({ kind: "icon", key: animatedIcon.key, Icon: animatedIcon.Icon });
     }
   }
+
   return glyphs;
 }
 
@@ -68,6 +73,7 @@ export function runSummary(tools: ToolCallView[]): string {
   const actions = succeeded.filter((t) => toolCategory(t.toolName) === "action");
 
   const distinctSources = new Set(sources.map((t) => t.toolName));
+
   const sourceClause =
     sources.length === 0
       ? null
@@ -85,8 +91,11 @@ export function runSummary(tools: ToolCallView[]): string {
   if (sourceClause && actionClause) {
     return `${sourceClause} and ${lowerFirst(actionClause)}`;
   }
+
   const lone = actionClause ?? sourceClause;
+
   if (lone) return lone;
+
   // Nothing countable landed. If steps failed, say so rather than claiming
   // work; otherwise the run was pure plumbing and "worked on it" is accurate.
   return tools.some((t) => t.status === "failed") ? "Couldn't finish that" : "Worked on it";

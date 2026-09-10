@@ -38,7 +38,9 @@ export function useUsageSummary(window: UsageWindow) {
       const res = await client.api.me.usage.summary.get({
         query: { start: window.start, end: window.end },
       });
+
       if (res.error || !res.data) throw new Error("Failed to load usage summary");
+
       return res.data;
     },
     staleTime: 60_000,
@@ -53,7 +55,9 @@ export function useUsageBreakdown(window: UsageWindow) {
       const res = await client.api.me.usage.breakdown.get({
         query: { start: window.start, end: window.end },
       });
+
       if (res.error || !res.data) throw new Error("Failed to load usage breakdown");
+
       return res.data;
     },
     staleTime: 60_000,
@@ -71,6 +75,7 @@ interface ActivityArgs extends UsageWindow {
 
 export function useUsageActivity(args: ActivityArgs) {
   const categoriesKey = args.categories.toSorted().join(",");
+
   return useQuery<UsageActivityResult>({
     queryKey: [
       "usage",
@@ -95,7 +100,9 @@ export function useUsageActivity(args: ActivityArgs) {
           sortDir: args.sortDir,
         },
       });
+
       if (res.error || !res.data) throw new Error("Failed to load usage activity");
+
       return res.data;
     },
     // Keep the current page visible while the next page / re-sort loads.

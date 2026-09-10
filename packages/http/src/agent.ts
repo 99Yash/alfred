@@ -34,6 +34,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
           if (isInternalWorkflowSlug(body.workflowSlug)) {
             throw Errors.NotFoundError("Workflow not found");
           }
+
           try {
             const { runId } = await startRun({
               userId: user.id,
@@ -50,6 +51,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
                 requestId: body.requestId,
               },
             });
+
             return { runId };
           } catch (err) {
             // Workflows that declare a `dedupKey` use a partial unique
@@ -62,6 +64,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
                 `An active run for workflow "${body.workflowSlug}" already exists.`,
               );
             }
+
             const msg = toMessage(err);
             throw Errors.BadRequestError(msg);
           }
@@ -85,7 +88,9 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             requestId: body.requestId,
             revisionChoice: body.revisionChoice,
           });
+
           await redeliverRun(replayed.runId);
+
           return replayed;
         },
         {
@@ -100,7 +105,9 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         "/runs/:runId",
         async ({ params, user }) => {
           const run = await getRun(params.runId, user.id);
+
           if (!run) throw Errors.NotFoundError("Run not found");
+
           return run;
         },
         { params: t.Object({ runId: t.String() }) },
@@ -109,6 +116,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         "/runs/:runId/signal",
         async ({ params, body, user }) => {
           const run = await getRun(params.runId, user.id);
+
           if (!run) throw Errors.NotFoundError("Run not found");
           // Reshape the flat body into the discriminated union that
           // `signalRun` consumes. `kind` is `t.String()` rather than a
@@ -118,12 +126,15 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
           // enforcing it — same end state, less log noise. The handler
           // narrows + validates instead.
           let match: SignalArgs["match"];
+
           if (body.match) {
             const kind = body.match.kind;
+
             if (kind === "hil") {
               if (!body.match.approvalId) {
                 throw Errors.BadRequestError("match.kind='hil' requires approvalId");
               }
+
               // The kind enum lives in contracts; an unknown value is dropped,
               // which keeps the pre-m13 "match any hil wake on this id" reading.
               const approvalKind = approvalKindSchema.safeParse(body.match.approvalKind);
@@ -136,6 +147,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               if (!body.match.name) {
                 throw Errors.BadRequestError("match.kind='signal' requires name");
               }
+
               match = { kind: "signal", name: body.match.name };
             } else if (kind === "any") {
               match = { kind: "any" };
@@ -145,9 +157,12 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               );
             }
           }
+
           const woken = await signalRun({ runId: params.runId, match });
+
           if (!woken) throw Errors.ConflictError("Run not waiting on a matching condition");
           await redeliverRun(params.runId);
+
           return { ok: true };
         },
         {

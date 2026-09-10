@@ -47,11 +47,13 @@ const STANDARD_OPTION: TierOption = {
   label: "Alfred",
   description: "Great for almost everything",
 };
+
 const DEEP_OPTION: TierOption = {
   value: "deep",
   label: "Alfred Pro",
   description: "Flagship reasoning for complex tasks",
 };
+
 const TIER_OPTIONS: ReadonlyArray<TierOption> = [STANDARD_OPTION, DEEP_OPTION];
 
 export function ModelTierPicker({
@@ -70,8 +72,10 @@ export function ModelTierPicker({
   // still flows through portals). Same pattern as `AppSelect`.
   const themeCtx = use(AppThemeContext);
   const resolved: AppResolvedTheme = themeCtx?.resolved ?? "dark";
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
+
   const selected = value === "deep" ? DEEP_OPTION : STANDARD_OPTION;
 
   return (
@@ -130,6 +134,7 @@ export function ModelTierPicker({
         >
           {TIER_OPTIONS.map((option) => {
             const checked = option.value === value;
+
             return (
               <button
                 key={option.value}

@@ -21,6 +21,7 @@ export const setPreferenceArgsSchema = userPreferenceInsertSchema
     /** Defaults to `{ kind: 'user' }`. Agents that suggest a pref pass `{ kind: 'agent' }`. */
     source: memorySourceSchema.optional(),
   }) satisfies z.ZodType<Pick<NewUserPreference, "userId" | "key" | "value" | "source">>;
+
 export type SetPreferenceArgs = z.infer<typeof setPreferenceArgsSchema>;
 
 /**
@@ -64,6 +65,7 @@ export type PreferenceWriteExecutor = DbRoot | DbTransaction;
  */
 export function upsertPreference(exec: PreferenceWriteExecutor, args: SetPreferenceArgs) {
   const source: MemorySource = args.source ?? { kind: "user" };
+
   return exec
     .insert(userPreferences)
     .values({ userId: args.userId, key: args.key, value: args.value, source })
@@ -93,7 +95,9 @@ export function deletePreferenceRow(exec: PreferenceWriteExecutor, userId: strin
 export async function setPreference(args: SetPreferenceArgs): Promise<PreferenceRow> {
   const parsed = setPreferenceArgsSchema.parse(args);
   const [row] = await upsertPreference(db(), parsed).returning();
+
   if (!row) throw new Error("[settings.preferences] setPreference returned no row");
+
   return rowToPref(row);
 }
 
@@ -104,6 +108,7 @@ export async function getPreference(userId: string, key: string): Promise<Prefer
     .from(userPreferences)
     .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
     .limit(1);
+
   return row ? rowToPref(row) : null;
 }
 
@@ -114,6 +119,7 @@ export async function getPreferences(userId: string): Promise<PreferenceRow[]> {
     .from(userPreferences)
     .where(eq(userPreferences.userId, userId))
     .orderBy(asc(userPreferences.key));
+
   return rows.map(rowToPref);
 }
 
@@ -122,5 +128,6 @@ export async function deletePreference(userId: string, key: string): Promise<boo
   const result = await deletePreferenceRow(db(), userId, key).returning({
     id: userPreferences.id,
   });
+
   return result.length > 0;
 }

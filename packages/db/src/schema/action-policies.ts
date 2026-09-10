@@ -141,5 +141,7 @@ export const actionStagings = pgTable(
 );
 
 export type UserActionPolicy = typeof userActionPolicies.$inferSelect;
+
 export type ActionStaging = typeof actionStagings.$inferSelect;
+
 export type NewActionStaging = typeof actionStagings.$inferInsert;

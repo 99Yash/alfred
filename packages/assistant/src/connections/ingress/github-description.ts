@@ -34,6 +34,7 @@ const githubWebhookPayloadSchema = z.object({
     .optional(),
   review: z.object({ state: z.string().optional(), html_url: z.string().optional() }).optional(),
 });
+
 type GithubWebhookPayload = z.infer<typeof githubWebhookPayloadSchema>;
 
 function describeGithubActivity(
@@ -43,31 +44,41 @@ function describeGithubActivity(
   payload: GithubWebhookPayload,
 ): Pick<InboundDescription, "title" | "status" | "url"> {
   const where = repo ? ` in ${repo}` : "";
+
   switch (eventType) {
     case "pull_request": {
       const pr = payload.pull_request ?? {};
       const verb = action === "closed" ? (pr.merged ? "merged" : "closed") : (action ?? "updated");
       const title = `PR #${pr.number ?? "?"} ${verb}${where}${pr.title ? `: ${pr.title}` : ""}`;
+
       return { title, status: action === "closed" ? "resolved" : "open", url: pr.html_url };
     }
+
     case "issues": {
       const issue = payload.issue ?? {};
       const title = `Issue #${issue.number ?? "?"} ${action ?? "updated"}${where}${issue.title ? `: ${issue.title}` : ""}`;
+
       return { title, status: action === "closed" ? "resolved" : "open", url: issue.html_url };
     }
+
     case "push": {
       const count = Array.isArray(payload.commits) ? payload.commits.length : 0;
       const branch = (payload.ref ?? "").replace("refs/heads/", "");
       const title = `${count} commit${count === 1 ? "" : "s"} pushed${branch ? ` to ${branch}` : ""}${where}`;
+
       return { title, url: payload.compare };
     }
+
     case "pull_request_review": {
       const pr = payload.pull_request ?? {};
       const title = `PR #${pr.number ?? "?"} ${payload.review?.state ?? "reviewed"}${where}`;
+
       return { title, status: "open", url: payload.review?.html_url ?? pr.html_url };
     }
+
     default: {
       const exhaustive: never = eventType;
+
       return exhaustive;
     }
   }
@@ -75,15 +86,18 @@ function describeGithubActivity(
 
 export function describeGithubReceipt(kind: string, raw: unknown): InboundDescription {
   const fallback = describeInboundJson("github", kind, raw);
+
   if (!isEventTypeForSource("github", kind)) return fallback;
   const parsed = githubWebhookPayloadSchema.safeParse(raw);
   const payload = parsed.success ? parsed.data : {};
+
   const activity = describeGithubActivity(
     kind,
     payload.action ?? null,
     payload.repository?.full_name ?? null,
     payload,
   );
+
   return {
     ...fallback,
     ...activity,

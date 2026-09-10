@@ -41,6 +41,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const SLUG = "__test-stale-window";
+
 const ID_PREFIX = "test-stale-window-";
 
 // Wide: a long non-streaming model turn (mirrors the sub-agent boss-turn's
@@ -49,7 +50,9 @@ const ID_PREFIX = "test-stale-window-";
 // prove the window can move in *either* direction. Quick: leaves `staleAfterMs`
 // unset → default 60s.
 const WIDE_MS = 5 * 60_000;
+
 const NARROW_MS = 30_000;
+
 const GIANT_MS = 60 * 60_000;
 
 const noopStep = (id: string, staleAfterMs?: number): Workflow<unknown>["steps"][string] => ({
@@ -117,6 +120,7 @@ describe("per-step stale-lease resolution (pure)", () => {
     // miss a genuinely-stale run because every step's window is >= the floor.
     assert.equal(minStaleAfterMs(), NARROW_MS);
     assert.ok(minStaleAfterMs() <= STALE_RUN_LEASE_MS, "floor is never above the default");
+
     for (const step of Object.values(windowWorkflow.steps)) {
       assert.ok(
         minStaleAfterMs() <= resolveStaleAfterMs(SLUG, step.id),
@@ -147,6 +151,7 @@ async function seedRunningRun(step: string, checkpointAt: Date, attempt = 3): Pr
   // The in-flight orphan step row a live worker would hold (leaseRun marks it
   // failed on reclaim).
   await db().insert(agentSteps).values({ runId, stepId: step, attempt, status: "running" });
+
   return runId;
 }
 
@@ -155,6 +160,7 @@ async function runRow(runId: string): Promise<{ status: string; attempt: number 
     .select({ status: agentRuns.status, attempt: agentRuns.attempt })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
+
   return rows[0];
 }
 
@@ -163,6 +169,7 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
+
     if (!getWorkflow(SLUG)) registerRecipe(windowWorkflow);
   });
 
@@ -170,6 +177,7 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     await closeConnections();
   });
@@ -244,6 +252,7 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
     for (const id of included) {
       assert.ok(resumable.has(id), `genuinely-stale run ${id} must be swept in`);
     }
+
     for (const id of excluded) {
       assert.ok(!resumable.has(id), `live run ${id} must be refined out, not re-enqueued`);
     }

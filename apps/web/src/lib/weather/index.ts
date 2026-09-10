@@ -38,9 +38,11 @@ import {
 } from "./schemas";
 
 export type { WeatherCondition, WeatherSnapshot } from "./schemas";
+
 export { weatherSnapshotSchema } from "./schemas";
 
 const WEATHER_FETCH_TIMEOUT_MS = 8_000;
+
 const GEOLOCATION_FIX_TIMEOUT_MS = 8_000;
 
 const FAHRENHEIT_REGIONS = new Set(["US", "BS", "BZ", "KY", "PW", "FM", "MH", "LR"]);
@@ -59,7 +61,9 @@ interface ResolvedLocation {
  */
 async function fetchJson(url: URL, source: string): Promise<unknown> {
   const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
+
   if (!res.ok) throw new Error(`${source}: ${res.status}`);
+
   try {
     return await res.json();
   } catch {
@@ -74,9 +78,11 @@ async function fetchJson(url: URL, source: string): Promise<unknown> {
  */
 function preferredTemperatureUnit(): TemperatureUnit {
   if (typeof navigator === "undefined") return "C";
+
   try {
     const raw = new Intl.Locale(navigator.language);
     const region = raw.region ?? raw.maximize().region;
+
     return region && FAHRENHEIT_REGIONS.has(region) ? "F" : "C";
   } catch {
     return "C";
@@ -96,10 +102,12 @@ function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
   if (typeof navigator === "undefined" || !navigator.geolocation) {
     return Promise.resolve(null);
   }
+
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude: lat, longitude: lon } = pos.coords;
+
         // "Null Island" guard: a fix at (0,0) is a no-data sentinel from
         // the OS location service, not a real position — reverse-geocoding
         // it labels the rail "Atlantic Ocean" (seen in the wild: Chrome
@@ -108,8 +116,10 @@ function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
         // fix" so the caller falls back to IP geolocation instead.
         if (Math.abs(lat) < 0.1 && Math.abs(lon) < 0.1) {
           resolve(null);
+
           return;
         }
+
         resolve({ lat, lon });
       },
       () => resolve(null),
@@ -135,8 +145,10 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
     url.searchParams.set("localityLanguage", "en");
     const data = await fetchJson(url, "bigdatacloud");
     const parsed = bigDataCloudReverseSchema.safeParse(data);
+
     if (!parsed.success) return null;
     const { city, locality, principalSubdivision } = parsed.data;
+
     return city ?? locality ?? principalSubdivision ?? null;
   } catch {
     return null;
@@ -147,12 +159,15 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 async function ipLocation(): Promise<ResolvedLocation> {
   const data = await fetchJson(new URL("https://get.geojs.io/v1/ip/geo.json"), "geojs");
   const parsed = geoJsLocationSchema.safeParse(data);
+
   if (!parsed.success) throw new Error("geojs: invalid response");
   const { latitude, longitude, city, region } = parsed.data;
   const label = city ?? region;
+
   if (latitude === undefined || longitude === undefined || label === undefined) {
     throw new Error("geojs: incomplete location");
   }
+
   return { lat: latitude, lon: longitude, label };
 }
 
@@ -166,14 +181,17 @@ async function ipLocation(): Promise<ResolvedLocation> {
  */
 async function resolveLocation(): Promise<ResolvedLocation> {
   const coords = await getBrowserCoords();
+
   if (coords) {
     const city = await reverseGeocode(coords.lat, coords.lon);
+
     return {
       lat: coords.lat,
       lon: coords.lon,
       label: city ?? `${coords.lat.toFixed(2)}, ${coords.lon.toFixed(2)}`,
     };
   }
+
   return ipLocation();
 }
 
@@ -185,12 +203,15 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
   url.searchParams.set("latitude", String(lat));
   url.searchParams.set("longitude", String(lon));
   url.searchParams.set("current", "temperature_2m,weather_code,is_day");
+
   if (unit === "F") url.searchParams.set("temperature_unit", "fahrenheit");
 
   const data = await fetchJson(url, "open-meteo");
   const parsed = openMeteoResponseSchema.safeParse(data);
+
   if (!parsed.success || !parsed.data.current) {
     throw new Error("open-meteo: invalid response");
   }
+
   return { ...parsed.data.current, unit, city: label };
 }

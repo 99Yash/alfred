@@ -15,7 +15,9 @@ export function lowerFirst(value: string): string {
 /** Local display date and time. Invalid dates retain the input, as formatRelative does. */
 export function formatDateTime(iso: string): string {
   const date = new Date(iso);
+
   if (Number.isNaN(date.getTime())) return iso;
+
   return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -30,12 +32,16 @@ export function formatDateTime(iso: string): string {
  */
 export function formatRelative(iso: string): string {
   const d = new Date(iso);
+
   if (Number.isNaN(d.getTime())) return iso;
   const diffMs = Date.now() - d.getTime();
   const mins = Math.floor(diffMs / (60 * 1000));
+
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
+
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
+
   return `${days}d ago`;
 }

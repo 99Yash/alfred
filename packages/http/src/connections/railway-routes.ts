@@ -37,8 +37,10 @@ export const railwayIntegrationRoutes = new Elysia({
         "/connect",
         async ({ user, body }) => {
           const token = body.token.trim();
+
           if (!token) throw Errors.BadRequestError("Missing token");
           let account: Awaited<ReturnType<typeof railwayValidateToken>>;
+
           try {
             account = await railwayValidateToken(token);
           } catch (err) {
@@ -47,17 +49,21 @@ export const railwayIntegrationRoutes = new Elysia({
             console.error(
               `[railway.connect] token validation failed :: ${redactSecrets(toMessage(err))}`,
             );
+
             // Only an authorization failure means the pasted token is actually
             // wrong. A transient upstream failure (5xx / timeout) must not tell
             // the user to regenerate a token that is perfectly valid.
             if (isRailwayAuthorizationError(err)) {
               throw Errors.BadRequestError("Railway rejected that token. Check it and try again.");
             }
+
             throw Errors.ServiceUnavailableError(
               "Railway is unavailable right now. Try connecting again in a moment.",
             );
           }
+
           const label = account.name ?? account.email ?? account.id;
+
           const credential = await upsertBearerCredential({
             userId: user.id,
             provider: PROVIDER,
@@ -66,6 +72,7 @@ export const railwayIntegrationRoutes = new Elysia({
             accessToken: token,
             metadata: { name: account.name, email: account.email },
           });
+
           return { id: credential.id, accountLabel: label };
         },
         {
@@ -80,7 +87,9 @@ export const railwayIntegrationRoutes = new Elysia({
             provider: PROVIDER,
             id: params.id,
           });
+
           if (!deleted) throw Errors.NotFoundError("Credential not found");
+
           return { id: deleted.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },

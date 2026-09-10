@@ -85,6 +85,7 @@ export async function runBriefingAgent(
   ];
 
   const model = route("boss").model();
+
   const result = await meteredGenerateText(
     {
       model,
@@ -112,6 +113,7 @@ export async function runBriefingAgent(
   );
 
   const briefing = bag.getDumped();
+
   if (!briefing) {
     throw new Error(
       `[briefing-agent] loop ended without dump_briefing call. ` +

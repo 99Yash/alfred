@@ -9,6 +9,7 @@ import type { ActiveEntityProfile } from "../knowledge";
 import { userModelReader } from "../knowledge";
 
 export const TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD = 0.8;
+
 export const TRIAGE_SENDER_KIND_FEATURE_KEY = "feature.internal.triage_sender_kind_projection";
 
 /**
@@ -21,6 +22,7 @@ const TRIAGE_DEMOTING_ENTITY_KINDS = [
   "group",
   "service",
 ] as const satisfies readonly EntityNodeKind[];
+
 type TriageDemotingEntityKind = (typeof TRIAGE_DEMOTING_ENTITY_KINDS)[number];
 
 const TRIAGE_DEMOTING_ENTITY_KIND_SET = new Set<EntityNodeKind>(TRIAGE_DEMOTING_ENTITY_KINDS);
@@ -35,6 +37,7 @@ export type TriageSenderKindSignal = {
 
 export async function triageSenderKindProjectionEnabled(userId: string): Promise<boolean> {
   const row = await getPreference(userId, TRIAGE_SENDER_KIND_FEATURE_KEY);
+
   return row ? flagOn(row.value) : true;
 }
 
@@ -49,10 +52,12 @@ export async function resolveSenderKind(
   senderAddress: string | null,
 ): Promise<TriageSenderKindSignal | null> {
   const value = canonicalSenderEmail(senderAddress);
+
   if (!value) return null;
 
   try {
     const profile = await userModelReader(userId).getProfileByIdentity({ kind: "email", value });
+
     return senderKindSignalFromProfile(profile);
   } catch {
     return null;
@@ -65,9 +70,13 @@ export function senderKindSignalFromProfile(
   if (!profile || !isTriageDemotingEntityKind(profile.kind)) return null;
 
   const classification = classificationFromProfile(profile);
+
   if (!classification) return null;
+
   if (!isTriageDemotingEntityKind(classification.kind)) return null;
+
   if (classification.kind !== profile.kind) return null;
+
   if (classification.confidence < TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD) return null;
 
   return {
@@ -81,7 +90,9 @@ export function senderKindSignalFromProfile(
 
 function canonicalSenderEmail(senderAddress: string | null): string | null {
   const value = senderAddress ? canonicalizeIdentityValue("email", senderAddress) : "";
+
   if (!value || !value.includes("@")) return null;
+
   return value;
 }
 
@@ -95,7 +106,9 @@ function isTriageDemotingEntityKind(kind: EntityNodeKind): kind is TriageDemotin
 
 function classificationFromProfile(profile: ActiveEntityProfile): EntityKindClassification | null {
   const classification = profile.provenance.classification;
+
   if (!classification) return null;
   const parsed = entityKindClassificationSchema.safeParse(classification);
+
   return parsed.success ? parsed.data : null;
 }

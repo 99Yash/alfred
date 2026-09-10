@@ -18,6 +18,7 @@ async function withMockedFetch<T>(
 ): Promise<T> {
   const original = globalThis.fetch;
   globalThis.fetch = (async (_input, init) => handler(init)) as typeof fetch;
+
   try {
     return await run();
   } finally {
@@ -33,20 +34,25 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const query = (document: string): GraphqlPassthroughRequest => ({ document });
+
 const transport = (request: GraphqlPassthroughRequest) => railwayGraphqlRaw("tok", request);
 
 describe("runRailwayPassthrough — gate denial (never leaves Alfred)", () => {
   test("a mutation is a visible rejected envelope, no fetch issued", async () => {
     let fetched = false;
+
     const result = await withMockedFetch(
       () => {
         fetched = true;
+
         return jsonResponse({});
       },
       () => runRailwayPassthrough(transport, query("mutation { deleteService(id: 1) { id } }")),
     );
+
     assert.equal(fetched, false, "gate must short-circuit before any network call");
     assert.equal(result.outcome, "rejected");
+
     if (result.outcome === "rejected") assert.equal(result.reason, "graphql_non_query");
   });
 });
@@ -57,7 +63,9 @@ describe("runRailwayPassthrough — HTTP envelope", () => {
       () => jsonResponse({ data: { me: { id: "u1" } } }),
       () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") {
       assert.equal(result.status, 200);
       assert.equal(result.succeeded, true);
@@ -70,11 +78,14 @@ describe("runRailwayPassthrough — HTTP envelope", () => {
       data: { me: { id: "u1" } },
       errors: [{ message: "field x not found" }],
     };
+
     const result = await withMockedFetch(
       () => jsonResponse(body),
       () => runRailwayPassthrough(transport, query("query { me { id } x }")),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") {
       // Real HTTP status is 200 even though the read partially failed.
       assert.equal(result.status, 200);
@@ -89,7 +100,9 @@ describe("runRailwayPassthrough — HTTP envelope", () => {
       () => jsonResponse({ errors: [{ message: "server error" }] }, 500),
       () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") {
       assert.equal(result.status, 500);
       assert.equal(result.succeeded, false);
@@ -107,7 +120,9 @@ describe("runRailwayPassthrough — transport failure classification", () => {
       },
       () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
+
     assert.equal(result.outcome, "transport");
+
     if (result.outcome === "transport") {
       assert.equal(result.kind, "timeout");
       assert.equal(result.retryable, true);
@@ -123,7 +138,9 @@ describe("runRailwayPassthrough — transport failure classification", () => {
       },
       () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
+
     assert.equal(result.outcome, "transport");
+
     if (result.outcome === "transport") {
       assert.equal(result.kind, "dns");
       assert.equal(result.retryable, false);

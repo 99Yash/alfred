@@ -17,6 +17,7 @@ export function signatureMatches(expected: string, presented: string | null): bo
   if (!presented) return false;
   const a = Buffer.from(expected);
   const b = Buffer.from(presented);
+
   return a.length === b.length && timingSafeEqual(a, b);
 }
 

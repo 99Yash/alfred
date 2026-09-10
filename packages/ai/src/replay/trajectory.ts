@@ -67,19 +67,23 @@ const TOOL_SPAN_PREFIX = "tool:";
 /** Recursively sort object keys so two args that differ only in key order compare equal. */
 export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
+
   if (isRecord(value)) {
     return Object.keys(value)
       .sort()
       .reduce<Record<string, unknown>>((out, key) => {
         const v = value[key];
+
         // Drop undefined explicitly so an absent key and an explicit `undefined`
         // canonicalize identically, rather than relying on JSON.stringify's quirk
         // of silently omitting them (a deep-equal compare would diverge).
         if (v === undefined) return out;
         out[key] = canonicalize(v);
+
         return out;
       }, {});
   }
+
   return value;
 }
 
@@ -97,12 +101,16 @@ function decidedCalls(
   obs: TraceObservation[],
 ): { toolName: string; toolCallId?: string; input: unknown }[] {
   const calls: { toolName: string; toolCallId?: string; input: unknown }[] = [];
+
   for (const o of obs) {
     if (o.type !== "GENERATION") continue;
     const out = o.output;
+
     if (!isRecord(out)) continue;
     const tc = out.toolCalls;
+
     if (!Array.isArray(tc)) continue;
+
     for (const c of tc) {
       if (isRecord(c) && typeof c.toolName === "string") {
         calls.push({
@@ -113,6 +121,7 @@ function decidedCalls(
       }
     }
   }
+
   return calls;
 }
 
@@ -127,23 +136,28 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
   const executedCallIds = new Set<string>();
   const executedKeys = new Map<string, number>();
   const executedKeyByCallId = new Map<string, string>();
+
   for (const o of obs) {
     if (o.type !== "SPAN" || !o.name.startsWith(TOOL_SPAN_PREFIX)) continue;
     const toolName = o.name.slice(TOOL_SPAN_PREFIX.length);
     const isError = (o.level ?? "").toUpperCase() === "ERROR";
+
     const step: TrajectoryStep = {
       toolName,
       input: canonicalize(o.input),
       status: isError ? "error" : "ok",
       ...(isError && o.statusMessage ? { error: String(o.statusMessage).slice(0, 200) } : {}),
     };
+
     steps.push(step);
     const callId = readToolCallId(o.metadata);
     const k = stepKey(step);
+
     if (callId) {
       executedCallIds.add(callId);
       executedKeyByCallId.set(callId, k);
     }
+
     executedKeys.set(k, (executedKeys.get(k) ?? 0) + 1);
   }
 
@@ -155,6 +169,7 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
   // (toolName, canonical args) multiset only when a decided call carries no id.
   const decided = decidedCalls(obs);
   const decidedNotExecuted: { toolName: string; input: unknown }[] = [];
+
   for (const d of decided) {
     if (d.toolCallId) {
       if (!executedCallIds.has(d.toolCallId)) {
@@ -163,15 +178,20 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
         // Consume the executed span this id maps to, so a later no-id decided
         // call can't re-match it through the multiset fallback (#286 review).
         const k = executedKeyByCallId.get(d.toolCallId);
+
         if (k !== undefined) {
           const remaining = executedKeys.get(k) ?? 0;
+
           if (remaining > 0) executedKeys.set(k, remaining - 1);
         }
       }
+
       continue;
     }
+
     const k = stepKey({ toolName: d.toolName, input: d.input });
     const remaining = executedKeys.get(k) ?? 0;
+
     if (remaining > 0) executedKeys.set(k, remaining - 1);
     else decidedNotExecuted.push({ toolName: d.toolName, input: canonicalize(d.input) });
   }
@@ -197,18 +217,22 @@ export interface TrajectoryDiff {
 function lcsKept(a: string[], b: string[]) {
   const n = a.length;
   const m = b.length;
+
   const dp: number[][] = Array.from({ length: n + 1 }, () =>
     Array.from({ length: m + 1 }, () => 0),
   );
+
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
       dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
     }
   }
+
   const aKept = new Set<number>();
   const bKept = new Set<number>();
   let i = 0;
   let j = 0;
+
   while (i < n && j < m) {
     if (a[i] === b[j]) {
       aKept.add(i);
@@ -221,6 +245,7 @@ function lcsKept(a: string[], b: string[]) {
       j++;
     }
   }
+
   return { aKept, bKept };
 }
 
@@ -237,6 +262,7 @@ export function diffTrajectories(baseline: Trajectory, candidate: Trajectory): T
   const { aKept, bKept } = lcsKept(aKeys, bKeys);
 
   const unchanged: TrajectoryStep[] = [];
+
   for (let i = 0; i < baseline.steps.length; i++) {
     if (aKept.has(i)) unchanged.push(baseline.steps[i]!);
   }
@@ -248,8 +274,10 @@ export function diffTrajectories(baseline: Trajectory, candidate: Trajectory): T
   const changed: TrajectoryDiff["changed"] = [];
   const removed: TrajectoryStep[] = [];
   const addedRemaining = addedLeft.slice();
+
   for (const before of removedLeft) {
     const idx = addedRemaining.findIndex((s) => s.toolName === before.toolName);
+
     if (idx >= 0) {
       changed.push({ toolName: before.toolName, before, after: addedRemaining[idx]! });
       addedRemaining.splice(idx, 1);
@@ -272,15 +300,20 @@ export function summarizeDiff(diff: TrajectoryDiff): string {
   if (diff.identical) {
     return `✅ identical trajectory — ${diff.unchanged.length} step(s), nothing moved.`;
   }
+
   const lines: string[] = [
     `⚠️  trajectory changed — ${diff.unchanged.length} unchanged, ${diff.changed.length} changed, ${diff.added.length} added, ${diff.removed.length} removed.`,
   ];
+
   for (const c of diff.changed) {
     lines.push(`  ~ ${c.toolName} args changed:`);
     lines.push(`      before: ${JSON.stringify(c.before.input)}`);
     lines.push(`      after:  ${JSON.stringify(c.after.input)}`);
   }
+
   for (const s of diff.added) lines.push(`  + ${s.toolName} ${JSON.stringify(s.input)}`);
+
   for (const s of diff.removed) lines.push(`  - ${s.toolName} ${JSON.stringify(s.input)}`);
+
   return lines.join("\n");
 }

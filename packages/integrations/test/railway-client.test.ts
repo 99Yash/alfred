@@ -26,10 +26,13 @@ describe("Railway configured client", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       )) as typeof fetch;
     let loads = 0;
+
     const client = createRailwayClient(async () => {
       loads += 1;
+
       return [CREDENTIAL];
     }, "none");
+
     try {
       const credential = (await client.credentials())[0];
       assert.ok(credential);
@@ -39,6 +42,7 @@ describe("Railway configured client", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+
     assert.equal(loads, 1, "fan-out methods must not re-query the credential store");
   });
 
@@ -47,16 +51,19 @@ describe("Railway configured client", () => {
     let attempts = 0;
     globalThis.fetch = (async () => {
       attempts += 1;
+
       return new Response(JSON.stringify({ data: { deploymentLogs: [] } }), {
         status: attempts === 1 ? 503 : 200,
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch;
+
     const client = createRailwayClient(async () => [CREDENTIAL], {
       maxAttempts: 2,
       baseDelayMs: 0,
       maxDelayMs: 0,
     });
+
     try {
       const credential = (await client.credentials())[0];
       assert.ok(credential);
@@ -64,6 +71,7 @@ describe("Railway configured client", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+
     assert.equal(attempts, 2);
   });
 });

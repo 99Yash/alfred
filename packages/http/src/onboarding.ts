@@ -27,8 +27,11 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
           .from(user)
           .where(eq(user.id, u.id))
           .limit(1);
+
         const row = rows[0];
+
         if (!row) throw Errors.NotFoundError("User not found");
+
         return {
           routeToOnboarding: row.onboardedAt === null,
           onboardedAt: row.onboardedAt?.toISOString() ?? null,
@@ -43,7 +46,9 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
               .set({ onboardedAt: sql`coalesce(${user.onboardedAt}, now())` })
               .where(eq(user.id, u.id))
               .returning({ onboardedAt: user.onboardedAt });
+
             const updated = rows[0];
+
             if (!updated) throw Errors.NotFoundError("User not found");
 
             // #229: infer the user's zone from the browser at onboarding so chat
@@ -51,6 +56,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
             // Write the canonical `timezone` key ONLY if unset — never clobber a
             // zone the user already chose (idempotent re-finish stays safe).
             const tz = body?.timezone;
+
             if (tz && isValidTimezone(tz)) {
               await tx
                 .insert(userPreferences)

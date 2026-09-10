@@ -50,7 +50,9 @@ describe("passthrough preference gate (feature_disabled)", () => {
       new Set(),
       ctx,
     );
+
     assert.equal(result.available, false);
+
     if (!result.available) assert.equal(result.code, "feature_disabled");
   });
 
@@ -61,7 +63,9 @@ describe("passthrough preference gate (feature_disabled)", () => {
       new Set(),
       ctx,
     );
+
     assert.equal(result.available, false);
+
     if (!result.available) assert.equal(result.code, "feature_disabled");
   });
 
@@ -72,6 +76,7 @@ describe("passthrough preference gate (feature_disabled)", () => {
       new Set(),
       ctx,
     );
+
     assert.equal(result.available, true);
   });
 
@@ -84,7 +89,9 @@ describe("passthrough preference gate (feature_disabled)", () => {
       new Set(),
       ctx,
     );
+
     assert.equal(result.available, false);
+
     if (!result.available) assert.equal(result.code, "feature_disabled");
   });
 
@@ -95,7 +102,9 @@ describe("passthrough preference gate (feature_disabled)", () => {
       new Set(),
       ctx,
     );
+
     assert.equal(result.available, false);
+
     if (!result.available) assert.equal(result.code, "not_connected");
   });
 
@@ -106,7 +115,9 @@ describe("passthrough preference gate (feature_disabled)", () => {
       new Set(),
       ctx,
     );
+
     assert.equal(result.available, false);
+
     if (!result.available) assert.equal(result.code, "needs_reauth");
   });
 });

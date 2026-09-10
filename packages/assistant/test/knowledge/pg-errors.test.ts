@@ -22,9 +22,11 @@ function pgError(fields: {
     constraint?: string | undefined;
     cause?: unknown;
   };
+
   err.code = fields.code;
   err.constraint = fields.constraint;
   err.cause = fields.cause;
+
   return err;
 }
 
@@ -34,6 +36,7 @@ describe("user-model pg error classifiers", () => {
       code: "23505",
       constraint: "observations_no_fork_idx",
     });
+
     const wrapped = new Error("Failed query") as Error & { cause?: unknown };
     wrapped.cause = driver;
 
@@ -68,6 +71,7 @@ describe("org-affiliation observation-chain retry policy", () => {
       code: "23505",
       constraint: "observations_no_fork_idx",
     });
+
     let attempts = 0;
 
     await assert.rejects(

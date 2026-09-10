@@ -56,19 +56,25 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+
 const ALL_CONNECTED = process.argv.includes("--all-connected");
+
 const DEFAULT_MAX_MESSAGES = 5000;
+
 const GMAIL_PAGE_SIZE = 100;
+
 const GMAIL_BATCH_MODIFY_CAP = 1000;
 
 function flagValue(name: string): string | undefined {
   const prefix = `--${name}=`;
   const found = process.argv.find((a) => a.startsWith(prefix));
+
   return found ? found.slice(prefix.length) : undefined;
 }
 
 function parseListFlag(name: string, fallback: string): string[] {
   const raw = flagValue(name) ?? fallback;
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -77,11 +83,14 @@ function parseListFlag(name: string, fallback: string): string[] {
 
 function parsePositiveInt(name: string, fallback: number): number {
   const raw = flagValue(name);
+
   if (raw === undefined) return fallback;
   const n = Number.parseInt(raw, 10);
+
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`--${name} must be a positive integer, got: ${raw}`);
   }
+
   return n;
 }
 
@@ -92,20 +101,26 @@ function parsePositiveInt(name: string, fallback: number): number {
 function resolveSelfAddresses(): string[] {
   const addrs = new Set<string>();
   const current = selfSenderEmail();
+
   if (current) addrs.add(current);
   const unparsed: string[] = [];
+
   for (const a of parseListFlag("aliases", "yash@croisillies.xyz")) {
     const parsed = parseEmailAddress(a);
+
     if (parsed) addrs.add(parsed);
     else unparsed.push(a);
   }
+
   if (unparsed.length) console.log(`! ignored unparseable alias(es): ${unparsed.join(", ")}`);
+
   return [...addrs];
 }
 
 /** `from:(a OR b) -label:"Alfred"` — self-authored mail not already tagged. */
 function buildQuery(selfAddrs: string[]): string {
   const from = `from:(${selfAddrs.join(" OR ")})`;
+
   return `${from} -label:"${ALFRED_SELF_LABEL_NAME}"`;
 }
 
@@ -140,18 +155,22 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
     );
 
   const targets: TargetCredential[] = [];
+
   for (const r of rows) {
     if (r.status !== "active") {
       console.log(`! skipping credential=${r.credentialId} (${r.email}) — status=${r.status}`);
       continue;
     }
+
     // SAFETY: integration_credentials.scopes is a jsonb string array written by
     // the connect flow.
     const scopes = (r.scopes as string[] | null) ?? [];
+
     if (!hasGmailModifyScope(scopes)) {
       console.log(`! skipping credential=${r.credentialId} (${r.email}) — no gmail.modify scope`);
       continue;
     }
+
     targets.push({
       credentialId: r.credentialId,
       userId: r.userId,
@@ -159,6 +178,7 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
       accountLabel: r.accountLabel,
     });
   }
+
   return targets;
 }
 
@@ -170,6 +190,7 @@ async function listCandidateIds(
 ): Promise<string[]> {
   const ids: string[] = [];
   let pageToken: string | undefined;
+
   while (ids.length < maxMessages) {
     const page = await listMessages({
       accessToken,
@@ -177,16 +198,21 @@ async function listCandidateIds(
       maxResults: Math.min(GMAIL_PAGE_SIZE, maxMessages - ids.length),
       pageToken,
     });
+
     ids.push(...page.messages.map((m) => m.id));
+
     if (!page.nextPageToken) break;
     pageToken = page.nextPageToken;
   }
+
   return ids;
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
+
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+
   return out;
 }
 
@@ -209,16 +235,20 @@ async function processCredential(
     console.log(
       `  DRY — would ensure label "${ALFRED_SELF_LABEL_NAME}" and add it to ${ids.length} message(s)`,
     );
+
     return 0;
   }
 
   const labelId = await ensureAlfredSelfLabel(t.credentialId, { accessToken });
   let labelled = 0;
+
   for (const batch of chunk(ids, GMAIL_BATCH_MODIFY_CAP)) {
     await batchModifyMessages({ accessToken, messageIds: batch, addLabelIds: [labelId] });
     labelled += batch.length;
   }
+
   console.log(`  PERSISTED — added "${ALFRED_SELF_LABEL_NAME}" to ${labelled} message(s)`);
+
   return labelled;
 }
 
@@ -230,11 +260,14 @@ async function main() {
   }
 
   const emails = parseListFlag("emails", "");
+
   if (!ALL_CONNECTED && emails.length === 0) {
     throw new Error("specify --emails=a@x.com,b@y.com or --all-connected");
   }
+
   const maxMessages = parsePositiveInt("max-messages", DEFAULT_MAX_MESSAGES);
   const selfAddrs = resolveSelfAddresses();
+
   if (selfAddrs.length === 0) {
     throw new Error("no self addresses to match (RESEND_FROM_EMAIL unparseable and no aliases)");
   }
@@ -248,18 +281,23 @@ async function main() {
   );
 
   const targets = await resolveTargets(emails);
+
   if (!ALL_CONNECTED) {
     const found = new Set(targets.map((t) => t.email));
+
     for (const email of emails) {
       if (!found.has(email)) console.log(`! no active Gmail credential for ${email}`);
     }
   }
+
   if (targets.length === 0) {
     console.log("no Gmail-capable credentials matched — nothing to do");
+
     return;
   }
 
   let total = 0;
+
   for (const t of targets) {
     try {
       total += await processCredential(t, selfAddrs, maxMessages);

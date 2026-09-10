@@ -14,6 +14,7 @@ export {
   toAttachmentRow,
   type AttachmentDegradation,
 } from "./attachments";
+
 export {
   attachmentObjectKeys,
   attachmentUrl,
@@ -26,7 +27,9 @@ export {
   readObject,
   writeObject,
 } from "./storage";
+
 export { lockChatStorageKeys, withChatStorageKeyLock } from "./storage-coordination";
+
 // Media attachment enrichment cost/representation helpers. `chat`
 // (`chat-history-retrieval` and `compaction`) read these through this seam;
 // the enrichment implementation stays private to this `attachments` folder.

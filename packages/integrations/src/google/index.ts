@@ -5,7 +5,9 @@ export type {
   ListEventsArgs,
   ListEventsResult,
 } from "./calendar";
+
 export { createEvent, listEvents } from "./calendar";
+
 export {
   createGoogleClient,
   GoogleCredentialSelectionError,
@@ -15,10 +17,15 @@ export {
   type GoogleCredential,
   type GoogleTokenResolver,
 } from "./client";
+
 export type { CredentialRow } from "./credentials";
+
 export { getFreshAccessToken, listCredentials, upsertCredential } from "./credentials";
+
 export type { DocumentHeading, GetDocumentArgs, GetDocumentResult } from "./docs";
+
 export { getDocument } from "./docs";
+
 export type {
   DownloadFileArgs,
   DriveFile,
@@ -28,7 +35,9 @@ export type {
   ListFilesArgs,
   ListFilesResult,
 } from "./drive";
+
 export { downloadFile, exportFile, getFile, listFiles } from "./drive";
+
 export type {
   BatchModifyMessagesArgs,
   CreateLabelArgs,
@@ -48,7 +57,9 @@ export type {
   StartWatchArgs,
   StartWatchResult,
 } from "./gmail";
+
 export type { GoogleService } from "./http";
+
 export {
   batchModifyMessages,
   createLabel,
@@ -67,13 +78,16 @@ export {
   startWatch,
   stopWatch,
 } from "./gmail";
+
 export {
   assertGmailPushOidcConfigured,
   GmailPushOidcConfigError,
   isGmailPushOidcConfigError,
   pubSubOidcConfigFromEnv,
 } from "./gmail-push-config";
+
 export type { PubSubOidcConfig } from "./gmail-push-config";
+
 export type {
   AlfredLabelMap,
   ApplyTriageLabelArgs,
@@ -82,6 +96,7 @@ export type {
   LabelSelfMailDeps,
   TriageCategory,
 } from "./labels";
+
 export {
   ALFRED_SELF_LABEL_NAME,
   applyTriageLabel,
@@ -93,12 +108,14 @@ export {
   labelSelfAuthoredMail,
   TRIAGE_CATEGORIES,
 } from "./labels";
+
 export type {
   AccountPersona,
   ExchangeCodeResult,
   GoogleOAuthConfig,
   RefreshTokenResult,
 } from "./oauth";
+
 export {
   ALL_GOOGLE_SCOPES,
   buildAuthorizeUrl,
@@ -109,9 +126,13 @@ export {
   refreshAccessToken,
   scopesForFeatures,
 } from "./oauth";
+
 export { GOOGLE_PASSTHROUGH_BASE_URLS, googlePassthroughProfile } from "./passthrough";
+
 export { featuresFromGrantedScopes, MissingScopesError, requireScopes } from "./scopes";
+
 export { isSelfAuthored, selfSenderEmail } from "./self-mail";
+
 export type {
   AppendValuesArgs,
   AppendValuesResult,
@@ -126,6 +147,7 @@ export type {
   UpdateValuesResult,
   ValueInputOption,
 } from "./sheets";
+
 export {
   addSheet,
   appendValues,
@@ -134,6 +156,7 @@ export {
   getValues,
   updateValues,
 } from "./sheets";
+
 export type {
   BatchUpdatePresentationArgs,
   BatchUpdatePresentationResult,
@@ -142,7 +165,9 @@ export type {
   GetPresentationArgs,
   GetPresentationResult,
 } from "./slides";
+
 export { addSlide, batchUpdatePresentation, createPresentation, getPresentation } from "./slides";
+
 export {
   findCredentialByEmail,
   findExpiringGmailWatches,

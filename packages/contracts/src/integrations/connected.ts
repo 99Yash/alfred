@@ -26,9 +26,11 @@ export interface CredentialProofRow {
  */
 export function holdsAnyScope(granted: Iterable<string>, anyOfScopes: readonly string[]): boolean {
   if (anyOfScopes.length === 0) return true;
+
   for (const scope of granted) {
     if (anyOfScopes.includes(scope)) return true;
   }
+
   return false;
 }
 
@@ -46,6 +48,7 @@ export function holdsAnyScope(granted: Iterable<string>, anyOfScopes: readonly s
  */
 export function credentialSatisfies(spec: CredentialSpec, row: CredentialProofRow): boolean {
   if (row.status !== "active") return false;
+
   switch (spec.shape) {
     case "google_oauth":
       return holdsAnyScope(row.scopes, spec.anyOfScopes);

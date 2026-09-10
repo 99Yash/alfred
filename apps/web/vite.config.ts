@@ -21,11 +21,15 @@ export default defineConfig({
         // vendor code across app deploys.
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
+
           if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
             return "react-vendor";
           }
+
           if (id.includes("@tanstack")) return "tanstack";
+
           if (id.includes("replicache")) return "replicache";
+
           if (id.includes("better-auth") || id.includes("better-call")) {
             return "auth";
           }

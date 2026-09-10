@@ -166,6 +166,7 @@ describe("verifyPubSubOidcForGmailWebhook", () => {
       },
       verifyJwt: async (token, audience) => {
         calls.push({ token, audience });
+
         return { email: "pubsub-push@example.iam.gserviceaccount.com", email_verified: true };
       },
     });
@@ -299,16 +300,19 @@ function gmailWebhookHarness() {
     enqueued: unknown[][];
     receipts: unknown[];
   }
+
   const seen: SeenWebhookEffects = {
     credentialLookups: [],
     enqueued: [],
     receipts: [],
   };
+
   const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
     makeGmailWebhookRoutes({
       verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
       findCredential: async (emailAddress) => {
         seen.credentialLookups.push(emailAddress);
+
         return { id: "cred_123", userId: "user_123" };
       },
       getQueue: () => ({
@@ -318,10 +322,12 @@ function gmailWebhookHarness() {
       }),
       persistReceipt: async (args) => {
         seen.receipts.push(args);
+
         return { inserted: true };
       },
     }),
   );
+
   const post = (init: { body?: string; headers?: Record<string, string> }) =>
     app.handle(
       new Request("http://localhost/webhooks/gmail", {
@@ -333,6 +339,7 @@ function gmailWebhookHarness() {
         ...(init.body === undefined ? {} : { body: init.body }),
       }),
     );
+
   return { seen, post };
 }
 
@@ -340,6 +347,7 @@ describe("/webhooks/gmail", () => {
   test("returns 401 and does not enqueue when OIDC verification fails", async () => {
     let lookedUpCredential = false;
     let enqueued = false;
+
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
       makeGmailWebhookRoutes({
         verifyOidc: async () => {
@@ -347,6 +355,7 @@ describe("/webhooks/gmail", () => {
         },
         findCredential: async () => {
           lookedUpCredential = true;
+
           return { id: "cred_123", userId: "user_123" };
         },
         getQueue: () => ({
@@ -378,11 +387,13 @@ describe("/webhooks/gmail", () => {
   test("enqueues a poll job after OIDC verification and credential lookup pass", async () => {
     const enqueued: unknown[] = [];
     const receipts: unknown[] = [];
+
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
       makeGmailWebhookRoutes({
         verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
         findCredential: async (emailAddress) => {
           assert.equal(emailAddress, "yash@example.com");
+
           return { id: "cred_123", userId: "user_123" };
         },
         getQueue: () => ({
@@ -392,6 +403,7 @@ describe("/webhooks/gmail", () => {
         }),
         persistReceipt: async (args) => {
           receipts.push(args);
+
           return { inserted: true };
         },
       }),
@@ -506,6 +518,7 @@ describe("/webhooks/gmail", () => {
   test("#560a: duplicate Pub/Sub deliveries create at most one receipt", async () => {
     const receipts: Array<{ inserted: boolean }> = [];
     let callCount = 0;
+
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
       makeGmailWebhookRoutes({
         verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
@@ -519,12 +532,14 @@ describe("/webhooks/gmail", () => {
           // Simulate the DB unique index: first insert succeeds, second is a no-op
           const inserted = receipts.length === 0;
           receipts.push({ inserted });
+
           return { inserted };
         },
       }),
     );
 
     const body = JSON.stringify(gmailEnvelope("yash@example.com"));
+
     const headers = {
       "content-type": "application/json",
       authorization: "Bearer jwt_123",
@@ -534,6 +549,7 @@ describe("/webhooks/gmail", () => {
     const res1 = await app.handle(
       new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
     );
+
     assert.equal(res1.status, 200);
     const json1 = (await res1.json()) as { receiptPersisted: boolean };
     assert.equal(json1.receiptPersisted, true);
@@ -542,6 +558,7 @@ describe("/webhooks/gmail", () => {
     const res2 = await app.handle(
       new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
     );
+
     assert.equal(res2.status, 200);
     const json2 = (await res2.json()) as { receiptPersisted: boolean };
     assert.equal(
@@ -556,6 +573,7 @@ describe("/webhooks/gmail", () => {
 
   test("#560a: receipt records verification result and payload hash", async () => {
     const seenReceipts: unknown[] = [];
+
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
       makeGmailWebhookRoutes({
         verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
@@ -563,6 +581,7 @@ describe("/webhooks/gmail", () => {
         getQueue: () => ({ add: async () => {} }),
         persistReceipt: async (args) => {
           seenReceipts.push(args);
+
           return { inserted: true };
         },
       }),
@@ -581,6 +600,7 @@ describe("/webhooks/gmail", () => {
 
     assert.equal(res.status, 200);
     assert.equal(seenReceipts.length, 1);
+
     const receipt = seenReceipts[0] as {
       providerDeliveryId: string;
       credentialId: string;
@@ -589,6 +609,7 @@ describe("/webhooks/gmail", () => {
       verificationResult: string;
       payloadHash: string;
     };
+
     assert.equal(receipt.providerDeliveryId, "msg_123");
     assert.equal(receipt.credentialId, "cred_123");
     assert.equal(receipt.userId, "user_123");

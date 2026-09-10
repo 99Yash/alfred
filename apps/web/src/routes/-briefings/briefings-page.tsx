@@ -9,18 +9,23 @@ import { formatDayHeading, slotLabel } from "./briefing-utils";
 /** Group the (already newest-first, morning-before-evening) rows by day, preserving order. */
 function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: SyncedBriefing[] }[] {
   const groups: { date: string; slots: SyncedBriefing[] }[] = [];
+
   for (const b of briefings) {
     const last = groups[groups.length - 1];
+
     if (last && last.date === b.briefingDate) last.slots.push(b);
     else groups.push({ date: b.briefingDate, slots: [b] });
   }
+
   return groups;
 }
 
 /** One-line gist of a slot for the timeline; falls back to a status note. */
 function slotGist(b: SyncedBriefing): string {
   if (b.breakingSummary) return briefingPlainText(b.breakingSummary, b.gather);
+
   if (b.status === "suppressed") return "Quiet day — not emailed.";
+
   return "Not composed yet.";
 }
 

@@ -81,11 +81,13 @@ describe("an executed result carries `editedByUser` to the model", () => {
       { toolCallId: "call_1", toolName: GRAPHQL, input: {} },
       { kind: "executed", stagingId: "s1", toolResult: { ok: true }, editedByUser },
     );
+
     assert.ok(Array.isArray(message.content), "expected tool-result content");
     const content = message.content[0];
     assert.ok(isRecord(content), "expected a tool-result part");
     const output = content.output;
     assert.ok(isRecord(output) && output.type === "json", "expected a json tool-result output");
+
     return output.value;
   }
 

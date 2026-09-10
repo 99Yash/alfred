@@ -53,8 +53,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-terminal-pairing-";
+
 const createdUserIds: string[] = [];
+
 const STEP = "chat-turn";
+
 const THROW_SLUG = "__test-terminal-pairing-throw";
 
 /** A non-chat workflow whose step throws, driving the in-step `failed` branch. */
@@ -81,6 +84,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -100,6 +104,7 @@ async function seedRun(args: {
     attempt: args.attempt,
     lastCheckpointAt: new Date(),
   });
+
   return { userId, runId };
 }
 
@@ -123,6 +128,7 @@ async function readStatus(runId: string) {
     .select({ status: agentRuns.status })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
+
   return rows[0]?.status;
 }
 
@@ -139,14 +145,17 @@ const TERMINAL_PHASES: readonly string[] = TERMINAL_RUN_STATUSES;
 async function assertTerminalRunEmitsTerminalFrame(userId: string, runId: string): Promise<void> {
   const status = await readStatus(runId);
   assert.ok(status, `run ${runId} exists`);
+
   if (!isTerminalStatus(status)) return;
 
   const rows = await db()
     .select({ payload: eventsOutbox.payload })
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "agent.run")));
+
   const hasTerminalFrame = rows.some((r) => {
     const phase = getStringPath(r.payload, "phase");
+
     return (
       getStringPath(r.payload, "runId") === runId &&
       phase !== undefined &&
@@ -165,12 +174,14 @@ describe("terminal run ⟹ terminal agent.run frame (item 56, DB-backed)", { ski
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
+
     if (!getWorkflow(THROW_SLUG)) registerRecipe(throwWorkflow);
   });
   after(async () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     await closeConnections();
   });

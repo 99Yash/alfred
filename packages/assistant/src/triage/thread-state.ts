@@ -76,7 +76,9 @@ export function buildThreadSnippet(
   })
     .replace(/\s+/g, " ")
     .trim();
+
   const base = body || (title ?? "").trim();
+
   return base.length > max ? `${base.slice(0, max).trimEnd()}…` : base;
 }
 
@@ -107,6 +109,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     args.accountId ? eq(documents.accountId, args.accountId) : undefined,
     args.excludeDocumentId ? ne(documents.id, args.excludeDocumentId) : undefined,
   );
+
   const newestFirst = sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`;
 
   const rows = await db()
@@ -130,14 +133,17 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     .limit(TRIAGE_THREAD_STATE_ROW_LIMIT);
 
   const siblings = rows;
+
   if (siblings.length === 0) return EMPTY;
 
   let lastUserReplyAt: Date | null = null;
   let newest: { authoredAt: Date | null; isSent: boolean } | null = null;
+
   for (const r of siblings) {
     if (r.isSent && r.authoredAt && (!lastUserReplyAt || r.authoredAt > lastUserReplyAt)) {
       lastUserReplyAt = r.authoredAt;
     }
+
     // Order by authoredAt; rows without a timestamp can't win the "newest"
     // slot (an undated row gives us no ordering signal).
     if (r.authoredAt && (!newest?.authoredAt || r.authoredAt > newest.authoredAt)) {

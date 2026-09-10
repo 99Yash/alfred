@@ -44,11 +44,13 @@ export const vercelIntegrationRoutes = new Elysia({
         if (!isVercelConfigured()) {
           throw Errors.ServiceUnavailableError("Vercel integration is not configured");
         }
+
         const nonce = randomBytes(16).toString("hex");
         await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
         const state = signOAuthState({ userId: user.id, nonce });
         set.status = 302;
         set.headers["Location"] = buildVercelInstallUrl(state);
+
         return null;
       })
       .delete(
@@ -59,7 +61,9 @@ export const vercelIntegrationRoutes = new Elysia({
             provider: PROVIDER,
             id: params.id,
           });
+
           if (!deleted) throw Errors.NotFoundError("Credential not found");
+
           return { id: deleted.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },
@@ -69,17 +73,22 @@ export const vercelIntegrationRoutes = new Elysia({
     "/callback",
     async ({ query, set }) => {
       const origin = serverEnv().CORS_ORIGIN;
+
       if (query.error) {
         set.status = 302;
         set.headers["Location"] =
           `${origin}/integrations?vercel_error=${encodeURIComponent(query.error)}`;
+
         return null;
       }
+
       if (!query.code || !query.state) throw Errors.BadRequestError("Missing code or state");
 
       const decoded = verifyOAuthState(query.state);
+
       if (!decoded) throw Errors.BadRequestError("Invalid state");
       const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
+
       if (!storedUserId || storedUserId !== decoded.userId) {
         throw Errors.BadRequestError("Invalid or expired state");
       }
@@ -106,6 +115,7 @@ export const vercelIntegrationRoutes = new Elysia({
       set.status = 302;
       set.headers["Location"] =
         `${origin}/integrations?vercel_connected=${encodeURIComponent(label)}`;
+
       return null;
     },
     {

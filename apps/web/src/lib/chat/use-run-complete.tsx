@@ -13,7 +13,9 @@ import type { StreamingMessage } from "./chat-stream-state";
 export type ChatSoundPreference = LocalStorageValue<"alfred.chat.soundPreference">;
 
 const PREF_KEY = "alfred.chat.soundPreference";
+
 const ONBOARDED_KEY = "alfred.chat.notifyOnboarded";
+
 const SFX_SRC = "/sounds/run-finished.mp3";
 
 /**
@@ -33,12 +35,15 @@ const SNIPPET_MAX = 140;
  */
 function replySnippet(text: string | undefined): string | null {
   const collapsed = text?.replace(/\s+/g, " ").trim();
+
   if (!collapsed) return null;
+
   if (collapsed.length <= SNIPPET_MAX) return collapsed;
   const clipped = collapsed.slice(0, SNIPPET_MAX);
   const lastSpace = clipped.lastIndexOf(" ");
   // Prefer a word boundary, but don't claw back more than ~a quarter of the line.
   const cut = lastSpace > SNIPPET_MAX * 0.75 ? clipped.slice(0, lastSpace) : clipped;
+
   return `${cut.trimEnd()}…`;
 }
 
@@ -64,11 +69,13 @@ export function useRunComplete(stream: StreamingMessage | null): void {
 
   useEffect(() => {
     if (!stream?.done) return;
+
     if (firedRef.current === stream.messageId) return;
     firedRef.current = stream.messageId;
 
     const focused = typeof document !== "undefined" && document.hasFocus();
     const pref = getChatSoundPreference();
+
     if (pref === "always" || (pref === "unfocused" && !focused)) {
       // Create inline so the element's lifecycle doesn't outlive the play.
       const audio = new Audio(SFX_SRC);
@@ -91,6 +98,7 @@ export function useRunComplete(stream: StreamingMessage | null): void {
         duration: 8000,
         action: { label: "Settings", onClick: () => void navigate({ to: "/settings" }) },
       });
+
       return;
     }
 

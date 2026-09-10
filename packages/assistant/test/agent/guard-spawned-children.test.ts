@@ -33,6 +33,7 @@ import type { StepContext } from "@alfred/assistant/execution/types";
  */
 
 const RUN_ID = "run_parent";
+
 const USER_ID = "user_1";
 
 function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
@@ -96,21 +97,26 @@ function recorder(args: {
 }): Recorder {
   const scheduleCalls: string[] = [];
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
+
   const deps: GuardSpawnedChildrenDeps = {
     listChildren: async () => args.children,
     readOutcome: async ({ childRunId }) => {
       const outcome = args.outcomes[childRunId];
+
       if (!outcome) throw new Error(`no fake outcome for ${childRunId}`);
+
       return outcome;
     },
     scheduleWake: async ({ childRunId }) => {
       scheduleCalls.push(childRunId);
+
       return args.scheduleResult ?? "scheduled";
     },
     publish: async (event) => {
       published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
     },
   };
+
   return { deps, scheduleCalls, published };
 }
 
@@ -124,11 +130,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("a running child within the ceiling parks on its done-signal", async () => {
     const state = baseState();
+
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
       scheduleResult: "scheduled",
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result?.kind, "interrupt");
     assert.deepEqual(rec.scheduleCalls, ["child_a"], "the dead-man timer was scheduled");
@@ -144,11 +152,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
   test("scheduling failure → folds and finalizes instead of parking (never strand in waiting)", async () => {
     for (const scheduleResult of ["disabled", "failed"] as const) {
       const state = baseState();
+
       const rec = recorder({
         children: [{ id: "child_a", status: "running" }],
         outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
         scheduleResult,
       });
+
       const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
       assert.equal(
         result?.kind,
@@ -167,6 +177,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("a child past the wait-ceiling → folds, never re-parks (no infinite re-park)", async () => {
     const state = baseState();
+
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: {
@@ -178,6 +189,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
         },
       },
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result?.kind, "next", "a stuck child past the ceiling does not park again");
     assert.deepEqual(rec.scheduleCalls, [], "no fresh timer is armed for a past-ceiling child");
@@ -188,6 +200,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("a terminal child is folded and regenerates an informed answer", async () => {
     const state = baseState();
+
     const rec = recorder({
       children: [{ id: "child_a", status: "completed" }],
       outcomes: {
@@ -199,6 +212,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
         },
       },
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result?.kind, "next");
     assert.deepEqual(rec.scheduleCalls, [], "a terminal child is never parked on");
@@ -263,6 +277,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("one terminal + one running child: folds the terminal, parks on the running one", async () => {
     const state = baseState();
+
     const rec = recorder({
       children: [
         { id: "child_done", status: "completed" },
@@ -274,6 +289,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       },
       scheduleResult: "scheduled",
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result?.kind, "interrupt");
     assert.deepEqual(state.foldedChildRunIds, ["child_done"], "only the terminal child is folded");
@@ -314,11 +330,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       assistantText: "premature answer",
       runtimeGroundingAnchor: "2026-07-15T03:58:00.000Z",
     });
+
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
       scheduleResult: "scheduled",
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "interrupt", "a still-running child parks");
     assert.equal(
@@ -342,6 +360,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("folding a terminal child drops the premature assistant tail and ends in the user fold", async () => {
     const state = baseState({ assistantText: "premature answer" });
+
     const rec = recorder({
       children: [{ id: "child_a", status: "completed" }],
       outcomes: {
@@ -353,6 +372,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
         },
       },
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "next");
     const forwarded = result?.kind === "next" ? (result.transcript ?? []) : [];
@@ -376,6 +396,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("mixed terminal + running with a premature tail: parks on a transcript ending in the fold, not the assistant", async () => {
     const state = baseState({ assistantText: "premature answer" });
+
     const rec = recorder({
       children: [
         { id: "child_done", status: "completed" },
@@ -387,6 +408,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       },
       scheduleResult: "scheduled",
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "interrupt");
     const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
@@ -401,10 +423,12 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("an already-folded child is skipped (idempotent across resumes)", async () => {
     const state = baseState({ foldedChildRunIds: ["child_a"] });
+
     const rec = recorder({
       children: [{ id: "child_a", status: "completed" }],
       outcomes: { child_a: { ok: true, done: true, status: "completed", output: {} } },
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result, null, "nothing left unfolded → the turn finalizes normally");
     assert.equal(rec.published.length, 0, "no segment churn when there's nothing to guard");
@@ -434,10 +458,12 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       // What the commit-pass accounting leaves behind for an awaited child.
       foldedChildRunIds: ["child_a"],
     });
+
     const rec = recorder({
       children: [{ id: "child_a", status: "completed" }],
       outcomes: { child_a: { ok: true, done: true, status: "completed", output: { ok: 1 } } },
     });
+
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result, null, "the awaited child is already accounted for → finalize normally");
     assert.equal(rec.published.length, 0, "no segment churn for a correctly-awaited child");
@@ -454,11 +480,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("the live segment transition: a zero-length delta closes the premature answer", async () => {
     const state = baseState({ assistantText: "premature answer", segmentIndex: 2, deltaSeq: 9 });
+
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
       scheduleResult: "scheduled",
     });
+
     await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
 
     // Server state: the premature text is demoted to narration and the segment advances.
@@ -482,11 +510,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
   test("no premature text → no segment churn and no client frame", async () => {
     const state = baseState({ assistantText: "", segmentIndex: 1, deltaSeq: 4 });
+
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
       scheduleResult: "scheduled",
     });
+
     await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(state.segmentIndex, 1, "no answer to close → segment index is untouched");
     assert.equal(state.deltaSeq, 4, "no delta seq is consumed");
@@ -520,6 +550,7 @@ describe("FINALIZE_GUARD_SEQUENCE", () => {
       FINALIZE_GUARD_SEQUENCE.length,
       "two guards sharing an id would make the order unreadable",
     );
+
     for (const guard of FINALIZE_GUARD_SEQUENCE) {
       assert.equal(typeof guard.run, "function", `${guard.id} must be runnable`);
     }
@@ -545,6 +576,7 @@ describe("crossFinalizeBoundary", () => {
   function releaseRecorder(): ReleaseRecorder {
     const state = baseState({ toolCallsLog: [] });
     const calls: Array<{ flagAtCallTime: boolean }> = [];
+
     return {
       state,
       calls,
@@ -593,6 +625,7 @@ describe("crossFinalizeBoundary", () => {
       emptyCompletionRetries: 2,
       streamTimeoutRetries: 1,
     });
+
     const retries = openChatTurnRetries([]);
     assert.equal(retries.afterEmptyCompletion(state), null, "budget is spent before the boundary");
     assert.equal(retries.afterStreamTimeout(state), null, "budget is spent before the boundary");

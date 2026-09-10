@@ -19,6 +19,7 @@ const stateSchema = z.object({
   approval: z.enum(["pending", "received"]),
   echoed: z.string().optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 export const echoWithApprovalWorkflow: Workflow<State> = {
@@ -31,6 +32,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
   stateSchema,
   initialState(input) {
     const greeting = getStringPath(input.input, "greeting") ?? "hello";
+
     return { greeting, approval: "pending" };
   },
   steps: {
@@ -38,6 +40,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
       id: "say-hello",
       async run(ctx) {
         await ctx.log(`greeting=${ctx.state.greeting}`);
+
         return { kind: "next", state: ctx.state, nextStep: "await-approval" };
       },
     },
@@ -48,6 +51,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
         // before re-entering. Second attempt advances.
         if (ctx.state.approval === "pending") {
           const approvalId = `${ctx.runId}:approve`;
+
           return {
             kind: "interrupt",
             state: { ...ctx.state, approval: "received" },
@@ -59,6 +63,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
             },
           };
         }
+
         return { kind: "next", state: ctx.state, nextStep: "finalize" };
       },
     },
@@ -66,6 +71,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
       id: "finalize",
       async run(ctx) {
         const echoed = ctx.state.greeting.toUpperCase();
+
         return {
           kind: "done",
           state: { ...ctx.state, echoed },

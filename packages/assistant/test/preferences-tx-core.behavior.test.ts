@@ -31,6 +31,7 @@ import { dbBackedSkip } from "./support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-settings-tx-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -39,6 +40,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -53,6 +55,7 @@ describe("settings preference tx cores (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 

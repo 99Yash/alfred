@@ -35,11 +35,14 @@ async function seedSkill(): Promise<{ userId: string; skillId: string }> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   const [skill] = await db()
     .insert(skills)
     .values({ userId, slug: `skill-${randomUUID()}`, name: "Fresh skill" })
     .returning({ id: skills.id });
+
   assert.ok(skill);
+
   return { userId, skillId: skill.id };
 }
 
@@ -63,6 +66,7 @@ describe("skill Replicache freshness (DB-backed)", { skip: SKIP }, () => {
       body: "# Learned",
       createdByRunId: runId,
     });
+
     const retry = await commitSkillRevision({
       userId,
       skillId,
@@ -89,10 +93,12 @@ describe("skill Replicache freshness (DB-backed)", { skip: SKIP }, () => {
 
     unsubscribe();
     assert.deepEqual(pokes, [skillId, skillId]);
+
     const [run] = await db()
       .select({ status: skillRuns.status, rowVersion: skillRuns.rowVersion })
       .from(skillRuns)
       .where(eq(skillRuns.agentRunId, agentRunId));
+
     assert.deepEqual(run, { status: "failed", rowVersion: 1 });
   });
 });
@@ -115,6 +121,7 @@ describe("skill-revisions persistence error prefix (DB-backed)", { skip: SKIP_DB
         assert.ok(err instanceof Error);
         assert.match(err.message, /^\[skill-revisions\] /);
         assert.doesNotMatch(err.message, /learn-skill/);
+
         return true;
       },
     );

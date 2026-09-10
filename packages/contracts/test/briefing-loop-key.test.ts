@@ -16,9 +16,11 @@ describe("deriveLoopKey", () => {
       const review = deriveLoopKey(
         "Re: [OlivAIRepo/baserow-middleware] Stop dictation harvest (PR #786)",
       );
+
       const comment = deriveLoopKey(
         "Re: [OlivAIRepo/baserow-middleware] Stop dictation harvest (PR #786)",
       );
+
       assert.equal(review, "gh:olivairepo/baserow-middleware#786");
       assert.equal(comment, review);
     });
@@ -71,10 +73,12 @@ describe("deriveLoopKey", () => {
           sender: "ClickUp <notifications@tasks.clickup.com>",
         },
       );
+
       const second = deriveLoopKey(
         "Netsmart: Opening Isabelle's account doesn't open favorite view",
         { sender: "ClickUp" },
       );
+
       assert.equal(
         first,
         "subj:clickup:netsmart: opening isabelle's account doesn't open favorite view",
@@ -84,17 +88,21 @@ describe("deriveLoopKey", () => {
 
     test("collapses across a Re: prefix and whitespace/case noise", () => {
       const morning = deriveLoopKey("Netsmart: Save view issues", { sender: "ClickUp" });
+
       const evening = deriveLoopKey("Re:   netsmart: SAVE view issues  ", {
         sender: "ClickUp <notifications@tasks.clickup.com>",
       });
+
       assert.equal(morning, evening);
     });
 
     test("keeps genuinely different tasks separate", () => {
       const a = deriveLoopKey("Netsmart: Save view issues", { sender: "ClickUp" });
+
       const b = deriveLoopKey("Conservice: Fix imports not triggering deal driver messages", {
         sender: "ClickUp",
       });
+
       assert.notEqual(a, b);
     });
 
@@ -113,9 +121,11 @@ describe("deriveLoopKey", () => {
 
     test("scopes subject fallback by tracker sender", () => {
       const clickup = deriveLoopKey("Netsmart: Save view issues", { sender: "ClickUp" });
+
       const linear = deriveLoopKey("Netsmart: Save view issues", {
         sender: "Linear <notifications@linear.app>",
       });
+
       assert.notEqual(clickup, linear);
     });
   });
@@ -125,10 +135,12 @@ describe("deriveLoopKey", () => {
       const a = deriveLoopKey('ALARM: "Baserow response time alarm" in eu-west-1', {
         sender: "no-reply@sns.amazonaws.com",
       });
+
       const b = deriveLoopKey(
         'ALARM: "Baserow response time alarm" in us-east-1 — threshold breached 5',
         { sender: "no-reply@sns.amazonaws.com" },
       );
+
       assert.equal(a, "alarm:baserow response time alarm");
       assert.equal(b, a);
     });
@@ -137,6 +149,7 @@ describe("deriveLoopKey", () => {
       const key = deriveLoopKey("ALERT: ElastiCache Current Connection - threshold exceeded", {
         sender: "no-reply@sns.amazonaws.com",
       });
+
       assert.equal(key, "alarm:elasticache current connection");
     });
 
@@ -154,9 +167,11 @@ describe("deriveLoopKey", () => {
       const a = deriveLoopKey('ALARM: "Baserow response time alarm" in eu-west-1', {
         sender: "no-reply@sns.amazonaws.com",
       });
+
       const b = deriveLoopKey("ALARM: ElastiCache Current Connection in eu-west-1", {
         sender: "no-reply@sns.amazonaws.com",
       });
+
       assert.notEqual(a, b);
     });
   });

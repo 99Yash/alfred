@@ -34,6 +34,7 @@ export interface ToolCredentialRequirement {
  * `GET /api/integrations` wire (`./integration-status`) both derive from it.
  */
 export const integrationHealthSchema = z.enum(["active", "needs_reauth"]);
+
 export type IntegrationHealth = z.infer<typeof integrationHealthSchema>;
 
 export interface IntegrationAvailability {

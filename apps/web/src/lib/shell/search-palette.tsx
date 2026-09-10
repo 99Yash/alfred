@@ -147,10 +147,15 @@ function matchScore(item: CommandItem, query: string): number {
   if (!query) return 1;
   const haystack = `${item.label} ${item.keywords ?? ""}`.toLowerCase();
   const needle = query.toLowerCase().trim();
+
   if (!needle) return 1;
+
   if (haystack.startsWith(needle)) return 3;
+
   if (haystack.includes(` ${needle}`)) return 2;
+
   if (haystack.includes(needle)) return 1;
+
   return 0;
 }
 
@@ -172,6 +177,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
   // while the palette is open, so this fires exactly once per open.
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
+
     return () => cancelAnimationFrame(id);
   }, []);
 
@@ -179,6 +185,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
   // threads — once per prop change.
   const allItems = useMemo<ReadonlyArray<CommandItem>>(() => {
     if (!recentThreads || recentThreads.length === 0) return COMMANDS;
+
     const threadItems: CommandItem[] = recentThreads.map((t) => ({
       id: `thread-${t.id}`,
       kind: "thread",
@@ -188,17 +195,22 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
       threadId: t.id,
       keywords: `${t.title} ${t.when}`,
     }));
+
     return [...COMMANDS, ...threadItems];
   }, [recentThreads]);
 
   // Filter + score in one pass to avoid the .map().filter() chain.
   const results = useMemo(() => {
     const ranked: { item: CommandItem; score: number }[] = [];
+
     for (const item of allItems) {
       const score = matchScore(item, query);
+
       if (score > 0) ranked.push({ item, score });
     }
+
     if (query.trim()) ranked.sort((a, b) => b.score - a.score);
+
     return ranked.map((r) => r.item);
   }, [allItems, query]);
 
@@ -207,10 +219,12 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
   const grouped = useMemo(() => {
     const commands: CommandItem[] = [];
     const threads: CommandItem[] = [];
+
     for (const item of results) {
       if (item.kind === "command") commands.push(item);
       else threads.push(item);
     }
+
     return { commands, threads };
   }, [results]);
 
@@ -233,6 +247,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
   const invoke = (item: CommandItem) => {
     onClose();
+
     if (item.threadId) {
       void navigate({ to: "/chat/$threadId", params: { threadId: item.threadId } });
     } else if (item.to) {
@@ -246,23 +261,32 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
+
       return;
     }
+
     if (e.key === "ArrowDown") {
       e.preventDefault();
+
       if (visualOrder.length === 0) return;
       setHighlight((activeIndex + 1) % visualOrder.length);
+
       return;
     }
+
     if (e.key === "ArrowUp") {
       e.preventDefault();
+
       if (visualOrder.length === 0) return;
       setHighlight((activeIndex - 1 + visualOrder.length) % visualOrder.length);
+
       return;
     }
+
     if (e.key === "Enter") {
       e.preventDefault();
       const item = visualOrder[activeIndex];
+
       if (item) invoke(item);
     }
   };
@@ -357,6 +381,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
                 <Group label="Recent chats">
                   {grouped.threads.map((item, i) => {
                     const flatIndex = grouped.commands.length + i;
+
                     return (
                       <PaletteRow
                         key={item.id}
@@ -404,6 +429,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
 function Group({ label, children }: { label: string; children: ReactNode }) {
   const labelId = useId();
+
   return (
     <div role="group" aria-labelledby={labelId} className="pt-1">
       <div
@@ -432,6 +458,7 @@ function PaletteRow({
   onClick: () => void;
 }) {
   const Icon = item.icon;
+
   return (
     <button
       type="button"

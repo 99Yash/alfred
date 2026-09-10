@@ -17,8 +17,10 @@ import { ApprovalsRoute } from "./-approvals/approvals-route";
 function toStringArray(value: unknown): string[] | undefined {
   if (Array.isArray(value)) {
     const arr = value.filter((v): v is string => typeof v === "string");
+
     return arr.length > 0 ? arr : undefined;
   }
+
   return typeof value === "string" && value.length > 0 ? [value] : undefined;
 }
 

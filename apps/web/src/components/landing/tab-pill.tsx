@@ -54,6 +54,7 @@ export function TabPill<T extends string>({
   const idBase = idBaseProp ?? generatedId;
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const listRef = useRef<HTMLDivElement | null>(null);
+
   // Sliding-indicator geometry. Null until the first layout pass so the
   // indicator doesn't flash at x=0 on mount.
   const [indicator, setIndicator] = useState<{
@@ -68,6 +69,7 @@ export function TabPill<T extends string>({
     const list = listRef.current;
     const index = options.findIndex((o) => o.value === value);
     const button = buttonRefs.current[index];
+
     if (!list || !button) return;
     const listRect = list.getBoundingClientRect();
     const btnRect = button.getBoundingClientRect();
@@ -78,21 +80,27 @@ export function TabPill<T extends string>({
   // or option label edits don't leave the indicator misaligned.
   useEffect(() => {
     const list = listRef.current;
+
     if (!list || typeof ResizeObserver === "undefined") return;
+
     const ro = new ResizeObserver(() => {
       const index = options.findIndex((o) => o.value === value);
       const button = buttonRefs.current[index];
+
       if (!button) return;
       const listRect = list.getBoundingClientRect();
       const btnRect = button.getBoundingClientRect();
       setIndicator({ x: btnRect.left - listRect.left, width: btnRect.width });
     });
+
     ro.observe(list);
+
     return () => ro.disconnect();
   }, [options, value]);
 
   const focusTabAt = (index: number) => {
     const target = options[index];
+
     if (!target) return;
     onChange(target.value);
     // The roving tabIndex updates on the next render — focus the button
@@ -102,7 +110,9 @@ export function TabPill<T extends string>({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const currentIndex = options.findIndex((o) => o.value === value);
+
     if (currentIndex === -1) return;
+
     switch (event.key) {
       case "ArrowRight":
       case "ArrowDown": {
@@ -110,17 +120,20 @@ export function TabPill<T extends string>({
         focusTabAt((currentIndex + 1) % options.length);
         break;
       }
+
       case "ArrowLeft":
       case "ArrowUp": {
         event.preventDefault();
         focusTabAt((currentIndex - 1 + options.length) % options.length);
         break;
       }
+
       case "Home": {
         event.preventDefault();
         focusTabAt(0);
         break;
       }
+
       case "End": {
         event.preventDefault();
         focusTabAt(options.length - 1);
@@ -187,6 +200,7 @@ export function TabPill<T extends string>({
       ) : null}
       {options.map((opt, index) => {
         const isActive = opt.value === value;
+
         return (
           <button
             key={opt.value}

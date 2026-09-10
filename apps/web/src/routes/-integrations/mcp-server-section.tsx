@@ -8,7 +8,9 @@ import { McpRecoveryList } from "./mcp-recovery-list";
 import { mcpConnectionStatusText } from "./mcp-server-status";
 
 type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
+
 type McpConnection = McpConnectionsResponse["connections"][number];
+
 type McpRecoveryAction =
   | {
       kind: "resolve";
@@ -21,28 +23,35 @@ const FIRST_RECOVERY_PAGE: string | null = null;
 
 export function MCPServerSection() {
   const queryClient = useQueryClient();
+
   const connectionQuery = useQuery<ReadonlyArray<McpConnection>>({
     queryKey: ["integrations", "mcp", "connections"],
     queryFn: async () => {
       const response = await client.api.integrations.mcp.connections.get();
+
       if (response.error || !response.data) {
         throw new Error("Could not load MCP connections");
       }
+
       return response.data.connections;
     },
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
+
   const connections = connectionQuery.data ?? [];
+
   const recoveryQuery = useInfiniteQuery({
     queryKey: ["integrations", "mcp", "recovery"],
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const response = await client.api.integrations.mcp.recovery.get({
         query: pageParam ? { cursor: pageParam } : {},
       });
+
       if (response.error || !response.data) {
         throw new Error("Could not load MCP recovery operations");
       }
+
       return response.data;
     },
     initialPageParam: FIRST_RECOVERY_PAGE,
@@ -50,23 +59,28 @@ export function MCPServerSection() {
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
+
   const recoveryMutation = useMutation({
     mutationFn: async (action: McpRecoveryAction) => {
       const route = client.api.integrations.mcp.recovery({
         invocationId: action.invocationId,
       });
+
       const response =
         action.kind === "successor"
           ? await route.successor.post()
           : await route.resolve.post({ decision: action.decision });
+
       if (response.error || !response.data) {
         throw new Error("Could not update the MCP recovery operation");
       }
+
       return response.data;
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["integrations", "mcp", "recovery"] }),
   });
+
   const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
   // Every page reports the same owner-wide count; the newest page is the freshest.
   const awaitingRepair = recoveryQuery.data?.pages.at(-1)?.awaitingRepair ?? 0;
@@ -76,6 +90,7 @@ export function MCPServerSection() {
   // merely had "github" in it, and broke on any endpoint rename.
   const github = connections.find((connection) => connection.builtInProvider === "github");
   const isConnecting = github?.status === "connecting";
+
   const statusText = connectionQuery.isPending
     ? "Loading connection…"
     : connectionQuery.isError
@@ -107,8 +122,10 @@ export function MCPServerSection() {
             onClick={() => {
               if (connectionQuery.isError) {
                 void connectionQuery.refetch();
+
                 return;
               }
+
               window.location.href =
                 github?.status === "auth_required"
                   ? `${API_URL}/api/integrations/mcp/connections/${github.id}/reconsent`

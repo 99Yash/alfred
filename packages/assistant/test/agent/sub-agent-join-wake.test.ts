@@ -62,7 +62,9 @@ const SERVER_ENV_FIXTURES = {
 } satisfies Record<string, string>;
 
 const ID_PREFIX = "test-sub-agent-join-";
+
 const createdUserIds: string[] = [];
+
 const createdRunIds: string[] = [];
 
 function seedServerEnvForQueueTests(): void {
@@ -140,10 +142,12 @@ async function parentRunState(runId: string): Promise<{
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .limit(1);
+
   return { status: rows[0]?.status, wakeCondition: rows[0]?.wakeCondition };
 }
 
 const POLL_INTERVAL_MS = 50;
+
 const POLL_ATTEMPTS = 40; // ~2 s, the bound `waitForParentRunnable` already used.
 
 /**
@@ -155,16 +159,20 @@ const POLL_ATTEMPTS = 40; // ~2 s, the bound `waitForParentRunnable` already use
 async function pollUntil(check: () => Promise<boolean>): Promise<boolean> {
   for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
     if (await check()) return true;
+
     if (attempt < POLL_ATTEMPTS - 1) await sleep(POLL_INTERVAL_MS);
   }
+
   return false;
 }
 
 async function waitForParentRunnable(runId: string): Promise<void> {
   const woken = await pollUntil(async () => {
     const row = await parentRunState(runId);
+
     return row.status === "runnable" && row.wakeCondition === null;
   });
+
   if (woken) return;
   const row = await parentRunState(runId);
   assert.fail(`parent ${runId} was not woken; status=${row.status}`);
@@ -174,10 +182,13 @@ async function queuedAgentRunIds(): Promise<Set<string>> {
   const queue = getAgentQueue();
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   const runIds = new Set<string>();
+
   for (const job of jobs) {
     const runId = getPath(job.data, "runId");
+
     if (typeof runId === "string") runIds.add(runId);
   }
+
   return runIds;
 }
 
@@ -201,6 +212,7 @@ async function removeQueuedAgentRuns(): Promise<void> {
   await Promise.all(
     jobs.map(async (job) => {
       const runId = getPath(job.data, "runId");
+
       if (typeof runId === "string" && createdRunIds.includes(runId)) {
         await job.remove();
       }
@@ -219,6 +231,7 @@ describe("sub-agent join wake liveness (DB/Redis-backed)", { skip: SKIP }, () =>
   afterEach(async () => {
     await stopSubAgentJoinWakeWorker();
     await removeQueuedAgentRuns();
+
     for (const runId of createdRunIds) {
       const job = await getSubAgentJoinWakeQueue().getJob(subAgentJoinWakeJobId(runId));
       await job?.remove();
@@ -227,9 +240,11 @@ describe("sub-agent join wake liveness (DB/Redis-backed)", { skip: SKIP }, () =>
 
   after(async () => {
     await stopSubAgentJoinWakeWorker();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeAgentQueue();
     await closeSubAgentJoinWakeQueue();
     await closeRedis();

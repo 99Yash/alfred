@@ -31,6 +31,7 @@ export function backgroundCompactionThresholdTokens(effectiveInputWindowTokens: 
   if (!Number.isFinite(effectiveInputWindowTokens) || effectiveInputWindowTokens < 0) {
     throw new Error("effectiveInputWindowTokens must be non-negative");
   }
+
   return Math.min(
     Math.floor(effectiveInputWindowTokens * COMPACTION_THRESHOLD_PCT),
     BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
@@ -46,9 +47,11 @@ export async function scheduleConversationCompactionIfNeeded(args: {
 }): Promise<"scheduled" | "deduplicated" | "disabled" | "below_threshold" | "no_boundary"> {
   const context = await loadChatThreadContext(args.userId, args.threadId);
   const estimateWatermark = replayEstimateWatermark(context);
+
   const afterEstimate = estimateWatermark
     ? afterChatMessageWatermark(chatMessages.createdAt, chatMessages.id, estimateWatermark)
     : undefined;
+
   const rows = await db()
     .select({
       id: chatMessages.id,
@@ -66,6 +69,7 @@ export async function scheduleConversationCompactionIfNeeded(args: {
       ),
     )
     .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+
   if (rows.length === 0) return "no_boundary";
 
   const attachments = await db()
@@ -87,10 +91,13 @@ export async function scheduleConversationCompactionIfNeeded(args: {
         ),
       ),
     );
+
   const estimatedReplayTokens =
     (context?.estimatedReplayTokens ?? 0) +
     estimateSerializedTokens({ messages: rows, attachments });
+
   const estimateThrough = rows[rows.length - 1]!;
+
   const advanced = await persistConversationReplayEstimate({
     userId: args.userId,
     threadId: args.threadId,
@@ -99,35 +106,46 @@ export async function scheduleConversationCompactionIfNeeded(args: {
     estimatedReplayTokens,
     watermark: chatMessageWatermark(estimateThrough),
   });
+
   // A compactor or duplicate finalizer won the CAS. Its estimate is newer; the
   // next successful turn will advance from that watermark.
   if (!advanced) return "deduplicated";
+
   const effectiveInputWindowTokens = await resolveEffectiveInputWindowTokens({
     models: [route(args.tier).model(), route("compactor").model()],
     outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
   });
+
   const backgroundThreshold = backgroundCompactionThresholdTokens(effectiveInputWindowTokens);
+
   if (shouldStartMediaEnrichment(estimatedReplayTokens, backgroundThreshold)) {
     await scheduleThreadMediaEnrichment(args.userId, args.threadId);
   }
+
   if (estimatedReplayTokens <= backgroundThreshold) {
     return "below_threshold";
   }
 
   let latestUserIndex = -1;
+
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
+
     if (row.role !== "user") continue;
+
     if (args.latestUserMessageId && row.id !== args.latestUserMessageId) continue;
     latestUserIndex = index;
     break;
   }
+
   if (latestUserIndex <= 0) return "no_boundary";
   const cutoff = rows[latestUserIndex - 1]!;
+
   const replayTail: AgentTranscriptMessage[] = rows.slice(latestUserIndex).map((row) => ({
     role: row.role,
     content: row.content,
   }));
+
   return enqueueConversationCompaction({
     userId: args.userId,
     threadId: args.threadId,
@@ -162,12 +180,14 @@ async function scheduleThreadMediaEnrichment(userId: string, threadId: string): 
       ),
     )
     .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id), asc(chatAttachments.position));
+
   const selected = selectAttachmentsWithinEnrichmentBudget(
     candidates.map((candidate) => ({
       ...candidate,
       estimatedCostMicrousd: estimateAttachmentEnrichmentCostMicrousd(candidate.size),
     })),
   );
+
   await Promise.all(
     selected.map((candidate) =>
       enqueueChatAttachmentEnrichment({

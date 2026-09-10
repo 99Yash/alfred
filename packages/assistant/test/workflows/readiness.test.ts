@@ -39,6 +39,7 @@ function healthMap(overrides: Partial<EventSourceHealthMap> = {}): EventSourceHe
   const healthy = Object.fromEntries(
     EVENT_SOURCES.map((source) => [source, HEALTHY_SOURCE]),
   ) as Record<EventSource, EventSourceHealth>;
+
   return { ...healthy, ...overrides };
 }
 
@@ -56,6 +57,7 @@ function resolveWorkflowReadiness(
   },
 ) {
   const { availability, eventSourceHealth, ...rest } = args;
+
   return resolveWorkflowReadinessBase({
     ...rest,
     context: context(availability, eventSourceHealth),
@@ -152,6 +154,7 @@ describe("workflow readiness", () => {
       context: context(unavailable),
       toolCatalog: workflowToolCatalog(),
     });
+
     assert.deepEqual(result.definition.allowedIntegrations, ["system"]);
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
     assert.equal(result.definition.requiredCapabilities[0]?.tool, "system.current_time");
@@ -172,6 +175,7 @@ describe("workflow readiness", () => {
         },
       ],
     });
+
     assert.deepEqual(result.missing, []);
   });
 
@@ -184,6 +188,7 @@ describe("workflow readiness", () => {
       context: context(unavailable),
       toolCatalog: workflowToolCatalog(),
     });
+
     assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
     assert.deepEqual(result.definition.allowedTools, []);
     assert.equal(result.missing[0]?.code, "no_tool_surface");
@@ -197,6 +202,7 @@ describe("workflow readiness", () => {
       context: context(unavailable),
       toolCatalog: new Map<ToolName, WorkflowToolFacts>(),
     });
+
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
     assert.deepEqual(result.definition.requiredCapabilities, [{ tool: "system.current_time" }]);
     assert.equal(result.missing[0]?.code, "no_tool_surface");
@@ -211,7 +217,9 @@ describe("workflow readiness", () => {
       }),
       { timezone: "UTC", requireActivatable: true },
     );
+
     assert.equal(result.ok, false);
+
     if (result.ok) return;
     assert.equal(
       result.problems.some((problem) => problem.code === "tool_without_capability"),
@@ -228,17 +236,21 @@ describe("workflow readiness", () => {
         { tool: "gmail.search", accountRef: "account-2" },
       ],
     });
+
     const validated = validateWorkflowDefinition(candidate, {
       timezone: "UTC",
       requireActivatable: true,
     });
+
     assert.equal(validated.ok, false);
+
     if (!validated.ok) {
       assert.equal(
         validated.problems.some((problem) => problem.code === "ambiguous_tool_capability"),
         true,
       );
     }
+
     assert.equal(
       resolveWorkflowReadiness({ definition: candidate, availability: gmailAvailability }).some(
         (problem) => problem.code === "choose_account",
@@ -263,6 +275,7 @@ describe("workflow readiness", () => {
       }),
       availability: unavailable,
     });
+
     assert.equal(problems[0]?.code, "not_connected");
     assert.deepEqual(problems[0]?.recoveryAction, {
       kind: "connect",
@@ -298,6 +311,7 @@ describe("workflow readiness", () => {
         passthroughEnabled: new Map(),
       },
     });
+
     assert.equal(problems[0]?.code, "needs_reauth");
     assert.deepEqual(problems[0]?.recoveryAction, {
       kind: "reauthorize",
@@ -319,6 +333,7 @@ describe("workflow readiness", () => {
       }),
       availability: gmailAvailability,
     });
+
     assert.equal(problems[0]?.code, "missing_scope");
     assert.deepEqual(problems[0]?.recoveryAction, {
       kind: "reauthorize",
@@ -340,6 +355,7 @@ describe("workflow readiness", () => {
         passthroughEnabled: new Map([["gmail", false]]),
       },
     });
+
     assert.equal(problems[0]?.code, "feature_disabled");
     assert.deepEqual(problems[0]?.recoveryAction, {
       kind: "enable_feature",
@@ -355,6 +371,7 @@ describe("workflow readiness", () => {
       }),
       availability: unavailable,
     });
+
     assert.equal(problems[0]?.code, "requires_thread");
   });
 
@@ -368,6 +385,7 @@ describe("workflow readiness", () => {
       availability: unavailable,
       requestedCapabilities: [{ tool: "slack.send_message" }],
     });
+
     assert.equal(problems[0]?.code, "no_tool_surface");
   });
 
@@ -380,6 +398,7 @@ describe("workflow readiness", () => {
       }),
       availability: gmailAvailability,
     });
+
     assert.deepEqual(problems, []);
   });
 
@@ -393,6 +412,7 @@ describe("workflow readiness", () => {
       availability: gmailAvailability,
       toolCatalog: workflowToolCatalog(),
     });
+
     assert.equal(canonical.requiredCapabilities[0]?.accountRef, "account-1");
   });
 
@@ -406,6 +426,7 @@ describe("workflow readiness", () => {
       gmailAvailability,
       workflowToolCatalog(),
     );
+
     assert.deepEqual(display.resolvedAccounts, [
       {
         provider: "google",
@@ -432,6 +453,7 @@ describe("workflow readiness", () => {
       }),
       availability: gmailAvailability,
     });
+
     assert.equal(problems[0]?.code, "choose_account");
   });
 
@@ -444,6 +466,7 @@ describe("workflow readiness", () => {
       }),
       availability: unavailable,
     });
+
     assert.deepEqual(problems, []);
   });
 
@@ -463,6 +486,7 @@ describe("workflow readiness", () => {
         },
       ],
     });
+
     assert.equal(problems[0]?.code, "resource_not_granted");
   });
 
@@ -482,6 +506,7 @@ describe("workflow readiness", () => {
         },
       ],
     });
+
     assert.deepEqual(problems, []);
   });
 
@@ -494,6 +519,7 @@ describe("workflow readiness", () => {
       }),
       availability: unavailable,
     });
+
     assert.equal(problems.length, 1);
     assert.equal(problems[0]?.code, "not_connected");
     assert.deepEqual(problems[0]?.recoveryAction, {
@@ -504,6 +530,7 @@ describe("workflow readiness", () => {
 
   test("a Gmail event requires a live watch", () => {
     const now = new Date("2026-07-31T00:00:00.000Z");
+
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: { kind: "event", source: "gmail", type: "message_received" },
@@ -511,11 +538,13 @@ describe("workflow readiness", () => {
       availability: unavailable,
       eventSourceHealth: gmailHealth(new Map(), now),
     });
+
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
   });
 
   test("a Gmail trigger with no account of its own asks the user to choose one", () => {
     const now = new Date("2026-07-31T00:00:00.000Z");
+
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: { kind: "event", source: "gmail", type: "message_received" },
@@ -526,6 +555,7 @@ describe("workflow readiness", () => {
       availability: gmailAvailability,
       eventSourceHealth: gmailHealth(new Map(), now),
     });
+
     assert.equal(problems.at(-1)?.code, "choose_account");
     assert.equal(problems.at(-1)?.field, "trigger");
     assert.deepEqual(problems.at(-1)?.recoveryAction, {
@@ -536,6 +566,7 @@ describe("workflow readiness", () => {
 
   test("a Gmail event requires receiver, cursor, and recent-sync health", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
+
     const healthy: IntegrationAvailabilitySnapshot = {
       ...gmailAvailability,
       providers: new Map([
@@ -561,6 +592,7 @@ describe("workflow readiness", () => {
         ],
       ]),
     };
+
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: {
@@ -587,6 +619,7 @@ describe("workflow readiness", () => {
         now,
       ),
     });
+
     assert.deepEqual(problems, []);
   });
 
@@ -594,6 +627,7 @@ describe("workflow readiness", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
     const selected = gmailAvailability.providers.get("google")?.[0];
     assert.ok(selected);
+
     const availability: IntegrationAvailabilitySnapshot = {
       ...gmailAvailability,
       providers: new Map([
@@ -615,6 +649,7 @@ describe("workflow readiness", () => {
         ],
       ]),
     };
+
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: {
@@ -641,6 +676,7 @@ describe("workflow readiness", () => {
         now,
       ),
     });
+
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
     assert.match(problems.at(-1)?.message ?? "", /renew its watch/);
   });
@@ -649,6 +685,7 @@ describe("workflow readiness", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
     const selected = gmailAvailability.providers.get("google")?.[0];
     assert.ok(selected);
+
     const availability: IntegrationAvailabilitySnapshot = {
       ...gmailAvailability,
       providers: new Map([
@@ -670,6 +707,7 @@ describe("workflow readiness", () => {
         ],
       ]),
     };
+
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: {
@@ -696,6 +734,7 @@ describe("workflow readiness", () => {
         now,
       ),
     });
+
     assert.equal(problems.at(-1)?.code, "trigger_degraded");
     assert.deepEqual(problems.at(-1)?.recoveryAction, { kind: "retry" });
   });
@@ -704,6 +743,7 @@ describe("workflow readiness", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
     const selected = gmailAvailability.providers.get("google")?.[0];
     assert.ok(selected);
+
     const availability: IntegrationAvailabilitySnapshot = {
       ...gmailAvailability,
       providers: new Map([
@@ -725,6 +765,7 @@ describe("workflow readiness", () => {
         ],
       ]),
     };
+
     const problems = resolveWorkflowReadiness({
       definition: definition({
         trigger: {
@@ -751,6 +792,7 @@ describe("workflow readiness", () => {
         now,
       ),
     });
+
     assert.equal(problems.at(-1)?.code, "trigger_degraded");
     assert.equal(problems.at(-1)?.recoveryAction, undefined);
   });
@@ -773,6 +815,7 @@ describe("workflow readiness", () => {
         },
       },
     });
+
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
     assert.deepEqual(problems.at(-1)?.recoveryAction, { kind: "connect", integration: "github" });
   });

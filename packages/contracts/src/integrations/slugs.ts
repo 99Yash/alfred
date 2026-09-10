@@ -20,11 +20,16 @@ export type SlugsWhere<P> = {
 }[IntegrationSlug];
 
 export type InternalIntegrationSlug = SlugsWhere<{ kind: "internal" }>;
+
 export type ChannelIntegrationSlug = SlugsWhere<{ kind: "channel" }>;
+
 export type LiveProviderSlug = SlugsWhere<{ kind: "provider"; status: "live" }>;
+
 export type PlannedSlug = SlugsWhere<{ kind: "provider"; status: "planned" }>;
+
 /** The slugs that have an integration page. */
 export type CatalogSlug = SlugsWhere<{ kind: "provider" }>;
+
 /**
  * Every slug the tool surface can load: a provider or a channel. `system` and
  * `mcp` are excluded; they are Alfred's own machinery, not a connection.
@@ -32,9 +37,12 @@ export type CatalogSlug = SlugsWhere<{ kind: "provider" }>;
 export type LoadableIntegrationSlug = Exclude<IntegrationSlug, InternalIntegrationSlug>;
 
 export type GoogleSlug = SlugsWhere<{ credential: { shape: "google_oauth" } }>;
+
 export type GithubAppSlug = SlugsWhere<{ credential: { shape: "github_app" } }>;
+
 /** The slugs whose access is one long-lived bearer token: the shared bearer persistence layer's domain. */
 export type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
+
 /** The bearer slugs whose token the user pastes into a form; each has its own connect body. */
 export type TokenPasteSlug = SlugsWhere<{
   credential: { shape: "bearer"; connect: "token_paste" };
@@ -50,7 +58,9 @@ export type CredentialProvider = "google" | GithubAppSlug | BearerSlug;
 export type SupportedPassthroughSlug = SlugsWhere<{
   passthrough: { transport: PassthroughTransportKind };
 }>;
+
 export type SupportedRestSlug = SlugsWhere<{ passthrough: { transport: "rest" } }>;
+
 export type SupportedGraphqlSlug = SlugsWhere<{ passthrough: { transport: "graphql" } }>;
 
 /** Every `brand` literal a provider entry owns; the web keys its icon table on this. */
@@ -64,42 +74,51 @@ export const LOADABLE_INTEGRATION_SLUGS: readonly LoadableIntegrationSlug[] =
   INTEGRATION_SLUGS.filter(
     (slug): slug is LoadableIntegrationSlug => INTEGRATIONS[slug].kind !== "internal",
   );
+
 export const isLoadableIntegrationSlug = enumGuard(LOADABLE_INTEGRATION_SLUGS);
 
 export const CATALOG_SLUGS: readonly CatalogSlug[] = INTEGRATION_SLUGS.filter(
   (slug): slug is CatalogSlug => INTEGRATIONS[slug].kind === "provider",
 );
+
 export const isCatalogSlug = enumGuard(CATALOG_SLUGS);
 
 export const LIVE_PROVIDER_SLUGS: readonly LiveProviderSlug[] = INTEGRATION_SLUGS.filter(
   (slug): slug is LiveProviderSlug => {
     const entry = INTEGRATIONS[slug];
+
     return entry.kind === "provider" && entry.status === "live";
   },
 );
+
 export const isLiveProviderSlug = enumGuard(LIVE_PROVIDER_SLUGS);
 
 export const PLANNED_SLUGS: readonly PlannedSlug[] = INTEGRATION_SLUGS.filter(
   (slug): slug is PlannedSlug => {
     const entry = INTEGRATIONS[slug];
+
     return entry.kind === "provider" && entry.status === "planned";
   },
 );
+
 export const isPlannedSlug = enumGuard(PLANNED_SLUGS);
 
 export const GOOGLE_SLUGS: readonly GoogleSlug[] = LIVE_PROVIDER_SLUGS.filter(
   (slug): slug is GoogleSlug => INTEGRATIONS[slug].credential.shape === "google_oauth",
 );
+
 export const isGoogleSlug = enumGuard(GOOGLE_SLUGS);
 
 export const BEARER_PROVIDER_SLUGS: readonly BearerSlug[] = LIVE_PROVIDER_SLUGS.filter(
   (slug): slug is BearerSlug => INTEGRATIONS[slug].credential.shape === "bearer",
 );
+
 export const isBearerProvider = enumGuard(BEARER_PROVIDER_SLUGS);
 
 export const TOKEN_PASTE_SLUGS: readonly TokenPasteSlug[] = BEARER_PROVIDER_SLUGS.filter(
   (slug): slug is TokenPasteSlug => INTEGRATIONS[slug].credential.connect === "token_paste",
 );
+
 export const isTokenPasteSlug = enumGuard(TOKEN_PASTE_SLUGS);
 
 /** The credential provider of a live slug: `google` for a Google product, else the slug itself. */
@@ -121,12 +140,14 @@ export function integrationRoutePrefix<P extends CredentialProvider>(
 export const CREDENTIAL_PROVIDERS: readonly CredentialProvider[] = [
   ...new Set(LIVE_PROVIDER_SLUGS.map(credentialProviderOf)),
 ];
+
 export const isCredentialProvider = enumGuard(CREDENTIAL_PROVIDERS);
 
 export const SUPPORTED_PASSTHROUGH_SLUGS: readonly SupportedPassthroughSlug[] =
   LIVE_PROVIDER_SLUGS.filter(
     (slug): slug is SupportedPassthroughSlug => INTEGRATIONS[slug].passthrough !== null,
   );
+
 export const isSupportedPassthroughSlug = enumGuard(SUPPORTED_PASSTHROUGH_SLUGS);
 
 export const SUPPORTED_REST_PASSTHROUGH_SLUGS: readonly SupportedRestSlug[] =

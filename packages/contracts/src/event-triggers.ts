@@ -142,6 +142,7 @@ export const EVENT_SOURCE_ENTRIES = {
 } as const satisfies Record<string, EventSourceEntry>;
 
 export type EventSource = keyof typeof EVENT_SOURCE_ENTRIES;
+
 export type EventSourceEntryOf<S extends EventSource> = (typeof EVENT_SOURCE_ENTRIES)[S];
 
 /** The sources in record order. */
@@ -158,7 +159,9 @@ export type EventSourcesWhere<P> = {
 }[EventSource];
 
 export type InboundEventSource = EventSourcesWhere<{ producer: "inbound_webhook" }>;
+
 export type InProcessEventSource = EventSourcesWhere<{ producer: "in_process" }>;
+
 /** The sources whose delivery breaks per connected account, not per user. */
 export type AccountGrainEventSource = EventSourcesWhere<{ delivery: { grain: "account" } }>;
 
@@ -166,6 +169,7 @@ export const INBOUND_EVENT_SOURCES: readonly InboundEventSource[] = EVENT_SOURCE
   (source): source is InboundEventSource =>
     EVENT_SOURCE_ENTRIES[source].producer === "inbound_webhook",
 );
+
 export const isInboundEventSource = enumGuard(INBOUND_EVENT_SOURCES);
 
 export type EventTypeForSource<S extends EventSource> = EventSourceEntryOf<S>["eventTypes"][number];
@@ -265,8 +269,10 @@ export function rawEventTypeName<S extends InboundEventSource>(
  * built-in flows and declare `none`.
  */
 export type AuthorableEventSource = EventSourcesWhere<{ authoring: "typed" | "raw" }>;
+
 /** The authorable sources whose declared (typed) event types a user may name. */
 export type TypedAuthorableEventSource = EventSourcesWhere<{ authoring: "typed" }>;
+
 /** The authorable sources a user reaches only through a raw kind the inventory has seen. */
 export type RawAuthorableEventSource = EventSourcesWhere<{ authoring: "raw" }>;
 
@@ -277,16 +283,21 @@ export function eventSourceAuthoring(source: EventSource): EventSourceAuthoring 
 export const AUTHORABLE_EVENT_SOURCES: readonly AuthorableEventSource[] = EVENT_SOURCES.filter(
   (source): source is AuthorableEventSource => eventSourceAuthoring(source) !== "none",
 );
+
 export const AUTHORABLE_TYPED_EVENT_SOURCES: readonly TypedAuthorableEventSource[] =
   EVENT_SOURCES.filter(
     (source): source is TypedAuthorableEventSource => eventSourceAuthoring(source) === "typed",
   );
+
 export const AUTHORABLE_RAW_EVENT_SOURCES: readonly RawAuthorableEventSource[] =
   EVENT_SOURCES.filter(
     (source): source is RawAuthorableEventSource => eventSourceAuthoring(source) === "raw",
   );
+
 export const isAuthorableEventSource = enumGuard(AUTHORABLE_EVENT_SOURCES);
+
 export const isTypedAuthorableEventSource = enumGuard(AUTHORABLE_TYPED_EVENT_SOURCES);
+
 export const isRawAuthorableEventSource = enumGuard(AUTHORABLE_RAW_EVENT_SOURCES);
 
 export interface AuthorableEventTriggerIssue {
@@ -312,14 +323,18 @@ export function rawEventTriggerIssue(trigger: {
         message: `'${trigger.source}' has no raw event kinds; name one of its event types`,
       };
     }
+
     if (!trigger.rawKind) {
       return { path: "rawKind", message: "A raw event trigger must name the provider kind" };
     }
+
     return null;
   }
+
   if (trigger.rawKind !== undefined) {
     return { path: "rawKind", message: "rawKind is only valid with type 'raw'" };
   }
+
   return null;
 }
 
@@ -340,26 +355,32 @@ export function authorableEventTriggerIssue(trigger: {
   rawKind?: string | undefined;
 }): AuthorableEventTriggerIssue | null {
   const tierIssue = rawEventTriggerIssue(trigger);
+
   if (tierIssue) return tierIssue;
+
   if (isRawEventType(trigger.type)) {
     if (isRawAuthorableEventSource(trigger.source)) return null;
+
     return {
       path: "type",
       message: `'${trigger.source}' does not accept a raw event trigger; name one of its event types`,
     };
   }
+
   if (!isTypedAuthorableEventSource(trigger.source)) {
     return {
       path: "type",
       message: `'${trigger.source}' triggers use type 'raw' with a rawKind the integration has delivered`,
     };
   }
+
   if (!isEventTypeForSource(trigger.source, trigger.type)) {
     return {
       path: "type",
       message: `'${trigger.type}' is not a valid event type for '${trigger.source}'`,
     };
   }
+
   return null;
 }
 
@@ -374,8 +395,10 @@ export function parseEventTypeName<S extends EventSource>(
   name: string,
 ): EventTypeForSource<S> | null {
   const prefix = `${source}.`;
+
   if (!name.startsWith(prefix)) return null;
   const type = name.slice(prefix.length);
+
   return isEventTypeForSource(source, type) ? type : null;
 }
 
@@ -392,10 +415,13 @@ export function eventTriggerPhrase(trigger: {
   rawKind?: string | null | undefined;
 }): string {
   const source = integrationDisplayName(trigger.source);
+
   if (trigger.rawKind) return `${source} ${trigger.rawKind}`;
+
   const noun = trigger.type
     ? humanizeSlug(trigger.type.replace(/_received$/, "")).toLowerCase()
     : "";
+
   return noun ? `${source} ${noun}` : source;
 }
 
@@ -419,7 +445,9 @@ export function eventDeliveryAccounts(source: EventSource): EventDeliveryAccount
 /** The account space of `source`, or `null` for a source-grain source. */
 export function eventDeliveryAccounts(source: EventSource): EventDeliveryAccounts | null {
   const delivery = EVENT_SOURCE_ENTRIES[source].delivery;
+
   if (delivery.grain === "source") return null;
+
   return {
     integration: delivery.integration,
     provider: credentialProviderOf(delivery.integration),

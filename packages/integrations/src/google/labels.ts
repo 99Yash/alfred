@@ -50,6 +50,7 @@ const NAME_TO_CATEGORY = Object.entries(LABEL_NAMES).reduce<Record<string, Triag
     // SAFETY: LABEL_NAMES is `satisfies Record<TriageCategory, string>`, so
     // every entry key is one of those categories.
     acc[name] = cat as TriageCategory;
+
     return acc;
   },
   {},
@@ -78,6 +79,7 @@ export async function ensureAlfredLabels(
 ): Promise<AlfredLabelMap> {
   if (!opts.force) {
     const cached = await loadCachedLabels(credentialId);
+
     if (cached) return cached;
   }
 
@@ -91,9 +93,11 @@ export async function ensureAlfredLabels(
   // SAFETY: the loop below fills every TRIAGE_CATEGORIES key before any read,
   // so the record is complete despite the empty-literal start.
   const byCategory = {} as Record<TriageCategory, string>;
+
   for (const cat of TRIAGE_CATEGORIES) {
     const name = LABEL_NAMES[cat];
     let id = existingByName.get(name);
+
     if (!id) {
       // Race-safe: if a parallel call already created this label, the API
       // returns 409. We catch and re-list rather than synchronizing across
@@ -104,6 +108,7 @@ export async function ensureAlfredLabels(
         id = created.id;
       } catch (err) {
         const recovered = await findLabelByName(accessToken, name);
+
         if (recovered) {
           id = recovered;
         } else {
@@ -111,6 +116,7 @@ export async function ensureAlfredLabels(
         }
       }
     }
+
     byCategory[cat] = id;
   }
 
@@ -118,12 +124,15 @@ export async function ensureAlfredLabels(
     byCategory,
     allIds: Object.values(byCategory),
   };
+
   await persistCachedLabels(credentialId, map);
+
   return map;
 }
 
 async function findLabelByName(accessToken: string, name: string): Promise<string | undefined> {
   const all = await listLabels({ accessToken });
+
   return all.find((l) => l.name === name)?.id;
 }
 
@@ -132,6 +141,7 @@ async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | 
     .select({ metadata: integrationCredentials.metadata })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   // Persisted jsonb, so `unknown` and read through the traversal helpers — the
   // cache is only as trustworthy as what a past write left behind, and the
   // category loop below is already the validation pass.
@@ -141,12 +151,16 @@ async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | 
   // SAFETY: the loop below fills every TRIAGE_CATEGORIES key before any read,
   // so the record is complete despite the empty-literal start.
   const byCategory = {} as Record<TriageCategory, string>;
+
   for (const cat of TRIAGE_CATEGORIES) {
     const id = getStringPath(meta, "alfredLabels", "byCategory", cat);
+
     if (!id) return null;
     byCategory[cat] = id;
   }
+
   const allIds = toStringArray(getPath(meta, "alfredLabels", "allIds"));
+
   return {
     byCategory,
     allIds: allIds.length > 0 ? allIds : Object.values(byCategory),
@@ -161,6 +175,7 @@ async function persistCachedLabels(credentialId: string, map: AlfredLabelMap): P
     allIds: map.allIds,
     cachedAt: new Date().toISOString(),
   });
+
   await db()
     .update(integrationCredentials)
     .set({
@@ -189,14 +204,17 @@ export async function findThreadSiblingsWithAlfredLabels(args: {
   const alfredIds = new Set(alfredLabels.allIds);
   const messages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
   const siblings: Array<{ messageId: string; labelId: string }> = [];
+
   for (const m of messages) {
     if (m.id === args.excludeMessageId) continue;
+
     for (const labelId of m.labelIds) {
       if (alfredIds.has(labelId)) {
         siblings.push({ messageId: m.id, labelId });
       }
     }
   }
+
   return siblings;
 }
 
@@ -252,6 +270,7 @@ export async function applyTriageLabel(
   const targetId = labels.byCategory[args.category];
 
   const removeLabelIds: string[] = [];
+
   if (args.stripAllAlfredLabels) {
     for (const id of labels.allIds) if (id !== targetId) removeLabelIds.push(id);
   } else if (args.previousLabelId && args.previousLabelId !== targetId) {
@@ -271,8 +290,10 @@ export async function applyTriageLabel(
   // per thread, often 1) the serial round-trips are cheaper than the
   // grouping logic.
   const strippedSiblings: Array<{ messageId: string; labelId: string }> = [];
+
   for (const sibling of args.threadSiblings ?? []) {
     if (sibling.messageId === args.messageId) continue;
+
     try {
       await modifyMessageLabels({
         accessToken,
@@ -335,17 +356,20 @@ export async function ensureAlfredSelfLabel(
 ): Promise<string> {
   if (!opts.force) {
     const cached = await loadCachedSelfLabel(credentialId);
+
     if (cached) return cached;
   }
 
   const accessToken = opts.accessToken ?? (await getFreshAccessToken(credentialId));
   let id = await findLabelByName(accessToken, ALFRED_SELF_LABEL_NAME);
+
   if (!id) {
     try {
       const created = await createLabel({ accessToken, name: ALFRED_SELF_LABEL_NAME });
       id = created.id;
     } catch (err) {
       const recovered = await findLabelByName(accessToken, ALFRED_SELF_LABEL_NAME);
+
       if (recovered) {
         id = recovered;
       } else {
@@ -355,6 +379,7 @@ export async function ensureAlfredSelfLabel(
   }
 
   await persistCachedSelfLabel(credentialId, id);
+
   return id;
 }
 
@@ -363,7 +388,9 @@ async function loadCachedSelfLabel(credentialId: string): Promise<string | null>
     .select({ metadata: integrationCredentials.metadata })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const meta: unknown = rows[0]?.metadata;
+
   return getStringPath(meta, "alfredSelfLabel", "id") ?? null;
 }
 
@@ -375,6 +402,7 @@ async function persistCachedSelfLabel(credentialId: string, id: string): Promise
     name: ALFRED_SELF_LABEL_NAME,
     cachedAt: new Date().toISOString(),
   });
+
   await db()
     .update(integrationCredentials)
     .set({

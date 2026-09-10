@@ -37,6 +37,7 @@ export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin 
     visit(tree as never, "text", (node: MdNode, index, parent: MdNode | undefined) => {
       if (!parent?.children || index === undefined || node.value === undefined) return;
       const { segments } = resolveBriefingReferences(node.value, gather);
+
       // Whole node is one plain span — nothing to expand.
       if (segments.length === 1 && segments[0]?.kind === "text") return;
 
@@ -59,10 +60,12 @@ export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin 
       );
 
       parent.children.splice(index, 1, ...replacement);
+
       // Resume past the nodes we just inserted.
       return index + replacement.length;
     });
   };
+
   // SAFETY: the transformer above has the remark-plugin signature; the alias
   // names that structural fact.
   return plugin as RemarkPlugin;

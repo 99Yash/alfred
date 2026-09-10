@@ -31,14 +31,18 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import { dirname, join, resolve } from "node:path";
 
 const LOCK_TIMEOUT_MS = 60_000;
+
 const LOCK_POLL_MS = 120;
+
 const STALE_MS = 120_000;
 
 const TERMINAL_PHASES = ["landed", "needs-human", "skipped"];
+
 const PHASES = ["cover", "design", "implement", "review", "revise", "land", ...TERMINAL_PHASES];
 
 /** Fields whose JSON type is not string. Anything else is written as given. */
 const NUMERIC_FIELDS = ["round", "pr"];
+
 const BOOLEAN_FIELDS = ["needsCoverage"];
 
 /**
@@ -70,11 +74,14 @@ function repoRoot() {
 function parseArgs(argv) {
   const flags = {};
   const rest = [];
+
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+
     if (arg.startsWith("--")) {
       const name = arg.slice(2);
       const value = argv[i + 1];
+
       if (value === undefined || value.startsWith("--")) die(`--${name} needs a value`);
       flags[name] = value;
       i += 1;
@@ -82,11 +89,13 @@ function parseArgs(argv) {
       rest.push(arg);
     }
   }
+
   return { flags, rest };
 }
 
 function resolveStatePath(flags) {
   if (flags.state) return resolve(flags.state);
+
   if (flags.slug) return join(repoRoot(), ".campaign", flags.slug, "state.json");
   die("pass --state <path/to/state.json> or --slug <campaign-slug>");
 }
@@ -99,6 +108,7 @@ function resolveStatePath(flags) {
 function withLock(statePath, body) {
   const lockDir = join(dirname(statePath), ".lock");
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
+
   for (;;) {
     try {
       mkdirSync(lockDir);
@@ -109,11 +119,13 @@ function withLock(statePath, body) {
       // one. The cast states that warrant; it does not create a new branch.
       if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") throw error;
       let age = 0;
+
       try {
         age = Date.now() - statSync(lockDir).mtimeMs;
       } catch {
         continue; // the holder released it between our mkdir and our stat
       }
+
       if (age > STALE_MS) {
         process.stderr.write(
           `campaign-state: breaking a stale lock (${Math.round(age / 1000)}s old) at ${lockDir}\n`,
@@ -121,15 +133,19 @@ function withLock(statePath, body) {
         rmSync(lockDir, { recursive: true, force: true });
         continue;
       }
+
       if (Date.now() > deadline) {
         die(`could not take the lock at ${lockDir} within ${LOCK_TIMEOUT_MS / 1000}s`);
       }
+
       // Node has no sleep; block this process without spinning the CPU.
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS);
     }
   }
+
   try {
     writeFileSync(join(lockDir, "pid"), `${process.pid}\n`);
+
     return body();
   } finally {
     rmSync(lockDir, { recursive: true, force: true });
@@ -146,6 +162,7 @@ function withLock(statePath, body) {
  */
 function selftestDelay() {
   const ms = Number(process.env.CAMPAIGN_STATE_SELFTEST_DELAY_MS ?? 0);
+
   if (!Number.isFinite(ms) || ms <= 0) return;
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -159,6 +176,7 @@ function writeAtomic(path, contents) {
 
 function readState(statePath) {
   let parsed;
+
   try {
     parsed = JSON.parse(readFileSync(statePath, "utf8"));
   } catch (error) {
@@ -166,7 +184,9 @@ function readState(statePath) {
       `${statePath} is missing or unparseable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+
   if (!Array.isArray(parsed.items)) die(`${statePath} has no items array`);
+
   return parsed;
 }
 
@@ -175,33 +195,46 @@ function coerce(field, raw) {
   // "no prerequisites" is the empty array, so `prereqs=` and `prereqs=null` both write `[]`.
   if (ARRAY_FIELDS.includes(field)) {
     if (raw === "null") return [];
+
     return raw.split(",").filter((one) => one.length > 0);
   }
+
   if (raw === "null") return null;
+
   if (NUMERIC_FIELDS.includes(field)) {
     const value = Number(raw);
+
     if (!Number.isFinite(value)) die(`${field} must be a number or null, received ${raw}`);
+
     return value;
   }
+
   if (BOOLEAN_FIELDS.includes(field)) {
     if (raw !== "true" && raw !== "false") die(`${field} must be true or false, received ${raw}`);
+
     return raw === "true";
   }
+
   return raw;
 }
 
 function commandSet(statePath, flags, assignments) {
   const id = flags.id;
+
   if (!id) die("set needs --id <item-id>");
+
   if (assignments.length === 0) die("set needs at least one field=value");
 
   const updates = {};
+
   for (const assignment of assignments) {
     const split = assignment.indexOf("=");
+
     if (split < 1) die(`expected field=value, received ${assignment}`);
     const field = assignment.slice(0, split);
     updates[field] = coerce(field, assignment.slice(split + 1));
   }
+
   if (updates.phase !== undefined && !PHASES.includes(updates.phase)) {
     die(`unknown phase ${updates.phase} — expected one of ${PHASES.join(", ")}`);
   }
@@ -213,22 +246,28 @@ function commandSet(statePath, flags, assignments) {
   const refusal = withLock(statePath, () => {
     const state = readState(statePath);
     const item = state.items.find((candidate) => candidate.id === id);
+
     if (!item) return `no item ${id} in ${statePath}`;
+
     // Prereq ids are checked HERE because the check reads the item list, which only the
     // lock holder may trust. This mirrors what `add --prereqs` already does.
     for (const prereq of updates.prereqs ?? []) {
       if (prereq === id) return `item ${id} cannot be its own prereq`;
+
       if (!state.items.some((candidate) => candidate.id === prereq)) {
         return `prereq ${prereq} is not an item in ${statePath}`;
       }
     }
+
     const before = `${item.phase}:${item.round ?? 0}`;
     selftestDelay();
     Object.assign(item, updates, { updatedAt: new Date().toISOString().replace(/\.\d+Z$/, "Z") });
     writeAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
     process.stdout.write(`item ${id}: ${before} → ${item.phase}:${item.round ?? 0}\n`);
+
     return null;
   });
+
   if (refusal) die(refusal);
 }
 
@@ -237,11 +276,13 @@ function commandNote(statePath, lines) {
   const notesPath = join(dirname(statePath), "NOTES.md");
   withLock(statePath, () => {
     let existing = "";
+
     try {
       existing = readFileSync(notesPath, "utf8");
     } catch {
       existing = "";
     }
+
     selftestDelay();
     const separator = existing === "" || existing.endsWith("\n") ? "" : "\n";
     writeAtomic(notesPath, `${existing}${separator}${lines.join("\n")}\n`);
@@ -264,24 +305,31 @@ function commandNote(statePath, lines) {
 function commandAdd(statePath, flags) {
   const itemSlug = flags["item-slug"];
   const title = flags.title;
+
   if (!itemSlug) die("add needs --item-slug <kebab-case-slug>");
+
   if (!title) die("add needs --title <one line>");
+
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(itemSlug)) {
     die(`--item-slug must be kebab-case, received ${itemSlug}`);
   }
+
   const prereqs = flags.prereqs ? flags.prereqs.split(",").filter((one) => one.length > 0) : [];
 
   withLock(statePath, () => {
     const state = readState(statePath);
+
     for (const prereq of prereqs) {
       if (!state.items.some((item) => item.id === prereq)) {
         die(`prereq ${prereq} is not an item in ${statePath}`);
       }
     }
+
     // Ids are zero-padded strings. Keep the existing width so `07` does not become `7`.
     const numeric = state.items.map((item) => Number(item.id)).filter(Number.isFinite);
     const width = Math.max(...state.items.map((item) => item.id.length), 2);
     const nextId = String(Math.max(0, ...numeric) + 1).padStart(width, "0");
+
     if (state.items.some((item) => item.id === nextId)) die(`id ${nextId} already exists`);
 
     selftestDelay();
@@ -308,16 +356,21 @@ function commandAdd(statePath, flags) {
 
 function commandGet(statePath, flags) {
   const state = readState(statePath);
+
   if (!flags.id) {
     process.stdout.write(`${JSON.stringify(state, null, 2)}\n`);
+
     return;
   }
+
   const item = state.items.find((candidate) => candidate.id === flags.id);
+
   if (!item) die(`no item ${flags.id} in ${statePath}`);
   process.stdout.write(`${JSON.stringify(item, null, 2)}\n`);
 }
 
 const [command, ...argv] = process.argv.slice(2);
+
 const { flags, rest } = parseArgs(argv);
 
 switch (command) {

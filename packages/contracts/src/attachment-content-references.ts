@@ -39,11 +39,15 @@ export function parseAttachmentContentReferences(
 ): AttachmentContentReference[] {
   if (!isRecord(rawDocumentMetadata)) return [];
   const references = rawDocumentMetadata.references;
+
   if (!Array.isArray(references)) return [];
   const parsed: AttachmentContentReference[] = [];
+
   for (const entry of references) {
     const result = attachmentContentReferenceSchema.safeParse(entry);
+
     if (result.success) parsed.push(result.data);
   }
+
   return parsed;
 }

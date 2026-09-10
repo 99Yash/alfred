@@ -94,6 +94,7 @@ describe("detectAiTells — precision guards", () => {
   test("ignores tells inside fenced code", () => {
     const text =
       "Run this:\n```\nnpm run build -- --watch\nconst x = utilize()\n```\nThat starts the watcher.";
+
     assert.deepEqual(detectAiTells(text), []);
   });
 

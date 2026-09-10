@@ -86,6 +86,7 @@ test("validatePdfArtifactHtml rejects authored motion alongside the doc contract
   const html = `<div class="art-doc"><style>@keyframes k { to { opacity: 1; } }</style></div>`;
   const result = validatePdfArtifactHtml(html);
   assert.equal(result.ok, false);
+
   if (!result.ok) assert.match(result.reason, /authored-keyframes/);
 });
 
@@ -104,6 +105,7 @@ test("a clean art-doc page passes the pdf contract", () => {
 
 test("every MOTION_CLASS_NAMES entry renders as a real shell selector", () => {
   const shell = buildArtifactDocument("<div></div>", "slides");
+
   for (const name of MOTION_CLASS_NAMES) {
     assert.ok(shell.includes(`.${name}`), `shell CSS is missing a .${name} selector`);
   }
@@ -112,10 +114,12 @@ test("every MOTION_CLASS_NAMES entry renders as a real shell selector", () => {
 test("the motion rejection hint names exactly the shell motion classes (no phantoms)", () => {
   const result = validateSlideArtifactHtml(`<div style="animation: x 1s">a</div>`);
   assert.equal(result.ok, false);
+
   if (!result.ok) {
     for (const name of MOTION_CLASS_NAMES) {
       assert.ok(result.reason.includes(name), `hint should name ${name}`);
     }
+
     // The retired phantom must never come back into the advertised set.
     assert.ok(!result.reason.includes("art-draw"), "hint must not advertise the removed art-draw");
   }

@@ -37,10 +37,12 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
 
   const span = startToolCallBatchSpan(input.run, input.calls.length);
   let activeNames = [...input.activeNames];
+
   try {
     const dispatch = async (call: Call): Promise<ToolCallDispatchResult> => {
       await input.onCallStarted?.(call, activeNames);
       const result = await adapter.dispatch({ ...input.run, ...call, activeTools: activeNames });
+
       if (result.kind === "inactive_tool") {
         recordInactiveToolActivation(input.run, result.result.recovery.toolName);
         activeNames = restoreSurface({
@@ -48,6 +50,7 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
           names: [...activeNames, result.result.recovery.toolName],
         });
       }
+
       return result;
     };
 
@@ -57,34 +60,45 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
       (result): result is Extract<ToolCallDispatchResult, { kind: "staged" }> =>
         result?.kind === "staged",
     );
+
     if (staged) {
       span.end("staged", results);
+
       return { kind: "waiting", wake: staged.wake, activeNames };
     }
+
     const parked = results.find(
       (result): result is Extract<ToolCallDispatchResult, { kind: "parked" }> =>
         result?.kind === "parked",
     );
+
     if (parked) {
       span.end("parked", results);
+
       return { kind: "waiting", wake: parked.wake, activeNames };
     }
 
     let transcript = [...input.transcript];
     const calls = [];
     let reissue = false;
+
     for (let index = 0; index < input.calls.length; index += 1) {
       const call = input.calls[index]!;
       const result = results[index]!;
+
       if (result.kind === "staged" || result.kind === "parked") continue;
       transcript = [...transcript, toolResultMessage(call, result)];
       calls.push(completedToolCall(call, result));
+
       if (result.kind === "inactive_tool") reissue = true;
+
       if (call.toolName === "system.load_tool" && result.kind === "executed") {
         activeNames = foldExactLoad(activeNames, result.toolResult, restoreSurface);
       }
     }
+
     span.end("committed", results);
+
     return { kind: "completed", transcript, calls, activeNames, reissue };
   } catch (error) {
     span.end("error");
@@ -116,7 +130,9 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
   const gateFlags = await Promise.all(
     calls.map((call) => adapter.wouldWaitForApproval(userId, call.toolName)),
   );
+
   const results: Array<ToolCallDispatchResult | undefined> = Array.from({ length: calls.length });
+
   const independent = calls.flatMap((call, index) =>
     gateFlags[index] || adapter.executionLane(call.toolName)
       ? []
@@ -126,26 +142,35 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
           }),
         ],
   );
+
   const lanes = new Map<string, Promise<void>>();
+
   for (let index = 0; index < calls.length; index += 1) {
     const call = calls[index]!;
+
     if (gateFlags[index]) continue;
     const lane = adapter.executionLane(call.toolName);
+
     if (!lane) continue;
     const prior = lanes.get(lane) ?? Promise.resolve();
+
     const next = prior.then(async () => {
       results[index] = await dispatch(call);
     });
+
     lanes.set(lane, next);
   }
+
   await Promise.all([...independent, ...lanes.values()]);
 
   for (let index = 0; index < calls.length; index += 1) {
     if (!gateFlags[index]) continue;
     const result = await dispatch(calls[index]!);
     results[index] = result;
+
     if (result.kind === "staged") break;
   }
+
   return results;
 }
 
@@ -164,5 +189,6 @@ function foldExactLoad(
   ) {
     return [...activeNames];
   }
+
   return restoreSurface({ kind: "exact", names: [...activeNames, result.name] });
 }

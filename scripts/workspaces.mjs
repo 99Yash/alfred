@@ -30,6 +30,7 @@ import { join } from "node:path";
 import { listGitSourceFiles } from "./git-source-files.mjs";
 
 const WORKSPACE_FILE = "pnpm-workspace.yaml";
+
 const MANIFEST = "package.json";
 
 /**
@@ -46,30 +47,37 @@ function workspaceGlobs(root) {
     failures.push(
       `${WORKSPACE_FILE} does not exist, so the set of workspaces is derived from nothing.`,
     );
+
     return { globs: [], failures };
   }
 
   const lines = readFileSync(path, "utf8").split("\n");
   const start = lines.findIndex((line) => /^packages:\s*(#.*)?$/.test(line));
+
   if (start === -1) {
     failures.push(
       `${WORKSPACE_FILE} has no top-level \`packages:\` sequence, so the set of workspaces is derived from nothing.`,
     );
+
     return { globs: [], failures };
   }
 
   const globs = [];
+
   for (const line of lines.slice(start + 1)) {
     if (/^\s*(#.*)?$/.test(line)) continue;
     const item = /^\s+-\s+(.+?)\s*(?:#.*)?$/.exec(line);
+
     if (!item) break; // A line at column 0 ends the sequence.
     const value = item[1].replace(/^["']|["']$/g, "");
+
     if (value.startsWith("!")) {
       failures.push(
         `${WORKSPACE_FILE} excludes \`${value}\`, a shape this check cannot model — it would report a workspace that pnpm does not have.`,
       );
       continue;
     }
+
     globs.push(value);
   }
 
@@ -78,6 +86,7 @@ function workspaceGlobs(root) {
       `${WORKSPACE_FILE}'s \`packages:\` sequence lists no glob, so the set of workspaces is empty.`,
     );
   }
+
   return { globs, failures };
 }
 
@@ -111,26 +120,32 @@ function workspaceGlobs(root) {
  */
 export function listWorkspaces(root) {
   const { globs, failures } = workspaceGlobs(root);
+
   if (globs.length === 0) return { workspaces: [], globs, failures };
 
   const manifests = listGitSourceFiles(
     globs.map((glob) => `${glob}/${MANIFEST}`),
     root,
   );
+
   if (manifests.length === 0) {
     failures.push(
       `the workspace globs (${globs.join(", ")}) list no ${MANIFEST} that git tracks, so there are no workspaces to read.`,
     );
+
     return { workspaces: [], globs, failures };
   }
 
   const workspaces = [];
+
   for (const manifest of manifests) {
     const dir = manifest.slice(0, -(MANIFEST.length + 1));
 
     let name = null;
+
     try {
       const parsed = JSON.parse(readFileSync(join(root, manifest), "utf8"));
+
       if (parsed !== null && typeof parsed === "object" && typeof parsed.name === "string") {
         name = parsed.name;
       }

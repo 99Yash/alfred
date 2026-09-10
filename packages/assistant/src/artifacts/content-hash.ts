@@ -20,6 +20,7 @@ export function artifactReplacementMatchesBase(input: {
   baseContentHash?: string | undefined;
 }): boolean {
   if (input.rowRunId === input.editingRunId) return true;
+
   return (
     input.baseContentHash !== undefined &&
     input.baseContentHash === artifactContentHash(input.currentContent)

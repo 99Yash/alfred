@@ -33,6 +33,7 @@ export {
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
 };
+
 // Recipe-registry queries and the decision-trace key normalizer are execution's
 // to own; cross-module callers (workflow seeder, Replicache entity projection,
 // triage's atomic trace write) reach them through this index, not through
@@ -40,7 +41,9 @@ export {
 // is exposed as a read-only key helper, not a trace write — the transaction owner
 // (executor or triage) still writes its own row (ADR-0040).
 export { isInternalWorkflowSlug, listPublicWorkflows, listResumeOnlyWorkflows } from "./registry";
+
 export { normalizeDecisionTraceKey } from "./decision-traces";
+
 // #561: the effect-receipt projection is execution's (it owns the terminal
 // write that derives the run outcome); the history reader in `automation`
 // reuses the same column list and narrowing so a receipt reads identically
@@ -51,6 +54,7 @@ export {
   toEffectReceipt,
   type EffectReceiptSource,
 } from "./run-outcome";
+
 // Execution's public run-start surface is `startRun` / `startRunInTx` (folded
 // persist+deliver) plus two narrow ops for the callers that legitimately hold a
 // run apart from its delivery: `redeliverRun(runId)` hands an already-persisted
@@ -65,7 +69,9 @@ export {
 // re-exported here, so no caller outside execution can split persistence from
 // delivery or reach the queue handle; both stay module-private.
 export { persistChatTurnRunInTx, redeliverRun, replayRun };
+
 export { closeAgentQueue, closeSubAgentJoinWakeQueue };
+
 export type {
   RunStatus,
   Step,
@@ -75,6 +81,7 @@ export type {
   Workflow,
   WorkflowInput,
 } from "./types";
+
 export type { CancelOutcome, SignalArgs, SignalOutcome } from "./service";
 
 // Agent-runtime primitives the `chat` recipe reaches through this
@@ -96,8 +103,11 @@ export {
   estimateSerializedTokens,
   estimateTranscriptTokens,
 } from "./run-compaction";
+
 export { buildConnectedSummaryFromAvailability } from "./connected-summary";
+
 export { formatRuntimeTimeGrounding, resolveRuntimeGroundingAnchor } from "./grounding";
+
 export {
   foldToolSurfaceState,
   systemToolKernel,
@@ -105,17 +115,25 @@ export {
   toolSurfaceStateFields,
   uniqueToolNames,
 } from "./tool-surface";
+
 export { toolNamesFromState } from "./tool-surface-usage";
+
 export { appendModelResponseMessages } from "./transcript-dedup";
+
 export { appendSystemNote } from "./transcript-notes";
+
 export { aggregateRunUsage } from "./usage-fold";
+
 export {
   shouldPublishToolStarted,
   toolCardStarted,
   toolCardTerminal,
 } from "./workflows/tool-card-events";
+
 export { toolEventOutcome } from "./workflows/tool-event-outcome";
+
 export { pendingToolCallSchema } from "./workflows/pending-tool-call";
+
 export {
   CHAT_TURN_CAP_LANDING_NOTE,
   chatTurnCap,
@@ -123,13 +141,18 @@ export {
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
 } from "./workflows/turn-budgets";
+
 export { PREVIEW_CHARS } from "./workflows/tool-preview";
+
 export {
   registerWorkflowReadinessCheck,
   type WorkflowReadinessVerdict,
 } from "./workflows/readiness-port";
+
 export { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "./sub-agent-join";
+
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
+
 // Action-staging approval WORKERS (ADR-0034). Both wake/notify sides live in
 // execution: the expiry worker drives the run-wake primitive (`signalRunInTx` /
 // `redeliverRun`) and the notification worker sends through `../delivery`. The
@@ -141,15 +164,18 @@ export {
   type ExpireStagingResult,
   type StartApprovalExpiryWorkerOpts,
 } from "./approval-expiry-worker";
+
 export {
   startApprovalNotificationWorker,
   stopApprovalNotificationWorker,
   type StartApprovalNotificationWorkerOpts,
 } from "./approval-notification-worker";
+
 export {
   isTerminalChildStatus,
   listSpawnedChildRuns,
   readChildRunOutcome,
   type ChildRunOutcome,
 } from "./sub-agents";
+
 export type { AgentDbExecutor } from "./types";

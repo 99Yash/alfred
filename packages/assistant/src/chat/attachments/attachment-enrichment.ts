@@ -21,11 +21,15 @@ import { z } from "zod";
 import { readObject } from "./storage";
 
 export const CHAT_ATTACHMENT_REPRESENTATION_VERSION = 1;
+
 const CHAT_MEDIA_ENRICHMENT_CYCLE_BUDGET_MICROUSD = 500_000;
+
 const CHAT_MEDIA_ENRICHMENT_TRIGGER_RATIO = 0.8;
+
 const CHAT_MEDIA_ENRICHMENT_CASCADE_TIMEOUT_MS = 3 * 60_000;
 
 const boundedText = z.string().max(20_000);
+
 const evidenceSchema = z
   .object({
     kind: z.enum(["ocr", "transcript", "document_text", "chart", "visual", "metadata"]),
@@ -69,6 +73,7 @@ export async function claimChatAttachmentEnrichment(
       ],
     })
     .returning({ attachmentId: chatAttachmentRepresentations.attachmentId });
+
   return rows.length === 1 ? "claimed" : "existing";
 }
 
@@ -81,7 +86,9 @@ export async function persistChatAttachmentRepresentation(args: {
   if (!Number.isInteger(args.estimatedCostMicrousd) || args.estimatedCostMicrousd < 0) {
     throw new Error("estimatedCostMicrousd must be a non-negative integer");
   }
+
   const representation = chatAttachmentRepresentationSchema.parse(args.representation);
+
   const rows = await db()
     .update(chatAttachmentRepresentations)
     .set({
@@ -101,6 +108,7 @@ export async function persistChatAttachmentRepresentation(args: {
       ),
     )
     .returning({ attachmentId: chatAttachmentRepresentations.attachmentId });
+
   return rows.length === 1;
 }
 
@@ -124,6 +132,7 @@ export async function recordChatAttachmentEnrichmentFailure(
       ),
     )
     .returning({ attachmentId: chatAttachmentRepresentations.attachmentId });
+
   return rows.length === 1;
 }
 
@@ -183,7 +192,9 @@ export async function enrichClaimedChatAttachment(
   const attachment = await (dependencies.loadAttachment ?? loadEnrichmentAttachment)(
     args.attachmentId,
   );
+
   if (!attachment) return "missing";
+
   try {
     const modality = mediaModalityForMime(attachment.mime);
     const bytes = await (dependencies.readBytes ?? readObject)(attachment.storageKey);
@@ -192,8 +203,10 @@ export async function enrichClaimedChatAttachment(
     if (modality === "pdf") {
       const extract =
         dependencies.extract ?? createPdfExtractor(REALTIME_PDF_EXTRACTION_LIMITS.chatUpload);
+
       const extracted = await extract(bytes);
       const deterministic = buildDeterministicPdfOutput(extracted);
+
       if (deterministic) {
         const persisted = await persist({
           representation: buildEnrichmentRepresentation(attachment, deterministic.output),
@@ -201,8 +214,10 @@ export async function enrichClaimedChatAttachment(
           model: deterministic.model,
           estimatedCostMicrousd: args.estimatedCostMicrousd,
         });
+
         return persisted ? "persisted" : "superseded";
       }
+
       if (extracted.kind === "needs_ocr") {
         const generated = await (dependencies.generate ?? generateAttachmentRepresentation)({
           attachment,
@@ -210,15 +225,19 @@ export async function enrichClaimedChatAttachment(
           modality,
           attribution: args.attribution,
         });
+
         const outputWithNullPage = stripPageProvenance(generated.output);
+
         const persisted = await persist({
           representation: buildEnrichmentRepresentation(attachment, outputWithNullPage),
           provider: generated.provider,
           model: generated.model,
           estimatedCostMicrousd: args.estimatedCostMicrousd,
         });
+
         return persisted ? "persisted" : "superseded";
       }
+
       throw pdfExtractionFailureError(extracted);
     }
 
@@ -228,14 +247,17 @@ export async function enrichClaimedChatAttachment(
       modality,
       attribution: args.attribution,
     });
+
     // Non-PDF LLM output: models cannot assert page provenance — strip to null.
     const outputWithNullPage = stripPageProvenance(generated.output);
+
     const persisted = await persist({
       representation: buildEnrichmentRepresentation(attachment, outputWithNullPage),
       provider: generated.provider,
       model: generated.model,
       estimatedCostMicrousd: args.estimatedCostMicrousd,
     });
+
     return persisted ? "persisted" : "superseded";
   } catch (error) {
     const fail = dependencies.fail ?? recordChatAttachmentEnrichmentFailure;
@@ -256,6 +278,7 @@ function buildDeterministicPdfOutput(
         page: page.pageNumber,
       }))
       .filter((item) => item.text.length > 0);
+
     // An extracted PDF with no non-empty page still yields a deterministic representation
     // rather than a model call — the evidence is empty but the page provenance is proven.
     return {
@@ -269,6 +292,7 @@ function buildDeterministicPdfOutput(
       model: "@firecrawl/pdf-inspector",
     };
   }
+
   if (result.kind === "text_without_pages") {
     return {
       output: {
@@ -287,6 +311,7 @@ function buildDeterministicPdfOutput(
       model: "@firecrawl/pdf-inspector",
     };
   }
+
   return null;
 }
 
@@ -304,6 +329,7 @@ function pdfExtractionFailureError(result: ExtractedPdf): Error {
       throw new Error(`pdfExtractionFailureError: unexpected kind ${result.kind}`);
     default: {
       const _exhaustive: never = result;
+
       return _exhaustive;
     }
   }
@@ -311,9 +337,13 @@ function pdfExtractionFailureError(result: ExtractedPdf): Error {
 
 export function mediaModalityForMime(mime: string): "image" | "audio" | "video" | "pdf" {
   const normalized = mime.split(";")[0]!.trim().toLowerCase();
+
   if (normalized.startsWith("image/")) return "image";
+
   if (normalized.startsWith("audio/")) return "audio";
+
   if (normalized.startsWith("video/")) return "video";
+
   if (normalized === "application/pdf" || normalized === "application/x-pdf") return "pdf";
   throw new Error("media_enrichment_mime_unsupported");
 }
@@ -327,6 +357,7 @@ async function generateAttachmentRepresentation(args: {
   const models = getMediaEnrichmentModels(args.modality, args.bytes.byteLength);
   const abortSignal = AbortSignal.timeout(CHAT_MEDIA_ENRICHMENT_CASCADE_TIMEOUT_MS);
   let lastError: unknown;
+
   for (const [index, model] of models.entries()) {
     try {
       const result = await meteredGenerateObject(
@@ -366,7 +397,9 @@ async function generateAttachmentRepresentation(args: {
           name: `chat.attachment-enrichment.route-${index + 1}`,
         },
       );
+
       const identifiers = identifyLanguageModel(model);
+
       return {
         output: result.output,
         provider: identifiers.provider,
@@ -376,6 +409,7 @@ async function generateAttachmentRepresentation(args: {
       lastError = error;
     }
   }
+
   throw lastError ?? new Error("media_enrichment_failed_without_attempt");
 }
 
@@ -393,6 +427,7 @@ async function loadEnrichmentAttachment(
     .from(chatAttachments)
     .where(eq(chatAttachments.id, attachmentId))
     .limit(1);
+
   return row ?? null;
 }
 
@@ -404,6 +439,7 @@ function mediaFailureCategory(error: unknown): string {
   ) {
     return "unsupported";
   }
+
   return "generation_failed";
 }
 
@@ -413,16 +449,20 @@ export function selectAttachmentsWithinEnrichmentBudget<
   if (!Number.isInteger(budgetMicrousd) || budgetMicrousd < 0) {
     throw new Error("budgetMicrousd must be a non-negative integer");
   }
+
   let remaining = budgetMicrousd;
   const selected: T[] = [];
+
   for (const candidate of candidates) {
     if (!Number.isInteger(candidate.estimatedCostMicrousd) || candidate.estimatedCostMicrousd < 0) {
       throw new Error("candidate estimatedCostMicrousd must be a non-negative integer");
     }
+
     if (candidate.estimatedCostMicrousd > remaining) continue;
     selected.push(candidate);
     remaining -= candidate.estimatedCostMicrousd;
   }
+
   return selected;
 }
 
@@ -431,7 +471,9 @@ export function estimateAttachmentEnrichmentCostMicrousd(byteSize: number): numb
   if (!Number.isInteger(byteSize) || byteSize < 0) {
     throw new Error("byteSize must be a non-negative integer");
   }
+
   const mebibytes = Math.max(1, Math.ceil(byteSize / (1024 * 1024)));
+
   return 10_000 + mebibytes * 10_000;
 }
 
@@ -447,6 +489,7 @@ export function shouldStartMediaEnrichment(
   ) {
     throw new Error("media enrichment pressure inputs must be non-negative");
   }
+
   return (
     estimatedReplayTokens >
     Math.floor(backgroundThresholdTokens * CHAT_MEDIA_ENRICHMENT_TRIGGER_RATIO)

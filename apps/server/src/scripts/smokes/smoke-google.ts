@@ -32,6 +32,7 @@ async function main() {
 
   // ---- Phase 1: env + URL builder ------------------------------------------
   const env = serverEnv();
+
   if (
     !env.GOOGLE_OAUTH_CLIENT_ID ||
     !env.GOOGLE_OAUTH_CLIENT_SECRET ||
@@ -39,6 +40,7 @@ async function main() {
   ) {
     console.log("[smoke-google] OAuth env vars not set — skipping URL + ingest checks.");
     printOAuthSetupInstructions();
+
     return;
   }
 
@@ -52,8 +54,10 @@ async function main() {
   // ---- Phase 2: live routes ------------------------------------------------
   const baseUrl = "http://localhost:3001";
   console.log(`[smoke-google] probing ${baseUrl}/api/integrations/google/connect (no auth)…`);
+
   try {
     const res = await fetch(`${baseUrl}/api/integrations/google/connect`, { redirect: "manual" });
+
     if (res.status !== 401) {
       console.warn(
         `[smoke-google] WARN expected 401 from /connect without auth, got ${res.status}`,
@@ -77,11 +81,13 @@ async function main() {
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"))
     .limit(1);
+
   const cred = rows[0];
 
   if (!cred) {
     console.log("\n[smoke-google] no Google credential found in DB.");
     printConnectInstructions();
+
     return;
   }
 
@@ -89,11 +95,13 @@ async function main() {
     `[smoke-google] running ingestion against ${cred.accountLabel ?? cred.id} (user=${cred.userId})…`,
   );
   const before = await countDocs(cred.userId);
+
   const result = await ingestRecentGmail({
     credentialId: cred.id,
     query: "newer_than:7d",
     maxMessages: 25,
   });
+
   const after = await countDocs(cred.userId);
 
   console.log(`[smoke-google] result: ${JSON.stringify(result, null, 2)}`);
@@ -105,12 +113,15 @@ async function main() {
     query: "newer_than:7d",
     maxMessages: 25,
   });
+
   const final = await countDocs(cred.userId);
+
   if (final !== after) {
     throw new Error(
       `idempotency failed: doc count changed from ${after} → ${final} on rerun (inserted=${rerun.inserted})`,
     );
   }
+
   console.log(`[smoke-google] idempotent rerun: inserted=${rerun.inserted} (expected 0) ✓`);
 
   // Sanity: documents list lookup by source.
@@ -119,7 +130,9 @@ async function main() {
     .from(documents)
     .where(and(eq(documents.userId, cred.userId), eq(documents.source, "gmail")))
     .limit(3);
+
   console.log(`[smoke-google] sample subjects:`);
+
   for (const d of sample) {
     console.log(`   - ${d.title?.slice(0, 80) ?? "(no subject)"}`);
   }
@@ -132,6 +145,7 @@ async function countDocs(userId: string): Promise<number> {
     .select()
     .from(documents)
     .where(and(eq(documents.userId, userId), eq(documents.source, "gmail")));
+
   return rows.length;
 }
 

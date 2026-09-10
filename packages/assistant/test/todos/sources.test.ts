@@ -108,6 +108,7 @@ describe("gmailTodoSources", () => {
       subject: "Quick question about Q3 numbers",
       sender: "priya@client.com",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 
@@ -117,6 +118,7 @@ describe("gmailTodoSources", () => {
       subject: "Re: [OlivAIRepo/baserow-middleware] Stop dictation harvest (PR #786)",
       sender: "notifications@github.com",
     });
+
     assert.deepEqual(sources, [
       { provider: "gmail", kind: "thread", id: "thread_1" },
       { provider: "github", kind: "pull_request", id: "olivairepo/baserow-middleware#786" },
@@ -129,6 +131,7 @@ describe("gmailTodoSources", () => {
       subject: "Re: [owner/repo] Planning doc review (PR #12)",
       sender: "Priya <priya@client.com>",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 
@@ -138,6 +141,7 @@ describe("gmailTodoSources", () => {
       subject: "ENG-123: interview loop feedback",
       sender: "Priya <priya@client.com>",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 
@@ -147,6 +151,7 @@ describe("gmailTodoSources", () => {
       subject: "Netsmart: Save view issues",
       sender: "ClickUp <notifications@tasks.clickup.com>",
     });
+
     assert.deepEqual(sources.at(-1), {
       provider: "clickup",
       kind: "subject",
@@ -163,11 +168,13 @@ describe("gmailTodoSources", () => {
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
     });
+
     const second = gmailTodoSources({
       threadId: "thread_B",
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
     });
+
     assert.notEqual(first[0]?.id, second[0]?.id, "distinct transport threads");
     assert.equal(todoSourcesOverlap(first, second), true, "collapse via the loop ref");
   });
@@ -178,11 +185,13 @@ describe("gmailTodoSources", () => {
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
     });
+
     const b = gmailTodoSources({
       threadId: "thread_B",
       subject: "Re: [owner/repo] Add retries (PR #34)",
       sender: "notifications@github.com",
     });
+
     assert.equal(todoSourcesOverlap(a, b), false);
   });
 
@@ -192,11 +201,13 @@ describe("gmailTodoSources", () => {
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
       sender: "no-reply@sns.amazonaws.com",
     });
+
     const second = gmailTodoSources({
       threadId: "thread_B",
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1 — threshold breached',
       sender: "AWS Notifications <no-reply@sns.amazonaws.com>",
     });
+
     assert.deepEqual(first.at(-1), {
       provider: "monitoring",
       kind: "alarm",
@@ -212,6 +223,7 @@ describe("gmailTodoSources", () => {
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
       sender: "priya@client.com",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 });
@@ -241,6 +253,7 @@ describe("boundTodoSources", () => {
       kind: "message",
       id: `m${i}`,
     })) satisfies TodoSource[];
+
     const bounded = boundTodoSources([...many, thread(1)], 4);
     // The public tool schema rejects this shape, but the lower-level write
     // helper still returns a sync-valid array by keeping the newest identity refs.
@@ -251,6 +264,7 @@ describe("boundTodoSources", () => {
   test("a recurring loop stays bounded across many re-notifications", () => {
     // Simulate merge accretion: one loop ref + one fresh thread per notification.
     let acc: TodoSource[] = [];
+
     for (let i = 0; i < TODO_SOURCES_MAX + 40; i++) {
       acc = boundTodoSources(
         mergeTodoSources(
@@ -263,6 +277,7 @@ describe("boundTodoSources", () => {
         ),
       );
     }
+
     assert.ok(acc.length <= TODO_SOURCES_MAX, `bounded at ${acc.length}`);
     // The stable loop ref is retained, so future re-notifications still merge.
     assert.ok(

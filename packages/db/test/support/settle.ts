@@ -17,10 +17,12 @@ export async function settleWithin(
   deadlineMs: number,
 ): Promise<Settlement> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   const settled: Promise<Settlement> = work.then(
     (value): Settlement => ({ state: "resolved", value }),
     (error: unknown): Settlement => ({ state: "rejected", error }),
   );
+
   try {
     return await Promise.race([
       settled,
@@ -36,5 +38,6 @@ export async function settleWithin(
 /** The rejection's message, for asserting on WHICH bound fired. */
 export function settlementMessage(settlement: Settlement): string {
   if (settlement.state !== "rejected") return "";
+
   return settlement.error instanceof Error ? settlement.error.message : String(settlement.error);
 }

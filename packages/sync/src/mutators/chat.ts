@@ -22,6 +22,7 @@ export const chatThreadCreateArgsSchema = z.object({
   userId: z.string().min(1).max(100),
   createdAt: isoDateTimeStringSchema,
 });
+
 export type ChatThreadCreateArgs = z.infer<typeof chatThreadCreateArgsSchema>;
 
 export const chatMessageCreateArgsSchema = z.object({
@@ -32,23 +33,27 @@ export const chatMessageCreateArgsSchema = z.object({
   content: z.string().min(0).max(100_000),
   createdAt: isoDateTimeStringSchema,
 });
+
 export type ChatMessageCreateArgs = z.infer<typeof chatMessageCreateArgsSchema>;
 
 export const chatThreadRenameArgsSchema = z.object({
   id: chatId,
   title: z.string().min(1).max(200),
 });
+
 export type ChatThreadRenameArgs = z.infer<typeof chatThreadRenameArgsSchema>;
 
 export const chatThreadSetPinnedArgsSchema = z.object({
   id: chatId,
   pinned: z.boolean(),
 });
+
 export type ChatThreadSetPinnedArgs = z.infer<typeof chatThreadSetPinnedArgsSchema>;
 
 export const chatThreadDeleteArgsSchema = z.object({
   id: chatId,
 });
+
 export type ChatThreadDeleteArgs = z.infer<typeof chatThreadDeleteArgsSchema>;
 
 export const chatAttachmentCreateArgsSchema = z.object({
@@ -67,6 +72,7 @@ export const chatAttachmentCreateArgsSchema = z.object({
     .max(MAX_ATTACHMENTS_PER_MESSAGE - 1),
   createdAt: isoDateTimeStringSchema,
 });
+
 export type ChatAttachmentCreateArgs = z.infer<typeof chatAttachmentCreateArgsSchema>;
 
 async function readThread(tx: WriteTransaction, id: string): Promise<SyncedChatThread | null> {
@@ -79,6 +85,7 @@ export async function chatThreadCreateClient(
   args: ChatThreadCreateArgs,
 ): Promise<void> {
   if (await SYNC_MODEL.chatthread.get(tx, { id: args.id })) return;
+
   const value: SyncedChatThread = {
     id: args.id,
     userId: args.userId,
@@ -89,6 +96,7 @@ export async function chatThreadCreateClient(
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
   };
+
   await SYNC_MODEL.chatthread.put(tx, value);
 }
 
@@ -99,6 +107,7 @@ async function patchThread(
   patch: Partial<SyncedChatThread>,
 ): Promise<void> {
   const thread = await readThread(tx, id);
+
   if (!thread) return;
   await SYNC_MODEL.chatthread.put(tx, {
     ...thread,
@@ -134,15 +143,18 @@ export async function chatThreadDeleteClient(
   await SYNC_MODEL.chatthread.del(tx, { id: args.id });
   const deletedMessageIds = new Set<string>();
   const messages = await SYNC_MODEL.chatmsg.scan(tx);
+
   for (const message of messages) {
     if (message.threadId === args.id) {
       deletedMessageIds.add(message.id);
       await SYNC_MODEL.chatmsg.del(tx, { id: message.id });
     }
   }
+
   // Drop the deleted messages' attachments too (server cascades the rows +
   // reaps the bucket objects; this keeps the optimistic store consistent).
   const attachments = await SYNC_MODEL.chatatt.scan(tx);
+
   for (const attachment of attachments) {
     if (deletedMessageIds.has(attachment.messageId)) {
       await SYNC_MODEL.chatatt.del(tx, { id: attachment.id });
@@ -163,6 +175,7 @@ export async function chatAttachmentCreateClient(
   args: ChatAttachmentCreateArgs,
 ): Promise<void> {
   if (await SYNC_MODEL.chatatt.get(tx, { id: args.id })) return;
+
   const value: SyncedChatAttachment = {
     id: args.id,
     messageId: args.messageId,
@@ -175,6 +188,7 @@ export async function chatAttachmentCreateClient(
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
   };
+
   await SYNC_MODEL.chatatt.put(tx, value);
 }
 
@@ -202,11 +216,13 @@ export async function chatMessageCreateClient(
       createdAt: args.createdAt,
       updatedAt: args.createdAt,
     };
+
     await SYNC_MODEL.chatmsg.put(tx, message);
   }
 
   // Optimistically float the thread to the top of the list.
   const thread = await readThread(tx, args.threadId);
+
   if (thread) {
     await SYNC_MODEL.chatthread.put(tx, {
       ...thread,

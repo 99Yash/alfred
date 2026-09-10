@@ -26,6 +26,7 @@ import { dbBackedSkip } from "./support/db-backed";
  */
 
 const SHA_A = "a1b2c3d4".repeat(5); // 40 hex
+
 const SHA_B = "f0e1d2c3".repeat(5);
 
 function prPayload(
@@ -83,6 +84,7 @@ describe("github reducer (pure)", () => {
       "opened",
       prPayload(1, SHA_A, { id: 111, repo: "o/one" }),
     );
+
     const second = reduceGithubEvent(
       "pull_request",
       "opened",
@@ -131,6 +133,7 @@ describe("extractGithubKeys", () => {
       subject: `Run failed for ${SHA_A}`,
       content: `commit ${SHA_A} on branch; see ${SHA_B}`,
     });
+
     assert.deepEqual(
       keys.map((k) => k.keyValue),
       [SHA_A, SHA_B],

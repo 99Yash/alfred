@@ -55,6 +55,7 @@ type SseFrameEventField = SseFrame["event"];
  * literal (`sync/replicache.ts`).
  */
 export const eventKindIsAnEventName: SseFrameEventField = "agent.progress" satisfies EventKind;
+
 export const pokeIsAnEventName: SseFrameEventField = "poke";
 
 /**
@@ -71,6 +72,7 @@ export const lineBreakIsRejected: SseFrameEventField = "poke\ndata: injected\n";
  * `SseEventName` or re-open sanitisation on purpose.
  */
 const nameBuiltAtRunTime: string = "poke";
+
 // @ts-expect-error - `string` is wider than the union; a dynamic name cannot pass.
 export const dynamicNameIsRejected: SseFrameEventField = nameBuiltAtRunTime;
 

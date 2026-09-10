@@ -23,6 +23,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-compaction-db-";
+
 const createdUserIds: string[] = [];
 
 async function seedThread(): Promise<{ userId: string; threadId: string }> {
@@ -33,6 +34,7 @@ async function seedThread(): Promise<{ userId: string; threadId: string }> {
     .insert(user)
     .values({ id: userId, name: "Compaction Test", email: `${userId}@example.test` });
   await db().insert(chatThreads).values({ id: threadId, userId });
+
   return { userId, threadId };
 }
 
@@ -41,6 +43,7 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -74,10 +77,12 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
     const { userId, threadId } = await seedThread();
     const messageId = `msg_${randomUUID()}`;
     const watermark = { messageId, createdAt: new Date("2026-07-12T00:00:00.123Z") };
+
     const advancedReplayWatermark = {
       messageId: `msg_${randomUUID()}`,
       createdAt: new Date("2026-07-12T00:00:01.123Z"),
     };
+
     await db().insert(chatMessages).values({
       id: messageId,
       userId,
@@ -93,6 +98,7 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
       replayEstimateWatermarkCreatedAt: advancedReplayWatermark.createdAt,
       replayEstimateWatermarkMessageId: advancedReplayWatermark.messageId,
     });
+
     const summary = {
       schemaVersion: 1 as const,
       overview: {
@@ -107,6 +113,7 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
       unresolvedQuestions: [],
       importantEntities: [],
     };
+
     const args = {
       userId,
       threadId,
@@ -125,6 +132,7 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
 
     assert.equal(await persistConversationSummary(args), true);
     assert.equal(await persistConversationSummary(args), false);
+
     const [context] = await db()
       .select({
         generation: chatThreadContext.compactionGeneration,
@@ -134,6 +142,7 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
       })
       .from(chatThreadContext)
       .where(eq(chatThreadContext.threadId, threadId));
+
     assert.equal(context?.generation, 1);
     assert.equal(context?.estimatedReplayTokens, 99);
     assert.equal(
@@ -187,6 +196,7 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
     });
 
     assert.equal(persisted, true);
+
     const [row] = await db()
       .select({
         status: chatAttachmentRepresentations.status,
@@ -194,6 +204,7 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
       })
       .from(chatAttachmentRepresentations)
       .where(eq(chatAttachmentRepresentations.attachmentId, attachmentId));
+
     assert.deepEqual(row, { status: "ready", failureCategory: null });
   });
 });

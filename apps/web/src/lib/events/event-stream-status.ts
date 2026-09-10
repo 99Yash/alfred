@@ -13,11 +13,13 @@ export type EventStreamStatus = "connected" | "connecting" | "reconnecting" | "d
  *   transition helper (Tier 1) rather than allowing any `setStatus` call.
  */
 let eventStreamStatus: EventStreamStatus = "disconnected";
+
 const statusListeners = new Set<() => void>();
 
 export function setEventStreamStatus(next: EventStreamStatus): void {
   if (eventStreamStatus === next) return;
   eventStreamStatus = next;
+
   for (const cb of statusListeners) cb();
 }
 
@@ -27,6 +29,7 @@ export function getEventStreamStatus(): EventStreamStatus {
 
 export function subscribeToEventStreamStatus(cb: () => void): () => void {
   statusListeners.add(cb);
+
   return () => statusListeners.delete(cb);
 }
 

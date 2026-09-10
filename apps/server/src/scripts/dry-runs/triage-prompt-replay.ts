@@ -47,6 +47,7 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 const DEFAULT_LIMIT = 20;
+
 const MAX_LIMIT = 100;
 
 const replayResultSchema = z.object({
@@ -67,11 +68,13 @@ const replaySnapshotSchema = z.object({
   classifier: z.string(),
   results: z.array(replayResultSchema),
 });
+
 const classifierModuleSchema = z
   .object({
     classifyEmail: z.function({ input: [z.unknown()], output: z.unknown() }),
   })
   .passthrough();
+
 const classifierOutputSchema = z
   .object({
     classification: triageClassificationSchema,
@@ -79,7 +82,9 @@ const classifierOutputSchema = z
   .passthrough();
 
 type ReplaySnapshot = z.infer<typeof replaySnapshotSchema>;
+
 type ReplayResult = z.infer<typeof replayResultSchema>;
+
 type ClassifyEmail = (args: ClassifyEmailArgs) => Promise<{ classification: TriageClassification }>;
 
 interface SnapshotOptions {
@@ -91,18 +96,23 @@ interface SnapshotOptions {
 
 function option(args: readonly string[], name: string): string | null {
   const index = args.indexOf(name);
+
   if (index < 0) return null;
+
   return args[index + 1] ?? null;
 }
 
 function snapshotOptions(args: readonly string[]): SnapshotOptions {
   const outputPath = option(args, "--output");
+
   if (!outputPath) throw new Error("snapshot requires --output <path>");
   const rawLimit = option(args, "--limit");
   const limit = rawLimit ? Number.parseInt(rawLimit, 10) : DEFAULT_LIMIT;
+
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
     throw new Error(`--limit must be an integer from 1 to ${MAX_LIMIT}`);
   }
+
   return {
     classifierPath: option(args, "--classifier"),
     outputPath,
@@ -113,6 +123,7 @@ function snapshotOptions(args: readonly string[]): SnapshotOptions {
 
 async function readSnapshot(path: string): Promise<ReplaySnapshot> {
   const raw: unknown = JSON.parse(await readFile(path, "utf8"));
+
   return replaySnapshotSchema.parse(raw);
 }
 
@@ -120,14 +131,17 @@ async function loadClassifier(path: string | null): Promise<ClassifyEmail> {
   if (!path) return currentClassifyEmail;
   const module: unknown = await import(pathToFileURL(path).href);
   const parsed = classifierModuleSchema.parse(module);
+
   return async (args) => classifierOutputSchema.parse(await parsed.classifyEmail(args));
 }
 
 async function selectDocumentIds(options: SnapshotOptions): Promise<string[]> {
   if (options.casesFromPath) {
     const prior = await readSnapshot(options.casesFromPath);
+
     return prior.results.map((result) => result.documentId);
   }
+
   const rows = await db()
     .select({ id: documents.id })
     .from(documents)
@@ -140,6 +154,7 @@ async function selectDocumentIds(options: SnapshotOptions): Promise<string[]> {
     )
     .orderBy(desc(documents.authoredAt), desc(documents.id))
     .limit(options.limit);
+
   return rows.map((row) => row.id);
 }
 
@@ -154,18 +169,24 @@ async function replayDocument(
       .where(and(eq(documents.id, documentId), eq(documents.source, "gmail")))
       .limit(1)
   )[0];
+
   const caseKey = createHash("sha256").update(documentId).digest("hex").slice(0, 16);
+
   if (!selected?.sourceThreadId) return failedResult(documentId, caseKey);
 
   const ctxData = await loadTriageContext(documentId, selected.userId);
+
   if (!ctxData) return failedResult(documentId, caseKey);
+
   const sender = extractSenderContext({
     fromHeader: ctxData.document.metadata.from ?? null,
     subject: ctxData.document.title,
     body: ctxData.document.content,
   });
+
   const senderKey = senderKeyFor(sender.context, sender.senderAddress);
   const isHumanSender = sender.context.effectiveAuthor === "person";
+
   const [senderPrior, thread, senderKind] = await Promise.all([
     senderKey
       ? getSenderPrior(selected.userId, senderKey).catch(() => null)
@@ -182,7 +203,9 @@ async function replayDocument(
     })),
     resolveSenderKind(selected.userId, sender.senderAddress).catch(() => null),
   ]);
+
   const usePersonTreatment = isHumanSender && senderKind == null;
+
   const [knownContact, relationship] = await Promise.all([
     usePersonTreatment && sender.senderAddress
       ? isKnownContact(selected.userId, sender.senderAddress).catch(() => false)
@@ -193,8 +216,10 @@ async function replayDocument(
       isHumanSender: usePersonTreatment,
     }).catch(() => ({ descriptor: null, isColdContact: false })),
   ]);
+
   const meta = ctxData.document.metadata;
   const labelIds = meta.labelIds ?? [];
+
   const signalText = [
     meta.from,
     meta.to,
@@ -206,6 +231,7 @@ async function replayDocument(
   ]
     .filter(Boolean)
     .join("\n");
+
   const observations = assembleObservations({
     senderKey,
     senderPrior,
@@ -235,7 +261,9 @@ async function replayDocument(
       maxRetries: 1,
       hedgeDelayMs: 0,
     });
+
     const rationale = classification.rationale.trim();
+
     return {
       documentId,
       caseKey,
@@ -273,6 +301,7 @@ async function snapshot(args: readonly string[]): Promise<void> {
   const classifyEmail = await loadClassifier(options.classifierPath);
   const documentIds = await selectDocumentIds(options);
   const results: ReplayResult[] = [];
+
   for (const [index, documentId] of documentIds.entries()) {
     const result = await replayDocument(documentId, classifyEmail);
     results.push(result);
@@ -280,25 +309,35 @@ async function snapshot(args: readonly string[]): Promise<void> {
       `${index + 1}/${documentIds.length} ${result.caseKey} ${result.error ? "ERROR" : "ok"}`,
     );
   }
+
   const output: ReplaySnapshot = {
     version: 1,
     generatedAt: new Date().toISOString(),
     classifier: options.classifierPath ?? "current",
     results,
   };
+
   await writeFile(options.outputPath, `${JSON.stringify(output, null, 2)}\n`, "utf8");
   console.log(`wrote ${results.length} content-free result(s) to ${options.outputPath}`);
 }
 
 function changedFields(baseline: ReplayResult, candidate: ReplayResult): string[] {
   const fields: string[] = [];
+
   if (baseline.category !== candidate.category) fields.push("category");
+
   if (baseline.collabActivity !== candidate.collabActivity) fields.push("collabActivity");
+
   if (baseline.todoOutcome !== candidate.todoOutcome) fields.push("todoOutcome");
+
   if (baseline.wouldProposeTodo !== candidate.wouldProposeTodo) fields.push("wouldProposeTodo");
+
   if (baseline.rationaleHash !== candidate.rationaleHash) fields.push("rationaleHash");
+
   if (baseline.rationaleLength !== candidate.rationaleLength) fields.push("rationaleLength");
+
   if (baseline.error !== candidate.error) fields.push("error");
+
   return fields;
 }
 
@@ -310,31 +349,39 @@ function structuredFieldsChanged(baseline: ReplayResult, candidate: ReplayResult
 
 async function compare(args: readonly string[]): Promise<void> {
   const [baselinePath, candidatePath] = args;
+
   if (!baselinePath || !candidatePath) {
     throw new Error("compare requires <baseline.json> <candidate.json>");
   }
+
   const [baseline, candidate] = await Promise.all([
     readSnapshot(baselinePath),
     readSnapshot(candidatePath),
   ]);
+
   const candidateByKey = new Map(candidate.results.map((result) => [result.caseKey, result]));
   let structuredChanged = 0;
   let rationaleChanged = 0;
   let missing = 0;
   let errors = 0;
+
   for (const base of baseline.results) {
     const next = candidateByKey.get(base.caseKey);
+
     if (!next) {
       missing++;
       console.log(`${base.caseKey} missing from candidate`);
       continue;
     }
+
     if (base.error || next.error) errors++;
     const structuredFields = structuredFieldsChanged(base, next);
+
     if (structuredFields.length > 0) {
       structuredChanged++;
       console.log(`${base.caseKey} structured change: ${structuredFields.join(", ")}`);
     }
+
     if (
       base.rationaleHash !== next.rationaleHash ||
       base.rationaleLength !== next.rationaleLength
@@ -342,16 +389,20 @@ async function compare(args: readonly string[]): Promise<void> {
       rationaleChanged++;
     }
   }
+
   console.log(
     `summary: ${baseline.results.length} paired, ${structuredChanged} structured change(s), ` +
       `${rationaleChanged} rationale change(s), ${missing} missing, ${errors} error pair(s)`,
   );
+
   if (missing > 0 || errors > 0) process.exitCode = 1;
 }
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+
   if (command === "snapshot") return snapshot(args);
+
   if (command === "compare") return compare(args);
   throw new Error("usage: triage-prompt-replay.ts snapshot|compare ...");
 }

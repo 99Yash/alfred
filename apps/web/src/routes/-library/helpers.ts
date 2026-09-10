@@ -4,13 +4,17 @@ export type ArtifactType = "document" | "pdf" | "slides";
 
 export function artifactType(artifact: SyncedArtifact): ArtifactType {
   if (artifact.kind === "document") return "document";
+
   return artifact.format === "slides" ? "slides" : "pdf";
 }
 
 export function artifactTypeLabel(artifact: SyncedArtifact): string {
   const type = artifactType(artifact);
+
   if (type === "slides") return "Slides";
+
   if (type === "pdf") return "PDF document";
+
   return "Document";
 }
 
@@ -23,7 +27,9 @@ export function artifactMatchesType(
 
 export function artifactMatchesQuery(artifact: SyncedArtifact, query: string): boolean {
   const needle = query.trim().toLowerCase();
+
   if (!needle) return true;
+
   return `${artifact.title} ${artifactTypeLabel(artifact)} ${artifact.status}`
     .toLowerCase()
     .includes(needle);
@@ -31,6 +37,7 @@ export function artifactMatchesQuery(artifact: SyncedArtifact, query: string): b
 
 export function formatArtifactDate(artifact: SyncedArtifact): string {
   const timestamp = artifact.updatedAt ?? artifact.createdAt;
+
   return new Date(timestamp).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",

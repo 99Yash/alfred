@@ -16,6 +16,7 @@ async function resolveAwaitSubAgent(
   args: JoinChildRunRequest,
 ): Promise<AwaitSubAgentDispatchResult> {
   const join = await joinChildRun(args);
+
   if (join.kind === "resolved") {
     return {
       kind: "executed",
@@ -24,6 +25,7 @@ async function resolveAwaitSubAgent(
       editedByUser: false,
     };
   }
+
   return { kind: "parked", wake: { kind: "signal", name: join.signalName } };
 }
 

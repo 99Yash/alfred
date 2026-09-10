@@ -28,6 +28,7 @@ const stateSchema = z.object({
     })
     .optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 export const dailyBriefingWorkflow: Workflow<State> = {
@@ -41,6 +42,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
   closure: { kind: "none" },
   initialState(input) {
     const parsed = dailyBriefingWorkflowInputSchema.parse(input.input ?? {});
+
     return {
       slot: parsed.slot,
       reason: parsed.reason,

@@ -18,6 +18,7 @@ import { serverEnv } from "@alfred/env/server";
  */
 export function requireEntityIdNamespace(): string {
   const secret = serverEnv().ENTITY_ID_NAMESPACE;
+
   if (!secret) {
     throw new Error(
       "ENTITY_ID_NAMESPACE is not configured — refusing to mint stable entity ids (ADR-0067 D2). " +
@@ -25,5 +26,6 @@ export function requireEntityIdNamespace(): string {
         "re-mints every content-addressed entity id on replay) before running any user-model projection writer.",
     );
   }
+
   return secret;
 }

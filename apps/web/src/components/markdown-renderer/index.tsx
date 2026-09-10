@@ -16,6 +16,7 @@ import "katex/dist/katex.min.css";
 // is exported too, for surfaces that show a code/data payload outside markdown
 // (e.g. a tool result's pretty-printed JSON).
 export { MarkdownPre } from "./markdown-pre";
+
 export { CodeBlock } from "./code-block";
 
 type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
@@ -173,6 +174,7 @@ export function MarkdownRenderer({
         }
       : {}),
   };
+
   return (
     <div
       className={cn(

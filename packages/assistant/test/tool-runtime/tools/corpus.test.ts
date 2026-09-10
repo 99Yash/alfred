@@ -13,6 +13,7 @@ describe("system.corpus_search", () => {
     registerBuiltinTools();
     const found = getTool("system.corpus_search");
     assert.ok(found, "system.corpus_search must be registered at boot");
+
     return found;
   })();
 
@@ -35,7 +36,9 @@ describe("system.corpus_search", () => {
       similarity: 0.81,
       authoredAt: new Date("2026-08-01T00:00:00Z"),
     };
+
     const seen: SearchArgs[] = [];
+
     const ctx = {
       ...toolExecuteContext({
         runId: "run_1",
@@ -50,6 +53,7 @@ describe("system.corpus_search", () => {
       corpus: {
         search: async (args: SearchArgs) => {
           seen.push(args);
+
           return [hit];
         },
       },
@@ -83,10 +87,12 @@ describe("system.corpus_search", () => {
         search: async () => [] as SearchHit[],
       },
     };
+
     const result = (await tool.execute({ query: "nothing matches" }, ctx)) as {
       ok: boolean;
       hits: unknown[];
     };
+
     assert.equal(result.ok, true);
     assert.deepEqual(result.hits, []);
   });

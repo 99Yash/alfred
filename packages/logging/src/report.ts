@@ -104,6 +104,7 @@ export function report(signal: ReportedSignal): void {
   // field pino owns. Each sink is independent, so a failure in one cannot
   // suppress the other or reach the caller.
   const line = pinoLine(tags, signal.event);
+
   // Pino spells the level `warn` and Sentry spells it `warning`; the mapping
   // stays here rather than in every caller.
   try {
@@ -112,6 +113,7 @@ export function report(signal: ReportedSignal): void {
   } catch {
     // The Sentry event below is the other half of the report.
   }
+
   try {
     Sentry.captureMessage(signal.message, {
       level: signal.level,
@@ -126,10 +128,13 @@ export function report(signal: ReportedSignal): void {
 
 function pinoLine(tags: Readonly<Record<string, string>>, event: string) {
   const line: Record<string, string> = {};
+
   for (const [key, value] of Object.entries(tags)) {
     if (!PINO_OWNED_KEYS.has(key)) line[key] = value;
   }
+
   line.event = event;
+
   return line;
 }
 

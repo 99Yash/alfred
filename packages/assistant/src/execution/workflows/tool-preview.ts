@@ -32,17 +32,21 @@ function pruneForPreview(
   if (typeof value === "string") {
     return value.length > maxString ? `${value.slice(0, maxString - 1)}…` : value;
   }
+
   if (Array.isArray(value)) {
     return value.slice(0, maxArray).map((v) => pruneForPreview(v, maxArray, maxString, maxKeys));
   }
+
   if (isRecord(value)) {
     return Object.entries(value)
       .slice(0, maxKeys)
       .reduce<Record<string, unknown>>((out, [k, v]) => {
         out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
+
         return out;
       }, {});
   }
+
   return value;
 }
 
@@ -70,12 +74,15 @@ export function preview(value: unknown): Preview {
       ? { text: `${value.slice(0, PREVIEW_CHARS - 1)}…`, truncated: true }
       : { text: value, truncated: false };
   }
+
   let full: string;
+
   try {
     full = JSON.stringify(value) ?? "";
   } catch {
     full = String(value);
   }
+
   if (full.length <= PREVIEW_CHARS) return { text: full, truncated: false };
 
   // Over budget: prune the structure, tightening tier by tier, so the preview
@@ -86,11 +93,13 @@ export function preview(value: unknown): Preview {
   try {
     for (const [maxArray, maxString, maxKeys] of PREVIEW_TIERS) {
       const pruned = JSON.stringify(pruneForPreview(value, maxArray, maxString, maxKeys)) ?? "";
+
       if (pruned && pruned.length <= PREVIEW_CHARS) return { text: pruned, truncated: true };
     }
   } catch {
     // fall through to the slice below
   }
+
   // Even the tightest tier overflowed (or pruning threw) — last resort is a
   // slice, accepting that this rare preview won't parse. Reserve a char for the
   // ellipsis.

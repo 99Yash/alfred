@@ -49,8 +49,10 @@ class FakeProtocol implements McpProtocolClient {
 
   async connect(): Promise<McpProtocolServer> {
     this.connectCalls += 1;
+
     if (this.connectError) throw this.connectError;
     this.connected = true;
+
     return this.negotiated;
   }
 
@@ -65,13 +67,17 @@ class FakeProtocol implements McpProtocolClient {
     await this.listHook?.();
     const index = cursor ? Number(cursor) : 0;
     const page = this.pages[index];
+
     if (!page) return { tools: [], ttlMs: 0, cacheScope: "private" };
+
     return page;
   }
 
   async callTool(tool: Tool, args: Record<string, unknown>): Promise<McpProtocolCallResult> {
     this.calls.push({ name: tool.name, args });
+
     if (this.callError) throw this.callError;
+
     return this.callResult;
   }
 
@@ -106,10 +112,12 @@ const SEARCH_TOOL = tool("search", {
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
+
   const promise = new Promise<T>((promiseResolve, promiseReject) => {
     resolve = promiseResolve;
     reject = promiseReject;
   });
+
   return { promise, resolve, reject };
 }
 
@@ -143,15 +151,18 @@ describe("McpRawClient catalog", () => {
   test("authorizes the endpoint before creating or connecting the protocol", async () => {
     const events: string[] = [];
     const protocol = new FakeProtocol([{ tools: [] }]);
+
     const client = makeClient(protocol, {
       endpointAuthorizer: {
         authorize: async (connection, network) => {
           events.push(`authorize:${connection.endpointUrl}`);
+
           return permissiveMcpEndpointAuthorizerForTests().authorize(connection, network);
         },
       },
       protocolFactory: () => {
         events.push("factory");
+
         return protocol;
       },
     });
@@ -177,10 +188,12 @@ describe("McpRawClient catalog", () => {
     const protocol = new FakeProtocol([{ tools: [] }]);
     const fallback = permissiveMcpEndpointAuthorizerForTests();
     let authorizationCloses = 0;
+
     const client = makeClient(protocol, {
       endpointAuthorizer: {
         authorize: async (connection, network) => {
           const authorized = await fallback.authorize(connection, network);
+
           return {
             ...authorized,
             close: async () => {
@@ -204,17 +217,21 @@ describe("McpRawClient catalog", () => {
 
   test("waits for a pending connect before close and releases its generation once", async () => {
     const protocol = new FakeProtocol([{ tools: [] }]);
+
     const pendingAuthorization =
       deferred<
         Awaited<ReturnType<ReturnType<typeof permissiveMcpEndpointAuthorizerForTests>["authorize"]>>
       >();
+
     const authorizationStarted = deferred<void>();
     let authorizationCloses = 0;
+
     const client = makeClient(protocol, {
       endpointAuthorizer: {
         authorize: async () => {
           authorizationStarted.resolve();
           const authorized = await pendingAuthorization.promise;
+
           return {
             ...authorized,
             close: async () => {
@@ -251,15 +268,18 @@ describe("McpRawClient catalog", () => {
     const fallback = permissiveMcpEndpointAuthorizerForTests();
     let authorizations = 0;
     let protocolFactories = 0;
+
     const client = makeClient(protocol, {
       endpointAuthorizer: {
         authorize: async (connection, network) => {
           authorizations += 1;
+
           return fallback.authorize(connection, network);
         },
       },
       protocolFactory: () => {
         protocolFactories += 1;
+
         return protocol;
       },
     });
@@ -276,23 +296,29 @@ describe("McpRawClient catalog", () => {
   test("passes correlated OAuth and protocol capabilities through raw client wiring", async () => {
     const protocol = new FakeProtocol([{ tools: [] }]);
     let refreshRequests = 0;
+
     const endpointAuthorizer = permissiveMcpEndpointAuthorizerForTests(async (input) => {
       assert.equal(String(input), "https://auth.example.test/token");
       refreshRequests += 1;
+
       return new Response(
         JSON.stringify({ access_token: "fresh", token_type: "Bearer", expires_in: 3600 }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     });
+
     let oauthCapability: object | null = null;
     let protocolCapability: object | null = null;
+
     const client = makeClient(protocol, {
       endpointAuthorizer,
       oauthProviderFactory: (authorization) => {
         oauthCapability = authorization;
+
         return {
           authorize: async () => {
             await authorization.fetch("https://auth.example.test/token");
+
             return "AUTHORIZED" as const;
           },
           refreshIfNeeded: async () => undefined,
@@ -302,6 +328,7 @@ describe("McpRawClient catalog", () => {
       },
       protocolFactory: (authorization) => {
         protocolCapability = authorization;
+
         return protocol;
       },
     });
@@ -321,11 +348,13 @@ describe("McpRawClient catalog", () => {
     let authorizations = 0;
     let closedAuthorizations = 0;
     const fallback = permissiveMcpEndpointAuthorizerForTests();
+
     const client = makeClient(protocol, {
       endpointAuthorizer: {
         authorize: async (connection, network) => {
           authorizations += 1;
           const authorized = await fallback.authorize(connection, network);
+
           return {
             ...authorized,
             close: async () => {
@@ -406,6 +435,7 @@ describe("McpRawClient catalog", () => {
   test("uses page-one cache hints without allowing TTL to preserve stale authority", async () => {
     let now = 1_000;
     const replacement = tool("replacement", { type: "object", properties: {} });
+
     const protocol = new FakeProtocol([
       {
         tools: [SEARCH_TOOL],
@@ -419,6 +449,7 @@ describe("McpRawClient catalog", () => {
         cacheScope: "private",
       },
     ]);
+
     const client = makeClient(protocol, { now: () => now });
     await client.connect();
 
@@ -471,12 +502,14 @@ describe("McpRawClient catalog", () => {
 
   test("refreshes an expired catalog before preparing a tool call", async () => {
     let now = 1_000;
+
     const protocol = new FakeProtocol([
       {
         tools: [SEARCH_TOOL],
         ttlMs: 1_000,
       },
     ]);
+
     const client = makeClient(protocol, { now: () => now });
     await client.connect();
     const catalog = await client.refreshCatalog();
@@ -515,6 +548,7 @@ describe("McpRawClient catalog", () => {
         ttlMs: 60_000,
       },
     ]);
+
     const client = makeClient(protocol, { now: () => 1_000 });
     await client.connect();
     const catalog = await client.refreshCatalog();
@@ -559,6 +593,7 @@ describe("McpRawClient catalog", () => {
     const badName = new FakeProtocol([
       { tools: [tool("bad\u0000name", { type: "object", properties: {} })] },
     ]);
+
     const badNameClient = makeClient(badName);
     await badNameClient.connect();
     await assertMcpError(badNameClient.refreshCatalog(), "invalid_schema");
@@ -573,6 +608,7 @@ describe("McpRawClient catalog", () => {
         ],
       },
     ]);
+
     const externalRefClient = makeClient(externalRef);
     await externalRefClient.connect();
     await assertMcpError(externalRefClient.refreshCatalog(), "invalid_schema");
@@ -592,6 +628,7 @@ describe("McpRawClient catalog", () => {
         ],
       },
     ]);
+
     // The refusal is scoped to the era that ACTS on the keyword: the SDK mirrors
     // an `x-mcp-header` declaration into a `Mcp-Param-*` request header only in
     // the modern era, so that is where a declaration is a header channel and
@@ -624,6 +661,7 @@ describe("McpRawClient catalog", () => {
         } as NonNullable<Tool["outputSchema"]>,
       },
     );
+
     const localProtocol = new FakeProtocol([{ tools: [localRefTool] }]);
     localProtocol.callResult = {
       content: [{ type: "text", text: "ok" }],
@@ -642,13 +680,17 @@ describe("McpRawClient catalog", () => {
       },
       {},
     );
+
     assert.equal(result.provenance.outputSchemaValidated, true);
 
     let overDeep = JSON.parse('{ "$ref": "#/$defs/result" }') as Record<string, unknown>;
+
     for (let depth = 0; depth < 40; depth += 1) {
       overDeep = { allOf: [overDeep] };
     }
+
     overDeep.$defs = { result: { type: "string" } };
+
     const overDeepProtocol = new FakeProtocol([
       {
         tools: [
@@ -662,6 +704,7 @@ describe("McpRawClient catalog", () => {
         ],
       },
     ]);
+
     const overDeepClient = makeClient(overDeepProtocol);
     await overDeepClient.connect();
     await assertMcpError(overDeepClient.refreshCatalog(), "invalid_schema");
@@ -692,6 +735,7 @@ describe("McpRawClient catalog", () => {
         ],
       },
     ]);
+
     const idClient = makeClient(idCollision);
     await idClient.connect();
     await assertMcpError(idClient.refreshCatalog(), "invalid_schema");
@@ -707,6 +751,7 @@ describe("McpRawClient catalog", () => {
         ],
       },
     ]);
+
     const anchoredClient = makeClient(anchored);
     await anchoredClient.connect();
     await assertMcpError(anchoredClient.refreshCatalog(), "invalid_schema");
@@ -738,6 +783,7 @@ describe("McpRawClient catalog", () => {
     await protocol.emitToolsChanged();
 
     assert.equal(client.catalog, null);
+
     const result = await client.callTool(
       {
         kind: "mcp",
@@ -747,6 +793,7 @@ describe("McpRawClient catalog", () => {
       },
       { query: "hello" },
     );
+
     assert.equal(result.outcome, "completed");
     assert.equal(protocol.listCalls, 2);
     assert.equal(protocol.calls.length, 1);
@@ -787,9 +834,11 @@ describe("McpRawClient catalog", () => {
       protocolCloseStarted.resolve();
       await releaseProtocolClose.promise;
     };
+
     const fallback = permissiveMcpEndpointAuthorizerForTests();
     let authorizationCount = 0;
     let protocolCount = 0;
+
     const client = makeClient(firstProtocol, {
       endpointAuthorizer: {
         authorize: async (connection, network) => {
@@ -797,6 +846,7 @@ describe("McpRawClient catalog", () => {
           const authorizationNumber = authorizationCount;
           events.push(`authorize-${authorizationNumber}`);
           const authorized = await fallback.authorize(connection, network);
+
           return {
             ...authorized,
             close: async () => {
@@ -808,6 +858,7 @@ describe("McpRawClient catalog", () => {
       },
       protocolFactory: () => {
         protocolCount += 1;
+
         return protocolCount === 1 ? firstProtocol : secondProtocol;
       },
     });
@@ -842,6 +893,7 @@ describe("McpRawClient calls", () => {
     const client = makeClient(protocol);
     await client.connect();
     const catalog = await client.refreshCatalog();
+
     const ref = {
       kind: "mcp" as const,
       connectionId: "conn_1",
@@ -896,6 +948,7 @@ describe("McpRawClient calls", () => {
       { type: "object", properties: {} },
       { execution: { taskSupport: "required" } },
     );
+
     const protocol = new FakeProtocol([{ tools: [taskTool] }]);
     const client = makeClient(protocol);
     await client.connect();
@@ -953,6 +1006,7 @@ describe("McpRawClient calls", () => {
         },
       },
     );
+
     const protocol = new FakeProtocol([{ tools: [outputTool] }]);
     protocol.callResult = {
       content: [{ type: "text", text: "bad" }],
@@ -1026,6 +1080,7 @@ describe("McpRawClient calls", () => {
           ],
         },
       ]);
+
       protocol.callResult = {
         content: [{ type: "text", text: fixture.name }],
         structuredContent: fixture.structuredContent,
@@ -1067,6 +1122,7 @@ describe("McpRawClient calls", () => {
         },
       },
     );
+
     const protocol = new FakeProtocol([{ tools: [outputTool] }]);
     // Structured content that violates the declared schema → invalid_output,
     // thrown AFTER the response crossed the wire.
@@ -1122,6 +1178,7 @@ describe("McpRawClient calls", () => {
         },
       },
     );
+
     const protocol = new FakeProtocol([{ tools: [outputTool] }]);
     // Mixed content kinds — a returned resource_link is counted, never fetched.
     protocol.callResult = {
@@ -1226,11 +1283,13 @@ describe("McpRawClient calls", () => {
       protocolEra: "post_2026_07_28",
       protocolVersion: "2026-07-28",
     };
+
     const http404 = new SdkHttpError(
       SdkErrorCode.ClientHttpFailedToOpenStream,
       "modern route missing",
       { status: 404 },
     );
+
     protocol.callError = http404;
     const client = makeClient(protocol);
     await client.connect();

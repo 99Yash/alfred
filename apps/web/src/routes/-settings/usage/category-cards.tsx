@@ -32,6 +32,7 @@ export function CategoryCards({ start, end, selected, onToggle }: CategoryCardsP
   }
 
   const categories = data?.categories ?? [];
+
   if (categories.length === 0) {
     // Empty state rather than null: the parent renders the "By category" header
     // above this, so returning null would leave that header dangling over
@@ -47,6 +48,7 @@ export function CategoryCards({ start, end, selected, onToggle }: CategoryCardsP
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {categories.map((c) => {
         const active = selectedSet.has(c.category);
+
         return (
           <AppCard
             key={c.category}

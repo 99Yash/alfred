@@ -38,7 +38,9 @@ import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
+
 const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
+
 /** OAuth start and callback have no raw client, so they name the client's default budget. */
 const OAUTH_NETWORK: McpEndpointNetworkPolicy = {
   requestTimeoutMs: MCP_DEFAULT_REQUEST_TIMEOUT_MS,
@@ -48,6 +50,7 @@ type McpOAuthCallbackProvider = Pick<
   ReturnType<typeof mcpOAuthProviderForConnection>,
   "matchesState" | "discoveryState" | "finishAuthorization"
 >;
+
 /** The connection identity plus the server definition the authorizer pins the endpoint to. */
 type McpOAuthCallbackConnection = Pick<McpConnection, "id" | "userId"> & {
   readonly server: McpEndpointConnection;
@@ -67,6 +70,7 @@ export async function completeMcpOAuthCallback(input: {
   dependencies: McpOAuthCallbackDependencies;
 }): Promise<void> {
   const { connection, dependencies } = input;
+
   return withMcpEndpointAuthorization(
     dependencies.endpointAuthorizer,
     connection.server,
@@ -77,12 +81,15 @@ export async function completeMcpOAuthCallback(input: {
         userId: connection.userId,
         authorization: authorized.oauth,
       });
+
       if (!(await provider.matchesState(input.state))) {
         throw Errors.BadRequestError("Invalid or expired OAuth state");
       }
+
       if (!(await provider.discoveryState())) {
         throw Errors.BadRequestError("MCP OAuth discovery state is missing");
       }
+
       try {
         await provider.finishAuthorization(input.params);
         await dependencies.connectionManager.getReadyClient(connection.id);
@@ -124,7 +131,9 @@ async function beginAuthorization(input: {
   forceReauthorization?: boolean;
 }): Promise<URL | null> {
   const connection = await readOwnedConnection(input.connectionId, input.userId);
+
   if (!connection) throw Errors.NotFoundError("MCP connection not found");
+
   return withMcpEndpointAuthorization(
     endpointAuthorizer,
     connection.server,
@@ -135,14 +144,17 @@ async function beginAuthorization(input: {
         userId: connection.userId,
         authorization: authorized.oauth,
       });
+
       const consent = mcpConsentAsk(connection, {
         forced: input.forceReauthorization === true,
       });
+
       try {
         await provider.authorize({
           ...(consent.forceReauthorization ? { forceReauthorization: true } : {}),
           ...(consent.scope ? { scope: consent.scope } : {}),
         });
+
         return null;
       } catch (error) {
         if (error instanceof McpOAuthAuthorizationRequiredError) {
@@ -150,8 +162,10 @@ async function beginAuthorization(input: {
             status: "auth_required",
             lastError: consent.pendingMessage,
           });
+
           return error.authorizationUrl;
         }
+
         // Anything else is a real failure of the authorization attempt — a server
         // that cannot register a client, an unreachable endpoint, a rejected
         // discovery document. Record it on the connection so the integrations card
@@ -176,6 +190,7 @@ async function beginAuthorization(input: {
 function redirectToIntegrations(set: Context["set"]): null {
   set.status = 302;
   set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/integrations`;
+
   return null;
 }
 
@@ -193,6 +208,7 @@ export const mcpIntegrationRoutes = new Elysia({
     app
       .get("/connections", async ({ user }) => {
         const connections = await listOwnedConnections(user.id);
+
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
       // The recovery read is pure: it never repairs a row, so a focus refetch
@@ -238,6 +254,7 @@ export const mcpIntegrationRoutes = new Elysia({
       )
       .get("/github/connect", async ({ user, set }) => {
         let authorizationUrl: URL | null;
+
         try {
           // The ensure sits INSIDE the guard. It reaches the database and it
           // reconciles the pinned built-in endpoint, so it can fail on its own,
@@ -248,24 +265,30 @@ export const mcpIntegrationRoutes = new Elysia({
             connectionId: connection.id,
             userId: user.id,
           });
+
           if (!authorizationUrl) await getMcpConnectionManager().getReadyClient(connection.id);
         } catch {
           // `beginAuthorization` already persisted every reason it can name.
           return redirectToIntegrations(set);
         }
+
         if (authorizationUrl) {
           set.status = 302;
           set.headers["Location"] = authorizationUrl.href;
+
           return null;
         }
+
         return redirectToIntegrations(set);
       })
       .get(
         "/connections/:id/reconsent",
         async ({ params, user, set }) => {
           const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
+
           if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
           let authorizationUrl: URL | null;
+
           try {
             authorizationUrl = await beginAuthorization({
               connectionId: params.id,
@@ -276,12 +299,16 @@ export const mcpIntegrationRoutes = new Elysia({
             // `beginAuthorization` already persisted every reason it can name.
             return redirectToIntegrations(set);
           }
+
           if (authorizationUrl) {
             set.status = 302;
             set.headers["Location"] = authorizationUrl.href;
+
             return null;
           }
+
           await getMcpConnectionManager().getReadyClient(params.id);
+
           return redirectToIntegrations(set);
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
@@ -291,14 +318,19 @@ export const mcpIntegrationRoutes = new Elysia({
   .get("/callback", async ({ request, set }) => {
     const params = new URL(request.url).searchParams;
     const parsed = callbackParamsSchema.safeParse({ state: params.get("state") });
+
     if (!parsed.success) throw Errors.BadRequestError("Missing or invalid OAuth state");
     const decoded = verifyOAuthState(parsed.data.state);
+
     if (!decoded?.connectionId) throw Errors.BadRequestError("Invalid OAuth state");
     const storedUserId = await consumeOAuthNonce(`mcp:${decoded.connectionId}`, decoded.nonce);
+
     if (!storedUserId || storedUserId !== decoded.userId) {
       throw Errors.BadRequestError("Invalid or expired OAuth state");
     }
+
     const connection = await readOwnedConnection(decoded.connectionId, decoded.userId);
+
     if (!connection) throw Errors.BadRequestError("MCP connection no longer exists");
     await completeMcpOAuthCallback({
       connection,
@@ -312,5 +344,6 @@ export const mcpIntegrationRoutes = new Elysia({
         connectionManager: getMcpConnectionManager(),
       },
     });
+
     return redirectToIntegrations(set);
   });

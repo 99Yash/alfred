@@ -53,6 +53,7 @@ export async function surfaceExternalFileArtifact(
   };
 
   let row: Pick<Artifact, "id" | "title"> | undefined;
+
   try {
     [row] = await db()
       .insert(artifacts)
@@ -73,5 +74,6 @@ export async function surfaceExternalFileArtifact(
 
   if (!row) throw new Error("[surfaceExternalFileArtifact] insert returned no row");
   emitReplicachePokes([ctx.userId]);
+
   return { artifactId: row.id, title: row.title };
 }

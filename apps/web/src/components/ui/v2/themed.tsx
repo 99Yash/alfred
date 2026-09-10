@@ -35,6 +35,7 @@ export function AppThemed({
   // SAFETY: As holds a component-or-tag for the polymorphic render below;
   // React.ElementType is exactly that union.
   const Comp = As as React.ElementType;
+
   return (
     <Comp className={cn("app", className)} data-app-theme={dataTheme} {...rest}>
       {children}

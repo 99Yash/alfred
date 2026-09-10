@@ -2,7 +2,9 @@ import { z } from "zod";
 import { isRecord } from "./guards";
 
 const nullableStringField = z.string().nullable().optional();
+
 const labelIdsField = z.array(z.string()).optional();
+
 const isSentField = z.boolean().optional();
 
 /**
@@ -23,6 +25,7 @@ export const gmailDocumentMetadataSchema = z.looseObject({
 });
 
 export type GmailDocumentMetadata = z.infer<typeof gmailDocumentMetadataSchema>;
+
 type GmailDocumentMetadataKey = keyof typeof gmailDocumentMetadataSchema.shape;
 
 /** Parse persisted Gmail metadata into its canonical typed view. */
@@ -34,6 +37,7 @@ export function parseGmailDocumentMetadata(raw: unknown): GmailDocumentMetadata 
   repairPersistedField(candidate, "snippet", nullableStringField);
   repairPersistedField(candidate, "labelIds", labelIdsField);
   repairPersistedField(candidate, "isSent", isSentField);
+
   return gmailDocumentMetadataSchema.parse(candidate);
 }
 
@@ -43,5 +47,6 @@ function repairPersistedField(
   schema: z.ZodType<unknown>,
 ): void {
   if (!(key in candidate)) return;
+
   if (!schema.safeParse(candidate[key]).success) delete candidate[key];
 }

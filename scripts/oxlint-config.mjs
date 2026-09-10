@@ -121,12 +121,15 @@ export function oxlintScripts(root) {
   const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
   const scripts = manifest.scripts ?? {};
   const found = [];
+
   for (const [script, command] of Object.entries(scripts)) {
     if (typeof command !== "string") continue;
     const tokens = command.split(/\s+/).filter(Boolean);
+
     if (!tokens.some((token) => token === "oxlint" || token.endsWith("/oxlint"))) continue;
     found.push({ script, command, pinned: pinsRootConfig(tokens) });
   }
+
   return found;
 }
 
@@ -146,17 +149,21 @@ export function unpinnedLintScripts(root) {
  */
 export function rootConfigFailures(root) {
   const listed = listGitSourceFiles([`:(glob)${ROOT_OXLINT_CONFIG}`], root);
+
   if (listed.length === 0) {
     return [
       `${ROOT_OXLINT_CONFIG} is missing or gitignored. Every oxlint invocation pins --config ${ROOT_OXLINT_CONFIG}, so without it the repo lints with no rules at all.`,
     ];
   }
+
   const source = readFileSync(resolve(root, ROOT_OXLINT_CONFIG), "utf8");
+
   if (source.replace(/\s+/g, "") === "" || source.replace(/\s+/g, "") === "{}") {
     return [
       `${ROOT_OXLINT_CONFIG} declares no rules. An empty root config disarms every fence in it while leaving pnpm lint green.`,
     ];
   }
+
   return [];
 }
 
@@ -214,6 +221,7 @@ const CHECK_IGNORE = "git check-ignore --no-index -v";
  */
 export function unwalkedSourceFailures(root) {
   const files = listGitSourceFiles(WALKED_SOURCE_PATTERNS, root);
+
   if (files.length === 0) {
     return {
       checked: 0,
@@ -239,9 +247,11 @@ export function unwalkedSourceFailures(root) {
       ],
     };
   }
+
   // 1 is the green answer — "no listed path is ignored" — and it is the ONLY non-zero
   // status that means anything but trouble.
   if (result.status === 1) return { checked: files.length, hidden: [], failures: [] };
+
   if (result.status !== 0) {
     return {
       checked: files.length,
@@ -254,16 +264,19 @@ export function unwalkedSourceFailures(root) {
 
   const failures = [];
   const hidden = [];
+
   for (const row of result.stdout.split("\n").filter(Boolean)) {
     // `<ignore file>:<line>:<pattern>\t<path>`. The source is matched lazily so a
     // pattern holding a colon stays in the pattern half.
     const parsed = /^(.*?):(\d+):(.*)\t(.*)$/.exec(row);
+
     if (parsed === null) {
       failures.push(
         `\`${CHECK_IGNORE}\` emitted a row this reader cannot parse (${JSON.stringify(row)}), so the file it names went unchecked. Its documented shape is \`<ignore file>:<line>:<pattern>\\t<path>\`; a git release that changes it must fail this check rather than quietly report nothing.`,
       );
       continue;
     }
+
     const [, ignoreFile, line, pattern, file] = parsed;
     hidden.push({ file, ignoreFile, line, pattern });
     failures.push(
@@ -290,6 +303,7 @@ export function unwalkedSourceFailures(root) {
 export function resolvedOxlintConfig(root) {
   const invocation = `oxlint --print-config --config ${ROOT_OXLINT_CONFIG}`;
   let stdout;
+
   try {
     stdout = execFileSync(OXLINT_BIN, ["--print-config", "--config", ROOT_OXLINT_CONFIG], {
       cwd: root,
@@ -303,6 +317,7 @@ export function resolvedOxlintConfig(root) {
   }
 
   let config;
+
   try {
     config = JSON.parse(stdout);
   } catch (error) {
@@ -310,11 +325,13 @@ export function resolvedOxlintConfig(root) {
       failure: `\`${invocation}\` did not emit JSON (${error instanceof Error ? error.message : String(error)}). Its resolved shape is an internal representation, not a documented contract, so a release that changes it must fail this check rather than silently read nothing.`,
     };
   }
+
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
     return {
       failure: `\`${invocation}\` emitted ${JSON.stringify(config)} rather than a config object, so no rule site could be located.`,
     };
   }
+
   return { config };
 }
 
@@ -343,6 +360,7 @@ export function restrictedImportSites(config) {
   collectSite(config.rules, "rules", sites, failures);
 
   const overrides = config.overrides;
+
   if (overrides !== undefined) {
     if (!Array.isArray(overrides)) {
       failures.push(
@@ -351,12 +369,14 @@ export function restrictedImportSites(config) {
     } else {
       for (const [index, override] of overrides.entries()) {
         const where = `overrides[${index}]`;
+
         if (override === null || typeof override !== "object" || Array.isArray(override)) {
           failures.push(
             `${where} is ${JSON.stringify(override)} rather than an object, so any fence inside it went unread.`,
           );
           continue;
         }
+
         collectSite(override.rules, where, sites, failures);
       }
     }
@@ -401,6 +421,7 @@ export function restrictedSpecifierFailures(root) {
   const failures = [];
 
   const resolved = resolvedOxlintConfig(root);
+
   if (resolved.failure !== undefined) {
     return { checked: 0, subpathChecked: 0, ungated: 0, failures: [resolved.failure] };
   }
@@ -410,10 +431,12 @@ export function restrictedSpecifierFailures(root) {
 
   const { packages, listed, failures: workspaceFailures } = workspaceExportIndex(root);
   failures.push(...workspaceFailures);
+
   if (packages.size === 0) {
     failures.push(
       "no workspace package declares a name, so no restricted-import specifier could be resolved against one.",
     );
+
     return { checked: 0, subpathChecked: 0, ungated: 0, failures };
   }
 
@@ -425,6 +448,7 @@ export function restrictedSpecifierFailures(root) {
     for (const { group } of groups) {
       for (const specifier of group) {
         const classified = specifierKind(specifier);
+
         if (classified.kind === "relative") {
           ungated += 1;
           continue;
@@ -435,15 +459,18 @@ export function restrictedSpecifierFailures(root) {
         if (packageName.includes("*")) {
           checked += 1;
           const named = [...packages.keys()].some((name) => matchesSubpathKey(packageName, name));
+
           if (!named) {
             failures.push(
               `${where} · "${specifier}" restricts a package pattern that matches no workspace package. Either a package it covered was deleted or renamed, or the fence never named one — a group nobody can write is indistinguishable from a live fence in a green lint run.`,
             );
           }
+
           continue;
         }
 
         const entry = packages.get(packageName);
+
         if (entry === undefined) {
           checked += 1;
           failures.push(
@@ -465,6 +492,7 @@ export function restrictedSpecifierFailures(root) {
         checked += 1;
         subpathChecked += 1;
         const key = publishedKey(entry.keys, subpath);
+
         if (key === null) {
           failures.push(
             `${where} · "${specifier}" restricts a subpath "${subpath}" that ${packageName}'s exports map does not publish, so no importer can write it and the fence is dead. Repoint the group at the subpath that carries the door now, or delete it.`,
@@ -473,6 +501,7 @@ export function restrictedSpecifierFailures(root) {
         }
 
         const published = entry.keys.get(key);
+
         if (published.blocked) {
           failures.push(
             `${where} · "${specifier}" restricts a subpath ${packageName}'s exports map SEALS ("${key}" maps to null), so the fence duplicates a block that already refuses every importer. Delete the group; the null entry is the enforcement.`,
@@ -485,6 +514,7 @@ export function restrictedSpecifierFailures(root) {
         const resolvedPaths = published.targets.map((target) =>
           wildcardTargetPath(entry.dir, key, target, subpath),
         );
+
         if (!resolvedPaths.some((path) => path !== null && listed.has(path))) {
           failures.push(
             `${where} · "${specifier}" resolves through ${packageName}'s wildcard exports key "${key}" to ${resolvedPaths.map((path) => `"${path}"`).join(" / ")}, which no file git lists. The wildcard still publishes the family, so nothing else reports this: the module the fence names is gone and the fence now restricts a specifier nobody can write.`,
@@ -560,10 +590,12 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
   const empty = { rootGroups: 0, siteCount: 0, restated: 0, declared: 0, failures };
 
   const { occurrences, markers } = declaredOmissions(source, sites.length);
+
   if (occurrences !== sites.length) {
     failures.push(
       `the tracked config text holds ${occurrences} occurrence(s) of "${RESTRICTED_IMPORTS}" but oxlint resolved ${sites.length} rule site(s) carrying it. Comments are absent from the resolved config, so a declared omission can only be attributed to a site by position — and two readers that disagree about the order would attribute it to the wrong one. This refuses rather than skipping the declarations, because skipping them would pass every diverged copy.`,
     );
+
     return empty;
   }
 
@@ -577,18 +609,23 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
     failures.push(
       `the tracked config text holds no "${RESTRICTED_IMPORTS}" key at all, so no fence copy could be compared. Every scoped fence in this repo is a copy of the root list; an empty read is a green run over zero assertions.`,
     );
+
     return empty;
   }
+
   if (rootGroups.length === 0) {
     failures.push(
       `the root "rules" site carries no ${RESTRICTED_IMPORTS} group, so this rule compared nothing. The copies under "overrides" are copies OF the root list — with no root list every one of them passes by default.`,
     );
+
     return empty;
   }
+
   if (overrideIndexes.length === 0) {
     failures.push(
       `no "overrides" entry carries ${RESTRICTED_IMPORTS}, so this rule compared the root list against nothing. Either the scoped fences were deleted, or the reader stopped seeing them; both must be loud.`,
     );
+
     return empty;
   }
 
@@ -610,12 +647,14 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
 
     for (const rootGroup of rootGroups) {
       const label = rootGroup.group.map((specifier) => `"${specifier}"`).join(", ");
+
       if (site.groups.some((group) => sameFenceGroup(group, rootGroup))) {
         restated += 1;
         continue;
       }
 
       const marker = siteMarkers.find((entry) => rootGroup.group.includes(entry.specifier));
+
       if (marker !== undefined) {
         if (marker.reason.length === 0) {
           failures.push(
@@ -623,6 +662,7 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
           );
           continue;
         }
+
         declared += 1;
         continue;
       }
@@ -634,18 +674,21 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
 
     for (const marker of siteMarkers) {
       const holders = rootGroups.filter((group) => group.group.includes(marker.specifier));
+
       if (holders.length === 0) {
         failures.push(
           `${site.where}${scope} declares an omission for "${marker.specifier}", which no root ${RESTRICTED_IMPORTS} group holds. The root list moved and the exemption was left behind, so this scope is now exempt from nothing and the group the root DID add is unrestated here. Repoint the marker at the specifier the root fences now, or delete it.`,
         );
         continue;
       }
+
       if (holders.length > 1) {
         failures.push(
           `${site.where}${scope} declares an omission for "${marker.specifier}", which ${holders.length} different root groups hold, so the exemption names no single group. Split the root groups or name a specifier that identifies one of them.`,
         );
         continue;
       }
+
       if (site.groups.some((group) => sameFenceGroup(group, holders[0]))) {
         failures.push(
           `${site.where}${scope} declares an omission for "${marker.specifier}" AND restates the group holding it. A declaration nobody needs rots into one nobody checks — delete the marker, or delete the restated group if this scope really is exempt.`,
@@ -688,27 +731,34 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
 function declaredOmissions(source, siteCount) {
   const regions = source.split(`"${RESTRICTED_IMPORTS}"`);
   const occurrences = regions.length - 1;
+
   if (occurrences !== siteCount) return { occurrences, markers: [] };
 
   const markers = [];
+
   for (let site = 0; site < occurrences; site += 1) {
     for (const line of regions[site].split("\n")) {
       const at = line.indexOf(OMISSION_MARKER);
+
       // The marker is only a marker inside a comment. A config that spells it in a
       // `message` string is describing the mechanism, not invoking it.
       if (at === -1 || !line.slice(0, at).includes("//")) continue;
       const rest = line.slice(at + OMISSION_MARKER.length).trim();
       const [specifier, ...words] = rest.split(/\s+/u);
+
       if (specifier === undefined || specifier.length === 0) continue;
+
       // An em dash or a hyphen may separate the specifier from its reason, and neither
       // is the reason. Anything else after the specifier is prose.
       const reason = words
         .join(" ")
         .replace(/^[—-]\s*/u, "")
         .trim();
+
       markers.push({ site, specifier, reason });
     }
   }
+
   return { occurrences, markers };
 }
 
@@ -730,19 +780,24 @@ function divergence(siteGroups, rootGroup) {
   const overlapping = siteGroups.find((group) =>
     group.group.some((specifier) => rootGroup.group.includes(specifier)),
   );
+
   if (overlapping === undefined) return "does not restate";
+
   if (overlapping.group.length !== rootGroup.group.length) {
     return `restates, with a DIVERGED specifier list (${JSON.stringify(overlapping.group)} against ${JSON.stringify(rootGroup.group)}),`;
   }
+
   if (!overlapping.group.every((specifier, index) => specifier === rootGroup.group[index])) {
     return `restates, with a DIVERGED specifier list (${JSON.stringify(overlapping.group)} against ${JSON.stringify(rootGroup.group)}),`;
   }
+
   return "restates, with a DIVERGED message,";
 }
 
 /** The site's `files` globs, for a diagnostic that names the scope and not only its index. */
 function scopeLabel(scope) {
   if (!Array.isArray(scope) || scope.length === 0) return "";
+
   return ` (${scope.join(", ")})`;
 }
 
@@ -756,23 +811,30 @@ function scopeLabel(scope) {
  */
 function collectSite(rules, where, sites, failures) {
   if (rules === undefined) return;
+
   if (rules === null || typeof rules !== "object" || Array.isArray(rules)) {
     failures.push(
       `${where}.rules is ${JSON.stringify(rules)} rather than an object of rule names, so any fence inside it went unread.`,
     );
+
     return;
   }
+
   if (!(RESTRICTED_IMPORTS in rules)) return;
 
   const value = rules[RESTRICTED_IMPORTS];
+
   if (typeof value === "string") {
     sites.push({ where, groups: [] });
+
     return;
   }
+
   if (!Array.isArray(value) || value.length === 0 || typeof value[0] !== "string") {
     failures.push(
       `${where}'s ${RESTRICTED_IMPORTS} resolved to ${JSON.stringify(value)}, which is neither a severity string nor a [severity, options] array. This reader cannot tell an armed fence from a disarmed one in that shape, so it refuses instead of reporting zero groups.`,
     );
+
     return;
   }
 
@@ -781,6 +843,7 @@ function collectSite(rules, where, sites, failures) {
   // the config. Both nestings are accepted because the nesting is the internal detail
   // most likely to move in a release, while a non-object leaf stays a refusal.
   const groups = [];
+
   for (const options of value.slice(1).flat()) {
     if (options === null || typeof options !== "object" || Array.isArray(options)) {
       failures.push(
@@ -788,32 +851,40 @@ function collectSite(rules, where, sites, failures) {
       );
       continue;
     }
+
     const patterns = options.patterns;
+
     if (patterns === undefined) continue;
+
     if (!Array.isArray(patterns)) {
       failures.push(
         `${where}'s ${RESTRICTED_IMPORTS} "patterns" is ${JSON.stringify(patterns)} rather than an array, so its fences went unread.`,
       );
       continue;
     }
+
     for (const [index, pattern] of patterns.entries()) {
       if (typeof pattern === "string") {
         groups.push({ group: [pattern], message: null });
         continue;
       }
+
       if (pattern === null || typeof pattern !== "object" || Array.isArray(pattern)) {
         failures.push(
           `${where}'s ${RESTRICTED_IMPORTS} patterns[${index}] is ${JSON.stringify(pattern)}, which is neither a specifier string nor a group object.`,
         );
         continue;
       }
+
       const group = pattern.group;
+
       if (!Array.isArray(group) || !group.every((entry) => typeof entry === "string")) {
         failures.push(
           `${where}'s ${RESTRICTED_IMPORTS} patterns[${index}] has no "group" array of specifier strings (received ${JSON.stringify(group)}), so nothing in it could be resolved.`,
         );
         continue;
       }
+
       groups.push({ group, message: typeof pattern.message === "string" ? pattern.message : null });
     }
   }
@@ -824,8 +895,11 @@ function collectSite(rules, where, sites, failures) {
 function pinsRootConfig(tokens) {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
+
     if (token === "--config" && tokens[index + 1] === ROOT_OXLINT_CONFIG) return true;
+
     if (token === `--config=${ROOT_OXLINT_CONFIG}`) return true;
   }
+
   return false;
 }

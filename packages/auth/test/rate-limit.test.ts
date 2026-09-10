@@ -22,6 +22,7 @@ const RULE = { window: 10, max: 2 };
 function fakeRedis() {
   const values = new Map<string, number>();
   const evalCalls: Array<{ key: string; args: (string | number)[] }> = [];
+
   return {
     values,
     evalCalls,
@@ -33,17 +34,21 @@ function fakeRedis() {
         evalCalls.push({ key, args });
         const next = (values.get(key) ?? 0) + amount;
         values.set(key, next);
+
         if (next === amount) {
           values.set(`${key}:ttl`, ttl);
         }
+
         return next;
       },
       get: async (key: string) => {
         const value = values.get(key);
+
         return value === undefined ? null : String(value);
       },
       set: async (key: string, value: string) => {
         values.set(key, Number.parseInt(value, 10));
+
         return "OK";
       },
     },
@@ -57,6 +62,7 @@ async function withoutWarnings<T>(run: () => Promise<T>): Promise<{ result: T; w
   console.warn = () => {
     warnings += 1;
   };
+
   try {
     return { result: await run(), warnings };
   } finally {
@@ -126,6 +132,7 @@ describe("auth rate limit storage (#458)", () => {
     const unreachable = () => {
       throw new Error("connect ECONNREFUSED");
     };
+
     const storage = createAuthRateLimitStorage(unreachable);
 
     const { result, warnings } = await withoutWarnings(async () => [
@@ -177,6 +184,7 @@ describe("auth rate limit configuration (#458)", () => {
       proxies && proxies.length > 0,
       "an empty list buckets every forwarded request as one",
     );
+
     for (const entry of proxies) {
       const slash = entry.lastIndexOf("/");
       const address = slash === -1 ? entry : entry.slice(0, slash);
@@ -184,6 +192,7 @@ describe("auth rate limit configuration (#458)", () => {
       // Better Auth logs and DROPS an entry it cannot parse, so a typo here
       // costs the whole trusted-proxy walk with nothing failing loudly.
       assert.notEqual(family, 0, `not an IP address: ${entry}`);
+
       if (slash === -1) continue;
       const prefix = Number(entry.slice(slash + 1));
       assert.ok(

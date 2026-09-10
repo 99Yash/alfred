@@ -11,6 +11,7 @@ import { useAppTheme, type AppThemeMode } from "./theme";
 export function AppThemeToggle({ className }: { className?: string }) {
   const { mode, setMode } = useAppTheme();
   const next: AppThemeMode = mode === "system" ? "light" : mode === "light" ? "dark" : "system";
+
   const label =
     mode === "system" ? "Theme: system" : mode === "light" ? "Theme: light" : "Theme: dark";
 

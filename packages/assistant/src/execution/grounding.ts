@@ -14,6 +14,7 @@ import { formatDay, inZone } from "@alfred/assistant/time";
  */
 export function formatDateGrounding(timezone: IanaTimezone, now: Date = new Date()): string {
   const today = inZone(timezone).day(now);
+
   return `${formatDay(today, "long")} (${today}), timezone ${timezone}`;
 }
 
@@ -31,6 +32,7 @@ export function formatDateGrounding(timezone: IanaTimezone, now: Date = new Date
 export function formatRuntimeTimeGrounding(timezone: IanaTimezone, now: Date): string {
   const { localDate, localTime } = inZone(timezone).clock(now);
   const localIso = `${localDate}T${localTime}`;
+
   return `<runtime_context>Current date and time: ${formatDay(localDate, "long")}, ${localTime} (${localIso} in ${timezone}; ${now.toISOString()} UTC).</runtime_context>`;
 }
 

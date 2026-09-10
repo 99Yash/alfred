@@ -9,6 +9,7 @@ import type { TurnStopController } from "./turn-stop-controller";
 
 /** Flush coalesced text/reasoning/artifact deltas at least this often (ms) and at this size (chars). */
 const DELTA_FLUSH_MS = 180;
+
 const DELTA_FLUSH_CHARS = 100;
 
 /**
@@ -34,9 +35,11 @@ function artifactStreamMode(toolName: string): ArtifactStreamMode | undefined {
 
 function splitEventText(text: string): string[] {
   const chunks: string[] = [];
+
   for (let i = 0; i < text.length; i += CHAT_DELTA_MAX) {
     chunks.push(text.slice(i, i + CHAT_DELTA_MAX));
   }
+
   return chunks;
 }
 
@@ -119,6 +122,7 @@ export async function streamModelTurn(args: {
   const voiceSanitizer = createVoiceStreamSanitizer();
   let buffer = "";
   let lastFlush = Date.now();
+
   const publishTextDelta = async (text: string): Promise<void> => {
     for (const chunk of splitEventText(text)) {
       state.deltaSeq += 1;
@@ -137,6 +141,7 @@ export async function streamModelTurn(args: {
       });
     }
   };
+
   const flush = async (): Promise<void> => {
     // While a reissue is pending (#407) this turn's text is an internal reissue
     // lead-in — withhold its live deltas so "tools warming up, retrying" never
@@ -144,21 +149,25 @@ export async function streamModelTurn(args: {
     // answers instead of reissuing, the final-answer path clears the flag and
     // flushes it as the real reply.
     if (state.reissuePending) return;
+
     if (buffer.length === 0) return;
     // `push` may hold back a trailing dash/space until the next chunk fixes its
     // meaning; `flushVoiceTail` releases the remainder after the drain.
     const text = voiceSanitizer.push(buffer);
     buffer = "";
     lastFlush = Date.now();
+
     if (text.length === 0) return;
     await publishTextDelta(text);
   };
+
   // Release whatever the streaming sanitizer held back, closing the segment's
   // live text. Safe on an empty sanitizer (returns ""). Gated on
   // `reissuePending` for the same reason as `flush`.
   const flushVoiceTail = async (): Promise<void> => {
     if (state.reissuePending) return;
     const tail = voiceSanitizer.flush();
+
     if (tail.length > 0) await publishTextDelta(tail);
   };
 
@@ -167,11 +176,13 @@ export async function streamModelTurn(args: {
   // First/last reasoning token timestamps → "Thought for Ns". Accumulates
   // across turns in a tool-calling loop (reasoning can resume after a tool).
   let reasoningStart = 0;
+
   const flushReasoning = async (): Promise<void> => {
     if (reasoningBuffer.length === 0) return;
     const text = reasoningBuffer;
     reasoningBuffer = "";
     lastReasoningFlush = Date.now();
+
     for (const chunk of splitEventText(text)) {
       state.reasoningSeq += 1;
       await publish({
@@ -208,23 +219,31 @@ export async function streamModelTurn(args: {
     lastFlush: number;
     titleSent: boolean;
   }
+
   const artifactInputs = new Map<string, ArtifactInputStream>();
+
   const flushArtifactInput = async (toolCallId: string, final: boolean): Promise<void> => {
     const s = artifactInputs.get(toolCallId);
+
     if (!s) return;
+
     if (final) artifactInputs.delete(toolCallId);
     const parsed = await parsePartialJson(s.buf);
     const value = parsed.value;
     const markdown = isRecord(value) && typeof value.markdown === "string" ? value.markdown : "";
+
     // Only publish once the body has actually grown — this is what excludes a
     // `pages` create (no `markdown` field) and a rename-only update.
     if (markdown.length <= s.sentLen) return;
     const title = isRecord(value) && typeof value.title === "string" ? value.title : undefined;
+
     const artifactId =
       isRecord(value) && typeof value.artifactId === "string" ? value.artifactId : undefined;
+
     const tail = markdown.slice(s.sentLen);
     s.sentLen = markdown.length;
     s.lastFlush = Date.now();
+
     // Chunk the tail like chat deltas (splitEventText): the reducer appends each
     // `text`, so a big final burst — or a single >16k tool-input-delta — becomes
     // several in-cap events instead of one over-cap payload that `publishEvent`
@@ -233,6 +252,7 @@ export async function streamModelTurn(args: {
     for (const [i, chunk] of splitEventText(tail).entries()) {
       s.seq += 1;
       const includeTitle = i === 0 && !s.titleSent && title !== undefined;
+
       if (includeTitle) s.titleSent = true;
       await publish({
         untransacted: true,
@@ -255,10 +275,12 @@ export async function streamModelTurn(args: {
   try {
     for await (const part of stream.stream) {
       if (await stopController.checkStop()) break;
+
       if (part.type === "tool-input-start") {
         // At the fullStream level, `part.id` is the toolCallId (it matches the
         // later `tool-call` part's `toolCallId`).
         const mode = artifactStreamMode(part.toolName);
+
         if (mode) {
           artifactInputs.set(part.id, {
             mode,
@@ -271,8 +293,10 @@ export async function streamModelTurn(args: {
         }
       } else if (part.type === "tool-input-delta") {
         const s = artifactInputs.get(part.id);
+
         if (s) {
           s.buf += part.delta;
+
           if (
             s.buf.length - s.sentLen >= DELTA_FLUSH_CHARS ||
             Date.now() - s.lastFlush >= DELTA_FLUSH_MS
@@ -284,6 +308,7 @@ export async function streamModelTurn(args: {
         await flushReasoning();
         state.assistantText += part.text;
         buffer += part.text;
+
         if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
           await flush();
         }
@@ -291,6 +316,7 @@ export async function streamModelTurn(args: {
         if (reasoningStart === 0) reasoningStart = Date.now();
         state.reasoningText += part.text;
         reasoningBuffer += part.text;
+
         if (
           reasoningBuffer.length >= DELTA_FLUSH_CHARS ||
           Date.now() - lastReasoningFlush >= DELTA_FLUSH_MS
@@ -306,14 +332,17 @@ export async function streamModelTurn(args: {
           state.reasoningMs += Date.now() - reasoningStart;
           reasoningStart = 0;
         }
+
         await flushReasoning();
         await flush();
+
         // The full tool call is assembled: publish the tail of any artifact body
         // it was streaming so the sidebar has the whole authored body before the
         // tool executes.
         if (artifactInputs.has(part.toolCallId)) {
           await flushArtifactInput(part.toolCallId, true);
         }
+
         if (shouldPublishToolStarted(state.activeTools, part.toolName)) {
           await publish({
             untransacted: true,
@@ -339,12 +368,14 @@ export async function streamModelTurn(args: {
     // iterator itself; swallow it only when we asked for it.
     if (!stopController.stopped) throw err;
   }
+
   // Some providers end the stream without a `reasoning-end`; close the duration
   // and flush any trailing thinking before the reply flush.
   if (reasoningStart > 0) {
     state.reasoningMs += Date.now() - reasoningStart;
     reasoningStart = 0;
   }
+
   await flushReasoning();
   await flush();
   // Segment complete: release any dash/whitespace the sanitizer held back so the

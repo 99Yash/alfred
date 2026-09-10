@@ -28,6 +28,7 @@ export async function classifyChatTurnFailure(
   err: unknown,
 ): Promise<ChatErrorKind> {
   const images = await threadImageAttachments(userId, state.threadId, state.userMessageId);
+
   return classifyChatFailure(err, {
     currentTurnHasImage: images.currentTurn,
     historicalHasImage: images.historical,
@@ -65,6 +66,7 @@ export function classifyChatFailure(
   // behind an explicit image/picture/photo mention so only a message that
   // actually names an image counts; everything else falls through to generic.
   const mentionsImage = msg.includes("image") || msg.includes("picture") || msg.includes("photo");
+
   const isImageReject =
     msg.includes("unable to process input image") ||
     msg.includes("invalid image") ||
@@ -74,11 +76,13 @@ export function classifyChatFailure(
         msg.includes("unsupported media") ||
         msg.includes("decode") ||
         msg.includes("corrupt")));
+
   if (isImageReject) {
     // Prefer the recoverable kind: if the current turn has an image, "Send
     // without it" can drop it. Otherwise, if only an earlier turn's replayed
     // image can be the culprit, say so honestly — the retry can't reach it.
     if (opts.currentTurnHasImage) return "attachment";
+
     if (opts.historicalHasImage) return "attachment_history";
     // No image anywhere → not an attachment failure; fall through to generic.
   }
@@ -97,6 +101,7 @@ export function classifyChatFailure(
   // fallback for stringified errors — `\b` so a request id / token count that
   // merely contains "429" doesn't get mis-tagged.
   if (err instanceof HttpError && err.status === 429) return "rate_limited";
+
   if (msg.includes("rate limit") || msg.includes("too many requests") || /\b429\b/.test(msg)) {
     return "rate_limited";
   }
@@ -121,6 +126,7 @@ export function classifyChatFailure(
 
   // Transient provider faults — 5xx, "internal error", overloaded, network.
   if (err instanceof HttpError && err.status >= 500) return "overloaded";
+
   if (
     msg.includes("internal error") ||
     msg.includes("overloaded") ||

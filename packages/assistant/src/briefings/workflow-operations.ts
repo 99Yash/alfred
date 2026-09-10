@@ -86,6 +86,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 ): Promise<StepResult<State>> {
   const prefs = await resolveBriefingPreferences(ctx.userId);
   const timezone = prefs.timezone;
+
   // `state.briefingDate` is persisted JSON, so it re-enters as a plain string
   // and is parsed back into a key here; a fresh run mints one instead.
   const briefingDate = ctx.state.briefingDate
@@ -107,6 +108,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     await ctx.log(
       `gather: skip existing terminal briefing id=${begun.row.id} status=${begun.row.status}`,
     );
+
     return {
       kind: "done",
       state: { ...ctx.state, briefingId: begun.row.id, briefingDate, timezone },
@@ -131,6 +133,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   // to reuse, so they fall through to a (correct) fresh compose.
   if (begun.action === "resume" && begun.row.status === "composed") {
     const { breakingSummary, fullBriefing, watermarkAt } = begun.row;
+
     // The composed row must carry both its prose AND the frozen window end
     // (`watermarkAt`, stashed by `compose`). With the window end we can send
     // the reused prose AND advance the watermark to exactly the instant the
@@ -142,6 +145,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
         `gather: resume composed briefing id=${begun.row.id} — skipping to send ` +
           `(reuse prose, watermark=${watermarkAt.toISOString()})`,
       );
+
       return {
         kind: "next",
         state: {
@@ -178,6 +182,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 
   let gather: BriefingGather;
   let suppressedByInstruction: BriefingInstructionSuppression[] = [];
+
   try {
     // Deterministic structured gather over the same watermark window the
     // agent composes from. Cheap (DB reads against email_triage +
@@ -191,6 +196,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       windowStart: since ?? undefined,
       windowEnd: until,
     });
+
     gather = gathered.gather;
     suppressedByInstruction = gathered.suppressedByInstruction;
     await markBriefingGathering({ briefingId: begun.row.id, gather });
@@ -207,6 +213,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   // `demandingEmailCount` is folded onto day-shape by the gather; its
   // absence falls back to the raw email count.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
+
   const quietDay = isQuietMorning({
     demandingEmailCount,
     emailCount: counts.email,
@@ -241,9 +248,11 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   const { briefingId, untilIngestedAt } = ctx.state;
+
   if (!briefingId || !untilIngestedAt || !ctx.state.briefingDate || !ctx.state.timezone) {
     throw new Error("[daily-briefing] compose entered without gather output");
   }
+
   // Persisted state carries both as plain strings — this is the boundary that
   // re-establishes the day key and the zone as their own types.
   const briefingDate = parseLocalDateKey(ctx.state.briefingDate);
@@ -255,6 +264,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   if (ctx.state.slot === "morning" && ctx.state.reason === "cron" && ctx.state.quietDay) {
     const gateReason =
       "quiet morning: no demanding email, integration activity, or calendar events";
+
     if (!ctx.state.dryRun) {
       await markBriefingSuppressed({
         briefingId,
@@ -262,7 +272,9 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         gateReason,
       });
     }
+
     await ctx.log(`compose: suppressed (${gateReason})${ctx.state.dryRun ? " [dryRun]" : ""}`);
+
     return {
       kind: "done",
       state: ctx.state,
@@ -282,6 +294,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await markBriefingComposing(briefingId);
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
+
   try {
     result = await runBriefingAgent({
       userId: ctx.userId,
@@ -342,6 +355,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   const { composed, briefingId, briefingDate, untilIngestedAt } = ctx.state;
+
   if (!composed || !briefingId || !briefingDate || !untilIngestedAt) {
     throw new Error("[daily-briefing] send entered without composed output");
   }
@@ -351,6 +365,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   // send so the smoke script doesn't need a special path.
   if (ctx.state.dryRun) {
     await ctx.log("send: skipped (dryRun)");
+
     return {
       kind: "done",
       state: ctx.state,
@@ -370,6 +385,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   // The template (`@alfred/mailer`) owns all styling; the model only
   // ever produces prose markdown.
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
+
   const html = await renderBriefingEmail({
     content: composed.bodyMarkdown,
     createdAt: new Date().toISOString(),
@@ -416,6 +432,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       : ctx.state.reason !== "cron"
         ? `${ctx.state.reason} run bypasses morning suppression`
         : "demanding signal present";
+
   await markBriefingSent({
     briefingId,
     emailSendId: result.emailSendId,
@@ -463,23 +480,28 @@ function gatherCounts(gather: BriefingGather): GatheredCounts {
 function uniqueStrings(values: readonly string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
+
   for (const value of values) {
     const trimmed = value.trim();
+
     if (!trimmed || seen.has(trimmed)) continue;
     seen.add(trimmed);
     out.push(trimmed);
   }
+
   return out;
 }
 
 function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppression[]): string {
   if (items.length === 0) return " instruction_suppressions=0";
   const factIds = [...new Set(items.map((item) => item.factId))].join(",");
+
   return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
 }
 
 function pickFirstName(name: string | null): string | null {
   if (!name) return null;
   const first = name.trim().split(/\s+/)[0];
+
   return first || null;
 }

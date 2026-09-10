@@ -15,5 +15,6 @@ import type { RecordedDecision } from "./use-approval-decision";
  */
 export async function decideApproval(stagingId: string, decision: RecordedDecision): Promise<void> {
   const { error } = await client.api.approvals({ stagingId }).decision.post(decision);
+
   if (error) throw new Error(responseErrorMessage(error.value, error.status, "Approval decision"));
 }

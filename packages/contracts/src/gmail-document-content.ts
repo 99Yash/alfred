@@ -21,8 +21,10 @@ const STORED_DATE_LINE_RE = /^Date: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3
  */
 export function buildGmailDocumentContent(args: BuildGmailDocumentContentArgs): string {
   const headerLines = expectedEnvelopeLines(args);
+
   if (args.date) headerLines.push(`Date: ${args.date.toISOString()}`);
   const header = headerLines.join("\n");
+
   return header ? `${header}\n\n${args.body}` : args.body;
 }
 
@@ -41,15 +43,20 @@ export function extractGmailDocumentBody(
 ): string {
   const value = content ?? "";
   const separator = value.indexOf("\n\n");
+
   if (separator < 0) return value;
 
   const expected = expectedEnvelopeLines(envelope);
+
   if (expected.length < 2) return value;
 
   const actual = value.slice(0, separator).split("\n");
   const hasStoredDate = actual.length === expected.length + 1;
+
   if (actual.length !== expected.length && !hasStoredDate) return value;
+
   if (!expected.every((line, index) => actual[index] === line)) return value;
+
   if (hasStoredDate && !STORED_DATE_LINE_RE.test(actual.at(-1) ?? "")) return value;
 
   return value.slice(separator + 2);
@@ -57,9 +64,14 @@ export function extractGmailDocumentBody(
 
 function expectedEnvelopeLines(envelope: GmailDocumentEnvelope): string[] {
   const lines: string[] = [];
+
   if (envelope.from) lines.push(`From: ${envelope.from}`);
+
   if (envelope.to) lines.push(`To: ${envelope.to}`);
+
   if (envelope.cc) lines.push(`Cc: ${envelope.cc}`);
+
   if (envelope.subject) lines.push(`Subject: ${envelope.subject}`);
+
   return lines;
 }

@@ -6,6 +6,7 @@ test("exact dotted paths censor the nested leaf only", () => {
   const out = redactSensitiveLogPaths({
     req: { headers: { authorization: "Bearer sk_live", "x-request-id": "abc" } },
   });
+
   assert.deepEqual(out, {
     req: { headers: { authorization: "[redacted]", "x-request-id": "abc" } },
   });
@@ -17,6 +18,7 @@ test("leading wildcard matches the remainder under any top-level key", () => {
     user: { name: "sam", password: "hunter2" },
     deep: { nested: { apiKey: "key" } },
   });
+
   assert.deepEqual(out, {
     credential: { accessToken: "[redacted]", refreshToken: "[redacted]" },
     user: { name: "sam", password: "[redacted]" },
@@ -28,6 +30,7 @@ test("arrays are walked and their elements' leaves are matched", () => {
   const out = redactSensitiveLogPaths({
     rows: [{ password: "p1" }, { password: "p2", ok: true }],
   });
+
   assert.deepEqual(out, {
     rows: [{ password: "[redacted]" }, { password: "[redacted]", ok: true }],
   });
@@ -44,10 +47,13 @@ test("non-plain values pass through untouched and the input is never mutated", (
 test("every declared path censors its own sample payload shape", () => {
   for (const path of SENSITIVE_LOG_PATHS) {
     const segments = path.split(".");
+
     const node = segments.reduceRight<Record<string, unknown>>((child, segment) => {
       const key = segment === "*" ? "anyTopLevelKey" : segment;
+
       return { [key]: child };
     }, {});
+
     const censored = JSON.stringify(redactSensitiveLogPaths(node));
     assert.ok(censored.includes("[redacted]"), `path ${path} should censor its sample payload`);
   }

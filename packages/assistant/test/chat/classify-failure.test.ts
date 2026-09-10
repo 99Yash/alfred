@@ -6,7 +6,9 @@ import { HttpError } from "@alfred/contracts";
 import { classifyChatFailure } from "@alfred/assistant/chat/chat-failure-kind";
 
 const NO_IMAGE = { currentTurnHasImage: false, historicalHasImage: false };
+
 const CURRENT_IMAGE = { currentTurnHasImage: true, historicalHasImage: false };
+
 const HISTORICAL_IMAGE = { currentTurnHasImage: false, historicalHasImage: true };
 
 test("ADR-0072: no image anywhere never classifies as attachment, regardless of text", () => {
@@ -94,6 +96,7 @@ test("an image-named 'unsupported media' still classifies attachment", () => {
 test("structured signals still classify correctly (image flags don't touch them)", () => {
   const http = (status: number) =>
     new HttpError({ provider: "test", status, url: "https://x.test", body: "" });
+
   assert.equal(classifyChatFailure(http(429), NO_IMAGE), "rate_limited");
   assert.equal(classifyChatFailure(http(503), NO_IMAGE), "overloaded");
   assert.equal(
@@ -129,6 +132,7 @@ test("a provider transient fault still classifies overloaded (timeout split stay
   // `overloaded` (retryable, but a provider glitch, not our circuit-breaker).
   const http = (status: number) =>
     new HttpError({ provider: "test", status, url: "https://x.test", body: "" });
+
   assert.equal(classifyChatFailure(http(503), NO_IMAGE), "overloaded");
   assert.equal(classifyChatFailure(new Error("model is overloaded"), NO_IMAGE), "overloaded");
   assert.equal(classifyChatFailure(new Error("504 gateway timeout"), NO_IMAGE), "overloaded");

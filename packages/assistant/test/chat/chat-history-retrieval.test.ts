@@ -11,6 +11,7 @@ const at = new Date("2026-07-12T00:00:00.000Z");
 describe("current-thread chat history retrieval", () => {
   test("passes authenticated ownership scope to search and bounds results", async () => {
     let scope: unknown;
+
     const result = await readChatHistory(
       {
         userId: "user_1",
@@ -20,6 +21,7 @@ describe("current-thread chat history retrieval", () => {
       {
         searchMessages: async (args) => {
           scope = args;
+
           return [
             { id: "m3", role: "assistant", content: "three", toolCalls: null, createdAt: at },
             { id: "m2", role: "user", content: "two", toolCalls: null, createdAt: at },
@@ -28,6 +30,7 @@ describe("current-thread chat history retrieval", () => {
         },
       },
     );
+
     assert.deepEqual(scope, {
       userId: "user_1",
       threadId: "thread_1",
@@ -54,8 +57,10 @@ describe("current-thread chat history retrieval", () => {
         }),
       },
     );
+
     const content = (result as { result: { content: { text: string; truncated: boolean } } }).result
       .content;
+
     assert.equal(content.text.includes("\u0000"), false);
     assert.equal(content.text.length, CHAT_HISTORY_EXCERPT_CHARS);
     assert.equal(content.truncated, true);
@@ -87,6 +92,7 @@ describe("current-thread chat history retrieval", () => {
         }),
       },
     );
+
     assert.equal((result as { result: { id: string; sanitized: boolean } }).result.id, "call_1");
     assert.equal((result as { result: { sanitized: boolean } }).result.sanitized, true);
   });
@@ -121,13 +127,16 @@ describe("current-thread chat history retrieval", () => {
         }),
       },
     );
+
     assert.equal(JSON.stringify(result).includes("storageKey"), false);
     assert.equal((result as { result: { messageId: string } }).result.messageId, "m1");
+
     const representation = (
       result as {
         result: { representation: { text: string; truncated: boolean; originalChars: number } };
       }
     ).result.representation;
+
     assert.equal(representation.text.length, CHAT_HISTORY_EXCERPT_CHARS);
     assert.equal(representation.truncated, true);
     assert.ok(representation.originalChars > CHAT_HISTORY_EXCERPT_CHARS);
@@ -142,6 +151,7 @@ describe("current-thread chat history retrieval", () => {
       },
       { fetchMessage: async () => null },
     );
+
     assert.deepEqual(result, {
       ok: true,
       mode: "fetch",

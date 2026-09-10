@@ -28,10 +28,13 @@ const RETRY = { maxAttempts: 2 } as const;
 describe("once", () => {
   test("runs the builder exactly once and returns the same value", () => {
     let calls = 0;
+
     const build = once(() => {
       calls += 1;
+
       return { n: calls };
     });
+
     const first = build();
     assert.equal(build(), first, "the same reference must come back");
     assert.equal(build(), first);
@@ -40,11 +43,14 @@ describe("once", () => {
 
   test("collapses concurrent async callers onto one in-flight run", async () => {
     let runs = 0;
+
     const run = once(async () => {
       runs += 1;
       await Promise.resolve();
+
       return "value";
     });
+
     // Deliberately not awaited in sequence: overlapping callers share the promise
     // rather than each starting their own run. No caller in this package needs
     // this today — pinned so the memo's contract is a tested property.
@@ -55,10 +61,12 @@ describe("once", () => {
 
   test("caches a rejection rather than re-running the failing builder", async () => {
     let attempts = 0;
+
     const run = once(async () => {
       attempts += 1;
       throw new Error("construction failed");
     });
+
     await assert.rejects(run(), /construction failed/);
     await assert.rejects(run(), /construction failed/);
     // One failure, reported at every call site that needed it, rather than N
@@ -68,10 +76,13 @@ describe("once", () => {
 
   test("caches undefined — the memo is presence-based, not truthiness-based", () => {
     let calls = 0;
+
     const build = once(() => {
       calls += 1;
+
       return undefined;
     });
+
     build();
     build();
     assert.equal(calls, 1);

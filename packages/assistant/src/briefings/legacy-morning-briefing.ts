@@ -96,6 +96,7 @@ const stateSchema = z.discriminatedUnion("phase", [
   gatheredStateSchema,
   composedStateSchema,
 ]);
+
 type State = z.infer<typeof stateSchema>;
 
 export const morningBriefingWorkflow: Workflow<State> = {
@@ -113,6 +114,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
 
   initialState(input) {
     const parsed = legacyMorningBriefingWorkflowInputSchema.parse(input.input ?? {});
+
     return {
       phase: "initial",
       slot: parsed.slot,
@@ -129,6 +131,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
       async run(ctx) {
         const prefs = await resolveBriefingPreferences(ctx.userId);
         const timezone = prefs.timezone;
+
         // Persisted state carries the day as a plain string; a fresh run mints one.
         const briefingDate = ctx.state.briefingDate
           ? parseLocalDateKey(ctx.state.briefingDate)
@@ -146,6 +149,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
           await ctx.log(
             `gather: skip existing terminal briefing id=${begun.row.id} status=${begun.row.status}`,
           );
+
           return {
             kind: "done",
             state: {
@@ -168,19 +172,23 @@ export const morningBriefingWorkflow: Workflow<State> = {
         }
 
         let resumed: ReturnType<typeof resumeExistingBriefing> = null;
+
         try {
           resumed = resumeExistingBriefing(begun.row, ctx.state.reason);
         } catch (err) {
           await markBriefingFailed(begun.row.id);
           throw err;
         }
+
         if (begun.action === "resume" && resumed) {
           await ctx.log(`gather: resume existing ${begun.row.status} briefing id=${begun.row.id}`);
+
           return resumed;
         }
 
         let gather: BriefingGather;
         let suppressedByInstruction: BriefingInstructionSuppression[] = [];
+
         try {
           const gathered = await gatherBriefingWithSuppressionAudit({
             userId: ctx.userId,
@@ -188,6 +196,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
             slot: ctx.state.slot,
             timezone,
           });
+
           gather = gathered.gather;
           suppressedByInstruction = gathered.suppressedByInstruction;
           await markBriefingGathering({ briefingId: begun.row.id, gather });
@@ -226,6 +235,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
         await markBriefingComposing(state.briefingId);
 
         let composed: Awaited<ReturnType<typeof composeBriefing>>;
+
         try {
           composed = await composeBriefing({
             userId: ctx.userId,
@@ -276,6 +286,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
       async run(ctx) {
         const state = requireSendState(ctx.state);
         const gate = decideSend(state);
+
         if (gate.decision === "suppressed") {
           await markBriefingSuppressed({
             briefingId: state.briefingId,
@@ -283,6 +294,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
             gateReason: gate.reason,
           });
           await ctx.log(`send: suppressed reason="${gate.reason}"`);
+
           return {
             kind: "done",
             state,
@@ -302,6 +314,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
         const resolved = resolveBriefingReferences(state.composed.breakingSummary, state.gather);
         const rendered = renderBriefingEmailHtml({ segments: resolved.segments });
         const idempotencyKey = `briefing:${ctx.userId}:${state.briefingDate}:${state.slot}`;
+
         const result = await send({
           userId: ctx.userId,
           kind: state.slot === "morning" ? "briefing" : "evening_recap",
@@ -370,9 +383,11 @@ function requireSendState(state: State): z.infer<typeof composedStateSchema> {
 
 function parseStepState<T>(schema: z.ZodType<T>, state: State, step: string, expected: string): T {
   const parsed = schema.safeParse(state);
+
   if (!parsed.success) {
     throw new Error(`[morning-briefing] ${step} entered without ${expected}`);
   }
+
   return parsed.data;
 }
 
@@ -389,6 +404,7 @@ function resumeExistingBriefing(
     case "gathering":
     case "composing":
       if (!row.gather) return null;
+
       return {
         kind: "next",
         state: {
@@ -406,6 +422,7 @@ function resumeExistingBriefing(
       if (!row.gather || !row.breakingSummary || !row.fullBriefing) {
         throw new Error(`[morning-briefing] composed row missing persisted output id=${row.id}`);
       }
+
       return {
         kind: "next",
         state: {
@@ -435,6 +452,7 @@ function resumeExistingBriefing(
 function subjectLine(headline: string, briefingDate: string, timezone: IanaTimezone): string {
   const dateLabel = formatDateLabel(briefingDate, timezone);
   const trimmed = headline.trim();
+
   return trimmed ? `Alfred · ${dateLabel} · ${trimmed}` : `Alfred · ${dateLabel}`;
 }
 
@@ -444,11 +462,13 @@ function decideSend(
   if (state.slot === "evening") {
     return { decision: "sent", reason: "evening slot always sends" };
   }
+
   if (state.reason !== "cron") {
     return { decision: "sent", reason: `${state.reason} run bypasses morning suppression` };
   }
 
   const counts = gatherCounts(state.gather);
+
   if (counts.email > 0 || counts.activity > 0 || counts.meetings > 0) {
     return {
       decision: "sent",
@@ -468,6 +488,7 @@ function formatDateLabel(briefingDate: string, timezone: IanaTimezone): string {
   // Date at noon-UTC of that day so DST doesn't bump us into a
   // neighbouring day during formatting.
   const noonUtc = new Date(`${briefingDate}T12:00:00Z`);
+
   return new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     weekday: "long",
@@ -496,5 +517,6 @@ function gatherCounts(gather: BriefingGather): GatheredCounts {
 function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppression[]): string {
   if (items.length === 0) return " instruction_suppressions=0";
   const factIds = [...new Set(items.map((item) => item.factId))].join(",");
+
   return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
 }

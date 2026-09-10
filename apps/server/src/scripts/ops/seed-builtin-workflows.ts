@@ -18,8 +18,10 @@ async function main() {
   registerBuiltinWorkflows();
 
   const { users, rowsTouched, rowsRetired } = await seedBuiltinWorkflowsForAllUsers();
+
   if (users === 0) {
     console.log("[seed-builtin-workflows] no users; nothing to seed.");
+
     return;
   }
 

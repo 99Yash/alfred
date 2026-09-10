@@ -64,6 +64,7 @@ export async function readToolPolicy(
       ),
     )
     .limit(1);
+
   return row;
 }
 
@@ -144,9 +145,11 @@ export async function resolveMcpToolIdentity(
   const descriptorHashExpr = sql<
     string | null
   >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
+
   // A SECOND, hash-blind view of the same table. It must be an alias: the join
   // below binds the exact descriptor hash, and this one deliberately does not.
   const anyReviewedPolicy = alias(mcpToolPolicy, "any_reviewed_policy");
+
   const [row] = await runner
     .select({
       connection: {
@@ -246,6 +249,7 @@ export async function upsertToolPolicy(
         and(eq(mcpConnections.id, values.connectionId), eq(mcpConnections.userId, values.userId)),
       )
       .for("update");
+
     requireRow(ownedConnection, "upsertToolPolicy owned connection");
 
     const [row] = await tx
@@ -267,6 +271,7 @@ export async function upsertToolPolicy(
         },
       })
       .returning();
+
     return requireRow(row, "upsertToolPolicy");
   });
 }
@@ -290,6 +295,7 @@ export async function readInvocationByStagingId(
     .from(mcpInvocation)
     .where(eq(mcpInvocation.stagingId, stagingId))
     .limit(1);
+
   return row;
 }
 
@@ -315,6 +321,7 @@ export async function findUnresolvedBarrier(
       ),
     )
     .limit(1);
+
   return row;
 }
 
@@ -452,5 +459,6 @@ export async function reconcileInflightInvocations(
       alignedStagingBarriers: splitStagingBarriers.length,
     };
   };
+
   return runAtomic(runner, run);
 }

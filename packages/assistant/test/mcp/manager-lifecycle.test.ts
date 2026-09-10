@@ -19,8 +19,10 @@ import { projectCatalogRevision } from "../../src/connections/mcp/hash";
 import type { McpConnectionWithServer } from "../../src/connections/mcp/persistence";
 
 type JoinedServerDefinition = McpConnectionWithServer["server"];
+
 // @ts-expect-error - consumers receive definition facts, not a second owner identity.
 type _NoJoinedServerOwner = JoinedServerDefinition["userId"];
+
 // @ts-expect-error - the connection's serverId is authoritative; the nested row does not repeat it.
 type _NoJoinedServerId = JoinedServerDefinition["id"];
 
@@ -41,6 +43,7 @@ class FakeProtocol implements McpProtocolClient {
     this.connectCount += 1;
     this.connectTrace = trace;
     await this.onConnect?.();
+
     return {
       protocolEra: "pre_2026_07_28",
       protocolVersion: "2025-11-25",
@@ -65,6 +68,7 @@ class FakeProtocol implements McpProtocolClient {
     this.listCount += 1;
     this.listTraces.push(trace);
     await this.onListTools?.();
+
     return { tools: this.tools, ttlMs: this.ttlMs, cacheScope: "private" };
   }
 
@@ -105,6 +109,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     userId,
   ) => {
     await this.onReadOwned?.();
+
     return id === this.connection.id && userId === this.connection.userId
       ? this.connection
       : undefined;
@@ -115,6 +120,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     this.updates.push(patch);
     await this.onUpdate?.(patch);
     Object.assign(this.connection, patch, { updatedAt: new Date() });
+
     return this.connection;
   };
 
@@ -130,6 +136,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
       id,
       input.descriptors.map((entry) => entry.name),
     );
+
     return {
       id,
       connectionId: input.connectionId,
@@ -146,16 +153,19 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   compareAndSetCatalogRevision: McpConnectionManagerPersistence["compareAndSetCatalogRevision"] =
     async (input) => {
       if (input.nextRevisionId) await this.onActivate?.(input);
+
       if (
         input.connectionId !== this.connection.id ||
         this.connection.currentCatalogRevisionId !== input.expectedCurrentRevisionId
       ) {
         return undefined;
       }
+
       Object.assign(this.connection, input.patch, {
         currentCatalogRevisionId: input.nextRevisionId,
         updatedAt: new Date(),
       });
+
       return this.connection;
     };
 }
@@ -180,9 +190,11 @@ function managerWith(
 
 function deferred() {
   let resolve!: () => void;
+
   const promise = new Promise<void>((promiseResolve) => {
     resolve = promiseResolve;
   });
+
   return { promise, resolve };
 }
 
@@ -195,8 +207,10 @@ describe("mcp connection manager lifecycle", () => {
 
     protocol.onListTools = () => {
       listCalls += 1;
+
       if (listCalls === 2) throw new Error("replacement refresh failed");
     };
+
     persistence.onPublish = async () => {
       persistence.onPublish = null;
       await protocol.emitToolsChanged();
@@ -267,17 +281,22 @@ describe("mcp connection manager lifecycle", () => {
     const managerA = managerWith(protocolA, persistence);
     const managerB = managerWith(protocolB, persistence);
     let releaseA: (() => void) | undefined;
+
     const holdA = new Promise<void>((resolve) => {
       releaseA = resolve;
     });
+
     let aReachedPromotion: (() => void) | undefined;
+
     const aAtPromotion = new Promise<void>((resolve) => {
       aReachedPromotion = resolve;
     });
+
     let firstA = true;
 
     persistence.onActivate = async (input) => {
       const names = persistence.revisions.get(input.nextRevisionId ?? "");
+
       if (firstA && names?.[0] === "tool_a") {
         firstA = false;
         aReachedPromotion?.();
@@ -403,10 +422,12 @@ describe("mcp connection manager lifecycle", () => {
     protocol.onListTools = () => {
       throw new Error("initial catalog failed");
     };
+
     protocol.onClose = async () => {
       closeStarted.resolve();
       await releaseClose.promise;
     };
+
     persistence.onReadOwned = () => ownershipRead.resolve();
     persistence.onUpdate = async (patch) => {
       if (patch.status !== "disconnected") return;
@@ -458,10 +479,12 @@ describe("mcp connection manager lifecycle", () => {
     protocol.onListTools = () => {
       throw new Error("replacement catalog failed");
     };
+
     protocol.onClose = async () => {
       closeStarted.resolve();
       await releaseClose.promise;
     };
+
     persistence.onUpdate = async (patch) => {
       if (patch.status !== "disconnected") return;
       disconnectedPatchStarted.resolve();
@@ -503,12 +526,15 @@ describe("mcp connection manager lifecycle", () => {
     const compareAndSetCatalogRevision = persistence.compareAndSetCatalogRevision;
     persistence.compareAndSetCatalogRevision = async (input) => {
       terminalWrites.push(input.patch.status);
+
       if (input.patch.status === "failed") {
         failureWriteStarted.resolve();
         await releaseFailureWrite.promise;
       }
+
       return compareAndSetCatalogRevision(input);
     };
+
     persistence.onReadOwned = () => ownershipRead.resolve();
     protocol.onListTools = () => {
       throw new Error("replacement catalog failed");
@@ -546,6 +572,7 @@ describe("mcp connection manager lifecycle", () => {
 
       let disconnect: Promise<boolean>;
       let closeAll: Promise<void>;
+
       if (disconnectFirst) {
         disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
         await closeStarted.promise;
@@ -555,6 +582,7 @@ describe("mcp connection manager lifecycle", () => {
         await closeStarted.promise;
         disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
       }
+
       await Promise.resolve();
       releaseClose.resolve();
 
@@ -621,6 +649,7 @@ describe("mcp connection manager lifecycle", () => {
     const protocol = new FakeProtocol();
     const persistence = new MemoryPersistence();
     const manager = managerWith(protocol, persistence);
+
     const parent: McpTraceContext = {
       runId: "run-trace",
       traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
@@ -631,6 +660,7 @@ describe("mcp connection manager lifecycle", () => {
     const traceId = (trace: McpTraceContext | undefined) => trace?.traceparent.split("-")[1];
     assert.equal(traceId(protocol.connectTrace), traceId(parent));
     assert.ok(protocol.listTraces.length > 0);
+
     for (const trace of protocol.listTraces) {
       assert.equal(traceId(trace), traceId(parent));
       assert.equal(trace?.runId, parent.runId);
@@ -665,6 +695,7 @@ function tool(name: string): Tool {
 
 function connection(): McpConnectionWithServer {
   const now = new Date();
+
   return {
     id: "conn_lifecycle",
     userId: "user_lifecycle",

@@ -34,20 +34,27 @@ import {
 import { and, asc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+
 const ALL_CONNECTED = process.argv.includes("--all-connected");
+
 const FORCE = process.argv.includes("--force");
+
 const DEFAULT_LIMIT = 5000;
+
 const UNKNOWN_ACCOUNT_FAMILY_KEY_PART = "unknown-account";
 
 function flagValue(name: string): string | undefined {
   const prefix = `--${name}=`;
   const found = process.argv.find((a) => a.startsWith(prefix));
+
   return found ? found.slice(prefix.length) : undefined;
 }
 
 function parseEmails(): string[] {
   const raw = flagValue("emails");
+
   if (!raw) return [];
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -56,21 +63,27 @@ function parseEmails(): string[] {
 
 function parsePositiveInt(name: string, fallback: number): number {
   const raw = flagValue(name);
+
   if (raw === undefined) return fallback;
   const n = Number.parseInt(raw, 10);
+
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`--${name} must be a positive integer, got: ${raw}`);
   }
+
   return n;
 }
 
 function parseDateFlag(name: string): Date | null {
   const raw = flagValue(name);
+
   if (!raw) return null;
   const date = new Date(raw);
+
   if (Number.isNaN(date.getTime())) {
     throw new Error(`--${name} must be a valid date/time, got: ${raw}`);
   }
+
   return date;
 }
 
@@ -96,6 +109,7 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
       )
       .groupBy(userTable.id, userTable.email)
       .orderBy(asc(userTable.email));
+
     return rows;
   }
 
@@ -114,8 +128,11 @@ async function loadDocuments(args: {
   includeExistingFamilies: boolean;
 }): Promise<GmailDocumentForReduction[]> {
   const conds: SQL[] = [eq(documents.userId, args.userId), eq(documents.source, "gmail")];
+
   if (args.since) conds.push(gte(documents.authoredAt, args.since));
+
   if (args.until) conds.push(lte(documents.authoredAt, args.until));
+
   if (!args.includeExistingFamilies) {
     const familyKey = sql<string>`concat('gmail:message:', coalesce(${documents.accountId}, ${UNKNOWN_ACCOUNT_FAMILY_KEY_PART}), ':', ${documents.sourceId})`;
     conds.push(sql`not exists (
@@ -187,6 +204,7 @@ async function processUser(args: {
 }): Promise<BackfillStats> {
   console.log(`\n=== ${args.target.email} (user=${args.target.userId}) ===`);
   const stats = newStats();
+
   const docs = await loadDocuments({
     userId: args.target.userId,
     since: args.since,
@@ -194,11 +212,13 @@ async function processUser(args: {
     limit: args.limit,
     includeExistingFamilies: FORCE,
   });
+
   console.log(`  gmail documents selected: ${docs.length}`);
 
   for (const doc of docs) {
     try {
       const reduced = reduceGmailDocument(doc);
+
       for (const issue of reduced.issues) {
         if (issue.severity === "skip") stats.skippedReducer++;
         else stats.warnings++;
@@ -206,15 +226,19 @@ async function processUser(args: {
           `  ${issue.severity.toUpperCase()} doc=${doc.id} ${issue.code}: ${issue.message}`,
         );
       }
+
       if (reduced.observations.length === 0) continue;
 
       stats.reduced += reduced.observations.length;
+
       for (const observation of reduced.observations) {
         if (!COMMIT) {
           stats.wouldWrite++;
           continue;
         }
+
         const result = await appendObservationFamilyMember(observation);
+
         if (result.status === "deduped") stats.deduped++;
         else stats.inserted++;
       }
@@ -230,23 +254,28 @@ async function processUser(args: {
       `skipped_existing=${stats.skippedExisting} ` +
       `skipped_reducer=${stats.skippedReducer} warnings=${stats.warnings} errors=${stats.errors}`,
   );
+
   return stats;
 }
 
 async function main() {
   const emails = parseEmails();
+
   if (!ALL_CONNECTED && emails.length === 0) {
     throw new Error("specify --emails=a@x.com,b@y.com or --all-connected");
   }
+
   if (ALL_CONNECTED && emails.length > 0) {
     throw new Error("--emails and --all-connected are mutually exclusive");
   }
 
   const since = parseDateFlag("since");
   const until = parseDateFlag("until");
+
   if (since && until && since > until) {
     throw new Error("--since must be before --until");
   }
+
   const limit = parsePositiveInt("limit", DEFAULT_LIMIT);
 
   await warmPool();
@@ -258,18 +287,23 @@ async function main() {
   );
 
   const targets = await resolveTargets(emails);
+
   if (!ALL_CONNECTED) {
     const found = new Set(targets.map((t) => t.email));
+
     for (const email of emails) {
       if (!found.has(email)) console.log(`! no user row for ${email}`);
     }
   }
+
   if (targets.length === 0) {
     console.log("no targets matched — nothing to do");
+
     return;
   }
 
   const total = newStats();
+
   for (const target of targets) {
     const stats = await processUser({ target, since, until, limit });
     addStats(total, stats);

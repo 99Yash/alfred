@@ -23,8 +23,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const builtinTools = registerBuiltinTools();
+
 const authorTool = builtinTools.get("system.author_workflow");
+
 const recoverTool = builtinTools.get("system.recover_workflow");
+
 const activateTool = builtinTools.get("system.activate_workflow");
 
 before(() => {
@@ -56,6 +59,7 @@ describe("workflow authoring tool contracts (#556)", () => {
       assumptions: [],
       externalEffects: [],
     };
+
     assert.equal(
       authorWorkflowInputSchema.safeParse({
         ...base,
@@ -128,6 +132,7 @@ describe("workflow authoring tool contracts (#556)", () => {
       assumptions: [],
       externalEffects: [],
     });
+
     const definition = definitionFromProposal(input);
     assert.deepEqual(definition.allowedIntegrations, ["gmail"]);
     assert.deepEqual(definition.allowedTools, ["gmail.search"]);
@@ -144,6 +149,7 @@ describe("workflow authoring tool contracts (#556)", () => {
       assumptions: [],
       externalEffects: ["send a Slack message"],
     });
+
     const definition = definitionFromProposal(parsed);
     assert.deepEqual(definition.allowedIntegrations, ["slack"]);
     assert.deepEqual(definition.allowedTools, []);
@@ -162,6 +168,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(authorTool);
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
+
     const authorResult = await authorTool.execute(
       {
         name: "Weekday inbox brief",
@@ -175,6 +182,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
       context(userId, "author-run"),
     );
+
     assert.ok(isRecord(authorResult));
     assert.equal(authorResult.status, "ready_to_activate");
 
@@ -189,10 +197,12 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.deepEqual(proposal.authoringProposal.assumptions, []);
 
     assert.ok(recoverTool);
+
     const recoveredResult = await recoverTool.execute(
       { workflowId: proposal.workflowId, revisionId: proposal.baseRevisionId },
       context(userId, "author-run"),
     );
+
     assert.ok(isRecord(recoveredResult));
     assert.equal(recoveredResult.status, "ready_to_activate");
     assert.deepEqual(
@@ -201,6 +211,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     );
 
     const editedBrief = "Every weekday, summarize only urgent unread messages.";
+
     const editedActivation = {
       ...proposal,
       definition: {
@@ -208,10 +219,12 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         brief: editedBrief,
       },
     };
+
     const activateResult = await activateTool.execute(
       editedActivation,
       context(userId, "author-run"),
     );
+
     assert.ok(isRecord(activateResult));
     assert.equal(activateResult.status, "activated");
     assert.equal(activateResult.revisedFromApprovalEdit, true);
@@ -220,6 +233,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       editedActivation,
       context(userId, "author-run"),
     );
+
     assert.ok(isRecord(retriedActivation));
     assert.equal(retriedActivation.status, "activated");
     assert.equal(retriedActivation.revisedFromApprovalEdit, true);
@@ -229,6 +243,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .from(workflowRevisions)
       .where(eq(workflowRevisions.workflowId, proposal.workflowId))
       .orderBy(asc(workflowRevisions.revisionNumber));
+
     assert.equal(revisions.length, 2);
     assert.equal(revisions[0]?.brief, proposal.definition.brief);
     assert.equal(revisions[0]?.approvedAt, null, "the base revision must remain unchanged");
@@ -240,6 +255,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .select()
       .from(workflows)
       .where(eq(workflows.id, proposal.workflowId));
+
     assert.equal(workflow?.status, "active");
     assert.equal(workflow?.currentRevisionId, revisions[1]?.id);
     assert.equal(workflow?.publishedRevisionId, revisions[1]?.id);
@@ -254,6 +270,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         requestId: "manual-request-1",
       },
     });
+
     const retriedManual = await createRun({
       userId,
       workflowSlug: workflow!.slug,
@@ -264,11 +281,14 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         requestId: "manual-request-1",
       },
     });
+
     assert.equal(retriedManual.runId, firstManual.runId);
+
     const [manualRun] = await db()
       .select({ brief: agentRuns.brief, workflowRevisionId: agentRuns.workflowRevisionId })
       .from(agentRuns)
       .where(eq(agentRuns.id, firstManual.runId));
+
     assert.equal(manualRun?.brief, editedBrief);
     assert.equal(manualRun?.workflowRevisionId, revisions[1]?.id);
 
@@ -276,6 +296,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .update(agentRuns)
       .set({ status: "failed" })
       .where(eq(agentRuns.id, firstManual.runId));
+
     const terminalRetry = await createRun({
       userId,
       workflowSlug: workflow!.slug,
@@ -285,6 +306,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         requestId: "manual-request-1",
       },
     });
+
     assert.equal(terminalRetry.runId, firstManual.runId);
   });
 
@@ -292,6 +314,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(authorTool);
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
+
     const authorResult = await authorTool.execute(
       {
         name: "Manual review",
@@ -304,11 +327,14 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
       context(userId, "stale-author-run"),
     );
+
     const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
+
     const result = await activateTool.execute(
       { ...proposal, baseContentHash: "sha256:stale" },
       context(userId, "stale-activate-run"),
     );
+
     assert.ok(isRecord(result));
     assert.equal(result.status, "stale_revision");
 
@@ -316,6 +342,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .select({ status: workflows.status, publishedRevisionId: workflows.publishedRevisionId })
       .from(workflows)
       .where(eq(workflows.id, proposal.workflowId));
+
     assert.equal(workflow?.status, "draft");
     assert.equal(workflow?.publishedRevisionId, null);
   });
@@ -324,6 +351,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(authorTool);
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
+
     const authorResult = await authorTool.execute(
       {
         name: "Editable morning check",
@@ -336,7 +364,9 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
       context(userId, "refresh-author-run"),
     );
+
     const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
+
     const refreshed = await refreshWorkflowActivationProposal({
       userId,
       input: {
@@ -351,7 +381,9 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         },
       },
     });
+
     assert.equal(refreshed.ok, true);
+
     if (!refreshed.ok) return;
     assert.equal(refreshed.input.schedule.summary, "Every weekday at 9:00 AM (Asia/Kolkata)");
     assert.equal(
@@ -363,6 +395,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       refreshed.input,
       context(userId, "refresh-activate-run"),
     );
+
     assert.ok(isRecord(activated));
     assert.equal(activated.status, "activated");
     assert.equal(activated.revisedFromApprovalEdit, true);
@@ -372,6 +405,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(authorTool);
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
+
     const authorResult = await authorTool.execute(
       {
         name: "Protected proposal",
@@ -384,7 +418,9 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
       context(userId, "proposal-author-run"),
     );
+
     const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
+
     const result = await activateTool.execute(
       {
         ...proposal,
@@ -392,6 +428,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
       context(userId, "proposal-activate-run"),
     );
+
     assert.ok(isRecord(result));
     assert.equal(result.status, "validation_failed");
   });
@@ -399,6 +436,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
   test("changed assumptions create an attributable revision", async () => {
     assert.ok(authorTool);
     const userId = await seedUser(userIds);
+
     const input = {
       name: "Manual review",
       brief: "Review the current inbox when I ask.",
@@ -408,6 +446,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       assumptions: ["Use the current timezone."],
       externalEffects: [] as string[],
     };
+
     const first = await authorTool.execute(input, context(userId, "assumption-author-1"));
     const firstProposal = activateWorkflowInputSchema.parse(getPath(first, "activationProposal"));
 
@@ -420,6 +459,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
       context(userId, "assumption-author-2"),
     );
+
     const secondProposal = activateWorkflowInputSchema.parse(getPath(second, "activationProposal"));
     assert.notEqual(secondProposal.baseRevisionId, firstProposal.baseRevisionId);
     assert.deepEqual(secondProposal.authoringProposal.assumptions, [
@@ -430,6 +470,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
   test("a disconnected capability saves a blocked draft without an activation proposal", async () => {
     assert.ok(authorTool);
     const userId = await seedUser(userIds);
+
     const result = await authorTool.execute(
       {
         name: "Disconnected inbox review",
@@ -442,6 +483,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
       context(userId, "blocked-author-run"),
     );
+
     assert.ok(isRecord(result));
     assert.equal(result.status, "blocked");
     assert.equal(getPath(result, "activationProposal"), undefined);
@@ -458,6 +500,7 @@ async function seedUser(userIds: string[]): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Workflow Author", email: `${userId}@example.test` });
+
   return userId;
 }
 

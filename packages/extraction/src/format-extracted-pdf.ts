@@ -21,8 +21,10 @@ export function formatExtractedMediaText(
 export function formatExtractedMediaText(result: MediaExtractionResult): string | null;
 export function formatExtractedMediaText(result: MediaExtractionResult): string | null {
   if (result.kind !== "extracted") return null;
+
   if (result.format === "pdf" && result.pages && result.pages.length > 0) {
     const { content, pages } = result;
+
     return joinMarkedPages(
       pages.map((entry) => ({
         pageNumber: entry.page,
@@ -30,6 +32,7 @@ export function formatExtractedMediaText(result: MediaExtractionResult): string 
       })),
     );
   }
+
   return result.content;
 }
 

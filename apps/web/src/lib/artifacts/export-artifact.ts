@@ -50,8 +50,10 @@ export async function printArtifactPages(
   });
 
   const frameWindow = iframe.contentWindow;
+
   if (!frameWindow) {
     iframe.remove();
+
     return;
   }
 

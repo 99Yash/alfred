@@ -74,6 +74,7 @@ export const proposeFactArgsSchema = userFactInsertSchema
     "userId" | "key" | "value" | "confidence" | "source" | "validFrom" | "validUntil"
   >
 >;
+
 export type ProposeFactArgs = z.infer<typeof proposeFactArgsSchema>;
 
 export const editFactArgsSchema = z.object({
@@ -83,6 +84,7 @@ export const editFactArgsSchema = z.object({
   /** Defaults to `{ kind: 'user' }` — edits via UI. */
   source: memorySourceSchema.optional(),
 });
+
 export type EditFactArgs = z.infer<typeof editFactArgsSchema>;
 
 export const supersedeFactArgsSchema = z.object({
@@ -93,6 +95,7 @@ export const supersedeFactArgsSchema = z.object({
   confidence: z.number().transform(clamp01),
   source: memorySourceSchema,
 });
+
 export type SupersedeFactArgs = z.infer<typeof supersedeFactArgsSchema>;
 
 export const rejectFactArgsSchema = z.object({
@@ -100,6 +103,7 @@ export const rejectFactArgsSchema = z.object({
   userId: z.string().min(1),
   reason: z.unknown().optional(),
 });
+
 export type RejectFactArgs = z.infer<typeof rejectFactArgsSchema>;
 
 // ---------------------------------------------------------------------------
@@ -119,6 +123,7 @@ export type FactRow = Omit<UserFact, "status" | "source"> & {
 /** Assertion helper for INSERT…RETURNING — drizzle's type is `T | undefined`. */
 function requireRow<T>(row: T | undefined, op: string): T {
   if (row == null) throw new Error(`[memory.facts] ${op} returned no row`);
+
   return row;
 }
 
@@ -177,6 +182,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
   // (0) Canonicalize the key onto the one ontology before any dedup/conflict.
   const canon = canonicalizeFactKey(parsed.key);
+
   if (!canon.ok) {
     // Unknown key: reject from the polluted document path; for trusted/curated
     // sources persist as-is with a drift trace (don't silently break them).
@@ -186,7 +192,9 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         `(source=${parsed.source.kind}, key=${JSON.stringify(parsed.key)})`,
     );
   }
+
   const key = canon.ok ? canon.key : parsed.key;
+
   const source: MemorySource =
     canon.ok && canon.wasAlias
       ? { ...parsed.source, meta: { ...parsed.source.meta, originalKey: canon.originalKey } }
@@ -200,6 +208,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
   // (1) Document write policy — only the per-document path is allow-listed.
   if (isDocument && canon.ok) {
     if (classifyDocumentFactKey(key) === "not_writable") return null;
+
     if (!validateFactValueForKey(key, parsed.value).ok) return null;
   }
 
@@ -230,6 +239,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         ),
       )
       .limit(1);
+
     if (rejectedHit) return null;
 
     // (3) Bypass if an active row with the same value already exists.
@@ -249,16 +259,19 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         .orderBy(desc(userFacts.validFrom))
         .limit(50)
     ).map(rowToFact);
+
     if (active.some((r) => valueSignature(r.value) === sig)) return null;
 
     // (4) Single-valued conflict: an active *authoritative* (confirmed) value that
     // differs from the incoming one. User edits are authoritative → supersede;
     // autonomous sources → hold as `proposed`, no event.
     let conflictRows: FactRow[] = [];
+
     if (isSingleValuedKey(key)) {
       const confirmed = active.filter((r) => r.status === "confirmed");
       conflictRows = confirmed.filter((r) => valueSignature(r.value) !== sig);
     }
+
     const heldByConflict = conflictRows.length > 0 && !userDriven;
     const status: FactStatus = heldByConflict ? "proposed" : confidenceStatus;
 
@@ -297,6 +310,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         supersedesId: userDriven ? (conflictRows[0]?.id ?? null) : null,
       })
       .returning();
+
     const inserted = rowToFact(requireRow(row, "proposeFact"));
 
     // Auto-confirm fires a soft-notification event in the same tx so the
@@ -316,18 +330,21 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         },
       });
     }
+
     return inserted;
   });
 
   // Poke after commit so the client's pull lands the new row.
   if (!fact) return null;
   emitReplicachePokes([parsed.userId]);
+
   return fact;
 }
 
 /** ≤280-char one-line preview of a fact value, for soft-notification toasts. */
 function previewValue(value: unknown): string {
   let s: string;
+
   if (typeof value === "string") s = value;
   else {
     try {
@@ -336,6 +353,7 @@ function previewValue(value: unknown): string {
       s = String(value);
     }
   }
+
   return s.length > 280 ? s.slice(0, 277) + "…" : s;
 }
 
@@ -357,6 +375,7 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
         ),
       )
       .limit(1);
+
     if (!candidate) return null;
 
     await tx.execute(
@@ -374,10 +393,12 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
         ),
       )
       .limit(1);
+
     if (!old) return null;
 
     const oldSig = valueSignature(old.value);
     let conflictRows: FactRow[] = [];
+
     if (isSingleValuedKey(old.key)) {
       conflictRows = (
         await tx
@@ -433,10 +454,14 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
         ),
       )
       .returning();
+
     if (!row) return null;
+
     return rowToFact(row);
   });
+
   if (fact) emitReplicachePokes([userId]);
+
   return fact;
 }
 
@@ -451,12 +476,14 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
  */
 export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> {
   const parsed = rejectFactArgsSchema.parse(args);
+
   const fact = await db().transaction(async (tx) => {
     const [old] = await tx
       .select()
       .from(userFacts)
       .where(and(eq(userFacts.id, parsed.factId), eq(userFacts.userId, parsed.userId)))
       .limit(1);
+
     if (!old) return null;
 
     const [row] = await tx
@@ -482,7 +509,9 @@ export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> 
 
     return rowToFact(requireRow(row, "rejectFact.update"));
   });
+
   if (fact) emitReplicachePokes([parsed.userId]);
+
   return fact;
 }
 
@@ -506,6 +535,7 @@ export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
       .from(userFacts)
       .where(and(eq(userFacts.id, parsed.factId), eq(userFacts.userId, parsed.userId)))
       .limit(1);
+
     if (!old) return null;
 
     await tx
@@ -531,9 +561,12 @@ export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
         supersedesId: old.id,
       })
       .returning();
+
     return rowToFact(requireRow(row, "editFact.insert"));
   });
+
   if (fact) emitReplicachePokes([parsed.userId]);
+
   return fact;
 }
 
@@ -557,6 +590,7 @@ export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | 
       .from(userFacts)
       .where(and(eq(userFacts.id, parsed.factId), eq(userFacts.userId, parsed.userId)))
       .limit(1);
+
     if (!old) return null;
 
     await tx
@@ -582,9 +616,12 @@ export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | 
         supersedesId: old.id,
       })
       .returning();
+
     return rowToFact(requireRow(row, "supersedeFact.insert"));
   });
+
   if (fact) emitReplicachePokes([parsed.userId]);
+
   return fact;
 }
 
@@ -614,6 +651,7 @@ export async function recallActiveByKey(
   opts: RecallOpts = {},
 ): Promise<FactRow[]> {
   const limit = opts.limit ?? 50;
+
   const statuses = opts.includeProposed
     ? or(eq(userFacts.status, "confirmed"), eq(userFacts.status, "proposed"))
     : eq(userFacts.status, "confirmed");
@@ -632,6 +670,7 @@ export async function recallActiveByKey(
     )
     .orderBy(desc(userFacts.validFrom))
     .limit(limit);
+
   return rows.map(rowToFact);
 }
 
@@ -642,6 +681,7 @@ export async function recallLatestByKey(
   opts: Omit<RecallOpts, "limit"> = {},
 ): Promise<FactRow | null> {
   const [row] = await recallActiveByKey(userId, key, { ...opts, limit: 1 });
+
   return row ?? null;
 }
 
@@ -660,6 +700,7 @@ export async function listFactsByStatus(
     .where(and(eq(userFacts.userId, userId), eq(userFacts.status, status)))
     .orderBy(desc(userFacts.updatedAt), asc(userFacts.id))
     .limit(limit);
+
   return rows.map(rowToFact);
 }
 
@@ -685,10 +726,12 @@ const MAX_SUPERSESSION_DEPTH = 256;
  */
 export async function getSupersessionChain(userId: string, factId: string): Promise<FactRow[]> {
   const columns = getTableColumns(userFacts);
+
   const projection = sql.join(
     Object.entries(columns).map(([jsName, column]) => sql`${column} as ${sql.identifier(jsName)}`),
     sql`, `,
   );
+
   const result = await db().execute(sql`
     with recursive chain as (
       select ${projection}, 0 as depth
@@ -702,5 +745,6 @@ export async function getSupersessionChain(userId: string, factId: string): Prom
     )
     select * from chain order by depth
   `);
+
   return rowsFromExecute<UserFact>(result).map(rowToFact);
 }

@@ -12,6 +12,7 @@ import { subAgentParentRunIdMatches } from "./sub-agent-metadata";
  * requested model therefore leaves the two unequal and reads as not degraded.
  */
 export const DEGRADED = sql<boolean>`coalesce((${apiCallLog.responseMeta}->>'servedModelId') = ${apiCallLog.model}, false)`;
+
 /** The pre-call model of a degraded row, recorded beside `servedModelId` since 2026-09-03. */
 export const REQUESTED_MODEL = sql<string | null>`${apiCallLog.responseMeta}->>'requestedModelId'`;
 
@@ -70,13 +71,16 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     models: [],
     agents: [],
   };
+
   const callsByModel = new Map<
     string,
     { calls: number; fallbackCalls: number; primary: string | null }
   >();
+
   // Keyed on subId with a sentinel for the boss, because `null` is a legitimate
   // agent here and Map keys distinguish it from a child literally named "boss".
   const byAgent = new Map<string | null, { calls: number; costUsd: number }>();
+
   for (const group of groups) {
     // A run id also attributes background work triggered by the turn, such as
     // thread-title generation. The usage receipt is specifically the boss and
@@ -94,16 +98,19 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     usage.calls += calls;
     const model = callsByModel.get(group.model) ?? { calls: 0, fallbackCalls: 0, primary: null };
     model.calls += calls;
+
     if (group.degraded === true) {
       model.fallbackCalls += calls;
       model.primary ??= group.requestedModel ?? null;
     }
+
     callsByModel.set(group.model, model);
     const agent = byAgent.get(group.subId) ?? { calls: 0, costUsd: 0 };
     agent.calls += calls;
     agent.costUsd += costUsd;
     byAgent.set(group.subId, agent);
   }
+
   usage.models = [...callsByModel]
     .map(([model, totals]) => ({
       model,
@@ -116,6 +123,7 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
   usage.agents = [...byAgent]
     .map(([subId, totals]) => ({ subId, ...totals }))
     .sort((a, b) => b.costUsd - a.costUsd);
+
   return usage;
 }
 
@@ -137,12 +145,15 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
     })
     .from(agentRuns)
     .where(subAgentParentRunIdMatches(runId));
+
   const runs = new Map<string, string | null>([[runId, null]]);
+
   for (const child of children) {
     // A child without a readable `subId` still spent money; label it so its
     // slice of the split is never silently merged into the boss's.
     runs.set(child.id, child.subId ?? "sub-agent");
   }
+
   return runs;
 }
 
@@ -166,6 +177,7 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
  */
 export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null> {
   const runs = await listTurnRuns(runId);
+
   // Grouped by run and model: by model so the readout can name every model that
   // served the turn, by run so each agent's spend stays attributable, and by
   // the degrade fact so a silent `withFallback` cascade is visible without the
@@ -202,12 +214,15 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
       DEGRADED,
       REQUESTED_MODEL,
     );
+
   if (rows.length === 0) return null;
+
   const usage = foldModelUsage(
     rows.map((row) => ({
       ...row,
       subId: row.runId === null ? null : (runs.get(row.runId) ?? null),
     })),
   );
+
   return usage.calls === 0 ? null : usage;
 }

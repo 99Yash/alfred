@@ -69,9 +69,11 @@ export function decideDbBackedSkip(input: {
   if (input.missing.length === 0) return { kind: "run" };
 
   const names = input.missing.join(", ");
+
   if (!input.ci) {
     return { kind: "skip", reason: `${names} not set — skipping DB-backed test` };
   }
+
   return {
     kind: "fail",
     message:

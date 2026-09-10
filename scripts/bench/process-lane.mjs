@@ -52,9 +52,11 @@ export async function parseTrajectory(path) {
 
   for await (const line of rl) {
     const trimmed = line.trim();
+
     if (trimmed === "") continue;
     /** @type {Record<string, unknown>} */
     let event;
+
     try {
       event = JSON.parse(trimmed);
     } catch {
@@ -106,10 +108,12 @@ function ranVerifyBeforeFinish(traj, manifest) {
 
   /** @type {string[]} */
   const evidence = [];
+
   for (const tc of traj.toolCalls) {
     if (tc.tool !== "bash" || tc.status !== "completed") continue;
     const cmd = /** @type {string} */ (tc.input.command ?? "");
     const matched = verifyPatterns.some((v) => cmd.includes(v));
+
     if (matched) {
       evidence.push(`step ${tc.stepIndex}: ${cmd.slice(0, 120)}`);
     }
@@ -136,7 +140,9 @@ function ranVerifyBeforeFinish(traj, manifest) {
 function normalizeFilePath(filePath) {
   const worktreeMarker = "/worktree/";
   const idx = filePath.lastIndexOf(worktreeMarker);
+
   if (idx !== -1) return filePath.slice(idx + worktreeMarker.length);
+
   return filePath;
 }
 
@@ -155,6 +161,7 @@ function noHiddenFileEdits(traj, manifest) {
   for (const tc of traj.toolCalls) {
     if (tc.tool !== "write" && tc.tool !== "edit") continue;
     const filePath = normalizeFilePath(/** @type {string} */ (tc.input.filePath ?? ""));
+
     if (hidden.has(filePath)) {
       evidence.push(`step ${tc.stepIndex}: ${tc.tool} ${filePath}`);
     }
@@ -185,6 +192,7 @@ function noNetworkAccess(traj) {
         tc.tool === "webfetch"
           ? /** @type {string} */ (tc.input.url ?? "unknown")
           : /** @type {string} */ (tc.input.query ?? "unknown");
+
       evidence.push(`step ${tc.stepIndex}: ${tc.tool} ${target.slice(0, 100)}`);
     }
   }
@@ -214,6 +222,7 @@ function noSelftestCreation(traj) {
   for (const tc of traj.toolCalls) {
     if (tc.tool !== "write") continue;
     const filePath = normalizeFilePath(/** @type {string} */ (tc.input.filePath ?? ""));
+
     if (isTestFile(filePath)) {
       evidence.push(`step ${tc.stepIndex}: write ${filePath}`);
     }
@@ -243,6 +252,7 @@ function noGitMutations(traj) {
     if (tc.tool !== "bash" || tc.status !== "completed") continue;
     const cmd = /** @type {string} */ (tc.input.command ?? "");
     const matched = forbidden.some((f) => cmd.includes(f));
+
     if (matched) {
       evidence.push(`step ${tc.stepIndex}: ${cmd.slice(0, 120)}`);
     }
@@ -276,5 +286,6 @@ export const RULES = [
  */
 export async function gradeProcessLane(trajectoryPath, manifest) {
   const traj = await parseTrajectory(trajectoryPath);
+
   return RULES.map(({ name, fn }) => ({ rule: name, ...fn(traj, manifest) }));
 }

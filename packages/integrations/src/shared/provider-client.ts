@@ -136,13 +136,16 @@ function buildUrl(
   fixedQuery: Record<string, string> | undefined,
 ): URL {
   const url = new URL(`${baseUrl}${path}`);
+
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined) url.searchParams.set(key, String(value));
   }
+
   // Pinned query merged last so a caller can never override it.
   for (const [key, value] of Object.entries(fixedQuery ?? {})) {
     url.searchParams.set(key, value);
   }
+
   return url;
 }
 
@@ -152,14 +155,17 @@ export function defineProviderClient(config: ProviderClientConfig): ProviderClie
     async json(path, request = {}) {
       const { headers, fixedQuery } = await config.resolve();
       const url = buildUrl(config.baseUrl, path, request.query, fixedQuery);
+
       const send = () =>
         authedFetch({ headers }, { url, method: request.method, body: request.body });
+
       // Retry is the client's policy but the METHOD decides eligibility: a POST
       // that reaches the upstream and then times out must not be re-sent just
       // because this provider configured a retry envelope.
       const policy = config.retry === "none" ? undefined : config.retry;
       const eligible = request.idempotent === true || isRetrySafeMethod(request.method);
       const res = policy && eligible ? await fetchWithRetry(send, { policy }) : await send();
+
       if (!res.ok) {
         return throwUpstreamError({
           provider: config.provider,
@@ -169,7 +175,9 @@ export function defineProviderClient(config: ProviderClientConfig): ProviderClie
           bodyPolicy: config.bodyPolicy,
         });
       }
+
       const text = await res.text();
+
       return text ? JSON.parse(text) : {};
     },
   };

@@ -15,6 +15,7 @@ const stateSchema = z.object({
   senderContext: senderContextSchema.optional(),
   force: z.boolean().optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 export const emailTriageWorkflow: Workflow<State> = {
@@ -28,6 +29,7 @@ export const emailTriageWorkflow: Workflow<State> = {
   closure: { kind: "none" },
   initialState(input) {
     const parsed = triageWorkflowInputSchema.parse(input.input ?? {});
+
     return {
       documentId: parsed.documentId,
       reason: parsed.reason,

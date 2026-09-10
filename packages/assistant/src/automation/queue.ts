@@ -21,6 +21,7 @@ const WORKFLOWS_QUEUE_NAME = "workflows-tick";
 export type WorkflowsJobData = { kind: "workflows.tick" };
 
 let _queue: Queue<WorkflowsJobData> | undefined;
+
 let _worker: Worker<WorkflowsJobData> | undefined;
 
 export function getWorkflowsQueue(): Queue<WorkflowsJobData> {
@@ -36,6 +37,7 @@ export function getWorkflowsQueue(): Queue<WorkflowsJobData> {
       removeOnFail: { count: 200, age: 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 

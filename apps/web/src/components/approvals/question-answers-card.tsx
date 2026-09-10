@@ -21,6 +21,7 @@ export function QuestionAnswersCard({
   inTrail?: boolean | undefined;
 }) {
   const answered = summary.status === "answered";
+
   return (
     <section
       aria-label={answered ? "Your answers" : "Question not answered"}
@@ -71,6 +72,7 @@ export function QuestionAnswersCard({
             // card owns emptiness — and rendering it raw drew an invisible
             // span directly above the word "Skipped".
             const empty = isAnswerEmpty(answer);
+
             return (
               <div key={index}>
                 <dt className="text-[12px] leading-5 text-app-fg-3">{question.question}</dt>
@@ -103,8 +105,11 @@ export function QuestionAnswersCard({
 /** Why no answer reached the model. One line, no blame. */
 function unansweredCopy(reason: AskUserUnansweredReason): string {
   if (reason === "dismissed") return "You dismissed this question. Alfred continued without it.";
+
   if (reason === "expired") return "The question expired before an answer arrived.";
+
   if (reason === "no_answers") return "You continued without answering.";
   const _exhaustive: never = reason;
+
   return _exhaustive;
 }

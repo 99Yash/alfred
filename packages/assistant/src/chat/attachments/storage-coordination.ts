@@ -14,6 +14,7 @@ export async function lockChatStorageKeys(
   storageKeys: readonly string[],
 ): Promise<void> {
   const keys = [...new Set(storageKeys)].sort();
+
   for (const key of keys) {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${advisoryLockIdentity(key)}, 0))`,
@@ -34,6 +35,7 @@ export async function withChatStorageKeyLock<T>(
   return withDbSession(async (session) => {
     const identity = advisoryLockIdentity(storageKey);
     await session.client.query("select pg_advisory_lock(hashtextextended($1, 0))", [identity]);
+
     try {
       return await body(session.db);
     } finally {

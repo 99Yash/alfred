@@ -30,6 +30,7 @@ export const writeMemoryChunkArgsSchema = memoryChunkInsertSchema
   }) satisfies z.ZodType<
   Pick<NewMemoryChunk, "userId" | "kind" | "content" | "source" | "metadata">
 >;
+
 export type WriteMemoryChunkArgs = z.infer<typeof writeMemoryChunkArgsSchema>;
 
 /**
@@ -51,6 +52,7 @@ export type MemoryChunkRow = Omit<
 
 function rowToChunk(r: MemoryChunk): MemoryChunkRow {
   const { embedding, kind, source, metadata, ...rest } = r;
+
   return {
     ...rest,
     kind: memoryChunkKindSchema.parse(kind),
@@ -93,7 +95,9 @@ export async function writeMemoryChunk(args: WriteMemoryChunkArgs): Promise<Memo
       set: { metadata: sql`${memoryChunks.metadata}` },
     })
     .returning();
+
   if (!row) throw new Error("[memory.chunks] writeMemoryChunk returned no row");
+
   return rowToChunk(row);
 }
 
@@ -106,6 +110,7 @@ export async function embedMemoryChunk(
   if (embedding.length !== 1024) {
     throw new Error(`[memory] expected 1024-dim embedding, got ${embedding.length}`);
   }
+
   await db()
     .update(memoryChunks)
     // Clear any prior poison-pill streak on success so the wall-clock grace is
@@ -161,6 +166,7 @@ export async function pendingEmbedChunkIds(userId: string, limit = 50): Promise<
     .from(memoryChunks)
     .where(and(eq(memoryChunks.userId, userId), memoryChunkEmbedCandidateFilter()))
     .limit(limit);
+
   return rows.map((r) => r.id);
 }
 
@@ -181,6 +187,7 @@ export async function findPendingEmbedChunks(
     .from(memoryChunks)
     .where(memoryChunkEmbedCandidateFilter())
     .limit(limit);
+
   return rows;
 }
 
@@ -217,6 +224,7 @@ export interface RecallMemoryHit {
  */
 export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemoryHit[]> {
   const limit = args.limit ?? 10;
+
   const queryVec =
     args.queryEmbedding ??
     (await embed(args.query, {
@@ -224,6 +232,7 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
       userId: args.userId,
       idempotencyKey: `memory-recall:${args.userId}:${hashContent(args.query)}`,
     }));
+
   assertQueryEmbedding(queryVec);
   const vectorLiteral = formatVectorFloat32(queryVec);
   // Pull a wider pool from the approximate halfvec index, then rerank with
@@ -231,6 +240,7 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(memoryChunks.userId, args.userId), isNotNull(memoryChunks.embedding)];
+
   if (args.kind) filters.push(eq(memoryChunks.kind, args.kind));
 
   // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the

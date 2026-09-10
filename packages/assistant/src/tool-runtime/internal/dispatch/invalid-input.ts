@@ -25,19 +25,24 @@ const acceptedParamCache = new WeakMap<z.ZodTypeAny, readonly string[]>();
 
 export function acceptedParamNames(schema: z.ZodTypeAny): readonly string[] {
   const cached = acceptedParamCache.get(schema);
+
   if (cached) return cached;
   let names: readonly string[];
+
   try {
     // SAFETY: z.toJSONSchema emits a JSON Schema document; this reads only the
     // top-level `properties` keyword off it.
     const json = z.toJSONSchema(schema, { io: "input" }) as {
       properties?: Record<string, unknown>;
     };
+
     names = json.properties ? Object.freeze(Object.keys(json.properties)) : EMPTY;
   } catch {
     names = EMPTY;
   }
+
   acceptedParamCache.set(schema, names);
+
   return names;
 }
 
@@ -50,6 +55,8 @@ export function enrichInvalidInputMessage(
 ): string {
   if (!issues.some((issue) => issue.code === "unrecognized_keys")) return baseMessage;
   const accepted = acceptedParamNames(schema);
+
   if (accepted.length === 0) return baseMessage;
+
   return `${baseMessage}\nThis tool accepts only these parameters: ${accepted.join(", ")}.`;
 }

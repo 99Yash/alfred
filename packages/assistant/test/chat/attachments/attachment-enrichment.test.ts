@@ -23,6 +23,7 @@ describe("chat attachment enrichment", () => {
       salientEntities: ["production", "api"],
       evidence: [{ kind: "chart", text: "Error rate rises after 14:00" }],
     });
+
     assert.equal(parsed.attachmentId, "att_1");
   });
 
@@ -51,6 +52,7 @@ describe("chat attachment enrichment", () => {
       ],
       500_000,
     );
+
     assert.deepEqual(
       selected.map((item) => item.id),
       ["nearby", "small"],
@@ -71,6 +73,7 @@ describe("chat attachment enrichment", () => {
     let persisted:
       | Parameters<NonNullable<Parameters<typeof enrichClaimedChatAttachment>[1]["persist"]>>[0]
       | undefined;
+
     const result = await enrichClaimedChatAttachment(
       { attachmentId: "att_1", estimatedCostMicrousd: 12_000, attribution: { runId: "run_1" } },
       {
@@ -94,10 +97,12 @@ describe("chat attachment enrichment", () => {
         }),
         persist: async (args) => {
           persisted = args;
+
           return true;
         },
       },
     );
+
     assert.equal(result, "persisted");
     assert.deepEqual(persisted?.representation, {
       schemaVersion: 1,
@@ -131,6 +136,7 @@ describe("chat attachment enrichment", () => {
           },
           fail: async (_id, value) => {
             category = value;
+
             return true;
           },
         },
@@ -161,6 +167,7 @@ describe("chat attachment enrichment", () => {
           }),
           fail: async (_id, value) => {
             category = value;
+
             return true;
           },
         },

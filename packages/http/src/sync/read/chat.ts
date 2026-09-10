@@ -54,6 +54,7 @@ export const fetchChatAttachments = syncEntity(SYNC_MODEL.chatatt, {
       .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
       .limit(CHAT_MESSAGE_PULL_LIMIT)
       .as("recent_messages");
+
     return tx
       .select(getTableColumns(chatAttachments))
       .from(chatAttachments)

@@ -62,10 +62,12 @@ describe("isSynthesizedToolDup", () => {
 describe("appendModelResponseMessages", () => {
   test("filters the synthesized dup but keeps the assistant tool-call message", () => {
     const transcript: AgentTranscriptMessage[] = [{ role: "user", content: "send it" }];
+
     const assistant: AgentTranscriptMessage = {
       role: "assistant",
       content: [{ type: "tool-call", toolCallId: "tc_1", toolName: "gmail.send_draft", input: {} }],
     } as AgentTranscriptMessage;
+
     const messages = [assistant, toolMessage("tc_1")];
 
     const out = appendModelResponseMessages(transcript, messages, new Set(["tc_1"]));

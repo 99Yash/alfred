@@ -19,11 +19,15 @@ export async function checkGmailSendAccess(args: {
   const active = (await listCredentials(args.userId, "google")).filter(
     (row) => row.status === "active",
   );
+
   if (active.length === 0) return { ok: false, reason: "gmail_not_connected" };
   const mailbox = active.find((row) => row.accountId === args.accountId);
+
   if (!mailbox) return { ok: false, reason: "gmail_not_connected" };
+
   if (!holdsAnyScope(mailbox.scopes, [GOOGLE_SCOPE.gmail.send])) {
     return { ok: false, reason: "gmail_send_scope_missing" };
   }
+
   return { ok: true, credentialId: mailbox.id, mailboxAddress: mailbox.accountLabel };
 }

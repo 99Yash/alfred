@@ -38,6 +38,7 @@ import { getFreshAccessToken, getThreadMessageLabels } from "@alfred/integration
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 const SCAN_LIMIT_282 = 8;
+
 const SCAN_LIMIT_279 = 15;
 
 type DocRow = {
@@ -89,29 +90,37 @@ async function main() {
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"));
+
   if (creds.length === 0) {
     console.log("no google credentials in this DB — nothing to replay");
+
     return;
   }
+
   const firstCred = creds[0]!;
   const userId = firstCred.userId;
   const credByAccount = new Map(creds.map((c) => [c.accountId, c.id]));
   const tokenCache = new Map<string, string>();
+
   async function tokenForAccount(accountId: string | null): Promise<string | null> {
     const credId = (accountId && credByAccount.get(accountId)) ?? firstCred.id;
     const cached = tokenCache.get(credId);
+
     if (cached) return cached;
+
     try {
       // The credential boundary owns expiry, revocation, and decryption. A
       // needs-reauth credential throws here, which is the same "skip the live
       // fetch" outcome the old expiry check produced.
       const token = await getFreshAccessToken(credId);
       tokenCache.set(credId, token);
+
       return token;
     } catch (err) {
       console.warn(
         `  token unavailable for cred=${credId} (${toMessage(err)}); skipping live fetch`,
       );
+
       return null;
     }
   }
@@ -134,6 +143,7 @@ async function main() {
       ),
     )
     .groupBy(documents.sourceThreadId);
+
   const sentThreadIds = sentThreadRows
     .map((r) => r.threadId)
     .filter((t): t is string => Boolean(t));
@@ -151,6 +161,7 @@ async function main() {
           and(eq(emailTriage.userId, userId), inArray(emailTriage.sourceThreadId, sentThreadIds)),
         )
     : [];
+
   const triagedByThread = new Map(triagedRows.map((r) => [r.threadId, r]));
 
   const candidates282 = (
@@ -160,6 +171,7 @@ async function main() {
   if (candidates282.length === 0) {
     console.log("(no threads with both a sent doc and a triage row)\n");
   }
+
   for (const threadId of candidates282) {
     const tr = triagedByThread.get(threadId);
     const docs = await loadThreadDocs(userId, threadId);
@@ -172,17 +184,21 @@ async function main() {
         `| points_at_doc=${tr?.documentId ?? "?"}`,
     );
     console.log(`  docs=${docs.length} sent=${sent.length} inbound=${docs.length - sent.length}`);
+
     if (!tr) {
       console.log("  → SKIP: no triage row (brand-new outbound-first thread)");
       continue;
     }
+
     if (!inbound) {
       console.log("  → SKIP: no inbound doc to key the received-only classify on");
       continue;
     }
+
     const pointsAtSent = tr.documentId
       ? Boolean(docs.find((d) => d.id === tr.documentId && isSentGmailMetadata(d.metadata)))
       : false;
+
     console.log(
       `  → WOULD emit message_received(eventId=${inbound.id}, reason="reply", force=true)`,
     );
@@ -190,6 +206,7 @@ async function main() {
       `     re-keys on newest inbound (authored ${inbound.authoredAt?.toISOString() ?? "?"}); ` +
         `classify stays received-only, getThreadState folds the reply`,
     );
+
     if (pointsAtSent) {
       console.log("     NOTE: triage row currently points at a SENT doc (should never happen)");
     }
@@ -208,22 +225,28 @@ async function main() {
     .groupBy(documents.sourceThreadId)
     .having(sql`count(*) > 1`)
     .orderBy(sql`count(*) desc`);
+
   const multiThreadIds = multiRows.map((r) => r.threadId).filter((t): t is string => Boolean(t));
 
   const candidates279 = argThreads.length ? argThreads : multiThreadIds.slice(0, SCAN_LIMIT_279);
 
   let totalDead = 0;
   let threadsWithDead = 0;
+
   for (const threadId of candidates279) {
     const docs = await loadThreadDocs(userId, threadId);
+
     if (docs.length <= 1) continue;
     const token = await tokenForAccount(docs[0]!.accountId);
+
     if (!token) {
       console.log(`\nthread=${threadId}  → SKIP: no token`);
       continue;
     }
+
     let liveIds: Set<string>;
     const liveFetchedAt = new Date();
+
     try {
       const live = await getThreadMessageLabels({ accessToken: token, threadId });
       liveIds = new Set(live.map((m) => m.id));
@@ -231,25 +254,32 @@ async function main() {
       console.log(`\nthread=${threadId}  → SKIP (live fetch failed): ${toMessage(err)}`);
       continue;
     }
+
     if (liveIds.size === 0) {
       console.log(`\nthread=${threadId}  → SKIP: live fetch returned 0 messages`);
       continue;
     }
+
     const dead = docs.filter((d) => !liveIds.has(d.sourceId));
+
     if (dead.length === 0) continue; // healthy thread — stay quiet
 
     threadsWithDead++;
     totalDead += dead.length;
+
     const tr = await db()
       .select({ documentId: emailTriage.documentId })
       .from(emailTriage)
       .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, threadId)))
       .limit(1);
+
     const pointedDocId = tr[0]?.documentId ?? null;
     const pointedIsDead = pointedDocId ? dead.some((d) => d.id === pointedDocId) : false;
+
     const pointedIsSent = pointedDocId
       ? Boolean(docs.find((d) => d.id === pointedDocId && isSentGmailMetadata(d.metadata)))
       : false;
+
     const plan = planGmailThreadReconcile({
       storedDocs: docs.map(toStoredDoc),
       liveSourceIds: liveIds,
@@ -262,6 +292,7 @@ async function main() {
       `  stored=${docs.length} live=${liveIds.size} DEAD=${dead.length} ` +
         `(stored ids that 404 in the live thread)`,
     );
+
     if (pointedIsDead || pointedIsSent) {
       if (plan.repointDocumentId) {
         console.log(
@@ -281,6 +312,7 @@ async function main() {
       );
     }
   }
+
   if (threadsWithDead === 0) {
     console.log(`\n(scanned ${candidates279.length} threads — no dead-id tails found)`);
   } else {

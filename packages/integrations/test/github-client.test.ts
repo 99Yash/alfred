@@ -30,6 +30,7 @@ function stubFetch(body: unknown, status = 200) {
       url: String(input instanceof Request ? input.url : input),
       headers: (init?.headers ?? {}) as Record<string, string>,
     });
+
     return Promise.resolve(
       new Response(JSON.stringify(body), {
         status,
@@ -37,6 +38,7 @@ function stubFetch(body: unknown, status = 200) {
       }),
     );
   }) as typeof fetch;
+
   return calls;
 }
 
@@ -48,6 +50,7 @@ function client(onResolve?: () => void) {
   return createGithubClient({
     resolveToken: async () => {
       onResolve?.();
+
       return { token: redacted("ghs_secret_token"), accountLogin: "99Yash" };
     },
     // Stated, not defaulted: `retry` is required at every client constructor so a
@@ -89,6 +92,7 @@ describe("github client auth", () => {
       (err: unknown) => {
         const text = JSON.stringify(err) + String(err);
         assert.ok(!text.includes("ghs_secret_token"), "the token must not reach the error");
+
         return true;
       },
     );
@@ -108,9 +112,11 @@ describe("github client auth", () => {
   test("resolves per request — no client memoizes a credential", async () => {
     stubFetch({ ...ISSUE });
     let resolves = 0;
+
     const gh = client(() => {
       resolves += 1;
     });
+
     await gh.connectedLogin();
     await gh.getIssue({ owner: "o", repo: "r", number: 7 });
     // Two methods, two resolves. `githubClientForUser` behaves identically — the

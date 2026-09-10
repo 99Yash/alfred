@@ -41,6 +41,7 @@ import {
 
 /** The persisted theme choice — defined once, in the `app-theme` storage schema. */
 export type AppThemeMode = LocalStorageValue<"app-theme">;
+
 export type AppResolvedTheme = "dark" | "light";
 
 export interface AppThemeContextValue {
@@ -63,6 +64,7 @@ function getSystemPreference(): AppResolvedTheme {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return "dark"; // Alfred defaults to dark when nothing is detectable
   }
+
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -76,6 +78,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
     const mql = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e: MediaQueryListEvent) => setSystemPref(e.matches ? "dark" : "light");
     mql.addEventListener("change", handler);
+
     return () => mql.removeEventListener("change", handler);
   }, []);
 
@@ -113,8 +116,10 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
 
 export function useAppTheme(): AppThemeContextValue {
   const ctx = use(AppThemeContext);
+
   if (!ctx) {
     throw new Error("useAppTheme must be called inside a <AppThemeProvider>.");
   }
+
   return ctx;
 }

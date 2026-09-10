@@ -11,6 +11,7 @@ describe("durable workflow occurrence identity (#558)", () => {
       revisionId: "wfr_1",
       scheduledFor: "2026-08-01T07:00:00.000Z",
     };
+
     assert.equal(workflowOccurrenceKey(base), workflowOccurrenceKey({ ...base }));
     assert.notEqual(
       workflowOccurrenceKey(base),
@@ -29,6 +30,7 @@ describe("durable workflow occurrence identity (#558)", () => {
       provider: "gmail",
       eventId: "delivery_1",
     };
+
     assert.equal(workflowOccurrenceKey(base), workflowOccurrenceKey({ ...base }));
   });
 
@@ -38,6 +40,7 @@ describe("durable workflow occurrence identity (#558)", () => {
       workflowId: "wf_1",
       requestId: "request_1",
     });
+
     assert.equal(
       first,
       workflowOccurrenceKey({ kind: "manual", workflowId: "wf_1", requestId: "request_1" }),

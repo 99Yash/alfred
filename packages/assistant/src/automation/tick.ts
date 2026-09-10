@@ -60,6 +60,7 @@ export async function dispatchDueCronWorkflows(
   for (const row of due) {
     try {
       const result = await dispatchOne(row, dependencies);
+
       if (result === "enqueued") enqueued++;
       else if (result === "raced") raced++;
       else if (result === "invalid") invalid++;
@@ -74,6 +75,7 @@ export async function dispatchDueCronWorkflows(
       `[workflows:tick] scanned=${due.length} enqueued=${enqueued} raced=${raced} invalid=${invalid} failed=${failed}`,
     );
   }
+
   return { scanned: due.length, enqueued, raced, invalid, failed };
 }
 
@@ -105,10 +107,12 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
     .limit(BATCH);
 
   const due: DueRow[] = [];
+
   for (const row of rows) {
     if (!row.nextRunAt) continue;
 
     const trigger = workflowTriggerSchema.safeParse(row.trigger);
+
     if (!trigger.success) {
       console.warn(
         `[workflows:tick] invalid trigger for workflow=${row.slug} (${row.id}); pausing partial-index entry: ${trigger.error.message}`,
@@ -122,6 +126,7 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
 
     due.push({ ...row, trigger: trigger.data, nextRunAt: row.nextRunAt });
   }
+
   return due;
 }
 
@@ -146,6 +151,7 @@ async function dispatchOne(
   // active cron row (builtin seeder writes `next_run_at = null`).
   const timezone = await resolveWorkflowTimezone(row.userId, row.trigger);
   const newNext = computeNextRunAt(row.trigger, { from: scheduledFor, timezone });
+
   if (!newNext) {
     console.warn(
       `[workflows:tick] cron-parser returned null for workflow=${row.slug} (${row.id}); pausing partial-index entry`,
@@ -157,6 +163,7 @@ async function dispatchOne(
       .update(workflows)
       .set({ nextRunAt: null })
       .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)));
+
     return "invalid";
   }
 
@@ -169,6 +176,7 @@ async function dispatchOne(
     revisionId: row.isBuiltin ? null : row.publishedRevisionId,
     scheduledFor: scheduledForIso,
   } as const;
+
   // The CAS claim, the run row, and the enqueue are one operation. `claim`
   // runs the CAS on the transaction executor; a racing worker updates zero
   // rows and returns `null` (no run, no enqueue). `startRunInTx` creates the
@@ -190,6 +198,7 @@ async function dispatchOne(
         .set({ nextRunAt: newNext, lastScheduledAt: scheduledFor })
         .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)))
         .returning({ id: workflows.id });
+
       if (updated.length === 0) return null;
 
       return {

@@ -29,6 +29,7 @@ async function lastLogRow(idempotencyKey: string) {
     .where(eq(apiCallLog.kind, "llm"))
     .orderBy(desc(apiCallLog.createdAt))
     .limit(5);
+
   return rows.find((r) => toRecord(r.requestMeta).idempotencyKey === idempotencyKey);
 }
 
@@ -40,6 +41,7 @@ async function main() {
   const chatDeep = route("deep").model();
   console.log(`boss model       → ${boss.provider}/${boss.modelId}`);
   console.log(`chat deep model  → ${chatDeep.provider}/${chatDeep.modelId}`);
+
   if (boss.modelId !== "claude-sonnet-4-6" || chatDeep.modelId !== "gpt-5.6-luna") {
     console.error("FAIL: dispatcher modelId proxy mismatch");
     failures++;
@@ -48,22 +50,27 @@ async function main() {
   // --- 1. normal path -------------------------------------------------------
   const okKey = `smoke-fallback-ok-${process.pid}`;
   const okModel = withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-flash-lite"));
+
   const ok = await meteredGenerateText(
     { model: okModel, prompt: "Reply with exactly: ok", maxOutputTokens: 8 },
     { idempotencyKey: okKey, requestMeta: { smoke: "fallback-normal" } },
   );
+
   console.log(`normal path      → text=${JSON.stringify(ok.text.trim())}`);
 
   // --- 2. fallback path -----------------------------------------------------
   const fbKey = `smoke-fallback-switch-${process.pid}`;
+
   const fbModel = withFallback(
     anthropic("claude-nonexistent-smoke-model"),
     google("gemini-2.5-flash-lite"),
   );
+
   const fb = await meteredGenerateText(
     { model: fbModel, prompt: "Reply with exactly: ok", maxOutputTokens: 8 },
     { idempotencyKey: fbKey, requestMeta: { smoke: "fallback-switch" } },
   );
+
   console.log(`fallback path    → text=${JSON.stringify(fb.text.trim())}`);
   console.log(`fallback served  → response.modelId=${fb.response?.modelId}`);
 
@@ -83,6 +90,7 @@ async function main() {
     console.error("FAIL: normal-path attribution should be anthropic/claude-sonnet-4-6");
     failures++;
   }
+
   if (fbRow?.provider !== "google") {
     console.error("FAIL: fallback-path attribution should re-resolve to google");
     failures++;

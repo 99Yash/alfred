@@ -39,6 +39,7 @@ export const skillProposalSchema = z.object({
   /** One sentence on why this fact follows from the prompt. */
   rationale: z.string().min(1).max(500),
 });
+
 export type SkillProposal = z.infer<typeof skillProposalSchema>;
 
 export const distillResultSchema = z.object({
@@ -53,6 +54,7 @@ export const distillResultSchema = z.object({
   /** Up to 20 fact proposals — same conservative gating as cold-start. */
   proposals: z.array(skillProposalSchema).max(20),
 });
+
 export type DistillResult = z.infer<typeof distillResultSchema>;
 
 const SYSTEM_PROMPT = `You convert a user's brief skill prompt into (1) a structured set of memory facts about the user, (2) a normalized skill body the agent can act on, and (3) a short title.
@@ -75,20 +77,25 @@ function buildUserPrompt(args: { context: SkillLearnContext; prompt: string }): 
   lines.push(`- Email: ${args.context.user.email}`);
   lines.push("");
   lines.push(`# Connected integrations`);
+
   if (args.context.connectedIntegrations.length === 0) {
     lines.push(`(none yet)`);
   } else {
     for (const slug of args.context.connectedIntegrations) lines.push(`- @${slug}`);
   }
+
   lines.push("");
   lines.push(`# Existing skills (referenceable as @skill:<slug>)`);
+
   if (args.context.existingSkillSlugs.length === 0) {
     lines.push(`(none yet)`);
   } else {
     for (const slug of args.context.existingSkillSlugs) lines.push(`- @skill:${slug}`);
   }
+
   lines.push("");
   lines.push(`# Existing memory (do NOT re-propose these)`);
+
   if (args.context.facts.length === 0) {
     lines.push(`(empty)`);
   } else {
@@ -97,9 +104,11 @@ function buildUserPrompt(args: { context: SkillLearnContext; prompt: string }): 
       lines.push(`- ${f.key}: ${v}`);
     }
   }
+
   lines.push("");
   lines.push(`# User's skill prompt`);
   lines.push(args.prompt);
+
   return lines.join("\n");
 }
 

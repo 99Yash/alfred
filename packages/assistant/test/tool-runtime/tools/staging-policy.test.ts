@@ -159,6 +159,7 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
       context: { caller: "boss", interaction: "live_chat" },
       loadSnapshot: exploding,
     });
+
     assert.deepEqual(result, { available: true });
   });
 
@@ -183,6 +184,7 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
       context: { caller: "boss", interaction: "live_chat" },
       loadSnapshot: exploding,
     });
+
     assert.deepEqual(result, { available: true });
   });
 
@@ -203,7 +205,9 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
       context: { caller: "sub_agent", interaction: "live_chat" },
       loadSnapshot: exploding,
     });
+
     assert.equal(result.available, false);
+
     if (!result.available) assert.equal(result.code, "wrong_caller");
   });
 
@@ -216,7 +220,9 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
       inputSchema: z.object({}).loose(),
       execute: async () => ({ ok: true }),
     });
+
     let reads = 0;
+
     const snapshot: IntegrationAvailabilitySnapshot = {
       integrations: new Map([["gmail", { health: "needs_reauth", accountLabel: null }]]),
       providers: new Map(),
@@ -229,12 +235,14 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
       context: { caller: "boss", interaction: "live_chat" },
       loadSnapshot: async () => {
         reads += 1;
+
         return snapshot;
       },
     });
 
     assert.equal(reads, 1);
     assert.equal(result.available, false);
+
     if (!result.available) assert.equal(result.code, "needs_reauth");
   });
 });

@@ -15,6 +15,7 @@ import type { TriageRow, TriageDocumentContext } from "@alfred/assistant/triage/
 // ---------------------------------------------------------------------------
 
 const USER = "user_1";
+
 const THREAD = "thread_1";
 
 function triageRow(overrides: Partial<TriageRow> = {}): TriageRow {
@@ -74,6 +75,7 @@ function makeDeps(opts: {
   liveDoc: string | null;
 }): MadeDeps {
   const rec: Recorder = { applyCalls: [], setAppliedLabelCalls: [], setReconciledCalls: [] };
+
   const deps: Partial<ReconcileThreadLabelDeps> = {
     // These tests exercise the label-write path, so force the #278 gate on —
     // the real default is production-only and `NODE_ENV=test` would otherwise
@@ -85,12 +87,14 @@ function makeDeps(opts: {
     getTriage: async () => opts.row,
     loadTriageContext: async (documentId: string) => {
       const sourceId = opts.docs[documentId];
+
       return sourceId ? docContext(documentId, sourceId) : null;
     },
     findThreadSiblings: async () => [],
     applyTriageLabel: async ({ messageId }) => {
       rec.applyCalls.push(messageId);
       const result = opts.apply(messageId);
+
       return { appliedLabelId: result.appliedLabelId, removedLabelIds: [], strippedSiblings: [] };
     },
     findNewestLiveInbound: async () =>
@@ -102,6 +106,7 @@ function makeDeps(opts: {
       rec.setReconciledCalls.push({ documentId, appliedLabelId });
     },
   };
+
   return { deps, rec };
 }
 
@@ -112,6 +117,7 @@ describe("reconcileThreadLabel — stale Gmail message id (#277)", () => {
       docs: { doc_dead: "msg_dead", doc_live: "msg_live" },
       apply: (messageId) => {
         if (messageId === "msg_dead") throw gmail404("msg_dead");
+
         return { appliedLabelId: "label_fyi" };
       },
       liveDoc: "doc_live",
@@ -220,6 +226,7 @@ describe("reconcileThreadLabel — non-prod mailbox-write gate (#278)", () => {
       apply: () => ({ appliedLabelId: "label_urgent" }),
       liveDoc: "doc_live",
     });
+
     // Flip the gate off — dev/test sharing the real mailbox with prod.
     deps.mailboxWritesEnabled = () => false;
 

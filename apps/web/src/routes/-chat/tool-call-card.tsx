@@ -37,7 +37,9 @@ const MAX_STAGGERED_ROWS = 6;
 function prettyJson(text: string): string | null {
   try {
     const parsed: unknown = JSON.parse(text);
+
     if (parsed === null || typeof parsed !== "object") return null;
+
     return JSON.stringify(parsed, null, 2);
   } catch {
     return null;
@@ -47,9 +49,12 @@ function prettyJson(text: string): string | null {
 /** Pull a clean reason out of a failed tool's result preview. */
 function failureReason(resultPreview: string | undefined): string | undefined {
   const parsed = parseJsonRecord(resultPreview);
+
   if (!parsed) return resultPreview;
   const message = getStringPath(parsed, "error", "message");
+
   if (message) return message;
+
   return asString(parsed.message) ?? asString(parsed.error) ?? resultPreview;
 }
 
@@ -103,6 +108,7 @@ export function ToolCallCard({
     failed: failedLabel,
     detail,
   } = presentTool(tool);
+
   const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
   // Brandless system tools (web_search, spawn_sub_agent, …) get an animated
   // glyph in place of the flat wrench; brand-scoped tools keep their logo coin.
@@ -113,6 +119,7 @@ export function ToolCallCard({
   // URLs (count > 1) can't be one favicon, so it keeps the Chrome glyph.
   const browsing = presentBrowsing(tool);
   const faviconDomain = browsing?.kind === "fetch_url" && count === 1 ? browsing.domain : undefined;
+
   // Inline: for a browsing tool, the site/query; otherwise the human "what"
   // (brief / integration). The "why" of a failure goes in the expandable,
   // cleaned up from the raw result JSON.
@@ -254,7 +261,9 @@ export function ToolCallCard({
               {tools.map((t, i) => {
                 if (failed) {
                   const reason = failureReason(t.resultPreview) ?? t.resultPreview;
+
                   if (!reason) return null;
+
                   return (
                     <pre
                       key={t.toolCallId}
@@ -267,31 +276,40 @@ export function ToolCallCard({
                     </pre>
                   );
                 }
+
                 // Browsing tools get a web-native panel — a linked page card or a
                 // favicon result list — instead of a raw JSON dump. A web search
                 // with no parsed citations falls through to the JSON (which still
                 // carries the synthesized answer).
                 const b = presentBrowsing(t);
+
                 if (b?.kind === "fetch_url") {
                   return <FetchUrlDetail key={t.toolCallId} view={b} spaced={i > 0} />;
                 }
+
                 if (b?.kind === "web_search" && b.sources.length > 0) {
                   return <WebSearchDetail key={t.toolCallId} view={b} spaced={i > 0} />;
                 }
+
                 // Integration read tools (github.search, calendar, a PR, an email…)
                 // get the same web-native evidence panel instead of a JSON dump.
                 // A tool with no spec — or a preview too pruned to map — returns
                 // null and falls through to the JSON/raw tiers below, unchanged.
                 const evidence = presentEvidence(t);
+
                 if (evidence?.kind === "record-list") {
                   return <EvidenceListDetail key={t.toolCallId} view={evidence} spaced={i > 0} />;
                 }
+
                 if (evidence?.kind === "entity") {
                   return <EntityDetail key={t.toolCallId} view={evidence} spaced={i > 0} />;
                 }
+
                 const raw = t.resultPreview;
+
                 if (!raw) return null;
                 const json = prettyJson(raw);
+
                 if (json !== null) {
                   return (
                     <div key={t.toolCallId} className={cn(i > 0 && "mt-1.5")}>
@@ -299,6 +317,7 @@ export function ToolCallCard({
                     </div>
                   );
                 }
+
                 return (
                   <pre
                     key={t.toolCallId}
@@ -420,6 +439,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
       : view.hasMore
         ? "More available"
         : null;
+
   return (
     <div className={cn("overflow-hidden rounded-lg", spaced && "mt-1.5")}>
       {view.query ? (
@@ -434,6 +454,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
           // at once. `backwards` fill (see .animate-chat-row-in) holds each row
           // hidden through its delay. Disabled under prefers-reduced-motion.
           const stagger = { animationDelay: `${Math.min(i, MAX_STAGGERED_ROWS) * 40}ms` };
+
           const inner = (
             <>
               <Favicon domain={view.faviconDomain} size={16} />
@@ -448,6 +469,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
               {row.badge ? <BadgePill badge={row.badge} /> : null}
             </>
           );
+
           return row.href ? (
             <a
               key={row.key}

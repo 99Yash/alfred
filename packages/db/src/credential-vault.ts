@@ -2,6 +2,7 @@ import { serverEnv } from "@alfred/env/server";
 import { createCredentialVault, type CredentialVault } from "./credential-envelope";
 
 export { createCredentialVault, CredentialVaultError } from "./credential-envelope";
+
 export type {
   CredentialVault,
   CredentialVaultFailure,
@@ -16,6 +17,7 @@ export type {
  * the process refuse to boot.
  */
 export const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;
+
 export type AccountSecretField = (typeof ACCOUNT_SECRET_FIELDS)[number];
 
 let vault: CredentialVault | undefined;
@@ -27,5 +29,6 @@ let vault: CredentialVault | undefined;
 export function credentialVault(): CredentialVault {
   if (vault) return vault;
   vault = createCredentialVault(Buffer.from(serverEnv().OAUTH_CREDENTIAL_KEK, "base64url"));
+
   return vault;
 }

@@ -21,13 +21,16 @@ export function SkillsPage() {
     if (creating) return;
     setCreating(true);
     setCreateError(null);
+
     try {
       const response = await client.api.skills.post({});
+
       if (response.error) {
         throw new Error(
           responseErrorMessage(response.error.value, response.error.status, "Create skill"),
         );
       }
+
       await navigate({ to: "/skills/$slug", params: { slug: response.data.slug } });
     } catch (caught) {
       setCreateError(caught instanceof Error ? caught.message : "Failed to create skill");

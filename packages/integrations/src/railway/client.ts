@@ -48,10 +48,14 @@ const RAILWAY_AUTHZ_CODES = new Set([
 
 export function isRailwayAuthorizationError(err: unknown): boolean {
   if (err instanceof HttpError) return err.status === 401 || err.status === 403;
+
   if (!(err instanceof RailwayGraphqlError)) return false;
+
   return err.errors.some((e) => {
     const code = e.extensions?.code;
+
     if (code && RAILWAY_AUTHZ_CODES.has(code.toUpperCase())) return true;
+
     // Load-bearing: Railway tags authz failures with extensions.code
     // "INTERNAL_SERVER_ERROR" (verified against the live API 2026-06-24), NOT a
     // real authz code — so the message text is the only reliable signal here.
@@ -94,7 +98,9 @@ async function railwayFetch(
         },
       },
     );
+
   const res = retry === "none" ? await send() : await fetchWithRetry(send, { policy: retry });
+
   return { status: res.status, ok: res.ok, text: await res.text() };
 }
 
@@ -132,7 +138,9 @@ export async function railwayGraphqlRaw(
     },
     retry,
   );
+
   if (text.length === 0) return { status, body: null };
+
   try {
     return { status, body: JSON.parse(text) };
   } catch {
@@ -149,6 +157,7 @@ async function railwayGraphql<T>(
   retry: RetryPolicy | "none" = "none",
 ): Promise<T> {
   const { status, ok, text } = await railwayFetch(token, { query, variables }, retry);
+
   if (!ok) {
     // `body: ""` is the `ErrorBodyPolicy` "omit" posture (see `httpErrorFromResponse`),
     // applied by hand because this is a GraphQL POST on `authedFetch`, not an
@@ -165,7 +174,9 @@ async function railwayGraphql<T>(
       body: "",
     });
   }
+
   let json: { data?: T; errors?: GraphqlError[] };
+
   try {
     // SAFETY: Railway GraphQL answers JSON on both arms — payload under `data`,
     // failures under `errors`; a non-JSON body throws into the catch below,
@@ -175,8 +186,11 @@ async function railwayGraphql<T>(
     console.error(`[railway] non-JSON response :: ${summarizeBody(text)}`);
     throw new Error("[railway] invalid response from upstream");
   }
+
   if (json.errors && json.errors.length > 0) throw new RailwayGraphqlError(json.errors);
+
   if (!json.data) throw new Error("[railway] graphql returned no data");
+
   return json.data;
 }
 
@@ -200,7 +214,9 @@ export interface RailwayAccount {
  */
 export async function railwayValidateToken(token: string): Promise<RailwayAccount> {
   const account = await tryAccountIdentity(token);
+
   if (account) return account;
+
   return resolveWorkspaceIdentity(token);
 }
 
@@ -209,12 +225,14 @@ async function tryAccountIdentity(token: string): Promise<RailwayAccount | null>
     const data = await railwayGraphql<{
       me: { id: string; name: string | null; email: string | null } | null;
     }>(token, `query { me { id name email } }`);
+
     // Workspace/project tokens can't run `me`: Railway answers with a top-level
     // "Not Authorized" GraphQL error (handled by the catch below), not a
     // `me: null` payload, so the null branch here is a defensive fall-through.
     return data.me ? { id: data.me.id, name: data.me.name, email: data.me.email } : null;
   } catch (err) {
     if (!isRailwayAuthorizationError(err)) throw err;
+
     return null;
   }
 }
@@ -231,11 +249,13 @@ async function tryAccountIdentity(token: string): Promise<RailwayAccount | null>
  */
 async function resolveWorkspaceIdentity(token: string): Promise<RailwayAccount> {
   const introspected = await tryWorkspaceIntrospection(token);
+
   if (introspected) return introspected;
 
   // Validates the token (throws if it is actually invalid) and yields a stable
   // team identity when the workspace is a real team.
   const team = await firstTeamFromProjects(token);
+
   if (team) return { id: `team:${team.id}`, name: team.name, email: null };
 
   // Team-less workspace (e.g. a Hobby personal workspace) where introspection
@@ -270,12 +290,15 @@ async function tryWorkspaceIntrospection(token: string): Promise<RailwayAccount 
     const data = await railwayGraphql<{
       apiToken: { workspaces: Array<{ id: string; name: string | null }> } | null;
     }>(token, `query { apiToken { workspaces { id name } } }`);
+
     const workspaces = data.apiToken?.workspaces ?? [];
     const [workspace] = workspaces;
+
     // A workspace-scoped token is bound to exactly one workspace. Zero (or an
     // account-style token that slipped through with many) is ambiguous, so fall
     // through to the projects/team path rather than picking arbitrarily.
     if (!workspace || workspaces.length !== 1) return null;
+
     return {
       id: `workspace:${workspace.id}`,
       name: workspace.name ?? `Railway workspace ${workspace.id}`,
@@ -286,6 +309,7 @@ async function tryWorkspaceIntrospection(token: string): Promise<RailwayAccount 
     // leave a breadcrumb — without it, "why did this token resolve to team:/
     // workspace-token: instead of workspace:?" is an undebuggable mystery.
     console.debug(`[railway] workspace introspection failed :: ${summarizeBody(toMessage(err))}`);
+
     return null;
   }
 }
@@ -294,6 +318,7 @@ async function firstTeamFromProjects(token: string): Promise<{ id: string; name:
   const data = await railwayGraphql<{
     projects: { edges: Array<{ node: { team: { id: string; name: string } | null } }> };
   }>(token, `query { projects { edges { node { team { id name } } } } }`);
+
   // GraphQL doesn't promise a stable edge order, so "first non-null team" over
   // the raw edges could pick a different team between two connects of the same
   // token → a flapping accountId → duplicate credential rows. Pick the
@@ -301,7 +326,9 @@ async function firstTeamFromProjects(token: string): Promise<{ id: string; name:
   const teams = data.projects.edges
     .map((e) => e.node.team)
     .filter((t): t is { id: string; name: string } => t != null);
+
   if (teams.length === 0) return null;
+
   return teams.reduce((lowest, t) => (t.id < lowest.id ? t : lowest));
 }
 
@@ -309,10 +336,12 @@ export interface RailwayService {
   id: string;
   name: string;
 }
+
 export interface RailwayEnvironment {
   id: string;
   name: string;
 }
+
 export interface RailwayProject {
   id: string;
   name: string;
@@ -366,6 +395,7 @@ export async function railwayListProjects(
   ]);
 
   const projectsById = new Map<string, RailwayProject>();
+
   if (viaMe.status === "fulfilled") {
     for (const project of viaMe.value) projectsById.set(project.id, project);
   } else if (!isRailwayAuthorizationError(viaMe.reason)) {
@@ -390,6 +420,7 @@ export async function railwayListProjects(
     // failure here tank the whole call; if we have nothing yet, surface it.
     throw topLevel.reason;
   }
+
   return { projects: [...projectsById.values()] };
 }
 
@@ -417,12 +448,15 @@ async function railwayListProjectsViaMe(
     undefined,
     retry,
   );
+
   const projects: RailwayProject[] = [];
+
   for (const workspace of data.me?.workspaces ?? []) {
     for (const edge of workspace?.team?.projects?.edges ?? []) {
       projects.push(mapProjectNode(edge.node));
     }
   }
+
   return projects;
 }
 
@@ -436,6 +470,7 @@ async function railwayListProjectsTopLevel(
     undefined,
     retry,
   );
+
   return data.projects.edges.map((edge) => mapProjectNode(edge.node));
 }
 
@@ -483,6 +518,7 @@ export async function railwayListDeployments(
     },
     retry,
   );
+
   return {
     deployments: data.deployments.edges.map(({ node }) => ({
       id: node.id,
@@ -529,6 +565,7 @@ export async function railwayGetLogs(
     { deploymentId: args.deploymentId, limit: args.limit },
     retry,
   );
+
   return {
     logs: data.deploymentLogs.map((line) => ({
       ...line,
@@ -551,6 +588,7 @@ export async function railwayRedeploy(args: {
     }`,
     { id: args.deploymentId },
   );
+
   return { id: data.deploymentRedeploy.id, status: data.deploymentRedeploy.status };
 }
 
@@ -576,6 +614,7 @@ function configuredRailwayCredential(
   retry: RetryPolicy | "none",
 ): RailwayCredentialClient {
   const { accessToken, ...identity } = credential;
+
   return {
     ...identity,
     listProjects: () => railwayListProjects(accessToken, retry),

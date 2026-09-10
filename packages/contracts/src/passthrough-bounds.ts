@@ -40,11 +40,13 @@ const encoder = new TextEncoder();
 /** Approximate serialized byte size of a JSON-shaped value. */
 function approxBytes(value: unknown): number {
   let json: string;
+
   try {
     json = JSON.stringify(value) ?? "";
   } catch {
     return 0;
   }
+
   return encoder.encode(json).length;
 }
 
@@ -65,30 +67,40 @@ function capArrays(value: unknown): ArrayCapResult {
     let dropped = 0;
     let changed = false;
     const kept = value.slice(0, PASSTHROUGH_MAX_ARRAY_ITEMS);
+
     if (value.length > PASSTHROUGH_MAX_ARRAY_ITEMS) {
       dropped += value.length - PASSTHROUGH_MAX_ARRAY_ITEMS;
       changed = true;
     }
+
     const out = kept.map((item) => {
       const r = capArrays(item);
       dropped += r.dropped;
+
       if (r.value !== item) changed = true;
+
       return r.value;
     });
+
     return { value: changed ? out : value, dropped };
   }
+
   if (isRecord(value)) {
     let dropped = 0;
     let changed = false;
     const out: Record<string, unknown> = {};
+
     for (const [key, v] of Object.entries(value)) {
       const r = capArrays(v);
       dropped += r.dropped;
+
       if (r.value !== v) changed = true;
       out[key] = r.value;
     }
+
     return { value: changed ? out : value, dropped };
   }
+
   return { value, dropped: 0 };
 }
 
@@ -105,39 +117,50 @@ function pruneToBudget(value: unknown, budget: number): unknown {
     const out: unknown[] = [];
     // Reserve room for the closing "]" and a possible sentinel element.
     let used = 2;
+
     for (let i = 0; i < value.length; i++) {
       const remaining = budget - used;
       const child = fitChild(value[i], remaining);
+
       if (child === OVERFLOW) {
         out.push(
           `…[${value.length - i} of ${value.length} items dropped to fit ${budget}-byte cap]`,
         );
         break;
       }
+
       out.push(child);
       used += approxBytes(child) + 1; // +1 for the comma
     }
+
     return out;
   }
+
   if (isRecord(value)) {
     const out: Record<string, unknown> = {};
     let used = 2;
     const entries = Object.entries(value);
+
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
+
       if (!entry) continue;
       const [key, v] = entry;
       const remaining = budget - used;
       const child = fitChild(v, remaining - approxBytes(key) - 4); // key + quotes + colon
+
       if (child === OVERFLOW) {
         out.__truncated__ = `${entries.length - i} of ${entries.length} fields dropped to fit ${budget}-byte cap`;
         break;
       }
+
       out[key] = child;
       used += approxBytes(key) + approxBytes(child) + 4;
     }
+
     return out;
   }
+
   // A lone primitive that still overflows the whole budget — only possible for a
   // very long multibyte string (post 8k-char cap). Replace with a marker.
   return `…[value dropped to fit ${budget}-byte cap]`;
@@ -152,10 +175,13 @@ const OVERFLOW = Symbol("overflow");
  */
 function fitChild(child: unknown, remaining: number): unknown | typeof OVERFLOW {
   if (remaining <= 0) return OVERFLOW;
+
   if (approxBytes(child) <= remaining) return child;
+
   if (Array.isArray(child) || isRecord(child)) {
     return pruneToBudget(child, remaining);
   }
+
   return OVERFLOW;
 }
 
@@ -167,9 +193,11 @@ interface ByteCapResult {
 
 function capBytes(value: unknown, budget: number): ByteCapResult {
   const before = approxBytes(value);
+
   if (before <= budget) return { value, dropped: 0 };
   const pruned = pruneToBudget(value, budget);
   const after = approxBytes(pruned);
+
   return { value: pruned, dropped: Math.max(0, before - after) };
 }
 
@@ -191,16 +219,19 @@ export function boundPassthroughBody(input: unknown): BoundedPassthroughBody {
   const sanitized = sanitizeToolResult(input).value;
 
   const stringBounded = boundToolResult(sanitized);
+
   if (stringBounded.clipped > 0) {
     causes.push({ kind: "string_chars", droppedApprox: stringBounded.clipped });
   }
 
   const arrayCapped = capArrays(stringBounded.value);
+
   if (arrayCapped.dropped > 0) {
     causes.push({ kind: "array_items", droppedApprox: arrayCapped.dropped });
   }
 
   const byteCapped = capBytes(arrayCapped.value, PASSTHROUGH_MAX_BODY_BYTES);
+
   if (byteCapped.dropped > 0) {
     causes.push({ kind: "body_bytes", droppedApprox: byteCapped.dropped });
   }
@@ -208,6 +239,7 @@ export function boundPassthroughBody(input: unknown): BoundedPassthroughBody {
   if (causes.length === 0) {
     return { value: byteCapped.value };
   }
+
   return {
     value: byteCapped.value,
     truncation: {

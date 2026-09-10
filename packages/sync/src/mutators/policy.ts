@@ -8,6 +8,7 @@ export const policySetIntegrationModeArgsSchema = z.object({
   slug: z.enum(LOADABLE_INTEGRATION_SLUGS),
   mode: z.enum(POLICY_MODES),
 });
+
 export type PolicySetIntegrationModeArgs = z.infer<typeof policySetIntegrationModeArgsSchema>;
 
 export async function policySetIntegrationModeClient(
@@ -15,7 +16,9 @@ export async function policySetIntegrationModeClient(
   args: PolicySetIntegrationModeArgs,
 ): Promise<void> {
   const [current] = await SYNC_MODEL.actionpolicy.scan(tx);
+
   if (!current) return;
+
   const next: SyncedActionPolicy = {
     ...current,
     integrationRules: {
@@ -24,12 +27,14 @@ export async function policySetIntegrationModeClient(
     },
     rowVersion: current.rowVersion + 1,
   };
+
   await SYNC_MODEL.actionpolicy.put(tx, next);
 }
 
 export const policySetDefaultModeArgsSchema = z.object({
   mode: z.enum(POLICY_MODES),
 });
+
 export type PolicySetDefaultModeArgs = z.infer<typeof policySetDefaultModeArgsSchema>;
 
 /**
@@ -43,11 +48,14 @@ export async function policySetDefaultModeClient(
   args: PolicySetDefaultModeArgs,
 ): Promise<void> {
   const [current] = await SYNC_MODEL.actionpolicy.scan(tx);
+
   if (!current) return;
+
   const next: SyncedActionPolicy = {
     ...current,
     defaultMode: args.mode,
     rowVersion: current.rowVersion + 1,
   };
+
   await SYNC_MODEL.actionpolicy.put(tx, next);
 }

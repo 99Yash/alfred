@@ -114,6 +114,7 @@ export function resolvedExclude(tscBinary, root, projectPath) {
   if (!existsSync(tscBinary)) return { exclude: [], problem: `no tsc binary at ${tscBinary}` };
 
   let stdout;
+
   try {
     stdout = execFileSync(tscBinary, ["-p", projectPath, "--showConfig"], {
       cwd: root,
@@ -127,23 +128,28 @@ export function resolvedExclude(tscBinary, root, projectPath) {
 
   /** @type {unknown} */
   let parsed;
+
   try {
     parsed = JSON.parse(stdout);
   } catch {
     return { exclude: [], problem: `tsc printed no readable config for ${projectPath}` };
   }
+
   if (typeof parsed !== "object" || parsed === null) {
     return { exclude: [], problem: `tsc printed no readable config for ${projectPath}` };
   }
 
   const raw = /** @type {{exclude?: unknown}} */ (parsed).exclude;
+
   if (raw === undefined) return { exclude: [], problem: null };
+
   if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
     return {
       exclude: [],
       problem: `${projectPath} has an \`exclude\` that is not a list of paths`,
     };
   }
+
   return { exclude: /** @type {string[]} */ (raw), problem: null };
 }
 
@@ -183,6 +189,7 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
   }
 
   let realRoot;
+
   try {
     realRoot = realpathSync(root);
   } catch {
@@ -192,6 +199,7 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
   const packageDir = projectPath.slice(0, projectPath.length - TEST_PROJECT.length - 1);
   const probeName = `${PROBE_PREFIX}.${process.pid}.json`;
   const probePath = resolve(realRoot, packageDir, probeName);
+
   if (existsSync(probePath)) {
     return {
       members: new Set(),
@@ -202,6 +210,7 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
 
   let listed = "";
   let diagnostics = "";
+
   try {
     writeFileSync(
       probePath,
@@ -216,11 +225,14 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
 
   /** @type {Set<string>} */
   const members = new Set();
+
   for (const line of listed.split("\n")) {
     const file = line.trim();
+
     if (file.length > 0 && !file.startsWith("error TS"))
       members.add(toRepoRelative(realRoot, file));
   }
+
   if (members.size === 0) {
     return {
       members: new Set(),
@@ -231,10 +243,13 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
 
   /** @type {Set<string>} */
   const dirty = new Set();
+
   for (const line of diagnostics.split("\n")) {
     const match = DIAGNOSTIC.exec(line.trim());
+
     if (match?.[1] !== undefined) dirty.add(toRepoRelative(realRoot, match[1]));
   }
+
   return { members, dirty, problem: null };
 }
 
@@ -257,6 +272,7 @@ function runTsc(tscBinary, root, args) {
     });
   } catch (error) {
     const partial = /** @type {{stdout?: unknown}} */ (error).stdout;
+
     return typeof partial === "string" ? partial : "";
   }
 }
@@ -304,6 +320,7 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
   let projectsProbed = 0;
 
   let realRoot;
+
   try {
     realRoot = realpathSync(root);
   } catch {
@@ -321,6 +338,7 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
   for (const projectPath of projects) {
     const packageDir = projectPath.slice(0, projectPath.length - TEST_PROJECT.length - 1);
     const resolved = resolvedExclude(tscBinary, realRoot, projectPath);
+
     if (resolved.problem !== null) {
       problems.push(resolved.problem);
       continue;
@@ -331,6 +349,7 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
       .filter((entry) => entry === TEST_ROOT || entry.startsWith(`${TEST_ROOT}/`));
 
     packages.push({ name: packageDir, excluded: baselined.length });
+
     if (baselined.length === 0) continue;
 
     // Globs and directories are rejected before the probe runs: neither can be
@@ -338,30 +357,37 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
     // would report them as stale for the wrong reason.
     /** @type {Set<string>} */
     const listed = new Set();
+
     for (const entry of baselined) {
       const repoPath = `${packageDir}/${entry}`;
+
       if (/[*?]/.test(entry)) {
         missing.push(`${repoPath} · is a glob; spell every baselined file as a literal path`);
         continue;
       }
+
       let stats;
+
       try {
         stats = statSync(resolve(realRoot, repoPath));
       } catch {
         missing.push(`${repoPath} · does not exist`);
         continue;
       }
+
       if (!stats.isFile()) {
         missing.push(
           `${repoPath} · names a directory, which un-checks every file added to it tomorrow; spell every baselined file as a literal path`,
         );
         continue;
       }
+
       listed.add(repoPath);
     }
 
     const probe = probeWidenedProgram(tscBinary, realRoot, projectPath);
     projectsProbed += 1;
+
     if (probe.problem !== null) {
       problems.push(probe.problem);
       continue;
@@ -378,11 +404,15 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
         );
         continue;
       }
+
       if (!probe.dirty.has(repoPath)) nowClean.push(repoPath);
     }
+
     const testRoot = `${packageDir}/${TEST_ROOT}/`;
+
     for (const repoPath of probe.dirty) {
       if (!repoPath.startsWith(testRoot)) continue;
+
       if (!listed.has(repoPath)) newlyDirty.push(repoPath);
     }
   }

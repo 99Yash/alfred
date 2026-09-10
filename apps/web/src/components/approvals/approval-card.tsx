@@ -14,9 +14,13 @@ export type { RecordedDecision, WriteDecision } from "./use-approval-decision";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={14} />;
+
 const ICON_PENCIL = <Pencil size={14} />;
+
 const ICON_REVISE = <RefreshCw size={14} />;
+
 const ICON_REVISE_SM = <RefreshCw size={13} />;
+
 const ICON_CHECK = <Check size={14} />;
 
 /**

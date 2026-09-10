@@ -42,10 +42,12 @@ function handlerFixture(overrides: Partial<ChatMediaHandler> = {}): ChatMediaHan
 describe("chat media composition seam", () => {
   test("validates each exact operation request and result", async () => {
     const received: string[] = [];
+
     const unregister = registerChatMediaHandler(
       handlerFixture({
         async claimEnrichment(request) {
           received.push(`claim:${request.attachmentId}`);
+
           return "claimed";
         },
         async recordEnqueueFailure(request) {
@@ -53,14 +55,17 @@ describe("chat media composition seam", () => {
         },
         async enrich(request) {
           received.push(`enrich:${request.attachmentId}`);
+
           return "persisted";
         },
         async cleanupPrefix(request) {
           received.push(`prefix:${request.prefix}`);
+
           return { removed: 2 };
         },
         async cleanupPendingUploads(request) {
           received.push(`pending:${request.keys.length}`);
+
           return { checked: request.keys.length, removed: 1 };
         },
       }),
@@ -100,7 +105,9 @@ describe("chat media composition seam", () => {
         return { removed: 1 };
       },
     } as unknown as Partial<ChatMediaHandler>);
+
     const unregister = registerChatMediaHandler(invalidHandler);
+
     try {
       await assert.rejects(() =>
         enrichChatMedia({ ...enrichmentRequest, estimatedCostMicrousd: -1 }),
@@ -144,6 +151,7 @@ describe("chat media composition seam", () => {
           {
             async claim(attachmentId) {
               calls.push(`claim:${attachmentId}`);
+
               return "claimed";
             },
             async enqueue(request) {
@@ -163,6 +171,7 @@ describe("chat media composition seam", () => {
 
   test("queue transport does not enqueue an existing enrichment", async () => {
     let enqueues = 0;
+
     const result = await enqueueChatAttachmentEnrichmentWith(
       {
         async claim() {
@@ -175,15 +184,18 @@ describe("chat media composition seam", () => {
       },
       enrichmentRequest,
     );
+
     assert.equal(result, "existing");
     assert.equal(enqueues, 0);
   });
 
   test("preserves enrichment attribution and result", async () => {
     let received: unknown;
+
     const handler = createChatMediaHandler({
       async enrich(args) {
         received = args;
+
         return "superseded";
       },
     });
@@ -202,16 +214,19 @@ describe("chat media composition seam", () => {
 
   test("keeps cleanup a no-op when storage is not configured", async () => {
     let deletes = 0;
+
     const handler = createChatMediaHandler({
       storageConfigured() {
         return false;
       },
       async deletePrefix() {
         deletes++;
+
         return 1;
       },
       async cleanupPendingUploads() {
         deletes++;
+
         return 1;
       },
     });
@@ -229,12 +244,14 @@ describe("chat media composition seam", () => {
 
   test("delegates pending cleanup as one coordinated operation", async () => {
     let received: unknown;
+
     const handler = createChatMediaHandler({
       storageConfigured() {
         return true;
       },
       async cleanupPendingUploads(request) {
         received = request;
+
         return 1;
       },
     });

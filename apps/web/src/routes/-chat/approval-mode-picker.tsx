@@ -33,12 +33,14 @@ const REVIEW_OPTION: ModeOption = {
   description: "Alfred pauses for your approval before acting.",
   Icon: ShieldCheck,
 };
+
 const AUTOPILOT_OPTION: ModeOption = {
   autonomy: true,
   label: "Autopilot",
   description: "Alfred acts without pausing for approval.",
   Icon: Zap,
 };
+
 const MODE_OPTIONS: ReadonlyArray<ModeOption> = [REVIEW_OPTION, AUTOPILOT_OPTION];
 
 export function ApprovalModePicker({
@@ -57,8 +59,10 @@ export function ApprovalModePicker({
   // on the content directly (context still flows through the portal). Same
   // pattern as ModelTierPicker / AppSelect.
   const themeCtx = use(AppThemeContext);
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
+
   const selected = on ? AUTOPILOT_OPTION : REVIEW_OPTION;
   const SelectedIcon = selected.Icon;
 
@@ -125,6 +129,7 @@ export function ApprovalModePicker({
           {MODE_OPTIONS.map((option) => {
             const checked = option.autonomy === on;
             const OptionIcon = option.Icon;
+
             return (
               <PopoverPrimitive.Close asChild key={option.label}>
                 <button

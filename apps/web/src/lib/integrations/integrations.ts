@@ -285,6 +285,7 @@ const INTEGRATION_PAGE_COPY = {
 function buildPage(slug: CatalogSlug): IntegrationPage {
   const entry = INTEGRATIONS[slug];
   const live = entry.status === "live";
+
   return {
     slug,
     name: entry.displayName,
@@ -329,6 +330,7 @@ export function getIntegrationPage(value: string): IntegrationPage | undefined {
  */
 export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined {
   const entry = INTEGRATIONS[slug];
+
   return entry.kind === "provider" ? entry.brand : undefined;
 }
 
@@ -338,7 +340,9 @@ export function getRelatedPages(page: IntegrationPage): ReadonlyArray<Integratio
 
 export function matchesIntegration(page: IntegrationPage, query: string): boolean {
   const needle = query.trim().toLowerCase();
+
   if (!needle) return true;
+
   return `${page.name} ${page.description} ${page.capabilities.join(" ")}`
     .toLowerCase()
     .includes(needle);
@@ -355,6 +359,7 @@ export function matchesIntegration(page: IntegrationPage, query: string): boolea
 export function connectPathFor(slug: LiveProviderSlug): string {
   const path = `${integrationRoutePrefix(credentialProviderOf(slug))}/connect`;
   const credential = INTEGRATIONS[slug].credential;
+
   return credential.shape === "google_oauth"
     ? `${path}?features=${credential.features.join(",")}`
     : path;

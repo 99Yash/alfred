@@ -15,6 +15,7 @@ const stateSchema = z.object({
   proposed: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 const inputSchema = z.object({
@@ -45,6 +46,7 @@ export function buildMemoryExtractionWorkflow(sender: GmailSenderParser): Workfl
     closure: { kind: "none" },
     initialState(input) {
       const parsed = inputSchema.parse(input.input ?? {});
+
       return {
         mode: parsed.mode,
         manualProposals: parsed.manualProposals,
