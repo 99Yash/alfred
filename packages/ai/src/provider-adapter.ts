@@ -237,9 +237,7 @@ function reasoningMiddleware(reasoning: RouteReasoning): LanguageModelV4Middlewa
   return {
     specificationVersion: "v4",
     transformParams: async ({ params }) => {
-      // SAFETY: ai's LanguageModelMiddleware widens params; the owning type is LanguageModelV4CallOptions.
-      const call = params as LanguageModelV4CallOptions;
-      return call.reasoning === undefined ? { ...call, reasoning } : call;
+      return params.reasoning === undefined ? { ...params, reasoning } : params;
     },
   };
 }
