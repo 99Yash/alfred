@@ -19,6 +19,7 @@ export interface McpTraceSpan {
 
 function w3cTraceId(traceId: string): string {
   const derived = createHash("sha256").update(traceId).digest("hex").slice(0, 32);
+
   return /^0+$/.test(derived) ? "00000000000000000000000000000001" : derived;
 }
 
@@ -31,15 +32,20 @@ export function startMcpTraceSpan(input: {
 }): McpTraceSpan {
   const runId = input.traceId ?? input.parent?.runId ?? `mcp:${randomUUID()}`;
   const parentTraceId = input.parent?.traceparent.split("-")[1];
+
   const traceId =
     parentTraceId && /^[0-9a-f]{32}$/.test(parentTraceId) ? parentTraceId : w3cTraceId(runId);
+
   const spanId = randomBytes(8).toString("hex");
+
   const context: McpTraceContext = {
     runId,
     traceparent: `00-${traceId}-${spanId}-01`,
     ...(input.parent?.tracestate ? { tracestate: input.parent.tracestate } : {}),
   };
+
   let span: RuntimeSpanCloser = { end() {} };
+
   try {
     span = startRuntimeSpan({
       runId,
@@ -50,6 +56,7 @@ export function startMcpTraceSpan(input: {
   } catch {
     // A missing/misconfigured observability environment must not break MCP.
   }
+
   return {
     context,
     end(args) {

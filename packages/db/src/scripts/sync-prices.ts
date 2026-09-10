@@ -21,6 +21,7 @@ import { modelPrices } from "../schema/metering";
 import { auditedMetadataEqual, pricesEqual } from "./sync-prices-compare";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
+
 const MODELS_DEV_FETCH_TIMEOUT_MS = 30_000;
 
 /** Providers we care about. Anything else from models.dev is ignored. */
@@ -154,10 +155,13 @@ interface PriceRow {
 async function fetchCatalog(): Promise<ModelsDevCatalog> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), MODELS_DEV_FETCH_TIMEOUT_MS);
+
   try {
     const res = await fetch(MODELS_DEV_URL, { signal: controller.signal });
+
     if (!res.ok) throw await httpErrorFromResponse("models.dev", res, { url: MODELS_DEV_URL });
     const raw: unknown = await res.json();
+
     // models.dev is a large third-party catalog; we consume only PROVIDERS.
     // Scope validation to those before parsing so shape drift in providers we
     // ignore (0-valued limits, null enum values, new field types) can never
@@ -171,6 +175,7 @@ async function fetchCatalog(): Promise<ModelsDevCatalog> {
           ]),
         )
       : {};
+
     return modelsDevCatalogSchema.parse(scoped);
   } finally {
     clearTimeout(timeoutId);
@@ -179,12 +184,17 @@ async function fetchCatalog(): Promise<ModelsDevCatalog> {
 
 function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
   const rows: PriceRow[] = [];
+
   for (const provider of PROVIDERS) {
     const models = catalog[provider]?.models;
+
     if (!models) continue;
+
     for (const [id, m] of Object.entries(models)) {
       const cost = m.cost;
+
       if (!cost) continue;
+
       if (cost.input == null || cost.output == null) continue;
       rows.push({
         provider,
@@ -227,6 +237,7 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
       });
     }
   }
+
   return rows;
 }
 
@@ -237,7 +248,9 @@ function safeErrorMessage(err: unknown): string {
 function safeCauseMessage(err: unknown): string | undefined {
   if (!(err instanceof Error) || !("cause" in err)) return undefined;
   const cause = err.cause;
+
   if (cause instanceof Error) return cause.message;
+
   return typeof cause === "string" ? cause : undefined;
 }
 
@@ -249,6 +262,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
     ORDER BY valid_from DESC
     LIMIT 1
   `);
+
   const latest = rowsFromExecute<{
     input_per_mtok: string;
     output_per_mtok: string;
@@ -276,6 +290,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
         },
         row,
       ) && auditedMetadataEqual(latest.metadata, row.metadata);
+
     if (same) return "unchanged";
   }
 
@@ -293,6 +308,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
       contextWindow: row.contextWindow,
       metadata: { source: row.source, ...row.metadata },
     });
+
   return "inserted";
 }
 
@@ -306,11 +322,14 @@ async function main() {
 
   let inserted = 0;
   let unchanged = 0;
+
   for (const row of all) {
     const result = await upsertIfChanged(row);
+
     if (result === "inserted") inserted++;
     else unchanged++;
   }
+
   console.log(`[sync-prices] inserted=${inserted} unchanged=${unchanged}`);
 }
 
@@ -318,6 +337,7 @@ main()
   .catch((err) => {
     console.error("[sync-prices] FAIL:", safeErrorMessage(err));
     const cause = safeCauseMessage(err);
+
     if (cause) console.error("[sync-prices] cause:", cause);
     process.exitCode = 1;
   })

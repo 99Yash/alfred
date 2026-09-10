@@ -47,20 +47,27 @@ export function splitAddressList(raw: string | null): string[] {
   let buf = "";
   let inQuote = false;
   let inAngle = false;
+
   for (const ch of raw) {
     if (ch === '"') inQuote = !inQuote;
     else if (ch === "<") inAngle = true;
     else if (ch === ">") inAngle = false;
+
     if (ch === "," && !inQuote && !inAngle) {
       const t = buf.trim();
+
       if (t) out.push(t);
       buf = "";
       continue;
     }
+
     buf += ch;
   }
+
   const last = buf.trim();
+
   if (last) out.push(last);
+
   return out;
 }
 
@@ -69,11 +76,14 @@ const ANGLE_NAME_RE = /^(.*?)<[^>]+>\s*$/;
 /** Extract just the display-name part of a `Name <addr>` token (null if bare address). */
 function parseDisplayName(token: string): string | null {
   const m = token.trim().match(ANGLE_NAME_RE);
+
   if (!m || m[1] === undefined) return null;
+
   const name = m[1]
     .trim()
     .replace(/^"+|"+$/g, "")
     .trim();
+
   return name || null;
 }
 
@@ -92,12 +102,16 @@ function parseDisplayName(token: string): string | null {
  */
 function parsePersonToken(token: string): PersonToken | null {
   const sc = extractSenderContext({ fromHeader: token, subject: null, body: "" });
+
   if (!sc.senderAddress) return null;
   const displayName = parseDisplayName(token);
+
   if (sc.context.fromKind !== "person") {
     const localPart = sc.senderAddress.slice(0, sc.senderAddress.indexOf("@"));
+
     if (!isHumanLikeSender(localPart, displayName)) return null;
   }
+
   return {
     address: sc.senderAddress,
     domain: sc.senderDomain,
@@ -115,9 +129,11 @@ export const gmailSenderAdapter: GmailSenderParser = {
     // labelId-aware SENT signal (diverges from `correspondents.isSent`).
     const isSent = isSentGmailMetadata(meta);
     const fromRaw = meta.from ?? null;
+
     const fromEmail = fromRaw
       ? extractSenderContext({ fromHeader: fromRaw, subject: null, body: "" }).senderAddress
       : null;
+
     return { isSent, fromEmail };
   },
 
@@ -127,13 +143,16 @@ export const gmailSenderAdapter: GmailSenderParser = {
     const isSent = meta.isSent === true;
     const from = parsePersonToken(meta.from ?? "");
     const recipients: PersonToken[] = [];
+
     for (const token of [
       ...splitAddressList(meta.to ?? null),
       ...splitAddressList(meta.cc ?? null),
     ]) {
       const p = parsePersonToken(token);
+
       if (p) recipients.push(p);
     }
+
     return { isSent, from, recipients };
   },
 };

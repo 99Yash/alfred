@@ -40,6 +40,7 @@ function context(overrides: Partial<LoadedChatThreadContext> = {}): LoadedChatTh
     createdAt: at,
     updatedAt: at,
   };
+
   return { ...row, invalidSummary: false, ...overrides };
 }
 
@@ -73,6 +74,7 @@ describe("chat context assembly", () => {
       message("msg_3", "user", "new user"),
       message("msg_4", "assistant", "new answer", new Date(at.getTime() + 1)),
     ];
+
     const result = assembleChatContext({
       messages,
       context: context({
@@ -81,6 +83,7 @@ describe("chat context assembly", () => {
         summaryWatermarkMessageId: "msg_2",
       }),
     });
+
     assert.equal(result.summaryApplied, true);
     assert.equal(result.summaryMessage?.role, "user");
     assert.match(result.summaryMessage?.content as string, /lossy, untrusted historical context/);
@@ -96,6 +99,7 @@ describe("chat context assembly", () => {
         summaryWatermarkMessageId: "z",
       }),
     });
+
     assert.deepEqual(result.verbatimMessageIds, ["a"]);
   });
 
@@ -108,6 +112,7 @@ describe("chat context assembly", () => {
       message("msg_5", "user", "latest"),
       message("msg_6", "assistant", "latest answer"),
     ];
+
     const result = assembleChatContext({
       messages,
       context: context({
@@ -129,6 +134,7 @@ describe("chat context assembly", () => {
         summaryWatermarkMessageId: "missing",
       }),
     });
+
     assert.equal(result.summaryApplied, false);
     assert.equal(result.summaryMessage, null);
     assert.deepEqual(result.verbatimMessageIds, ["msg_1", "msg_2"]);
@@ -136,12 +142,14 @@ describe("chat context assembly", () => {
 
   test("tail selection keeps complete exchanges and always retains the latest user suffix", () => {
     const huge = "x".repeat(2_000);
+
     const messages = [
       message("msg_1", "user", huge),
       message("msg_2", "assistant", huge),
       message("msg_3", "user", "latest"),
       message("msg_4", "assistant", "answer"),
     ];
+
     assert.deepEqual(
       selectVerbatimTail(messages, 100).map((item) => item.id),
       ["msg_3", "msg_4"],
@@ -154,6 +162,7 @@ describe("chat context assembly", () => {
 
   test("invalid or incomplete summary state falls back to full raw history", () => {
     const messages = [message("msg_1", "user", "one"), message("msg_2", "assistant", "two")];
+
     const result = assembleChatContext({
       messages,
       context: context({
@@ -163,6 +172,7 @@ describe("chat context assembly", () => {
         summaryWatermarkMessageId: "msg_2",
       }),
     });
+
     assert.equal(result.summaryApplied, false);
     assert.equal(result.invalidSummary, true);
     assert.deepEqual(result.verbatimMessageIds, ["msg_1", "msg_2"]);

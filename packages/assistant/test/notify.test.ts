@@ -11,7 +11,9 @@ import { _setResendClientForTests } from "../src/delivery/resend-client";
 import { dbBackedSkip } from "./support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-notify-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -20,6 +22,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Notify Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -37,6 +40,7 @@ function fakeSentClient(): SentClientCalls {
     payload: { headers?: Record<string, string> | undefined };
     options?: { idempotencyKey?: string } | undefined;
   }> = [];
+
   // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   const client = {
     emails: {
@@ -45,10 +49,12 @@ function fakeSentClient(): SentClientCalls {
         options?: { idempotencyKey?: string },
       ) => {
         calls.push({ payload, options });
+
         return { data: { id: "resend_test" }, error: null };
       },
     },
   } as unknown as Parameters<typeof _setResendClientForTests>[0];
+
   return { client, calls };
 }
 
@@ -61,9 +67,11 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
 
   after(async () => {
     _setResendClientForTests(undefined);
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -73,6 +81,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
     _setResendClientForTests(client);
 
     const idempotencyKey = `health_alert:${userId}:attention_share_7d:2026-06-27`;
+
     const result = await send({
       userId,
       kind: "health_alert",
@@ -113,6 +122,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
 
   test("a Resend error surfaces as a failed result", async () => {
     const userId = await seedUser();
+
     /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
     const failingClient = {
       emails: {
@@ -122,6 +132,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
         }),
       },
     } as unknown as Parameters<typeof _setResendClientForTests>[0];
+
     /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
     _setResendClientForTests(failingClient);
 
@@ -135,6 +146,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
     });
 
     assert.equal(result.status, "failed");
+
     if (result.status === "failed") {
       assert.match(result.error, /rate_limit_exceeded/);
     }

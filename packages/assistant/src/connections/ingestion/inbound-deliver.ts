@@ -48,19 +48,26 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
     .innerJoin(integrationCredentials, eq(integrationCredentials.id, eventReceipts.credentialId))
     .where(eq(eventReceipts.id, receiptId))
     .limit(1);
+
   if (!row) {
     console.warn(`[ingress] receipt ${receiptId} not found; skipping delivery`);
+
     return;
   }
+
   const { receipt } = row;
+
   if (receipt.processingStatus === "completed") return;
 
   const source = receipt.provider;
+
   if (!isInboundEventSource(source)) {
     throw new Error(`[ingress] receipt ${receiptId} has non-inbound provider '${source}'`);
   }
+
   const payload = { receiptId, deliveryKey: receipt.providerDeliveryId };
   let event: DomainEvent;
+
   if (receipt.rawKind !== null) {
     event = {
       userId: receipt.userId,
@@ -73,11 +80,14 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
     };
   } else {
     const type = parseEventTypeName(source, receipt.eventType);
+
     if (!type) {
       await markProcessed(receiptId, "failed");
       console.error(`[ingress] receipt ${receiptId} has unknown event type '${receipt.eventType}'`);
+
       return;
     }
+
     event = {
       userId: receipt.userId,
       source,
@@ -95,6 +105,7 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
     console.error(`[ingress] delivery of receipt ${receiptId} failed`, toMessage(error));
     throw error;
   }
+
   await markProcessed(receiptId, "completed");
 }
 

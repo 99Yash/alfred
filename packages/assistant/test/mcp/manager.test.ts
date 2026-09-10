@@ -29,6 +29,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcpmgr-";
+
 const createdUserIds: string[] = [];
 
 class FakeProtocol implements McpProtocolClient {
@@ -54,6 +55,7 @@ class FakeProtocol implements McpProtocolClient {
 
   async connect(): Promise<McpNegotiatedServer> {
     if (this.connectError) throw this.connectError;
+
     return this.negotiated;
   }
   async close(): Promise<void> {}
@@ -85,6 +87,7 @@ async function seedConnection(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   const conn = await ensureConnection({
     userId,
     label: "Test MCP",
@@ -92,6 +95,7 @@ async function seedConnection(): Promise<string> {
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
+
   return conn.id;
 }
 
@@ -118,6 +122,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -187,6 +192,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
       { kind: "mcp", connectionId: connId, remoteName: "tool_a", catalogRevision: revision },
       {},
     );
+
     assert.equal(envelope.outcome, "completed");
     assert.equal(envelope.toolName, "tool_a");
   });

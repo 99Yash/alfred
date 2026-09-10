@@ -13,7 +13,9 @@ export {
   triageClassificationSchema,
   DEFAULT_TRIAGE_CATEGORY,
 } from "./classify";
+
 export { applyFloors, applyOverrideFloor } from "./floors";
+
 export type {
   AssistDateAnchor,
   TriageClassification,
@@ -38,6 +40,7 @@ export {
   upsertTriage,
   withTriageThreadLock,
 } from "./store";
+
 export type {
   TriageRow,
   UpsertTriageArgs,
@@ -46,12 +49,15 @@ export type {
 } from "./store";
 
 export { reconcileThreadLabel } from "./tags";
+
 export type { ReconcileResult, ReconcileThreadLabelArgs } from "./tags";
+
 export {
   reconcileGmailThreads,
   findNewestLiveInboundGmailDocuments,
   planGmailThreadReconcile,
 } from "./gmail-reconcile";
+
 export type {
   ReconcileGmailThreadsArgs,
   ReconcileGmailThreadsResult,
@@ -61,18 +67,26 @@ export type {
 } from "./gmail-reconcile";
 
 export { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
+
 export type { TriageWorkflowInput } from "./workflow-input";
 
 export { extractSenderContext, recipientAddresses } from "./sender-context";
+
 export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
+
 export { readTriageUserContext } from "./user-context";
+
 export type { TriageUserContext } from "./user-context";
 
 // ── Triage v3 (ADR-0051): sent-mail thread state + sender priors + observations
 export { getThreadState } from "./thread-state";
+
 export type { ThreadState, GetThreadStateArgs } from "./thread-state";
+
 export { isKnownContact } from "./contacts";
+
 export { resolveSenderRelationship } from "./sender-relationship";
+
 export {
   resolveSenderKind,
   senderKindSignalFromProfile,
@@ -80,24 +94,31 @@ export {
   TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD,
   TRIAGE_SENDER_KIND_FEATURE_KEY,
 } from "./sender-kind";
+
 export type { TriageSenderKindSignal } from "./sender-kind";
+
 export {
   getSenderPrior,
   incrementSenderPrior,
   senderPriorWriteKeyFor,
   senderKeyFor,
 } from "./sender-priors";
+
 export type {
   SenderPrior,
   IncrementSenderPriorArgs,
   SenderPriorWriteKeyArgs,
 } from "./sender-priors";
+
 export { isSentGmailMetadata, gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
+
 // The Gmail sender parser adapter memory depends on (ADR-0089). The relocated
 // header splitter (`splitAddressList`) stays a file-level export for its unit
 // test; it is intentionally NOT re-exported here (module-internal to triage).
 export { gmailSenderAdapter } from "./gmail-sender-adapter";
+
 export { assembleObservations, extractGmailSignals, extractContentFlags } from "./observations";
+
 export type {
   Observations,
   GmailSignals,
@@ -106,6 +127,7 @@ export type {
 } from "./observations";
 
 export { senderExtractionEvent } from "./sender-extraction-event";
+
 export type { SenderExtractionEvent } from "./sender-extraction-event";
 
 export {

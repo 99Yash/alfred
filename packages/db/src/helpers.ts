@@ -29,6 +29,7 @@ export const lifecycle_dates = {
 
 export function createId(prefix?: string, { length = 12, separator = "_" } = {}): string {
   const id = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", length)();
+
   return prefix ? `${prefix}${separator}${id}` : id;
 }
 
@@ -70,15 +71,19 @@ function base32(bytes: Buffer): string {
   let bits = 0;
   let value = 0;
   let out = "";
+
   for (const byte of bytes) {
     value = (value << 8) | byte;
     bits += 8;
+
     while (bits >= 5) {
       out += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
       bits -= 5;
     }
   }
+
   if (bits > 0) out += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+
   return out;
 }
 
@@ -125,6 +130,7 @@ export function computeStableEntityId(
         `whitespace-sensitive entity id.`,
     );
   }
+
   // The id inputs are as load-bearing as the secret. An empty or whitespace-
   // padded `userId`/`normalizedValue` would mint a deterministic `ent_*` anchor
   // that every "unknown" identity collapses onto — exactly the bad anchor that
@@ -145,6 +151,7 @@ export function computeStableEntityId(
       );
     }
   }
+
   // The value must already be CANONICAL for its kind (lowercased email/domain/
   // github handle, etc.). The id is content-addressed from this exact string, so
   // `Person@x.com` and `person@x.com` would mint two permanent anchors for one
@@ -162,6 +169,7 @@ export function computeStableEntityId(
         `refusing to mint a stable entity id from a non-canonical anchor.`,
     );
   }
+
   // The value must also be a legal FORMAT for its kind (a real email, a numeric
   // github id, an `owner/repo`, …). Canonical-but-malformed (`{ kind: "email",
   // value: "not-an-email" }`, `{ kind: "github_user_id", value: "abc" }`) would
@@ -174,6 +182,7 @@ export function computeStableEntityId(
         `for kind '${input.identityKind}' — refusing to mint a stable entity id from a malformed identity.`,
     );
   }
+
   // Canonical, key-ordered JSON so the digest is stable across call sites.
   const canonicalInput: StableEntityIdInput = {
     v: STABLE_ENTITY_ID_VERSION,
@@ -181,8 +190,10 @@ export function computeStableEntityId(
     identityKind: input.identityKind,
     normalizedValue: input.normalizedValue,
   };
+
   const canonical = JSON.stringify(canonicalInput);
   const digest = createHmac("sha256", secret).update(canonical).digest();
+
   // 128 bits (~26 base32 chars) — ample collision resistance, compact id.
   return `ent_${base32(digest.subarray(0, 16))}`;
 }
@@ -233,11 +244,13 @@ export function makeEntityNodeInsert(
   firstSeenAt: Date,
 ): EntityNodeInsert {
   const parsed = identityRefSchema.parse(identity);
+
   const id = computeStableEntityId(secret, {
     userId,
     identityKind: parsed.kind,
     normalizedValue: parsed.value,
   });
+
   return { id, userId, canonicalIdentity: parsed, firstSeenAt };
 }
 
@@ -341,6 +354,7 @@ export interface EmbedFailureColumns {
  */
 export function buildEmbedFailureSet(cols: EmbedFailureColumns, err: unknown) {
   const permanent = isHttpError(err) && err.perInputPermanent;
+
   return {
     embedAttempts: sql`${cols.attempts} + 1`,
     // Stamp the first failure once so the transient gate can measure how long
@@ -459,6 +473,7 @@ export async function runAtomic<T>(
   body: (tx: DbTransaction) => Promise<T>,
 ): Promise<T> {
   const nested = is(runner, PgTransaction);
+
   if (nested) {
     if (bodiesInFlight.has(runner)) {
       throw new Error(
@@ -468,8 +483,10 @@ export async function runAtomic<T>(
           "discards one's writes silently.",
       );
     }
+
     bodiesInFlight.add(runner);
   }
+
   return runner.transaction(body).finally(() => {
     if (nested) bodiesInFlight.delete(runner);
   });
@@ -484,5 +501,6 @@ export async function runAtomic<T>(
  */
 export function requireRow<T>(row: T | undefined, op: string): T {
   if (row === undefined) throw new Error(`${op}: expected a returned row, got none`);
+
   return row;
 }

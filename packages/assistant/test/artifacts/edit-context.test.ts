@@ -24,6 +24,7 @@ import {
 import { buildArtifactReference } from "@alfred/assistant/artifacts/read";
 
 const documentContent = { kind: "document" as const, markdown: "Current body" };
+
 const artifactReferenceSchema = z
   .object({
     contentComplete: z.boolean(),
@@ -46,6 +47,7 @@ test("bounded artifact references carry the complete body and concurrency hash",
     rowVersion: 3,
     content: documentContent,
   });
+
   const parsed = parseArtifactReference(message);
   assert.equal(parsed.contentComplete, true);
   assert.deepEqual(parsed.content, documentContent);
@@ -62,6 +64,7 @@ test("oversized artifact references omit rather than truncate content and its ha
     rowVersion: 1,
     content: { kind: "document", markdown: "x".repeat(25_000) },
   });
+
   const parsed = parseArtifactReference(message);
   assert.equal(parsed.contentComplete, false);
   assert.equal(parsed.content, null);
@@ -79,6 +82,7 @@ test("generating artifact references never authorize replacement from a partial 
     rowVersion: 2,
     content: { kind: "pages", pages: [{ title: "Page 1", html: "<p>Partial</p>" }] },
   });
+
   const parsed = parseArtifactReference(message);
   assert.equal(parsed.contentComplete, false);
   assert.equal(parsed.content, null);
@@ -152,6 +156,7 @@ test("the PDF guide enters the transcript once when the selected medium becomes 
   assert.equal(admitPdfDesignGuide(state), undefined);
 
   state.artifactDesignMedium = "pdf";
+
   const guarded = await guardTurnContext({
     turnCount: 2,
     inFlightTailStart: 0,
@@ -173,6 +178,7 @@ test("the PDF guide enters the transcript once when the selected medium becomes 
       assert.fail("No compaction is needed on the passthrough path.");
     },
   });
+
   assert.equal(guarded.modelTranscript[1]?.role, "user");
   assert.match(String(guarded.modelTranscript[1]?.content), /\[Full name\]/);
   assert.deepEqual(guarded.continuationTranscript, guarded.modelTranscript);
@@ -208,11 +214,13 @@ test("chat's prod system prompt states no date — the runtime line is the singl
   assert.doesNotMatch(prompt, /current date/i);
   // Connected summary still anchors the end of the prompt (ADR-0077).
   assert.ok(prompt.trimEnd().endsWith(connected));
+
   // The single source rides the transcript, right before the user turn.
   const [reference] = withEphemeralReference(
     [{ role: "user" as const, content: "anything on for tomorrow?" }],
     formatRuntimeTimeGrounding("Asia/Calcutta", new Date("2026-07-14T02:50:11.451Z")),
   );
+
   assert.equal(reference?.role, "assistant");
   assert.match(String(reference?.content), /Current date and time: Tuesday, 14 July 2026/);
 });
@@ -249,6 +257,7 @@ test("chat keeps the voice contract near the end without displacing tool groundi
 test("every documented PDF class exists in the render shell", () => {
   const html = buildArtifactDocument("", "pdf");
   const guide = admitPdfDesignGuide({ artifactDesignMedium: "pdf" });
+
   const documentedClasses = [
     "art-doc",
     "art-doc-name",
@@ -271,6 +280,7 @@ test("every documented PDF class exists in the render shell", () => {
     "art-doc-chips",
     "art-doc-chip",
   ] as const;
+
   for (const className of documentedClasses) {
     assert.match(String(guide?.content), new RegExp(`\\b${className}\\b`));
     assert.match(html, new RegExp(`\\.${className}(?:[\\s.{:#>]|$)`));
@@ -281,6 +291,7 @@ test("PDF authoring validation accepts house templates and rejects typography es
   for (const template of documentTemplates) {
     assert.deepEqual(pdfArtifactHtmlViolations(template.html), [], template.id);
   }
+
   assert.deepEqual(pdfArtifactHtmlViolations('<div class="art-doc">Fine</div>'), []);
   assert.deepEqual(
     pdfArtifactHtmlViolations(

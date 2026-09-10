@@ -55,6 +55,7 @@ describe("deriveToolDiscovery", () => {
       description: "List deployments.",
       inputSchema: z.object({}).strict(),
     });
+
     assert.ok(discovery.entities?.includes("deployment"), "plural action noun is singularized");
     assert.ok(discovery.entities?.includes("deployments"), "the original plural is kept too");
   });
@@ -102,6 +103,7 @@ describe("deriveToolDiscovery", () => {
       // "Notion" collides with the derived identity tag "notion".
       overrides: { tags: ["Notion", "workspace"] },
     });
+
     const notionTags = discovery.tags?.filter((tag) => tag.toLowerCase() === "notion") ?? [];
     assert.equal(notionTags.length, 1, "the derived duplicate is dropped");
     assert.equal(notionTags[0], "Notion", "the authored casing is kept");
@@ -114,6 +116,7 @@ describe("deriveToolDiscovery", () => {
       description: "Read a document.",
       inputSchema: z.string(),
     });
+
     assert.ok(discovery.entities?.includes("document"), "action-derived entities still present");
     assert.ok(Array.isArray(discovery.entities), "no throw on a non-object schema");
   });

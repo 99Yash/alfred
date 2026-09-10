@@ -37,6 +37,7 @@ type ToolRowProps =
 
 export function ToolRow(props: ToolRowProps) {
   const { label, detail, count, done = false } = props;
+
   return (
     <div className="flex items-center gap-2.5 text-sm leading-5">
       {props.integration ? (

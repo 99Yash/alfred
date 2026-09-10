@@ -62,6 +62,7 @@ function buildPrompt(signals: ColdStartSignals): string {
   lines.push(`Resolve the identity of this person:`);
   lines.push(`- Name: ${signals.name}`);
   lines.push(`- Primary email: ${signals.email}`);
+
   if (signals.emailDomain) {
     lines.push(
       `- Email domain: ${signals.emailDomain}${
@@ -71,9 +72,11 @@ function buildPrompt(signals: ColdStartSignals): string {
       }`,
     );
   }
+
   if (signals.integrations.google) {
     lines.push(`- Connected Google account: ${signals.integrations.google.accountEmail}`);
   }
+
   return lines.join("\n");
 }
 
@@ -107,6 +110,7 @@ export async function resolveIdentity(args: ResolveIdentityArgs): Promise<Identi
   );
 
   const anchor = result.text.trim();
+
   return {
     anchor,
     confident: /^confident:/i.test(anchor),

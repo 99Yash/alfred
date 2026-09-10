@@ -100,17 +100,22 @@ export async function readChildRunOutcome(args: {
     .from(agentRuns)
     .where(and(eq(agentRuns.id, args.childRunId), eq(agentRuns.userId, args.userId)))
     .limit(1);
+
   const child = rows[0];
+
   if (!child) {
     return { ok: false, done: false, status: "not_found", reason: "child_run_not_found" };
   }
+
   const sub = readSubAgentMetadata(child.metadata);
+
   if (!sub || sub.parentRunId !== args.parentRunId) {
     return { ok: false, done: false, status: child.status, reason: "not_your_sub_agent" };
   }
 
   const done = TERMINAL_CHILD_STATUSES.has(child.status);
   const startedMs = child.startedAt ? child.startedAt.getTime() : null;
+
   return {
     ok: true,
     done,
@@ -149,7 +154,9 @@ export async function spawnSubAgent(
   // reopen exactly the window the cascade closes: a child born after the
   // cascade listed the children, running on behalf of a cancelled boss.
   type SubAgentSpawn = { status: "spawned" | "already_spawned"; childRunId: string };
+
   let spawn: SubAgentSpawn;
+
   try {
     spawn = await db().transaction(async (tx) => {
       const parentRows = await tx
@@ -163,18 +170,23 @@ export async function spawnSubAgent(
         .where(and(eq(agentRuns.id, args.parentRunId), eq(agentRuns.userId, args.userId)))
         .limit(1)
         .for("update");
+
       const parent = parentRows[0];
+
       if (!parent) {
         throw new Error(`[sub-agents] parent run not found: ${args.parentRunId}`);
       }
+
       if (readSubAgentMetadata(parent.metadata)) {
         throw new Error("[sub-agents] sub-agents cannot spawn nested sub-agents");
       }
+
       if (isTerminalStatus(runStatusSchema.parse(parent.status))) {
         throw new AppError("run_cancelled");
       }
 
       const existing = await findExistingSubAgentRun(args, tx);
+
       if (existing) return { status: "already_spawned" as const, childRunId: existing.id };
 
       const metadata = {
@@ -206,6 +218,7 @@ export async function spawnSubAgent(
         },
         tx,
       );
+
       return { status: "spawned" as const, childRunId: created.runId };
     });
   } catch (err) {
@@ -220,6 +233,7 @@ export async function spawnSubAgent(
     // violation has already aborted the transaction above.
     if (!isUniqueViolation(err)) throw err;
     const winner = await findExistingSubAgentRun(args);
+
     if (!winner) throw err;
     spawn = { status: "already_spawned", childRunId: winner.id };
   }
@@ -229,6 +243,7 @@ export async function spawnSubAgent(
   await enqueueRun(spawn.childRunId, {
     jobId: subAgentJobId(args.parentRunId, args.parentToolCallId),
   });
+
   return {
     ok: true,
     status: spawn.status,
@@ -257,6 +272,7 @@ async function findExistingSubAgentRun(
       ),
     )
     .limit(1);
+
   return rows[0] ?? null;
 }
 

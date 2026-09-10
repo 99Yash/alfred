@@ -15,9 +15,11 @@ export const replicache = new Elysia({ prefix: "/api/replicache", normalize: "ty
         "/pull",
         async ({ body, user }) => {
           const result = await handlePull(user.id, body);
+
           if ("forbidden" in result) {
             throw Errors.ForbiddenError("Client group is bound to another user");
           }
+
           return result;
         },
         { body: ReplicacheModel.pull },
@@ -30,10 +32,13 @@ export const replicache = new Elysia({ prefix: "/api/replicache", normalize: "ty
               `Push exceeds ${ReplicacheModel.MAX_MUTATIONS} mutations`,
             );
           }
+
           const result = await handlePush(user.id, body);
+
           if ("forbidden" in result) {
             throw Errors.ForbiddenError("Client group is bound to another user");
           }
+
           return result;
         },
         { body: ReplicacheModel.push },

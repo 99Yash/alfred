@@ -23,24 +23,31 @@ export const todoCreateArgsSchema = z.object({
   description: z.string().max(20_000).optional(),
   createdAt: isoDateTimeStringSchema,
 });
+
 export type TodoCreateArgs = z.infer<typeof todoCreateArgsSchema>;
 
 export const todoCompleteArgsSchema = z.object({ id: todoId });
+
 export type TodoCompleteArgs = z.infer<typeof todoCompleteArgsSchema>;
 
 export const todoReopenArgsSchema = z.object({ id: todoId });
+
 export type TodoReopenArgs = z.infer<typeof todoReopenArgsSchema>;
 
 export const todoPromoteArgsSchema = z.object({ id: todoId });
+
 export type TodoPromoteArgs = z.infer<typeof todoPromoteArgsSchema>;
 
 export const todoDismissArgsSchema = z.object({ id: todoId });
+
 export type TodoDismissArgs = z.infer<typeof todoDismissArgsSchema>;
 
 export const todoClearArgsSchema = z.object({ id: todoId });
+
 export type TodoClearArgs = z.infer<typeof todoClearArgsSchema>;
 
 export const todoCompleteSuggestionArgsSchema = z.object({ id: todoId });
+
 export type TodoCompleteSuggestionArgs = z.infer<typeof todoCompleteSuggestionArgsSchema>;
 
 export const todoEditArgsSchema = z
@@ -52,6 +59,7 @@ export const todoEditArgsSchema = z
   .refine((args) => args.name !== undefined || args.description !== undefined, {
     message: "todoEdit requires at least one of name or description",
   });
+
 export type TodoEditArgs = z.infer<typeof todoEditArgsSchema>;
 
 async function readTodo(tx: WriteTransaction, id: string): Promise<SyncedTodo | null> {
@@ -83,6 +91,7 @@ export async function todoCreateClient(tx: WriteTransaction, args: TodoCreateArg
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
   };
+
   await writeTodo(tx, value);
 }
 
@@ -92,6 +101,7 @@ export async function todoCompleteClient(
   args: TodoCompleteArgs,
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
+
   if (!todo || todo.status === "done") return;
   // `updatedAt` is left to the server's `.$onUpdate()` — the optimistic row
   // keeps the old value until the next pull rebases the canonical timestamp,
@@ -107,6 +117,7 @@ export async function todoCompleteClient(
 /** Uncheck the box: `done → open`, clear `completedAt`. */
 export async function todoReopenClient(tx: WriteTransaction, args: TodoReopenArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
+
   if (!todo || todo.status !== "done") return;
   await writeTodo(tx, {
     ...todo,
@@ -127,6 +138,7 @@ export async function todoCompleteSuggestionClient(
   args: TodoCompleteSuggestionArgs,
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
+
   if (!todo || todo.status !== "suggested") return;
   await writeTodo(tx, {
     ...todo,
@@ -142,6 +154,7 @@ export async function todoPromoteClient(
   args: TodoPromoteArgs,
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
+
   if (!todo || todo.status !== "suggested") return;
   await writeTodo(tx, {
     ...todo,
@@ -170,6 +183,7 @@ export async function todoDismissClient(
  */
 export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
+
   if (!todo || todo.status !== "done") return;
   await SYNC_MODEL.todo.del(tx, { id: args.id });
 }
@@ -177,6 +191,7 @@ export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs)
 /** Edit a todo's name and/or description. */
 export async function todoEditClient(tx: WriteTransaction, args: TodoEditArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
+
   if (!todo) return;
   await writeTodo(tx, {
     ...todo,

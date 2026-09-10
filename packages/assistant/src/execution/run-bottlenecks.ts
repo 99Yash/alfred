@@ -119,9 +119,12 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
   let inputTokens = 0;
   let outputTokens = 0;
   let costUsd = 0;
+
   for (const call of input.apiCalls) {
     if (call.latencyMs != null) modelMs += call.latencyMs;
+
     if (call.inputTokens != null) inputTokens += call.inputTokens;
+
     if (call.outputTokens != null) outputTokens += call.outputTokens;
     costUsd += toNumber(call.costUsd);
   }
@@ -130,6 +133,7 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
 
   let toolMs = 0;
   let reclaims = 0;
+
   for (const step of steps) {
     // A reclaimed/failed dispatch step's `ended_at` is a synthetic reclaim
     // stamp, not tool work — only count steps that ran (completed) or parked.
@@ -140,6 +144,7 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
     ) {
       toolMs += nonNegativeMs(step.startedAt, step.endedAt);
     }
+
     if (step.status === "failed" && step.errorReason === LEASE_RECLAIMED_REASON) reclaims += 1;
   }
 
@@ -149,12 +154,15 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
   let totalGapMs = 0;
   let waitGapMs = 0;
   let deferredWaitMs = 0;
+
   for (let i = 1; i < steps.length; i++) {
     const prev = steps[i - 1];
     const cur = steps[i];
+
     if (!prev?.endedAt || !cur) continue;
     const gap = nonNegativeMs(prev.endedAt, cur.startedAt);
     totalGapMs += gap;
+
     if (isParkedAgentStepStatus(prev.status)) {
       if (prev.status === "deferred") deferredWaitMs += gap;
       else waitGapMs += gap;
@@ -164,12 +172,16 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
   let approvalWaitMs = 0;
   let stagingsRejected = 0;
   let stagingsExpired = 0;
+
   for (const staging of input.stagings) {
     if (staging.decidedAt) approvalWaitMs += nonNegativeMs(staging.createdAt, staging.decidedAt);
+
     // A question the user dismissed or let lapse is a settled exchange, not a
     // vetoed write (ADR-0099). Its wait counts; its status does not.
     if (isQuestionApproval(staging.toolName)) continue;
+
     if (staging.status === "rejected") stagingsRejected += 1;
+
     if (staging.status === "expired") stagingsExpired += 1;
   }
 
@@ -244,6 +256,7 @@ export async function getRunBottleneckSummary(runId: string): Promise<RunBottlen
   ]);
 
   const run = runRows[0];
+
   if (!run) return null;
 
   return summarizeRunBottlenecks({
@@ -269,6 +282,7 @@ function nonNegativeMs(startedAt: Date, endedAt: Date): number {
 function toNumber(value: string | number | null): number {
   if (value == null) return 0;
   const n = typeof value === "number" ? value : Number(value);
+
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -281,7 +295,9 @@ function extractErrorReason(error: unknown): string | null {
     // SAFETY: the checks above proved error is a non-null object carrying
     // `reason`; this only types that field read.
     const reason = (error as { reason: unknown }).reason;
+
     return typeof reason === "string" ? reason : null;
   }
+
   return null;
 }

@@ -46,6 +46,7 @@ describe("buildTrail", () => {
         { index: 1, text: "Now searching" },
       ],
     );
+
     assert.deepEqual(kinds(trail), ["narration", "narration", "tool"]);
     assert.equal(trail[0]?.kind === "narration" && trail[0].text, "First I'll look");
     assert.equal(trail[1]?.kind === "narration" && trail[1].text, "Now searching");
@@ -63,6 +64,7 @@ describe("buildTrail", () => {
       ],
       [],
     );
+
     assert.deepEqual(kinds(folded), ["tool", "tool"]);
     assert.equal(folded[0]?.kind === "tool" && folded[0].tools.length, 2);
     assert.equal(folded[1]?.kind === "tool" && folded[1].tools.length, 1);
@@ -76,6 +78,7 @@ describe("buildTrail", () => {
       ],
       [],
     );
+
     assert.deepEqual(kinds(trail), ["tool", "tool"]);
   });
 
@@ -84,6 +87,7 @@ describe("buildTrail", () => {
       [call("gmail.search", "succeeded", 0, "a"), call("gmail.search", "succeeded", 1, "b")],
       [{ index: 1, text: "One more pass" }],
     );
+
     assert.deepEqual(kinds(trail), ["tool", "narration", "tool"]);
   });
 });

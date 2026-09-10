@@ -48,9 +48,11 @@ export const chatMemoryJobDataSchema = z.object({
   threadId: z.string().min(1),
   captureAfterMessageId: z.string().min(1),
 });
+
 export type ChatMemoryJobData = z.infer<typeof chatMemoryJobDataSchema>;
 
 let _queue: Queue<ChatMemoryJobData> | undefined;
+
 let _worker: Worker<ChatMemoryJobData> | undefined;
 
 /**
@@ -78,14 +80,19 @@ async function removeReplaceableJob(
   jobId: string,
 ): Promise<"missing" | "active" | "removed" | "locked"> {
   const job = await queue.getJob(jobId);
+
   if (!job) return "missing";
   const state = await job.getState();
+
   if (state === "active") return "active";
+
   try {
     await job.remove();
+
     return "removed";
   } catch (err) {
     const message = toMessage(err).toLowerCase();
+
     if (message.includes("locked") || message.includes("could not be removed")) return "locked";
     throw err;
   }
@@ -126,6 +133,7 @@ export function getChatMemoryQueue(): Queue<ChatMemoryJobData> {
       removeOnFail: { count: 100, age: 7 * 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -145,21 +153,27 @@ export async function scheduleThreadIdleExtraction(args: {
   captureAfterMessageId: string;
 }): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled() || !chatMemoryCaptureEnabled()) return "disabled";
+
   try {
     const queue = getChatMemoryQueue();
     const primaryJobId = chatMemoryIdleJobId(args.threadId);
     const tailJobId = chatMemoryIdleTailJobId(args.threadId);
     const primaryState = await removeReplaceableJob(queue, primaryJobId);
+
     if (primaryState === "active" || primaryState === "locked") {
       await removeReplaceableJob(queue, tailJobId);
       await addIdleJob(queue, { ...args, jobId: tailJobId });
+
       return "scheduled";
     }
+
     await removeReplaceableJob(queue, tailJobId);
     await addIdleJob(queue, { ...args, jobId: primaryJobId });
+
     return "scheduled";
   } catch (err) {
     console.warn("[chat-memory] failed to arm idle extraction", args.threadId, toMessage(err));
+
     return "failed";
   }
 }
@@ -170,6 +184,7 @@ export interface StartChatMemoryWorkerOpts {
 
 export async function startChatMemoryWorker(opts: StartChatMemoryWorkerOpts = {}): Promise<void> {
   if (!chatMemoryCaptureEnabled()) return;
+
   if (_worker) return;
   _worker = new Worker<ChatMemoryJobData>(CHAT_MEMORY_QUEUE_NAME, processChatMemoryJob, {
     connection: createRedisConnection("queue"),
@@ -199,6 +214,7 @@ export async function closeChatMemoryQueue(): Promise<void> {
 async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknown> {
   const data = chatMemoryJobDataSchema.parse(job.data);
   let runId: string;
+
   try {
     const started = await startRun({
       userId: data.userId,
@@ -219,16 +235,21 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknow
         reason: "idle-debounce",
       },
     });
+
     runId = started.runId;
   } catch (err) {
     if (isUniqueViolation(err)) {
       console.log(
         `[chat-memory:worker] deduplicated chat-memory.extract thread=${data.threadId} captureAfterMessageId=${data.captureAfterMessageId}`,
       );
+
       return { deduplicated: true };
     }
+
     throw err;
   }
+
   console.log(`[chat-memory:worker] chat-memory.extract thread=${data.threadId} runId=${runId}`);
+
   return { runId };
 }

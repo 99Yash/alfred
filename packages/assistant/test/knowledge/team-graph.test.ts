@@ -8,6 +8,7 @@ import { computeSignificance } from "@alfred/assistant/knowledge/significance";
 import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 const NOW = new Date("2026-06-16T12:00:00.000Z");
+
 // Person classification needs a display name with a space OR a separator in the
 // local part (sender-context.ts), so the fixtures use realistic person headers.
 const SELF = "me.user@acme.com";
@@ -110,6 +111,7 @@ describe("computeSignificance", () => {
       sameOrg: true,
       now: NOW,
     });
+
     assert.equal(sig.components.reciprocity, 1);
     assert.equal(sig.components.sameOrg, 1);
     assert.ok(sig.score > 0.75, `expected high score, got ${sig.score}`);
@@ -127,6 +129,7 @@ describe("computeSignificance", () => {
       sameOrg: false,
       now: NOW,
     });
+
     // never replied → reciprocity floor; off-domain; tiny volume
     assert.equal(sig.components.reciprocity, 0.2);
     assert.equal(sig.components.sameOrg, 0);
@@ -140,16 +143,19 @@ describe("computeSignificance", () => {
       coRecipient: 0,
       firstSeenAt: "2026-01-01T00:00:00.000Z",
     };
+
     const recent = computeSignificance({
       stats: { ...base, lastSeenAt: "2026-06-15T00:00:00.000Z" },
       sameOrg: false,
       now: NOW,
     });
+
     const stale = computeSignificance({
       stats: { ...base, lastSeenAt: "2025-06-15T00:00:00.000Z" },
       sameOrg: false,
       now: NOW,
     });
+
     assert.ok(
       recent.score > stale.score,
       `recent ${recent.score} should beat stale ${stale.score}`,
@@ -168,6 +174,7 @@ describe("computeSignificance", () => {
       sameOrg: true,
       now: NOW,
     });
+
     assert.ok(sig.score >= 0 && sig.score <= 1, `score out of range: ${sig.score}`);
   });
 });

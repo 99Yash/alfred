@@ -39,6 +39,7 @@ export function ThreadGroupBlock({
   onToggle,
 }: ThreadGroupBlockProps) {
   if (entries.length === 0) return null;
+
   return (
     <div className="mb-2.5">
       <button
@@ -122,6 +123,7 @@ function ThreadRow({
         aria-current={active ? "page" : undefined}
         onClick={(event) => {
           if (!active) return;
+
           if (
             event.metaKey ||
             event.ctrlKey ||
@@ -187,11 +189,14 @@ function ThreadRenameRow({
     ref.current?.focus();
     ref.current?.select();
   }, []);
+
   const commit = () => {
     const next = ref.current?.value.trim() ?? "";
+
     if (next && next !== entry.title) onCommit(entry.id, next);
     else onCancel();
   };
+
   return (
     <div className="px-1.5 py-0.5">
       <AppInput
@@ -228,6 +233,7 @@ function ThreadRowMenu({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
+
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
@@ -288,8 +294,10 @@ function ThreadMenuContent({
   const Content = as === "dropdown" ? DropdownMenu.Content : ContextMenu.Content;
   const Item = as === "dropdown" ? DropdownMenu.Item : ContextMenu.Item;
   const Separator = as === "dropdown" ? DropdownMenu.Separator : ContextMenu.Separator;
+
   const positionProps =
     as === "dropdown" ? { align: "end" as const, sideOffset: 4 } : { alignOffset: 2 };
+
   return (
     <Portal>
       <Content data-app-theme={resolved} className={menuSurfaceClass} {...positionProps}>
@@ -331,6 +339,7 @@ export function DeleteThreadDialog({
   onConfirm: () => void;
 }) {
   const { resolved } = useAppTheme();
+
   return (
     <Dialog open={!!target} onOpenChange={(open) => (open ? undefined : onCancel())}>
       {target ? (

@@ -47,40 +47,53 @@ export function useComposerAttachments(): ComposerAttachments {
   // StrictMode, and revoking inside one would kill a preview that's still in use.
   const addFiles = useCallback((files: FileList | File[]) => {
     const candidates: PendingAttachment[] = [];
+
     for (const file of Array.from(files)) {
       const err = validateFile(file);
+
       if (err) {
         toast.error(err);
         continue;
       }
+
       candidates.push({ key: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) });
     }
+
     if (candidates.length === 0) return;
     const current = itemsRef.current;
     const room = MAX_ATTACHMENTS_PER_MESSAGE - current.length;
+
     if (room <= 0) {
       for (const a of candidates) URL.revokeObjectURL(a.previewUrl);
       toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+
       return;
     }
+
     const accepted = candidates.slice(0, room);
+
     if (accepted.length < candidates.length) {
       for (const a of candidates.slice(room)) URL.revokeObjectURL(a.previewUrl);
       toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
     }
+
     const acceptedBytes = accepted.reduce((sum, item) => sum + item.file.size, 0);
     const totalBytes = current.reduce((sum, item) => sum + item.file.size, 0) + acceptedBytes;
+
     if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
       for (const a of accepted) URL.revokeObjectURL(a.previewUrl);
       const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
       toast.error(`Attachments can be up to ${mb} MB combined.`);
+
       return;
     }
+
     setItems((prev) => [...prev, ...accepted]);
   }, []);
 
   const remove = useCallback((key: string) => {
     const target = itemsRef.current.find((a) => a.key === key);
+
     if (target) URL.revokeObjectURL(target.previewUrl);
     setItems((prev) => prev.filter((a) => a.key !== key));
   }, []);

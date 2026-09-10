@@ -45,6 +45,7 @@ export type SuggestTodoResult =
 export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[]): boolean {
   if (existing.length === 0 || incoming.length === 0) return false;
   const incomingKeys = new Set(incoming.map(todoSourceKey));
+
   return existing.some((ref) => incomingKeys.has(todoSourceKey(ref)));
 }
 
@@ -94,6 +95,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       const resolvedCutoff = new Date(
         Date.now() - RESUGGEST_SUPPRESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       );
+
       const candidates = await tx
         .select({ id: todos.id, status: todos.status, sources: todos.sources })
         .from(todos)
@@ -117,12 +119,14 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       // closed duplicate. So scan live candidates first.
       const overlapping = candidates.filter((c) => todoSourcesOverlap(c.sources ?? [], sources));
       const live = overlapping.filter((c) => c.status === "open" || c.status === "suggested");
+
       const resolved = overlapping.filter(
         (c): c is typeof c & { status: "done" | "dismissed" } =>
           c.status === "done" || c.status === "dismissed",
       );
 
       const liveMatch = live[0];
+
       if (liveMatch) {
         const existing = liveMatch.sources ?? [];
         const existingKeys = new Set(existing.map(todoSourceKey));
@@ -131,22 +135,26 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
         // `thread` ref per re-notification and eventually break sync (#355).
         const merged = boundTodoSources(mergeTodoSources(existing, sources));
         const addedSources = merged.filter((ref) => !existingKeys.has(todoSourceKey(ref))).length;
+
         // Persist on ANY content change, not just growth: bounding can evict an
         // old thread while adding the newest one (length unchanged), and that
         // newest ref is what the reverse auto-dismiss linkage needs.
         const changed =
           merged.length !== existing.length ||
           merged.some((ref) => !existingKeys.has(todoSourceKey(ref)));
+
         if (changed) {
           await tx
             .update(todos)
             .set({ sources: merged, rowVersion: sql`${todos.rowVersion} + 1` })
             .where(eq(todos.id, liveMatch.id));
         }
+
         return { status: "merged" as const, todoId: liveMatch.id, addedSources };
       }
 
       const resolvedMatch = resolved[0];
+
       if (resolvedMatch) {
         return {
           status: "suppressed" as const,
@@ -173,6 +181,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
     if (!row) {
       throw new Error("[suggestTodo] insert returned no row");
     }
+
     return { status: "created" as const, todoId: row.id };
   });
 

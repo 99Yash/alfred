@@ -45,6 +45,7 @@ export function RailAddRow({
 
   const submit = () => {
     const trimmed = value.trim();
+
     if (!trimmed) return;
     onSubmit(trimmed);
     setValue("");

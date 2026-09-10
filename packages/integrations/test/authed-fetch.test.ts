@@ -27,8 +27,10 @@ function stubFetch(response: Response = new Response(null, { status: 200 })): Re
   const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     calls.push({ input, init });
+
     return Promise.resolve(response);
   }) as typeof fetch;
+
   return { calls };
 }
 

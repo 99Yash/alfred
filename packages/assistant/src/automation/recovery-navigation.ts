@@ -16,6 +16,7 @@ export function workflowRecoveryNavigation(args: {
 }): WorkflowRecoveryNavigation | undefined {
   for (const problem of args.readiness) {
     const action = problem.recoveryAction;
+
     if (
       !action ||
       (action.kind !== "connect" && action.kind !== "reauthorize") ||
@@ -23,16 +24,20 @@ export function workflowRecoveryNavigation(args: {
     ) {
       continue;
     }
+
     const query = new URLSearchParams({
       workflowId: args.workflowId,
       revisionId: args.revisionId,
     });
+
     const verb = action.kind === "reauthorize" ? "Reconnect" : "Connect";
+
     return {
       kind: "oauth",
       label: `${verb} ${INTEGRATION_DISPLAY_NAMES[action.integration]}`,
       path: `/api/integrations/google/connect?${query.toString()}`,
     };
   }
+
   return undefined;
 }

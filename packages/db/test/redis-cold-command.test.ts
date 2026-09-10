@@ -27,6 +27,7 @@ import { settleWithin, settlementMessage } from "./support/settle";
  */
 
 const REDIS_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379"; // drift-ok: this tree FAILS LOUDLY on an absent Redis instead of skipping
+
 const DEADLINE_MS = 5_000;
 
 describe("redis connection kinds against a healthy Redis", () => {
@@ -47,6 +48,7 @@ describe("redis connection kinds against a healthy Redis", () => {
     // is exactly what a liveness probe needs.
     const probe = redis.createRedisConnection("command");
     probe.on("error", () => {});
+
     try {
       const settlement = await settleWithin(probe.ping(), DEADLINE_MS);
       assert.equal(

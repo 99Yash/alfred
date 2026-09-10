@@ -36,6 +36,7 @@ export const CATEGORY_TILE = {
 
 /** Date-range presets for the overview control. `all` reaches before Alfred existed. */
 export const USAGE_RANGE_PRESETS = ["7d", "30d", "month", "all"] as const;
+
 export type UsageRangePreset = (typeof USAGE_RANGE_PRESETS)[number];
 
 export const USAGE_RANGE_LABELS = {
@@ -49,6 +50,7 @@ export const USAGE_RANGE_LABELS = {
 export function resolveRangePreset(preset: UsageRangePreset, now: Date) {
   const end = now;
   const day = 24 * 60 * 60 * 1000;
+
   switch (preset) {
     case "7d":
       return { start: new Date(end.getTime() - 7 * day), end };

@@ -27,9 +27,11 @@ export async function runRailwayPassthrough(
   request: GraphqlPassthroughRequest,
 ): Promise<PassthroughResult> {
   const gate = assertReadableGraphqlRequest(request);
+
   if (!gate.ok) return passthroughRejection(gate);
 
   let raw;
+
   try {
     raw = await transport(request);
   } catch (err) {

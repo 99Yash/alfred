@@ -65,6 +65,7 @@ const POKE_SKIP =
     : false);
 
 const ID_PREFIX = "test-closure-republish-";
+
 const createdUserIds: string[] = [];
 
 async function seedThread(): Promise<{ userId: string; threadId: string; rowVersion: number }> {
@@ -73,12 +74,15 @@ async function seedThread(): Promise<{ userId: string; threadId: string; rowVers
   await db()
     .insert(user)
     .values({ id: userId, name: "Test", email: `${userId}@example.test` });
+
   const rows = await db()
     .insert(chatThreads)
     .values({ userId, title: "Placeholder title" })
     .returning({ id: chatThreads.id, rowVersion: chatThreads.rowVersion });
+
   const thread = rows[0];
   assert.ok(thread, "seeded a chat thread");
+
   return { userId, threadId: thread.id, rowVersion: thread.rowVersion };
 }
 
@@ -120,6 +124,7 @@ async function seedTerminalRowAttempt(status: "complete" | "failed"): Promise<{
       errorKind: status === "failed" ? "generic" : null,
       runId,
     });
+
   const state = chatRunStateSchema.parse({
     threadId,
     messageId,
@@ -130,6 +135,7 @@ async function seedTerminalRowAttempt(status: "complete" | "failed"): Promise<{
     assistantText: "The committed reply.",
     narration: [],
   });
+
   return { userId, threadId, runId, messageId, threadRowVersion: rowVersion, state };
 }
 
@@ -139,6 +145,7 @@ async function readChatMessageEvents(userId: string): Promise<unknown[]> {
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "chat.message")))
     .orderBy(eventsOutbox.id);
+
   return rows.map((r) => r.payload);
 }
 
@@ -147,6 +154,7 @@ async function readThreadRowVersion(threadId: string): Promise<number | undefine
     .select({ rowVersion: chatThreads.rowVersion })
     .from(chatThreads)
     .where(eq(chatThreads.id, threadId));
+
   return rows[0]?.rowVersion;
 }
 
@@ -167,6 +175,7 @@ describe(
       if (createdUserIds.length > 0) {
         await db().delete(user).where(inArray(user.id, createdUserIds));
       }
+
       resetToolFixtures();
       await closeConnections();
       await closeRedis();
@@ -204,10 +213,12 @@ describe(
         [{ runId, threadId, messageId, phase: "completed" }],
         "the failed retry releases the barrier the faulted completed attempt armed",
       );
+
       const rows = await db()
         .select({ status: chatMessages.status })
         .from(chatMessages)
         .where(eq(chatMessages.id, messageId));
+
       assert.equal(rows[0]?.status, "complete", "and never demotes the completed row to failed");
       assert.equal(
         await readThreadRowVersion(threadId),
@@ -228,10 +239,12 @@ describe(
         [{ runId, threadId, messageId, phase: "completed" }],
         "a terminal chat.message is absorbing, so republishing it is idempotent",
       );
+
       const rows = await db()
         .select({ status: chatMessages.status })
         .from(chatMessages)
         .where(eq(chatMessages.id, messageId));
+
       assert.equal(rows[0]?.status, "failed", "and never promotes the failed row to complete");
     });
 

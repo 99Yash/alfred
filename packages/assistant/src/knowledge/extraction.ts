@@ -29,6 +29,7 @@ export const factProposalSchema = z.object({
   /** Short justification grounded in the source — used for audit and to debug bad proposals. */
   rationale: z.string().min(1).max(500),
 });
+
 export type FactProposal = z.infer<typeof factProposalSchema>;
 
 export const extractionResultSchema = z.object({
@@ -76,26 +77,33 @@ Output a JSON object: { "proposals": [{ "key": "...", "value": ..., "confidence"
 function userPrompt(args: ExtractDocumentArgs): string {
   const lines: string[] = [];
   lines.push(`Source: ${args.document.source}`);
+
   if (args.document.title) lines.push(`Title: ${args.document.title}`);
+
   if (args.document.authoredAt) lines.push(`Authored: ${args.document.authoredAt.toISOString()}`);
   lines.push("");
 
   if (args.existingFacts && args.existingFacts.length > 0) {
     lines.push("Already-known facts (do not re-propose these):");
+
     for (const f of args.existingFacts.slice(0, 30)) {
       lines.push(`  - ${f.key} = ${JSON.stringify(f.value)}`);
     }
+
     lines.push("");
   }
 
   lines.push("=== Document content ===");
+
   // Cap at ~12k chars to keep token budget bounded — most provider
   // emails fit easily; ingested docs that exceed this get truncated.
   const content =
     args.document.content.length > 12_000
       ? args.document.content.slice(0, 12_000) + "\n[…truncated]"
       : args.document.content;
+
   lines.push(content);
+
   return lines.join("\n");
 }
 

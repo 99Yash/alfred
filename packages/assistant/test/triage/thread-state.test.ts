@@ -13,6 +13,7 @@ describe("buildThreadSnippet", () => {
       "",
       "dvd assigned you a comment: please make sure this is fixed",
     ].join("\n");
+
     assert.equal(
       buildThreadSnippet(
         "dvd",

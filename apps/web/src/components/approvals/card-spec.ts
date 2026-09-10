@@ -18,8 +18,10 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: Record<string, unknown>) => st
     "gmail.send_draft",
     (input) => {
       const to = stringArray(input.to);
+
       if (to.length === 0) return "Send a Gmail draft";
       const rest = to.length > 1 ? ` +${to.length - 1}` : "";
+
       return `Email ${to[0]}${rest}`;
     },
   ],
@@ -27,6 +29,7 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: Record<string, unknown>) => st
     "calendar.create_event",
     (input) => {
       const summary = stringValue(input.summary);
+
       return summary ? `Schedule “${summary}”` : "Create a calendar event";
     },
   ],
@@ -38,10 +41,12 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: Record<string, unknown>) => st
       // approval card isn't just two opaque cuids. Names are display context the
       // boss resolved from list_projects (see railwayRedeployInput).
       const service = stringValue(input.serviceName);
+
       if (!service) return "Redeploy a Railway service";
       const env = stringValue(input.environmentName);
       const project = stringValue(input.projectName);
       const scope = env ? `${service} · ${env}` : service;
+
       return project ? `Redeploy ${scope} — ${project}` : `Redeploy ${scope}`;
     },
   ],
@@ -54,7 +59,9 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: Record<string, unknown>) => st
 export function cardTitle(toolName: ToolName, input: unknown): string {
   const record = asRecord(input);
   const override = TITLE_OVERRIDES.get(toolName);
+
   if (override && record) return override(record);
+
   return capitalize(humanizeToolName(toolName));
 }
 

@@ -39,6 +39,7 @@ interface ModelIdentifiers {
  */
 function modelIdsFor(model: LanguageModel): ModelIdentifiers {
   const { provider, modelId } = identifyLanguageModel(model);
+
   return { provider, model: modelId };
 }
 
@@ -109,14 +110,17 @@ export function captureOutput(args: {
   toolCalls?: readonly { toolName: string; toolCallId: string; input: unknown }[];
 }): unknown {
   const { text, toolCalls } = args;
+
   if (toolCalls && toolCalls.length > 0) {
     const calls = toolCalls.map((c) => ({
       toolName: c.toolName,
       toolCallId: c.toolCallId,
       input: c.input,
     }));
+
     return text ? { text, toolCalls: calls } : { toolCalls: calls };
   }
+
   return text;
 }
 
@@ -128,13 +132,17 @@ export function captureOutput(args: {
  */
 function captureInput(args: { instructions?: unknown; prompt?: unknown; messages?: unknown }) {
   const { instructions, prompt, messages } = args;
+
   if (Array.isArray(messages)) {
     if (typeof instructions === "string") {
       return [{ role: "system", content: instructions }, ...messages];
     }
+
     return instructions !== undefined ? [instructions, ...messages] : messages;
   }
+
   if (prompt !== undefined) return instructions ? { instructions, prompt } : prompt;
+
   return instructions;
 }
 
@@ -147,7 +155,9 @@ function captureInput(args: { instructions?: unknown; prompt?: unknown; messages
  */
 function servedFromModel(model: LanguageModel): Pick<MeteredResult, "served"> {
   const { provider, modelId } = identifyLanguageModel(model);
+
   if (provider === "unknown") return {};
+
   return { served: { provider, model: modelId } };
 }
 
@@ -163,6 +173,7 @@ export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTt
   const noCacheTokens = usage.inputTokenDetails?.noCacheTokens;
   const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens;
   const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens;
+
   return {
     inputTokens: usage.inputTokens,
     noCacheInputTokens: noCacheTokens,
@@ -174,6 +185,7 @@ export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTt
 }
 
 export type GenerateTextArgs = Parameters<typeof generateText>[0];
+
 type EmbedArgs = Parameters<typeof embed>[0];
 
 type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
@@ -205,6 +217,7 @@ export async function meteredGenerateText(
   attribution: AttributedCall = {},
 ): Promise<GenerateTextResult<ToolSet, never, never>> {
   const ids = resolveIds(args.model, attribution);
+
   const meta: MeteredMeta = {
     ...attribution,
     kind: attribution.kind ?? "llm",
@@ -214,7 +227,9 @@ export async function meteredGenerateText(
     // same args.
     input: captureInput(args as Parameters<typeof captureInput>[0]),
   };
+
   const callArgs = withDefaultTimeout(args);
+
   // The SDK's natural return type is GenerateTextResult<ToolSet, Output<any,…>>
   // but the `Output` interface is not exported as a nameable type, only via a
   // namespace alias. Cast through unknown to a callable shape and pin the
@@ -242,6 +257,7 @@ export async function meteredGenerateObject<O>(
 ): Promise<GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>> {
   const { schema, schemaName, schemaDescription, ...rest } = args;
   const ids = resolveIds(rest.model, attribution);
+
   const meta: MeteredMeta = {
     ...attribution,
     kind: attribution.kind ?? "llm",
@@ -251,7 +267,9 @@ export async function meteredGenerateObject<O>(
     // object.
     input: captureInput(rest as Parameters<typeof captureInput>[0]),
   };
+
   type Result = GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>;
+
   // The discriminated `Prompt` union (prompt | messages) doesn't survive an
   // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
   // back to the SDK's parameter type so the call type-checks; the original
@@ -266,6 +284,7 @@ export async function meteredGenerateObject<O>(
       ...(schemaDescription !== undefined ? { description: schemaDescription } : {}),
     }),
   } as unknown as Parameters<typeof generateText>[0];
+
   /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
   /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
   return (await metered(meta, () => generateText(callArgs), ((
@@ -280,8 +299,11 @@ export async function meteredGenerateObject<O>(
 }
 
 export type StreamTextArgs = Parameters<typeof streamText>[0];
+
 type StreamTextEndEvent = Parameters<NonNullable<StreamTextArgs["onEnd"]>>[0];
+
 type StreamTextErrorEvent = Parameters<NonNullable<StreamTextArgs["onError"]>>[0];
+
 type StreamTextAbortEvent = Parameters<NonNullable<StreamTextArgs["onAbort"]>>[0];
 
 /**
@@ -299,6 +321,7 @@ export function meteredStreamText(
   attribution: AttributedCall = {},
 ): StreamTextResult<ToolSet, never, never> {
   const ids = resolveIds(args.model, attribution);
+
   const meta: MeteredMeta = {
     ...attribution,
     kind: attribution.kind ?? "llm",
@@ -308,10 +331,12 @@ export function meteredStreamText(
     // same args.
     input: captureInput(args as Parameters<typeof captureInput>[0]),
   };
+
   const callerOnEnd = args.onEnd;
   const callerOnError = args.onError;
   const callerOnAbort = args.onAbort;
   const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
+
   // SAFETY: streamText's own generic parameters are erased by meteredStream's
   // non-generic signature; this restores the SDK result shape the caller passed
   // in for.
@@ -375,23 +400,31 @@ export function usageFromSteps(
   let cachedInputTokens: number | undefined;
   let cacheWriteInputTokens: number | undefined;
   let sawUsage = false;
+
   for (const step of steps) {
     const usage = usageFromSdk(step.usage, cacheWriteTtl);
+
     if (!usage) continue;
     sawUsage = true;
     inputTokens += usage.inputTokens ?? 0;
+
     if (usage.noCacheInputTokens != null) {
       noCacheInputTokens = (noCacheInputTokens ?? 0) + usage.noCacheInputTokens;
     }
+
     outputTokens += usage.outputTokens ?? 0;
+
     if (usage.cachedInputTokens != null) {
       cachedInputTokens = (cachedInputTokens ?? 0) + usage.cachedInputTokens;
     }
+
     if (usage.cacheWriteInputTokens != null) {
       cacheWriteInputTokens = (cacheWriteInputTokens ?? 0) + usage.cacheWriteInputTokens;
     }
   }
+
   if (!sawUsage) return undefined;
+
   return {
     inputTokens,
     noCacheInputTokens,
@@ -415,6 +448,7 @@ export async function meteredEmbed(
   // caller signal so a stop button still works AND the timeout still fires
   // even if the caller's signal never does (#286 review).
   const timeoutSignal = AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS);
+
   const callArgs: EmbedArgs = {
     ...args,
     abortSignal:
@@ -422,6 +456,7 @@ export async function meteredEmbed(
         ? AbortSignal.any([args.abortSignal, timeoutSignal])
         : timeoutSignal,
   };
+
   return metered(meta, () => embed(callArgs), extractEmbedUsage);
 }
 
@@ -432,6 +467,7 @@ export async function meteredEmbed(
  */
 function withDefaultTimeout(args: GenerateTextArgs): GenerateTextArgs {
   if (args.timeout !== undefined) return args;
+
   return { ...args, timeout: DEFAULT_LLM_TIMEOUT_MS };
 }
 
@@ -439,6 +475,7 @@ function resolveIds(model: unknown, attribution: AttributedCall): ModelIdentifie
   if (attribution.provider && attribution.model) {
     return { provider: attribution.provider, model: attribution.model };
   }
+
   // SAFETY: callers pass the SDK model instance from the very request being
   // metered, which is a LanguageModel; `unknown` only erases the SDK import.
   return modelIdsFor(model as LanguageModel);

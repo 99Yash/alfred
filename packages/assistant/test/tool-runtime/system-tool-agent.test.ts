@@ -25,8 +25,10 @@ function typecheckSafeParkCapability(): void {
     // @ts-expect-error plain strings are not safe-to-park capabilities
     wake: { kind: "signal", name: "sub_agent_done:run_child" },
   };
+
   void unprovenPark;
 }
+
 void typecheckSafeParkCapability;
 
 // The seam owns no behavior: it forwards each op to the registered adapter and
@@ -45,13 +47,17 @@ const spawnArgs: SpawnSubAgentRequest = {
   allowedIntegrations: [],
   chat: { threadId: "thread_1", messageId: "msg_1" },
 };
+
 const childArgs = { parentRunId: "run_parent", userId: "user_1", childRunId: "run_child" };
+
 const scratchReadArgs = { runId: "run_parent", zone: "shared" as const, path: "facts" };
+
 const scratchWriteArgs = {
   ...scratchReadArgs,
   value: { answer: 42 },
   writtenBy: "boss",
 };
+
 const scratchPromoteArgs = {
   runId: "run_parent",
   fromSubId: "research-1",
@@ -88,43 +94,54 @@ describe("system-tool agent seam with a registered adapter", () => {
       scratchWrite?: SystemToolScratchWrite;
       scratchPromote?: typeof scratchPromoteArgs;
     }
+
     const seen: SeenOps = {};
     const spawnResult = { ok: true, status: "spawned" };
     const childResult = { ok: true, done: true, status: "completed" };
+
     const joinResult = {
       kind: "executed" as const,
       stagingId: null,
       toolResult: childResult,
       editedByUser: false as const,
     };
+
     const scratchReadResult = { value: { answer: 42 } };
     const scratchPromoteResult = { value: { answer: 42 }, zone: "shared" };
+
     const adapter: SystemToolAgentAdapter = {
       spawnSubAgent: (args) => {
         seen.spawn = args;
+
         return Promise.resolve(spawnResult);
       },
       readChildRunOutcome: (args) => {
         seen.child = args;
+
         return Promise.resolve(childResult);
       },
       resolveAwaitSubAgent: (args) => {
         seen.join = args;
+
         return Promise.resolve(joinResult);
       },
       readScratch: (args) => {
         seen.scratchRead = args;
+
         return Promise.resolve(scratchReadResult);
       },
       writeScratch: (args) => {
         seen.scratchWrite = args;
+
         return Promise.resolve(undefined);
       },
       promoteScratch: (args) => {
         seen.scratchPromote = args;
+
         return Promise.resolve(scratchPromoteResult);
       },
     };
+
     unregister = registerSystemToolAgentAdapter(adapter);
 
     // Same object identity out as the adapter returned — the seam adds nothing.
@@ -159,6 +176,7 @@ describe("system-tool agent seam with a registered adapter", () => {
       writeScratch: () => Promise.resolve(undefined),
       promoteScratch: () => Promise.resolve(null),
     };
+
     unregister = registerSystemToolAgentAdapter(first);
     assert.throws(() => registerSystemToolAgentAdapter({ ...first }), {
       message: "A system-tool agent adapter is already registered",

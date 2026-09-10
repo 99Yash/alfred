@@ -488,16 +488,29 @@ export const mcpInvocation = pgTable(
 );
 
 export type McpConnection = typeof mcpConnections.$inferSelect;
+
 export type NewMcpConnection = typeof mcpConnections.$inferInsert;
+
 export type McpServer = typeof mcpServers.$inferSelect;
+
 export type NewMcpServer = typeof mcpServers.$inferInsert;
+
 export type McpOauthCredential = typeof mcpOauthCredentials.$inferSelect;
+
 export type NewMcpOauthCredential = typeof mcpOauthCredentials.$inferInsert;
+
 export type McpOauthAuthorizationAttempt = typeof mcpOauthAuthorizationAttempts.$inferSelect;
+
 export type NewMcpOauthAuthorizationAttempt = typeof mcpOauthAuthorizationAttempts.$inferInsert;
+
 export type McpCatalogRevision = typeof mcpCatalogRevisions.$inferSelect;
+
 export type NewMcpCatalogRevision = typeof mcpCatalogRevisions.$inferInsert;
+
 export type McpToolPolicyRow = typeof mcpToolPolicy.$inferSelect;
+
 export type NewMcpToolPolicyRow = typeof mcpToolPolicy.$inferInsert;
+
 export type McpInvocation = typeof mcpInvocation.$inferSelect;
+
 export type NewMcpInvocation = typeof mcpInvocation.$inferInsert;

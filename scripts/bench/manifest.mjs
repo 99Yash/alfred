@@ -34,13 +34,16 @@ import { join, resolve } from "node:path";
 
 /** Repo-relative roots. Each one exists on disk, so `check:script-paths` passes. */
 const BENCH = "scripts/bench";
+
 const TASKS = "scripts/bench/tasks"; // path-ok: local-only bench task directory, not tracked in git
+
 const RUNS = "references/bench";
 
 /** Every valid patch carries a `diff --git` line. */
 export const PATCH_HEADER = "diff --git ";
 
 const TIERS = new Set(["a", "c"]);
+
 const SOURCE_KINDS = new Set(["pr", "synthetic"]);
 
 /** @param {string} root @returns {string} */
@@ -77,9 +80,11 @@ export function repoRoot() {
  */
 export function validateManifest(value, root) {
   const failures = [];
+
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return ["manifest is not an object"];
   }
+
   const m = /** @type {Record<string, unknown>} */ (value);
 
   if (typeof m.id !== "string" || !/^[a-z][a-z0-9-]*$/.test(m.id)) {
@@ -102,22 +107,26 @@ export function validateManifest(value, root) {
     failures.push("source must be an object");
   } else {
     const source = /** @type {Record<string, unknown>} */ (m.source);
+
     if (typeof source.kind !== "string" || !SOURCE_KINDS.has(source.kind)) {
       failures.push(
         `source.kind must be one of ${[...SOURCE_KINDS].join(", ")}, got ${JSON.stringify(source.kind)}`,
       );
     }
+
     if (source.kind === "pr") {
       if (typeof source.pr !== "number" || !Number.isInteger(source.pr) || source.pr <= 0) {
         failures.push(
           `source.pr must be a positive integer for a pr task, got ${JSON.stringify(source.pr)}`,
         );
       }
+
       if (typeof source.mergedAt !== "string" || source.mergedAt === "") {
         failures.push("source.mergedAt must be a non-empty ISO string for a pr task");
       }
     } else {
       if (source.pr !== null) failures.push("source.pr must be null for a synthetic task");
+
       if (source.mergedAt !== null)
         failures.push("source.mergedAt must be null for a synthetic task");
     }
@@ -130,29 +139,37 @@ export function validateManifest(value, root) {
   }
 
   const tier = m.tier;
+
   if (tier === "a") {
     for (const key of ["testPatch", "goldPatch"]) {
       const patch = m[key];
+
       if (typeof patch !== "string" || patch === "") {
         failures.push(`${key} must be a non-empty repo-relative path for tier a`);
         continue;
       }
+
       if (!existsSync(join(root, patch))) {
         failures.push(`${key} does not exist on disk: ${patch}`);
       } else if (!readFileSync(join(root, patch), "utf8").includes(PATCH_HEADER)) {
         failures.push(`${key} carries no ${PATCH_HEADER.trim()} header: ${patch}`);
       }
     }
+
     if (!Array.isArray(m.hiddenFiles) || m.hiddenFiles.length === 0) {
       failures.push("hiddenFiles must be a non-empty array for tier a");
     }
   }
+
   if (tier === "c") {
     if (m.testPatch !== null) failures.push("testPatch must be null for tier c");
+
     if (m.goldPatch !== null) failures.push("goldPatch must be null for tier c");
+
     if (Array.isArray(m.hiddenFiles) && m.hiddenFiles.length > 0) {
       failures.push("hiddenFiles must be empty for tier c: there is no gold answer to protect");
     }
+
     if (!Array.isArray(m.targetFiles) || m.targetFiles.length === 0) {
       failures.push("targetFiles must be a non-empty array for tier c");
     }
@@ -162,12 +179,14 @@ export function validateManifest(value, root) {
     failures.push("hiddenFiles must be an array of repo-relative paths");
   } else {
     const seen = new Set();
+
     for (const file of m.hiddenFiles) {
       if (typeof file !== "string" || file === "") {
         failures.push("hiddenFiles entries must be non-empty strings");
       } else if (seen.has(file)) {
         failures.push(`hiddenFiles lists ${file} twice`);
       }
+
       seen.add(file);
     }
   }
@@ -199,12 +218,15 @@ export function validateManifest(value, root) {
 export function readManifest(root, id) {
   const dir = taskDir(root, id);
   const file = join(dir, "manifest.json");
+
   if (!existsSync(file)) throw new Error(`no manifest at ${file}`);
   const value = JSON.parse(readFileSync(file, "utf8"));
   const failures = validateManifest(value, root);
+
   if (failures.length > 0) {
     throw new Error(`task ${id} has an invalid manifest:\n- ${failures.join("\n- ")}`);
   }
+
   return { manifest: /** @type {TaskManifest} */ (value), dir };
 }
 

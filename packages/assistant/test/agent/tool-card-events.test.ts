@@ -47,6 +47,7 @@ describe("sub-agent chat origin", () => {
     const meta = readSubAgentMetadata({
       subAgent: { ...base, chat: { threadId: "thread_1", messageId: "msg_1" } },
     });
+
     assert.deepEqual(meta?.chat, { threadId: "thread_1", messageId: "msg_1" });
   });
 
@@ -80,9 +81,11 @@ describe("sub-agent tool cards", () => {
   // chat turn to publish to.
   function openStub(answer: boolean) {
     let asked = 0;
+
     return {
       isParentOpen: async () => {
         asked += 1;
+
         return answer;
       },
       wasAsked: () => asked > 0,
@@ -97,7 +100,9 @@ describe("sub-agent tool cards", () => {
       "user_1",
       openStub(true).isParentOpen,
     );
+
     assert.ok(target, "a live parent yields a target");
+
     return target;
   }
 
@@ -150,6 +155,7 @@ describe("sub-agent tool cards", () => {
 
   test("both payloads satisfy the wire schema and keep parent addressing", async () => {
     const target = await liveTarget();
+
     const started = toolCardStarted(
       target,
       {
@@ -159,6 +165,7 @@ describe("sub-agent tool cards", () => {
       },
       NESTED_SEGMENT_INDEX,
     );
+
     const terminal = toolCardTerminal(
       target,
       { toolCallId: "call_1", toolName: "github.search" },
@@ -175,12 +182,14 @@ describe("sub-agent tool cards", () => {
       assert.equal(payload.messageId, "msg_1");
       assert.equal(payload.subAgent?.childRunId, "run_child");
     }
+
     assert.equal(started.status, "started");
     assert.equal(terminal.status, "succeeded");
   });
 
   test("a bounced call carries nonExecution so the client retracts the nested card", async () => {
     const target = await liveTarget();
+
     const terminal = toolCardTerminal(
       target,
       { toolCallId: "call_2", toolName: "github.search" },
@@ -197,6 +206,7 @@ describe("sub-agent tool cards", () => {
       ),
       { segmentIndex: NESTED_SEGMENT_INDEX },
     );
+
     assert.equal(terminal.nonExecution, true);
     assert.equal(chatToolSchema.safeParse(terminal).success, true);
   });
@@ -212,6 +222,7 @@ describe("provider-supplied identity is clamped, not rejected", () => {
     threadId: "thread_1",
     messageId: "msg_1",
   };
+
   const longName = "z".repeat(CHAT_TOOL_NAME_MAX + 1);
   const longCallId = "c".repeat(CHAT_TOOL_CALL_ID_MAX + 1);
 
@@ -221,6 +232,7 @@ describe("provider-supplied identity is clamped, not rejected", () => {
       { toolCallId: longCallId, toolName: longName, input: {} },
       0,
     );
+
     assert.equal(started.toolName.length, CHAT_TOOL_NAME_MAX);
     assert.equal(started.toolCallId.length, CHAT_TOOL_CALL_ID_MAX);
     assert.equal(chatToolSchema.safeParse(started).success, true);
@@ -243,6 +255,7 @@ describe("provider-supplied identity is clamped, not rejected", () => {
       ),
       { segmentIndex: 0 },
     );
+
     assert.equal(terminal.toolName.length, CHAT_TOOL_NAME_MAX);
     assert.equal(terminal.toolCallId.length, CHAT_TOOL_CALL_ID_MAX);
     assert.equal(terminal.nonExecution, true);
@@ -273,6 +286,7 @@ describe("toolEventOutcome", () => {
           },
         ),
       );
+
       assert.equal(outcome.status, "failed", kind);
       assert.equal(outcome.nonExecution, true, kind);
     }
@@ -289,6 +303,7 @@ describe("toolEventOutcome", () => {
         },
       ),
     );
+
     assert.equal(outcome.status, "failed");
     assert.equal(outcome.nonExecution, undefined);
   });

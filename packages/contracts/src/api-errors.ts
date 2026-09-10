@@ -142,6 +142,7 @@ export const Errors = {
  */
 export function isApiError(err: unknown, ...codes: readonly ApiErrorCode[]): err is ApiError {
   if (!(err instanceof ApiError)) return false;
+
   return codes.length === 0 || codes.includes(err.code);
 }
 
@@ -157,6 +158,7 @@ export function apiErrorResponse(error: ApiError): ApiErrorResponse {
 export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
   if (!isRecord(value)) return false;
   const record = value;
+
   return (
     typeof record.error === "string" &&
     isApiErrorCode(record.code) &&
@@ -166,11 +168,15 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
 
 export function apiErrorMessage(value: unknown, fallback: string): string {
   if (isApiErrorResponse(value)) return value.error;
+
   if (value instanceof Error && value.message.length > 0) return value.message;
+
   if (isIndexable(value)) {
     const message = Reflect.get(value, "message");
+
     if (isNonEmptyString(message)) return message;
   }
+
   return fallback;
 }
 

@@ -19,10 +19,15 @@ import { bootPort } from "./boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
 import { runToolCallRound } from "./internal/tool-call-round";
 import type { SpawnSubAgentInput } from "./sub-agent-contract";
+
 export { isMutatingToolName } from "./internal/result-routing";
+
 export { withdrawToolCallApproval } from "./approval-lifecycle";
+
 export { joinToolInput } from "./join-contract";
+
 export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
+
 // The tool catalog. `internal/registry.ts` owns the one
 // `Map<ToolName, RegisteredTool>` every reader in every package resolves; the
 // map itself and its sorted cache are module-locals that no export can name.
@@ -51,14 +56,18 @@ export {
   type ToolExecuteContext,
   type ToolExecuteContextFields,
 } from "./internal/registry";
+
 export {
   awaitSubAgentInputSchema,
   spawnSubAgentInputSchema,
   subAgentIdSchema,
   type SpawnSubAgentInput,
 } from "./sub-agent-contract";
+
 export { bootPort, type BootPort } from "./boot-port";
+
 export { startToolLoadSpan, startToolSearchSpan } from "./internal/runtime-spans";
+
 export {
   registerWorkflowToolCatalogSource,
   workflowToolCatalog,
@@ -66,6 +75,7 @@ export {
   type WorkflowToolCatalogSource,
   type WorkflowToolFacts,
 } from "./workflow-tool-catalog";
+
 // Action-staging approval SCHEDULING surface (ADR-0034). The delayed-job
 // wrappers stay here because they import only queue/connection + contracts,
 // keeping tool-runtime a 0-outgoing-edge sink; the dispatcher and the decision
@@ -81,6 +91,7 @@ export {
   closeApprovalExpiryQueue,
   type ApprovalExpiryJobData,
 } from "./approval-expiry-queue";
+
 export {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalNotificationJobId,
@@ -165,6 +176,7 @@ type ToolCallActor =
  */
 export function callerLabel(caller: ToolCallActor["caller"] | undefined): string {
   if (caller === undefined || caller === "boss") return "boss";
+
   return `sub:${caller.subId}`;
 }
 
@@ -264,11 +276,13 @@ export function registerToolCallRoundAdapter(adapter: ToolCallRoundAdapter): () 
 }
 
 type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
+
 // The workflow-authoring seam carries the exact tool inputs the model produces,
 // not the branded `@alfred/contracts` activation type. The tool schemas coerce
 // JSON array fields, so their inferred shape (for example `allowedTools:
 // string[]`) is what the workflow owner receives and re-validates.
 type AuthorWorkflowToolInput = z.infer<typeof authorWorkflowInput>;
+
 type ActivateWorkflowToolInput = z.infer<typeof activateWorkflowInput>;
 
 /** Everything `spawnSubAgent` needs beyond the tool input the model supplies. */
@@ -468,6 +482,7 @@ export interface SystemToolTaskAdapter {
 const systemToolKnowledgeAdapterPort = bootPort<SystemToolKnowledgeAdapter>(
   "system-tool knowledge adapter",
 );
+
 const systemToolTaskAdapterPort = bootPort<SystemToolTaskAdapter>("system-tool task adapter");
 
 export function registerSystemToolKnowledgeAdapter(

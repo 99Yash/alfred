@@ -37,6 +37,7 @@ export async function upsertGithubCredential(
   // Sealed once and reused by both the insert and the on-conflict update.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
+
   const result = await db()
     .insert(integrationCredentials)
     .values({
@@ -72,8 +73,11 @@ export async function upsertGithubCredential(
       },
     })
     .returning({ id: integrationCredentials.id });
+
   const row = result[0];
+
   if (!row) throw new Error("[github.credentials] upsert returned no row");
+
   return { id: row.id };
 }
 
@@ -115,11 +119,15 @@ export async function getGithubAccessToken(credentialId: string): Promise<string
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const row = rows[0];
+
   if (!row) throw new Error(`[github.credentials] not found: ${credentialId}`);
+
   if (row.status !== "active") {
     throw new Error(`[github.credentials] not active: ${credentialId} (status=${row.status})`);
   }
+
   return credentialVault().open(row.accessToken);
 }
 
@@ -142,17 +150,21 @@ export async function getInstallationTokenForUser(
       credential.status === "active" &&
       (accountRef === undefined || credential.accountId === accountRef),
   );
+
   if (!active) {
     throw new Error(
       `[github.credentials] user ${userId} has no active github credential — connect GitHub in settings`,
     );
   }
+
   if (!active.installationId) {
     throw new Error(
       `[github.credentials] user ${userId} github credential has no installation_id — reconnect GitHub (the App must be installed)`,
     );
   }
+
   const { token } = await getInstallationToken(active.installationId);
+
   return { token, accountLogin: active.accountLabel?.trim() || null };
 }
 

@@ -22,11 +22,14 @@ function sessionStore(
   const rows = new Map<string, Row[]>();
   const deleteCalls: Array<Parameters<AuthAdapter["delete"]>[0]> = [];
   let sessionFindManyFailures = 0;
+
   const table = (model: string) => {
     const existing = rows.get(model);
+
     if (existing) return existing;
     const created: Row[] = [];
     rows.set(model, created);
+
     return created;
   };
 
@@ -38,7 +41,9 @@ function sessionStore(
         ...data,
         ...(model === "session" ? { createdAt: sessionOrigin, expiresAt: firstExpiry } : {}),
       };
+
       table(model).push(row);
+
       return row;
     },
     findOne: async ({
@@ -51,11 +56,15 @@ function sessionStore(
       join?: Row;
     }) => {
       const row = table(model).find((candidate) => matches(candidate, where));
+
       if (!row) return null;
+
       if (model === "session" && join?.user) {
         const user = table("user").find((candidate) => candidate.id === row.userId);
+
         return user ? { ...row, user } : null;
       }
+
       return row;
     },
     findMany: async ({ model, where }: Parameters<AuthAdapter["findMany"]>[0]) => {
@@ -63,6 +72,7 @@ function sessionStore(
         sessionFindManyFailures += 1;
         throw new Error("transient session snapshot failure");
       }
+
       return table(model).filter((candidate) => matches(candidate, where));
     },
     update: async ({
@@ -75,8 +85,10 @@ function sessionStore(
       where?: Array<{ field: string; value: unknown }>;
     }) => {
       const row = table(model).find((candidate) => matches(candidate, where));
+
       if (!row) return null;
       Object.assign(row, update);
+
       return row;
     },
     updateMany: async ({
@@ -89,13 +101,16 @@ function sessionStore(
       where?: Array<{ field: string; value: unknown }>;
     }) => {
       const found = table(model).filter((candidate) => matches(candidate, where));
+
       for (const row of found) Object.assign(row, update);
+
       return found.length;
     },
     delete: async (input: Parameters<AuthAdapter["delete"]>[0]) => {
       deleteCalls.push(input);
       const { model, where } = input;
       const index = table(model).findIndex((candidate) => matches(candidate, where));
+
       if (index >= 0) table(model).splice(index, 1);
     },
     deleteMany: async ({
@@ -108,6 +123,7 @@ function sessionStore(
       const kept = table(model).filter((candidate) => !matches(candidate, where));
       const deleted = table(model).length - kept.length;
       rows.set(model, kept);
+
       return deleted;
     },
     count: async ({
@@ -125,7 +141,9 @@ function sessionStore(
       where?: Array<{ field: string; value: unknown }>;
     }) => {
       const index = table(model).findIndex((candidate) => matches(candidate, where));
+
       if (index < 0) return null;
+
       return table(model).splice(index, 1)[0] ?? null;
     },
     incrementOne: async ({
@@ -140,11 +158,15 @@ function sessionStore(
       set?: Row;
     }) => {
       const row = table(model).find((candidate) => matches(candidate, where));
+
       if (!row) return null;
+
       for (const [field, amount] of Object.entries(increment)) {
         row[field] = Number(row[field] ?? 0) + amount;
       }
+
       Object.assign(row, set);
+
       return row;
     },
     transaction: async <R>(callback: (trx: AuthAdapter) => Promise<R>) =>
@@ -154,6 +176,7 @@ function sessionStore(
 
   // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- test boundary: the focused in-memory adapter implements the operations Better Auth drives here
   const factory = (() => adapter as unknown as AuthAdapter) as AuthAdapterFactory;
+
   return {
     deleteCalls: (): readonly Parameters<AuthAdapter["delete"]>[0][] => deleteCalls,
     factory,
@@ -175,6 +198,7 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
     // past the newly deployed absolute deadline. Its first read must not get
     // one authorized request before the update hook can clamp it.
     const store = sessionStore(new Date(originMs), new Date(legacyExpiryMs));
+
     const owner = betterAuth({
       baseURL: "http://localhost:3000",
       secret: "test-secret-that-is-at-least-thirty-two-characters",
@@ -187,13 +211,16 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
         },
       },
     });
+
     const context = await owner.$context;
+
     const user = await context.internalAdapter.createUser({
       id: "legacy-user",
       email: "legacy@example.com",
       emailVerified: true,
       name: "Legacy Session",
     });
+
     const targetSession = await context.internalAdapter.createSession(user.id);
     const siblingSession = await context.internalAdapter.createSession(user.id);
     await context.internalAdapter.createAccount({
@@ -236,9 +263,11 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
     const dayMs = 24 * 60 * 60 * 1000;
     const originMs = Date.UTC(2026, 6, 1, 12, 0, 0);
     const nowMs = originMs + 31 * dayMs;
+
     const store = sessionStore(new Date(originMs), new Date(originMs + 36 * dayMs), {
       failSessionFindManyOnce: true,
     });
+
     t.mock.timers.enable({ apis: ["Date"], now: nowMs });
 
     const owner = betterAuth({
@@ -253,13 +282,16 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
         },
       },
     });
+
     const context = await owner.$context;
+
     const user = await context.internalAdapter.createUser({
       id: "cleanup-failure-user",
       email: "cleanup-failure@example.com",
       emailVerified: true,
       name: "Cleanup Failure",
     });
+
     const session = await context.internalAdapter.createSession(user.id);
     await context.internalAdapter.createAccount({
       accountId: "cleanup-failure-google-account",
@@ -299,27 +331,33 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
     // A day-24 row is at Better Auth's refresh threshold. Its proposed slide is
     // day 31, so the owner hook must persist day 30 instead.
     const store = sessionStore(new Date(originMs), new Date(capMs));
+
     const writer = betterAuth({
       baseURL: "http://localhost:3000",
       secret: "test-secret-that-is-at-least-thirty-two-characters",
       database: store.factory,
       ...authSessionPolicy(),
     });
+
     const secondProcess = betterAuth({
       baseURL: "http://localhost:3000",
       secret: "test-secret-that-is-at-least-thirty-two-characters",
       database: store.factory,
       ...authSessionPolicy(),
     });
+
     const context = await writer.$context;
+
     const user = await context.internalAdapter.createUser({
       id: "user-1",
       email: "session@example.com",
       emailVerified: true,
       name: "Session Test",
     });
+
     const session = await context.internalAdapter.createSession(user.id);
     const signedToken = `${session.token}.${await makeSignature(session.token, context.secret)}`;
+
     const headers = new Headers({
       cookie: `${context.authCookies.sessionToken.name}=${signedToken}`,
     });
@@ -327,6 +365,7 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
     const refreshed = await writer.handler(
       new Request("http://localhost:3000/api/auth/get-session", { headers }),
     );
+
     assert.equal(refreshed.status, 200);
     const persistedExpiry = store.session()?.expiresAt;
     assert.ok(persistedExpiry instanceof Date);

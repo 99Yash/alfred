@@ -31,8 +31,10 @@ async function cleanupPendingUploads(
   request: ChatMediaPendingUploadCleanupRequest,
 ): Promise<number> {
   if (request.keys.length === 0) return 0;
+
   return db().transaction(async (tx) => {
     await lockChatStorageKeys(tx, request.keys);
+
     const rows = await tx
       .select({ storageKey: chatAttachments.storageKey })
       .from(chatAttachments)
@@ -42,8 +44,10 @@ async function cleanupPendingUploads(
           inArray(chatAttachments.storageKey, request.keys),
         ),
       );
+
     const retained = new Set(rows.map((row) => row.storageKey));
     const orphaned = request.keys.filter((key) => !retained.has(key));
+
     return deleteObjects(orphaned.flatMap(attachmentObjectKeys));
   });
 }
@@ -63,6 +67,7 @@ export function createChatMediaHandler(
   dependencies: Partial<ChatMediaAdapterDeps> = {},
 ): ChatMediaHandler {
   const deps = withDefaults(defaultDeps, dependencies);
+
   return {
     claimEnrichment(request) {
       return deps.claimEnrichment(request.attachmentId);
@@ -88,10 +93,12 @@ export function createChatMediaHandler(
       if (!deps.storageConfigured()) {
         return { removed: 0, skipped: "storage-unconfigured" };
       }
+
       const removed = await deps.deletePrefix(request.prefix);
       console.log(
         `[ingestion:worker] media.cleanup prefix=${request.prefix} removed=${removed} user=${request.userId}`,
       );
+
       return { removed };
     },
 
@@ -99,10 +106,12 @@ export function createChatMediaHandler(
       if (!deps.storageConfigured()) {
         return { removed: 0, skipped: "storage-unconfigured" };
       }
+
       const removed = await deps.cleanupPendingUploads(request);
       console.log(
         `[ingestion:worker] media.cleanup_pending_upload checked=${request.keys.length} removed=${removed} user=${request.userId}`,
       );
+
       return { checked: request.keys.length, removed };
     },
   };

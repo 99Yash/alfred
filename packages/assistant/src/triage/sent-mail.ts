@@ -20,6 +20,7 @@ const SENT_LABEL = "SENT";
 /** JS predicate over a document's `metadata` object. */
 export function isSentGmailMetadata(metadata: unknown): boolean {
   const meta = parseGmailDocumentMetadata(metadata);
+
   return meta.isSent === true || meta.labelIds?.some((label) => label === SENT_LABEL) === true;
 }
 
@@ -70,9 +71,12 @@ export function mayBeUnflaggedSentMail(args: {
   mailboxAddress: string | null;
 }): boolean {
   const from = parseEmailAddress(args.fromHeader);
+
   if (!from) return true;
   const mailboxAddress = parseEmailAddress(args.mailboxAddress);
+
   if (!mailboxAddress) return true;
+
   return from === mailboxAddress;
 }
 

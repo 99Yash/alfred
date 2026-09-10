@@ -38,7 +38,9 @@ import { dbBackedSkip } from "./support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-retrypending-";
+
 const SOURCE = "sentry" as const;
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -47,6 +49,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -61,6 +64,7 @@ function sha256(s: string): string {
  */
 async function seedEmptyDocument(userId: string, deadLettered = false): Promise<string> {
   const content = "";
+
   const [row] = await db()
     .insert(documents)
     .values({
@@ -72,7 +76,9 @@ async function seedEmptyDocument(userId: string, deadLettered = false): Promise<
       ...(deadLettered ? { embedFailedAt: new Date() } : {}),
     })
     .returning({ id: documents.id });
+
   assert.ok(row, "seed insert returned no row");
+
   return row.id;
 }
 
@@ -81,7 +87,9 @@ async function readFailedAt(docId: string): Promise<Date | null> {
     .select({ embedFailedAt: documents.embedFailedAt })
     .from(documents)
     .where(eq(documents.id, docId));
+
   assert.ok(row, "document row disappeared");
+
   return row.embedFailedAt;
 }
 
@@ -96,6 +104,7 @@ describe("corpus retryPending sweep (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 

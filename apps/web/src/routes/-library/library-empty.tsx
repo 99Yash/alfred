@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 export function LibraryEmpty({ query }: { query: string }): ReactNode {
   const isSearching = query.trim().length > 0;
   const title = isSearching ? "No matches" : "No recent artifacts";
+
   const description = isSearching
     ? `No artifacts match "${query}".`
     : "Generated documents and pages will appear here once Alfred starts producing them.";

@@ -54,6 +54,7 @@ function rootVariables(): string {
   const decls = cssVariables()
     .map((token) => `  --${token.name}: ${token.value};`)
     .join("\n");
+
   return `:root {\n  color-scheme: light;\n${decls}\n}`;
 }
 
@@ -71,6 +72,7 @@ function darkRootVariables(): string {
   const decls = cssVariablesDark()
     .map((token) => `  --${token.name}: ${token.value};`)
     .join("\n");
+
   return `:root[data-theme="dark"] {
   color-scheme: dark;
 ${decls}
@@ -482,6 +484,7 @@ export function buildArtifactDocument(
   theme: ArtifactColorScheme = "light",
 ): string {
   const { width, height } = pageGeometry[format];
+
   return `<!doctype html>
 <html lang="en" data-theme="${theme}">
 <head>
@@ -517,6 +520,7 @@ function escapeHtml(value: string): string {
  */
 function printStyles(format: ArtifactFormat): string {
   const { width, height } = pageGeometry[format];
+
   return `
 @page { size: ${width}px ${height}px; margin: 0; }
 html, body { width: auto; height: auto; overflow: visible; }
@@ -578,6 +582,7 @@ ${bodyHtml}
 </div></section>`,
     )
     .join("\n");
+
   return `<!doctype html>
 <html lang="en" data-theme="light">
 <head>

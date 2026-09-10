@@ -28,19 +28,23 @@ const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
 export function usePreferenceMap(): PreferenceMap {
   const { rep, loadError, retry } = useReplicacheStatus();
   const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.pref.scan(tx), []);
+
   const rows = useReplicacheSubscription<SyncedPreference[], Record<string, PreferenceValue>>(
     query,
     useCallback((preferences: SyncedPreference[]) => {
       const next: Record<string, PreferenceValue> = {};
+
       for (const preference of preferences) {
         next[preference.key] = preference.value;
       }
+
       return next;
     }, []),
   );
 
   const { values, loaded } = useMemo(() => {
     if (rows === null) return { values: EMPTY_PREFERENCE_VALUES, loaded: false };
+
     return { values: rows, loaded: true };
   }, [rows]);
 

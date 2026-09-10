@@ -52,6 +52,7 @@ async function driveClosure(run: TerminalClosureRun, outcome: TerminalOutcome): 
       userId: run.userId,
       workflowSlug: run.workflowSlug,
     });
+
     // Checked before parsing so a workflow that owes no closure can't be
     // reported as a closure failure by drifted persisted state.
     if (workflow.closure.kind === "none") return;
@@ -94,7 +95,9 @@ export async function finalizeCancelledRun(runId: string, reason: string): Promi
       .from(agentRuns)
       .where(eq(agentRuns.id, runId))
       .limit(1);
+
     const run = rows[0];
+
     if (!run) return;
     await driveClosure(run, { outcome: "cancelled", reason });
   } catch (err) {

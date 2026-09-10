@@ -77,6 +77,7 @@ export function resolveBriefingPreferenceValues(
   const timezone = firstValidTimezone(values.timezoneValues);
   const deliveryHour = parseDeliveryHour(values.deliveryHour) ?? DEFAULT_BRIEFING_DELIVERY_HOUR;
   const eveningHour = parseDeliveryHour(values.eveningHour) ?? DEFAULT_BRIEFING_EVENING_HOUR;
+
   const hasUserOverride =
     values.timezoneValues.some((value) => isValidTimezone(value)) ||
     parseDeliveryHour(values.deliveryHour) !== null ||
@@ -87,5 +88,6 @@ export function resolveBriefingPreferenceValues(
 
 function parseDeliveryHour(value: unknown): number | null {
   const result = briefingHourSchema.safeParse(value);
+
   return result.success ? result.data : null;
 }

@@ -53,6 +53,7 @@ export function AppPill({
   // explicitly sets variant="accent". Passing `tone` alone is the common
   // case — every caller wants the hue, so we shouldn't require both.
   const isAccent = !!tone || variant === "accent";
+
   return (
     <button
       ref={ref}

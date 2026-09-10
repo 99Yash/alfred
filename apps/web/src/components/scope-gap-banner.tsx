@@ -18,6 +18,7 @@ export function ScopeGapBanner() {
   if (!connected || missing.length === 0 || dismissed) return null;
 
   const names = missing.map((m) => m.name);
+
   const list =
     names.length === 1
       ? names[0]

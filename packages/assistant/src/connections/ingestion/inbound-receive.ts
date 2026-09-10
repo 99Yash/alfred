@@ -89,15 +89,18 @@ export async function receiveInboundDelivery(
   args: ReceiveInboundDeliveryArgs,
 ): Promise<InboundDeliveryOutcome> {
   const descriptor = inboundSource(args.source);
+
   if (!descriptor) return { kind: "unknown_source", source: args.source };
   const source = descriptor.slug;
 
   if (!(await descriptor.verify(args.raw, args.headers))) {
     console.warn(`[ingress] ${source}: signature verification failed`);
+
     return { kind: "rejected", source, reason: "invalid_signature" };
   }
 
   const payload = parseJsonWith(args.raw, jsonObjectSchema);
+
   if (!payload) return { kind: "ignored", source, reason: "bad-json" };
 
   // Project before keying: the synthetic key switches on the projected type,
@@ -107,27 +110,35 @@ export async function receiveInboundDelivery(
   // a descriptor bug and must be loud. It is still acknowledged: providers do
   // not redeliver on a 4xx, and a retry could not change the body.
   const projection = descriptor.project(payload, args.headers);
+
   if (projection.kind === "ignore") return { kind: "ignored", source, reason: projection.reason };
 
   const attribution = await descriptor.resolveOwner(payload, args.headers);
+
   if (attribution.kind === "unowned") {
     reportOwnerlessDelivery(source, projection, attribution);
+
     return { kind: "ignored", source, reason: "no-owner" };
   }
+
   const { owner } = attribution;
 
   const payloadHash = createHash("sha256").update(args.raw).digest("hex");
   const receipt = { source, owner, payload, payloadHash };
+
   if (projection.kind === "raw") {
     const stored = await insertReceipt({ ...receipt, tier: projection });
+
     switch (stored.kind) {
       case "inserted":
         await enqueueLogged(stored.id, source);
+
         return { kind: "raw", source, receiptId: stored.id, rawKind: projection.rawKind };
       case "existing":
         if (stored.processingStatus !== "completed") {
           await enqueueLogged(stored.id, source);
         }
+
         return { kind: "duplicate", source, receiptId: stored.id };
       case "gone":
         return { kind: "ignored", source, reason: "receipt-gone" };
@@ -139,10 +150,12 @@ export async function receiveInboundDelivery(
     type: projection.type,
     payloadHash,
   });
+
   if (!deliveryKey) {
     console.error(
       `[ingress] ${source}: ${projection.type} payload carries no identity to key on; dropped`,
     );
+
     return { kind: "ignored", source, reason: "no-dedup-key" };
   }
 
@@ -150,14 +163,17 @@ export async function receiveInboundDelivery(
     ...receipt,
     tier: { ...projection, deliveryKey },
   });
+
   switch (stored.kind) {
     case "inserted":
       await enqueueLogged(stored.id, source);
+
       return { kind: "accepted", source, receiptId: stored.id, type: projection.type };
     case "existing":
       if (stored.processingStatus !== "completed") {
         await enqueueLogged(stored.id, source);
       }
+
       return { kind: "duplicate", source, receiptId: stored.id };
     case "gone":
       return { kind: "ignored", source, reason: "receipt-gone" };
@@ -240,6 +256,7 @@ async function insertReceipt(
   },
 ): Promise<ReceiptInsert> {
   const { source, owner, tier } = args;
+
   const row: NewEventReceipt = {
     provider: source,
     credentialId: owner.credentialId,
@@ -261,12 +278,14 @@ async function insertReceipt(
   };
 
   const timezone = await resolveTimezone(owner.userId);
+
   const insertedId = await db().transaction(async (tx) => {
     const [inserted] = await tx
       .insert(eventReceipts)
       .values(row)
       .onConflictDoNothing({ target: [eventReceipts.provider, eventReceipts.providerDeliveryId] })
       .returning({ id: eventReceipts.id, deliveredAt: eventReceipts.deliveredAt });
+
     if (!inserted) return null;
     await writeReceiptDocument(
       tx,
@@ -280,8 +299,10 @@ async function insertReceipt(
       },
       timezone,
     );
+
     return inserted.id;
   });
+
   if (insertedId) return { kind: "inserted", id: insertedId };
 
   const [existing] = await db()
@@ -294,6 +315,7 @@ async function insertReceipt(
       ),
     )
     .limit(1);
+
   return existing
     ? { kind: "existing", id: existing.id, processingStatus: existing.processingStatus }
     : { kind: "gone" };

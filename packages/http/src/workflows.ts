@@ -30,12 +30,15 @@ export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: 
               cursor: query.cursor,
               limit: query.limit,
             });
+
             if (!history) throw Errors.NotFoundError("Workflow not found");
+
             return history;
           } catch (err) {
             if (err instanceof InvalidRunHistoryCursorError) {
               throw Errors.BadRequestError(err.message);
             }
+
             throw err;
           }
         },
@@ -55,13 +58,16 @@ export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: 
             workflowId: params.id,
             revisionId: query.revisionId,
           });
+
           if (!result.ok) return result;
+
           if (!result.activationProposal) {
             const recovery = workflowRecoveryNavigation({
               workflowId: result.workflow.id,
               revisionId: result.revision.id,
               readiness: result.readiness,
             });
+
             return {
               ok: true as const,
               status: "blocked" as const,
@@ -71,6 +77,7 @@ export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: 
               ...(recovery ? { recovery } : {}),
             };
           }
+
           return {
             ok: true as const,
             status: "ready_to_activate" as const,

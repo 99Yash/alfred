@@ -18,7 +18,9 @@ const turnEnvelopeSchema = z
   .strict();
 
 type PromptMessage = LanguageModelV4CallOptions["prompt"][number];
+
 type ToolDefinition = NonNullable<LanguageModelV4CallOptions["tools"]>[number];
+
 type FunctionToolDefinition = Extract<ToolDefinition, { type: "function" }>;
 
 export function attachProviderTurnPolicy(
@@ -43,6 +45,7 @@ function consumeTurnEnvelope(
   const existing = toRecord(providerOptions);
   const { [INTERNAL_PROVIDER_NAMESPACE]: envelope, ...rest } = existing;
   const parsed = turnEnvelopeSchema.safeParse(envelope);
+
   return {
     cacheTtl: parsed.success ? (parsed.data.cacheTtl ?? undefined) : undefined,
     // SAFETY: rest is the caller's providerOptions minus our internal namespace; same Record<string, JSONObject> shape.
@@ -56,6 +59,7 @@ function withAnthropicCacheControl<
   const existing = value.providerOptions ?? {};
   // SAFETY: existing is SharedV4ProviderOptions; getPath reads the nested anthropic bag off the validated record.
   const anthropic = toRecord(getPath(existing as unknown, "anthropic"));
+
   return {
     ...value,
     providerOptions: {
@@ -70,12 +74,16 @@ function withAnthropicCacheControl<
 
 function previousToolBurstBoundaryIndex(transcript: readonly PromptMessage[]): number | null {
   let firstTrailingToolIndex = transcript.length;
+
   while (firstTrailingToolIndex > 0 && transcript[firstTrailingToolIndex - 1]?.role === "tool") {
     firstTrailingToolIndex--;
   }
+
   if (firstTrailingToolIndex === transcript.length) return null;
   const assistantIndex = firstTrailingToolIndex - 1;
+
   if (assistantIndex < 1 || transcript[assistantIndex]?.role !== "assistant") return null;
+
   return assistantIndex - 1;
 }
 
@@ -85,19 +93,25 @@ function decorateAnthropicPrompt(
 ): LanguageModelV4CallOptions["prompt"] {
   if (prompt.length === 0) return prompt;
   const out = prompt.slice();
+
   if (out[0]?.role === "system") {
     out[0] = withAnthropicCacheControl(out[0], ttl);
   }
+
   const transcriptStart = out[0]?.role === "system" ? 1 : 0;
+
   if (transcriptStart === out.length) return out;
   const transcript = out.slice(transcriptStart);
   const boundary = previousToolBurstBoundaryIndex(transcript);
+
   if (boundary !== null) {
     transcript[boundary] = withAnthropicCacheControl(transcript[boundary]!, ttl);
   }
+
   const last = transcript.length - 1;
   transcript[last] = withAnthropicCacheControl(transcript[last]!, ttl);
   out.splice(transcriptStart, transcript.length, ...transcript);
+
   return out;
 }
 
@@ -108,15 +122,18 @@ function decorateAnthropicTools(
   if (tools.length === 0) return tools;
   const out = tools.slice();
   let lastFunctionIndex = -1;
+
   for (let index = 0; index < out.length; index++) {
     if (out[index]?.type === "function") lastFunctionIndex = index;
   }
+
   if (lastFunctionIndex === -1) return out;
   out[lastFunctionIndex] = withAnthropicCacheControl(
     // SAFETY: lastFunctionIndex was set only where entry.type === "function", matching FunctionToolDefinition discriminant.
     out[lastFunctionIndex] as FunctionToolDefinition,
     ttl,
   );
+
   return out;
 }
 
@@ -128,11 +145,13 @@ interface CleanProviderRequest {
 function cleanProviderRequest(params: LanguageModelV4CallOptions): CleanProviderRequest {
   const { cacheTtl, providerOptions } = consumeTurnEnvelope(params.providerOptions);
   const { providerOptions: _internalOptions, ...rest } = params;
+
   // SAFETY: rest preserves all LanguageModelV4CallOptions fields minus providerOptions which we replace.
   const clean = {
     ...rest,
     ...(providerOptions ? { providerOptions } : {}),
   } as LanguageModelV4CallOptions;
+
   return { clean, cacheTtl };
 }
 
@@ -145,6 +164,7 @@ function projectAnthropicRequest(
   cacheTtl: CacheTtl | undefined,
 ): LanguageModelV4CallOptions {
   if (!cacheTtl) return params;
+
   return {
     ...params,
     prompt: decorateAnthropicPrompt(params.prompt, cacheTtl),
@@ -159,6 +179,7 @@ export function projectRequestForModel(
   isAnthropic: boolean,
 ): LanguageModelV4CallOptions {
   void modelId;
+
   return isAnthropic
     ? projectAnthropicRequest(params, cacheTtl)
     : projectApplicationRequest(params);
@@ -176,6 +197,7 @@ export function cleanAndProjectRequest(
 ): CleanAndProjectResult {
   const { clean, cacheTtl } = cleanProviderRequest(params);
   const projected = projectRequestForModel("", clean, cacheTtl, isAnthropic);
+
   return { clean, cacheTtl, projected };
 }
 

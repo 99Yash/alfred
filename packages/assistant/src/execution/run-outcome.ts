@@ -54,7 +54,9 @@ export type EffectReceiptSource = Pick<ActionStaging, keyof typeof effectReceipt
 
 /** Receipts and outcome effect lists are capped so one jsonb row stays bounded. */
 export const EFFECT_RECEIPT_CAP = 50;
+
 const STAGING_READ_CAP = 500;
+
 const SUMMARY_MAX_CHARS = 280;
 
 /**
@@ -65,6 +67,7 @@ const SUMMARY_MAX_CHARS = 280;
 export function toEffectReceipt(row: EffectReceiptSource): EffectReceipt {
   const outcome = effectOutcomeSchema.safeParse(row.outcome);
   const status = actionStagingStatusSchema.safeParse(row.status);
+
   return {
     effectKey: row.effectKey,
     toolName: row.toolName,
@@ -97,13 +100,16 @@ async function readWriteReceipts(tx: DbTransaction, runId: string): Promise<Effe
     .where(eq(actionStagings.runId, runId))
     .orderBy(asc(actionStagings.createdAt), asc(actionStagings.id))
     .limit(STAGING_READ_CAP);
+
   return rows.filter((row) => isWriteRiskTier(row.riskTier)).map(toEffectReceipt);
 }
 
 /** The step's own sentence, clipped; a `done` step that names none reads as plain completion. */
 function clipSummary(summary: string | undefined): string {
   const trimmed = summary?.trim() ?? "";
+
   if (!trimmed) return "Run completed.";
+
   return trimmed.length <= SUMMARY_MAX_CHARS ? trimmed : `${trimmed.slice(0, SUMMARY_MAX_CHARS)}…`;
 }
 
@@ -112,13 +118,16 @@ function distinctRecoveryActions(
 ): WorkflowRecoveryAction[] {
   const seen = new Set<string>();
   const out: WorkflowRecoveryAction[] = [];
+
   for (const action of actions) {
     if (!action) continue;
     const key = canonicalJson(action);
+
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(action);
   }
+
   return out;
 }
 
@@ -160,6 +169,7 @@ export async function deriveRunOutcome(
   // retry could duplicate it, so the run must not read as done, blocked, or
   // retryable.
   const firstUnknown = unknown[0];
+
   if (firstUnknown) {
     return { kind: "unknown_write_outcome", effectKey: firstUnknown.effectKey, safeToRetry: false };
   }
@@ -167,13 +177,16 @@ export async function deriveRunOutcome(
   if (write.status === "completed") {
     const succeeded = receipts.filter((r) => r.outcome === "succeeded");
     const summary = clipSummary(write.summary);
+
     if (succeeded.length === 0) return { kind: "no_change", summary };
+
     return { kind: "completed", summary, effects: succeeded.slice(0, EFFECT_RECEIPT_CAP) };
   }
 
   if (write.status === "blocked") {
     const parsed = workflowReadinessOutputSchema.safeParse(write.output);
     const problems = parsed.success ? parsed.data.readiness : [];
+
     return {
       kind: "blocked",
       code: problems[0]?.code ?? "blocked",

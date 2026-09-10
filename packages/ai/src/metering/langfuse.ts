@@ -18,12 +18,16 @@ let _client: Langfuse | "noop" | undefined;
 
 function getClient(): Langfuse | null {
   if (_client === "noop") return null;
+
   if (_client) return _client;
   const env = serverEnv();
+
   if (!env.LANGFUSE_PUBLIC_KEY || !env.LANGFUSE_SECRET_KEY) {
     _client = "noop";
+
     return null;
   }
+
   _client = new Langfuse({
     publicKey: env.LANGFUSE_PUBLIC_KEY,
     secretKey: env.LANGFUSE_SECRET_KEY,
@@ -36,6 +40,7 @@ function getClient(): Langfuse | null {
     // `NODE_ENV` only when it's unset (#226 review).
     environment: env.LANGFUSE_TRACING_ENVIRONMENT ?? env.NODE_ENV,
   });
+
   return _client;
 }
 
@@ -85,6 +90,7 @@ function shouldCaptureIo(): boolean {
 
 export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser {
   const client = getClient();
+
   if (!client) {
     return {
       success() {
@@ -104,6 +110,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   const traceId = resolveTraceId(meta);
   const adhoc = isAdhocTrace(meta);
   let generation: ReturnType<Langfuse["generation"]> | null = null;
+
   try {
     // Upsert the parent trace first. `generation()` with a custom traceId
     // does NOT create the trace — Langfuse Cloud no longer auto-promotes
@@ -134,6 +141,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
             captureIo,
           }),
         );
+
         // Mirror the completion up to an ad-hoc trace's root (#226) so the
         // Traces view shows the call's I/O instead of the empty-root banner.
         if (captureIo && adhoc) {
@@ -198,6 +206,7 @@ export interface ToolSpanCloser {
  */
 export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
   const client = getClient();
+
   if (!client) {
     return {
       success() {
@@ -211,6 +220,7 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
 
   const captureIo = shouldCaptureIo();
   let span: ReturnType<Langfuse["span"]> | null = null;
+
   try {
     // The boss LLM turn that proposed this call already upserted the
     // `run:<runId>` trace (chat's generation step precedes tool dispatch), so
@@ -385,8 +395,10 @@ export function buildDispatchRejectionSpanPayload(
  */
 export function recordDispatchRejection(args: DispatchRejectionInput): void {
   const client = getClient();
+
   if (!client) return;
   const captureIo = shouldCaptureIo();
+
   try {
     // Defensive trace upsert (see startToolSpan) — keyed on id, never clobbers.
     client.trace({ id: args.runId });
@@ -488,6 +500,7 @@ export function buildRuntimeSpanEndPayload(args: RuntimeSpanEndArgs, captureIo: 
  */
 export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
   const client = getClient();
+
   if (!client) {
     return {
       end() {
@@ -495,14 +508,17 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
       },
     };
   }
+
   const captureIo = shouldCaptureIo();
   let span: ReturnType<Langfuse["span"]> | null = null;
+
   try {
     client.trace({ id: input.runId });
     span = client.span(buildRuntimeSpanPayload(input, captureIo));
   } catch (err) {
     console.warn("[langfuse] runtime span start failed:", toMessage(err));
   }
+
   return {
     end(args) {
       try {
@@ -521,7 +537,9 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
  */
 export async function flushLangfuse(): Promise<void> {
   const client = getClient();
+
   if (!client) return;
+
   try {
     await client.flushAsync();
   } catch (err) {
@@ -531,7 +549,9 @@ export async function flushLangfuse(): Promise<void> {
 
 export async function shutdownLangfuse(): Promise<void> {
   const client = getClient();
+
   if (!client) return;
+
   try {
     await client.shutdownAsync();
   } catch {
@@ -573,12 +593,16 @@ const CALL_SHAPE = {
  */
 export function traceTags(meta: MeteredMeta): string[] | undefined {
   const tags: string[] = [];
+
   if (meta.role) tags.push(`role:${meta.role}`);
+
   if (meta.kind) {
     const shape = CALL_SHAPE[meta.kind];
     tags.push(`call_kind:${shape}`);
+
     if (meta.kind !== shape) tags.push(`cost_kind:${meta.kind}`);
   }
+
   return tags.length > 0 ? tags : undefined;
 }
 
@@ -616,6 +640,7 @@ function isAdhocTrace(meta: MeteredMeta): boolean {
 export function buildTracePayload(args: { meta: MeteredMeta; captureIo: boolean }) {
   const { meta, captureIo } = args;
   const tags = traceTags(meta);
+
   // Every optional field is *omitted* rather than sent as `undefined`/`null`:
   // `trace()` is an idempotent upsert keyed on `id`, and a null would clobber a
   // value an earlier call in the same run already set.
@@ -644,6 +669,7 @@ export function buildGenerationPayload(args: {
 }) {
   const { meta, startedAt, captureIo } = args;
   const modelParameters = stripParams(meta.requestMeta);
+
   return {
     traceId: resolveTraceId(meta),
     name: meta.name ?? `${meta.provider}/${meta.model}`,
@@ -680,6 +706,7 @@ export function buildGenerationEndPayload(args: {
   // metadata for fallback debugging (#216).
   const servedDiverged = servedModel != null && servedModel !== meta.model;
   const metadata = servedDiverged ? { ...responseMeta, requestedModel: meta.model } : responseMeta;
+
   return {
     ...(servedDiverged ? { model: servedModel } : {}),
     ...(usage
@@ -716,8 +743,10 @@ function stripParams(
   // remaining values to the primitive shapes Langfuse accepts.
   const skip = new Set(["prompt", "messages", "system"]);
   const out: { [key: string]: LangfuseModelParam } = {};
+
   for (const [k, v] of Object.entries(meta)) {
     if (skip.has(k)) continue;
+
     if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
       out[k] = v;
     } else if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
@@ -726,5 +755,6 @@ function stripParams(
     // Anything else (objects, mixed arrays) is silently dropped — Langfuse
     // can't render them and including them broke the type contract.
   }
+
   return out;
 }

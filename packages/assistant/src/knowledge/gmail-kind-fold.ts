@@ -73,7 +73,9 @@ export async function projectGmailKindProfiles(
       eq(observations.source, "gmail"),
       eq(observations.kind, "email_message"),
     ];
+
     const watermarkCond = gmailHighWatermarkCondition(args.gmailHighWatermark);
+
     if (watermarkCond) conds.push(watermarkCond);
 
     const rows = await ex
@@ -86,10 +88,12 @@ export async function projectGmailKindProfiles(
     const excludedEmails = new Set(
       args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? [],
     );
+
     const identities = collectIdentities(
       rows.map((row) => row.observation),
       excludedEmails,
     );
+
     const checksumRows: ProfileChecksumRow[] = [];
     const projectionName = args.projectionName ?? USER_MODEL_PROJECTION_NAME;
     const computedAt = args.computedAt ?? new Date();
@@ -99,6 +103,7 @@ export async function projectGmailKindProfiles(
         { userId: args.userId, identity: acc.identity, firstSeenAt: acc.firstSeenAt },
         ex,
       );
+
       await recordEntityIdentity(
         {
           userId: args.userId,
@@ -115,6 +120,7 @@ export async function projectGmailKindProfiles(
         displayNames: displayNamesByStrength(acc.displayNameCounts),
         payloadSignals: acc.payloadSignals,
       });
+
       const provenance: ProjectionProvenance = {
         observationIds: [...acc.observationIds].sort(),
         familyKeys: [...acc.familyKeys].sort(),
@@ -169,8 +175,10 @@ function collectIdentities(
   excludedEmails: ReadonlySet<string>,
 ): Map<string, IdentityAccumulator> {
   const byIdentity = new Map<string, IdentityAccumulator>();
+
   for (const observation of observationRows) {
     const subject = identityFromSubject(observation);
+
     if (subject && !isExcluded(subject, excludedEmails)) {
       const acc = ensureAccumulator(byIdentity, subject, observation);
       acc.payloadSignals.push(payloadSignalsFromObservation(observation));
@@ -179,6 +187,7 @@ function collectIdentities(
     for (const participant of observation.participants.items) {
       if (isExcluded(participant.identity, excludedEmails)) continue;
       const acc = ensureAccumulator(byIdentity, participant.identity, observation);
+
       if (participant.displayName) {
         acc.displayNameCounts.set(
           participant.displayName,
@@ -187,11 +196,13 @@ function collectIdentities(
       }
     }
   }
+
   return byIdentity;
 }
 
 function identityFromSubject(observation: Observation): IdentityRef | null {
   const parsed = identityRefSchema.safeParse(observation.subjectIdentity);
+
   return parsed.success ? parsed.data : null;
 }
 
@@ -202,12 +213,15 @@ function ensureAccumulator(
 ): IdentityAccumulator {
   const key = identityKey(identity);
   const existing = byIdentity.get(key);
+
   if (existing) {
     if (observation.occurredAt < existing.firstSeenAt)
       existing.firstSeenAt = observation.occurredAt;
+
     if (observation.occurredAt > existing.lastSeenAt) existing.lastSeenAt = observation.occurredAt;
     existing.observationIds.add(observation.id);
     existing.familyKeys.add(observation.familyKey);
+
     return existing;
   }
 
@@ -220,14 +234,18 @@ function ensureAccumulator(
     displayNameCounts: new Map(),
     payloadSignals: [],
   };
+
   byIdentity.set(key, created);
+
   return created;
 }
 
 function payloadSignalsFromObservation(observation: Observation): GmailPayloadSignals {
   const payload = observation.payload;
   const headers = isRecord(payload.headers) ? payload.headers : null;
+
   if (!headers) return {};
+
   return {
     listId: stringOrNull(headers.listId),
     listUnsubscribe: stringOrNull(headers.listUnsubscribe),
@@ -243,11 +261,14 @@ function stringOrNull(value: unknown): string | null {
 function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefined): SQL | null {
   if (!watermark) return null;
   const conds: SQL[] = [];
+
   if (watermark.occurredAt) {
     const occurredAt = new Date(watermark.occurredAt);
+
     if (Number.isNaN(occurredAt.getTime())) {
       throw new Error(`[user-model.gmail-kind-fold] invalid Gmail high-watermark occurredAt`);
     }
+
     if (watermark.lastObservationId) {
       const boundedByTimestampAndId = or(
         sql`${observations.occurredAt} < ${occurredAt}`,
@@ -256,9 +277,11 @@ function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefine
           lte(observations.id, watermark.lastObservationId),
         ),
       );
+
       if (!boundedByTimestampAndId) {
         throw new Error(`[user-model.gmail-kind-fold] failed to build Gmail high-watermark bound`);
       }
+
       conds.push(boundedByTimestampAndId);
     } else {
       conds.push(lte(observations.occurredAt, occurredAt));
@@ -268,13 +291,16 @@ function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefine
   }
 
   const appendSnapshot = gmailAppendSnapshotFromCursor(watermark);
+
   if (appendSnapshot) {
     conds.push(lte(observations.createdAt, appendSnapshot.capturedAt));
   }
 
   if (conds.length === 0) return null;
   const combined = and(...conds);
+
   if (!combined) throw new Error(`[user-model.gmail-kind-fold] failed to build watermark bound`);
+
   return combined;
 }
 
@@ -286,11 +312,14 @@ function gmailAppendSnapshotFromCursor(
   watermark: ProjectionCursorValue,
 ): GmailAppendSnapshot | null {
   const capturedAt = getStringPath(watermark.sourceCursor, "appendSnapshot", "capturedAt");
+
   if (capturedAt === undefined) return null;
   const parsedCapturedAt = new Date(capturedAt);
+
   if (Number.isNaN(parsedCapturedAt.getTime())) {
     throw new Error(`[user-model.gmail-kind-fold] invalid Gmail append snapshot capturedAt`);
   }
+
   return { capturedAt: parsedCapturedAt };
 }
 
@@ -331,5 +360,6 @@ function checksumRow(
 
 function checksumFor(rows: readonly ProfileChecksumRow[]): string {
   const stable = [...rows].sort((a, b) => a.entityId.localeCompare(b.entityId));
+
   return sha256Canonical(stable);
 }

@@ -259,6 +259,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorId: "583231" }, accountId: null, sender: null },
       self,
     );
+
     assert.equal(byId.authoredByUser, true);
     assert.equal(byId.authoredByUser && byId.proof.method, "author_id");
 
@@ -266,6 +267,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorLogin: "99yash" }, accountId: null, sender: null },
       self,
     );
+
     assert.equal(byLogin.authoredByUser, true);
     assert.equal(byLogin.authoredByUser && byLogin.proof.method, "author_login");
 
@@ -273,6 +275,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorLogin: "mattpocock" }, accountId: null, sender: null },
       self,
     );
+
     assert.equal(other.authoredByUser, false);
     assert.equal(!other.authoredByUser && other.reason, "identity_mismatch");
   });
@@ -282,6 +285,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorLogin: "anyone" }, accountId: null, sender: null },
       { emails: ["yash@oliv.ai"] },
     );
+
     assert.equal(r.authoredByUser, false);
     assert.equal(!r.authoredByUser && r.reason, "missing_self_identity");
   });
@@ -291,6 +295,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     // third-party author, so the reject set is attachments, Sentry, and the
     // missing-document sentinel (#987).
     const sources = ["gmail_attachment", "sentry", "unknown"] as const;
+
     for (const source of sources) {
       const r = authoredByUser({ source, metadata: {}, accountId: null, sender: null }, self);
       assert.equal(r.authoredByUser, false, `${source} should not be authored`);
@@ -304,6 +309,7 @@ describe("gateDocumentFact", () => {
     emails: ["yash@oliv.ai"],
     gmailAccountEmailById: { acc_work: "yash@oliv.ai" },
   };
+
   const authoredDoc: AuthorshipDocument = {
     source: "gmail",
     metadata: { isSent: true },
@@ -332,6 +338,7 @@ describe("gateDocumentFact", () => {
       document: authoredDoc,
       selfIdentity: self,
     });
+
     assert.deepEqual(r, {
       ok: false,
       reason: "service_sender_relationship",
@@ -346,6 +353,7 @@ describe("gateDocumentFact", () => {
       document: authoredDoc,
       selfIdentity: self,
     });
+
     assert.deepEqual(r, {
       ok: false,
       reason: "invalid_relationship_key",
@@ -360,6 +368,7 @@ describe("gateDocumentFact", () => {
       document: authoredDoc,
       selfIdentity: self,
     });
+
     assert.equal(r.ok, true);
     assert.equal(r.ok && r.key, "relationship:alice@oliv.ai");
   });

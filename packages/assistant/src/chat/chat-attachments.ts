@@ -109,7 +109,9 @@ export async function loadReadyAttachments(
   ex: AgentDbExecutor = db(),
 ): Promise<Map<string, ReadyAttachment[]>> {
   const byMessage = new Map<string, ReadyAttachment[]>();
+
   if (messageIds.length === 0) return byMessage;
+
   const rows = await ex
     .select({
       id: chatAttachments.id,
@@ -133,6 +135,7 @@ export async function loadReadyAttachments(
       asc(chatAttachments.createdAt),
       asc(chatAttachments.id),
     );
+
   for (const r of rows) {
     const list = byMessage.get(r.messageId) ?? [];
     list.push({
@@ -145,6 +148,7 @@ export async function loadReadyAttachments(
     });
     byMessage.set(r.messageId, list);
   }
+
   return byMessage;
 }
 
@@ -183,12 +187,15 @@ export async function threadImageAttachments(
         ),
       ),
     );
+
   let currentTurn = false;
   let historical = false;
+
   for (const r of rows) {
     if (currentUserMessageId && r.messageId === currentUserMessageId) currentTurn = true;
     else historical = true;
   }
+
   return { currentTurn, historical };
 }
 
@@ -205,19 +212,24 @@ export function buildStoredContentParts(
   attachments: ReadyAttachment[],
 ): StoredChatContentPart[] {
   const parts: StoredChatContentPart[] = [];
+
   if (text.length > 0) parts.push({ type: "text", text });
+
   for (const a of attachments) {
     if (isPassThrough(a.mime)) {
       parts.push(storedAttachmentImagePart(a.storageKey, a.mime, a.id, a.size));
       continue;
     }
+
     if (a.degradedText && a.degradedText.length > 0) {
       parts.push({ type: "text", text: a.degradedText });
     }
+
     for (const key of a.degradedImageKeys) {
       parts.push(storedAttachmentImagePart(key));
     }
   }
+
   return parts;
 }
 
@@ -238,16 +250,21 @@ async function hydrateAttachmentImage(
   readStoredObject: StoredObjectReader,
 ): Promise<HydratedAttachmentImage> {
   const cached = cache.get(part.storageKey);
+
   if (cached) return cached;
   const bytes = await readStoredObject(part.storageKey);
   const mediaType = part.mediaType ?? sniffPassThroughImageMime(bytes);
+
   if (!mediaType) throw new UnsupportedStoredImageError();
+
   const hydrated = {
     image: Buffer.from(bytes).toString("base64"),
     mediaType,
     encodedBytes: encodedImageBytes(bytes.byteLength),
   };
+
   cache.set(part.storageKey, hydrated);
+
   return hydrated;
 }
 
@@ -259,11 +276,13 @@ async function hydrateContentForModel(
 ): Promise<unknown> {
   if (!Array.isArray(content)) return content;
   const parts: unknown[] = [];
+
   for (const part of content) {
     if (!isStoredAttachmentImagePart(part)) {
       parts.push(part);
       continue;
     }
+
     // Inline the bytes (ADR-0065 "bytes path") instead of a presigned URL: the
     // providers can't fetch our private, short-lived Railway storage URLs, so a
     // URL-valued image part fails the turn (boss + fallback alike). Encode as a
@@ -274,6 +293,7 @@ async function hydrateContentForModel(
     // read: an image already known to overflow is not worth fetching.
     const projectedEncodedBytes =
       part.byteSize !== undefined ? encodedImageBytes(part.byteSize) : null;
+
     if (
       projectedEncodedBytes !== null &&
       budget.usedEncodedBytes + projectedEncodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN
@@ -285,7 +305,9 @@ async function hydrateContentForModel(
       });
       continue;
     }
+
     let hydrated: HydratedAttachmentImage;
+
     try {
       hydrated = await hydrateAttachmentImage(part, cache, readStoredObject);
     } catch (err) {
@@ -298,6 +320,7 @@ async function hydrateContentForModel(
         });
         continue;
       }
+
       budget.unreadableImages += 1;
       console.warn("[chat] skipped unreadable attachment image:", toMessage(err));
       parts.push({
@@ -306,6 +329,7 @@ async function hydrateContentForModel(
       });
       continue;
     }
+
     // Re-check against the real encoded size: an undeclared `byteSize` skipped
     // the projection above, and a declared one is only the raw size the uploader
     // recorded.
@@ -317,9 +341,11 @@ async function hydrateContentForModel(
       });
       continue;
     }
+
     budget.usedEncodedBytes += hydrated.encodedBytes;
     parts.push({ type: "file", data: hydrated.image, mediaType: hydrated.mediaType });
   }
+
   return parts;
 }
 
@@ -348,17 +374,22 @@ export async function hydrateTranscriptForModel(
     unreadableImages: 0,
     invalidImages: 0,
   };
+
   const cache = new Map<string, HydratedAttachmentImage>();
   const reversed: AgentTranscriptMessage[] = [];
+
   for (let i = transcript.length - 1; i >= 0; i -= 1) {
     const message = transcript[i];
+
     if (!message) continue;
     reversed.push({
       ...message,
       content: await hydrateContentForModel(message.content, budget, cache, readStoredObject),
     });
   }
+
   warnOnSkippedAttachments(budget);
+
   return { transcript: reversed.reverse(), budget };
 }
 
@@ -374,12 +405,14 @@ function warnOnSkippedAttachments(budget: AttachmentHydrationBudget): void {
       }),
     );
   }
+
   if (budget.invalidImages > 0) {
     console.warn(
       "[chat] skipped invalid attachment images:",
       JSON.stringify({ invalidImages: budget.invalidImages }),
     );
   }
+
   if (budget.unreadableImages > 0) {
     console.warn(
       "[chat] skipped unreadable attachment images:",

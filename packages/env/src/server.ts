@@ -410,9 +410,12 @@ const serverEnvSchema = z
     const cfToken =
       data.CLOUDFLARE_AI_GATEWAY_TOKEN ??
       (data.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? data.AI_GATEWAY_API_KEY : undefined);
+
     const cfEnabled = Boolean(cfToken && data.CLOUDFLARE_ACCOUNT_ID && data.CLOUDFLARE_GATEWAY_ID);
+
     if (cfEnabled) return;
     const hasDirectKey = Boolean(data.ANTHROPIC_API_KEY ?? data.GOOGLE_GENERATIVE_AI_API_KEY);
+
     if (!hasDirectKey && data.NODE_ENV !== "test") {
       ctx.addIssue({
         code: "custom",
@@ -430,13 +433,17 @@ let _serverEnv: ServerEnv | undefined;
 export function serverEnv(): ServerEnv {
   if (_serverEnv) return _serverEnv;
   const result = serverEnvSchema.safeParse(process.env);
+
   if (!result.success) {
     const formatted = result.error.issues
       .map((i) => `  ${i.path.join(".")}: ${i.message}`)
       .join("\n");
+
     throw new Error(`Missing or invalid environment variables:\n${formatted}`);
   }
+
   _serverEnv = result.data;
+
   return _serverEnv;
 }
 
@@ -454,6 +461,7 @@ export function serverEnv(): ServerEnv {
 export function nodeEnv(): ServerEnv["NODE_ENV"] {
   const field = serverEnvSchema.shape.NODE_ENV;
   const result = field.safeParse(process.env.NODE_ENV);
+
   return result.success ? result.data : field.parse(undefined);
 }
 
@@ -467,6 +475,7 @@ export function nodeEnv(): ServerEnv["NODE_ENV"] {
  */
 export function gmailMailboxWritesEnabled(): boolean {
   const env = serverEnv();
+
   return env.GMAIL_MAILBOX_WRITES_ENABLED ?? env.NODE_ENV === "production";
 }
 
@@ -479,6 +488,7 @@ export function gmailMailboxWritesEnabled(): boolean {
  */
 export function scheduledJobsEnabled(): boolean {
   const env = serverEnv();
+
   return env.ALFRED_RUN_SCHEDULED_JOBS ?? env.NODE_ENV === "production";
 }
 
@@ -490,15 +500,19 @@ function gatewayTokenFromEnv(): string | undefined {
   const tokenField = serverEnvSchema.shape.CLOUDFLARE_AI_GATEWAY_TOKEN;
   const legacyField = serverEnvSchema.shape.AI_GATEWAY_API_KEY;
   const tokenResult = tokenField.safeParse(process.env.CLOUDFLARE_AI_GATEWAY_TOKEN);
+
   if (tokenResult.success && tokenResult.data) return tokenResult.data;
   const legacyResult = legacyField.safeParse(process.env.AI_GATEWAY_API_KEY);
+
   if (legacyResult.success && legacyResult.data?.startsWith("cfut_")) return legacyResult.data;
+
   return undefined;
 }
 
 export function envFieldValue<K extends keyof ServerEnv>(key: K): ServerEnv[K] | undefined {
   const field = serverEnvSchema.shape[key];
   const result = field.safeParse(process.env[key as string]);
+
   return result.success ? (result.data as ServerEnv[K]) : undefined;
 }
 
@@ -515,7 +529,9 @@ export function cloudflareGatewayConfig():
   const token = gatewayTokenFromEnv();
   const accountId = envFieldValue("CLOUDFLARE_ACCOUNT_ID") as string | undefined;
   const gatewayId = envFieldValue("CLOUDFLARE_GATEWAY_ID") as string | undefined;
+
   if (token && accountId && gatewayId) return { token, accountId, gatewayId };
+
   return undefined;
 }
 

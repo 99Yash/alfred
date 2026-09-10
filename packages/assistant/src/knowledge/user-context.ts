@@ -94,7 +94,9 @@ export interface UserContext {
 }
 
 const FACT_LIMIT = 30;
+
 const PREF_LIMIT = 50;
+
 /**
  * Canonical identity keys that answer "who am I / where do I work?". These are
  * GUARANTEED into the bounded fact slice ahead of the recency/confidence-ranked
@@ -113,7 +115,9 @@ const IDENTITY_FACT_KEYS = [
   "user_nickname",
   "location",
 ] as const;
+
 type IdentityFactKey = (typeof IDENTITY_FACT_KEYS)[number];
+
 const PROFILE_IDENTITY_FACT_KEYS = [
   "employer",
   "work_summary",
@@ -121,11 +125,17 @@ const PROFILE_IDENTITY_FACT_KEYS = [
   "bio_summary",
   "location",
 ] as const satisfies readonly IdentityFactKey[];
+
 const profileIdentityFactKeys = new Set<string>(PROFILE_IDENTITY_FACT_KEYS);
+
 const ENTITY_LIMIT = 50;
+
 const RELATION_LIMIT = 80;
+
 const MEMORY_LIMIT = 6;
+
 const MEMORY_PREVIEW_CHARS = 900;
+
 /** Cap on the extra entities a `query`/`subjectEmail` focus may pull in past the ranked slice. */
 const FOCUS_MATCH_LIMIT = 10;
 
@@ -135,6 +145,7 @@ type FactContextRow = Pick<
   UserFact,
   "id" | "key" | "value" | "confidence" | "source" | "updatedAt" | "createdAt"
 >;
+
 type StringFactContextRow = FactContextRow & { value: string };
 
 const ENTITY_COLUMNS = {
@@ -165,6 +176,7 @@ const significanceScore = sql<number>`(${entities.metadata} -> 'significance' ->
 /** Tokenize a free-text query into the alpha-numeric terms worth matching against names. */
 function queryTokens(query: string | undefined): string[] {
   if (!query) return [];
+
   return Array.from(
     new Set(
       query
@@ -187,6 +199,7 @@ function identityValue(rows: FactContextRow[], key: IdentityFactKey): unknown | 
 
 function stringIdentityValue(rows: FactContextRow[], key: IdentityFactKey): string | null {
   const value = identityValue(rows, key);
+
   return typeof value === "string" && value.trim() ? value : null;
 }
 
@@ -204,6 +217,7 @@ function sourceRank(source: MemorySource): number {
       return 3;
     default: {
       const _exhaustive: never = source.kind;
+
       return _exhaustive;
     }
   }
@@ -215,10 +229,12 @@ function timestampMs(value: Date | null): number {
 
 function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
   const parsed = memorySourceSchema.safeParse(row.source);
+
   if (parsed.success) return parsed.data;
   console.warn(
     `[memory.user-context] ignoring invalid source for user_facts:${row.id}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
   );
+
   return { kind: "document" };
 }
 
@@ -226,6 +242,7 @@ function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     const rankA = isIdentityFactKey(a.key) ? identityKeyRank.get(a.key)! : Number.MAX_SAFE_INTEGER;
     const rankB = isIdentityFactKey(b.key) ? identityKeyRank.get(b.key)! : Number.MAX_SAFE_INTEGER;
+
     return rankA - rankB;
   });
 }
@@ -233,8 +250,10 @@ function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
 function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
   const candidates = rows.filter((row): row is StringFactContextRow => {
     if (!profileIdentityFactKeys.has(row.key)) return false;
+
     if (typeof row.value !== "string" || !row.value.trim()) return false;
     const source = parseSource(row);
+
     return (
       source.kind === "user" ||
       source.kind === "cold_start" ||
@@ -242,27 +261,36 @@ function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
       (source.kind === "document" && source.meta?.documentAuthoredByUser === true)
     );
   });
+
   return bestIdentityFacts(candidates);
 }
 
 function compareIdentityCandidates(a: FactContextRow, b: FactContextRow): number {
   const sourceDiff = sourceRank(parseSource(a)) - sourceRank(parseSource(b));
+
   if (sourceDiff !== 0) return sourceDiff;
+
   if (a.confidence !== b.confidence) return b.confidence - a.confidence;
   const updatedDiff = timestampMs(b.updatedAt) - timestampMs(a.updatedAt);
+
   if (updatedDiff !== 0) return updatedDiff;
   const createdDiff = timestampMs(b.createdAt) - timestampMs(a.createdAt);
+
   if (createdDiff !== 0) return createdDiff;
+
   return b.id.localeCompare(a.id);
 }
 
 function bestIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
   const byKey = new Map<IdentityFactKey, T>();
+
   for (const row of rows) {
     if (!isIdentityFactKey(row.key)) continue;
     const existing = byKey.get(row.key);
+
     if (!existing || compareIdentityCandidates(row, existing) < 0) byKey.set(row.key, row);
   }
+
   return sortIdentityFacts([...byKey.values()]);
 }
 
@@ -278,6 +306,7 @@ export async function readUserContext(
   options: ReadUserContextOptions = {},
 ): Promise<UserContext> {
   const now = new Date();
+
   const wants = (section: UserContextSection): boolean =>
     !options.include || options.include.includes(section);
 
@@ -398,8 +427,10 @@ export async function readUserContext(
   // would otherwise push the total to ENTITY_LIMIT + FOCUS_MATCH_LIMIT).
   const mergedEntities: EntityRow[] = [];
   const seenIds = new Set<string>();
+
   for (const row of [...focusRows, ...rankedEntityRows]) {
     if (mergedEntities.length >= ENTITY_LIMIT) break;
+
     if (seenIds.has(row.id)) continue;
     seenIds.add(row.id);
     mergedEntities.push(row);
@@ -410,9 +441,11 @@ export async function readUserContext(
   // present in the ranked slice is counted once).
   const mergedFacts: FactContextRow[] = [];
   const seenFactIds = new Set<string>();
+
   if (wants("facts")) {
     for (const row of [...identityFactRows, ...rankedFactRows]) {
       if (mergedFacts.length >= FACT_LIMIT) break;
+
       if (seenFactIds.has(row.id)) continue;
       seenFactIds.add(row.id);
       mergedFacts.push(row);
@@ -421,6 +454,7 @@ export async function readUserContext(
 
   const entityNameById = new Map(mergedEntities.map((row) => [row.id, row.canonicalName]));
   const entityIds = mergedEntities.map((row) => row.id);
+
   const relationRows =
     wants("relationships") && entityIds.length > 0
       ? await db()
@@ -462,6 +496,7 @@ export async function readUserContext(
         })),
       }
     : null;
+
   return {
     profile,
     activeIntegrations: integrationRows.map((row) => ({
@@ -512,12 +547,14 @@ async function fetchFocusEntities(
   tokens: string[],
 ): Promise<EntityRow[]> {
   const focusClauses = [];
+
   if (subjectEmail) {
     focusClauses.push(sql`EXISTS (
       SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
       WHERE lower(alias) = ${subjectEmail}
     )`);
   }
+
   for (const token of tokens) {
     const like = `%${token}%`;
     focusClauses.push(ilike(entities.canonicalName, like));
@@ -526,6 +563,7 @@ async function fetchFocusEntities(
       WHERE alias ILIKE ${like}
     )`);
   }
+
   if (focusClauses.length === 0) return [];
 
   return db()

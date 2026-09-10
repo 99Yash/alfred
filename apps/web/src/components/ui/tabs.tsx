@@ -56,6 +56,7 @@ export function Tabs<T extends string = string>({
   // SAFETY: Radix emits the string value of a rendered item, which is exactly
   // the generic T this component was instantiated with.
   const emit = (next: string) => onValueChange(next as T);
+
   return (
     <TabsPrimitive.Root value={value} onValueChange={emit}>
       <TabsPrimitive.List aria-label={label} className={listClassName(variant, className)}>
@@ -86,9 +87,11 @@ function listClassName(variant: TabsVariant, className?: string): string {
       className,
     );
   }
+
   if (variant === "pill") {
     return cn("inline-flex items-center gap-1.5", className);
   }
+
   return cn("inline-flex items-center border-b border-white/10", className);
 }
 

@@ -25,6 +25,7 @@ import { user } from "./auth";
 import { workflowRevisions } from "./workflows";
 
 export { agentRunTriggerSchema };
+
 export type { AgentRunTrigger };
 
 /**
@@ -53,7 +54,9 @@ export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
  * exists" — not "the dispatch failed".
  */
 export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
+
 export const MANUAL_REQUEST_RUN_INDEX = "agent_runs_manual_request_idx";
+
 export const OCCURRENCE_RUN_INDEX = "agent_runs_occurrence_idx";
 
 /**
@@ -164,6 +167,7 @@ export function runIsNotTerminal(status: SQLWrapper): SQL {
   // with nothing to bind them to. Safe to inline because every value is a
   // static member of `runStatusSchema`, never caller input.
   const statuses = TERMINAL_RUN_STATUSES.map((s) => `'${s}'`).join(", ");
+
   return sql`${status} NOT IN (${sql.raw(statuses)})`;
 }
 
@@ -273,7 +277,9 @@ const EVENT_RUN_IDENTITY_PARTS: readonly {
 /** Index-key expressions for {@link EVENT_ACTIVE_RUN_INDEX}, in key order. */
 function eventRunIdentityKey(t: EventRunIdentityColumns): [SQL, ...SQL[]] {
   const [first, ...rest] = EVENT_RUN_IDENTITY_PARTS.map((part) => part.expr(t));
+
   if (!first) throw new Error("[db] event run identity has no key columns");
+
   return [first, ...rest];
 }
 
@@ -674,7 +680,11 @@ export const agentRunContext = pgTable(
 );
 
 export type AgentRun = typeof agentRuns.$inferSelect;
+
 export type AgentStep = typeof agentSteps.$inferSelect;
+
 export type PendingAction = typeof pendingActions.$inferSelect;
+
 export type AgentRunContextRow = typeof agentRunContext.$inferSelect;
+
 export type AgentDecisionTrace = typeof agentDecisionTraces.$inferSelect;

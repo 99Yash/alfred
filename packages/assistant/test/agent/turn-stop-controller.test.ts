@@ -20,9 +20,11 @@ describe("createTurnStopController", () => {
   test("throttles backing reads to at most one per STOP_CHECK_MS", async () => {
     mock.timers.enable({ apis: ["Date"] });
     let calls = 0;
+
     const stop = createTurnStopController("run-1", {
       isStopRequested: async () => {
         calls += 1;
+
         return false;
       },
     });
@@ -48,9 +50,11 @@ describe("createTurnStopController", () => {
   test("observing a stop aborts the signal once and latches `stopped`", async () => {
     mock.timers.enable({ apis: ["Date"] });
     let calls = 0;
+
     const stop = createTurnStopController("run-2", {
       isStopRequested: async () => {
         calls += 1;
+
         return true;
       },
     });
@@ -75,9 +79,11 @@ describe("createTurnStopController", () => {
     mock.timers.enable({ apis: ["Date"] });
     let calls = 0;
     let resolvePending: ((value: boolean) => void) | undefined;
+
     const stop = createTurnStopController("run-3", {
       isStopRequested: () => {
         calls += 1;
+
         return new Promise<boolean>((resolve) => {
           resolvePending = resolve;
         });
@@ -102,9 +108,11 @@ describe("createTurnStopController", () => {
   test("startPolling drives checks on an interval and its disposer stops them", async () => {
     mock.timers.enable({ apis: ["setInterval", "Date"] });
     let calls = 0;
+
     const stop = createTurnStopController("run-4", {
       isStopRequested: async () => {
         calls += 1;
+
         return false;
       },
     });

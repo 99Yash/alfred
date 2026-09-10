@@ -19,6 +19,7 @@ import type { StepContext } from "@alfred/assistant/execution/types";
  */
 
 const RUN_ID = "run_1";
+
 const USER_ID = "user_1";
 
 function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
@@ -69,12 +70,14 @@ interface Recorder {
 /** Treats every tool name except an explicit `no_risk` allowlist as mutating. */
 function recorder(readOnly: string[] = []): Recorder {
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
+
   const deps: GuardUnreportedToolFailuresDeps = {
     isMutating: (name) => !readOnly.includes(name),
     publish: async (event) => {
       published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
     },
   };
+
   return { deps, published };
 }
 
@@ -85,6 +88,7 @@ describe("guardUnreportedToolFailures", () => {
         { toolCallId: "tc_1", toolName: "sheets.append_values", status: "failed", segmentIndex: 0 },
       ],
     });
+
     const { deps, published } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
 
@@ -129,6 +133,7 @@ describe("guardUnreportedToolFailures", () => {
         },
       ],
     });
+
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.ok(result, "same tool name success is not proof that the failed side effect recovered");
@@ -164,6 +169,7 @@ describe("guardUnreportedToolFailures", () => {
         },
       ],
     });
+
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.equal(result, null, "a never-executed, self-corrected call must not trip the guard");
@@ -182,6 +188,7 @@ describe("guardUnreportedToolFailures", () => {
         },
       ],
     });
+
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.ok(
@@ -198,6 +205,7 @@ describe("guardUnreportedToolFailures", () => {
         { toolCallId: "tc_1", toolName: "gmail.send_draft", status: "failed", segmentIndex: 0 },
       ],
     });
+
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.ok(result, "a genuine execution failure must still force honesty");
@@ -210,6 +218,7 @@ describe("guardUnreportedToolFailures", () => {
         { toolCallId: "tc_1", toolName: "gmail.search", status: "failed", segmentIndex: 0 },
       ],
     });
+
     const { deps } = recorder(["gmail.search"]);
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.equal(result, null);
@@ -221,9 +230,11 @@ describe("guardUnreportedToolFailures", () => {
         { toolCallId: "tc_1", toolName: "docs.get_document", status: "failed", segmentIndex: 0 },
       ],
     });
+
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
       publish: async () => {},
     });
+
     assert.equal(result, null);
   });
 
@@ -238,9 +249,11 @@ describe("guardUnreportedToolFailures", () => {
         },
       ],
     });
+
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
       publish: async () => {},
     });
+
     assert.ok(result, "no-risk artifact writes still need the honesty guard");
     assert.equal(result.kind, "next");
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
@@ -253,6 +266,7 @@ describe("guardUnreportedToolFailures", () => {
       ],
       notedFailureToolCallIds: ["tc_1"],
     });
+
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.equal(result, null);
@@ -270,7 +284,9 @@ describe("guardUnreportedToolFailures", () => {
         },
       ],
     });
+
     const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
+
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
       publish: async (event) => {
         published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
@@ -294,9 +310,11 @@ describe("guardUnreportedToolFailures", () => {
         },
       ],
     });
+
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
       publish: async () => {},
     });
+
     assert.equal(result, null);
   });
 
@@ -312,6 +330,7 @@ describe("guardUnreportedToolFailures", () => {
         { toolCallId: "tc_2", toolName: "sheets.batch_update", status: "failed", segmentIndex: 0 },
       ],
     });
+
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.ok(result);
@@ -335,6 +354,7 @@ describe("guardUnreportedToolFailures", () => {
         },
       ],
     });
+
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.equal(result, null);
@@ -414,6 +434,7 @@ describe("sanitizeChatMessageFields — voice enforcement", () => {
     const fields = sanitizeChatMessageFields(
       baseState({ assistantText: "The report is complete — just over 8,500 words." }),
     );
+
     assert.equal(fields.content, "The report is complete; just over 8,500 words.");
   });
 
@@ -427,6 +448,7 @@ describe("sanitizeChatMessageFields — voice enforcement", () => {
         ],
       }),
     );
+
     assert.deepEqual(fields.narration, [
       { index: 0, text: "Searching your inbox; one moment." },
       { index: 1, text: "Found it; drafting a reply." },
@@ -440,6 +462,7 @@ describe("sanitizeChatMessageFields — voice enforcement", () => {
           'Run `foo—bar`, cite "keep this — exactly", see [docs](https://x.com/a—b) — done.',
       }),
     );
+
     assert.equal(
       fields.content,
       'Run `foo—bar`, cite "keep this — exactly", see [docs](https://x.com/a—b); done.',
@@ -453,6 +476,7 @@ describe("sanitizeChatMessageFields — voice enforcement", () => {
         reasoningText: "The user wants X — I should do Y.",
       }),
     );
+
     assert.equal(fields.reasoning, "The user wants X — I should do Y.");
   });
 

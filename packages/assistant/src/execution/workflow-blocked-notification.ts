@@ -28,8 +28,10 @@ import type { WorkflowBlockedNotificationJobData } from "@alfred/assistant/tool-
  */
 function workflowRecoveryDeepLink(slug: string, revisionId: string | undefined): string {
   const base = `${webOrigin()}/workflows/${encodeURIComponent(slug)}`;
+
   if (!revisionId) return base;
   const params = new URLSearchParams({ workflow_recovery: "1", revision_id: revisionId });
+
   return `${base}?${params.toString()}`;
 }
 
@@ -49,9 +51,12 @@ export async function processWorkflowBlockedNotification(
 
   if (!row) return { status: "missing", workflowId: data.workflowId };
   const blocked = row.blocked;
+
   if (!blocked) return { status: "skipped", reason: "unblocked", workflowId: row.id };
+
   if (blocked.notifiedAt)
     return { status: "skipped", reason: "already_notified", workflowId: row.id };
+
   // The job names one blocker generation; a row that moved on belongs to a newer job.
   if (workflowBlockedGeneration(blocked) !== data.generation) {
     return { status: "skipped", reason: "superseded", workflowId: row.id };
@@ -59,6 +64,7 @@ export async function processWorkflowBlockedNotification(
 
   const workflowUrl = workflowRecoveryDeepLink(row.slug, blocked.revisionId);
   const subject = `${row.name} is blocked`;
+
   const html = await renderWorkflowBlockedEmail({
     workflowName: row.name,
     message: blocked.message,
@@ -66,6 +72,7 @@ export async function processWorkflowBlockedNotification(
     workflowUrl,
     logoUrl: emailLogoUrl(),
   });
+
   const text = [
     subject,
     "",
@@ -102,6 +109,7 @@ export async function processWorkflowBlockedNotification(
   }
 
   const now = new Date();
+
   const updated = await db()
     .update(workflows)
     .set({
@@ -121,5 +129,6 @@ export async function processWorkflowBlockedNotification(
     .returning({ id: workflows.id });
 
   if (updated[0]) emitReplicachePokes([data.userId]);
+
   return { status: result.status, workflowId: row.id, emailSendId: result.emailSendId };
 }

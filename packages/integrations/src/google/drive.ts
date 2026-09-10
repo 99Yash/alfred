@@ -68,8 +68,10 @@ export async function listFiles(
   retry: RetryPolicy | "none" = "none",
 ): Promise<ListFilesResult> {
   const url = new URL(API_BASE);
+
   if (args.q) url.searchParams.set("q", args.q);
   url.searchParams.set("pageSize", String(args.pageSize ?? 25));
+
   if (args.pageToken) url.searchParams.set("pageToken", args.pageToken);
   url.searchParams.set("orderBy", args.orderBy ?? "modifiedTime desc");
   url.searchParams.set("fields", `nextPageToken,files(${FILE_FIELDS})`);
@@ -78,6 +80,7 @@ export async function listFiles(
   url.searchParams.set("includeItemsFromAllDrives", "true");
 
   const parsed = await getJson(listFilesResponseSchema, url.toString(), args.accessToken, retry);
+
   return { files: parsed.files ?? [], nextPageToken: parsed.nextPageToken };
 }
 
@@ -94,6 +97,7 @@ export async function getFile(
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}`);
   url.searchParams.set("fields", FILE_FIELDS);
   url.searchParams.set("supportsAllDrives", "true");
+
   return getJson(fileSchema, url.toString(), args.accessToken, retry);
 }
 
@@ -127,6 +131,7 @@ export async function exportFile(
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}/export`);
   url.searchParams.set("mimeType", mimeType);
   const { text, truncated } = await getText(url.toString(), args.accessToken, retry);
+
   return { fileId: args.fileId, mimeType, text, truncated };
 }
 
@@ -148,6 +153,7 @@ export async function downloadFile(
   url.searchParams.set("alt", "media");
   url.searchParams.set("supportsAllDrives", "true");
   const { text, truncated, mimeType } = await getText(url.toString(), args.accessToken, retry);
+
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
 
@@ -170,13 +176,17 @@ async function getText(
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
     });
+
   const res = retry === "none" ? await send() : await fetchWithRetry(send, { policy: retry });
+
   if (!res.ok) {
     throw await httpErrorFromResponse("drive", res, { url });
   }
+
   const full = await res.text();
   const truncated = full.length > MAX_CONTENT_BYTES;
   const mimeType = res.headers.get("content-type");
+
   return {
     text: truncated ? full.slice(0, MAX_CONTENT_BYTES) : full,
     truncated,

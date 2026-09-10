@@ -46,9 +46,12 @@ export const sentryIntegrationRoutes = new Elysia({
         async ({ user, body }) => {
           const token = body.token.trim();
           const organization = body.organization.trim();
+
           if (!token) throw Errors.BadRequestError("Missing token");
+
           if (!organization) throw Errors.BadRequestError("Missing organization slug");
           let connection: Awaited<ReturnType<typeof sentryValidateToken>>;
+
           try {
             connection = await sentryValidateToken({ token, organization });
           } catch (err) {
@@ -57,6 +60,7 @@ export const sentryIntegrationRoutes = new Elysia({
             console.error(
               `[sentry.connect] token validation failed :: ${redactSecrets(toMessage(err))}`,
             );
+
             // Only an authorization failure means the pasted token is wrong. A
             // transient upstream failure must not tell the user to regenerate a
             // token that is perfectly valid.
@@ -65,6 +69,7 @@ export const sentryIntegrationRoutes = new Elysia({
                 "Sentry rejected that token for that organization. Check both and try again.",
               );
             }
+
             // Sentry answered, but not in the shape the validator parses. That is
             // a contract drift on our side, not an outage: name it so it is not
             // retried as one.
@@ -73,25 +78,30 @@ export const sentryIntegrationRoutes = new Elysia({
                 "Sentry answered in a shape Alfred does not understand. This is a bug on Alfred's side.",
               );
             }
+
             throw Errors.ServiceUnavailableError(
               "Sentry is unavailable right now. Try connecting again in a moment.",
             );
           }
+
           const label = connection.organization.slug;
           // One Client Secret attributes deliveries to one credential, so a
           // second organization would silence the ingress for both (the
           // descriptor refuses the `many` state). Refuse it at the door; a
           // re-connect of the same organization is the upsert's in-place update.
           const existing = await findSoleActiveCredential({ provider: PROVIDER });
+
           const sameRow =
             existing.kind === "one" &&
             existing.credential.userId === user.id &&
             existing.credential.accountId === connection.organization.id;
+
           if (existing.kind === "many" || (existing.kind === "one" && !sameRow)) {
             throw Errors.ConflictError(
               "Alfred pairs with one Sentry organization. Disconnect the connected one first.",
             );
           }
+
           const credential = await upsertBearerCredential({
             userId: user.id,
             provider: PROVIDER,
@@ -99,6 +109,7 @@ export const sentryIntegrationRoutes = new Elysia({
             accountLabel: label,
             accessToken: token,
           });
+
           return { id: credential.id, accountLabel: label };
         },
         {
@@ -116,7 +127,9 @@ export const sentryIntegrationRoutes = new Elysia({
             provider: PROVIDER,
             id: params.id,
           });
+
           if (!deleted) throw Errors.NotFoundError("Credential not found");
+
           return { id: deleted.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },

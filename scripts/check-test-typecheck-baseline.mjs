@@ -19,8 +19,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // works. Run the fixtures first, so "no drift" means "looked and found nothing"
 // rather than "looked at nothing".
 const selfTest = testTypecheckBaselineSelfTestFailures();
+
 if (selfTest.length > 0) {
   console.error("Test typecheck baseline self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the rules before trusting this check.");
   process.exit(1);
@@ -34,14 +36,17 @@ if (!result.ok) {
   for (const file of result.nowClean) {
     console.error(`- ${file} · is excluded but now type-checks cleanly. Delete the entry.`);
   }
+
   for (const file of result.newlyDirty) {
     console.error(
       `- ${file} · has a type error and is not excluded. Repair it, or add a literal entry and say in the PR why the debt is being taken on.`,
     );
   }
+
   for (const entry of result.missing) {
     console.error(`- ${entry}. Delete the entry.`);
   }
+
   for (const problem of result.problems) {
     console.error(`- ${problem}.`);
   }
@@ -53,7 +58,9 @@ if (!result.ok) {
 }
 
 const baselined = result.packages.filter((entry) => entry.excluded > 0);
+
 const total = baselined.reduce((sum, entry) => sum + entry.excluded, 0);
+
 console.log(
   baselined.length === 0
     ? `test typecheck baselines clean (${result.packages.length} test projects, none baselines a file)`

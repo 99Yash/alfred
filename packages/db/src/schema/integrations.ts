@@ -287,10 +287,14 @@ export const eventReceipts = pgTable(
 /** Typed consumers read this view so raw traffic cannot consume a query's LIMIT. */
 export const typedEventReceipts = pgView("typed_event_receipts").as((qb) => {
   const { rawKind, ...columns } = getTableColumns(eventReceipts);
+
   return qb.select(columns).from(eventReceipts).where(isNull(rawKind));
 });
 
 export type IntegrationCredential = typeof integrationCredentials.$inferSelect;
+
 export type IngestionState = typeof ingestionState.$inferSelect;
+
 export type EventReceipt = typeof eventReceipts.$inferSelect;
+
 export type NewEventReceipt = typeof eventReceipts.$inferInsert;

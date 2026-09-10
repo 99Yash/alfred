@@ -18,6 +18,7 @@ export function LandingFooter({
   onGetStarted: () => void;
 }) {
   const year = useCurrentYear();
+
   return (
     <footer
       id="landing-footer"
@@ -125,5 +126,6 @@ function FooterColumn({ title, items }: { title: string; items: ReadonlyArray<Fo
  */
 function useCurrentYear(): number {
   const [year] = useState(() => new Date().getFullYear());
+
   return year;
 }

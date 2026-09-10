@@ -24,6 +24,7 @@ import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /** Refresh when fewer than this many seconds remain on the token. */
 const REFRESH_THRESHOLD_MS = 60_000;
+
 type DbExecutor =
   | ReturnType<typeof db>
   | Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
@@ -61,6 +62,7 @@ export async function upsertCredential(
   // two secrets, and each `seal` draws a fresh DEK and nonces.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = vault.seal(args.refreshToken);
+
   const updateSet: PgUpdateSetSource<typeof integrationCredentials> = {
     accessToken: sealedAccessToken,
     // A re-connect issues a new refresh token; honour it.
@@ -73,6 +75,7 @@ export async function upsertCredential(
     lastRefreshedAt: new Date(),
     updatedAt: new Date(),
   };
+
   // Persona: fill only when currently NULL, so a re-connect (which re-detects
   // from `hd`) never clobbers a user override (ADR-0051 #3).
   if (args.persona !== undefined) {
@@ -103,8 +106,11 @@ export async function upsertCredential(
       set: updateSet,
     })
     .returning({ id: integrationCredentials.id });
+
   const row = result[0];
+
   if (!row) throw new Error("[google.credentials] upsert returned no row");
+
   return { id: row.id };
 }
 
@@ -145,11 +151,15 @@ async function loadCredential(
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const rows = lockForUpdate ? await query.for("update") : await query;
   const row = rows[0];
+
   if (!row) return null;
+
   if (!row.refreshToken) return null;
   const vault = credentialVault();
+
   return {
     id: row.id,
     userId: row.userId,
@@ -168,9 +178,11 @@ function requireActiveCredential(
   credentialId: string,
 ): StoredCredentialRow {
   if (!cred) throw new Error(`[google.credentials] not found: ${credentialId}`);
+
   if (cred.status !== "active") {
     throw new Error(`[google.credentials] not active: ${credentialId} (status=${cred.status})`);
   }
+
   return cred;
 }
 
@@ -195,6 +207,7 @@ type RefreshResolution =
  */
 export async function getFreshAccessToken(credentialId: string): Promise<string> {
   const current = requireActiveCredential(await loadCredential(credentialId), credentialId);
+
   if (!isExpiringSoon(current)) return current.accessToken;
 
   const resolution = await db().transaction(async (tx): Promise<RefreshResolution> => {
@@ -205,9 +218,11 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
       await loadCredential(credentialId, tx, true),
       credentialId,
     );
+
     if (!isExpiringSoon(cred)) return { kind: "token", accessToken: cred.accessToken };
 
     let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
+
     try {
       refreshed = await refreshAccessToken(cred.refreshToken);
     } catch (err) {
@@ -220,12 +235,15 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
           .update(integrationCredentials)
           .set({ status: "needs_reauth" })
           .where(eq(integrationCredentials.id, credentialId));
+
         // Return the error so the transaction commits the status change before
         // the public function rethrows it.
         return { kind: "reauth", error: err };
       }
+
       throw err;
     }
+
     await tx
       .update(integrationCredentials)
       .set({
@@ -237,10 +255,12 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
         lastRefreshedAt: new Date(),
       })
       .where(eq(integrationCredentials.id, credentialId));
+
     return { kind: "token", accessToken: refreshed.accessToken };
   });
 
   if (resolution.kind === "reauth") throw resolution.error;
+
   return resolution.accessToken;
 }
 
@@ -251,6 +271,7 @@ export async function listCredentials(
   const where = provider
     ? and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, provider))
     : eq(integrationCredentials.userId, userId);
+
   // Presence, not value: this function reports which accounts are connected, so
   // the refresh-token test is answered in SQL and no ciphertext leaves Postgres.
   const rows = await db()
@@ -265,6 +286,7 @@ export async function listCredentials(
     })
     .from(integrationCredentials)
     .where(where);
+
   return rows
     .filter((r) => r.hasRefreshToken)
     .map((r) => ({

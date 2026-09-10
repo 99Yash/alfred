@@ -48,6 +48,7 @@ seedServerEnvForReplicacheTests();
 const SKIP = dbBackedSkip("database+redis");
 
 const ID_PREFIX = "test-rpull-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -56,6 +57,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -65,6 +67,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       // replicache_client_group cascades from user.
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeRedis();
     await closeConnections();
   });
@@ -110,6 +113,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       .select({ cvrVersion: replicacheClientGroup.cvrVersion })
       .from(replicacheClientGroup)
       .where(eq(replicacheClientGroup.id, newGroup));
+
     assert.equal(group?.cvrVersion, result.cookie.order);
   });
 
@@ -122,6 +126,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       clientGroupID: group,
       cookie: null,
     });
+
     assert.ok(!("forbidden" in first));
 
     // A second pull with the just-issued cookie and no underlying changes must
@@ -132,6 +137,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       clientGroupID: group,
       cookie: first.cookie,
     });
+
     assert.ok(!("forbidden" in second));
     assert.ok(second.cookie.order >= first.cookie.order);
   });
@@ -155,6 +161,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       .select({ cvrVersion: replicacheClientGroup.cvrVersion })
       .from(replicacheClientGroup)
       .where(eq(replicacheClientGroup.id, group));
+
     assert.equal(storedGroup?.cvrVersion, result.cookie.order);
   });
 
@@ -213,10 +220,12 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
 
   test("CVRStore reads a snapshot written by its current schema", async () => {
     const group = `${ID_PREFIX}roundtrip-${randomUUID()}`;
+
     const snapshot = {
       entities: { todo: { "todo-1": { v: 2 } } },
       clients: { "client-1": 4 },
     } as const;
+
     const store = getCVRStore();
 
     await store.put(group, 3, snapshot);

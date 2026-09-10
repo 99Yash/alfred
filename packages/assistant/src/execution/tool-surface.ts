@@ -93,6 +93,7 @@ export function foldToolSurfaceState<T extends ParsedToolSurfaceState>(
   preloadedTools: ToolName[];
 } {
   const { activeTools, activeIntegrations, preloadedTools, ...rest } = parsed;
+
   return {
     ...rest,
     activeTools: migrateActiveTools(
@@ -122,6 +123,7 @@ export function applyExactToolLoad(activeTools: readonly ToolName[], result: unk
   ) {
     return uniqueToolNames(activeTools);
   }
+
   return activateTool(activeTools, result.name);
 }
 
@@ -178,10 +180,12 @@ function buildTurnToolSurface(args: {
 }): ToolSet {
   const startedAt = new Date();
   const startMs = Date.now();
+
   const surface = resolveToolSurface({
     activeNames: args.activeTools,
     context: args.context,
   });
+
   const tools = surface.tools;
   startToolSurfaceSpan({
     runId: args.runId,
@@ -197,6 +201,7 @@ function buildTurnToolSurface(args: {
     schemaTokens: surface.schemaTokens,
     schemaRebuildMs: Date.now() - startMs,
   });
+
   return tools;
 }
 
@@ -226,6 +231,7 @@ async function applyPromptToolPreload(args: {
   availability: IntegrationAvailabilitySnapshot;
 }): Promise<void> {
   if (args.state.preloadApplied) return;
+
   const span = startToolPreloadSpan({
     runId: args.runId,
     workflow: args.workflow,
@@ -234,6 +240,7 @@ async function applyPromptToolPreload(args: {
     allowedIntegrationCount: args.allowedIntegrations.length,
     startedAt: new Date(),
   });
+
   try {
     const preload = await selectToolPreload({
       userId: args.userId,
@@ -243,16 +250,20 @@ async function applyPromptToolPreload(args: {
       context: args.context,
       availability: args.availability,
     });
+
     const preloaded = preload.selectedNames;
+
     for (const toolName of preloaded) {
       args.state.activeTools = activateTool(args.state.activeTools, toolName);
     }
+
     args.state.preloadedTools = uniqueToolNames([...args.state.preloadedTools, ...preloaded]);
     span.end(preloaded, args.state.activeTools.length, preload.promptChars);
   } catch (error) {
     span.error();
     throw error;
   }
+
   args.state.preloadApplied = true;
 }
 

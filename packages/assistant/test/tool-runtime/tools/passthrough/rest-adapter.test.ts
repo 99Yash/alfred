@@ -30,8 +30,10 @@ async function withMockedFetch<T>(
   globalThis.fetch = (async (input, init) => {
     capture.url = input instanceof URL ? input : new URL(String(input));
     capture.init = init;
+
     return handler(capture);
   }) as typeof fetch;
+
   try {
     return await run(capture);
   } finally {
@@ -50,10 +52,12 @@ const GITHUB_PROFILE: RestPassthroughProfile = {
   baseUrl: "https://api.github.com",
   headers: { Authorization: "Bearer gh-token", Accept: "application/vnd.github+json" },
 };
+
 const NOTION_PROFILE: RestPassthroughProfile = {
   baseUrl: "https://api.notion.com/v1",
   headers: { Authorization: "Bearer notion-token", "Notion-Version": "2022-06-28" },
 };
+
 const VERCEL_PROFILE: RestPassthroughProfile = {
   baseUrl: "https://api.vercel.com",
   headers: { Authorization: "Bearer vercel-token" },
@@ -62,6 +66,7 @@ const VERCEL_PROFILE: RestPassthroughProfile = {
 
 const req = (r: Partial<RestPassthroughRequest> & { method: string; path: string }) =>
   r as RestPassthroughRequest;
+
 const capability = (
   slug: SupportedRestSlug,
   profile: RestPassthroughProfile,
@@ -73,9 +78,11 @@ const capability = (
 describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
   test("a write method (DELETE) is a visible rejected envelope, no fetch issued", async () => {
     let fetched = false;
+
     const result = await withMockedFetch(
       () => {
         fetched = true;
+
         return jsonResponse({});
       },
       () =>
@@ -84,16 +91,20 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
           req({ method: "DELETE", path: "/repos/a/b" }),
         ),
     );
+
     assert.equal(fetched, false, "gate must short-circuit before any network call");
     assert.equal(result.outcome, "rejected");
+
     if (result.outcome === "rejected") assert.equal(result.reason, "method_not_read");
   });
 
   test("an unlisted github POST is rejected (path_not_allowlisted), no fetch issued", async () => {
     let fetched = false;
+
     const result = await withMockedFetch(
       () => {
         fetched = true;
+
         return jsonResponse({});
       },
       () =>
@@ -102,8 +113,10 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
           req({ method: "POST", path: "/repos/a/b/issues", body: { title: "x" } }),
         ),
     );
+
     assert.equal(fetched, false);
     assert.equal(result.outcome, "rejected");
+
     if (result.outcome === "rejected") assert.equal(result.reason, "path_not_allowlisted");
   });
 });
@@ -117,6 +130,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
         assert.equal(capture.url?.searchParams.get("per_page"), "5");
         assert.equal(capture.url?.searchParams.get("sha"), "main");
         assert.equal(capture.init?.method, "GET");
+
         return jsonResponse([{ sha: "abc" }]);
       },
       () =>
@@ -125,7 +139,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
           req({ method: "GET", path: "/repos/a/b/commits", query: { per_page: 5, sha: "main" } }),
         ),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") {
       assert.equal(result.status, 200);
       assert.equal(result.succeeded, true);
@@ -144,6 +160,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
           "the profile-pinned teamId must survive a model-supplied collision",
         );
         assert.equal(capture.url?.searchParams.get("limit"), "20");
+
         return jsonResponse({ projects: [] });
       },
       () =>
@@ -156,7 +173,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
           }),
         ),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") assert.equal(result.succeeded, true);
   });
 
@@ -169,7 +188,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
           req({ method: "GET", path: "/repos/a/nope" }),
         ),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") {
       assert.equal(result.status, 404);
       assert.equal(result.succeeded, false);
@@ -179,11 +200,13 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
   test("a Notion read-via-POST (/search) passes the gate and issues the fetch with the body", async () => {
     let fetched = false;
+
     const result = await withMockedFetch(
       (capture) => {
         fetched = true;
         assert.equal(capture.init?.method, "POST");
         assert.equal(capture.init?.body, JSON.stringify({ query: "roadmap" }));
+
         return jsonResponse({ results: [] });
       },
       () =>
@@ -192,8 +215,10 @@ describe("runRestPassthrough — HTTP envelope", () => {
           req({ method: "POST", path: "/search", body: { query: "roadmap" } }),
         ),
     );
+
     assert.equal(fetched, true, "an allowlisted read-via-POST must reach the network");
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") assert.equal(result.succeeded, true);
   });
 
@@ -210,7 +235,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
           req({ method: "GET", path: "/repos/a/b/tarball" }),
         ),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") {
       assert.equal(result.status, 302);
       assert.equal(result.succeeded, false);
@@ -224,6 +251,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
   test("a binary response is represented by content type + byte count, succeeded:false, no bytes", async () => {
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
     const result = await withMockedFetch(
       () => new Response(png, { status: 200, headers: { "Content-Type": "image/png" } }),
       () =>
@@ -232,7 +260,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
           req({ method: "GET", path: "/repos/a/b/logo" }),
         ),
     );
+
     assert.equal(result.outcome, "http");
+
     if (result.outcome === "http") {
       assert.equal(result.succeeded, false);
       assert.deepEqual(result.body, {
@@ -259,7 +289,9 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
           req({ method: "GET", path: "/repos/a/b" }),
         ),
     );
+
     assert.equal(result.outcome, "transport");
+
     if (result.outcome === "transport") {
       assert.equal(result.kind, "timeout");
       assert.equal(result.retryable, true);
@@ -272,13 +304,16 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
     // a namespaced base and a path that lands outside it. `/v2/...` is outside
     // Notion's `/v1` namespace once resolved.
     let fetched = false;
+
     const escaping: RestPassthroughProfile = {
       baseUrl: "https://api.notion.com/v1",
       headers: {},
     };
+
     const result = await withMockedFetch(
       () => {
         fetched = true;
+
         return jsonResponse({});
       },
       () =>
@@ -287,9 +322,11 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
           req({ method: "GET", path: "/../v2/pages" }),
         ),
     );
+
     // The gate rejects `..` first — the request never reaches the transport.
     assert.equal(fetched, false);
     assert.equal(result.outcome, "rejected");
+
     if (result.outcome === "rejected") assert.equal(result.reason, "invalid_path");
   });
 });

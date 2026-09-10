@@ -60,6 +60,7 @@ async function currentTxid(runner: DbRunner): Promise<string> {
   const result = await runner.execute(sql`select txid_current()::text as txid`);
   const [row] = rowsFromExecute<{ txid: string }>(result);
   assert.ok(row, "txid_current() returned no row");
+
   return row.txid;
 }
 
@@ -68,6 +69,7 @@ function sqlState(err: unknown): string | null {
   for (const level of pgErrorChain(err)) {
     if (level.code) return level.code;
   }
+
   return null;
 }
 
@@ -88,6 +90,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
       /** The row count after the inner failure, or the SQLSTATE the read raised. */
       rowsAfterFailure?: number | string;
     }
+
     const seen: Seen = {};
 
     await assert.rejects(
@@ -158,6 +161,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
       rowsAfterFailure?: number | string;
       callerWriteAccepted?: boolean;
     }
+
     const seen: Seen = {};
 
     await assert.rejects(
@@ -231,6 +235,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
       await currentTxid(tx),
       await currentTxid(tx),
     ]);
+
     const second = await runAtomic(db(), (tx) => currentTxid(tx));
 
     assert.equal(
@@ -259,6 +264,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
       innerRejection?: string;
       rowsAfterFailure?: number | string;
     }
+
     const seen: Seen = {};
 
     await assert.rejects(
@@ -335,6 +341,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
       firstResolved?: boolean;
       rowsAfterSecond?: number | string;
     }
+
     const seen: Seen = {};
 
     await assert.rejects(
@@ -345,6 +352,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
         seen.outerTxid = await currentTxid(outer);
 
         let releaseFirst: (() => void) | undefined;
+
         const firstStarted = new Promise<void>((resolve) => {
           releaseFirst = resolve;
         });

@@ -38,19 +38,24 @@ export function MentionPalette({
   useEffect(() => {
     const handler = (e: PointerEvent) => {
       const root = rootRef.current;
+
       if (!root) return;
       // SAFETY: DOM events carry an EventTarget-or-null on `target`; Node is
       // the base of every target the pointerdown can deliver here.
       const target = e.target as Node | null;
+
       // Don't close on clicks inside the palette, or inside the composer
       // form (the textarea is the trigger surface — clicking it should
       // keep the palette open so the user can continue typing).
       if (target && (root.contains(target) || root.closest("form")?.contains(target))) {
         return;
       }
+
       onClose();
     };
+
     document.addEventListener("pointerdown", handler);
+
     return () => document.removeEventListener("pointerdown", handler);
   }, [onClose]);
 
@@ -65,6 +70,7 @@ export function MentionPalette({
   }, []);
 
   const labelId = "mention-palette-label";
+
   return (
     <div
       ref={rootRef}
@@ -184,6 +190,7 @@ function OptionAvatar({
   iconSize: number;
 }) {
   const Icon = option.icon;
+
   return (
     <span className={className}>
       {option.brand ? (
@@ -213,6 +220,7 @@ function MentionRow({
   onPick: (option: MentionOption) => void;
 }) {
   const presentation = ROW_PRESENTATION[connection];
+
   return (
     <button
       ref={scrollRef ?? undefined}

@@ -78,12 +78,19 @@ import { cn } from "~/lib/utils";
 /* Static prop icons hoisted to module scope so they keep a stable reference
    across renders instead of allocating a fresh element each time. */
 const sparklesLeading = <Sparkles size={14} />;
+
 const plusLeading = <Plus size={14} />;
+
 const logOutLeading = <LogOut size={14} />;
+
 const searchLeading = <Search size={14} />;
+
 const checkLeading = <Check size={14} />;
+
 const mailLeading = <Mail size={13} />;
+
 const cmdKKbd = <Kbd>⌘K</Kbd>;
+
 const cmdEnterKbd = <Kbd>⌘↵</Kbd>;
 
 type StyleguideMode = "app" | "v2" | "dimension";
@@ -573,6 +580,7 @@ function SwitchSection() {
 
 function ControlledSwitchDemo() {
   const [on, setOn] = useState(true);
+
   return (
     <div className="flex items-center gap-3">
       <LegacySwitch checked={on} onCheckedChange={setOn} />
@@ -888,6 +896,7 @@ function FrostBorderSection() {
 function CommandPaletteSection() {
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
+
   return (
     <Section
       id="command-palette"
@@ -1411,6 +1420,7 @@ function FloatingPillNavSection() {
 
 function TabPillSection() {
   const [tab, setTab] = useState<"briefing" | "inbox" | "meetings">("briefing");
+
   return (
     <Section
       id="app-tab-pill"
@@ -1565,6 +1575,7 @@ function FeatureCardDemo({
   bullets: ReadonlyArray<string>;
 }) {
   const t = FEATURE_CARD_TONE[tone];
+
   return (
     <article
       className={cn(
@@ -1610,6 +1621,7 @@ function FeatureCardDemo({
 
 function FadeInOnScrollSection() {
   const [key, setKey] = useState(0);
+
   return (
     <Section
       id="app-fade-in"
@@ -2032,6 +2044,7 @@ function V2ToastSection() {
 function V2FrostOverlaySection() {
   const [selectValue, setSelectValue] = useState<string | undefined>("primary");
   const [pickerValue, setPickerValue] = useState<string | undefined>("2026-06-11T14:00:00.000Z");
+
   return (
     <Section
       id="v2-frost-overlay"

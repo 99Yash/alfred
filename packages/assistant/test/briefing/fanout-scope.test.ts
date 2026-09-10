@@ -24,7 +24,9 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-fanout-scope-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(emailVerified: boolean): Promise<string> {
@@ -38,6 +40,7 @@ async function seedUser(emailVerified: boolean): Promise<string> {
       email: `${userId}@example.test`,
       emailVerified,
     });
+
   return userId;
 }
 
@@ -95,6 +98,7 @@ describe("briefing fan-out scope (DB-backed)", { skip: SKIP }, () => {
           selected.map((row) => row.id),
         ),
       );
+
     const unverified = rows.filter((row) => !row.emailVerified).map((row) => row.id);
 
     assert.deepEqual(

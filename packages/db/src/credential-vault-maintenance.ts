@@ -37,10 +37,14 @@ type PersistedTokenState =
  */
 function classifyPersisted(value: unknown, vault: CredentialVault): PersistedTokenState {
   if (value === null || value === undefined) return { state: "absent" };
+
   if (typeof value !== "string") return { state: "unopenable" };
+
   if (!vault.isSealed(value)) return { state: "plaintext", plaintext: value };
+
   try {
     vault.open(value);
+
     return { state: "openable" };
   } catch {
     return { state: "unopenable" };
@@ -54,14 +58,18 @@ function sealPending<Field extends string>(
 ): Partial<Record<Field, SealedCredentialSecret>> {
   return fields.reduce<Partial<Record<Field, SealedCredentialSecret>>>((pending, field) => {
     const classified = classifyPersisted(row[field], vault);
+
     if (classified.state === "absent" || classified.state === "openable") return pending;
+
     if (classified.state === "unopenable") {
       throw new CredentialVaultError(
         "unopenable_remaining",
         "a persisted envelope does not open with the configured OAUTH_CREDENTIAL_KEK — this pass converts plaintext, it cannot rewrap another key's envelope",
       );
     }
+
     pending[field] = vault.seal(classified.plaintext);
+
     return pending;
   }, {});
 }
@@ -85,11 +93,14 @@ function countUnsealed<Field extends string>(
 ) {
   let plaintext = 0;
   let unopenable = 0;
+
   for (const field of fields) {
     const { state } = classifyPersisted(row[field], vault);
+
     if (state === "plaintext") plaintext += 1;
     else if (state === "unopenable") unopenable += 1;
   }
+
   return { plaintext, unopenable };
 }
 
@@ -117,8 +128,10 @@ export async function encryptPersistedOAuthCredentials(options?: {
           idToken: account.idToken,
         })
         .from(account);
+
       for (const row of accountRows) {
         const pending = sealPending(row, ACCOUNT_SECRET_FIELDS, vault);
+
         if (Object.keys(pending).length === 0) continue;
         await tx.update(account).set(asUnbranded(pending)).where(eq(account.id, row.id));
         accountsUpdated += 1;
@@ -131,8 +144,10 @@ export async function encryptPersistedOAuthCredentials(options?: {
           refreshToken: integrationCredentials.refreshToken,
         })
         .from(integrationCredentials);
+
       for (const row of integrationRows) {
         const pending = sealPending(row, INTEGRATION_SECRET_FIELDS, vault);
+
         if (Object.keys(pending).length === 0) continue;
         await tx
           .update(integrationCredentials)
@@ -149,19 +164,23 @@ export async function encryptPersistedOAuthCredentials(options?: {
         idToken: account.idToken,
       })
       .from(account);
+
     const verifyIntegrations = await tx
       .select({
         accessToken: integrationCredentials.accessToken,
         refreshToken: integrationCredentials.refreshToken,
       })
       .from(integrationCredentials);
+
     let plaintextRemaining = 0;
     let unopenableRemaining = 0;
+
     for (const row of verifyAccounts) {
       const counts = countUnsealed(row, ACCOUNT_SECRET_FIELDS, vault);
       plaintextRemaining += counts.plaintext;
       unopenableRemaining += counts.unopenable;
     }
+
     for (const row of verifyIntegrations) {
       const counts = countUnsealed(row, INTEGRATION_SECRET_FIELDS, vault);
       plaintextRemaining += counts.plaintext;
@@ -180,12 +199,14 @@ export async function assertPersistedCredentialsSealed(): Promise<void> {
   const { plaintextRemaining, unopenableRemaining } = await encryptPersistedOAuthCredentials({
     checkOnly: true,
   });
+
   if (plaintextRemaining > 0) {
     throw new CredentialVaultError(
       "plaintext_remaining",
       `${plaintextRemaining} token field(s) are not sealed — run the backfill with all writers stopped`,
     );
   }
+
   if (unopenableRemaining > 0) {
     throw new CredentialVaultError(
       "unopenable_remaining",

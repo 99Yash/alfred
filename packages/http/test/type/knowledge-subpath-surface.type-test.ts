@@ -82,4 +82,5 @@ type _FactsTs = typeof import("@alfred/assistant/knowledge/facts.ts");
  * dependency). `queue` IS a listed subpath and must keep resolving.
  */
 type _Queue = typeof import("@alfred/assistant/knowledge/queue");
+
 type _AssertQueueResolves = _Queue["enqueueExtractionForUser"];

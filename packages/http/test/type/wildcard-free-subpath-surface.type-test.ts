@@ -64,16 +64,21 @@ type _AutomationQueueTs = typeof import("@alfred/assistant/automation/queue.ts")
  * because of a typo or a missing dependency rather than because of the exports map.
  */
 type _ContentHash = typeof import("@alfred/assistant/artifacts/content-hash");
+
 type _AssertContentHashResolves = _ContentHash["artifactContentHash"];
 
 type _TasksResolve = typeof import("@alfred/assistant/tasks/resolve");
+
 type _AssertTasksResolveResolves = _TasksResolve["resolveTodosForGmailSender"];
 
 type _SkillRevisions = typeof import("@alfred/assistant/skills/revisions");
+
 type _AssertSkillRevisionsResolves = _SkillRevisions["commitSkillRevision"];
 
 type _BriefingsRead = typeof import("@alfred/assistant/briefings/read");
+
 type _AssertBriefingsReadResolves = _BriefingsRead["listEmailsSinceWatermark"];
 
 type _AutomationReadiness = typeof import("@alfred/assistant/automation/readiness");
+
 type _AssertAutomationReadinessResolves = _AutomationReadiness["canonicalizeWorkflowAccounts"];

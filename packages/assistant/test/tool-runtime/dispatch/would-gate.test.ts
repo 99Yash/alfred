@@ -54,6 +54,7 @@ describe("toolCallWouldGate", () => {
       listRegisteredTools().length > 0,
       "the registry must be populated or this asserts nothing",
     );
+
     for (const name of [
       "system.read_user_context",
       "system.spawn_sub_agent",
@@ -141,6 +142,7 @@ describe("toolCallWouldGate mirrors the dispatch gate for every registered tool"
                 await resolvePolicyMode(MIRROR_USER_ID, tool.name),
                 tool.riskTier,
               );
+
         assert.equal(
           await toolCallWouldGate(MIRROR_USER_ID, tool.name),
           expected,

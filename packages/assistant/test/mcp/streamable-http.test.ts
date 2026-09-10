@@ -9,14 +9,23 @@ import { McpRawClient } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
 
 let endpoint: URL;
+
 let closeServer: (() => Promise<void>) | null = null;
+
 let closeHandler: (() => Promise<void>) | null = null;
+
 let notifyModernToolsChanged: (() => void) | null = null;
+
 let legacySseResponse: ServerResponse | null = null;
+
 const observedCalls: string[] = [];
+
 const observedLegacyCalls: string[] = [];
+
 const observedLegacyMethods: string[] = [];
+
 let observedLegacyInitialize: unknown;
+
 const TEST_TRACE = {
   traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
 } as const;
@@ -34,42 +43,56 @@ before(async () => {
       },
       async ({ value }) => {
         observedCalls.push(value);
+
         return {
           content: [{ type: "text", text: value }],
           structuredContent: { echoed: value },
         };
       },
     );
+
     return server;
   });
+
   closeHandler = handler.close;
   notifyModernToolsChanged = () => handler.notify.toolsChanged();
   const serveMcp = toNodeHandler(handler);
+
   const httpServer = createServer(async (req, res) => {
     if (req.url === "/mcp") {
       await serveMcp(req, res);
+
       return;
     }
+
     if (req.url === "/slow-mcp") {
       await new Promise((resolve) => setTimeout(resolve, 100));
+
       if (!res.destroyed) await serveMcp(req, res);
+
       return;
     }
+
     if (req.url === "/legacy-mcp" && req.method === "POST") {
       const chunks: Buffer[] = [];
+
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const message = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       assert.ok(isRecord(message));
       const id = message.id;
+
       if (typeof message.method === "string") observedLegacyMethods.push(message.method);
+
       if (message.method === "server/discover") {
         writeJson(res, {
           jsonrpc: "2.0",
           id,
           error: { code: -32601, message: "Method not found" },
         });
+
         return;
       }
+
       if (message.method === "initialize") {
         observedLegacyInitialize = message;
         writeJson(res, {
@@ -81,12 +104,16 @@ before(async () => {
             serverInfo: { name: "alfred-legacy-test", version: "1" },
           },
         });
+
         return;
       }
+
       if (message.method === "notifications/initialized") {
         res.writeHead(202).end();
+
         return;
       }
+
       if (message.method === "tools/list") {
         const cursor = isRecord(message.params) ? message.params.cursor : undefined;
         writeJson(res, {
@@ -119,8 +146,10 @@ before(async () => {
             ...(cursor === "page-2" ? {} : { nextCursor: "page-2" }),
           },
         });
+
         return;
       }
+
       if (message.method === "tools/call") {
         assert.ok(isRecord(message.params));
         assert.ok(isRecord(message.params.arguments));
@@ -132,15 +161,19 @@ before(async () => {
           id,
           result: { content: [{ type: "text", text: value }] },
         });
+
         return;
       }
+
       writeJson(res, {
         jsonrpc: "2.0",
         id,
         error: { code: -32601, message: "Method not found" },
       });
+
       return;
     }
+
     if (req.url === "/legacy-mcp" && req.method === "GET") {
       res.writeHead(200, {
         "content-type": "text/event-stream",
@@ -152,8 +185,10 @@ before(async () => {
       req.on("close", () => {
         if (legacySseResponse === res) legacySseResponse = null;
       });
+
       return;
     }
+
     res.writeHead(404).end();
   });
 
@@ -161,6 +196,7 @@ before(async () => {
     httpServer.listen(0, "127.0.0.1", resolve);
   });
   const address = httpServer.address();
+
   if (!address || typeof address === "string") throw new Error("test server has no TCP address");
   endpoint = new URL(`http://127.0.0.1:${address.port}/mcp`);
   closeServer = () =>
@@ -182,6 +218,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     traceparent: string | null;
     body: unknown;
   }> = [];
+
   const client = new McpRawClient({
     connectionId: "conn_http_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
@@ -189,6 +226,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     // policy is the only place loopback HTTP is admitted.
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+
       if (isRecord(body) && typeof body.method === "string") {
         wire.push({
           method: body.method,
@@ -197,12 +235,16 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
           body,
         });
       }
+
       const response = await fetch(input, init);
+
       if (isRecord(body) && body.method === "tools/list") {
         const payload: unknown = await response.clone().json();
+
         if (isRecord(payload) && isRecord(payload.result)) {
           const headers = new Headers(response.headers);
           headers.delete("content-length");
+
           return Response.json(
             {
               ...payload,
@@ -216,6 +258,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
           );
         }
       }
+
       return response;
     }),
   });
@@ -251,6 +294,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     wire.filter((entry) => entry.method === "tools/list").length,
     listCallsBeforeCacheHit,
   );
+
   const result = await client.callTool(
     {
       kind: "mcp",
@@ -269,12 +313,14 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   assert.deepEqual(result.result.structuredContent, {
     echoed: "raw, not nested Code Mode",
   });
+
   for (const method of ["tools/list", "tools/call"]) {
     const request = wire.find((entry) => entry.method === method);
     assert.ok(request && isRecord(request.body) && isRecord(request.body.params));
     assert.ok(isRecord(request.body.params._meta));
     assert.equal(request.body.params._meta.traceparent, TEST_TRACE.traceparent);
   }
+
   notifyModernToolsChanged?.();
   await waitFor(() => client.catalog === null);
   await client.refreshCatalog();
@@ -328,6 +374,7 @@ test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () 
     ["legacy_echo", "legacy_extra"],
   );
   assert.equal(observedLegacyMethods.filter((method) => method === "tools/list").length, 2);
+
   const result = await client.callTool(
     {
       kind: "mcp",
@@ -355,6 +402,7 @@ test("modern connect fails when the advertised list-change subscription cannot o
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+
       if (isRecord(body) && body.method === "subscriptions/listen") {
         return Response.json(
           {
@@ -365,6 +413,7 @@ test("modern connect fails when the advertised list-change subscription cannot o
           { status: 400 },
         );
       }
+
       return fetch(input, init);
     }),
   });
@@ -396,6 +445,7 @@ test("the real SDK cannot bypass Alfred's catalog page limit", async () => {
 test("the real SDK does not replay tools/call after auth or header failures", async () => {
   let unauthorizedCalls = 0;
   let unauthorizedRefreshes = 0;
+
   const unauthorizedClient = new McpRawClient({
     connectionId: "conn_no_auth_replay_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
@@ -407,16 +457,20 @@ test("the real SDK does not replay tools/call after auth or header failures", as
     },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+
       if (isRecord(body) && body.method === "tools/call") {
         unauthorizedCalls += 1;
+
         return new Response("", {
           status: 401,
           headers: { "www-authenticate": "Bearer" },
         });
       }
+
       return fetch(input, init);
     }),
   });
+
   await unauthorizedClient.connect();
   const unauthorizedCatalog = await unauthorizedClient.refreshCatalog();
   await assert.rejects(
@@ -436,6 +490,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
 
   let insufficientScopeCalls = 0;
   const requiredScopes: string[][] = [];
+
   const insufficientScopeClient = new McpRawClient({
     connectionId: "conn_no_scope_replay_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
@@ -445,8 +500,10 @@ test("the real SDK does not replay tools/call after auth or header failures", as
     },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+
       if (isRecord(body) && body.method === "tools/call") {
         insufficientScopeCalls += 1;
+
         return new Response("", {
           status: 403,
           headers: {
@@ -454,9 +511,11 @@ test("the real SDK does not replay tools/call after auth or header failures", as
           },
         });
       }
+
       return fetch(input, init);
     }),
   });
+
   await insufficientScopeClient.connect();
   const insufficientScopeCatalog = await insufficientScopeClient.refreshCatalog();
   await assert.rejects(
@@ -495,13 +554,16 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   await insufficientScopeClient.close();
 
   let mismatchCalls = 0;
+
   const mismatchClient = new McpRawClient({
     connectionId: "conn_no_header_replay_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+
       if (isRecord(body) && body.method === "tools/call") {
         mismatchCalls += 1;
+
         return Response.json(
           {
             jsonrpc: "2.0",
@@ -511,9 +573,11 @@ test("the real SDK does not replay tools/call after auth or header failures", as
           { status: 400 },
         );
       }
+
       return fetch(input, init);
     }),
   });
+
   await mismatchClient.connect();
   const mismatchCatalog = await mismatchClient.refreshCatalog();
   await assert.rejects(
@@ -546,5 +610,6 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+
   assert.fail("timed out waiting for MCP wire event");
 }

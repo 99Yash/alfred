@@ -115,7 +115,9 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
       }),
       execute: async ({ documentId }): Promise<EmailReadResult | { error: string }> => {
         const row = await readEmailDocument({ userId: args.userId, documentId });
+
         if (!row) return { error: `document not found: ${documentId}` };
+
         return row;
       },
     }),
@@ -154,6 +156,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           timezone: args.timezone,
           slot: args.slot,
         });
+
         return contribution?.events ?? [];
       },
     }),
@@ -207,6 +210,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           citedDocumentIds: input.citedDocumentIds,
           rationale: input.rationale,
         });
+
         return { ok: true };
       },
     }),

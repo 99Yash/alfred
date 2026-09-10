@@ -50,6 +50,7 @@ async function loadRecentRejectionsByTool(
   const toolNames = Array.from(
     new Set(pendingRows.map((r) => r.staging.toolName).filter((name) => !isQuestionApproval(name))),
   );
+
   if (toolNames.length === 0) return new Map();
   const cutoff = new Date(Date.now() - RECENT_REJECTION_WINDOW_MS);
 
@@ -73,6 +74,7 @@ async function loadRecentRejectionsByTool(
     .orderBy(desc(actionStagings.decidedAt));
 
   const byTool = new Map<string, RecentRejection>();
+
   for (const row of rows) {
     if (byTool.has(row.toolName) || !(row.decidedAt instanceof Date)) continue;
     byTool.set(row.toolName, {
@@ -81,6 +83,7 @@ async function loadRecentRejectionsByTool(
       decidedAt: row.decidedAt,
     });
   }
+
   return byTool;
 }
 
@@ -96,6 +99,7 @@ function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   const source = "source" in trigger ? trigger.source : undefined;
   const type = "type" in trigger ? trigger.type : undefined;
   const rawKind = "rawKind" in trigger ? trigger.rawKind : undefined;
+
   return {
     kind: trigger.kind,
     ...(source ? { source } : {}),
@@ -130,6 +134,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
       .orderBy(asc(actionStagings.id));
 
     const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
+
     return rows.map(
       (row): ActionStagingRow => ({
         ...row,
@@ -139,15 +144,19 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
   },
   map: (row: ActionStagingRow) => {
     const s = row.staging;
+
     if (s.status !== "pending") {
       throw new SerializationError(`cannot sync action staging with status '${s.status}'`);
     }
+
     const recentRejection = row.recentRejection;
+
     const brief = row.brief
       ? row.brief.length > BRIEF_PREVIEW_CHARS
         ? `${row.brief.slice(0, BRIEF_PREVIEW_CHARS - 1)}…`
         : row.brief
       : null;
+
     return {
       id: s.id,
       userId: s.userId,

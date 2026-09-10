@@ -30,7 +30,9 @@ async function fetchTrace(host: string, auth: string, traceId: string): Promise<
     headers: { Authorization: `Basic ${auth}` },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
+
   if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
+
   // SAFETY: TraceLike is the deliberately loose diagnostic view of a Langfuse
   // trace this replay tool reads; every field access tolerates absence.
   return res.json() as Promise<TraceLike>;
@@ -38,6 +40,7 @@ async function fetchTrace(host: string, auth: string, traceId: string): Promise<
 
 async function main() {
   const [baselineId, candidateId] = process.argv.slice(2);
+
   if (!baselineId || !candidateId) {
     console.error(
       "usage: replay-diff.ts <baselineTraceId> <candidateTraceId>\n" +
@@ -47,10 +50,13 @@ async function main() {
   }
 
   const env = serverEnv();
+
   if (!env.LANGFUSE_PUBLIC_KEY || !env.LANGFUSE_SECRET_KEY) {
     throw new Error("LANGFUSE keys missing — point --env-file at a configured .env");
   }
+
   const host = env.LANGFUSE_HOST ?? "https://cloud.langfuse.com";
+
   const auth = Buffer.from(`${env.LANGFUSE_PUBLIC_KEY}:${env.LANGFUSE_SECRET_KEY}`).toString(
     "base64",
   );
@@ -59,11 +65,13 @@ async function main() {
     fetchTrace(host, auth, baselineId),
     fetchTrace(host, auth, candidateId),
   ]);
+
   const baseline = extractTrajectory(baseTrace);
   const candidate = extractTrajectory(candTrace);
 
   console.log(`baseline  ${baselineId}: ${baseline.steps.length} tool step(s)`);
   console.log(`candidate ${candidateId}: ${candidate.steps.length} tool step(s)`);
+
   for (const tj of [baseline, candidate]) {
     if (tj.decidedNotExecuted.length > 0) {
       console.log(
@@ -72,6 +80,7 @@ async function main() {
       );
     }
   }
+
   console.log("");
   const diff = diffTrajectories(baseline, candidate);
   console.log(summarizeDiff(diff));

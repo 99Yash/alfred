@@ -136,6 +136,7 @@ export function deriveToolDiscovery(input: DeriveToolDiscoveryInput): ResolvedDi
   const derivedVerbs = lead
     ? [lead, ...(Object.entries(VERB_SYNONYMS).find(([verb]) => verb === lead)?.[1] ?? [])]
     : [];
+
   const derivedEntities = [...entitiesFromTokens(rest), ...schemaFieldEntities(input.inputSchema)];
   const humanizedAction = humanizeSlug(input.action).toLowerCase();
   const qualifiedAlias = `${input.integration} ${humanizedAction}`;
@@ -175,24 +176,31 @@ function actionTokens(action: string): string[] {
  */
 function entitiesFromTokens(tokens: readonly string[]): string[] {
   const out: string[] = [];
+
   for (const token of tokens) {
     if (token.length <= 2) continue;
     out.push(...entityForms(token));
   }
+
   return out;
 }
 
 /** A noun token plus its naive singular, so a query matches either number. */
 function entityForms(token: string): string[] {
   const singular = singularize(token);
+
   return singular === token ? [token] : [token, singular];
 }
 
 function singularize(word: string): string {
   if (word.length <= 3) return word;
+
   if (word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+
   if (/(ss|sh|ch|x|z)es$/.test(word)) return word.slice(0, -2);
+
   if (word.endsWith("s") && !/(ss|us|is|ous)$/.test(word)) return word.slice(0, -1);
+
   return word;
 }
 
@@ -219,6 +227,7 @@ export function singularizePhrase(value: string): string {
  */
 function schemaFieldEntities(schema: z.ZodTypeAny): string[] {
   let json: z.core.JSONSchema.BaseSchema;
+
   try {
     json = z.toJSONSchema(schema, {
       io: "input",
@@ -228,11 +237,15 @@ function schemaFieldEntities(schema: z.ZodTypeAny): string[] {
   } catch {
     return [];
   }
+
   const properties = json.properties;
+
   if (!properties || typeof properties !== "object") return [];
+
   const fieldTokens = Object.keys(properties)
     .flatMap(splitFieldName)
     .filter((token) => !PLUMBING_FIELD_TOKENS.has(token));
+
   return entitiesFromTokens(fieldTokens);
 }
 
@@ -249,12 +262,15 @@ function splitFieldName(key: string): string[] {
 function union(primary: readonly string[] | undefined, derived: readonly string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+
   for (const value of [...(primary ?? []), ...derived]) {
     const trimmed = value.trim();
     const dedupeKey = trimmed.toLowerCase();
+
     if (trimmed.length === 0 || seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     out.push(trimmed);
   }
+
   return out;
 }

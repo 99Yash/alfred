@@ -6,7 +6,9 @@ import { z } from "zod";
 import { resolveCalendarListWindow } from "../../../src/tool-runtime/internal/tools/calendar";
 
 const NOW = new Date("2026-06-07T05:00:00.000Z");
+
 const UTC = parseIanaTimezone("UTC");
+
 const KOLKATA = parseIanaTimezone("Asia/Kolkata");
 
 describe("resolveCalendarListWindow", () => {
@@ -55,6 +57,7 @@ describe("resolveCalendarListWindow", () => {
       partOfDay: "full_day",
       maxResults: 10,
     });
+
     assert.equal((parsed as { window?: string }).window, "today");
 
     const window = resolveCalendarListWindow(
@@ -70,6 +73,7 @@ describe("resolveCalendarListWindow", () => {
       UTC,
       NOW,
     );
+
     // "today" (full_day) resolves to the whole of 7 June in UTC, ignoring the
     // sloppy bounds.
     assert.equal(window.timeMin.toISOString(), "2026-06-07T00:00:00.000Z");
@@ -93,6 +97,7 @@ describe("resolveCalendarListWindow", () => {
       UTC,
       NOW,
     );
+
     assert.equal(window.timeMin.toISOString(), "2026-06-20T09:00:00.000Z");
     assert.equal(window.timeMax.toISOString(), "2026-06-20T17:00:00.000Z");
   });
@@ -112,6 +117,7 @@ describe("resolveCalendarListWindow", () => {
       UTC,
       NOW,
     );
+
     assert.equal(window.timeMin.toISOString(), "2026-06-07T00:00:00.000Z");
     assert.equal(window.timeMax.toISOString(), "2026-06-08T00:00:00.000Z");
   });
@@ -126,6 +132,7 @@ describe("resolveCalendarListWindow", () => {
       KOLKATA,
       NOW,
     );
+
     assert.equal(window.timeMin.toISOString(), "2026-06-09T12:00:00.000Z");
     assert.equal(window.timeMax.toISOString(), "2026-06-09T13:00:00.000Z");
   });
@@ -172,6 +179,7 @@ describe("calendarListEventsInput datetime bounds", () => {
       timeMin: "2026-06-26T00:00:00Z",
       timeMax: "2026-06-26T23:59:59Z",
     });
+
     assert.equal(r.success, true);
   });
 
@@ -180,6 +188,7 @@ describe("calendarListEventsInput datetime bounds", () => {
       timeMin: "2026-06-26T00:00:00+05:30",
       timeMax: "2026-06-26T23:59:59+05:30",
     });
+
     assert.equal(r.success, true);
   });
 
@@ -193,6 +202,7 @@ describe("calendarListEventsInput datetime bounds", () => {
       KOLKATA,
       NOW,
     );
+
     // +05:30 local midnight is the prior 18:30 UTC.
     assert.equal(window.timeMin.toISOString(), "2026-06-25T18:30:00.000Z");
   });
@@ -207,6 +217,7 @@ describe("calendarListEventsInput window-key synonyms", () => {
     test(`promotes ${key} → window when it carries a window value`, () => {
       const r = calendarListEventsInput.safeParse({ [key]: "tomorrow" });
       assert.equal(r.success, true);
+
       if (r.success) assert.equal((r.data as { window?: string }).window, "tomorrow");
     });
   }
@@ -227,6 +238,7 @@ describe("calendarListEventsInput window-key synonyms", () => {
   test("does not disturb a valid partOfDay (its values aren't window values)", () => {
     const r = calendarListEventsInput.safeParse({ window: "tomorrow", partOfDay: "morning" });
     assert.equal(r.success, true);
+
     if (r.success) {
       assert.equal((r.data as { window?: string }).window, "tomorrow");
       assert.equal((r.data as { partOfDay?: string }).partOfDay, "morning");
@@ -248,11 +260,14 @@ describe("calendarListEventsInput window-key synonyms", () => {
     const json = z.toJSONSchema(calendarListEventsInput, { io: "input" }) as {
       properties?: Record<string, { enum?: unknown[] }>;
     };
+
     const props = json.properties ?? {};
     const windowValues = new Set(props.window?.enum ?? []);
     assert.ok(windowValues.size > 0, "window enum should be advertised");
+
     for (const [key, schema] of Object.entries(props)) {
       if (key === "window" || !Array.isArray(schema.enum)) continue;
+
       for (const value of schema.enum) {
         assert.ok(
           !windowValues.has(value),

@@ -11,6 +11,7 @@ export const requireOnboarded = new Elysia({
 }).macro("requireOnboarded", {
   async resolve({ request }) {
     const session = await getSessionCached(request);
+
     if (!session) throw Errors.UnauthorizedError();
 
     const rows = await db()
@@ -18,8 +19,11 @@ export const requireOnboarded = new Elysia({
       .from(user)
       .where(eq(user.id, session.user.id))
       .limit(1);
+
     const row = rows[0];
+
     if (!row) throw Errors.NotFoundError("User not found");
+
     if (row.onboardedAt === null) throw Errors.ForbiddenError("Onboarding required");
   },
 });

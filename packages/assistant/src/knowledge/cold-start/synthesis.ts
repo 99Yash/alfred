@@ -57,17 +57,20 @@ function buildPrompt(args: SynthesizeColdStartArgs): string {
   const lines: string[] = [];
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
+
   // No full email — synthesis output is persisted as the memory chunk, so keep
   // the contact-detail local-part out of it. Name + domain + anchor suffice.
   if (args.signals.emailDomain) lines.push(`- Email domain: ${args.signals.emailDomain}`);
   lines.push("");
   lines.push(`=== Identity anchor ===`);
   lines.push(args.anchor.anchor);
+
   for (const a of args.aspects) {
     lines.push("");
     lines.push(`=== ${a.label} ===`);
     lines.push(a.finding);
   }
+
   return lines.join("\n");
 }
 
@@ -75,12 +78,14 @@ function buildPrompt(args: SynthesizeColdStartArgs): string {
 function mergeCitations(anchor: IdentityAnchor, aspects: AspectFinding[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+
   for (const url of [...anchor.citations, ...aspects.flatMap((a) => a.citations)]) {
     if (url && !seen.has(url)) {
       seen.add(url);
       out.push(url);
     }
   }
+
   return out;
 }
 

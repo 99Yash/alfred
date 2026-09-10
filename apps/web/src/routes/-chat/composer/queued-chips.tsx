@@ -27,15 +27,18 @@ export function QueuedChips({
         // Truncate long queued text for the chip while keeping file affordance.
         // The full text rides the queued turn when it later starts.
         const shown = preview.length > 80 ? `${preview.slice(0, 80).trimEnd()}…` : preview;
+
         const label =
           shown ||
           (item.files.length > 0
             ? `${item.files.length} image${item.files.length > 1 ? "s" : ""}`
             : "Queued");
+
         const fileHint =
           item.files.length > 0
             ? ` · ${item.files.length} file${item.files.length > 1 ? "s" : ""}`
             : "";
+
         return (
           <div
             key={item.id}

@@ -70,6 +70,7 @@ export interface ToolPreloadSpanCloser {
 export function startToolPreloadSpan(args: ToolPreloadSpanArgs): ToolPreloadSpanCloser {
   const span = runtimeSpanStarter(buildToolPreloadSpanInput(args));
   let ended = false;
+
   return {
     end(selectedTools, activeAfter, promptChars) {
       if (ended) return;
@@ -163,6 +164,7 @@ export interface ApprovalWaitSpanCloser {
 export function startApprovalWaitSpan(args: ApprovalWaitSpanArgs): ApprovalWaitSpanCloser {
   const span = runtimeSpanStarter(buildApprovalWaitSpanInput(args));
   let ended = false;
+
   return {
     end(outcome, endedAt) {
       if (ended) return;
@@ -216,6 +218,7 @@ export interface SubAgentWaitSpanCloser {
 export function startSubAgentWaitSpan(args: SubAgentWaitSpanArgs): SubAgentWaitSpanCloser {
   const span = runtimeSpanStarter(buildSubAgentWaitSpanInput(args));
   let ended = false;
+
   return {
     end(outcome, endedAt) {
       if (ended) return;
@@ -256,6 +259,7 @@ export interface QueueLeaseSpanArgs {
 export function buildQueueLeaseSpanInput(args: QueueLeaseSpanArgs): RuntimeSpanInput {
   const startedAt =
     args.queueMs == null ? args.leasedAt : new Date(args.leasedAt.getTime() - args.queueMs);
+
   return {
     runId: args.runId,
     name: RUNTIME_QUEUE_LEASE,
@@ -280,6 +284,7 @@ export interface QueueLeaseSpanCloser {
 export function startQueueLeaseSpan(args: QueueLeaseSpanArgs): QueueLeaseSpanCloser {
   const span = runtimeSpanStarter(buildQueueLeaseSpanInput(args));
   let ended = false;
+
   return {
     end() {
       if (ended) return;
@@ -374,6 +379,7 @@ export interface ToolSurfaceSpanCloser {
 export function startToolSurfaceSpan(args: ToolSurfaceSpanArgs): ToolSurfaceSpanCloser {
   const span = runtimeSpanStarter(buildToolSurfaceSpanInput(args));
   let ended = false;
+
   return {
     end(summary) {
       if (ended) return;
@@ -405,6 +411,7 @@ export function _setRuntimeSpanStarterForTests(
 ): () => void {
   const previous = runtimeSpanStarter;
   runtimeSpanStarter = starter;
+
   return () => {
     runtimeSpanStarter = previous;
   };

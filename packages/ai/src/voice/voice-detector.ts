@@ -56,6 +56,7 @@ function wordRule(
   words: readonly string[],
 ): Rule {
   const alt = words.map(escapeRegExp).join("|");
+
   return { ruleId, category, severity, pattern: new RegExp(`\\b(?:${alt})\\b`, "gi") };
 }
 
@@ -235,6 +236,7 @@ export function detectAiTells(text: string, options: DetectOptions = {}): VoiceT
     index: number,
   ) => {
     const key = `${ruleId}:${match.trim().toLowerCase()}`;
+
     if (seen.has(key)) return;
     seen.add(key);
     tells.push({ ruleId, category, severity, match: match.trim(), index });
@@ -258,5 +260,6 @@ export function detectAiTells(text: string, options: DetectOptions = {}): VoiceT
 /** One-line summary of findings, for eval metadata / logs. */
 export function summarizeTells(tells: readonly VoiceTell[]): string {
   if (tells.length === 0) return "clean";
+
   return tells.map((t) => `${t.ruleId}("${t.match}")`).join(", ");
 }

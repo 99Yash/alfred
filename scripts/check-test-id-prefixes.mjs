@@ -29,24 +29,30 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // run of a scan that works. Drive the fixtures first, so "no prefix collides"
 // means "looked and found nothing" rather than "looked at nothing".
 const selfTest = testIdPrefixSelfTestFailures();
+
 if (selfTest.length > 0) {
   console.error("test-id-prefixes self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the grammar or the source discovery before trusting this check.");
   process.exit(1);
 }
 
 const { prefixes, failures, scanned } = likePrefixPatterns(ROOT);
+
 const literals = testStringLiterals(ROOT);
+
 const collisions = crossFilePrefixCollisions(prefixes, literals);
 
 if (failures.length > 0) {
   console.error("The test-id-prefix scan did not resolve, so some cleanup patterns went unread:\n");
+
   for (const failure of failures) console.error(`  ${failure}\n`);
 }
 
 if (collisions.length > 0) {
   console.error("A test suite's cleanup pattern reaches another test file's rows:\n");
+
   for (const collision of collisions) console.error(`  ${formatCollision(collision)}\n`);
   console.error(
     `${collisions.length} cross-file prefix collision(s). Each one deletes rows a co-running suite still needs.`,

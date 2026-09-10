@@ -18,6 +18,7 @@ import { evaluateToolAvailability, listRegisteredTools } from "./internal/regist
 const workflowToolCatalogSource: WorkflowToolCatalogSource = {
   catalog(): WorkflowToolCatalog {
     const entries = new Map<ToolName, WorkflowToolFacts>();
+
     for (const tool of listRegisteredTools()) {
       entries.set(tool.name, {
         name: tool.name,
@@ -27,6 +28,7 @@ const workflowToolCatalogSource: WorkflowToolCatalogSource = {
           evaluateToolAvailability(input.availability, tool, input.allowed, input.context),
       });
     }
+
     return entries;
   },
 };

@@ -144,6 +144,7 @@ export function PassthroughSection() {
         <div className="divide-y divide-app-bg-2">
           {SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => {
             const meta = PASSTHROUGH_META[slug];
+
             const agent: BackgroundAgentDef = {
               id: `passthrough-${slug}`,
               label: INTEGRATION_DISPLAY_NAMES[slug],
@@ -151,6 +152,7 @@ export function PassthroughSection() {
               icon: meta.icon,
               tint: meta.tint,
             };
+
             return (
               <AgentRow
                 key={slug}

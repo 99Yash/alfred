@@ -18,6 +18,7 @@ export const Route = createFileRoute("/onboarding")({
     const params = toRecord(search);
     const raw = Number(params.step);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;
+
     return {
       step,
       google_connected: getStringPath(params, "google_connected"),

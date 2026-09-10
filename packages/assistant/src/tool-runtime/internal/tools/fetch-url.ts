@@ -70,6 +70,7 @@ const MAX_REDIRECTS = 5;
 const USER_AGENT = "Mozilla/5.0 (compatible; AlfredBot/1.0; +https://github.com/99Yash/alfred)";
 
 const ACCEPT = "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5";
+
 const ACCEPT_ENCODING = "br, gzip, deflate";
 
 /**
@@ -179,6 +180,7 @@ export function decodeEntities(input: string): string {
         body[1] === "x" || body[1] === "X"
           ? Number.parseInt(body.slice(2), 16)
           : Number.parseInt(body.slice(1), 10);
+
       // Reject the surrogate range (0xD800–0xDFFF): `&#xD800;` would otherwise
       // decode to a lone surrogate, leaving invalid UTF-16 for downstream code
       // to trip over rather than relying on the boundary sanitizer to scrub it.
@@ -194,11 +196,14 @@ export function decodeEntities(input: string): string {
           return whole;
         }
       }
+
       return whole;
     }
+
     const named = Object.entries(NAMED_ENTITIES).find(
       ([entity]) => entity === body.toLowerCase(),
     )?.[1];
+
     return named ?? whole;
   });
 }
@@ -252,8 +257,10 @@ export function htmlToText(html: string): string {
 /** Pull the `<title>` out of raw HTML (before {@link htmlToText} drops `<head>`). */
 function extractTitle(html: string): string | undefined {
   const m = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+
   if (!m?.[1]) return undefined;
   const title = decodeEntities(m[1].replace(/\s+/g, " ")).trim();
+
   return title.length > 0 ? title.slice(0, 500) : undefined;
 }
 
@@ -266,6 +273,7 @@ function bareContentType(header: string | null | undefined): string {
 /** Content types we read in as text. Everything else is reported, not garbled. */
 function isTextualType(mime: string): boolean {
   if (mime.startsWith("text/")) return true;
+
   return (
     mime === "application/json" ||
     mime === "application/xml" ||
@@ -294,15 +302,25 @@ function sniffBinaryType(bytes: Buffer): string | null {
   const text = (s: string): boolean => has(...[...s].map((c) => c.charCodeAt(0)));
 
   if (text("%PDF")) return "application/pdf";
+
   if (has(0x89, 0x50, 0x4e, 0x47)) return "image/png";
+
   if (has(0xff, 0xd8, 0xff)) return "image/jpeg";
+
   if (text("GIF87a") || text("GIF89a")) return "image/gif";
+
   if (has(0x50, 0x4b, 0x03, 0x04) || has(0x50, 0x4b, 0x05, 0x06)) return "application/zip";
+
   if (has(0x1f, 0x8b)) return "application/gzip";
+
   if (has(0x42, 0x5a, 0x68)) return "application/x-bzip2"; // BZh
+
   if (has(0x7f, 0x45, 0x4c, 0x46)) return "application/x-elf";
+
   if (text("RIFF")) return "application/octet-stream"; // wav/webp/avi
+
   if (text("OggS")) return "application/ogg";
+
   if (has(0x00, 0x00, 0x01, 0x00)) return "image/x-icon";
 
   // Catch-all: a NUL byte anywhere in the bounded body means it isn't UTF-8 text.
@@ -358,6 +376,7 @@ export interface UndiciResponseLike {
   headers: Record<string, string | string[] | undefined>;
   body: AsyncIterable<Uint8Array>;
 }
+
 export type HttpRequester = (
   url: string,
   opts: {
@@ -394,6 +413,7 @@ export class FetchError extends Error {
 }
 
 let sharedDispatcher: Dispatcher | undefined;
+
 function safeDispatcher(): Dispatcher {
   // One page read: every phase is bounded by the tool's own deadline.
   sharedDispatcher ??= createPinnedDispatcher({
@@ -403,6 +423,7 @@ function safeDispatcher(): Dispatcher {
       connectMs: FETCH_TIMEOUT_MS,
     },
   });
+
   return sharedDispatcher;
 }
 
@@ -421,14 +442,17 @@ function redactQuerySegment(segment: string): string {
     .split("&")
     .map((pair) => {
       const eq = pair.indexOf("=");
+
       if (eq < 0) return pair;
       const rawName = pair.slice(0, eq);
       let name: string;
+
       try {
         name = decodeURIComponent(rawName);
       } catch {
         name = rawName;
       }
+
       return isCredentialParamName(name) ? `${rawName}=[REDACTED]` : pair;
     })
     .join("&");
@@ -451,32 +475,40 @@ export function redactCredentialUrl(raw: string): string {
   const base = redactUrlUserinfo(qIdx >= 0 ? beforeFragment.slice(0, qIdx) : beforeFragment);
 
   let out = base;
+
   if (query !== null) out += `?${redactQuerySegment(query)}`;
+
   if (fragment !== null) out += `#${redactQuerySegment(fragment)}`;
+
   return out;
 }
 
 /** Redact `user:pass@` without parsing/re-encoding the URL. */
 function redactUrlUserinfo(base: string): string {
   const schemeIdx = base.indexOf("://");
+
   if (schemeIdx < 0) return base;
   const authorityStart = schemeIdx + 3;
   const authorityEndRaw = base.slice(authorityStart).search(/[/?#]/);
   const authorityEnd = authorityEndRaw >= 0 ? authorityStart + authorityEndRaw : base.length;
   const authority = base.slice(authorityStart, authorityEnd);
   const atIdx = authority.lastIndexOf("@");
+
   if (atIdx < 0) return base;
+
   return `${base.slice(0, authorityStart)}[REDACTED]@${authority.slice(atIdx + 1)}${base.slice(authorityEnd)}`;
 }
 
 /** Validate one hop's URL string-deep, before any socket is opened. */
 function validateUrl(raw: string): URL {
   let parsed: URL;
+
   try {
     parsed = new URL(raw);
   } catch {
     throw new FetchError("fetch_failed", "The URL is malformed.");
   }
+
   if (parsed.username || parsed.password) {
     throw new FetchError(
       "blocked_host",
@@ -484,6 +516,7 @@ function validateUrl(raw: string): URL {
       redactCredentialUrl(parsed.href),
     );
   }
+
   try {
     return validatePublicWebUrl(parsed);
   } catch (error) {
@@ -499,6 +532,7 @@ function validateUrl(raw: string): URL {
  */
 function refusalFor(error: HostedEndpointError, url: URL): FetchError {
   const shown = redactCredentialUrl(url.href);
+
   switch (error.code) {
     case "blocked_scheme":
       return new FetchError(
@@ -542,6 +576,7 @@ function headerValue(h: string | string[] | undefined): string | undefined {
 
 function contentCharset(header: string | null | undefined): string | null {
   const match = /(?:^|;)\s*charset\s*=\s*("?)([^";]+)\1/i.exec(header ?? "");
+
   return match?.[2]?.trim().toLowerCase() || null;
 }
 
@@ -553,14 +588,17 @@ async function disposeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
     dump?: (opts?: { limit: number; signal?: AbortSignal }) => Promise<void>;
     once?: (event: "error", listener: (err: Error) => void) => unknown;
   };
+
   if (typeof disposable.dump === "function") {
     try {
       await disposable.dump({ limit: 131_072 });
+
       return;
     } catch {
       // Best-effort cleanup; the original return reason is more useful.
     }
   }
+
   if (typeof disposable.destroy === "function") {
     // Undici's BodyReadable can emit an asynchronous AbortError after destroy().
     // This is only cleanup; swallow that event so following a redirect cannot
@@ -600,13 +638,16 @@ export function decodeResponseBody(
     .filter((encoding) => encoding.length > 0 && encoding !== "identity");
 
   if (encodings.length === 0) return { body, decoded: false };
+
   if (encodings.length > 5) {
     throw new FetchError("fetch_failed", "The URL used too many content encodings.", finalUrl);
   }
 
   const decoders: Transform[] = [];
+
   for (let i = encodings.length - 1; i >= 0; i--) {
     const decoder = decoderForEncoding(encodings[i]!);
+
     if (!decoder) {
       throw new FetchError(
         "fetch_failed",
@@ -614,11 +655,13 @@ export function decodeResponseBody(
         finalUrl,
       );
     }
+
     decoders.push(decoder);
   }
 
   const source = Readable.from(body);
   let stream: Readable = source;
+
   for (const decoder of decoders) stream = stream.pipe(decoder);
 
   const decodedBody: AsyncIterable<Uint8Array> & { destroy: (err?: Error) => void } = {
@@ -629,10 +672,12 @@ export function decodeResponseBody(
     destroy(err?: Error) {
       stream.destroy(err);
       source.destroy(err);
+
       for (const decoder of decoders) decoder.destroy(err);
       // SAFETY: callers pass bodies whose declared type omits `destroy`;
       // presence is probed before the call.
       const destroySource = (body as { destroy?: (err?: Error) => void }).destroy;
+
       if (typeof destroySource === "function") destroySource.call(body, err);
     },
   };
@@ -658,8 +703,10 @@ export async function safeRequest(
 ): Promise<RawResponse> {
   let url = initialUrl;
   const redirectChain: string[] = [];
+
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     let parsed: URL;
+
     try {
       parsed = validateUrl(url);
     } catch (err) {
@@ -667,7 +714,9 @@ export async function safeRequest(
       if (err instanceof FetchError && redirectChain.length > 0) err.redirects = [...redirectChain];
       throw err;
     }
+
     let res: UndiciResponseLike;
+
     try {
       res = await doRequest(parsed.toString(), {
         method: "GET",
@@ -686,26 +735,32 @@ export async function safeRequest(
       // The pinned lookup refused an address at connect time. Its message names
       // the host and the address it resolved to, which is what the model needs.
       const hosted = hostedEndpointErrorFrom(err);
+
       if (hosted?.code === "blocked_host") {
         const e = new FetchError("blocked_host", hosted.message, parsed.toString());
         e.redirects = chain;
         throw e;
       }
+
       const why = toMessage(err);
+
       const e = new FetchError(
         "fetch_failed",
         `Could not reach the URL: ${why}`,
         parsed.toString(),
       );
+
       e.redirects = chain;
       throw e;
     }
 
     const location = headerValue(res.headers.location);
+
     if (res.statusCode >= 300 && res.statusCode < 400 && location) {
       await disposeBody(res.body); // free the socket before the next hop
       const next = new URL(location, parsed);
       redirectChain.push(parsed.toString());
+
       // Refuse a redirect that drops TLS — don't silently follow an
       // https → http downgrade into a tamperable plaintext hop.
       if (parsed.protocol === "https:" && next.protocol === "http:") {
@@ -714,15 +769,18 @@ export async function safeRequest(
           "Refused a redirect that downgrades HTTPS to HTTP.",
           next.toString(),
         );
+
         e.redirects = [...redirectChain];
         throw e;
       }
+
       url = next.toString();
       continue;
     }
 
     const contentTypeHeader = headerValue(res.headers["content-type"]);
     let decoded: { body: AsyncIterable<Uint8Array>; decoded: boolean };
+
     try {
       decoded = decodeResponseBody(
         res.body,
@@ -731,9 +789,11 @@ export async function safeRequest(
       );
     } catch (err) {
       await disposeBody(res.body);
+
       if (err instanceof FetchError && redirectChain.length > 0) err.redirects = [...redirectChain];
       throw err;
     }
+
     return {
       finalUrl: parsed.toString(),
       status: res.statusCode,
@@ -743,12 +803,14 @@ export async function safeRequest(
         ? null
         : (() => {
             const n = Number(headerValue(res.headers["content-length"]));
+
             return Number.isFinite(n) && n >= 0 ? n : null;
           })(),
       body: decoded.body,
       ...(redirectChain.length > 0 ? { redirectChain } : {}),
     };
   }
+
   const e = new FetchError("fetch_failed", `Too many redirects (more than ${MAX_REDIRECTS}).`, url);
   e.redirects = [...redirectChain];
   throw e;
@@ -761,19 +823,25 @@ async function readBounded(
 ): Promise<{ bytes: Buffer; overflow: boolean }> {
   const chunks: Buffer[] = [];
   let total = 0;
+
   for await (const chunk of body) {
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buf.length;
+
     if (total > maxBytes) {
       // SAFETY: undici's body exposes an optional `destroy` its type omits.
       const destroy = (body as { destroy?: () => void }).destroy;
+
       if (typeof destroy === "function") destroy.call(body);
+
       // The caller discards the bytes on overflow (returns `too_large`), so
       // skip the wasted Buffer.concat of everything read so far.
       return { bytes: Buffer.alloc(0), overflow: true };
     }
+
     chunks.push(buf);
   }
+
   return { bytes: Buffer.concat(chunks), overflow: false };
 }
 
@@ -789,6 +857,7 @@ async function readBounded(
  */
 function redactFetchResult(r: FetchUrlResult): FetchUrlResult {
   const redirects = r.redirects?.map(redactCredentialUrl);
+
   if (r.ok) {
     return {
       ...r,
@@ -797,6 +866,7 @@ function redactFetchResult(r: FetchUrlResult): FetchUrlResult {
       ...(redirects ? { redirects } : {}),
     };
   }
+
   return {
     ...r,
     url: redactCredentialUrl(r.url),
@@ -817,8 +887,10 @@ const FIRECRAWL_TIMEOUT_MS = 30_000;
  */
 const liveFirecrawlRender: Renderer = async (url, signal) => {
   const env = serverEnv();
+
   if (!env.FIRECRAWL_API_KEY) return null;
   let res: Response;
+
   try {
     res = await fetch(`${env.FIRECRAWL_BASE_URL}/v1/scrape`, {
       method: "POST",
@@ -832,17 +904,22 @@ const liveFirecrawlRender: Renderer = async (url, signal) => {
   } catch {
     return null;
   }
+
   if (!res.ok) return null;
   let json: unknown;
+
   try {
     json = await res.json();
   } catch {
     return null;
   }
+
   // External JSON — validate the shape we read rather than trust it (#286 posture).
   const markdown = getPath(json, "data", "markdown");
+
   if (!isNonEmptyString(markdown)) return null;
   const title = getPath(json, "data", "metadata", "title");
+
   return { text: markdown, ...(isNonEmptyString(title) ? { title } : {}) };
 };
 
@@ -859,15 +936,18 @@ async function renderViaFirecrawl(
   const render = deps.render ?? liveFirecrawlRender;
   const signal = args.abortSignal ?? AbortSignal.timeout(FIRECRAWL_TIMEOUT_MS);
   let out: Awaited<ReturnType<Renderer>>;
+
   try {
     out = await render(args.url, signal);
   } catch {
     return null;
   }
+
   if (!out || out.text.replace(/\s+/g, "").length < MIN_READABLE_CHARS) return null;
 
   const truncated = out.text.length > FETCH_URL_MAX_TEXT_CHARS;
   const text = truncated ? out.text.slice(0, FETCH_URL_MAX_TEXT_CHARS) : out.text;
+
   return {
     ok: true,
     url: args.url,
@@ -899,6 +979,7 @@ export async function runFetchUrl(
   // private host errors as `blocked_host` upstream and never gets here.
   if (!direct.ok && direct.reason === "empty_content") {
     const rendered = await renderViaFirecrawl(args, deps);
+
     if (rendered) return redactFetchResult(rendered);
   }
 
@@ -913,6 +994,7 @@ async function runFetchUrlImpl(
   const signal = args.abortSignal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS);
 
   let raw: RawResponse;
+
   try {
     raw = await transport(args.url, signal);
   } catch (err) {
@@ -926,7 +1008,9 @@ async function runFetchUrlImpl(
         ...(err.redirects && err.redirects.length > 0 ? { redirects: err.redirects } : {}),
       };
     }
+
     const why = toMessage(err);
+
     return {
       ok: false,
       url: args.url,
@@ -942,6 +1026,7 @@ async function runFetchUrlImpl(
   // rather than returning a blank body (#286 review).
   if (status < 200 || status >= 300) {
     await disposeBody(raw.body);
+
     return {
       ok: false,
       url: args.url,
@@ -957,6 +1042,7 @@ async function runFetchUrlImpl(
 
   if (contentLength != null && contentLength > MAX_FETCH_BYTES) {
     await disposeBody(raw.body);
+
     return {
       ok: false,
       url: args.url,
@@ -969,6 +1055,7 @@ async function runFetchUrlImpl(
 
   let bytes: Buffer;
   let overflow: boolean;
+
   try {
     ({ bytes, overflow } = await readBounded(raw.body, MAX_FETCH_BYTES));
   } catch (err) {
@@ -976,6 +1063,7 @@ async function runFetchUrlImpl(
     // destroy(), so free the socket here or it leaks (#286 review).
     await disposeBody(raw.body);
     const why = toMessage(err);
+
     return {
       ok: false,
       url: args.url,
@@ -1012,6 +1100,7 @@ async function runFetchUrlImpl(
   // Sniff before decoding — a binary body with a missing or lying Content-Type
   // would otherwise inline as mojibake (#267). PDFs are extracted to text.
   const sniffed = sniffBinaryType(bytes);
+
   if (sniffed) {
     if (isPdfContentType(sniffed)) {
       return await extractPdfFromBytes(
@@ -1023,6 +1112,7 @@ async function runFetchUrlImpl(
         deps.media,
       );
     }
+
     return {
       ok: false,
       url: args.url,
@@ -1048,9 +1138,11 @@ async function runFetchUrlImpl(
   }
 
   const decoded = decodeText(bytes, raw.charset);
+
   const looksHtml =
     isHtmlType(contentType) ||
     (!contentType && /<(?:!doctype html|html[\s>])/i.test(decoded.slice(0, 1024)));
+
   const title = looksHtml ? extractTitle(decoded) : undefined;
   const body = looksHtml ? htmlToText(decoded) : decoded.replace(CONTROL_BYTES, "").trim();
 
@@ -1105,6 +1197,7 @@ function decodeText(bytes: Buffer, charset: string | null): string {
       // Unknown labels fall back to UTF-8 rather than failing a readable page.
     }
   }
+
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
@@ -1126,6 +1219,7 @@ async function extractPdfFromBytes(
   // sync with this mapping.
   const media = injectedMedia ?? extraction({ door: "fetchUrl" });
   let mediaResult: Awaited<ReturnType<typeof media.extract>>;
+
   try {
     mediaResult = await media.extract({ mime: "application/pdf", bytes: new Uint8Array(bytes) });
   } catch (err) {
@@ -1141,8 +1235,10 @@ async function extractPdfFromBytes(
         : {}),
     };
   }
+
   if (!mediaResult || mediaResult.kind !== "extracted") {
     const message = !mediaResult ? "This PDF cannot be read." : mediaFailureMessage(mediaResult);
+
     return {
       ok: false,
       url,
@@ -1155,11 +1251,13 @@ async function extractPdfFromBytes(
         : {}),
     };
   }
+
   // `[page N]` rendering per ADR-0091 D4; the corpus path keeps the
   // marker-less `content` plus offsets.
   const text = formatExtractedMediaText(mediaResult);
   const truncated = text.length > FETCH_URL_MAX_TEXT_CHARS;
   const finalText = truncated ? text.slice(0, FETCH_URL_MAX_TEXT_CHARS) : text;
+
   return {
     ok: true,
     url,

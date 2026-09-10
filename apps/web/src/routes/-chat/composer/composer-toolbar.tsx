@@ -47,6 +47,7 @@ export function ComposerToolbar({
   onTierChange: (tier: ChatModelTier) => void;
 }) {
   const statusMessage = voiceError ?? mic.error;
+
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
       <div className="flex items-center gap-1">

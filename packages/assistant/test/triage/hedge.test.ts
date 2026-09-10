@@ -82,10 +82,13 @@ function ceilingHarness(callers: number, inner: HedgeBudget): CeilingHarness {
   // Both executors run synchronously, so the openers are assigned before
   // `tryAcquire` can reach them.
   let openDecided = (): void => {};
+
   const decided = new Promise<void>((resolve) => {
     openDecided = () => resolve();
   });
+
   let openAnswered = (): void => {};
+
   const answered = new Promise<void>((resolve) => {
     openAnswered = () => resolve();
   });
@@ -105,11 +108,14 @@ function ceilingHarness(callers: number, inner: HedgeBudget): CeilingHarness {
       tryAcquire() {
         const acquired = inner.tryAcquire();
         decisions += 1;
+
         if (acquired) granted += 1;
+
         if (decisions >= callers) {
           openDecided();
           openWhenAllGrantedHaveAnswered();
         }
+
         return acquired;
       },
       release: () => inner.release(),
@@ -132,6 +138,7 @@ describe("runHedged", () => {
       delayMs: DELAY,
       run: ({ attempt, signal }) => {
         track(rec, attempt, signal);
+
         return after(1, "fast", signal);
       },
     });
@@ -147,6 +154,7 @@ describe("runHedged", () => {
       delayMs: DELAY,
       run: ({ attempt, signal }) => {
         track(rec, attempt, signal);
+
         return attempt === 0 ? after(10_000, "slow", signal) : after(1, "hedge", signal);
       },
     });
@@ -162,6 +170,7 @@ describe("runHedged", () => {
       delayMs: DELAY,
       run: ({ attempt, signal }) => {
         track(rec, attempt, signal);
+
         return attempt === 0 ? after(10_000, "slow", signal) : after(1, "hedge", signal);
       },
     });
@@ -176,6 +185,7 @@ describe("runHedged", () => {
       delayMs: DELAY,
       run: ({ attempt, signal }) => {
         track(rec, attempt, signal);
+
         return attempt === 0
           ? after(DELAY + 5, "original", signal)
           : after(10_000, "hedge", signal);
@@ -195,6 +205,7 @@ describe("runHedged", () => {
         delayMs: DELAY,
         run: ({ attempt, signal }) => {
           track(rec, attempt, signal);
+
           return Promise.reject(boom);
         },
       }),
@@ -240,6 +251,7 @@ describe("runHedged", () => {
       delayMs: 0,
       run: ({ attempt, signal }) => {
         track(rec, attempt, signal);
+
         return after(50, "only", signal);
       },
     });
@@ -266,6 +278,7 @@ describe("hedge budget", () => {
       budget,
       run: ({ attempt, signal }) => {
         track(rec, attempt, signal);
+
         return after(DELAY + 5, "original", signal);
       },
     });
@@ -287,16 +300,19 @@ describe("hedge budget", () => {
           budget: gate.budget,
           run: ({ attempt, signal }) => {
             track(rec, attempt, signal);
+
             // Every call is slow enough to want a hedge — the burst case. The
             // original answers only after the granted duplicates have, which is
             // what an over-budget call falls back to waiting for, and which makes
             // the hedge win its race by construction rather than by arithmetic
             // on two timeouts.
             if (attempt === 0) return gate.answered.then(() => "slow" as const);
+
             // A granted duplicate holds its slot until every caller has decided,
             // so it cannot hand a freed slot to a caller still making up its mind.
             return gate.decided.then(() => {
               gate.hedgeSettled();
+
               return "hedge" as const;
             });
           },
@@ -327,20 +343,24 @@ describe("hedge budget", () => {
       run: ({ attempt, signal }) =>
         attempt === 0 ? after(10_000, "slow", signal) : after(5, "hedge", signal),
     });
+
     assert.equal(first, "hedge");
     assert.equal(budget.inFlight(), 0, "the winning hedge released its slot on settle");
 
     // The next slow call is free to hedge again — a budget that leaked would
     // silently turn hedging off for the rest of the process's life.
     const rec = recorder();
+
     const second = await runHedged({
       delayMs: DELAY,
       budget,
       run: ({ attempt, signal }) => {
         track(rec, attempt, signal);
+
         return attempt === 0 ? after(10_000, "slow", signal) : after(5, "hedge", signal);
       },
     });
+
     assert.equal(second, "hedge");
     assert.deepEqual(rec.attempts, [0, 1]);
   });

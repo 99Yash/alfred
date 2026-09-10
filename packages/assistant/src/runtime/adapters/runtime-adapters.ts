@@ -45,6 +45,7 @@ export function createRuntimeAdapterLifecycle(
   definitions: readonly RuntimeAdapterDefinition[],
 ): RuntimeAdapterLifecycle {
   const startupAdapters = [...definitions];
+
   const shutdownAdapters = [...definitions].sort(
     (left, right) => left.shutdownOrder - right.shutdownOrder,
   );
@@ -56,6 +57,7 @@ export function createRuntimeAdapterLifecycle(
     unregister({ agentWorkerStopped, ingestionWorkerStopped }) {
       for (const adapter of shutdownAdapters) {
         if (!agentWorkerStopped && adapter.retainIfAgentWorkerActive) continue;
+
         if (!ingestionWorkerStopped && adapter.retainIfIngestionWorkerActive) continue;
         adapter.unregister();
       }

@@ -373,6 +373,7 @@ function evaluateRunContextGates(
       reason: "Outside this workflow's integration allowlist.",
     };
   }
+
   return evaluateToolRunContext(tool, context);
 }
 
@@ -388,6 +389,7 @@ export function evaluateToolRunContext(
       reason: `Only the ${tool.availability.callers.join(" / ")} caller may use this tool.`,
     };
   }
+
   if (tool.availability?.requiresLiveChat && context.interaction !== "live_chat") {
     return {
       available: false,
@@ -395,6 +397,7 @@ export function evaluateToolRunContext(
       reason: "Runs only inside a live chat.",
     };
   }
+
   return { available: true };
 }
 
@@ -417,6 +420,7 @@ function evaluateSnapshotGates(
     const enabled =
       isSupportedPassthroughSlug(tool.integration) &&
       snapshot.passthroughEnabled.get(tool.integration) === true;
+
     if (!enabled) {
       return {
         available: false,
@@ -427,18 +431,24 @@ function evaluateSnapshotGates(
   }
 
   const credential = tool.availability?.credential;
+
   if (credential) {
     const providerRows = snapshot.providers.get(credential.provider) ?? [];
+
     if (providerRows.length === 0) {
       return { available: false, code: "not_connected", reason: `${name} is not connected.` };
     }
+
     const activeRows = providerRows.filter((row) => row.status === "active");
+
     if (activeRows.length === 0) {
       return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
     }
+
     const scopeMatches = activeRows.some((row) =>
       holdsAnyScope(row.scopes, credential.anyOfScopes),
     );
+
     if (!scopeMatches) {
       return {
         available: false,
@@ -446,18 +456,22 @@ function evaluateSnapshotGates(
         reason: `${name} is connected but missing a required permission; reconnect to grant it.`,
       };
     }
+
     return { available: true };
   }
 
   if (isLoadableIntegrationSlug(tool.integration)) {
     const health = snapshot.integrations.get(tool.integration)?.health;
+
     if (health === "needs_reauth") {
       return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
     }
+
     if (health !== "active") {
       return { available: false, code: "not_connected", reason: `${name} is not connected.` };
     }
   }
+
   return { available: true };
 }
 
@@ -469,7 +483,9 @@ export function evaluateToolAvailability(
   context: ToolRunContext,
 ): ToolAvailabilityResult {
   const contextResult = evaluateRunContextGates(tool, allowed, context);
+
   if (!contextResult.available) return contextResult;
+
   return evaluateSnapshotGates(snapshot, tool);
 }
 
@@ -481,8 +497,11 @@ export async function resolveToolAvailability(args: {
   loadSnapshot: () => Promise<IntegrationAvailabilitySnapshot>;
 }): Promise<ToolAvailabilityResult> {
   const contextResult = evaluateRunContextGates(args.tool, args.allowed, args.context);
+
   if (!contextResult.available) return contextResult;
+
   if (!readsAvailabilitySnapshot(args.tool)) return { available: true };
+
   return evaluateSnapshotGates(await args.loadSnapshot(), args.tool);
 }
 
@@ -494,11 +513,13 @@ export function availableToolNames(
 ): Set<RegisteredTool["name"]> {
   const allowed = new Set(allowedIntegrations);
   const available = new Set<RegisteredTool["name"]>();
+
   for (const tool of tools) {
     if (evaluateToolAvailability(snapshot, tool, allowed, context).available) {
       available.add(tool.name);
     }
   }
+
   return available;
 }
 
@@ -510,9 +531,11 @@ export function evaluateToolCatalog(
 ): Map<RegisteredTool["name"], ToolAvailabilityResult> {
   const allowed = new Set(allowedIntegrations);
   const out = new Map<RegisteredTool["name"], ToolAvailabilityResult>();
+
   for (const tool of tools) {
     out.set(tool.name, evaluateToolAvailability(snapshot, tool, allowed, context));
   }
+
   return out;
 }
 
@@ -528,6 +551,7 @@ export function liveTool<
   S extends z.ZodTypeAny,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
+
   return {
     name,
     integration: args.integration,
@@ -557,6 +581,7 @@ export function liveTool<
     modelInputSchema: args.modelInputSchema ?? args.inputSchema,
     execute: async (input, ctx) => {
       const parsed = args.inputSchema.parse(input);
+
       return args.execute(parsed, ctx);
     },
     ...(args.redactInput
@@ -592,33 +617,40 @@ let cachedSortedTools: readonly RegisteredTool[] | null = null;
 
 export function registerTool(tool: RegisteredTool): void {
   const existing = REGISTRY.get(tool.name);
+
   if (existing && existing !== tool) {
     throw new Error(
       `[tools] duplicate registration for '${tool.name}' — each tool may only be registered once`,
     );
   }
+
   // Defensive: the integration claimed by the tool must match the
   // integration encoded in its name. Catches typos at boot rather than
   // at first dispatch.
   const expected = integrationFromToolName(tool.name);
+
   if (expected !== tool.integration) {
     throw new Error(
       `[tools] '${tool.name}' declared integration='${tool.integration}' but name resolves to '${expected}'`,
     );
   }
+
   if (tool.availability?.surface === "kernel" && tool.integration !== "system") {
     throw new Error(`[tools] only system tools may declare availability.surface='kernel'`);
   }
+
   if (tool.riskTierDowngradeReason !== undefined) {
     if (!tool.resolveRiskTier) {
       throw new Error(
         `[tools] '${tool.name}' declares riskTierDowngradeReason without resolveRiskTier`,
       );
     }
+
     if (tool.riskTierDowngradeReason.trim().length === 0) {
       throw new Error(`[tools] '${tool.name}' declares an empty riskTierDowngradeReason`);
     }
   }
+
   // `fast_path` skips the staging row and with it the ADR-0034 policy / ADR-0069
   // risk gate, so it must be unreachable for anything that could ever require
   // approval. These guards mirror BOTH disjuncts of `toolRequiresApproval`
@@ -635,6 +667,7 @@ export function registerTool(tool: RegisteredTool): void {
           "the fast path skips the approval gate",
       );
     }
+
     // Disjunct 1 — the policy mode, which is the half that actually bites.
     // `resolvePolicyMode` answers `autonomy` for `integration === "system"` ONLY;
     // every other integration reads the user's policy, whose default is `gated`.
@@ -654,6 +687,7 @@ export function registerTool(tool: RegisteredTool): void {
         "nothing waives its approval gate, so the waiver is misleading",
     );
   }
+
   // `join` is a protocol, not a preference: the dispatcher reads `childRunId` off
   // the call itself (see `joinToolInput`) and never reaches this tool's `execute`
   // for a still-running child. Prove the schema accepts that input, so the
@@ -662,15 +696,18 @@ export function registerTool(tool: RegisteredTool): void {
     const probe = tool.inputSchema.safeParse({
       childRunId: "00000000-0000-0000-0000-000000000000",
     });
+
     if (!probe.success || !joinToolInput.safeParse(probe.data).success) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='join' but its inputSchema does not accept ` +
           "`{ childRunId: string }` — the dispatcher's join arm resolves the child run from that field",
       );
     }
+
     const existingJoin = [...REGISTRY.values()].find(
       (other) => other.staging === "join" && other.name !== tool.name,
     );
+
     if (existingJoin) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='join' but '${existingJoin.name}' already does — ` +
@@ -679,6 +716,7 @@ export function registerTool(tool: RegisteredTool): void {
       );
     }
   }
+
   // `question` is a protocol too (ADR-0099): the dispatcher reads `questions`
   // and `answers` off the call (see `questionToolInput`), forces the approval
   // without a policy read, and echoes the questions back on dismissal. Prove the
@@ -695,13 +733,16 @@ export function registerTool(tool: RegisteredTool): void {
           "readers outside the registry key a question on that name (ADR-0099)",
       );
     }
+
     const probe = tool.inputSchema.safeParse(QUESTION_TOOL_PROBE_INPUT);
+
     if (!probe.success || !questionToolInput.safeParse(probe.data).success) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='question' but its inputSchema does not accept ` +
           "`{ questions, answers }` — the dispatcher's question arm reads both fields off the call",
       );
     }
+
     // The other half of the same protocol, and the one slice 1 missed: the
     // MODEL must not be able to write `answers`. A model that sees the key
     // fills it, the question arm refuses the call, and the model has no field
@@ -713,12 +754,14 @@ export function registerTool(tool: RegisteredTool): void {
           "`answers` — declare a narrower modelInputSchema that omits the user's field (ADR-0099)",
       );
     }
+
     if (!tool.modelInputSchema.safeParse(QUESTION_TOOL_MODEL_PROBE_INPUT).success) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='question' but its modelInputSchema does not ` +
           "accept `{ questions }` — the model would have no way to ask anything",
       );
     }
+
     // The arm forces the approval without a policy read. That is only safe
     // where `resolvePolicyMode` would answer `autonomy` anyway, which is the
     // `system` rule; on any other integration the arm would silently replace
@@ -729,20 +772,24 @@ export function registerTool(tool: RegisteredTool): void {
           "the question arm forces its own approval and is only defined for 'system' tools",
       );
     }
+
     // A question needs a person watching a chat thread. A background workflow
     // has no browser, and a sub-agent must return a clarification request to
     // its parent instead of parking the parent's turn from below.
     const callers = tool.availability?.callers ?? [];
     const bossOnly = callers.length === 1 && callers[0] === "boss";
+
     if (!bossOnly || tool.availability?.requiresLiveChat !== true) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='question' but is not limited to the chat boss on a ` +
           "live thread — declare availability: { callers: ['boss'], requiresLiveChat: true }",
       );
     }
+
     const existingQuestion = [...REGISTRY.values()].find(
       (other) => other.staging === "question" && other.name !== tool.name,
     );
+
     if (existingQuestion) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='question' but '${existingQuestion.name}' already does — ` +
@@ -751,6 +798,7 @@ export function registerTool(tool: RegisteredTool): void {
       );
     }
   }
+
   assertModelSchemaIsSubset(tool);
   // And the action must be a known action slug for that integration —
   // mirrors the compile-time check `liveTool` enforces, but covers the
@@ -759,11 +807,13 @@ export function registerTool(tool: RegisteredTool): void {
   // SAFETY: the per-integration row is a readonly tuple of action strings;
   // widening only types the .includes receiver for the membership test below.
   const knownActions = INTEGRATION_ACTIONS[tool.integration] as readonly string[];
+
   if (!knownActions.includes(tool.action)) {
     throw new Error(
       `[tools] '${tool.name}' action '${tool.action}' is not declared in @alfred/contracts INTEGRATION_ACTIONS['${tool.integration}']`,
     );
   }
+
   REGISTRY.set(tool.name, tool);
   cachedSortedTools = null;
 }
@@ -788,8 +838,10 @@ function assertModelSchemaIsSubset(tool: RegisteredTool): void {
   if (tool.modelInputSchema === tool.inputSchema) return;
   const modelKeys = topLevelPropertyNames(tool.modelInputSchema);
   const runtimeKeys = topLevelPropertyNames(tool.inputSchema);
+
   if (!modelKeys || !runtimeKeys) return;
   const extra = modelKeys.filter((key) => !runtimeKeys.includes(key));
+
   if (extra.length === 0) return;
   throw new Error(
     `[tools] '${tool.name}' declares a modelInputSchema with ${extra.map((k) => `'${k}'`).join(", ")} ` +
@@ -801,12 +853,15 @@ function assertModelSchemaIsSubset(tool: RegisteredTool): void {
 /** Top-level input property names, or `null` when the schema cannot be read. */
 function topLevelPropertyNames(schema: z.ZodTypeAny): string[] | null {
   let json: z.core.JSONSchema.BaseSchema;
+
   try {
     json = z.toJSONSchema(schema, { io: "input", reused: "inline", unrepresentable: "any" });
   } catch {
     return null;
   }
+
   const properties = json.properties;
+
   return properties && typeof properties === "object" ? Object.keys(properties) : null;
 }
 
@@ -820,9 +875,11 @@ export function getTool(name: ToolName): RegisteredTool | undefined {
 
 export function listToolsForIntegration(slug: IntegrationSlug): RegisteredTool[] {
   const out: RegisteredTool[] = [];
+
   for (const t of REGISTRY.values()) {
     if (t.integration === slug) out.push(t);
   }
+
   return out;
 }
 
@@ -852,10 +909,13 @@ export function listKernelTools(): RegisteredTool[] {
  */
 export function assertKernelToolsRegistered(declaredTools: readonly RegisteredTool[]): void {
   const declaredKernel = declaredTools.filter((tool) => tool.availability?.surface === "kernel");
+
   if (declaredKernel.length === 0) {
     throw new Error("No system tools are declared for the kernel surface");
   }
+
   const missing = declaredKernel.filter((tool) => getTool(tool.name) !== tool);
+
   if (missing.length > 0) {
     throw new Error(
       `Declared system kernel tools are not registered: ${missing.map((tool) => tool.name).join(", ")}`,
@@ -875,7 +935,9 @@ function emptyTierCounts(): RiskTierCounts {
  */
 export function riskTierCountsForIntegration(slug: IntegrationSlug): RiskTierCounts {
   const counts = emptyTierCounts();
+
   for (const t of listToolsForIntegration(slug)) counts[t.riskTier] += 1;
+
   return counts;
 }
 

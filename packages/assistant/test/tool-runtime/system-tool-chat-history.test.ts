@@ -41,12 +41,15 @@ describe("system-tool chat-history seam with a registered adapter", () => {
   test("forwards args verbatim and returns its result unchanged", async () => {
     let seen: typeof historyArgs | undefined;
     const historyResult = { ok: true, mode: "search", results: [] };
+
     const adapter: SystemToolChatHistoryAdapter = {
       readChatHistory: (args) => {
         seen = args;
+
         return Promise.resolve(historyResult);
       },
     };
+
     unregister = registerSystemToolChatHistoryAdapter(adapter);
 
     // Same object identity out as the adapter returned — the seam adds nothing.
@@ -59,6 +62,7 @@ describe("system-tool chat-history seam with a registered adapter", () => {
     const first: SystemToolChatHistoryAdapter = {
       readChatHistory: () => Promise.resolve(null),
     };
+
     unregister = registerSystemToolChatHistoryAdapter(first);
     assert.throws(() => registerSystemToolChatHistoryAdapter({ ...first }), {
       message: "A system-tool chat-history adapter is already registered",

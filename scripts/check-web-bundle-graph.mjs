@@ -35,15 +35,19 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // is an emptiness assertion, so a rule that cannot see its own violation reports a
 // clean graph exactly like a rule that works.
 const selfTest = webBundleGraphSelfTestFailures();
+
 if (selfTest.length > 0) {
   console.error("Web bundle graph self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the rules before trusting this check.");
   process.exit(1);
 }
 
 const { packages: forbidden, failures: forbidFailures } = nodeOnlyPackages(ROOT);
+
 const { files, failures: surfaceFailures } = browserSurface(ROOT);
+
 const { graph, seconds, failures: recordFailures } = await recordBundleGraph(ROOT);
 
 const violations = bundleViolations(graph, { forbidden, surface: new Set(files) });
@@ -55,6 +59,7 @@ const failures = [...new Set([...forbidFailures, ...surfaceFailures, ...recordFa
 
 if (failures.length > 0) {
   console.error("The browser bundle check could not resolve what it rules over:");
+
   for (const failure of failures) console.error(`- ${failure}`);
   console.error(
     "A check that cannot resolve its own inputs must not report success. Fix these, then re-run.\n",
@@ -63,12 +68,15 @@ if (failures.length > 0) {
 
 if (violations.length > 0) {
   console.error(`Forbidden modules in the browser bundle (${graph.importers.size} modules):`);
+
   for (const violation of violations) {
     console.error(`- [${violation.rule}] ${violation.message}`);
+
     if (violation.chain.length > 0) {
       console.error(`    reached from: ${violation.chain.join("\n               -> ")}`);
     }
   }
+
   console.error("");
 }
 
@@ -78,10 +86,13 @@ if (violations.length > 0) {
 // printing because nothing else in the repo would notice the source model drifting
 // away from the real resolver, and the graph is already built.
 const bundled = graphWorkspaceFiles(graph);
+
 const unbundled = files.filter((file) => !bundled.has(file));
+
 console.log(
   `Browser bundle graph: ${graph.importers.size} modules, ${bundled.size} workspace sources, recorded in ${seconds.toFixed(1)}s.`,
 );
+
 console.log(
   `The source fence scans ${files.length} files, ${unbundled.length} of which the bundle does not reach (expected: preview and debug routes, and not-yet-imported components).`,
 );

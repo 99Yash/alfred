@@ -45,6 +45,7 @@ export function parseJsonWith<T>(
   fallback: T | null = null,
 ): T | null {
   const result = schema.safeParse(safeJsonParse(raw));
+
   return result.success ? result.data : fallback;
 }
 
@@ -56,6 +57,7 @@ export function parseJsonWith<T>(
  */
 export function toJsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
+
   try {
     // SAFETY: JSON.stringify emitted this text, so it parses back to a plain
     // JSON value; unserializable input throws and degrades via the catch.

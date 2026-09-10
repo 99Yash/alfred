@@ -72,7 +72,9 @@ export function memoryStagingStore(): MemoryStagingStore {
 
   function mustGet(stagingId: string): StoredRow {
     const row = byId.get(stagingId);
+
     if (!row) throw new Error(`[memory-staging-store] no row '${stagingId}'`);
+
     return row;
   }
 
@@ -111,9 +113,11 @@ export function memoryStagingStore(): MemoryStagingStore {
     decide(stagingId, decision) {
       const row = mustGet(stagingId);
       row.status = decision.status;
+
       if (decision.decidedInput !== undefined) {
         row.decidedInput = toJsonValue(decision.decidedInput);
       }
+
       if (decision.rejectReason !== undefined) row.rejectReason = decision.rejectReason;
       row.decidedAt = decision.decidedAt ?? new Date();
       row.rowVersion += 1;
@@ -121,6 +125,7 @@ export function memoryStagingStore(): MemoryStagingStore {
 
     readBack(stagingId) {
       const row = byId.get(stagingId);
+
       return row ? { ...row } : null;
     },
 
@@ -142,9 +147,11 @@ export function memoryStagingStore(): MemoryStagingStore {
           row.proposedInputHash === query.proposedInputHash &&
           query.statuses.some((status) => status === row.status),
       );
+
       if (candidates.length === 0) return null;
       candidates.sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
       const hit = candidates[0]!;
+
       return { reason: hit.rejectReason, status: hit.status };
     },
 
@@ -155,6 +162,7 @@ export function memoryStagingStore(): MemoryStagingStore {
           candidate.requestHash === query.requestHash &&
           candidate.outcome === "unknown",
       );
+
       return row ? project(row) : null;
     },
 
@@ -169,14 +177,17 @@ export function memoryStagingStore(): MemoryStagingStore {
     async upsertStaging(values: StagingInsertValues) {
       const key = conflictKey(values.runId, values.toolCallId);
       const existingId = byConflictKey.get(key);
+
       if (existingId !== undefined) {
         // The no-op conflict SET: nothing is written, the stored row is
         // returned verbatim — the minted effect identity and outcome survive a
         // re-dispatch, exactly as Postgres keeps them.
         return { row: project(mustGet(existingId)), wasInserted: false };
       }
+
       nextId += 1;
       const id = values.id ?? `as_mem_${nextId}`;
+
       const row: StoredRow = {
         id,
         userId: values.userId,
@@ -205,13 +216,16 @@ export function memoryStagingStore(): MemoryStagingStore {
         requestHash: values.requestHash,
         rowVersion: values.rowVersion ?? 1,
       };
+
       byId.set(id, row);
       byConflictKey.set(key, id);
+
       return { row: project(row), wasInserted: true };
     },
 
     async promotePendingApproval(stagingId, promotion) {
       const row = mustGet(stagingId);
+
       if (row.status !== "pending" || row.requiresApproval) return null;
       row.riskTier = promotion.riskTier;
       row.proposedInput = promotion.proposedInput;
@@ -222,17 +236,21 @@ export function memoryStagingStore(): MemoryStagingStore {
       row.notifyAfterAt = promotion.notifyAfterAt;
       row.expiresAt = promotion.expiresAt;
       row.rowVersion += 1;
+
       return project(row);
     },
 
     async commitStaging(stagingId, expected, commit) {
       const row = mustGet(stagingId);
       const isObservedState = row.status === expected.status && row.outcome === expected.outcome;
+
       const isUnenrichedAggregateState =
         row.status === commit.status &&
         row.outcome === commit.outcome &&
         (commit.status === "executed" ? row.executeResult === null : row.executeError === null);
+
       if (!isObservedState && !isUnenrichedAggregateState) return false;
+
       switch (commit.status) {
         case "failed":
           row.status = "failed";
@@ -254,7 +272,9 @@ export function memoryStagingStore(): MemoryStagingStore {
           );
         }
       }
+
       row.rowVersion += 1;
+
       return true;
     },
   };

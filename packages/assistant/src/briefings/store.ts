@@ -40,9 +40,11 @@ export async function beginBriefing(args: {
     .returning();
 
   const insertedRow = inserted[0];
+
   if (insertedRow) return { action: "created", row: rowToBriefing(insertedRow) };
 
   const existing = await getBriefingByUserDateSlot(args.userId, args.briefingDate, args.slot);
+
   if (!existing) {
     throw new Error(
       `[briefing.store] conflict path found no row user=${args.userId} date=${args.briefingDate} slot=${args.slot}`,
@@ -52,6 +54,7 @@ export async function beginBriefing(args: {
   if (existing.status === "sent" || existing.status === "suppressed") {
     return { action: "skip_terminal", row: existing };
   }
+
   if (existing.status === "failed") {
     const retry = await updateBriefing(existing.id, {
       status: "pending",
@@ -67,6 +70,7 @@ export async function beginBriefing(args: {
       emailSendId: null,
       agentRunId: args.agentRunId,
     });
+
     return { action: "retry", row: retry };
   }
 
@@ -168,7 +172,9 @@ async function getBriefingByUserDateSlot(
       ),
     )
     .limit(1);
+
   const row = rows[0];
+
   return row ? rowToBriefing(row) : null;
 }
 
@@ -181,8 +187,11 @@ async function updateBriefing(briefingId: string, set: Partial<NewBriefing>): Pr
     })
     .where(eq(briefings.id, briefingId))
     .returning();
+
   const row = rows[0];
+
   if (!row) throw new Error(`[briefing.store] update returned no row id=${briefingId}`);
+
   return rowToBriefing(row);
 }
 

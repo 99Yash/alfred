@@ -62,7 +62,9 @@ export function OnboardingFlow({
   const primaryAction = (() => {
     if (step === 1)
       return { label: "Connect Google Workspace", onClick: () => setConsentOpen(true) };
+
     if (step === 2) return { label: "Skip for now", onClick: onSkip };
+
     return { label: "Start using Alfred", onClick: onFinish };
   })();
 
@@ -174,6 +176,7 @@ export function OnboardingFlow({
                     const stepNumber = (idx + 1) as OnboardingStep;
                     const isActive = stepNumber === step;
                     const isDone = stepNumber < step;
+
                     return (
                       <li key={s.id}>
                         <div
@@ -488,6 +491,7 @@ function ConnectShowcase({
           // GitHub connects live here; Google products ride the Workspace
           // grant; everything else is honestly "Soon".
           const isGithubConnected = p.connectable && Boolean(connectedGithub);
+
           const status: IntegrationTileStatus = isGithubConnected
             ? "connected"
             : isGoogleSlug(p.slug)
@@ -497,8 +501,10 @@ function ConnectShowcase({
               : p.connectable
                 ? "available"
                 : "soon";
+
           const detail =
             isGithubConnected && connectedGithub ? `@${connectedGithub}` : p.description;
+
           return (
             <li
               key={p.slug}
@@ -554,6 +560,7 @@ function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
       </span>
     );
   }
+
   return (
     <span
       className={cn(
@@ -687,7 +694,9 @@ function useLocalTime(): string {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
+
     return () => clearInterval(id);
   }, []);
+
   return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }

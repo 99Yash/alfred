@@ -24,6 +24,7 @@ function rest(partial: Partial<RestPassthroughRequest> & { path: string }): Rest
 }
 
 const github = REST_GATE_CONFIG.github;
+
 const notion = REST_GATE_CONFIG.notion;
 
 describe("assertReadableRestRequest — method gate", () => {
@@ -33,6 +34,7 @@ describe("assertReadableRestRequest — method gate", () => {
         github,
         rest({ method, path: "/repos/o/r/actions/runs" }),
       );
+
       assert.equal(r.ok, true, `${method} should pass`);
     }
   });
@@ -42,6 +44,7 @@ describe("assertReadableRestRequest — method gate", () => {
       github,
       rest({ method: "get", path: "/repos/o/r/commits" }),
     );
+
     assert.equal(r.ok, true);
   });
 
@@ -49,6 +52,7 @@ describe("assertReadableRestRequest — method gate", () => {
     for (const method of ["DELETE", "PATCH", "PUT", "OPTIONS", "TRACE"]) {
       const r = assertReadableRestRequest(github, rest({ method, path: "/repos/o/r" }));
       assert.equal(r.ok, false);
+
       if (!r.ok) assert.equal(r.reason, "method_not_read", method);
     }
   });
@@ -60,7 +64,9 @@ describe("assertReadableRestRequest — read-via-POST allowlist", () => {
       github,
       rest({ method: "POST", path: "/repos/o/r/issues" }),
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "path_not_allowlisted");
   });
 
@@ -75,6 +81,7 @@ describe("assertReadableRestRequest — read-via-POST allowlist", () => {
     for (const path of ["/pages", "/databases/abc123", "/blocks/x/children"]) {
       const r = assertReadableRestRequest(notion, rest({ method: "POST", path }));
       assert.equal(r.ok, false, path);
+
       if (!r.ok) assert.equal(r.reason, "path_not_allowlisted", path);
     }
   });
@@ -102,6 +109,7 @@ describe("assertReadableRestRequest — path hardening", () => {
     test(`rejects ${label} as invalid_path`, () => {
       const r = assertReadableRestRequest(github, rest({ method: "GET", path }));
       assert.equal(r.ok, false, `${label} should be rejected`);
+
       if (!r.ok) assert.equal(r.reason, "invalid_path", label);
     });
   }
@@ -110,6 +118,7 @@ describe("assertReadableRestRequest — path hardening", () => {
     const path = `/repos/o${String.fromCodePoint(7)}r`; // U+0007 bell, a real control char
     const r = assertReadableRestRequest(github, rest({ method: "GET", path }));
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "invalid_path");
   });
 
@@ -120,6 +129,7 @@ describe("assertReadableRestRequest — path hardening", () => {
       REST_GATE_CONFIG.docs,
       rest({ path: "/v1/documents/abc:get" }),
     );
+
     assert.equal(r.ok, true);
   });
 });
@@ -129,6 +139,7 @@ describe("assertReadableRestRequest — auth-scope denylist", () => {
     for (const path of ["/notifications", "/notifications/threads/1"]) {
       const r = assertReadableRestRequest(github, rest({ path }));
       assert.equal(r.ok, false, path);
+
       if (!r.ok) assert.equal(r.reason, "auth_scope_unreachable", path);
     }
   });
@@ -160,6 +171,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: 'query { __type(name: "Service") { fields { name } } }' }),
     );
+
     assert.equal(r.ok, true);
   });
 
@@ -167,6 +179,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: "query { __schema { types { name } } }" }),
     );
+
     assert.equal(r.ok, true);
   });
 
@@ -174,6 +187,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: "query { me { ...f } } fragment f on User { id }" }),
     );
+
     assert.equal(r.ok, true);
   });
 
@@ -181,7 +195,9 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: "mutation { deleteService(id: 1) { id } }" }),
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "graphql_non_query");
   });
 
@@ -189,7 +205,9 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: "subscription { deploymentEvents { id } }" }),
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "graphql_non_query");
   });
 
@@ -202,19 +220,23 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
         operationName: "Q",
       }),
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "graphql_non_query");
   });
 
   test("an empty document (no operation) is rejected as graphql_non_query", () => {
     const r = assertReadableGraphqlRequest(graphql({ document: "fragment f on User { id }" }));
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "graphql_non_query");
   });
 
   test("an unparseable document is deny-by-default graphql_non_query", () => {
     const r = assertReadableGraphqlRequest(graphql({ document: "this is not graphql {{{" }));
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "graphql_non_query");
   });
 
@@ -222,7 +244,9 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: "query A { me { id } } query B { you { id } }" }),
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "graphql_operation_ambiguous");
   });
 
@@ -230,6 +254,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: "query A { me { id } } query B { you { id } }", operationName: "B" }),
     );
+
     assert.equal(r.ok, true);
   });
 
@@ -237,7 +262,9 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
     const r = assertReadableGraphqlRequest(
       graphql({ document: "query A { me { id } }", operationName: "Nope" }),
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "graphql_operation_ambiguous");
   });
 });
@@ -251,6 +278,7 @@ describe("read gate — every denial reason is reachable", () => {
       "invalid_path",
       "auth_scope_unreachable",
     ];
+
     const graphqlReachable: ReadGateReason[] = ["graphql_non_query", "graphql_operation_ambiguous"];
     assert.equal(restReachable.length + graphqlReachable.length, 6);
   });

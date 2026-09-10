@@ -24,8 +24,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // that works. Run the fixtures first, so "no failures" means "looked and found
 // nothing" rather than "looked at nothing".
 const selfTest = typeFixtureProgramsSelfTestFailures();
+
 if (selfTest.length > 0) {
   console.error("Type fixture programs self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the rules before trusting this check.");
   process.exit(1);
@@ -35,6 +37,7 @@ const { checked, projectsProbed, failures } = typeFixtureFailures(ROOT);
 
 if (failures.length > 0) {
   console.error("A type fixture is read by no tsc program its package type-checks:\n");
+
   for (const failure of failures) console.error(`- ${failure}`);
   console.error(
     "\nA type fixture asserts nothing at runtime and no test runner executes it, so a fixture outside the checked program enforces nothing while reading as a pinned property. Widen the `include` of the project the package's `check-types` runs, add the second `tsc -p tsconfig.test.json` pass, or move the fixture into a directory that project already reads.",
@@ -46,6 +49,7 @@ const scriptCoverage = scriptProgramFailures(ROOT);
 
 if (scriptCoverage.failures.length > 0) {
   console.error("A script is read by no tsc program:\n");
+
   for (const failure of scriptCoverage.failures) console.error(`- ${failure}`);
   console.error(
     `\n\`scripts/\` is not a workspace, so no package's \`check-types\` reaches it; the root \`check-types\` script runs ${SCRIPTS_PROJECT} directly. A script outside that program is checked by nothing, and nothing about the file says so.`,

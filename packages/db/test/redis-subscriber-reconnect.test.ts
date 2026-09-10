@@ -55,14 +55,18 @@ import { before, describe, test } from "node:test";
  */
 
 const UPSTREAM_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379"; // drift-ok: this tree FAILS LOUDLY on an absent Redis instead of skipping
+
 /** The child's own window is 8s; this is that plus room for spawn and install. */
 const CHILD_DEADLINE_MS = 20_000;
+
 /** How long a reconnect onto a healthy peer may take before it counts as never. */
 const RECONNECT_DEADLINE_MS = 10_000;
+
 /** Time given to a re-issued SUBSCRIBE to reach the wire after `ready`. */
 const RESUBSCRIBE_WINDOW_MS = 750;
 
 const CHILD = fileURLToPath(new URL("./support/subscriber-reconnect-child.ts", import.meta.url));
+
 const TSX = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
 
 /** `*2\r\n$9\r\nsubscribe\r\n…` — the RESP framing of the command, not a substring of a payload. */
@@ -98,13 +102,18 @@ class SwitchableProxy {
     const upstreamPort = Number(upstream.port === "" ? "6379" : upstream.port);
     const upstreamHost = upstream.hostname;
     let self: SwitchableProxy | undefined;
+
     const server = createServer((downstream) => {
       const proxy = self;
+
       if (!proxy) {
         downstream.destroy();
+
         return;
       }
+
       proxy.track(downstream);
+
       if (proxy.mode === "silent") return;
       const upstreamSocket = connectTcp(upstreamPort, upstreamHost);
       // Not `pipe`: every client byte is inspected on its way through, which is
@@ -114,23 +123,28 @@ class SwitchableProxy {
       let pending = "";
       downstream.on("data", (chunk: Buffer) => {
         pending = (pending + chunk.toString("latin1")).slice(-512);
+
         for (;;) {
           const match = SUBSCRIBE_FRAME.exec(pending);
+
           if (!match) break;
           proxy.subscribeFrames += 1;
           pending = pending.slice(match.index + match[0].length);
         }
+
         upstreamSocket.write(chunk);
       });
       upstreamSocket.pipe(downstream);
       upstreamSocket.on("error", () => downstream.destroy());
       proxy.track(upstreamSocket);
     });
+
     self = new SwitchableProxy(server);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => resolve());
     });
+
     return self;
   }
 
@@ -142,9 +156,11 @@ class SwitchableProxy {
 
   get url(): string {
     const address = this.server.address();
+
     if (address === null || typeof address === "string") {
       throw new Error(`unexpected proxy address: ${String(address)}`);
     }
+
     return `redis://127.0.0.1:${address.port}`;
   }
 
@@ -177,11 +193,14 @@ class ChildEvents {
     // partial lines: the volume is a handful of lines, and a miscounted READY
     // is precisely the failure this file exists to avoid.
     this.seen.clear();
+
     for (const line of this.buffer.split("\n")) {
       const trimmed = line.trim();
+
       if (trimmed === "") continue;
       this.seen.set(trimmed, (this.seen.get(trimmed) ?? 0) + 1);
     }
+
     for (const waiter of this.waiters.slice()) {
       if ((this.seen.get(waiter.needle) ?? 0) >= waiter.count) {
         this.waiters.splice(this.waiters.indexOf(waiter), 1);
@@ -197,6 +216,7 @@ class ChildEvents {
   async wait(needle: string, count: number, timeoutMs: number, what: string): Promise<void> {
     if (this.count(needle) >= count) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+
     try {
       await new Promise<void>((resolve, reject) => {
         this.waiters.push({ needle, count, resolve });
@@ -217,6 +237,7 @@ async function runChild(
   outage: (proxy: SwitchableProxy, events: ChildEvents) => Promise<void>,
 ): Promise<ChildOutcome> {
   const proxy = await SwitchableProxy.start(new URL(UPSTREAM_URL));
+
   try {
     return await drive(kind, proxy, outage);
   } finally {
@@ -240,11 +261,13 @@ async function drive(
 
   let exitedEarly = false;
   child.once("exit", () => (exitedEarly = true));
+
   const exited = new Promise<number | null>((resolve) =>
     child.once("exit", (code) => resolve(code)),
   );
 
   let deadline: ReturnType<typeof setTimeout> | undefined;
+
   try {
     await events.wait(
       "SUBSCRIBED",
@@ -267,9 +290,11 @@ async function drive(
         }, CHILD_DEADLINE_MS);
       }),
     ]);
+
     return { code, stderr, resubscribeFrames };
   } finally {
     if (deadline) clearTimeout(deadline);
+
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 }

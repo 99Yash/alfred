@@ -78,6 +78,7 @@ export function Tip({
   children: ReactNode;
 }) {
   const { resolved } = useAppTheme();
+
   return (
     <Tooltip.Root
       disableHoverableContent

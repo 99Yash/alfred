@@ -29,14 +29,18 @@ import { deriveLoopEntityRef } from "./loop-key";
  * those are the deferred agent-executable run-states.
  */
 export const TODO_STATUSES = ["suggested", "open", "done", "dismissed", "cleared"] as const;
+
 export type TodoStatus = (typeof TODO_STATUSES)[number];
+
 export const todoStatusSchema = z.enum(TODO_STATUSES);
 
 // ─── Authorship ──────────────────────────────────────────────────────────
 
 /** Who created the row. Survives promotion so suggestion acceptance is measurable later. */
 export const TODO_CREATED_BY = ["user", "agent"] as const;
+
 export type TodoCreatedBy = (typeof TODO_CREATED_BY)[number];
+
 export const todoCreatedBySchema = z.enum(TODO_CREATED_BY);
 
 // ─── Forward-compat: executor + kind ───────────────────────────────────────
@@ -46,12 +50,16 @@ export const todoCreatedBySchema = z.enum(TODO_CREATED_BY);
  * (spawns an `agent_runs` run through the boss runtime). Inert at v1.
  */
 export const TODO_EXECUTORS = ["user", "agent"] as const;
+
 export type TodoExecutor = (typeof TODO_EXECUTORS)[number];
+
 export const todoExecutorSchema = z.enum(TODO_EXECUTORS);
 
 /** `task` in v1; executor-specific variants land later without a migration. */
 export const TODO_KINDS = ["task"] as const;
+
 export type TodoKind = (typeof TODO_KINDS)[number];
+
 export const todoKindSchema = z.enum(TODO_KINDS);
 
 // ─── Cross-source provenance ───────────────────────────────────────────────
@@ -71,6 +79,7 @@ export const todoSourceSchema = z
     url: z.url().max(2_048).optional(),
   })
   .strict();
+
 export type TodoSource = z.infer<typeof todoSourceSchema>;
 
 export const todoSourcesSchema = z.array(todoSourceSchema).max(64);
@@ -89,12 +98,15 @@ export function todoSourceKey(source: TodoSource): string {
 export function mergeTodoSources(existing: TodoSource[], incoming: TodoSource[]): TodoSource[] {
   const seen = new Set(existing.map(todoSourceKey));
   const merged = [...existing];
+
   for (const ref of incoming) {
     const key = todoSourceKey(ref);
+
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(ref);
   }
+
   return merged;
 }
 
@@ -126,11 +138,14 @@ function isGmailThreadRef(source: TodoSource): boolean {
  */
 export function boundTodoSources(sources: TodoSource[], max = TODO_SOURCES_MAX): TodoSource[] {
   if (sources.length <= max) return sources;
+
   if (max <= 0) return [];
 
   const nonThreadCount = sources.filter((s) => !isGmailThreadRef(s)).length;
+
   if (nonThreadCount >= max) {
     const survivingIdentityIndexes = newestIndexes(sources, (s) => !isGmailThreadRef(s), max);
+
     return sources.filter((s, i) => !isGmailThreadRef(s) && survivingIdentityIndexes.has(i));
   }
 
@@ -139,6 +154,7 @@ export function boundTodoSources(sources: TodoSource[], max = TODO_SOURCES_MAX):
   // Newest thread refs win: collect their keys from the tail, then filter the
   // original in place so surviving refs keep their relative order.
   const survivingThreadIndexes = newestIndexes(sources, isGmailThreadRef, room);
+
   return sources.filter((s, i) => !isGmailThreadRef(s) || survivingThreadIndexes.has(i));
 }
 
@@ -148,9 +164,11 @@ function newestIndexes(
   count: number,
 ): Set<number> {
   const indexes = new Set<number>();
+
   for (let i = sources.length - 1; i >= 0 && indexes.size < count; i--) {
     if (predicate(sources[i]!)) indexes.add(i);
   }
+
   return indexes;
 }
 
@@ -175,10 +193,13 @@ export function gmailTodoSources(input: {
   sender: string | null | undefined;
 }): TodoSource[] {
   const sources: TodoSource[] = [{ provider: "gmail", kind: "thread", id: input.threadId }];
+
   const loopRef = deriveLoopEntityRef(input.subject, {
     sender: input.sender,
     requireTrackerSender: true,
   });
+
   if (loopRef) sources.push({ provider: loopRef.provider, kind: loopRef.kind, id: loopRef.id });
+
   return sources;
 }

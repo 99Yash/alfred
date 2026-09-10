@@ -43,7 +43,9 @@ export const DOMAIN_CLASSES = [
   /** Role / service mailbox (noreply@, support@, a bounce/mailer host). Never an employer. */
   "service_or_role_account",
 ] as const;
+
 export const domainClassSchema = z.enum(DOMAIN_CLASSES);
+
 export type DomainClass = (typeof DOMAIN_CLASSES)[number];
 
 /**
@@ -194,11 +196,13 @@ const SERVICE_DOMAIN_LABELS: ReadonlySet<string> = new Set([
 ]);
 
 const EDU_TLDS: readonly string[] = [".edu"];
+
 // Academic second-level domains across ccTLDs: ac.uk, edu.au, ac.in, edu.sg, …
 const EDU_SLD_PATTERN = /\.(ac|edu)\.[a-z]{2,}$/;
 
 /** Tokens in a domain that hint at school / alumni / agency / personal — `ambiguous_domain`. */
 const AMBIGUOUS_DOMAIN_TOKENS: readonly string[] = ["alumni", "alum", "students", "student"];
+
 // The DNS hostname grammar is shared with user-model.ts via the `./hostname` leaf
 // (a dependency-free module both import): user-model value-imports
 // `classifyEmailDomain` from here, so importing the grammar from user-model would
@@ -217,8 +221,10 @@ function isValidDomain(domain: string): boolean {
 function isValidEmailLocalPart(localPart: string): boolean {
   for (const ch of localPart) {
     const code = ch.charCodeAt(0);
+
     if (code <= 0x1f || code === 0x7f || ch === "@" || /\s/u.test(ch)) return false;
   }
+
   return true;
 }
 
@@ -226,10 +232,14 @@ function isValidEmailLocalPart(localPart: string): boolean {
 function splitEmail(email: string): { localPart: string; domain: string } | null {
   const trimmed = email.trim().toLowerCase();
   const at = trimmed.indexOf("@");
+
   if (at <= 0 || at === trimmed.length - 1) return null;
+
   if (at !== trimmed.lastIndexOf("@")) return null;
   const localPart = trimmed.slice(0, at);
+
   if (!isValidEmailLocalPart(localPart)) return null;
+
   return { localPart, domain: normalizeDomain(trimmed.slice(at + 1)) };
 }
 
@@ -245,23 +255,31 @@ function isRoleServiceLocalPart(localPart: string): boolean {
   if (ROLE_SERVICE_LOCAL_PARTS.has(localPart)) return true;
   // A `+`-tagged role address (`support+ticket@`) keeps its base local part.
   const base = localPart.split("+", 1)[0] ?? localPart;
+
   if (ROLE_SERVICE_LOCAL_PARTS.has(base)) return true;
+
   // Any token of a delimited local part (`team.billing`, `no-reply`) being a role word.
   return base.split(/[._-]/).some((token) => ROLE_SERVICE_LOCAL_PARTS.has(token));
 }
 
 function isServiceDomain(domain: string): boolean {
   const firstLabel = domain.split(".", 1)[0] ?? domain;
+
   return SERVICE_DOMAIN_LABELS.has(firstLabel);
 }
 
 function isAmbiguousDomain(domain: string): boolean {
   if (DISPOSABLE_MAIL_DOMAINS.has(domain)) return true;
+
   if (SHARED_HOSTING_SUFFIXES.some((s) => hasParentSuffix(domain, s))) return true;
+
   if (EDU_TLDS.some((t) => domain.endsWith(t))) return true;
+
   if (EDU_SLD_PATTERN.test(domain)) return true;
   const labels = domain.split(".");
+
   if (AMBIGUOUS_DOMAIN_TOKENS.some((t) => labels.includes(t))) return true;
+
   return false;
 }
 
@@ -299,13 +317,16 @@ export interface ClassifyDomainInput {
  */
 export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | null {
   const parsed = input.email ? splitEmail(input.email) : null;
+
   const normalizedVerifiedHostedDomain = input.verifiedHostedDomain
     ? normalizeDomain(input.verifiedHostedDomain)
     : null;
+
   const verifiedHostedDomain =
     normalizedVerifiedHostedDomain && isValidDomain(normalizedVerifiedHostedDomain)
       ? normalizedVerifiedHostedDomain
       : null;
+
   const domain =
     parsed && verifiedHostedDomain
       ? verifiedHostedDomain
@@ -314,14 +335,21 @@ export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | n
         : input.domain
           ? normalizeDomain(input.domain)
           : null;
+
   if (!domain) return null;
+
   if (!isValidDomain(domain)) return null;
 
   if (parsed && isRoleServiceLocalPart(parsed.localPart)) return "service_or_role_account";
+
   if (isFreeMailDomain(domain)) return "consumer_email";
+
   if (isServiceDomain(domain)) return "service_or_role_account";
+
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
+
   if (parsed) return verifiedHostedDomain === domain ? "corporate_domain" : "ambiguous_domain";
+
   return "corporate_domain";
 }
 
@@ -330,6 +358,7 @@ export function isFreeMail(domainOrEmail: string | null | undefined): boolean {
   if (!domainOrEmail) return false;
   const parsed = domainOrEmail.includes("@") ? splitEmail(domainOrEmail) : null;
   const domain = parsed ? parsed.domain : normalizeDomain(domainOrEmail);
+
   return isFreeMailDomain(domain);
 }
 
@@ -364,7 +393,9 @@ export const GROUNDING_TIERS = [
   /** A bare mention in third-party content. Evidence only — never promotes. */
   "weak_mentions",
 ] as const;
+
 export const groundingTierSchema = z.enum(GROUNDING_TIERS);
+
 export type GroundingTier = (typeof GROUNDING_TIERS)[number];
 
 /** Rank for each tier (lower = stronger), derived from {@link GROUNDING_TIERS} order. */
@@ -404,6 +435,7 @@ export const PROJECTION_IDENTITY_KEYS = [
   "twitter_handle",
   "linkedin_url",
 ] as const satisfies readonly FactKey[];
+
 export type ProjectionIdentityKey = (typeof PROJECTION_IDENTITY_KEYS)[number];
 
 export const isProjectionIdentityKey = enumGuard(PROJECTION_IDENTITY_KEYS);
@@ -433,7 +465,9 @@ const CORPORATE_AFFILIATION_GROUNDABLE: ReadonlySet<ProjectionIdentityKey> = new
  */
 export function canGroundIdentityKey(tier: GroundingTier, key: ProjectionIdentityKey): boolean {
   if (tier === "weak_mentions") return false;
+
   if (tier === "corporate_affiliation") return CORPORATE_AFFILIATION_GROUNDABLE.has(key);
+
   return true;
 }
 

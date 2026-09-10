@@ -7,7 +7,9 @@ export function ConfidenceChip({ confidence }: { confidence: number }) {
       : confidence >= 0.5
         ? cn("bg-app-amber-1 text-app-amber-4")
         : cn("bg-app-red-1 text-app-red-4");
+
   const pct = (confidence * 100).toFixed(0);
+
   return (
     <span
       className={cn(

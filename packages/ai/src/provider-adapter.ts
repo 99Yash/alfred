@@ -20,6 +20,7 @@ import { codecForProvider } from "./tool-name-codec";
 
 // ── Re-exports preserving the public seam ──────────────────────────────────
 export { attachProviderTurnPolicy } from "./request-projection";
+
 export type { CacheTtl } from "./request-projection";
 
 /**
@@ -42,7 +43,9 @@ export type RouteReasoning = NonNullable<LanguageModelV4CallOptions["reasoning"]
 type KnownModelId<T> = T extends string ? (string extends T ? never : T) : never;
 
 type AnthropicModelId = KnownModelId<Parameters<AnthropicProvider>[0]>;
+
 type GoogleModelId = KnownModelId<Parameters<GoogleProvider>[0]>;
+
 type OpenAiModelId = KnownModelId<Parameters<OpenAIProvider["responses"]>[0]>;
 
 // ── Provider projections ───────────────────────────────────────────────────
@@ -65,6 +68,7 @@ function middlewareFor(provider: ProviderId): LanguageModelV4Middleware {
     specificationVersion: "v4",
     transformParams: async ({ params }) => {
       const { clean, cacheTtl } = cleanProviderRequest(params);
+
       return PROJECTIONS[provider](clean, cacheTtl);
     },
   };
@@ -72,21 +76,28 @@ function middlewareFor(provider: ProviderId): LanguageModelV4Middleware {
 
 // ── Provider-boundary name transform ───────────────────────────────────────
 type GenerateResult = Awaited<ReturnType<NonNullable<LanguageModelV4Middleware["wrapGenerate"]>>>;
+
 type ContentPart = GenerateResult["content"][number];
+
 type StreamResult = Awaited<ReturnType<NonNullable<LanguageModelV4Middleware["wrapStream"]>>>;
+
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer P> ? P : never;
+
 type PromptMessage = LanguageModelV4CallOptions["prompt"][number];
+
 type MessagePart = Extract<PromptMessage["content"], readonly unknown[]>[number];
 
 function encodeMessagePart(part: MessagePart, encode: (s: string) => string): MessagePart {
   if ((part.type === "tool-call" || part.type === "tool-result") && "toolName" in part) {
     return { ...part, toolName: encode(part.toolName) };
   }
+
   return part;
 }
 
 function encodePromptMessage(message: PromptMessage, encode: (s: string) => string): PromptMessage {
   if (!Array.isArray(message.content)) return message;
+
   // SAFETY: encodeMessagePart preserves the PromptMessage content-part union; mapping keeps PromptMessage.
   return {
     ...message,
@@ -130,6 +141,7 @@ function decodeContentPart(part: ContentPart, decode: (s: string) => string): Co
   ) {
     return { ...part, toolName: decode(part.toolName) };
   }
+
   return part;
 }
 
@@ -143,6 +155,7 @@ function decodeStreamPart(part: StreamPart, decode: (s: string) => string): Stre
   ) {
     return { ...part, toolName: decode(part.toolName) };
   }
+
   return part;
 }
 
@@ -157,6 +170,7 @@ function toolNameMiddleware(
       encodeParams(params as LanguageModelV4CallOptions, encode),
     wrapGenerate: async ({ doGenerate }) => {
       const result = await doGenerate();
+
       return {
         ...result,
         content: result.content.map((part) => decodeContentPart(part, decode)),
@@ -164,6 +178,7 @@ function toolNameMiddleware(
     },
     wrapStream: async ({ doStream }) => {
       const { stream, ...rest } = await doStream();
+
       return {
         ...rest,
         stream: stream.pipeThrough(
@@ -191,13 +206,16 @@ function toolNameMiddleware(
 export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4): LanguageModelV4 {
   const codec = codecForProvider(provider);
   const actualProvider = normalizeProvider(model.provider);
+
   if (actualProvider !== provider) {
     throw new Error(`cannot attach the ${provider} protocol to ${actualProvider}/${model.modelId}`);
   }
+
   const named = wrapLanguageModel({
     model,
     middleware: toolNameMiddleware(codec.encode, codec.decode),
   });
+
   return wrapLanguageModel({
     model: named,
     middleware: middlewareFor(provider),
@@ -223,6 +241,7 @@ export function googleLeg(modelId: GoogleModelId): LanguageModelV4 {
  */
 export function openAiLeg(modelId: OpenAiModelId): LanguageModelV4 {
   const model = adaptProviderModel("openai", activeGateway().createOpenAI().responses(modelId));
+
   return wrapLanguageModel({
     model,
     middleware: defaultSettingsMiddleware({
@@ -263,11 +282,14 @@ export function createProviderRouteModel(
   settings: RouteModelSettings,
 ): LanguageModelV4 {
   const [first, ...rest] = legs;
+
   if (!first) throw new Error("a model route needs at least one leg");
   let model: LanguageModelV4 = first();
+
   for (const makeLeg of rest) {
     model = composeFallback(model, makeLeg());
   }
+
   if (settings.providerOptions) {
     model = wrapLanguageModel({
       model,
@@ -276,6 +298,8 @@ export function createProviderRouteModel(
       }),
     });
   }
+
   model = wrapLanguageModel({ model, middleware: reasoningMiddleware(settings.reasoning) });
+
   return model;
 }

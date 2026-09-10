@@ -6,5 +6,6 @@ export function IntegrationsRoute() {
   // Without this, TanStack's flat-routes nesting renders the list as the
   // shared parent layout even on the detail URL. Mirrors `integrations.tsx`.
   const hasChild = useChildMatches().length > 0;
+
   return hasChild ? <Outlet /> : <IntegrationsPage />;
 }

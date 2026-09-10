@@ -40,6 +40,7 @@ const messageReceived: DomainEvent = {
 function consumerNamed(name: string) {
   const consumer = gmailIngestedTriggerConsumers().find((entry) => entry.name === name);
   assert.ok(consumer, `expected a consumer named ${name}`);
+
   return consumer;
 }
 
@@ -48,6 +49,7 @@ function registerAllConsumers(): () => void {
   const unregisters = gmailIngestedTriggerConsumers().map((consumer) =>
     registerTriggerConsumer(consumer),
   );
+
   return () => {
     for (const unregister of unregisters) unregister();
   };
@@ -80,6 +82,7 @@ describe("gmail documents_ingested consumers", () => {
     // swallows that rejection and the publish resolves — no body-level try/catch.
     const originalWarn = console.warn;
     console.warn = () => {};
+
     const unregisterHandler = registerGmailTriageHandler({
       async postInsert() {
         throw new Error("triage repair unavailable");
@@ -88,7 +91,9 @@ describe("gmail documents_ingested consumers", () => {
         return { applied: false, reason: "document-not-found" };
       },
     });
+
     const unregisterConsumers = registerAllConsumers();
+
     try {
       await assert.doesNotReject(() => publishDomainEvent(emptyBatch()));
     } finally {
@@ -103,6 +108,7 @@ describe("gmail documents_ingested consumers", () => {
     // NoGmailTriageHandlerRegisteredError (a TriggerConsumerBootError). The seam
     // must NOT swallow it — a broken boot path has to fail the job and retry.
     const unregisterConsumers = registerAllConsumers();
+
     try {
       await assert.rejects(
         publishDomainEvent(emptyBatch()),
@@ -146,6 +152,7 @@ describe("gmail documents_ingested consumers", () => {
         return { applied: false, reason: "document-not-found" };
       },
     });
+
     try {
       await assert.doesNotReject(() =>
         consumerNamed("gmail-triage-postinsert").accept(emptyBatch()),

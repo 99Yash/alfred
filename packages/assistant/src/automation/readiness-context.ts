@@ -16,5 +16,6 @@ export async function readWorkflowReadinessContext(
 ): Promise<WorkflowReadinessContext> {
   const availability = await readFreshIntegrationAvailability(userId);
   const eventSourceHealth = await readEventSourceHealth(userId, availability.providers, new Date());
+
   return { availability, eventSourceHealth };
 }

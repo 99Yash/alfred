@@ -59,9 +59,11 @@ export function summarizeToolSurfaceUsage(args: {
   const loaded = [...new Set(args.activeTools)]
     .filter((name) => !args.kernelTools.has(name))
     .sort();
+
   const preloaded = [...new Set(args.preloadedTools)]
     .filter((name) => !args.kernelTools.has(name))
     .sort();
+
   return {
     loaded,
     usedLoaded: loaded.filter((name) => args.invokedTools.has(name)),
@@ -82,14 +84,18 @@ export function invokedToolNamesFromTranscript(
   transcript: readonly AgentTranscriptMessage[],
 ): Set<ToolName> {
   const names = new Set<ToolName>();
+
   for (const message of transcript) {
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+
     for (const part of message.content) {
       if (!isRecord(part) || part.type !== "tool-call") continue;
       const toolName = part.toolName;
+
       if (typeof toolName === "string" && isToolName(toolName)) names.add(toolName);
     }
   }
+
   return names;
 }
 
@@ -107,6 +113,7 @@ export function toolNamesFromState(
   key: "activeTools" | "preloadedTools",
 ): ToolName[] {
   if (!isRecord(state) || !Array.isArray(state[key])) return [];
+
   return migrateRecordedToolNames(
     state[key].filter((name): name is string => typeof name === "string"),
   );
@@ -125,6 +132,7 @@ export async function getRunToolSurfaceUsage(runId: string): Promise<ToolSurface
     .limit(1);
 
   const run = rows[0];
+
   if (!run) return null;
 
   return summarizeToolSurfaceUsage({

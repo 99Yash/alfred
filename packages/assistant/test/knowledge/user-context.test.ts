@@ -29,11 +29,13 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-uctx-";
+
 const createdUserIds: string[] = [];
 
 function freshUserId(): string {
   const id = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(id);
+
   return id;
 }
 
@@ -42,6 +44,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -82,6 +85,7 @@ async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
     .values(
       specs.map((spec) => {
         const ts = new Date(base - spec.ageMinutes * 60_000);
+
         return {
           userId,
           key: spec.key,
@@ -108,6 +112,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -136,6 +141,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
 
   test("guarantees a focused contact (subjectEmail / query) past the ranked cap", async () => {
     const userId = await seedUser();
+
     // Fill the entire ranked cap (ENTITY_LIMIT = 50) with high-significance
     // contacts, then add ONE low-significance subject that ranks 51st and would
     // be truncated out of the ranked slice.
@@ -143,6 +149,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       name: `Filler ${String(i).padStart(2, "0")}`,
       score: 0.9,
     }));
+
     await seedEntities(userId, [
       ...fillers,
       { name: "Subject Person", score: 0.01, aliases: ["subject@example.com"] },
@@ -167,6 +174,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
 
   test("guarantees canonical identity facts survive a flood of recent noise (issue #329)", async () => {
     const userId = await seedUser();
+
     // Fill the ENTIRE fact cap (FACT_LIMIT = 30) with the most-recent, top-
     // confidence transactional noise, so identity is BOTH less recent AND no
     // more confident than every row competing for the slice — the worst case
@@ -178,6 +186,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       confidence: 1.0,
       ageMinutes: i + 1, // all newer than the identity fact below
     }));
+
     await seedFacts(userId, [
       ...noise,
       // Authoritative identity, older and same confidence → ranks ~#31 by

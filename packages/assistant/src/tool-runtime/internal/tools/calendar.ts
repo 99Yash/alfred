@@ -27,6 +27,7 @@ import {
 const MS_PER_DAY = 86_400_000;
 
 type CalendarListEventsInput = z.infer<typeof calendarListEventsInput>;
+
 type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
 
 export function resolveCalendarCreateEventRiskTier(input: CalendarCreateEventInput): ToolRiskTier {
@@ -51,6 +52,7 @@ const CALENDAR_READ_SCOPES = [
   GOOGLE_SCOPE.calendar.readonly,
   GOOGLE_SCOPE.calendar.events,
 ] as const;
+
 const CALENDAR_WRITE_SCOPES = [GOOGLE_SCOPE.calendar.events] as const;
 
 export function resolveCalendarListWindow(
@@ -66,6 +68,7 @@ export function resolveCalendarListWindow(
     if (bounds.timeMax <= bounds.timeMin) {
       throw new AppError("calendar_bounds_order");
     }
+
     return bounds;
   }
 
@@ -90,6 +93,7 @@ export function resolveCalendarListWindow(
   ) {
     return bounds;
   }
+
   return relative;
 }
 
@@ -106,10 +110,13 @@ function parseExplicitBounds(
 ): CalendarListWindow | null {
   if (!input.timeMin && !input.timeMax) return null;
   const timeMin = input.timeMin ? new Date(input.timeMin) : now;
+
   const timeMax = input.timeMax
     ? new Date(input.timeMax)
     : new Date(timeMin.getTime() + 7 * MS_PER_DAY);
+
   if (Number.isNaN(timeMin.getTime()) || Number.isNaN(timeMax.getTime())) return null;
+
   return { timeMin, timeMax, timezone };
 }
 
@@ -121,6 +128,7 @@ function resolveRelativeWindow(
   const zone = inZone(timezone);
   const today = zone.day(now);
   const relativeWindow = input.window ?? "next_7_days";
+
   if (relativeWindow === "next_7_days") {
     return {
       timeMin: zone.startOf(today),
@@ -131,6 +139,7 @@ function resolveRelativeWindow(
 
   const date = relativeWindow === "tomorrow" ? addDays(today, 1) : today;
   const [startHour, endHour] = partOfDayHours(input.partOfDay ?? "full_day");
+
   return {
     timeMin: zone.startOf(date, startHour),
     timeMax: endHour === 24 ? zone.startOf(addDays(date, 1)) : zone.startOf(date, endHour),
@@ -161,6 +170,7 @@ function compactEvent(credential: CalendarCredential, event: CalendarEvent) {
   const attendees = (event.attendees ?? [])
     .map((a) => {
       if (!a.email) return null;
+
       return {
         email: a.email,
         displayName: a.displayName ?? null,
@@ -169,8 +179,10 @@ function compactEvent(credential: CalendarCredential, event: CalendarEvent) {
       };
     })
     .filter((a): a is NonNullable<typeof a> => a !== null);
+
   const start = event.start?.dateTime ?? event.start?.date ?? null;
   const end = event.end?.dateTime ?? event.end?.date ?? null;
+
   return {
     id: event.id,
     accountLabel: credential.accountLabel,
@@ -200,12 +212,14 @@ function allReadsFailed(
 async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecuteContext) {
   const window = resolveCalendarListWindow(input, ctx.timezone);
   const credentials = await ctx.integrations.google.calendar.readCredentials();
+
   if (credentials.length === 0) {
     throw new AppError("connection_required", { integration: "calendar" });
   }
 
   const events: CompactCalendarEvent[] = [];
   const failures: Array<{ credentialId: string } & PublicAppError> = [];
+
   for (const credential of credentials) {
     try {
       const result = await ctx.integrations.google.calendar.listEvents({
@@ -216,12 +230,14 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
         orderBy: "startTime",
         maxResults: input.maxResults,
       });
+
       for (const event of result.events) events.push(compactEvent(credential, event));
     } catch (err) {
       const failure = toPublicAppError(
         err,
         publicAppError("account_read_failed", { integration: "calendar" }),
       );
+
       logger.error(
         {
           err,
@@ -254,6 +270,7 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
 
 async function executeCreateEvent(input: CalendarCreateEventInput, ctx: ToolExecuteContext) {
   const credential = await ctx.integrations.google.calendar.writeCredential();
+
   const created = await ctx.integrations.google.calendar.createEvent({
     credentialId: credential.id,
     calendarId: input.calendarId,
@@ -334,6 +351,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const credential = (await ctx.integrations.google.calendar.readCredentials())[0]!;
+
       return runRestPassthrough(ctx.integrations.google.calendar.passthrough(credential.id), input);
     },
   }),

@@ -48,6 +48,7 @@ async function seedGoogleCredential(args: {
   await db()
     .insert(user)
     .values({ id: args.userId, name: "Refresh Test", email: `${args.userId}@example.test` });
+
   return upsertCredential({
     userId: args.userId,
     provider: "google",
@@ -70,6 +71,7 @@ async function readStoredTokens(
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   return { accessToken: row?.accessToken ?? null, refreshToken: row?.refreshToken ?? null };
 }
 
@@ -91,6 +93,7 @@ function stubRefreshResponse(body: {
   let requests = 0;
   globalThis.fetch = async () => {
     requests++;
+
     return new Response(
       JSON.stringify({
         expires_in: 3600,
@@ -101,6 +104,7 @@ function stubRefreshResponse(body: {
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   };
+
   return {
     restore: () => {
       globalThis.fetch = originalFetch;
@@ -124,9 +128,11 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
     const databaseUrl = process.env.DATABASE_URL; // drift-ok: asserts which database the suite reached; dbBackedSkip already gated it
     assert.ok(databaseUrl, "DATABASE_URL must be set for the DB-backed suite");
     const configured = new URL(databaseUrl).pathname.replace(/^\//, "");
+
     const rows = rowsFromExecute<{ current_database: string }>(
       await db().execute(sql`select current_database()`),
     );
+
     assert.equal(rows[0]?.current_database, configured);
   });
 
@@ -136,6 +142,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
     await db()
       .insert(user)
       .values({ id: userId, name: "Refresh Test", email: `${userId}@example.test` });
+
     // Seed through the owner, not with a raw insert: the row must hold sealed
     // tokens (#453) or the refresh path below would be exercising a state the
     // application can no longer produce.
@@ -148,6 +155,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
       expiresAt: new Date(Date.now() - 60_000),
       scopes: ["scope:old"],
     });
+
     assert.ok(credential);
 
     const originalFetch = globalThis.fetch;
@@ -155,6 +163,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
     globalThis.fetch = async () => {
       refreshRequests++;
       await new Promise((resolve) => setTimeout(resolve, 25));
+
       return new Response(
         JSON.stringify({
           access_token: "fresh-access-token",
@@ -170,6 +179,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
       const tokens = await Promise.all(
         Array.from({ length: 5 }, () => getFreshAccessToken(credential.id)),
       );
+
       assert.deepEqual(
         tokens,
         Array.from({ length: 5 }, () => "fresh-access-token"),
@@ -180,6 +190,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
         .select({ accessToken: integrationCredentials.accessToken })
         .from(integrationCredentials)
         .where(eq(integrationCredentials.id, credential.id));
+
       // The column must NOT equal the plaintext the callers received — that
       // inequality is the whole point of the vault — and must open back to it.
       assert.notEqual(stored?.accessToken, "fresh-access-token");
@@ -193,16 +204,19 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
   test("refresh reseals BOTH tokens when the provider returns a new refresh_token", async () => {
     ensureOAuthTestEnv();
     const userId = `test-google-reseal-rotate-${randomUUID()}`;
+
     const { id } = await seedGoogleCredential({
       userId,
       accessToken: "expired-access-token",
       refreshToken: "refresh-token",
       expiresAt: new Date(Date.now() - 60_000),
     });
+
     const stub = stubRefreshResponse({
       access_token: "fresh-access-token",
       refresh_token: "rotated-refresh-token",
     });
+
     try {
       const token = await getFreshAccessToken(id);
       assert.equal(token, "fresh-access-token");
@@ -225,15 +239,18 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
   test("refresh reseals the carried-forward refresh_token when the provider omits one", async () => {
     ensureOAuthTestEnv();
     const userId = `test-google-reseal-carry-${randomUUID()}`;
+
     const { id } = await seedGoogleCredential({
       userId,
       accessToken: "expired-access-token",
       refreshToken: "refresh-token",
       expiresAt: new Date(Date.now() - 60_000),
     });
+
     // Google's usual case: the refresh response omits refresh_token, so the code
     // carries the prior one forward — and must reseal it, not store it raw.
     const stub = stubRefreshResponse({ access_token: "fresh-access-token" });
+
     try {
       const token = await getFreshAccessToken(id);
       assert.equal(token, "fresh-access-token");
@@ -255,6 +272,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
   test("a still-valid credential returns its token with no provider call and no row rewrite", async () => {
     ensureOAuthTestEnv();
     const userId = `test-google-still-valid-${randomUUID()}`;
+
     const { id } = await seedGoogleCredential({
       userId,
       accessToken: "seeded-access-token",
@@ -262,6 +280,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
       // Far in the future: outside the refresh threshold, so no refresh branch.
       expiresAt: new Date(Date.now() + 60 * 60_000),
     });
+
     const before = await readStoredTokens(id);
 
     const originalFetch = globalThis.fetch;
@@ -270,6 +289,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
       fetchCalls++;
       throw new Error("provider must not be called for a still-valid credential");
     };
+
     try {
       const token = await getFreshAccessToken(id);
       assert.equal(token, "seeded-access-token");

@@ -18,6 +18,7 @@ describe("extractGmailSignals", () => {
       "STARRED",
       "UNREAD",
     ]);
+
     assert.deepEqual(signals, {
       categories: ["promotions", "updates"],
       important: true,
@@ -68,6 +69,7 @@ describe("extractContentFlags", () => {
       "Your recovery email was updated.",
       "A third-party OAuth application was added to your account.",
     ];
+
     for (const text of cases) {
       assert.equal(extractContentFlags(text).hasSecurityKeyword, true, text);
     }

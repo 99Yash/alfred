@@ -31,6 +31,7 @@ export type BriefingJobData =
   | { kind: "briefing.run"; userId: string; slot?: BriefingSlot; reason?: "manual" | "forced" };
 
 let _queue: Queue<BriefingJobData> | undefined;
+
 let _worker: Worker<BriefingJobData> | undefined;
 
 export function getBriefingQueue(): Queue<BriefingJobData> {
@@ -44,6 +45,7 @@ export function getBriefingQueue(): Queue<BriefingJobData> {
       removeOnFail: { count: 50, age: 30 * 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -79,6 +81,7 @@ export async function closeBriefingQueue(): Promise<void> {
 
 async function processBriefingJob(job: Job<BriefingJobData>): Promise<unknown> {
   const data = job.data;
+
   switch (data.kind) {
     case "briefing.tick":
       return handleTick(new Date(job.timestamp));
@@ -117,9 +120,11 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
         resolveBriefingPreferences(u.id),
         resolveFeatureFlags(u.id),
       ]);
+
       const zone = inZone(prefs.timezone);
       const localHour = zone.hour(now);
       const briefingDate = zone.day(now);
+
       // Each slot is its own background-agent toggle (Settings → Features).
       // A disabled slot is dropped here, not at compose-time, so a switched-off
       // briefing never creates a run. UNSET defaults to ON (see resolveFeatureFlags).
@@ -127,15 +132,19 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
         { slot: "morning", hour: prefs.deliveryHour, enabled: flags.morningBriefing },
         { slot: "evening", hour: prefs.eveningHour, enabled: flags.eveningRecap },
       ];
+
       const slots = allSlots.filter((s) => s.enabled);
       // Slots the user switched off count as skipped for the tick metric.
       skipped += allSlots.length - slots.length;
       const matchingSlots = slots.filter((s) => localHour === s.hour);
+
       if (matchingSlots.length === 0) {
         skipped += slots.length;
         continue;
       }
+
       skipped += slots.length - matchingSlots.length;
+
       if (matchingSlots.length > 1) {
         console.warn(
           `[briefing:worker] user=${u.id} local hour=${localHour} matches ${matchingSlots
@@ -164,6 +173,7 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
   console.log(
     `[briefing:worker] tick scanned=${users.length} enqueued=${enqueued} skipped=${skipped}`,
   );
+
   return { scanned: users.length, enqueued, skipped };
 }
 
@@ -174,6 +184,7 @@ async function handleManualRun(
 ): Promise<{ runId: string }> {
   const prefs = await resolveBriefingPreferences(userId);
   const briefingDate = inZone(prefs.timezone).day();
+
   return enqueueBriefingRun({ userId, slot, briefingDate, reason });
 }
 
@@ -192,10 +203,12 @@ interface EnqueueBriefingRunArgs {
  */
 export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
   const slot = args.slot ?? "morning";
+
   const trigger =
     args.reason === "cron"
       ? ({ kind: "cron", scheduledFor: args.scheduledFor ?? new Date().toISOString() } as const)
       : ({ kind: "manual" } as const);
+
   const occurrence =
     trigger.kind === "cron"
       ? {
@@ -215,6 +228,7 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
             requestId: `${args.briefingDate}:${slot}:${args.reason}`,
           },
         };
+
   const { runId } = await startRun({
     userId: args.userId,
     workflowSlug: DAILY_BRIEFING_WORKFLOW_SLUG,
@@ -230,5 +244,6 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
     // rather than at a central dispatcher.
     ...occurrence,
   });
+
   return { runId };
 }

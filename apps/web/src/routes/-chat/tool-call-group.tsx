@@ -33,6 +33,7 @@ const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
  */
 function questionSummary(item: ToolCallView[]): AskUserSummary | null {
   const only = item.length === 1 ? item[0]! : null;
+
   return only && isQuestionApproval(only.toolName) ? askUserSummary(only) : null;
 }
 
@@ -89,6 +90,7 @@ export function ToolCallGroup({
   // toggle freely between transitions.
   const [value, setValue] = useState(active ? ITEM : "");
   const [prevActive, setPrevActive] = useState(active);
+
   if (prevActive !== active) {
     setPrevActive(active);
     setValue(active ? ITEM : "");
@@ -111,17 +113,22 @@ export function ToolCallGroup({
   const isRedundantAwait = (item: ToolCallView[]): boolean => {
     if (item.length !== 1 || item[0]!.toolName !== AWAIT_SUB_AGENT_TOOL) return false;
     const childRunId = asString(parseJsonRecord(item[0]!.argsPreview)?.childRunId);
+
     return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
   };
 
   const trail = buildTrail(tools, narration);
+
   if (trail.length === 0) return null;
 
   const only = trail.length === 1 ? trail[0]! : undefined;
+
   if (only?.kind === "tool" && only.tools.length === 1) {
     const loneTrail = trailFor(only.tools);
+
     if (loneTrail) return <SubAgentCard tool={only.tools[0]!} trail={loneTrail} />;
     const loneQuestion = questionSummary(only.tools);
+
     return loneQuestion ? (
       <QuestionAnswersCard summary={loneQuestion} />
     ) : (
@@ -141,10 +148,13 @@ export function ToolCallGroup({
     >
       {trail.map((item) => {
         if (item.kind !== "tool") return <NarrationRow key={item.key} text={item.text} />;
+
         if (isRedundantAwait(item.tools)) return null;
         const subAgent = trailFor(item.tools);
+
         if (subAgent) return <SubAgentCard key={item.key} tool={item.tools[0]!} trail={subAgent} />;
         const question = questionSummary(item.tools);
+
         return question ? (
           <QuestionAnswersCard key={item.key} summary={question} inTrail />
         ) : (

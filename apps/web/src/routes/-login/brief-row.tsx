@@ -11,6 +11,7 @@ export function BriefRow({
 }) {
   const dotClass =
     hue === "purple" ? "bg-app-purple-4" : hue === "sky" ? "bg-app-sky-4" : "bg-app-amber-4";
+
   return (
     <li className="flex items-start gap-2.5">
       <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", dotClass)} aria-hidden />

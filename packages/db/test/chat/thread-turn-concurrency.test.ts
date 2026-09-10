@@ -28,8 +28,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
+
 const DEDUP_INDEX = "agent_runs_dedup_key_idx";
+
 const ID_PREFIX = "test-turn-concurrency-";
+
 const createdUserIds: string[] = [];
 
 async function seedUserThread(): Promise<{ userId: string; threadId: string }> {
@@ -40,6 +43,7 @@ async function seedUserThread(): Promise<{ userId: string; threadId: string }> {
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
   const threadId = randomUUID();
   await db().insert(chatThreads).values({ id: threadId, userId });
+
   return { userId, threadId };
 }
 
@@ -62,6 +66,7 @@ async function insertChatTurnRun(args: {
       dedupKey: `chat:${args.userMessageId}`,
       metadata: { threadId: args.threadId, userMessageId: args.userMessageId },
     });
+
   return runId;
 }
 
@@ -71,6 +76,7 @@ async function expectUniqueViolation(fn: () => Promise<unknown>): Promise<string
   } catch (err) {
     return uniqueViolationConstraint(err);
   }
+
   throw new Error("expected a unique violation, but the insert succeeded");
 }
 
@@ -82,8 +88,10 @@ async function countActiveThreadRuns(userId: string, threadId: string): Promise<
     .select({ id: agentRuns.id, status: agentRuns.status, metadata: agentRuns.metadata })
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG)));
+
   return rows.filter((r) => {
     const meta = r.metadata as { threadId?: unknown } | null;
+
     return meta?.threadId === threadId && !TERMINAL.has(r.status);
   }).length;
 }
@@ -93,6 +101,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
     await closeRedis();
   });
@@ -104,6 +113,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
       where tablename = 'agent_runs'
         and indexname = ${CHAT_THREAD_ACTIVE_RUN_INDEX}
     `);
+
     const row = Array.isArray(result) ? result[0] : result.rows[0];
     assert.equal(Number((row as { count: number }).count), 1);
   });
@@ -116,6 +126,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
     const constraint = await expectUniqueViolation(() =>
       insertChatTurnRun({ userId, threadId, userMessageId: `m-${randomUUID()}` }),
     );
+
     assert.equal(constraint, CHAT_THREAD_ACTIVE_RUN_INDEX);
     assert.equal(await countActiveThreadRuns(userId, threadId), 1);
   });
@@ -128,6 +139,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
     const constraint = await expectUniqueViolation(() =>
       insertChatTurnRun({ userId, threadId, userMessageId }),
     );
+
     // Same dedup key → the double-submit index wins the collision, so the
     // endpoint recovers the in-flight run instead of returning busy.
     assert.equal(constraint, DEDUP_INDEX);
@@ -135,6 +147,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
 
   test("a sequential start after the prior run reaches a terminal state succeeds", async () => {
     const { userId, threadId } = await seedUserThread();
+
     let activeRunId = await insertChatTurnRun({
       userId,
       threadId,

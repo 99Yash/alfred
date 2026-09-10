@@ -14,6 +14,7 @@ export const CHAT_DELTA_MAX = 16_000;
  * #267). See `toolCardStarted` / `toolCardTerminal` in `@alfred/assistant`.
  */
 export const CHAT_TOOL_NAME_MAX = 120;
+
 export const CHAT_TOOL_CALL_ID_MAX = 200;
 
 /**
@@ -66,6 +67,7 @@ export const AGENT_RUN_ERROR_MAX = 4_000;
  * consumer or persisted read changes.
  */
 export const agentRunErrorSchema = z.string().max(AGENT_RUN_ERROR_MAX).brand<"AgentRunError">();
+
 export type AgentRunError = z.infer<typeof agentRunErrorSchema>;
 
 /**
@@ -337,6 +339,7 @@ export const eventPayloadSchemas = {
 } as const satisfies Record<string, z.ZodType>;
 
 export type EventKind = keyof typeof eventPayloadSchemas;
+
 export type EventPayload<K extends EventKind> = z.infer<(typeof eventPayloadSchemas)[K]>;
 
 export const EVENT_KINDS =
@@ -352,6 +355,7 @@ export const eventFrameSchema = z.object({
   payload: z.unknown(),
   createdAt: z.string(),
 });
+
 export type EventFrame = z.infer<typeof eventFrameSchema>;
 
 export function isKnownEventKind(value: string): value is EventKind {

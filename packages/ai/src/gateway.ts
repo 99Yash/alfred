@@ -70,6 +70,7 @@ function openaiGatewayFetch(token: string): typeof globalThis.fetch {
     const headers = new Headers(init?.headers);
     headers.delete("authorization");
     headers.set("cf-aig-authorization", `Bearer ${token}`);
+
     return fetch(input, { ...init, headers });
   };
 }
@@ -84,6 +85,7 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
       transcribe: (audio) => transcribeWithOpenAi(openai, audio),
     };
   }
+
   // Create once per Gateway instance — stateless from caller's view; no
   // module-level `let _cfAnthropic` needed. Each factory closes over its own
   // configured client rather than a lazy global.
@@ -92,6 +94,7 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     baseURL: gatewayBaseUrl(config, "anthropic"),
     headers: gatewayHeaders(config.token),
   });
+
   // No `headers` option here: `openaiGatewayFetch` already sets
   // `cf-aig-authorization` on every request, and two writers of one header is
   // a question a reader should not have to answer.
@@ -100,11 +103,13 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     baseURL: gatewayBaseUrl(config, "openai"),
     fetch: openaiGatewayFetch(config.token),
   });
+
   const cfGoogle = createGoogleGenerativeAI({
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "google-ai-studio/v1beta"),
     headers: gatewayHeaders(config.token),
   });
+
   return {
     kind: "cloudflare",
     createAnthropic: () => cfAnthropic,

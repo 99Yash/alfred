@@ -86,6 +86,7 @@ describe("conversation summary evidence", () => {
         },
       ],
     });
+
     assert.equal(evidence.tools[0]?.id, "tool_1");
     assert.deepEqual(evidence.tools[0]?.content, {
       messageId: "msg_2",
@@ -108,6 +109,7 @@ describe("conversation summary evidence", () => {
         attachment({ degradedText: "y".repeat(CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS + 1) }),
       ],
     });
+
     assert.match(JSON.stringify(evidence.messages[0]?.content), /\[truncated\]/);
     assert.match(JSON.stringify(evidence.attachments[0]?.content), /\[truncated\]/);
   });
@@ -127,11 +129,13 @@ describe("conversation summary evidence", () => {
       unresolvedQuestions: [],
       importantEntities: [],
     };
+
     const evidence = buildConversationSummaryEvidence({
       priorSummary,
       messages: [message({ id: "msg_2" })],
       attachments: [],
     });
+
     const eligible = eligibleConversationSummarySources(evidence);
     assert.equal(eligible.messageIds.has("msg_0"), true);
     assert.equal(eligible.messageIds.has("msg_1"), true);

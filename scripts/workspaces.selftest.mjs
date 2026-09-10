@@ -35,8 +35,10 @@ function write(root, relative, content) {
  */
 function withFixture(prefix, body) {
   const fixture = mkdtempSync(join(tmpdir(), prefix));
+
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+
     return body(fixture);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -59,6 +61,7 @@ function expectClean(label, result, failures) {
 
 function expectDirs(label, result, expected, failures) {
   const dirs = result.workspaces.map((workspace) => workspace.dir);
+
   if (JSON.stringify(dirs) !== JSON.stringify(expected)) {
     failures.push(
       `${label}: expected workspaces ${JSON.stringify(expected)}, received ${JSON.stringify(dirs)}`,
@@ -131,6 +134,7 @@ function manifestIdentityFailures() {
     const result = listWorkspaces(fixture);
     expectClean("manifest with no name", result, failures);
     expectDirs("manifest with no name", result, ["packages/anon"], failures);
+
     if (result.workspaces[0]?.name !== null) {
       failures.push(
         `manifest with no name: expected name null, received ${JSON.stringify(result.workspaces[0]?.name)}`,
@@ -143,6 +147,7 @@ function manifestIdentityFailures() {
     write(fixture, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
     write(fixture, "packages/numeric/package.json", '{ "name": 7 }\n');
     const result = listWorkspaces(fixture);
+
     if (result.workspaces[0]?.name !== null) {
       failures.push(
         `non-string name: expected name null, received ${JSON.stringify(result.workspaces[0]?.name)}`,
@@ -158,6 +163,7 @@ function manifestIdentityFailures() {
     const result = listWorkspaces(fixture);
     expectFailure("unparsable manifest", result, "packages/broken/package.json", failures);
     expectDirs("unparsable manifest", result, ["packages/broken"], failures);
+
     if (result.workspaces[0]?.name !== null) {
       failures.push(
         `unparsable manifest: expected name null, received ${JSON.stringify(result.workspaces[0]?.name)}`,
@@ -189,6 +195,7 @@ function undeclaredGroupFailures() {
     expectDirs("three groups", result, ["apps/site", "packages/lib", "tools/codegen"], failures);
 
     const groups = result.workspaces.map((workspace) => workspace.group);
+
     if (JSON.stringify(groups) !== JSON.stringify(["apps", "packages", "tools"])) {
       failures.push(
         `three groups: every workspace must carry the group its glob declared, received ${JSON.stringify(groups)}`,
@@ -197,6 +204,7 @@ function undeclaredGroupFailures() {
 
     const sources = result.workspaces.map((workspace) => workspace.source);
     const expectedSources = ["apps/site/src", "packages/lib/src", "tools/codegen/src"];
+
     if (JSON.stringify(sources) !== JSON.stringify(expectedSources)) {
       failures.push(
         `three groups: expected sources ${JSON.stringify(expectedSources)}, received ${JSON.stringify(sources)}`,
@@ -242,9 +250,11 @@ export function workspaceSelfTestFailures() {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const failures = workspaceSelfTestFailures();
+
   if (failures.length > 0) {
     for (const failure of failures) console.error(failure);
     process.exit(1);
   }
+
   console.log("workspaces self-test passed.");
 }

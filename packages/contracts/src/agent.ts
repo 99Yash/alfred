@@ -31,7 +31,9 @@ export const runStatusSchema = z.enum([
   "deferred",
   "blocked",
 ]);
+
 export const RUN_STATUSES = Object.freeze([...runStatusSchema.options]);
+
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
 /**
@@ -78,6 +80,7 @@ export const agentStepStatusSchema = z.enum([
   "deferred",
   "blocked",
 ]);
+
 export type AgentStepStatus = z.infer<typeof agentStepStatusSchema>;
 
 const AGENT_STEP_STATUS_KIND = {
@@ -104,6 +107,7 @@ export const AGENT_STEP_PROGRESS_STATUSES = Object.freeze(
 /** A committed step whose following wall-clock gap is intentional wait time. */
 export function isParkedAgentStepStatus(status: string): boolean {
   const parsed = agentStepStatusSchema.safeParse(status);
+
   return parsed.success && AGENT_STEP_STATUS_KIND[parsed.data] === "parked_progress";
 }
 
@@ -115,6 +119,7 @@ export function isParkedAgentStepStatus(status: string): boolean {
  * route as a write approval; the kind only selects the card and the copy.
  */
 export const approvalKindSchema = z.enum(["step", "action_staging", "question"]);
+
 export type ApprovalKind = z.infer<typeof approvalKindSchema>;
 
 export const wakeConditionSchema = z.discriminatedUnion("kind", [
@@ -127,6 +132,7 @@ export const wakeConditionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("timer"), wakeAt: z.string() }),
   z.object({ kind: z.literal("signal"), name: z.string() }),
 ]);
+
 export type WakeCondition = z.infer<typeof wakeConditionSchema>;
 
 /**
@@ -138,6 +144,7 @@ export const cronRunTriggerIdentitySchema = z.object({
   kind: z.literal("cron"),
   scheduledFor: z.string(),
 });
+
 export const eventRunTriggerIdentitySchema = z.object({
   kind: z.literal("event"),
   // Optional for tolerant reads of historical event runs written before
@@ -148,7 +155,9 @@ export const eventRunTriggerIdentitySchema = z.object({
   rawKind: rawEventKindSchema.optional(),
   eventId: z.string(),
 });
+
 export const manualRunTriggerIdentitySchema = z.object({ kind: z.literal("manual") });
+
 export const signalRunTriggerIdentitySchema = z.object({
   kind: z.literal("on_signal"),
   signalName: z.string(),
@@ -162,6 +171,7 @@ export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
   manualRunTriggerIdentitySchema,
   signalRunTriggerIdentitySchema,
 ]);
+
 export type AgentRunTrigger = z.infer<typeof agentRunTriggerSchema>;
 
 export const cronWorkflowTriggerSchema = z.object({
@@ -169,6 +179,7 @@ export const cronWorkflowTriggerSchema = z.object({
   schedule: z.string(),
   timezone: z.string().optional(),
 });
+
 export const eventWorkflowTriggerSchema = z.object({
   kind: z.literal("event"),
   // Closed enums per ADR-0047; `type` is required on writes so the
@@ -186,7 +197,9 @@ export const eventWorkflowTriggerSchema = z.object({
   accountRef: z.string().min(1).max(200).optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
 });
+
 export const manualWorkflowTriggerSchema = z.object({ kind: z.literal("manual") });
+
 export const signalWorkflowTriggerSchema = z.object({
   kind: z.literal("on_signal"),
   name: z.string(),
@@ -198,6 +211,7 @@ export const workflowTriggerSchema = z.discriminatedUnion("kind", [
   manualWorkflowTriggerSchema,
   signalWorkflowTriggerSchema,
 ]);
+
 export type WorkflowTrigger = z.infer<typeof workflowTriggerSchema>;
 
 export const workflowStepSchema = z.discriminatedUnion("kind", [
@@ -256,12 +270,15 @@ export const workflowStepSchema = z.discriminatedUnion("kind", [
     next: z.string().optional(),
   }),
 ]);
+
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 
 export const workflowStepsSchema = z.array(workflowStepSchema);
+
 export type WorkflowSteps = z.infer<typeof workflowStepsSchema>;
 
 export const workflowHilGatesSchema = z.array(z.string());
+
 export type WorkflowHilGates = z.infer<typeof workflowHilGatesSchema>;
 
 // ── Workflow revisions (#555, docs/plans/workflows-v1.md) ────────────────────
@@ -288,6 +305,7 @@ export const workflowRequiredCapabilitySchema = z.object({
     .refine((value) => Object.keys(value).length > 0, "Resource scope cannot be empty")
     .optional(),
 });
+
 export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabilitySchema>;
 
 /**
@@ -299,6 +317,7 @@ export function inputMatchesWorkflowResourceScope(
   resourceScope: NonNullable<WorkflowRequiredCapability["resourceScope"]>,
 ): boolean {
   if (!isRecord(input)) return false;
+
   return Object.entries(resourceScope).every(
     ([key, approved]) => key in input && canonicalJson(input[key]) === canonicalJson(approved),
   );
@@ -308,6 +327,7 @@ export function inputMatchesWorkflowResourceScope(
 export const workflowRequestedCapabilitySchema = workflowRequiredCapabilitySchema.extend({
   tool: z.string().trim().min(1).max(200),
 });
+
 export type WorkflowRequestedCapability = z.infer<typeof workflowRequestedCapabilitySchema>;
 
 /**
@@ -342,6 +362,7 @@ export const workflowRecoveryActionSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("retry") }),
 ]);
+
 export type WorkflowRecoveryAction = z.infer<typeof workflowRecoveryActionSchema>;
 
 /** Server-owned navigation for a recovery action the current product can execute. */
@@ -350,6 +371,7 @@ export const workflowRecoveryNavigationSchema = z.object({
   label: z.string().min(1).max(120),
   path: z.string().startsWith("/api/integrations/").max(1_000),
 });
+
 export type WorkflowRecoveryNavigation = z.infer<typeof workflowRecoveryNavigationSchema>;
 
 /**
@@ -371,6 +393,7 @@ export const workflowAuthoringProposalSchema = z.object({
   /** Friendly schedule text for the card ("every weekday at 7:00 AM ET"). */
   scheduleSummary: z.string().max(200).optional(),
 });
+
 export type WorkflowAuthoringProposal = z.infer<typeof workflowAuthoringProposalSchema>;
 
 /**
@@ -394,6 +417,7 @@ export const workflowBlockedSchema = z.object({
   /** The revision the blocker was observed against, when known. */
   revisionId: z.string().min(1).optional(),
 });
+
 export type WorkflowBlocked = z.infer<typeof workflowBlockedSchema>;
 
 /**
@@ -439,6 +463,7 @@ export const workflowRevisionDefinitionSchema = z.object({
   /** What must be ready before a run starts. Each tool here is in `allowedTools`. */
   requiredCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
 });
+
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
 
 /**
@@ -468,6 +493,7 @@ export const authorableEventTriggerSchema = z
   })
   .superRefine((trigger, ctx) => {
     const issue = authorableEventTriggerIssue(trigger);
+
     if (issue) ctx.addIssue({ code: "custom", message: issue.message, path: [issue.path] });
   });
 
@@ -486,6 +512,7 @@ export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
   authorableEventTriggerSchema,
   manualWorkflowTriggerSchema,
 ]);
+
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
 
 /** Model-facing proposal accepted by `system.author_workflow`. */
@@ -511,6 +538,7 @@ export const authorWorkflowInputSchema = z
         message: "expectedRowVersion is required when revising an existing workflow",
       });
     }
+
     if (!input.workflowId && input.expectedRowVersion !== undefined) {
       ctx.addIssue({
         code: "custom",
@@ -519,6 +547,7 @@ export const authorWorkflowInputSchema = z
       });
     }
   });
+
 export type AuthorWorkflowInput = z.infer<typeof authorWorkflowInputSchema>;
 
 export const workflowSchedulePreviewSchema = z
@@ -529,6 +558,7 @@ export const workflowSchedulePreviewSchema = z
     nextRunAt: z.string().optional(),
   })
   .strict();
+
 export type WorkflowSchedulePreview = z.infer<typeof workflowSchedulePreviewSchema>;
 
 export const workflowAccountDisplaySchema = z.object({
@@ -536,6 +566,7 @@ export const workflowAccountDisplaySchema = z.object({
   accountRef: z.string().min(1).max(200),
   accountLabel: z.string().min(1).max(200),
 });
+
 export type WorkflowAccountDisplay = z.infer<typeof workflowAccountDisplaySchema>;
 
 export const workflowCapabilityDisplaySchema = z.object({
@@ -545,11 +576,13 @@ export const workflowCapabilityDisplaySchema = z.object({
   accountLabel: z.string().min(1).max(200).optional(),
   resourceScope: jsonObjectSchema.optional(),
 });
+
 export type WorkflowCapabilityDisplay = z.infer<typeof workflowCapabilityDisplaySchema>;
 
 export const authorableWorkflowDefinitionSchema = workflowRevisionDefinitionSchema.safeExtend({
   trigger: authorableWorkflowTriggerSchema,
 });
+
 export type AuthorableWorkflowDefinition = z.infer<typeof authorableWorkflowDefinitionSchema>;
 
 /**
@@ -570,4 +603,5 @@ export const activateWorkflowInputSchema = z
     authoringProposal: workflowAuthoringProposalSchema.meta({ readOnly: true }),
   })
   .strict();
+
 export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;

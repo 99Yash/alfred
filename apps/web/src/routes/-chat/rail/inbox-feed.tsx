@@ -119,6 +119,7 @@ export function InboxFeed({
 
   const visible = useMemo(() => {
     if (serverPaginated) return filtered;
+
     return filtered.slice(pageIndex * PAGE_SIZE, pageIndex * PAGE_SIZE + PAGE_SIZE);
   }, [filtered, pageIndex, serverPaginated]);
 
@@ -127,9 +128,11 @@ export function InboxFeed({
   // current filter + page; an empty list disables the button.
   const visibleUnreadIds = useMemo(() => {
     const ids: string[] = [];
+
     for (const item of visible) {
       if (item.unread) ids.push(item.id);
     }
+
     return ids;
   }, [visible]);
 
@@ -163,6 +166,7 @@ export function InboxFeed({
         value={query}
         onChange={(next) => {
           setQuery(next);
+
           if (!serverPaginated) setLocalPage(0);
         }}
       />
@@ -172,6 +176,7 @@ export function InboxFeed({
           type="button"
           onClick={() => {
             setUnreadOnly((v) => !v);
+
             if (!serverPaginated) setLocalPage(0);
           }}
           aria-pressed={unreadOnly}
@@ -250,7 +255,9 @@ export function InboxFeed({
 function filterMatches(item: RailInboxItem, query: string, unreadOnly: boolean): boolean {
   if (unreadOnly && !item.unread) return false;
   const q = query.trim().toLowerCase();
+
   if (!q) return true;
+
   return (
     item.sender.toLowerCase().includes(q) ||
     item.subject.toLowerCase().includes(q) ||
@@ -273,6 +280,7 @@ function Pagination({
 }) {
   const prevDisabled = page === 0 || isLoading;
   const nextDisabled = page >= pageCount - 1 || isLoading;
+
   return (
     <div className="flex items-center gap-0.5">
       <PaginationButton label="Previous page" onClick={onPrev} disabled={prevDisabled}>
@@ -371,6 +379,7 @@ function InboxRow({
   const href = item.threadId
     ? `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`
     : undefined;
+
   // Render priority: `onOpen` (in-rail reader) → anchor (Gmail web)
   // → static container. A focusable element with no handler would lie
   // to keyboard users about the row being actionable.
@@ -380,6 +389,7 @@ function InboxRow({
   // read first. Hover/focus restores full opacity so it stays discoverable, and
   // the honest category chip is untouched (this never re-tags).
   const muted = item.attentionBand === "muted";
+
   const sharedClass = cn(
     "group relative -mx-0.5 w-full rounded-xl p-2 text-left",
     "flex items-start gap-2.5",
@@ -478,6 +488,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
       </span>
     );
   }
+
   // Favicon fallback for unmapped corporate / transactional domains.
   // Hide-on-error reveals the colored initial sitting behind the img,
   // so a 404'd favicon degrades cleanly to the existing avatar.
@@ -512,6 +523,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
       </span>
     );
   }
+
   return (
     <span
       aria-hidden
@@ -549,12 +561,14 @@ function CategoryChip({
     source === "user" && "gap-1 ring-1 ring-current/25 ring-inset",
     CATEGORY_CHIP[category],
   );
+
   const contents = (
     <>
       {source === "user" ? <Tag size={9} aria-hidden /> : null}
       {TRIAGE_DISPLAY[category]}
     </>
   );
+
   const sourceSuffix = source === "user" ? ", user override" : "";
 
   if (!onChange) {
@@ -679,6 +693,7 @@ function InboxDetailPane({
   const syncedTag = threadId ? triageTagsByThreadId?.get(threadId) : undefined;
   const displayedCategory = syncedTag?.category ?? data?.category ?? null;
   const displayedSource = syncedTag?.source ?? null;
+
   const changeCategory =
     syncedTag && onOverrideTag
       ? (category: TriageCategory) => onOverrideTag(syncedTag.threadId, category)
@@ -894,13 +909,16 @@ function ThreadMessageCard({
  */
 function buildSnippet(snippet: string | null, body: string): string {
   const s = (snippet ?? "").trim();
+
   if (s) return s;
+
   // Strip leading "On Mon, … wrote:" attribution lines and obvious
   // signatures so the snippet shows the actual reply content.
   const firstLine = body
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l.length > 0 && !l.startsWith(">") && !/^on .+wrote:/i.test(l));
+
   return (firstLine ?? "").slice(0, 140);
 }
 
@@ -991,11 +1009,13 @@ function EmailHtmlFrame({ html }: { html: string }) {
   // Only offer the toggle when there's a strict CSP to relax AND remote media
   // to load; otherwise every plain Original body would show a false warning.
   const canDisplayRemoteMedia = CSP_META_RE.test(html) && hasRemoteEmailMedia(html);
+
   const srcDoc =
     showRemoteMedia && canDisplayRemoteMedia ? html.replace(CSP_META_RE, LOOSE_CSP_META) : html;
 
   useLayoutEffect(() => {
     const frame = ref.current;
+
     if (!frame) return;
     let cancelled = false;
     let observer: ResizeObserver | null = null;
@@ -1003,7 +1023,9 @@ function EmailHtmlFrame({ html }: { html: string }) {
     const measure = () => {
       if (cancelled) return;
       const doc = frame.contentDocument;
+
       if (!doc?.body) return;
+
       // `scrollHeight` on body misses bottom margin on some emails;
       // documentElement covers both. Cap at a generous max so a runaway
       // email can't blow up the rail layout.
@@ -1011,12 +1033,14 @@ function EmailHtmlFrame({ html }: { html: string }) {
         Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 80),
         2400,
       );
+
       setHeight(h);
     };
 
     const onLoad = () => {
       measure();
       const doc = frame.contentDocument;
+
       if (doc?.body && typeof ResizeObserver !== "undefined") {
         observer = new ResizeObserver(() => measure());
         observer.observe(doc.body);
@@ -1024,6 +1048,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
     };
 
     frame.addEventListener("load", onLoad);
+
     // Some browsers fire load before the listener attaches when the
     // document was already populated synchronously by srcDoc — measure now.
     if (frame.contentDocument?.readyState === "complete") onLoad();
@@ -1080,6 +1105,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
 function SenderInitialAvatar({ name }: { name: string }) {
   const tone = useMemo(() => toneFromName(name), [name]);
   const initial = (name.trim().charAt(0) || "?").toUpperCase();
+
   return (
     <span
       aria-hidden
@@ -1105,10 +1131,13 @@ const TONE_CLASSES = [
 function toneFromName(name: string): string {
   if (!name) return TONE_CLASSES[0];
   let hash = 5381;
+
   for (let i = 0; i < name.length; i++) {
     hash = ((hash << 5) + hash + name.charCodeAt(i)) | 0;
   }
+
   const idx = Math.abs(hash) % TONE_CLASSES.length;
+
   return TONE_CLASSES[idx] ?? TONE_CLASSES[0];
 }
 
@@ -1126,6 +1155,7 @@ function AttachmentStrip({
   threadId: string | null;
 }) {
   const gmailHref = threadId ? `https://mail.google.com/mail/u/0/#inbox/${threadId}` : null;
+
   return (
     <section aria-label="Attachments" className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-0.5">
@@ -1145,6 +1175,7 @@ function AttachmentStrip({
 
 function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href: string | null }) {
   const { tone, icon: Icon } = attachmentVisual(attachment.mimeType, attachment.filename);
+
   const body = (
     <>
       <span
@@ -1178,6 +1209,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
       {href ? <ExternalLink size={12} className="shrink-0 text-white/55" aria-hidden /> : null}
     </>
   );
+
   const shared = cn(
     "group flex items-center gap-2.5 rounded-lg px-2 py-1.5",
     "bg-white/[0.07] ring-1 ring-white/15",
@@ -1188,6 +1220,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
         )
       : "",
   );
+
   return (
     <li>
       {href ? (
@@ -1215,18 +1248,23 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
 function attachmentVisual(mimeType: string, filename: string) {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const mime = mimeType.toLowerCase();
+
   if (mime.startsWith("image/")) {
     return { tone: "bg-app-purple-1 text-app-purple-4", icon: ImageIcon };
   }
+
   if (mime.startsWith("video/")) {
     return { tone: "bg-app-sky-1 text-app-sky-4", icon: Film };
   }
+
   if (mime.startsWith("audio/")) {
     return { tone: "bg-app-sky-1 text-app-sky-4", icon: Music };
   }
+
   if (mime === "application/pdf" || ext === "pdf") {
     return { tone: "bg-app-red-1 text-app-red-4", icon: FileText };
   }
+
   if (
     mime.includes("spreadsheet") ||
     mime === "text/csv" ||
@@ -1236,6 +1274,7 @@ function attachmentVisual(mimeType: string, filename: string) {
   ) {
     return { tone: "bg-app-green-1 text-app-green-4", icon: FileSpreadsheet };
   }
+
   if (
     mime.includes("word") ||
     mime === "text/plain" ||
@@ -1246,27 +1285,39 @@ function attachmentVisual(mimeType: string, filename: string) {
   ) {
     return { tone: "bg-app-amber-1 text-app-amber-4", icon: FileText };
   }
+
   return { tone: "bg-white/10 text-white/80", icon: FileIcon };
 }
 
 function extensionFor(filename: string, mimeType: string): string {
   const ext = filename.split(".").pop()?.toLowerCase();
+
   if (ext && ext.length <= 5 && ext !== filename.toLowerCase()) return ext;
   // Map a few common mime types to a readable label when the filename
   // doesn't carry an extension (e.g. `attachment` with `image/png`).
   const mime = mimeType.toLowerCase();
+
   if (mime === "application/pdf") return "pdf";
+
   if (mime.startsWith("image/")) return mime.slice(6);
+
   if (mime.startsWith("video/")) return mime.slice(6);
+
   if (mime.startsWith("audio/")) return mime.slice(6);
+
   return "";
 }
 
 const KIB = 1024;
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+
   if (bytes < KIB) return `${bytes} B`;
+
   if (bytes < KIB * KIB) return `${(bytes / KIB).toFixed(1)} KB`;
+
   if (bytes < KIB * KIB * KIB) return `${(bytes / (KIB * KIB)).toFixed(1)} MB`;
+
   return `${(bytes / (KIB * KIB * KIB)).toFixed(1)} GB`;
 }

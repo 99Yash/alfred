@@ -18,6 +18,7 @@ import {
 import { CHARS_PER_TOKEN } from "@alfred/assistant/execution";
 
 const CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
+
 const conversationSummaryRoutes = {
   primary: route("compactor"),
   fallback: route("compactorFallback"),
@@ -64,12 +65,14 @@ export async function generateConversationSummary(
   if (args.evidence.messages.length === 0) {
     throw new Error("conversation_summary_requires_messages");
   }
+
   const eligible = eligibleSources(args.evidence);
   const prompt = conversationSummaryPrompt(args.evidence);
   const run = dependencies.run ?? runConversationSummaryModel;
   const firstRoute = await (dependencies.selectRoute ?? selectConversationSummaryModel)(prompt);
   let lastError: unknown;
   const primaryAttempts = firstRoute === "primary" ? 2 : 0;
+
   for (let attempt = 0; attempt < primaryAttempts; attempt += 1) {
     try {
       const output = await run({
@@ -79,14 +82,17 @@ export async function generateConversationSummary(
         abortSignal: args.abortSignal,
         timeoutMs: args.timeoutMs,
       });
+
       return validateConversationSummary(output, eligible);
     } catch (error) {
       lastError = error;
+
       // Model-call failures skip the duplicate primary attempt. That retry is
       // reserved for malformed structured output from a healthy Sonnet route.
       if (!isSummaryValidationError(error)) break;
     }
   }
+
   try {
     const output = await run({
       prompt,
@@ -95,10 +101,12 @@ export async function generateConversationSummary(
       abortSignal: args.abortSignal,
       timeoutMs: args.timeoutMs,
     });
+
     return validateConversationSummary(output, eligible);
   } catch (error) {
     lastError = error;
   }
+
   throw lastError;
 }
 
@@ -108,6 +116,7 @@ export function chooseConversationSummaryModel(args: {
   fallbackWindowTokens: number;
 }): ConversationSummaryModelRoute {
   const budget = { outputReserveTokens: CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS };
+
   if (
     requestFitsContextWindow(args.inputTokens, {
       ...budget,
@@ -116,6 +125,7 @@ export function chooseConversationSummaryModel(args: {
   ) {
     return "primary";
   }
+
   if (
     requestFitsContextWindow(args.inputTokens, {
       ...budget,
@@ -124,6 +134,7 @@ export function chooseConversationSummaryModel(args: {
   ) {
     return "fallback";
   }
+
   throw new Error("conversation_summary_input_too_large");
 }
 
@@ -141,6 +152,7 @@ async function runConversationSummaryModel(args: {
   timeoutMs?: number | undefined;
 }): Promise<unknown> {
   const modelRoute = conversationSummaryRoutes[args.route];
+
   const result = await meteredGenerateObject(
     {
       model: modelRoute.model(),
@@ -162,6 +174,7 @@ async function runConversationSummaryModel(args: {
       name: `chat.conversation-summary.${args.route}`,
     },
   );
+
   return result.output;
 }
 
@@ -172,6 +185,7 @@ async function selectConversationSummaryModel(
     resolveModelContextWindow(conversationSummaryRoutes.primary.model()),
     resolveModelContextWindow(conversationSummaryRoutes.fallback.model()),
   ]);
+
   return chooseConversationSummaryModel({
     inputTokens: estimateInputTokens(prompt),
     primaryWindowTokens,
@@ -187,12 +201,14 @@ function estimateInputTokens(prompt: string): number {
 
 function isSummaryValidationError(error: unknown): boolean {
   if (NoObjectGeneratedError.isInstance(error)) return true;
+
   if (
     error instanceof Error &&
     error.message.startsWith("conversation_summary_invalid_provenance")
   ) {
     return true;
   }
+
   return (
     typeof error === "object" && error !== null && "name" in error && error.name === "ZodError"
   );
@@ -219,6 +235,7 @@ function eligibleSources(
     toolIds: uniqueIds(evidence.tools),
     attachmentIds: uniqueIds(evidence.attachments),
   };
+
   if (!evidence.priorSummary) return eligible;
   const messageIds = new Set(eligible.messageIds);
   const toolIds = new Set(eligible.toolIds);
@@ -226,22 +243,28 @@ function eligibleSources(
   const range = evidence.priorSummary.overview.sourceMessageRange;
   messageIds.add(range.fromMessageId);
   messageIds.add(range.toMessageId);
+
   for (const source of conversationSummarySources(evidence.priorSummary)) {
     const target =
       source.kind === "message" ? messageIds : source.kind === "tool" ? toolIds : attachmentIds;
+
     target.add(source.id);
   }
+
   return { messageIds, toolIds, attachmentIds };
 }
 
 function uniqueIds(records: readonly { id: string }[]): ReadonlySet<string> {
   const ids = new Set<string>();
+
   for (const record of records) {
     if (!record.id) throw new Error("conversation_summary_source_id_required");
+
     if (ids.has(record.id))
       throw new Error(`conversation_summary_duplicate_source_id:${record.id}`);
     ids.add(record.id);
   }
+
   return ids;
 }
 

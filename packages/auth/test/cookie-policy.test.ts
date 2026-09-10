@@ -38,11 +38,13 @@ describe("auth cookie policy (#454)", () => {
 
     // @ts-expect-error The cookie policy cannot omit both required fields.
     const emptyPolicy: CookiePolicy = {};
+
     const partialPolicy: CookiePolicy = {
       useSecureCookies: true,
       // @ts-expect-error The cookie attributes must be complete.
       defaultCookieAttributes: { secure: true },
     };
+
     const mismatchedPolicy: CookiePolicy = {
       useSecureCookies: true,
       // @ts-expect-error A secure-prefixed cookie must also have the Secure attribute.

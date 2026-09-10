@@ -42,7 +42,9 @@ const GMAIL_READ_SCOPES = [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modif
 function truncateSnippet(text: string | null): string | null {
   if (!text) return null;
   const collapsed = text.replace(/\s+/g, " ").trim();
+
   if (!collapsed) return null;
+
   return collapsed.length > GMAIL_SEARCH_SNIPPET_MAX_CHARS
     ? `${collapsed.slice(0, GMAIL_SEARCH_SNIPPET_MAX_CHARS - 1)}…`
     : collapsed;
@@ -72,13 +74,16 @@ export const gmailTools: readonly RegisteredTool[] = [
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
       const credential = await ctx.integrations.google.gmail.readCredential();
+
       const result = await ctx.integrations.google.gmail.listMessages({
         credentialId: credential.id,
         q: input.q,
         maxResults: input.maxResults,
         pageToken: input.pageToken,
       });
+
       const messageIds = result.messages.map((m) => m.id).filter((id) => id.length > 0);
+
       const cachedRows =
         messageIds.length > 0
           ? await db()
@@ -100,6 +105,7 @@ export const gmailTools: readonly RegisteredTool[] = [
                 ),
               )
           : [];
+
       const cachedBySourceId = new Map(
         cachedRows
           .filter((row) => row.sourceId !== null)
@@ -117,6 +123,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       // failed fetch leaves nulls rather than failing the search.
       const uncachedIds = messageIds.filter((id) => !cachedBySourceId.has(id));
       const liveBySourceId = new Map<string, ExtractedMessage>();
+
       if (uncachedIds.length > 0) {
         const settled = await Promise.allSettled(
           uncachedIds.map((id) =>
@@ -127,6 +134,7 @@ export const gmailTools: readonly RegisteredTool[] = [
             }),
           ),
         );
+
         for (const outcome of settled) {
           if (outcome.status === "fulfilled") {
             liveBySourceId.set(outcome.value.id, extractMessageContent(outcome.value));
@@ -141,6 +149,7 @@ export const gmailTools: readonly RegisteredTool[] = [
           const metadata = cached ? parseGmailDocumentMetadata(cached.metadata) : null;
           const fromMeta = metadata?.from ?? null;
           const snippetMeta = metadata?.snippet ?? null;
+
           return {
             messageId: m.id,
             threadId: m.threadId,
@@ -189,6 +198,7 @@ export const gmailTools: readonly RegisteredTool[] = [
             ctx.accountRef ? eq(documents.accountId, ctx.accountRef) : undefined,
             eq(documents.sourceId, input.messageId!),
           );
+
       const rows = await db()
         .select({
           id: documents.id,
@@ -203,7 +213,9 @@ export const gmailTools: readonly RegisteredTool[] = [
         .from(documents)
         .where(where)
         .limit(1);
+
       const row = rows[0];
+
       if (row) {
         return {
           status: "ok",
@@ -228,12 +240,15 @@ export const gmailTools: readonly RegisteredTool[] = [
       // a genuine not_found (it's our own id; there's nothing live to fetch).
       if (input.messageId) {
         const credential = await ctx.integrations.google.gmail.readCredential();
+
         const message = await ctx.integrations.google.gmail.getMessage({
           credentialId: credential.id,
           id: input.messageId,
           format: "full",
         });
+
         const extracted = extractMessageContent(message);
+
         return {
           status: "ok",
           source: "live" as const,
@@ -286,6 +301,7 @@ export const gmailTools: readonly RegisteredTool[] = [
         activeMailbox: credential.accountLabel,
         input,
       });
+
       const sent = await ctx.integrations.google.gmail.sendMessage({
         credentialId: credential.id,
         to: input.to,
@@ -295,6 +311,7 @@ export const gmailTools: readonly RegisteredTool[] = [
         bodyText: input.bodyText,
         threadId: input.threadId,
       });
+
       return { ok: true, messageId: sent.id, threadId: sent.threadId };
     },
   }),
@@ -315,6 +332,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const credential = await ctx.integrations.google.gmail.readCredential();
+
       return runRestPassthrough(ctx.integrations.google.gmail.passthrough(credential.id), input);
     },
   }),

@@ -14,6 +14,7 @@ import { restPassthroughCapability, type RestPassthroughProfile } from "../share
 import type { RetryPolicy } from "../shared/retry";
 
 const NOTION_API = "https://api.notion.com/v1";
+
 const NOTION_VERSION = "2022-06-28";
 
 /**
@@ -63,6 +64,7 @@ async function notionFetch(
 
 /** A Notion rich-text span. */
 const richTextSchema = z.object({ plain_text: z.string().catch("").optional() });
+
 type RichText = z.infer<typeof richTextSchema>;
 
 /** The title fields shared by page and database search projections. */
@@ -74,6 +76,7 @@ const notionTitleFieldsSchema = z.object({
   // its `type`, so one unrelated malformed property cannot hide the page.
   properties: z.record(z.string(), z.unknown()).optional(),
 });
+
 type NotionTitleFields = z.infer<typeof notionTitleFieldsSchema>;
 
 const notionTitlePropertySchema = z.object({
@@ -109,6 +112,7 @@ const notionCreatedPageSchema = z.object({
 
 /** A block keeps its dynamic type payload; search/page projections do not. */
 const notionBlockSchema = z.object({ type: z.string() }).catchall(z.unknown());
+
 type NotionBlock = z.infer<typeof notionBlockSchema>;
 
 const notionBlockChildrenResponseSchema = z.object({
@@ -126,6 +130,7 @@ function paragraphBlock(content: string) {
     paragraph: { rich_text: content ? [{ type: "text", text: { content } }] : [] },
   } as const;
 }
+
 type ParagraphBlock = ReturnType<typeof paragraphBlock>;
 
 /** Notion rejects a single request with more than 100 child blocks. */
@@ -137,14 +142,17 @@ function titleOf(result: NotionTitleFields): string {
   if (result.title !== undefined) return joinRichText(result.title);
   // Page object: find the property whose type is "title".
   const props = result.properties;
+
   if (props) {
     for (const value of Object.values(props)) {
       const parsed = notionTitlePropertySchema.safeParse(value);
+
       if (parsed.success && parsed.data.type === "title") {
         return joinRichText(parsed.data.title ?? []);
       }
     }
   }
+
   return "";
 }
 
@@ -182,9 +190,11 @@ async function notionSearch(
     ...(args.query ? { query: args.query } : {}),
     ...(args.filter !== "all" ? { filter: { value: args.filter, property: "object" } } : {}),
   };
+
   const json = notionSearchResponseSchema.parse(
     await notionFetch(accessToken, "/search", { method: "POST", body }, retry, true),
   );
+
   return {
     hits: json.results.map((r) => ({
       id: r.id,
@@ -214,12 +224,15 @@ async function notionGetPage(
 ): Promise<NotionPage> {
   // The two reads are independent — fetch them concurrently (~half the latency).
   const id = encodeURIComponent(args.pageId);
+
   const [pageRaw, blocksRaw] = await Promise.all([
     notionFetch(accessToken, `/pages/${id}`, undefined, retry),
     notionFetch(accessToken, `/blocks/${id}/children?page_size=100`, undefined, retry),
   ]);
+
   const page = notionPageSchema.parse(pageRaw);
   const blocks = notionBlockChildrenResponseSchema.parse(blocksRaw);
+
   return {
     id: page.id,
     title: titleOf(page),
@@ -232,12 +245,14 @@ async function notionGetPage(
 /** Render the common text-bearing block types to plain text; ignore the rest. */
 function blockToText(block: NotionBlock): string {
   const payload = textPayloadSchema.safeParse(block[block.type]);
+
   return payload.success ? joinRichText(payload.data.rich_text ?? []) : "";
 }
 
 /** Turn newline-separated text into Notion paragraph blocks. */
 function paragraphBlocks(content: string | undefined): ParagraphBlock[] {
   if (!content) return [];
+
   return content.split("\n").map(paragraphBlock);
 }
 
@@ -248,6 +263,7 @@ async function appendChildrenInBatches(
   children: ParagraphBlock[],
 ): Promise<void> {
   const id = encodeURIComponent(blockId);
+
   for (let i = 0; i < children.length; i += NOTION_MAX_CHILDREN_PER_REQUEST) {
     await notionFetch(accessToken, `/blocks/${id}/children`, {
       method: "PATCH",
@@ -272,6 +288,7 @@ async function notionCreatePage(
   // Notion caps a single request at 100 child blocks: create the page with the
   // first batch inline, then PATCH the remainder in further ≤100 batches.
   const children = paragraphBlocks(args.content);
+
   const json = notionCreatedPageSchema.parse(
     await notionFetch(accessToken, "/pages", {
       method: "POST",
@@ -284,7 +301,9 @@ async function notionCreatePage(
       },
     }),
   );
+
   const pageId = json.id;
+
   if (pageId && children.length > NOTION_MAX_CHILDREN_PER_REQUEST) {
     await appendChildrenInBatches(
       accessToken,
@@ -292,6 +311,7 @@ async function notionCreatePage(
       children.slice(NOTION_MAX_CHILDREN_PER_REQUEST),
     );
   }
+
   return { id: pageId, url: json.url ?? null };
 }
 
@@ -301,6 +321,7 @@ async function notionAppendBlocks(
 ): Promise<{ appended: number }> {
   const children = paragraphBlocks(args.content);
   await appendChildrenInBatches(accessToken, args.blockId, children);
+
   return { appended: children.length };
 }
 
@@ -318,6 +339,7 @@ export function createNotionClient(
     retry,
     resolveProfile: async () => notionPassthroughProfile(await resolveToken()),
   });
+
   return {
     async search(args: Parameters<typeof notionSearch>[1]) {
       return notionSearch(await resolveToken(), args, retry);

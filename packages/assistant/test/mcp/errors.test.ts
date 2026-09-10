@@ -9,6 +9,7 @@ describe("boundedMcpErrorText", () => {
       new Error("'rebind.example' resolves to a private or internal address (10.0.0.5)."),
       { code: "EBLOCKEDHOST" },
     );
+
     const text = boundedMcpErrorText(new TypeError("fetch failed", { cause: blocked }));
     assert.match(text, /rebind\.example.*10\.0\.0\.5/);
     assert.doesNotMatch(text, /^fetch failed$/);
@@ -18,6 +19,7 @@ describe("boundedMcpErrorText", () => {
     const refused = Object.assign(new Error("connect ECONNREFUSED 93.184.216.34:443"), {
       code: "ECONNREFUSED",
     });
+
     assert.equal(
       boundedMcpErrorText(new TypeError("fetch failed", { cause: refused })),
       "fetch failed: connect ECONNREFUSED 93.184.216.34:443",

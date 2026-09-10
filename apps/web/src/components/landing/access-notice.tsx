@@ -4,6 +4,7 @@ import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 const CONTACT_EMAIL = "yashgouravkar@gmail.com";
+
 const REPO_URL = "https://github.com/99Yash/alfred";
 
 /**

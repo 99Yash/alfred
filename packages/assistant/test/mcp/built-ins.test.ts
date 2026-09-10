@@ -13,12 +13,15 @@ import { resolveBuiltInClient } from "../../src/connections/mcp/built-ins";
  */
 
 const CLIENT_ID = "GITHUB_MCP_CLIENT_ID";
+
 const CLIENT_SECRET = "GITHUB_MCP_CLIENT_SECRET";
+
 const ENDPOINT = new URL(GITHUB_MCP_ENDPOINT_HREF);
 
 function setEnv(clientId?: string, clientSecret?: string): void {
   if (clientId === undefined) delete process.env[CLIENT_ID];
   else process.env[CLIENT_ID] = clientId;
+
   if (clientSecret === undefined) delete process.env[CLIENT_SECRET];
   else process.env[CLIENT_SECRET] = clientSecret;
 }

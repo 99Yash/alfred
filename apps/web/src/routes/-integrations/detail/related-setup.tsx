@@ -6,6 +6,7 @@ import { SectionHeading } from "./section-heading";
 
 export function RelatedSetup({ provider }: { provider: IntegrationPage }) {
   const related = getRelatedPages(provider);
+
   if (related.length === 0) return null;
 
   return (

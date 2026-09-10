@@ -23,6 +23,7 @@ describe("integration boundary cutover (#551)", () => {
         new URL(`../../../src/tool-runtime/internal/tools/${module}.ts`, import.meta.url),
         "utf8",
       );
+
       assert.match(source, /ctx\.integrations\./);
       assert.doesNotMatch(source, OLD_CREDENTIAL_DOOR);
     });

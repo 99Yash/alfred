@@ -34,6 +34,7 @@ import { createHash } from "node:crypto";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 250;
+
 const POLL_TIMEOUT_MS = 60_000;
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -43,11 +44,14 @@ function assert(cond: unknown, msg: string): asserts cond {
 async function findOrCreateSmokeUser(): Promise<string> {
   const email = "smoke-extract@alfred.local";
   const existing = await db().select().from(userTable).where(eq(userTable.email, email));
+
   if (existing[0]) return existing[0].id;
+
   const inserted = await db()
     .insert(userTable)
     .values({ name: "Smoke Extract", email, emailVerified: true })
     .returning({ id: userTable.id });
+
   return inserted[0]!.id;
 }
 
@@ -55,6 +59,7 @@ async function plantDocument(userId: string, runTag: string) {
   // Idempotent on (user, source, source_id): re-running the smoke
   // returns the same row id.
   const sourceId = `smoke-extract-${runTag}`;
+
   const content = [
     "From: alice@acme.test",
     "To: me@example.com",
@@ -65,6 +70,7 @@ async function plantDocument(userId: string, runTag: string) {
     "",
     "— Alice",
   ].join("\n");
+
   const contentHash = createHash("sha256").update(content).digest("hex");
 
   const [row] = await db()
@@ -83,20 +89,27 @@ async function plantDocument(userId: string, runTag: string) {
       set: { contentHash },
     })
     .returning({ id: documents.id });
+
   if (!row) throw new Error("failed to plant smoke document");
+
   return row.id;
 }
 
 async function pollRun(runId: string, label: string) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+
     if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       return row;
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
@@ -137,6 +150,7 @@ async function main() {
     sinceDays: 30,
     maxDocs: 5,
   });
+
   console.log(`[smoke-extract] run 1 enqueued: ${runId1}`);
 
   const run1 = await pollRun(runId1, "run 1 completion");
@@ -154,6 +168,7 @@ async function main() {
   const managerFacts = await recallActiveByKey(userId, `smoke:manager:${runTag}`, {
     includeProposed: true,
   });
+
   assert(managerFacts.length === 1, `expected 1 manager fact, got ${managerFacts.length}`);
   assert(managerFacts[0]!.confidence > 0.9, "manager confidence should match proposal");
 
@@ -162,6 +177,7 @@ async function main() {
     .select()
     .from(memoryExtractionStatus)
     .where(eq(memoryExtractionStatus.documentId, docId));
+
   assert(statusRow, "memory_extraction_status row missing");
   assert(statusRow.lastRunId === runId1, `lastRunId mismatch`);
   assert(statusRow.proposedCount === 2, `proposedCount mismatch ${statusRow.proposedCount}`);
@@ -173,6 +189,7 @@ async function main() {
     .where(and(eq(memoryChunks.userId, userId), eq(memoryChunks.kind, "extraction_run")))
     .orderBy(desc(memoryChunks.createdAt))
     .limit(1);
+
   assert(summaryChunks[0], "extraction_run memory_chunk missing");
   assert(
     summaryChunks[0].content.includes(runId1),
@@ -192,6 +209,7 @@ async function main() {
     sinceDays: 30,
     maxDocs: 5,
   });
+
   console.log(`[smoke-extract] run 2 enqueued: ${runId2}`);
 
   const run2 = await pollRun(runId2, "run 2 completion");
@@ -209,6 +227,7 @@ async function main() {
   const stillOne = await recallActiveByKey(userId, `smoke:manager:${runTag}`, {
     includeProposed: true,
   });
+
   assert(stillOne.length === 1, `dup guard failed — got ${stillOne.length} active rows`);
 
   console.log("\n[smoke-extract] PASS");

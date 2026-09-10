@@ -13,7 +13,9 @@ import { INTEGRATION_SLUGS } from "./integrations";
  *   - `deep`     — escalation for hard, multi-step turns.
  */
 export const chatModelTierValues = ["standard", "deep"] as const;
+
 export type ChatModelTier = (typeof chatModelTierValues)[number];
+
 export const chatModelTierSchema = z.enum(chatModelTierValues);
 
 /**
@@ -61,7 +63,9 @@ export const chatErrorKindValues = [
   "too_long",
   "generic",
 ] as const;
+
 export type ChatErrorKind = (typeof chatErrorKindValues)[number];
+
 export const chatErrorKindSchema = z.enum(chatErrorKindValues);
 
 /**
@@ -85,6 +89,7 @@ export const chatConnectNudgeSchema = z.object({
   integration: z.enum(INTEGRATION_SLUGS),
   action: z.enum(["connect", "reconnect"]),
 });
+
 export type ChatConnectNudge = z.infer<typeof chatConnectNudgeSchema>;
 
 /**
@@ -97,6 +102,7 @@ export const chatMessageAgentUsageSchema = z.object({
   calls: z.number().int().nonnegative(),
   costUsd: z.number().nonnegative(),
 });
+
 export type ChatMessageAgentUsage = z.infer<typeof chatMessageAgentUsageSchema>;
 
 /**
@@ -155,6 +161,7 @@ export const chatMessageUsageSchema = z.object({
    */
   agents: z.array(chatMessageAgentUsageSchema).default([]),
 });
+
 export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
 
 /**
@@ -186,10 +193,13 @@ export const turnStartResponseSchema = z.discriminatedUnion("outcome", [
     runId: z.string().nullable(),
   }),
 ]);
+
 export type TurnStartResponse = z.infer<typeof turnStartResponseSchema>;
+
 // Back-compat aliases — deprecated, use `turnStartResponseSchema` / `TurnStartResponse`.
 /** @deprecated Use `turnStartResponseSchema`. */
 export const turnKickResponseSchema = turnStartResponseSchema;
+
 /** @deprecated Use `TurnStartResponse`. */
 export type TurnKickResponse = TurnStartResponse;
 
@@ -215,5 +225,6 @@ export function isEmptyChatTurnInput(input: {
   const hasText = input.content.trim().length > 0;
   const hasArtifact = Boolean(input.artifactTargetId);
   const hasRetry = Boolean(input.retryAttachmentIds && input.retryAttachmentIds.length > 0);
+
   return !hasText && !input.hasFiles && !hasArtifact && !hasRetry;
 }

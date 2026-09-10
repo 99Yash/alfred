@@ -19,6 +19,7 @@ import path from "node:path";
 import { listGitSourceFiles } from "./git-source-files.mjs";
 
 const CHECK = process.argv.includes("--check");
+
 const MIN_PARENT_DEPTH = 2;
 
 // root: alias base dir (what `~` maps to). Every source file under it is scanned.
@@ -30,10 +31,13 @@ const specRe = /(\bfrom\s*|\bimport\s*\(\s*)(["'])((?:\.\.?\/)[^"']*)\2/g;
 function toAlias(spec, fileDir, root) {
   if (!spec.startsWith("../")) return null; // only parent climbs
   const depth = (spec.match(/\.\.\//g) ?? []).length;
+
   if (depth < MIN_PARENT_DEPTH) return null; // keep single-level siblings
   const abs = path.resolve(fileDir, spec);
   const rel = path.relative(root, abs);
+
   if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // escapes the alias root
+
   return `~/${rel.split(path.sep).join("/")}`;
 }
 
@@ -43,8 +47,10 @@ function toAlias(spec, fileDir, root) {
 // nothing. The rewrite mode is refused for the same reason: a codemod that
 // silently rewrites nothing is the same lie.
 const absentRoots = ROOTS.map(({ root }) => root).filter((root) => !existsSync(root));
+
 if (absentRoots.length > 0) {
   console.error("relative-to-alias: ROOTS names alias roots that do not exist:\n");
+
   for (const root of absentRoots) console.error(`  ${root}`);
   console.error(
     "\nRepoint ROOTS in scripts/relative-to-alias.mjs at the tree that now defines" +
@@ -55,7 +61,9 @@ if (absentRoots.length > 0) {
 }
 
 let changedFiles = 0;
+
 let changedSpecs = 0;
+
 const report = [];
 
 for (const { root } of ROOTS) {
@@ -65,13 +73,17 @@ for (const { root } of ROOTS) {
     const fileDir = path.dirname(file);
     const src = readFileSync(file, "utf8");
     let count = 0;
+
     const out = src.replace(specRe, (m, lead, q, spec) => {
       const alias = toAlias(spec, fileDir, root);
+
       if (!alias) return m;
       count++;
       report.push(`  ${file}: ${spec} -> ${alias}`);
+
       return `${lead}${q}${alias}${q}`;
     });
+
     if (count > 0) {
       if (!CHECK) writeFileSync(file, out);
       changedFiles++;
@@ -83,5 +95,7 @@ for (const { root } of ROOTS) {
 console.log(
   `${CHECK ? "Would rewrite" : "Rewrote"} ${changedSpecs} specifiers across ${changedFiles} files:`,
 );
+
 for (const line of report) console.log(line);
+
 if (CHECK && changedSpecs > 0) process.exit(1);

@@ -49,11 +49,13 @@ export function auditedMetadataEqual(
   const pick = (meta: unknown) => {
     const metadata = isRecord(meta) ? meta : {};
     const caps = isRecord(metadata.capabilities) ? metadata.capabilities : {};
+
     return canonicalJson({
       pricing: metadata.pricing ?? null,
       reasoningOptions: caps.reasoningOptions ?? null,
       temperature: caps.temperature ?? null,
     });
   };
+
   return pick(latestMetadata) === pick(incoming);
 }

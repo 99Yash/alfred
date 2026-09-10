@@ -57,13 +57,16 @@ const FIXTURES: Array<{
 
 async function main() {
   let failures = 0;
+
   for (const f of FIXTURES) {
     const content = `From: ${f.from}\nTo: ${f.to}\nSubject: ${f.subject}\n\n${f.body}`;
+
     const scResult = extractSenderContext({
       fromHeader: f.from,
       subject: f.subject,
       body: content,
     });
+
     const observations = assembleObservations({
       senderKey: null,
       senderPrior: null,
@@ -75,6 +78,7 @@ async function main() {
       labelIds: [],
       signalText: [f.from, f.to, f.subject, content].join("\n"),
     });
+
     const { classification } = await classifyEmail({
       document: {
         id: "fixture",
@@ -87,6 +91,7 @@ async function main() {
       observations,
       identity: IDENTITY,
     });
+
     const d = classification.todoDecision;
     // Assert against what production would actually mint, not the raw model
     // suggestion: `resolveTodoSuggestion` is the live gate (proposed outcome +
@@ -101,6 +106,7 @@ async function main() {
     const todo = resolved?.name ?? null;
     const gotTodo = resolved !== null;
     const ok = gotTodo === f.expectTodo;
+
     if (!ok) failures++;
     console.log(`\n${ok ? "PASS" : "FAIL"} ${f.label}\n  expect: ${f.expect}`);
     console.log(
@@ -112,6 +118,7 @@ async function main() {
   }
 
   console.log(`\n# ${FIXTURES.length - failures}/${FIXTURES.length} fixtures passed`);
+
   if (failures > 0) {
     throw new Error(`${failures} attribution fixture(s) did not match the expected gate outcome`);
   }

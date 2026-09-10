@@ -42,6 +42,7 @@ export const errorHandled = new Elysia().use(errorHandler);
 // type. Both call shapes are load-bearing: `apps/server` passes an object,
 // `test/security-headers.test.ts` calls it bare.
 export const headerOptions: SecurityHeadersOptions = { hsts: true };
+
 export const headed = new Elysia().use(securityHeaders(headerOptions)).use(securityHeaders());
 
 // The session-cache pair. `getSessionCached` takes a `Request` and resolves to
@@ -49,4 +50,5 @@ export const headed = new Elysia().use(securityHeaders(headerOptions)).use(secur
 // nothing. Pinning the parameter types is what catches the two being swapped.
 export const readSession: (request: Request) => Promise<{ user: { id: string } } | null> =
   getSessionCached;
+
 export const dropSession: (headers: Headers) => void = invalidateSessionToken;

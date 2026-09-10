@@ -32,7 +32,9 @@ export const STANDING_INSTRUCTION_SCHEMA_VERSION = 1 as const;
 
 /** `suppress` — stop surfacing/reminding. Only action at v1; forward-compat. */
 export const STANDING_INSTRUCTION_ACTIONS = ["suppress"] as const;
+
 export type StandingInstructionAction = (typeof STANDING_INSTRUCTION_ACTIONS)[number];
+
 export const standingInstructionActionSchema = z.enum(STANDING_INSTRUCTION_ACTIONS);
 
 // ─── Surface (product/display label — NOT the operational contract) ─────────
@@ -43,7 +45,9 @@ export const standingInstructionActionSchema = z.enum(STANDING_INSTRUCTION_ACTIO
  * suppress the nag/todo/briefing surfacing, not the email's existence.
  */
 export const STANDING_INSTRUCTION_SURFACES = ["open_loop"] as const;
+
 export type StandingInstructionSurface = (typeof STANDING_INSTRUCTION_SURFACES)[number];
+
 export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURFACES);
 
 // ─── Effects (the closed operational contract consumers branch on) ──────────
@@ -64,14 +68,18 @@ export const SUPPRESSION_EFFECTS = [
   "exclude_briefing_priority",
   "block_reply_draft",
 ] as const;
+
 export type SuppressionEffect = (typeof SUPPRESSION_EFFECTS)[number];
+
 export const suppressionEffectSchema = z.enum(SUPPRESSION_EFFECTS);
 
 // ─── Target ────────────────────────────────────────────────────────────────
 
 /** `sender_email` — bind to a sender address. Only target kind at v1. */
 export const STANDING_INSTRUCTION_TARGET_KINDS = ["sender_email"] as const;
+
 export type StandingInstructionTargetKind = (typeof STANDING_INSTRUCTION_TARGET_KINDS)[number];
+
 export const standingInstructionTargetKindSchema = z.enum(STANDING_INSTRUCTION_TARGET_KINDS);
 
 /**
@@ -88,6 +96,7 @@ export const standingInstructionTargetSchema = z.object({
   label: z.string().nullish(),
   accountId: z.string().nullable(),
 });
+
 export type StandingInstructionTarget = z.infer<typeof standingInstructionTargetSchema>;
 
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
@@ -104,6 +113,7 @@ export const standingInstructionValueSchema = z.object({
   /** Verbatim user words — provenance/UI only. No pipeline ever parses this. */
   phrasing: z.string().min(1),
 });
+
 export type StandingInstructionValue = z.infer<typeof standingInstructionValueSchema>;
 
 /** True iff this instruction carries the given effect. */

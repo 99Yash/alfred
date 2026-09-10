@@ -31,6 +31,7 @@ import { dbBackedSkip } from "./support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-settings-gw-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -39,6 +40,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -54,6 +56,7 @@ describe("settings preferences (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -80,12 +83,14 @@ describe("settings preferences (DB-backed)", { skip: SKIP }, () => {
 
   test("an agent-suggested source round-trips through the gateway", async () => {
     const userId = await seedUser();
+
     const written = await setPreference({
       userId,
       key: "reply_length",
       value: "short",
       source: { kind: "agent" },
     });
+
     assert.deepEqual(written.source, { kind: "agent" });
     const read = await getPreference(userId, "reply_length");
     assert.deepEqual(read?.source, { kind: "agent" });

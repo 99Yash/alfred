@@ -31,6 +31,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-artifact-fk-";
+
 const createdUserIds: string[] = [];
 
 async function seedMidTurn(): Promise<{ userId: string; threadId: string; runId: string }> {
@@ -52,6 +53,7 @@ async function seedMidTurn(): Promise<{ userId: string; threadId: string; runId:
     state: {},
     lastCheckpointAt: new Date(),
   });
+
   // Deliberately DO NOT insert a chat_messages row: this is the mid-turn state
   // where the authoring assistant message does not exist yet.
   return { userId, threadId, runId };
@@ -62,6 +64,7 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
     await closeRedis();
   });
@@ -74,6 +77,7 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
       where t.relname = 'artifacts'
         and c.conname = 'artifacts_message_id_chat_messages_id_fk'
     `);
+
     const row = Array.isArray(result) ? result[0] : result.rows[0];
     assert.equal(Number((row as { count: number }).count), 1);
   });
@@ -89,6 +93,7 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
     if (!result.ok) {
       throw new Error(`expected create to succeed, got ${JSON.stringify(result)}`);
     }
+
     assert.equal(result.kind, "pages");
     assert.equal(result.format, "pdf");
 
@@ -123,16 +128,20 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
       .select({ messageId: artifacts.messageId, status: artifacts.status })
       .from(artifacts)
       .where(eq(artifacts.id, result.artifactId));
+
     assert.deepEqual(finalized, { messageId, status: "complete" });
   });
 
   test("does not finalize artifacts when the authoring message is still missing", async () => {
     const { userId, threadId, runId } = await seedMidTurn();
+
     const result = await createArtifact(
       { userId, threadId, runId },
       { title: "Still generating", kind: "document", markdown: "draft" },
     );
+
     assert.equal(result.ok, true);
+
     if (!result.ok) return;
 
     await finalizeRunArtifacts(userId, runId, `missing-${randomUUID()}`, "complete");
@@ -141,6 +150,7 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
       .select({ messageId: artifacts.messageId, status: artifacts.status })
       .from(artifacts)
       .where(eq(artifacts.id, result.artifactId));
+
     assert.deepEqual(row, { messageId: null, status: "generating" });
   });
 });

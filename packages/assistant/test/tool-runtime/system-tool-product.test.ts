@@ -54,6 +54,7 @@ const requests = {
 };
 
 let unregisterKnowledge: (() => void) | undefined;
+
 let unregisterTasks: (() => void) | undefined;
 
 afterEach(() => {
@@ -84,6 +85,7 @@ describe("system-tool product seams without registered adapters", () => {
 describe("system-tool product seams with registered adapters", () => {
   test("forward exact request and result objects", async () => {
     const calls: Array<{ name: string; args: unknown }> = [];
+
     const results = {
       read: { value: "read" },
       remember: { value: "remember" },
@@ -94,42 +96,53 @@ describe("system-tool product seams with registered adapters", () => {
       resolve: { value: "resolve" },
       suggest: { value: "suggest" },
     };
+
     const knowledge: SystemToolKnowledgeAdapter = {
       readUserContext: (args) => {
         calls.push({ name: "read", args });
+
         return Promise.resolve(results.read);
       },
       rememberSenderSuppressionAndDismissTodos: (args) => {
         calls.push({ name: "remember", args });
+
         return Promise.resolve(results.remember);
       },
       listInstructions: (args) => {
         calls.push({ name: "list", args });
+
         return Promise.resolve(results.list);
       },
       forgetInstruction: (args) => {
         calls.push({ name: "forget", args });
+
         return Promise.resolve(results.forget);
       },
       editInstruction: (args) => {
         calls.push({ name: "edit", args });
+
         return Promise.resolve(results.edit);
       },
       webSearch: (args) => {
         calls.push({ name: "search", args });
+
         return Promise.resolve(results.search);
       },
     };
+
     const tasks: SystemToolTaskAdapter = {
       resolveTodo: (args) => {
         calls.push({ name: "resolve", args });
+
         return Promise.resolve(results.resolve);
       },
       suggestTodo: (args) => {
         calls.push({ name: "suggest", args });
+
         return Promise.resolve(results.suggest);
       },
     };
+
     unregisterKnowledge = registerSystemToolKnowledgeAdapter(knowledge);
     unregisterTasks = registerSystemToolTaskAdapter(tasks);
 

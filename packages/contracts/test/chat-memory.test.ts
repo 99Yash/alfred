@@ -136,6 +136,7 @@ describe("chatMemoryExtractionResultSchema", () => {
     const parsed = chatMemoryExtractionResultSchema.parse({
       propositions: [validUserProposition, validEntityProposition],
     });
+
     assert.equal(parsed.propositions.length, 2);
   });
 

@@ -16,6 +16,7 @@ let _client: Resend | undefined;
 export function getResendClient(): Resend {
   if (_client) return _client;
   _client = new Resend(serverEnv().RESEND_API_KEY);
+
   return _client;
 }
 

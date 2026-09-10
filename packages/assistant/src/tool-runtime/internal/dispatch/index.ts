@@ -123,19 +123,26 @@ import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone } from "@alfred/assistant/settings";
 
 type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
+
 export type ToolCallDispatchResult = Awaited<ReturnType<DispatchToolCallRoundAdapter["dispatch"]>>;
+
 type DispatchResult = ToolCallDispatchResult;
 
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
+
 const TOOLISH_NAME = /^[A-Za-z][A-Za-z0-9_.]*$/;
+
 const TOOL_RISK_RANK = {
   no_risk: 0,
   low: 1,
   medium: 2,
   high: 3,
 } as const satisfies Record<ToolRiskTier, number>;
+
 let dispatchRejectionRecorder: (args: DispatchRejectionInput) => void = recordDispatchRejection;
+
 let toolSpanStarter: (args: ToolSpanInput) => ToolSpanCloser = startToolSpan;
+
 let integrationAvailabilityReader: (userId: string) => Promise<IntegrationAvailabilitySnapshot> =
   readIntegrationAvailability;
 
@@ -159,30 +166,38 @@ function rejectionSignature(
     candidateToolName === undefined
       ? `${toolName}:${outcome}`
       : `${toolName}:${candidateToolName}:${outcome}`;
+
   if (!issues || issues.length === 0) return base;
+
   const parts = issues
     .map((issue) => `${issue.code ?? "?"}@${(issue.path ?? []).map(pathPart).join(".")}`)
     .sort();
+
   return `${base}:${parts.join(",")}`;
 }
 
 function pathPart(part: PropertyKey): string {
   if (typeof part === "symbol") return "symbol";
+
   return String(part);
 }
 
 function safeUnknownToolCandidate(toolName: string): string | undefined {
   const trimmed = toolName.trim();
+
   if (trimmed.length === 0 || trimmed.length > 120 || !TOOLISH_NAME.test(trimmed)) return undefined;
+
   return summarizeBody(sanitizeErrorMessage(trimmed), 120);
 }
 
 function redactTraceInput(tool: RegisteredTool, input: unknown): unknown | undefined {
   if (!tool.redactInput) return input;
+
   try {
     return tool.redactInput(input);
   } catch (err) {
     console.warn("[dispatch] tool input redaction failed:", toMessage(err));
+
     return undefined;
   }
 }
@@ -193,8 +208,11 @@ export function _setDispatchTraceSinksForTests(sinks: {
 }): () => void {
   const previousRejectionRecorder = dispatchRejectionRecorder;
   const previousToolSpanStarter = toolSpanStarter;
+
   if (sinks.rejectionRecorder) dispatchRejectionRecorder = sinks.rejectionRecorder;
+
   if (sinks.toolSpanStarter) toolSpanStarter = sinks.toolSpanStarter;
+
   return () => {
     dispatchRejectionRecorder = previousRejectionRecorder;
     toolSpanStarter = previousToolSpanStarter;
@@ -206,6 +224,7 @@ export function _setIntegrationAvailabilityReaderForTests(
 ): () => void {
   const previous = integrationAvailabilityReader;
   integrationAvailabilityReader = reader;
+
   return () => {
     integrationAvailabilityReader = previous;
   };
@@ -228,6 +247,7 @@ export function buildDispatchRejectionTraceInput(args: {
 }): DispatchRejectionInput {
   const toolName = args.toolName ?? args.dispatch.toolName;
   const input = args.tool ? redactTraceInput(args.tool, args.input) : undefined;
+
   return {
     runId: args.dispatch.runId,
     toolName,
@@ -294,6 +314,7 @@ function unavailableToolResult(args: {
       },
     };
   }
+
   return {
     kind: "not_allowed",
     result: {
@@ -312,6 +333,7 @@ function unavailableToolResult(args: {
 
 export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<DispatchResult> {
   const caller = args.caller;
+
   if (!isToolName(args.toolName)) {
     const message = undeclaredToolMessage(args.toolName, args.allowedIntegrations);
     recordRejection({
@@ -321,6 +343,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       outcome: "unknown_tool",
       reason: "Tool is not declared",
     });
+
     return {
       kind: "unknown_tool",
       result: {
@@ -333,9 +356,11 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
 
   const toolName = args.toolName;
   const tool = getTool(toolName);
+
   if (!tool) {
     const message = `Tool '${toolName}' is not registered`;
     recordRejection({ dispatch: args, outcome: "unknown_tool", reason: message, toolName });
+
     return {
       kind: "unknown_tool",
       result: {
@@ -351,6 +376,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   if (args.allowedTools && !args.allowedTools.includes(toolName)) {
     const message = `Tool '${toolName}' is outside this workflow revision's approved capability envelope.`;
     recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
+
     return {
       kind: "not_allowed",
       result: { status: "capability_mismatch", toolName, integration, message },
@@ -360,9 +386,11 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   const workflowCapabilities = args.allowedTools
     ? (args.requiredCapabilities?.filter((capability) => capability.tool === toolName) ?? [])
     : [];
+
   if (args.allowedTools && workflowCapabilities.length !== 1) {
     const message = `Tool '${toolName}' does not have one exact approved capability binding.`;
     recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
+
     return {
       kind: "not_allowed",
       result: { status: "capability_mismatch", toolName, integration, message },
@@ -389,6 +417,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     context: args.runContext,
     loadSnapshot: () => integrationAvailabilityReader(args.userId),
   });
+
   if (!availability.available) {
     recordRejection({
       dispatch: args,
@@ -396,6 +425,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       reason: availability.reason,
       toolName,
     });
+
     return unavailableToolResult({
       toolName,
       integration,
@@ -408,7 +438,9 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     const message =
       `Tool '${toolName}' was inactive. Its exact schema will be available on the next turn; ` +
       "issue a fresh call using that schema.";
+
     recordRejection({ dispatch: args, outcome: "inactive_tool", reason: message, toolName });
+
     return {
       kind: "inactive_tool",
       result: {
@@ -432,6 +464,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // `answers`, and normalizing against it would rename a model key into the
   // user's field (ADR-0099).
   const normalized = normalizeToolInputKeys(args.input, tool.modelInputSchema);
+
   if (normalized.renamed.length > 0) {
     // Surface the auto-repaired keys so prod traces can measure how often the
     // ergonomics pass fires, and on which tools/keys, without re-running the
@@ -442,7 +475,9 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       "Normalized tool-input param keys before validation",
     );
   }
+
   const parsed = tool.inputSchema.safeParse(normalized.input);
+
   if (!parsed.success) {
     // Repair advice the model reads, so it lists the model-facing parameters.
     // Naming a runtime-only field here would invite the model to send it.
@@ -451,6 +486,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       tool.modelInputSchema,
       parsed.error.issues,
     );
+
     recordRejection({
       dispatch: args,
       outcome: "invalid_input",
@@ -458,6 +494,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       issues: parsed.error.issues,
       toolName,
     });
+
     return {
       kind: "invalid_input",
       result: {
@@ -468,16 +505,20 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       },
     };
   }
+
   const input: unknown = parsed.data;
   const approvedResourceScope = workflowCapabilities[0]?.resourceScope;
+
   if (approvedResourceScope && !inputMatchesWorkflowResourceScope(input, approvedResourceScope)) {
     const message = `Tool '${toolName}' input is outside this workflow revision's approved resource boundary.`;
     recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
+
     return {
       kind: "not_allowed",
       result: { status: "capability_mismatch", toolName, integration, message },
     };
   }
+
   // `toolExecuteContext` derives the provider bind from `userId`, so every
   // provider client this call reaches is wired to THIS user's credentials and no
   // tool resolves a credential itself. The bind is lazy — nothing is built and no
@@ -496,7 +537,9 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     allowedIntegrations: args.allowedIntegrations,
     accountRef: workflowCapabilities[0]?.accountRef,
   });
+
   const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
+
   if (scratchAccessError) {
     recordRejection({
       dispatch: args,
@@ -506,6 +549,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       tool,
       input,
     });
+
     return {
       kind: "invalid_input",
       result: {
@@ -515,6 +559,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       },
     };
   }
+
   // Routing declared by the registration (`RegisteredTool.staging`), not
   // re-derived from the tool name here. `join` and `fast_path` intercept BEFORE
   // the staging/execute path below; `question` refuses one input shape and then
@@ -542,10 +587,12 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       // caller that bypasses the surface still can, and this is the one place
       // that names the repair.
       const question = questionToolInput.parse(input);
+
       if (question.answers !== undefined) {
         const message =
           `Tool '${toolName}' input must not include 'answers'. The user fills the answers on ` +
           "the question card; send only 'context' and 'questions'.";
+
         recordRejection({
           dispatch: args,
           outcome: "invalid_input",
@@ -554,13 +601,16 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
           tool,
           input,
         });
+
         return {
           kind: "invalid_input",
           result: { status: "invalid_input", toolName, message },
         };
       }
+
       break;
     }
+
     case "staged":
       break;
     default: {
@@ -590,6 +640,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // time immediately before `tool.execute`. Reads keep the fast path and are
   // not fenced — they have no external effect.
   const fence = await stagingStore().readCancellationFence(args.runId);
+
   if (fence.generation > args.fence.generation) {
     return {
       kind: "fenced",
@@ -614,6 +665,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     userId: args.userId,
     requestHash,
   });
+
   if (unresolvedBarrier) {
     return {
       kind: "blocked",
@@ -656,8 +708,10 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // `null` covers both an absent run and an unparseable status — the store owns
   // that distinction and the gate treats either as "the run is unavailable".
   const runStatus = await stagingStore().readRunStatus(args.runId);
+
   if (runStatus === null || isTerminalStatus(runStatus)) {
     const reason = runStatus === null ? "run is unavailable" : `run is already ${runStatus}`;
+
     return {
       kind: "rejected",
       stagingId: null,
@@ -677,11 +731,14 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
   const requiresApproval = arm.forcesApproval || toolRequiresApproval(policyMode, riskTier);
+
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
     : null;
+
   const notifyAfterAt =
     approvalNotifyDelayMs !== null ? new Date(Date.now() + approvalNotifyDelayMs) : null;
+
   // Gated rows get a hard expiry so an undecided approval can't park the
   // run forever (Phase 5e). The `staging-expire` worker fires at this
   // time and auto-rejects if still pending.
@@ -702,6 +759,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // column — never raw `proposed_input`, which a gated tool keeps verbatim
   // for resume.
   const persistedDisplayInput = jsonValueSchema.parse(redactedInput);
+
   const upserted = await stagingStore().upsertStaging({
     userId: args.userId,
     runId: args.runId,
@@ -719,8 +777,10 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     notifyAfterAt,
     expiresAt,
   });
+
   let row = upserted.row;
   const insertedNew = upserted.wasInserted;
+
   // Defensive: the (run_id, tool_call_id) unique index says one tool call id
   // maps to one row. If a caller re-dispatches the same id with a different
   // `toolName`, the model emitted two tools under the same call id — a
@@ -733,9 +793,12 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${toolName}')`,
     );
   }
+
   let promotedPendingApproval = false;
+
   const riskFloorRequiresApproval =
     arm.forcesApproval || toolRequiresApproval("autonomy", riskTier);
+
   if (
     !insertedNew &&
     row.status === "pending" &&
@@ -750,14 +813,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       notifyAfterAt,
       expiresAt,
     });
+
     if (!promoted) {
       throw new Error(
         `[dispatch] pending approval promotion failed closed (run=${args.runId}, toolCallId=${args.toolCallId})`,
       );
     }
+
     row = promoted;
     promotedPendingApproval = true;
   }
+
   switch (row.status) {
     case "pending":
       // Approval requirements are monotonic while a row is pending. The
@@ -772,17 +838,20 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
         // that queue, by insertion or promotion, so ordinary resumes do not spam
         // connected clients.
         if (insertedNew || promotedPendingApproval) emitReplicachePokes([args.userId], row.id);
+
         if (!row.notifiedAt) {
           const delayMs =
             row.notifyAfterAt instanceof Date
               ? row.notifyAfterAt.getTime() - Date.now()
               : (approvalNotifyDelayMs ?? 0);
+
           await scheduleApprovalNotificationJob({
             stagingId: row.id,
             userId: args.userId,
             delayMs,
           });
         }
+
         // Schedule the hard-expiry fallback. Idempotent on the
         // deterministic job id, so a crash/resume re-dispatch of the same
         // staged call won't double-schedule. Delay derives from the
@@ -792,12 +861,14 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
             row.expiresAt instanceof Date
               ? row.expiresAt.getTime() - Date.now()
               : APPROVAL_EXPIRY_MS;
+
           await scheduleApprovalExpiryJob({
             stagingId: row.id,
             userId: args.userId,
             delayMs: expiryDelayMs,
           });
         }
+
         // The wake is the only place the approval kind is written. The decision
         // route and the expiry worker match on (runId, approvalId) alone and
         // never re-derive it (ADR-0099), so nothing can disagree with this row.
@@ -812,10 +883,13 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
           },
         };
       }
+
       {
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
+
         if (exhausted) return exhausted;
       }
+
       return executeAndCommit(row, tool, input, ctx, {
         expectedFence: args.fence,
         editedByUser: false,
@@ -837,6 +911,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       // decided input came from the user via the approval API and may
       // not have been validated there.
       const reparsed = tool.inputSchema.safeParse(useInput);
+
       if (!reparsed.success) {
         const error = publicAppError("tool_input_invalid");
         await commitAndPoke(row, ctx, {
@@ -856,16 +931,20 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
           issues: reparsed.error.issues,
           toolName,
         });
+
         return {
           kind: "failed",
           stagingId: row.id,
           error,
         };
       }
+
       {
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
+
         if (exhausted) return exhausted;
       }
+
       return executeAndCommit(row, tool, reparsed.data, ctx, {
         expectedFence: args.fence,
         editedByUser,
@@ -920,6 +999,7 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
         tool,
         input: row.proposedInput,
       });
+
       return {
         kind: "failed",
         stagingId: row.id,
@@ -963,6 +1043,7 @@ export async function resolveEffectiveRiskTier(
   if (!tool.resolveRiskTier) return tool.riskTier;
 
   const resolved: unknown = await tool.resolveRiskTier(input, ctx);
+
   if (!isToolRiskTier(resolved)) {
     logger.warn(
       {
@@ -973,10 +1054,13 @@ export async function resolveEffectiveRiskTier(
       },
       "Ignored invalid resolved tool risk tier",
     );
+
     return tool.riskTier;
   }
+
   const staticRank = TOOL_RISK_RANK[tool.riskTier];
   const resolvedRank = TOOL_RISK_RANK[resolved];
+
   if (resolvedRank >= staticRank) return resolved;
 
   if (!tool.riskTierDowngradeReason) {
@@ -990,6 +1074,7 @@ export async function resolveEffectiveRiskTier(
       },
       "Clamped undeclared tool risk-tier downgrade",
     );
+
     return tool.riskTier;
   }
 
@@ -1004,6 +1089,7 @@ export async function resolveEffectiveRiskTier(
     },
     "Applied reviewed tool risk-tier downgrade",
   );
+
   return resolved;
 }
 
@@ -1036,16 +1122,20 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
   if (!isToolName(toolName)) return false;
   const policyMode = await resolvePolicyMode(userId, toolName);
   const tool = getTool(toolName);
+
   if (!tool) return false;
+
   // An arm that forces its approval (the `question` arm, ADR-0099) parks on
   // every dispatch, so it belongs in the serial approval lane, where the batch
   // loop stops at the first park. In the concurrent bucket it would park the
   // turn beside a gated sibling that then stages a second card.
   if (STAGING_ARM[tool.staging]?.forcesApproval) return true;
+
   // The hint has no validated input or execution context. Keep any dynamic
   // resolver in the serial approval lane; the live dispatch remains the source
   // of truth and may still execute a lower-tier call without parking.
   if (tool.resolveRiskTier) return true;
+
   return toolRequiresApproval(policyMode, tool.riskTier);
 }
 
@@ -1054,6 +1144,7 @@ const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
   wouldWaitForApproval: toolCallWouldGate,
   executionLane(toolName) {
     if (!isToolName(toolName)) return null;
+
     return getTool(toolName)?.executionLane ?? null;
   },
 };
@@ -1068,21 +1159,25 @@ export function undeclaredToolMessage(
   allowedIntegrations: readonly string[] = [],
 ): string {
   const suggestion = integrationActionSuggestion(toolName, allowedIntegrations);
+
   if (!suggestion) return `Tool '${toolName}' is not declared`;
 
   const validActions =
     suggestion.validActions.length > 0
       ? `${suggestion.integration} exposes: ${suggestion.validActions.map((action) => `\`${action}\``).join(", ")}.`
       : `${suggestion.integration} exposes no callable actions yet.`;
+
   const retry =
     suggestion.toolName === null
       ? null
       : suggestion.inputWasQualified
         ? `Use '${suggestion.toolName}' instead.`
         : `Integration tools use qualified names like '${suggestion.toolName}'.`;
+
   const loadHint = suggestion.toolName
     ? `Call system.load_tool with name '${suggestion.toolName}' first,`
     : `Call system.search_tools for '${suggestion.integration}' to choose an exact tool, then call system.load_tool with its returned name.`;
+
   return [
     `Tool '${toolName}' is not declared.`,
     validActions,
@@ -1105,15 +1200,20 @@ function integrationActionSuggestion(
   inputWasQualified: boolean;
 } | null {
   const qualified = parseQualifiedToolName(input);
+
   if (qualified) {
     const { integration, action } = qualified;
+
     if (integration === "system") return null;
+
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(integration)) {
       return null;
     }
+
     const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
     const closest = closestAction(action, actions);
     const toolName = closest ? toolNameForAction(integration, closest) : null;
+
     return { integration, toolName, validActions: actions, inputWasQualified: true };
   }
 
@@ -1126,9 +1226,11 @@ function integrationActionSuggestion(
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(input)) {
       return null;
     }
+
     // No tools to point at — recovering would loop the boss through a
     // a discovery loop that yields nothing callable (#286 review).
     if (INTEGRATION_ACTIONS[input].length === 0) return null;
+
     return {
       integration: input,
       toolName: null,
@@ -1141,18 +1243,25 @@ function integrationActionSuggestion(
   // that very table enumerates exactly those slugs.
   const matches = (Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]).filter((integration) => {
     if (integration === "system") return false;
+
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(integration)) {
       return false;
     }
+
     const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
+
     return actions.includes(input);
   });
+
   if (matches.length !== 1) return null;
 
   const integration = matches[0];
+
   if (!integration) return null;
   const toolName = toolNameForAction(integration, input);
+
   if (!toolName) return null;
+
   return {
     integration,
     toolName,
@@ -1165,16 +1274,21 @@ function parseQualifiedToolName(
   toolName: string,
 ): { integration: IntegrationSlug; action: string } | null {
   const separator = toolName.indexOf(".");
+
   if (separator <= 0 || separator !== toolName.lastIndexOf(".")) return null;
   const integration = toolName.slice(0, separator);
+
   if (!isIntegrationSlug(integration)) return null;
   const action = toolName.slice(separator + 1);
+
   if (!action) return null;
+
   return { integration, action };
 }
 
 function toolNameForAction(integration: IntegrationSlug, action: string): ToolName | null {
   const name = `${integration}.${action}`;
+
   return isToolName(name) ? name : null;
 }
 
@@ -1190,21 +1304,27 @@ const ENUMERATION_TOKENS = new Set(["list", "find", "all", "search"]);
 
 function closestAction(input: string, actions: readonly string[]): string | null {
   if (actions.length === 0) return null;
+
   if (actions.includes(input)) return input;
+
   if (actions.length === 1) return actions[0] ?? null;
 
   const inputTokens = actionTokens(input);
+
   // Enumeration intent → `search` when the integration exposes one, before the
   // generic overlap below can mis-route it to a single-item `get_*`.
   if (actions.includes("search") && inputTokens.some((t) => ENUMERATION_TOKENS.has(t))) {
     return "search";
   }
+
   let best: { action: string; score: number } | null = null;
+
   for (const action of actions) {
     const actionTokenSet = new Set(actionTokens(action));
     const common = inputTokens.filter((token) => actionTokenSet.has(token)).length;
     const substring = action.includes(input) || input.includes(action) ? 1 : 0;
     const score = common * 10 + substring * 5 - Math.abs(action.length - input.length) / 10;
+
     if (!best || score > best.score) best = { action, score };
   }
 
@@ -1250,6 +1370,7 @@ async function executeToolWithSpan(
     input: tool.redactInput ? tool.redactInput(input) : input,
     startedAt: new Date(),
   });
+
   try {
     const result = await tool.execute(input, ctx);
     // ADR-0074 thermometer: a clipped passthrough result carries a
@@ -1257,6 +1378,7 @@ async function executeToolWithSpan(
     // tool span's metadata (recorded even with I/O capture off) and mirror it to
     // a log line so the L0-trigger review can be answered without Langfuse I/O.
     const thermometer = passthroughTruncationTelemetry(tool.name, ctx.runId, result);
+
     if (thermometer) {
       logger.info(
         { event: "passthrough_truncation", ...thermometer },
@@ -1266,6 +1388,7 @@ async function executeToolWithSpan(
     } else {
       span.success(result);
     }
+
     return result;
   } catch (err) {
     // Strip NUL-byte poison before the span records the message (the span
@@ -1287,6 +1410,7 @@ async function resolveAwaitSubAgentWithSpan(
   // `toolName === "system.await_sub_agent"` equality this replaced. Parse before
   // the span opens so a contract violation can't leave a span dangling.
   const { childRunId } = joinToolInput.parse(input);
+
   const span = toolSpanStarter({
     runId: ctx.runId,
     toolName: tool.name,
@@ -1297,13 +1421,16 @@ async function resolveAwaitSubAgentWithSpan(
     input: tool.redactInput ? tool.redactInput(input) : input,
     startedAt: new Date(),
   });
+
   try {
     const result = await resolveAwaitSubAgent({
       parentRunId: ctx.runId,
       userId: ctx.userId,
       childRunId,
     });
+
     span.success(awaitSubAgentSpanOutput(result));
+
     return result;
   } catch (err) {
     span.error(safeErrorDiagnostic(err));
@@ -1316,6 +1443,7 @@ async function resolveAwaitSubAgentWithSpan(
 }
 
 type ParkedDispatchResult = Extract<DispatchResult, { kind: "parked" }>;
+
 type FailedDispatchResult = Extract<DispatchResult, { kind: "failed" }>;
 
 type SubAgentSpanOutput =
@@ -1354,6 +1482,7 @@ async function guardPassthroughBudget(
 ): Promise<DispatchResult | null> {
   if (!tool.availability?.passthrough) return null;
   const priorCalls = await countRunPassthroughCalls(ctx.runId);
+
   if (priorCalls < PASSTHROUGH_PER_RUN_CEILING) return null;
   const envelope = passthroughBudgetExhausted(priorCalls);
   const persistedEnvelope = jsonValueSchema.parse(envelope);
@@ -1366,6 +1495,7 @@ async function guardPassthroughBudget(
     sanitized: false,
     executedAt: new Date(),
   });
+
   return {
     kind: "executed",
     stagingId: row.id,
@@ -1391,6 +1521,7 @@ async function commitAndPoke(
     { status: row.status, outcome: row.outcome },
     commit,
   );
+
   if (committed && row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
 }
 
@@ -1410,6 +1541,7 @@ async function executeAndCommit(
   // this read and the provider call inside `tool.execute` is irreducible
   // without transactional effects; this narrows it to one DB round-trip.
   const fence = await stagingStore().readCancellationFence(ctx.runId);
+
   if (fence.generation > opts.expectedFence.generation) {
     await commitAndPoke(row, ctx, {
       status: "failed",
@@ -1417,14 +1549,17 @@ async function executeAndCommit(
       error: publicAppError("run_cancelled"),
       executedAt: new Date(),
     });
+
     return {
       kind: "fenced",
       stagingId: row.id,
       result: synthesizeCancelledByFence(),
     };
   }
+
   let result: unknown;
   let error: PublicAppError | undefined;
+
   try {
     // Thread the committing staging row id to execution. Only the staged path
     // has one; the fast path (executeFastPath) intentionally leaves it undefined.
@@ -1442,7 +1577,9 @@ async function executeAndCommit(
       error.message,
     );
   }
+
   const now = new Date();
+
   if (error) {
     await commitAndPoke(row, ctx, {
       status: "failed",
@@ -1450,8 +1587,10 @@ async function executeAndCommit(
       error,
       executedAt: now,
     });
+
     return { kind: "failed", stagingId: row.id, error };
   }
+
   // ADR-0070 §1.1: sanitize at the dispatch boundary, the instant the tool
   // returns and before the value touches any persisted sink. This cleans the
   // `execute_result` jsonb write below AND the `toolResult` returned to the
@@ -1459,6 +1598,7 @@ async function executeAndCommit(
   const sanitizedResult = sanitizeToolResult(result);
   const persistedResult = toJsonValue(sanitizedResult.value);
   const didSanitize = sanitizedResult.removed > 0 || sanitizedResult.collisions > 0;
+
   if (didSanitize) {
     console.warn(
       `[dispatch] sanitized ${sanitizedResult.removed} poison code unit(s)` +
@@ -1466,6 +1606,7 @@ async function executeAndCommit(
         ` from ${tool.name} result`,
     );
   }
+
   // #559a: an executed write that returns the unknown-outcome envelope (today
   // only the MCP broker's ambiguous attempt) is recorded as `unknown`, not
   // `succeeded` — it may have been delivered without confirmation, which is
@@ -1478,6 +1619,7 @@ async function executeAndCommit(
     sanitized: didSanitize,
     executedAt: now,
   });
+
   return {
     kind: "executed",
     stagingId: row.id,
@@ -1499,6 +1641,7 @@ async function executeFastPath(
     const sanitized = sanitizeToolResult(result);
     const jsonResult = toJsonValue(sanitized.value);
     const didSanitize = sanitized.removed > 0 || sanitized.collisions > 0;
+
     if (didSanitize) {
       console.warn(
         `[dispatch] sanitized ${sanitized.removed} poison code unit(s)` +
@@ -1506,6 +1649,7 @@ async function executeFastPath(
           ` from ${tool.name} result`,
       );
     }
+
     return {
       kind: "executed",
       stagingId: null,
@@ -1521,6 +1665,7 @@ async function executeFastPath(
       { err, event: "tool_execution_failed", toolName: tool.name, runId: ctx.runId },
       error.message,
     );
+
     return {
       kind: "failed",
       stagingId: null,
@@ -1593,6 +1738,7 @@ function settleWithoutExecution(
 ): DispatchResult {
   const reason =
     args.status === "expired" ? "auto-expired" : (args.reason ?? arm.rejectedWithoutReason);
+
   recordRejection({
     dispatch: args.dispatch,
     outcome: "rejected",
@@ -1601,6 +1747,7 @@ function settleWithoutExecution(
     tool: args.tool,
     input: args.input,
   });
+
   if (arm.settled === "unanswered") {
     return {
       kind: "unanswered",
@@ -1612,6 +1759,7 @@ function settleWithoutExecution(
       }),
     };
   }
+
   return {
     kind: "rejected",
     stagingId: args.stagingId,
@@ -1640,10 +1788,12 @@ function synthesizeUnansweredQuestions(args: {
 }): UnansweredQuestionsToolResult {
   const parsed = questionToolInput.safeParse(args.input);
   const questions = parsed.success ? parsed.data.questions : [];
+
   const what =
     args.reason === "expired"
       ? "The user did not answer these questions before the card expired."
       : "The user dismissed these questions without answering.";
+
   return {
     status: "unanswered",
     toolName: args.toolName,
@@ -1672,20 +1822,26 @@ function validateScratchToolAccess(args: {
   if (args.toolName === "system.read_scratch") {
     const key = readStringProp(args.input, "key");
     const target = parseScratchAccessKey(key);
+
     if (typeof target === "string") return target;
+
     if (args.caller !== "boss" && target.zone === "scratch" && target.subId !== args.caller.subId) {
       return `Sub-agent '${args.caller.subId}' cannot read scratch for '${target.subId}'`;
     }
+
     return null;
   }
 
   if (args.toolName === "system.write_scratch") {
     const key = readStringProp(args.input, "key");
     const target = parseScratchAccessKey(key);
+
     if (typeof target === "string") return target;
+
     if (args.caller === "boss") {
       return target.zone === "shared" ? null : "Boss can only write shared.<path> scratch keys";
     }
+
     return target.zone === "scratch" && target.subId === args.caller.subId
       ? null
       : `Sub-agent '${args.caller.subId}' can only write scratch.${args.caller.subId}.<path> keys`;
@@ -1696,11 +1852,16 @@ function validateScratchToolAccess(args: {
     // already enforced at the floor. What remains here is the input-shaped part:
     // which scratch keys a promote may name.
     const from = parseScratchAccessKey(readStringProp(args.input, "fromKey"));
+
     if (typeof from === "string") return from;
     const to = parseScratchAccessKey(readStringProp(args.input, "toKey"));
+
     if (typeof to === "string") return to;
+
     if (from.zone !== "scratch") return "system.promote fromKey must be scratch.<subId>.<path>";
+
     if (to.zone !== "shared") return "system.promote toKey must be shared.<path>";
+
     return null;
   }
 
@@ -1709,6 +1870,7 @@ function validateScratchToolAccess(args: {
 
 function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
   if (key === null) return "Scratch key must be a string";
+
   try {
     return parseScratchToolKey(key);
   } catch (err) {
@@ -1718,5 +1880,6 @@ function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
 
 function readStringProp(input: unknown, prop: string): string | null {
   const value = getPath(input, prop);
+
   return typeof value === "string" ? value : null;
 }

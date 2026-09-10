@@ -12,11 +12,15 @@ import {
 import { frameThreadId, type EventStreamFrame } from "../../src/lib/events/frame";
 
 const RUN = "run_1";
+
 const THREAD = "thread_1";
+
 const OTHER_THREAD = "thread_2";
 
 const CREATED_AT = "2026-07-28T00:00:00.000Z";
+
 let frameId = 0;
+
 const nextId = () => (frameId += 1);
 
 /**
@@ -150,6 +154,7 @@ describe("applyArtifactFrame — thread scope", () => {
 
   test("a kind this reducer does not handle is dropped whichever thread it names", () => {
     const s = new Map<string, LiveArtifactStream>();
+
     for (const threadId of [THREAD, OTHER_THREAD]) {
       const frame: EventStreamFrame = {
         id: nextId(),
@@ -157,8 +162,10 @@ describe("applyArtifactFrame — thread scope", () => {
         createdAt: CREATED_AT,
         payload: { runId: RUN, threadId, messageId: "msg_1", seq: 1, text: "x", segmentIndex: 0 },
       };
+
       assert.equal(applyArtifactFrame(s, frame, THREAD), false);
     }
+
     assert.equal(s.size, 0);
   });
 });
@@ -199,24 +206,30 @@ describe("applyArtifactFrame — differential against main's routing", () => {
     threadId: string,
   ): boolean {
     const dispatchOnly = () => applyArtifactFrame(streams, frame, frameThreadId(frame) ?? "");
+
     if (frame.kind === "artifact.delta") {
       if (frame.payload.threadId !== threadId) return false;
+
       return dispatchOnly();
     } else if (frame.kind === "chat.tool") {
       if (frame.payload.threadId !== threadId) return false;
+
       return dispatchOnly();
     }
+
     return false;
   }
 
   /** Deterministic PRNG so a divergence is reproducible from the seed alone. */
   function mulberry32(seed: number): () => number {
     let a = seed >>> 0;
+
     return () => {
       a = (a + 0x6d2b79f5) >>> 0;
       let t = a;
       t = Math.imul(t ^ (t >>> 15), t | 1);
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
@@ -233,6 +246,7 @@ describe("applyArtifactFrame — differential against main's routing", () => {
     const toolCallId = pick(CALLS);
     const seq = Math.floor(rng() * 4);
     const id = nextId();
+
     switch (kind) {
       case "artifact.delta":
         return {
@@ -293,6 +307,7 @@ describe("applyArtifactFrame — differential against main's routing", () => {
       const rng = mulberry32(seed);
       const mine = new Map<string, LiveArtifactStream>();
       const reference = new Map<string, LiveArtifactStream>();
+
       for (let step = 0; step < 500; step += 1) {
         const frame = randomFrame(rng);
         const a = applyArtifactFrame(mine, frame, THREAD);
@@ -345,6 +360,7 @@ describe("selectByArtifactId — multi-section document", () => {
       }),
       THREAD,
     );
+
     return s;
   }
 

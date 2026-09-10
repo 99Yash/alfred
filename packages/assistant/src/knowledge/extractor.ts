@@ -81,6 +81,7 @@ export function buildThreadTranscript(
   const lines = transcript
     .map((t) => {
       const body = t.content.trim();
+
       return body.length > 0 ? `${ROLE_LABELS[t.role]}: ${body}` : null;
     })
     .filter((line): line is string => line !== null);
@@ -90,24 +91,31 @@ export function buildThreadTranscript(
   const kept: string[] = [];
   let used = 0;
   let truncated = false;
+
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!;
+
     if (line.length > maxChars && kept.length === 0) {
       kept.push(line.slice(line.length - maxChars));
       truncated = true;
       break;
     }
+
     // +1 for the joining newline between turns.
     const cost = line.length + (kept.length > 0 ? 1 : 0);
+
     if (used + cost > maxChars && kept.length > 0) {
       truncated = true;
       break;
     }
+
     kept.push(line);
     used += cost;
   }
+
   kept.reverse();
   const marker = truncated ? "[…earlier turns truncated]\n" : "";
+
   return `${marker}${kept.join("\n")}`;
 }
 
@@ -116,7 +124,9 @@ function capRenderedTranscript(
   maxChars: number = MAX_TRANSCRIPT_CHARS,
 ): string {
   const trimmed = transcript.trim();
+
   if (trimmed.length <= maxChars) return trimmed;
+
   return `[…earlier turns truncated]\n${trimmed.slice(trimmed.length - maxChars)}`;
 }
 
@@ -174,6 +184,7 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
         name: "chat-memory.extract",
       },
     );
+
     return result.output;
   };
 }
@@ -191,10 +202,12 @@ export async function extractPropositionsFromThread(
     typeof args.transcript === "string"
       ? capRenderedTranscript(args.transcript)
       : buildThreadTranscript(args.transcript);
+
   if (transcript.trim().length === 0) return [];
 
   const generate = args.generate ?? defaultGenerate(args);
   const result = await generate({ system: SYSTEM_PROMPT, prompt: userPrompt(transcript) });
+
   // Re-validate the seam's output so an injected/relaxed generator can't return
   // a shape that violates the contract downstream consumers rely on.
   return chatMemoryExtractionResultSchema.parse(result).propositions;

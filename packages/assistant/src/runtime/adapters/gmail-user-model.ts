@@ -64,6 +64,7 @@ async function loadActiveProjectionUserIds(): Promise<string[]> {
     .select({ userId: activeProjectionVersions.userId })
     .from(activeProjectionVersions)
     .where(eq(activeProjectionVersions.projectionName, USER_MODEL_PROJECTION_NAME));
+
   return rows.map((row) => row.userId);
 }
 
@@ -72,6 +73,7 @@ const DEFAULT_DEPS: GmailUserModelAdapterDeps = {
   reduceDocument: reduceGmailDocument,
   appendObservation: async (input) => {
     const result = await appendObservationFamilyMember(input);
+
     return { status: result.status };
   },
   enqueueRefold: enqueueGmailKindRefold,
@@ -107,12 +109,14 @@ export function createGmailUserModelHandler(
   overrides: Partial<GmailUserModelAdapterDeps> = {},
 ): GmailUserModelHandler {
   const deps = withDefaults(DEFAULT_DEPS, overrides);
+
   return {
     async capture(request) {
       if (request.documentIds.length === 0) return { status: "captured" };
 
       try {
         const docs: GmailDocumentForReduction[] = [];
+
         for (
           let offset = 0;
           offset < request.documentIds.length;
@@ -131,9 +135,11 @@ export function createGmailUserModelHandler(
         let skipped = 0;
         let warnings = 0;
         let errors = 0;
+
         for (const doc of docs) {
           try {
             const reduced = deps.reduceDocument(doc);
+
             for (const issue of reduced.issues) {
               if (issue.severity === "skip") skipped++;
               else warnings++;
@@ -142,8 +148,10 @@ export function createGmailUserModelHandler(
                   `doc=${doc.id} ${issue.code}: ${issue.message}`,
               );
             }
+
             for (const observation of reduced.observations) {
               const result = await deps.appendObservation(observation);
+
               if (result.status === "deduped") deduped++;
               else inserted++;
             }
@@ -160,6 +168,7 @@ export function createGmailUserModelHandler(
           `[ingestion:worker] user-model gmail observations user=${request.userId} docs=${docs.length} ` +
             `inserted=${inserted} deduped=${deduped} skipped=${skipped} warnings=${warnings} errors=${errors}`,
         );
+
         if (inserted > 0) await deps.enqueueRefold(request.userId);
 
         return { status: "captured" };
@@ -168,6 +177,7 @@ export function createGmailUserModelHandler(
           `[ingestion:worker] user-model gmail observation capture failed user=${request.userId}:`,
           toMessage(err),
         );
+
         return { status: "failed" };
       }
     },
@@ -176,10 +186,12 @@ export function createGmailUserModelHandler(
     },
     async sweep() {
       const userIds = await deps.loadActiveProjectionUserIds();
+
       for (const userId of userIds) await deps.enqueueRefold(userId);
       console.log(
         `[ingestion:worker] user_model.gmail_kind_refold_sweep enqueued=${userIds.length}`,
       );
+
       return { enqueued: userIds.length };
     },
   };

@@ -52,6 +52,7 @@ export type SubAgentMetadata = z.infer<typeof subAgentMetadataSchema>;
 
 export function readSubAgentMetadata(metadata: unknown): SubAgentMetadata | null {
   const parsed = subAgentMetadataSchema.safeParse(getPath(metadata, "subAgent"));
+
   return parsed.success ? parsed.data : null;
 }
 

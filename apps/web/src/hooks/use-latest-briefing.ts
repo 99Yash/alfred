@@ -27,8 +27,10 @@ function toDateKey(value: string | Date): string {
     const y = value.getUTCFullYear();
     const m = String(value.getUTCMonth() + 1).padStart(2, "0");
     const d = String(value.getUTCDate()).padStart(2, "0");
+
     return `${y}-${m}-${d}`;
   }
+
   return value;
 }
 
@@ -37,8 +39,10 @@ export function useLatestBriefing(opts?: { poll?: boolean }) {
     queryKey: ["me", "briefings", "latest"],
     queryFn: async () => {
       const res = await client.api.me.briefings.latest.get();
+
       if (res.error || !res.data) return null;
       const b = res.data.briefing;
+
       return b ? { ...b, briefingDate: toDateKey(b.briefingDate) } : null;
     },
     staleTime: 5 * 60_000,

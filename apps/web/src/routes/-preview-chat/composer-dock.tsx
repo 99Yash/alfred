@@ -13,6 +13,7 @@ export function ComposerDock({
   onChange: (v: string) => void;
 }) {
   const canSend = value.trim().length > 0;
+
   return (
     <div className="shrink-0 pt-1 pb-5">
       <div className="mx-auto w-full max-w-3xl px-6">

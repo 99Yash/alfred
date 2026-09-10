@@ -72,6 +72,7 @@ const STEPS: ReadonlyArray<Step> = [
 function StepCard({ step, index }: { step: Step; index: number }) {
   const Icon = step.icon;
   const Figure = step.figure;
+
   return (
     <article
       className={cn(

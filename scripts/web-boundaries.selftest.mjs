@@ -31,6 +31,7 @@ function write(root, relative, content) {
 
 function workspace(root, name, files) {
   write(root, `packages/${name}/package.json`, `{ "name": "@alfred/${name}" }\n`);
+
   for (const [relative, content] of Object.entries(files)) {
     write(root, `packages/${name}/src/${relative}`, content);
   }
@@ -38,6 +39,7 @@ function workspace(root, name, files) {
 
 function withFixture(prefix, body) {
   const fixture = mkdtempSync(join(tmpdir(), prefix));
+
   try {
     return body(fixture);
   } finally {
@@ -64,6 +66,7 @@ function initWorkspaceRepo(fixture) {
 
 function runtimeLoadFailures() {
   const failures = [];
+
   // One rule over every clause shape: a clause is erased only when the `type`
   // keyword LEADS it. Everything else is a module load.
   //
@@ -94,11 +97,13 @@ function runtimeLoadFailures() {
     // A side-effect, dynamic or `require` form carries no clause at all.
     ["", true],
   ];
+
   for (const [clause, expected] of cases) {
     if (isRuntimeLoad(clause) !== expected) {
       failures.push(`isRuntimeLoad("${clause}") must be ${expected}, received ${!expected}`);
     }
   }
+
   return failures;
 }
 
@@ -123,11 +128,13 @@ function inlineTypeClauseViolationFailures() {
 
     const violations = findViolations(fixture, "apps/web/src/entry.ts");
     const expected = [{ line: 1, specifier: "@alfred/db" }];
+
     if (JSON.stringify(violations) !== JSON.stringify(expected)) {
       failures.push(
         `an all-type brace clause on a forbidden package is a module load under verbatimModuleSyntax and must be reported: expected ${JSON.stringify(expected)}, received ${JSON.stringify(violations)}`,
       );
     }
+
     return failures;
   });
 }
@@ -163,6 +170,7 @@ function inlineTypeClauseRootFailures() {
     });
 
     const roots = browserRoots(fixture);
+
     if (!roots.includes("packages/typedonly/src")) {
       failures.push(
         `a package reached ONLY through an all-type brace clause must still become a browser root: expected packages/typedonly/src in ${JSON.stringify(roots)}`,
@@ -172,11 +180,13 @@ function inlineTypeClauseRootFailures() {
     const flagged = browserSurface(fixture)
       .files.filter((file) => findViolations(fixture, file).length > 0)
       .sort();
+
     if (!flagged.includes("packages/typedonly/src/leak.ts")) {
       failures.push(
         `the leak inside a package reached only through an all-type brace clause must be reported: expected packages/typedonly/src/leak.ts in ${JSON.stringify(flagged)}`,
       );
     }
+
     return failures;
   });
 }
@@ -198,6 +208,7 @@ function inlineTypeClauseRootFailures() {
 function lexicalPositionFailures() {
   return withFixture("alfred-web-boundaries-lexical-", (fixture) => {
     const failures = [];
+
     // The block comment and the template literal both hold a line that starts
     // at column 0 with the word `import`. Anchoring a regex to the start of a
     // line answers those two wrong; only a walk that knows where the comment
@@ -217,15 +228,18 @@ function lexicalPositionFailures() {
       "export const used = [snippet, pool];",
       "",
     ].join("\n");
+
     write(fixture, "sample.ts", source);
 
     const violations = findViolations(fixture, "sample.ts");
     const expected = [{ line: 11, specifier: "@alfred/db" }];
+
     if (JSON.stringify(violations) !== JSON.stringify(expected)) {
       failures.push(
         `findViolations must report the one real import and none of the four mentions: expected ${JSON.stringify(expected)}, received ${JSON.stringify(violations)}`,
       );
     }
+
     return failures;
   });
 }
@@ -252,6 +266,7 @@ function mentionedPackageRootFailures() {
   withFixture("alfred-web-boundaries-mention-", (fixture) => {
     build(fixture, '// import { log } from "@alfred/logging";');
     const roots = browserRoots(fixture);
+
     if (roots.includes("packages/logging/src")) {
       failures.push(
         `a commented-out import must not promote its package to a browser root, received ${JSON.stringify(roots)}`,
@@ -262,6 +277,7 @@ function mentionedPackageRootFailures() {
   withFixture("alfred-web-boundaries-mention-armed-", (fixture) => {
     build(fixture, 'import { log } from "@alfred/logging";');
     const roots = browserRoots(fixture);
+
     if (!roots.includes("packages/logging/src")) {
       failures.push(
         `the same import, uncommented, must promote its package to a browser root, received ${JSON.stringify(roots)}`,
@@ -288,6 +304,7 @@ function mentionedPackageRootFailures() {
     workspace(fixture, "logging", { "log.ts": "export const log = 1;\n" });
 
     const roots = browserRoots(fixture);
+
     if (!roots.includes("packages/logging/src")) {
       failures.push(
         `a comment above the only edge to a package must not remove that package from the surface, received ${JSON.stringify(roots)}`,
@@ -315,6 +332,7 @@ function statementBoundaryFailures() {
     withFixture("alfred-web-boundaries-statement-", (fixture) => {
       write(fixture, "sample.ts", source);
       const violations = findViolations(fixture, "sample.ts");
+
       if (JSON.stringify(violations) !== JSON.stringify(expected)) {
         failures.push(
           `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(violations)}`,
@@ -417,6 +435,7 @@ function browserRootsFailures() {
     buildReachabilityFixture(fixture);
 
     const roots = browserRoots(fixture);
+
     const expected = [
       "apps/web/src",
       "packages/component/src",
@@ -425,11 +444,13 @@ function browserRootsFailures() {
       "packages/fake/src",
       "packages/sideeffect/src",
     ];
+
     if (JSON.stringify(roots) !== JSON.stringify(expected)) {
       failures.push(
         `browserRoots must follow runtime @alfred/* bindings transitively through static, side-effect and dynamic imports, skip forbidden and type-only packages, and terminate on a cycle: expected ${JSON.stringify(expected)}, received ${JSON.stringify(roots)}`,
       );
     }
+
     return failures;
   });
 }
@@ -474,6 +495,7 @@ function widenedScanFailures() {
     const flagged = browserSurface(fixture)
       .files.filter((file) => findViolations(fixture, file).length > 0)
       .sort();
+
     // `entry.ts` is the old surface's own catch (it binds `@alfred/db`); the
     // other four are the ones a scan fixed at `apps/web/src` cannot see.
     const expected = [
@@ -483,11 +505,13 @@ function widenedScanFailures() {
       "packages/fake/src/leak.ts",
       "packages/sideeffect/src/leak.ts",
     ];
+
     if (JSON.stringify(flagged) !== JSON.stringify(expected)) {
       failures.push(
         `the scan must cover every browser-reachable package and nothing else: expected ${JSON.stringify(expected)}, received ${JSON.stringify(flagged)}`,
       );
     }
+
     return failures;
   });
 }
@@ -525,6 +549,7 @@ function surfaceFailureFailures() {
     );
 
     const reported = browserSurface(fixture).failures;
+
     for (const pkg of ["@alfred/jsonly", "@alfred/relocated"]) {
       if (!reported.some((failure) => failure.includes(pkg))) {
         failures.push(
@@ -551,6 +576,7 @@ function surfaceFailureFailures() {
     );
 
     const reported = browserSurface(fixture).failures;
+
     if (!reported.some((failure) => failure.includes("@alfred/fakeui"))) {
       failures.push(
         `browserSurface must report a reached package whose sources are not under src/, received ${JSON.stringify(reported)}`,
@@ -569,11 +595,13 @@ function surfaceFailureFailures() {
     );
 
     const { files, failures: reported } = browserSurface(fixture);
+
     if (files.length > 0) {
       failures.push(
         `the seed fixture must resolve no files, received ${JSON.stringify(files)} — rewrite the fixture`,
       );
     }
+
     if (reported.length === 0) {
       failures.push(
         "browserSurface must report a missing browser entry root and an empty file list instead of passing vacuously",
@@ -595,6 +623,7 @@ function appRulingFailures() {
     withFixture(`alfred-web-boundaries-${label}-`, (fixture) => {
       build(fixture);
       const reported = browserSurface(fixture).failures;
+
       for (const needle of needles) {
         if (reported.some((failure) => failure.includes(needle))) continue;
         failures.push(
@@ -649,6 +678,7 @@ function appRulingFailures() {
       'import { pool } from "@alfred/db";\nexport const used = pool;\n',
     );
     const reported = browserSurface(fixture).failures;
+
     if (!reported.some((failure) => failure.includes("pnpm-workspace.yaml"))) {
       failures.push(
         `a repository with no pnpm-workspace.yaml must make browserSurface report the refused enumeration, received ${JSON.stringify(reported)}`,
@@ -671,11 +701,13 @@ function appRulingFailures() {
     write(fixture, "apps/kiosk/src/widget.ts", "export const widget = 1;\n");
 
     const { roots, failures: reported } = browserSurface(fixture);
+
     if (!roots.includes("apps/kiosk/src")) {
       failures.push(
         `an app whose manifest name is @alfred/* and which the browser surface imports at runtime must become a derived root, received ${JSON.stringify(roots)}`,
       );
     }
+
     // It is still an app, so it still needs classifying — being reached is not being
     // declared.
     if (!reported.some((failure) => failure.includes("apps/kiosk"))) {
@@ -789,6 +821,7 @@ function docListFailuresFailures() {
       writeDocs(fixture, docs);
       const result = docListFailures(fixture);
       const problem = predicate(result);
+
       if (problem) failures.push(`docListFailures ${label}: ${problem}`);
     });
 
@@ -951,11 +984,14 @@ function docListFailuresFailures() {
         (failure) =>
           failure.includes("AGENTS.md") && failure.includes("forbidden-runtime-packages:start"),
       );
+
       const end = result.some(
         (failure) =>
           failure.includes("AGENTS.md") && failure.includes("forbidden-runtime-packages:end"),
       );
+
       if (start && end) return null;
+
       return `expected one failure for each marker, received ${JSON.stringify(result)}`;
     },
   );
@@ -994,6 +1030,7 @@ function docListFailuresFailures() {
     write(fixture, "docs/reference/architecture.md", `Forbidden: ${list(all)}\n`);
     write(fixture, "apps/web/AGENTS.md", `Forbidden: ${list(all)}\n`);
     const result = docListFailures(fixture);
+
     if (!result.some((failure) => failure.includes("marker pair"))) {
       failures.push(
         `docListFailures must catch a site whose markers were removed, received ${JSON.stringify(result)}`,
@@ -1022,9 +1059,11 @@ export function webBoundarySelfTestFailures() {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const failures = webBoundarySelfTestFailures();
+
   if (failures.length > 0) {
     for (const failure of failures) console.error(failure);
     process.exit(1);
   }
+
   console.log("web-boundaries self-test passed.");
 }

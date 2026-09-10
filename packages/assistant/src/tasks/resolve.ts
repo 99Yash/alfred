@@ -13,6 +13,7 @@ const resolveTodosForGmailSenderArgsSchema = z.object({
   accountId: z.string().nullable().optional(),
   reason: z.string().nullish(),
 });
+
 export type ResolveTodosForGmailSenderArgs = z.infer<typeof resolveTodosForGmailSenderArgsSchema>;
 
 export type ResolveTodosForGmailSenderResult =
@@ -60,12 +61,15 @@ export async function resolveTodosForGmailSender(
   }
 
   const candidates = await loadLiveGmailTodoCandidates(parsed.userId);
+
   const relevant = sourceThreadId
     ? candidates.filter((candidate) => candidate.threadIds.includes(sourceThreadId))
     : candidates;
+
   if (relevant.length === 0) return notFound();
 
   const allThreadIds = [...new Set(relevant.flatMap((candidate) => candidate.threadIds))];
+
   const threadMetadata =
     senderEmail || accountId
       ? await loadThreadMetadata(parsed.userId, allThreadIds)
@@ -73,15 +77,21 @@ export async function resolveTodosForGmailSender(
 
   const todoIds = new Set<string>();
   const matchedThreadIds = new Set<string>();
+
   for (const candidate of relevant) {
     for (const threadId of candidate.threadIds) {
       if (sourceThreadId && threadId !== sourceThreadId) continue;
+
       if (senderEmail || accountId) {
         const meta = threadMetadata.get(threadId);
+
         if (!meta) continue;
+
         if (accountId && !meta.accountIds.has(accountId)) continue;
+
         if (senderEmail && !meta.senderEmails.has(senderEmail)) continue;
       }
+
       todoIds.add(candidate.id);
       matchedThreadIds.add(threadId);
     }
@@ -119,15 +129,19 @@ export async function resolveTodosForGmailSender(
 
 export function gmailThreadIdsFromTodoSources(value: unknown): string[] {
   const parsed = todoSourcesSchema.safeParse(value);
+
   if (!parsed.success) return [];
+
   return gmailThreadIdsFromSources(parsed.data);
 }
 
 export function gmailThreadIdsFromSources(sources: readonly TodoSource[]): string[] {
   const ids = new Set<string>();
+
   for (const source of sources) {
     if (source.provider === "gmail" && source.kind === "thread") ids.add(source.id);
   }
+
   return [...ids];
 }
 
@@ -139,6 +153,7 @@ async function loadLiveGmailTodoCandidates(userId: string): Promise<CandidateTod
 
   return rows.flatMap((row) => {
     const threadIds = gmailThreadIdsFromTodoSources(row.sources);
+
     return threadIds.length > 0 ? [{ id: row.id, threadIds }] : [];
   });
 }
@@ -165,9 +180,11 @@ async function loadThreadMetadata(
     );
 
   const out = new Map<string, GmailThreadMetadata>();
+
   for (const row of rows) {
     if (!row.sourceThreadId) continue;
     const senderEmail = metadataSenderEmail(row.metadata);
+
     const existing =
       out.get(row.sourceThreadId) ??
       ({
@@ -175,10 +192,13 @@ async function loadThreadMetadata(
         accountIds: new Set<string | null>(),
         senderEmails: new Set<string>(),
       } satisfies GmailThreadMetadata);
+
     existing.accountIds.add(row.accountId);
+
     if (senderEmail) existing.senderEmails.add(senderEmail);
     out.set(row.sourceThreadId, existing);
   }
+
   return out;
 }
 
@@ -188,6 +208,7 @@ function metadataSenderEmail(metadata: unknown): string | null {
 
 function normalizeOptional(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
+
   return trimmed ? trimmed : null;
 }
 

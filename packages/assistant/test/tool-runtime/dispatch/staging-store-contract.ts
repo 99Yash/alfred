@@ -61,8 +61,10 @@ export interface StagingStoreHarness {
 }
 
 let seq = 0;
+
 function uniqueSuffix(): string {
   seq += 1;
+
   return `${Date.now().toString(36)}${seq}`;
 }
 
@@ -168,9 +170,11 @@ export function runStagingStoreContract(
     test("promotePendingApproval raises only a pending autonomous row", async () => {
       const h = harness();
       const run = await h.seedRun("running");
+
       const { row } = await h.store.upsertStaging(
         stagingValues(run, { riskTier: "medium", requiresApproval: false }),
       );
+
       const notifyAfterAt = new Date("2026-08-11T10:00:00.000Z");
       const expiresAt = new Date("2026-08-12T10:00:00.000Z");
 
@@ -243,11 +247,14 @@ export function runStagingStoreContract(
       const otherRun = await h.store.upsertStaging(
         stagingValues(other, { proposedInputHash: hash }),
       );
+
       await h.decide(otherRun.row.id, { status: "rejected", rejectReason: "other run" });
+
       // Same run + hash, different tool.
       const otherTool = await h.store.upsertStaging(
         stagingValues(run, { proposedInputHash: hash, toolName: "system.spawn_sub_agent" }),
       );
+
       await h.decide(otherTool.row.id, { status: "rejected", rejectReason: "other tool" });
 
       assert.deepEqual(
@@ -435,9 +442,11 @@ export function runStagingStoreContract(
     test("upsertStaging honours a non-default status and requiresApproval on insert", async () => {
       const h = harness();
       const run = await h.seedRun("running");
+
       const { row } = await h.store.upsertStaging(
         stagingValues(run, { status: "approved", requiresApproval: true }),
       );
+
       assert.equal(row.status, "approved");
       assert.equal(row.requiresApproval, true);
       assert.equal(row.executeSanitized, false, "a fresh row is not sanitized");
@@ -481,6 +490,7 @@ export function runStagingStoreContract(
       const gated = await h.store.upsertStaging(
         stagingValues(run, { requiresApproval: true, riskTier: "high" }),
       );
+
       assert.equal(gated.row.outcome, "awaiting_approval", "a gated insert parks in the queue");
 
       const stored = await h.readBack(autonomous.row.id);
@@ -501,6 +511,7 @@ export function runStagingStoreContract(
         notifyAfterAt: new Date(),
         expiresAt: new Date(),
       });
+
       assert.equal(promoted?.outcome, "awaiting_approval");
       const stored = await h.readBack(row.id);
       assert.equal(stored?.outcome, "awaiting_approval");
@@ -536,6 +547,7 @@ export function runStagingStoreContract(
         userId: run.userId,
         requestHash: values.requestHash,
       });
+
       assert.ok(found, "the committed unknown row is the barrier");
       assert.equal(found.id, row.id);
       assert.equal(found.effectKey, row.effectKey);

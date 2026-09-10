@@ -85,6 +85,7 @@ test("append_artifact_section rejects unknown keys (strict boundary)", () => {
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-artifact-section-";
+
 const createdUserIds: string[] = [];
 
 async function seedTurn(): Promise<{ userId: string; threadId: string; runId: string }> {
@@ -106,6 +107,7 @@ async function seedTurn(): Promise<{ userId: string; threadId: string; runId: st
     state: {},
     lastCheckpointAt: new Date(),
   });
+
   return { userId, threadId, runId };
 }
 
@@ -114,7 +116,9 @@ async function readMarkdown(artifactId: string): Promise<string> {
     .select({ content: artifacts.content })
     .from(artifacts)
     .where(eq(artifacts.id, artifactId));
+
   assert.ok(row?.content && row.content.kind === "document", "document content present");
+
   return row.content.markdown;
 }
 
@@ -123,25 +127,31 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
     await closeRedis();
   });
 
   test("concatenates each section onto the body with a blank-line separator", async () => {
     const ctx = await seedTurn();
+
     const created = await createArtifact(ctx, {
       title: "Report",
       kind: "document",
       markdown: "## Opening\n\nFirst section.",
     });
+
     assert.equal(created.ok, true);
+
     if (!created.ok) return;
 
     const r1 = await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
       markdown: "## Middle\n\nSecond section.",
     });
+
     assert.equal(r1.ok, true);
+
     if (r1.ok) assert.equal(r1.contentChars, (await readMarkdown(created.artifactId)).length);
 
     await appendArtifactSection(ctx, {
@@ -159,6 +169,7 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     const ctx = await seedTurn();
     const created = await createArtifact(ctx, { title: "Empty start", kind: "document" });
     assert.equal(created.ok, true);
+
     if (!created.ok) return;
 
     await appendArtifactSection(ctx, {
@@ -172,28 +183,35 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     const ctx = await seedTurn();
     const created = await createArtifact(ctx, { title: "Deck", kind: "pages", format: "slides" });
     assert.equal(created.ok, true);
+
     if (!created.ok) return;
 
     const result = await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
       markdown: "## Nope",
     });
+
     assert.equal(result.ok, false);
+
     if (!result.ok) assert.equal(result.status, "wrong_kind");
   });
 
   test("returns not_found for an unknown artifactId", async () => {
     const ctx = await seedTurn();
+
     const result = await appendArtifactSection(ctx, {
       artifactId: `art_${randomUUID()}`,
       markdown: "## Nope",
     });
+
     assert.equal(result.ok, false);
+
     if (!result.ok) assert.equal(result.status, "not_found");
   });
 
   test("refuses accumulation past the stored document cap with content_limit", async () => {
     const ctx = await seedTurn();
+
     const created = await createArtifact(ctx, {
       title: "Near the cap",
       kind: "document",
@@ -202,14 +220,18 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
       // append plus the "\n\n" separator overflows DOCUMENT_MARKDOWN_MAX.
       markdown: "x".repeat(DOCUMENT_MARKDOWN_MAX - 5),
     });
+
     assert.equal(created.ok, true);
+
     if (!created.ok) return;
 
     const result = await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
       markdown: "y".repeat(10),
     });
+
     assert.equal(result.ok, false);
+
     if (!result.ok) assert.equal(result.status, "content_limit");
     // The body is left untouched when the append would overflow.
     assert.equal((await readMarkdown(created.artifactId)).length, DOCUMENT_MARKDOWN_MAX - 5);
@@ -217,18 +239,22 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
   test("row lock preserves every section under concurrent appends", async () => {
     const ctx = await seedTurn();
+
     const created = await createArtifact(ctx, {
       title: "Concurrent",
       kind: "document",
       markdown: "A",
     });
+
     assert.equal(created.ok, true);
+
     if (!created.ok) return;
 
     const [b, c] = await Promise.all([
       appendArtifactSection(ctx, { artifactId: created.artifactId, markdown: "B" }),
       appendArtifactSection(ctx, { artifactId: created.artifactId, markdown: "C" }),
     ]);
+
     assert.equal(b.ok, true);
     assert.equal(c.ok, true);
 

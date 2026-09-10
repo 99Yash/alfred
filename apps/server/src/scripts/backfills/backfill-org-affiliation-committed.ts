@@ -36,36 +36,45 @@ import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+
 const VERBOSE = process.argv.includes("--verbose");
 
 function maskEmail(email: string | null | undefined): string {
   if (!email) return "(no email)";
+
   if (VERBOSE) return email;
   const at = email.indexOf("@");
+
   if (at <= 0) return "***";
   const local = email.slice(0, at);
   const domain = email.slice(at + 1);
   const visibleLocal = local.length <= 2 ? `${local[0] ?? "*"}*` : `${local.slice(0, 2)}***`;
   const [domainHead, ...domainRest] = domain.split(".");
   const safeDomainHead = domainHead ?? "";
+
   const visibleDomain =
     domainRest.length > 0
       ? `${safeDomainHead.slice(0, 1)}***.${domainRest.join(".")}`
       : `${domain.slice(0, 1)}***`;
+
   return `${visibleLocal}@${visibleDomain}`;
 }
 
 function maskId(id: string): string {
   if (VERBOSE) return id;
+
   return id.length <= 8 ? "***" : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
 function parseTargetEmails(): string[] {
   const flag = process.argv.find((arg) => arg.startsWith("--emails="));
+
   if (COMMIT && !flag) {
     throw new Error("--emails=a@x.com must be set explicitly when using --commit");
   }
+
   const raw = flag ? flag.slice("--emails=".length) : "yashgouravkar@gmail.com";
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -73,6 +82,7 @@ function parseTargetEmails(): string[] {
 }
 
 const TARGET_EMAILS = parseTargetEmails();
+
 if (COMMIT && TARGET_EMAILS.length === 0) {
   throw new Error("--emails must include at least one email when using --commit");
 }
@@ -116,6 +126,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       },
       { status: "connected", occurredAt: cred.createdAt },
     );
+
     if (!built.ok) {
       skipped++;
       console.log(
@@ -124,14 +135,17 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       );
       continue;
     }
+
     const { domainClass } = built;
     const groundsEmployer = domainClass === "corporate_domain";
     console.log(
       `    ${maskEmail(cred.accountEmail)} (${cred.status}) → ${domainClass}` +
         `${groundsEmployer ? " [grounds employer]" : ""}`,
     );
+
     if (!COMMIT) continue;
     const result = await recordOrgAffiliationOnConnect(cred.id);
+
     if (result.status === "deduped") deduped++;
     else if (result.status === "emitted") emitted++;
     else skipped++;
@@ -139,8 +153,10 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   if (!COMMIT) {
     console.log(`\n  DRY — nothing written. Re-run with --commit to apply.`);
+
     return;
   }
+
   console.log(
     `\n  COMMITTED — emitted ${emitted}, deduped ${deduped}, skipped ${skipped} ` +
       `(of ${creds.length} credentials).`,
@@ -161,8 +177,10 @@ async function main() {
 
   const found = new Set(users.map((u) => u.email));
   const missing = TARGET_EMAILS.filter((e) => !found.has(e));
+
   if (missing.length > 0) {
     const message = `no user row for target email(s): ${missing.map(maskEmail).join(", ")}`;
+
     if (COMMIT) throw new Error(message);
     console.log(`! ${message} — skipping`);
   }

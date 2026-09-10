@@ -108,6 +108,7 @@ export type ChatPreviewState =
   | "streaming"
   | "active-tool"
   | "rich-content";
+
 // Styleguide demo state selecting which mock UI to render — deliberately NOT
 // the storage `ArtifactStatus` (`generating`/`complete`/`error`) from
 // `@alfred/contracts`. `empty` has no lifecycle analog; this drives the demo.
@@ -861,6 +862,7 @@ function RichAssistantProse() {
 function Cell({ children, header }: { children: ReactNode; header?: boolean }) {
   const className =
     "min-w-0 border-r border-b border-[#1d1d1d] px-3 py-2 text-left align-top text-gray-900";
+
   return header ? (
     <th scope="col" className={className}>
       <strong className="text-gray-950">{children}</strong>
@@ -997,8 +999,10 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           submitRef.current();
+
           return true;
         }
+
         return false;
       },
     },
@@ -1007,12 +1011,14 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
 
   const submit = () => {
     const prompt = editor?.getText().trim() ?? "";
+
     if (!prompt) return;
     onSubmit(prompt);
     editor?.commands.clearContent();
     setValue("");
     queueMicrotask(() => editor?.commands.focus());
   };
+
   // Keep the ref pointing at the latest `submit` for the editor's Enter
   // handler (created once in `useEditor`). Mirrored in an effect rather than
   // during render — a render-phase ref write can leak if React discards the
@@ -1022,6 +1028,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   });
 
   const hasContent = value.trim().length > 0;
+
   const overflowItems: DimensionComposerMenuItem[] = [
     {
       label: autoMode ? "Switch to manual review" : "Switch to auto mode",
@@ -1036,6 +1043,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
       disabled: true,
     },
   ];
+
   const modelOptions = CHAT_MODEL_OPTIONS.map((option) => ({
     ...option,
     selected: option.id === model,
@@ -1109,6 +1117,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
 function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
   const generatedPages =
     state === "generating" ? SYCAMORE_BRIEF_PAGES.slice(0, 3) : SYCAMORE_BRIEF_PAGES;
+
   const [selectedPage, setSelectedPage] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const selected = generatedPages[selectedPage] ?? generatedPages[0];
@@ -1181,6 +1190,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
                 {SYCAMORE_BRIEF_PAGES.map((page, index) => {
                   const ready = index < generatedPages.length;
                   const active = index === selectedPage;
+
                   return (
                     <button
                       key={page.title}

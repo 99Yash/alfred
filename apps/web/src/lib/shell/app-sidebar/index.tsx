@@ -65,8 +65,10 @@ export function AppSidebar({
           MAX_WIDTH,
           Math.max(MIN_WIDTH, startWidth + (pointerEvent.clientX - startX)),
         );
+
         setWidth(next);
       };
+
       const cleanup = () => {
         setDragging(false);
         document.body.style.userSelect = "";

@@ -9,6 +9,7 @@ import {
 } from "./integrations";
 
 export const POLICY_MODES = ["autonomy", "gated"] as const;
+
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
 /**
@@ -53,6 +54,7 @@ export interface ToolRunContext {
 export const cancellationFenceSchema = z.object({
   generation: z.number().int().min(0),
 });
+
 export type CancellationFence = z.infer<typeof cancellationFenceSchema>;
 
 /**
@@ -65,6 +67,7 @@ export const cancellationEnvelopeSchema = z.object({
   retry: z.literal("never"),
   message: z.string(),
 });
+
 export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
 
 /**
@@ -76,7 +79,9 @@ export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
  * every one of those comparisons false.
  */
 export const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent" satisfies ToolName;
+
 export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
+
 /**
  * The one tool that parks a chat turn on a `question` approval (ADR-0099). The
  * dispatcher routes it by its registered staging arm; every reader without the
@@ -101,6 +106,7 @@ export function isQuestionApproval(toolName: string): boolean {
 }
 
 export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
+
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 
 /**
@@ -120,6 +126,7 @@ export const isToolRiskTier = enumGuard(TOOL_RISK_TIERS);
  * approval tray labels, the run-history effect ledger) reads this one list.
  */
 export const WRITE_RISK_TIERS = ["medium", "high"] as const satisfies readonly ToolRiskTier[];
+
 export const isWriteRiskTier = enumGuard(WRITE_RISK_TIERS);
 
 /**
@@ -154,6 +161,7 @@ export function resolveIntegrationMode(
 
 export function integrationFromToolName(toolName: ToolName): IntegrationSlug {
   const integration = toolName.slice(0, toolName.indexOf("."));
+
   if (isIntegrationSlug(integration)) return integration;
   throw new Error(`Unknown integration in tool name '${toolName}'`);
 }
@@ -163,19 +171,23 @@ export function buildToolName<I extends IntegrationSlug, A extends ActionSlug<I>
   action: A,
 ): ToolName {
   const name = `${integration}.${action}`;
+
   if (isToolName(name)) return name;
   throw new Error(`Unknown tool name '${name}'`);
 }
 
 export function isToolName(value: string): value is ToolName {
   const separator = value.indexOf(".");
+
   if (separator <= 0 || separator !== value.lastIndexOf(".")) return false;
 
   const integration = value.slice(0, separator);
+
   if (!isIntegrationSlug(integration)) return false;
 
   const action = value.slice(separator + 1);
   const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
+
   return actions.includes(action);
 }
 
@@ -183,7 +195,9 @@ export function isToolName(value: string): value is ToolName {
 export const TOOL_NAMES: readonly ToolName[] = INTEGRATION_SLUGS.flatMap((integration) =>
   INTEGRATION_ACTIONS[integration].map((action) => {
     const name = `${integration}.${action}`;
+
     if (!isToolName(name)) throw new Error(`Invalid declared tool name '${name}'`);
+
     return name;
   }),
 );
@@ -222,6 +236,7 @@ export function hashToolRequest(
   target: string | undefined,
 ): string {
   const binding = target === undefined ? "" : `:${target}`;
+
   return `req:fnv1a64:${fnv1a64(`${toolName}${binding}:${canonicalJson(input)}`)}`;
 }
 
@@ -779,6 +794,7 @@ export function humanizeToolName(toolName: string): string {
   const separator = toolName.indexOf(".");
   const integration = separator > 0 ? toolName.slice(0, separator) : toolName;
   const action = separator > 0 ? toolName.slice(separator + 1) : "";
+
   return action
     ? `${humanizeSlug(action)} in ${integrationDisplayName(integration)}`
     : integrationDisplayName(integration);
@@ -797,16 +813,22 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   if (value === null) return "null";
 
   const valueType = typeof value;
+
   if (valueType === "string") return JSON.stringify(value);
+
   if (valueType === "number") return Number.isFinite(value) ? String(value) : "null";
+
   if (valueType === "boolean") return value ? "true" : "false";
+
   if (valueType === "bigint") throw new TypeError("Cannot hash tool input containing bigint");
+
   if (valueType === "undefined" || valueType === "function" || valueType === "symbol") {
     return "null";
   }
 
   if (typeof value === "object" && value !== null) {
     const toJSON = Reflect.get(value, "toJSON");
+
     if (typeof toJSON === "function") {
       return stringifyCanonical(toJSON.call(value), seen);
     }
@@ -815,14 +837,19 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   if (Array.isArray(value)) {
     if (seen.has(value)) throw new TypeError("Cannot hash circular tool input");
     seen.add(value);
+
     const items = value.map((item) => {
       const itemType = typeof item;
+
       if (itemType === "undefined" || itemType === "function" || itemType === "symbol") {
         return "null";
       }
+
       return stringifyCanonical(item, seen);
     });
+
     seen.delete(value);
+
     return `[${items.join(",")}]`;
   }
 
@@ -830,19 +857,25 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
     // SAFETY: value === null returned "null" at the top of the walk and
     // valueType is `typeof value`, so this branch holds a non-null object.
     const objectValue = value as object;
+
     if (seen.has(objectValue)) throw new TypeError("Cannot hash circular tool input");
     seen.add(objectValue);
+
     const entries = Object.keys(objectValue)
       .sort()
       .flatMap((key) => {
         const item = Reflect.get(objectValue, key);
         const itemType = typeof item;
+
         if (itemType === "undefined" || itemType === "function" || itemType === "symbol") {
           return [];
         }
+
         return [`${JSON.stringify(key)}:${stringifyCanonical(item, seen)}`];
       });
+
     seen.delete(objectValue);
+
     return `{${entries.join(",")}}`;
   }
 

@@ -73,6 +73,7 @@ export interface WorkflowReadinessContext {
 
 function matchesAccountRef(row: ProviderAvailability, accountRef: string): boolean {
   const normalizedRef = accountRef.toLocaleLowerCase();
+
   return (
     row.accountId.toLocaleLowerCase() === normalizedRef ||
     row.accountLabel?.toLocaleLowerCase() === normalizedRef
@@ -89,6 +90,7 @@ function selectAccountRow(
   accountRef: string | undefined,
 ): ProviderAvailability | undefined {
   const candidates = accountRef ? rows.filter((row) => matchesAccountRef(row, accountRef)) : rows;
+
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
@@ -98,7 +100,9 @@ function eligibleRows(
   toolCatalog: WorkflowToolCatalog,
 ): ProviderAvailability[] {
   const credential = toolCatalog.get(capability.tool)?.availability?.credential;
+
   if (!credential) return [];
+
   return (availability.providers.get(credential.provider) ?? []).filter(
     (row) => row.status === "active" && holdsAnyScope(row.scopes, credential.anyOfScopes),
   );
@@ -113,16 +117,19 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefiniti
   const capabilities = args.definition.requiredCapabilities.map((capability) => {
     const rows = eligibleRows(args.availability, capability, args.toolCatalog);
     const selected = selectAccountRow(rows, capability.accountRef);
+
     return selected ? { ...capability, accountRef: selected.accountId } : capability;
   });
 
   let trigger = args.definition.trigger;
   const accounts = trigger.kind === "event" ? eventDeliveryAccounts(trigger.source) : null;
+
   if (trigger.kind === "event" && accounts) {
     const selected = selectAccountRow(
       eventDeliveryRows(args.availability.providers, accounts),
       trigger.accountRef,
     );
+
     const capabilityAccounts = new Set(
       capabilities.flatMap((capability) =>
         integrationFromToolName(capability.tool) === accounts.integration && capability.accountRef
@@ -130,9 +137,11 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefiniti
           : [],
       ),
     );
+
     const accountRef =
       selected?.accountId ??
       (capabilityAccounts.size === 1 ? [...capabilityAccounts][0] : undefined);
+
     if (accountRef) trigger = { ...trigger, accountRef };
   }
 
@@ -149,16 +158,20 @@ export function resolveWorkflowApprovalDisplay(
   toolCatalog: WorkflowToolCatalog,
 ): WorkflowApprovalDisplay {
   const resolvedAccounts = new Map<string, WorkflowAccountDisplay>();
+
   const displayAccount = (provider: CredentialProvider, accountRef: string) => {
     const row = (availability.providers.get(provider) ?? []).find(
       (candidate) => candidate.accountId === accountRef,
     );
+
     const account = {
       provider,
       accountRef,
       accountLabel: row?.accountLabel ?? `${humanizeSlug(provider)} account`,
     };
+
     resolvedAccounts.set(`${provider}:${accountRef}`, account);
+
     return account;
   };
 
@@ -166,10 +179,12 @@ export function resolveWorkflowApprovalDisplay(
     .map((capability) => {
       const tool = toolCatalog.get(capability.tool);
       const provider = tool?.availability?.credential?.provider;
+
       const account =
         provider && capability.accountRef
           ? displayAccount(provider, capability.accountRef)
           : undefined;
+
       return {
         tool: capability.tool,
         title: toolLabel(capability.tool)?.title ?? capability.tool,
@@ -185,6 +200,7 @@ export function resolveWorkflowApprovalDisplay(
 
   if (definition.trigger.kind === "event" && definition.trigger.accountRef) {
     const accounts = eventDeliveryAccounts(definition.trigger.source);
+
     if (accounts) displayAccount(accounts.provider, definition.trigger.accountRef);
   }
 
@@ -220,6 +236,7 @@ export function resolveWorkflowReadiness(args: {
       (capabilityCountByTool.get(capability.tool) ?? 0) + 1,
     );
   }
+
   for (const [tool, count] of capabilityCountByTool) {
     if (count === 1) continue;
     problems.push({
@@ -241,6 +258,7 @@ export function resolveWorkflowReadiness(args: {
   for (const [index, capability] of args.definition.requiredCapabilities.entries()) {
     const field = `requiredCapabilities.${index}`;
     const tool = args.toolCatalog.get(capability.tool);
+
     if (!tool) {
       problems.push({
         code: "no_tool_surface",
@@ -249,11 +267,13 @@ export function resolveWorkflowReadiness(args: {
       });
       continue;
     }
+
     const availability = tool.evaluateAvailability({
       availability: snapshot,
       allowed,
       context: { caller: "boss", interaction: "background" },
     });
+
     if (!availability.available) {
       problems.push({
         code: availability.code,
@@ -265,6 +285,7 @@ export function resolveWorkflowReadiness(args: {
     }
 
     const credential = tool.availability?.credential;
+
     if (credential) {
       // A capability with no ref is never resolved to the sole row here: that
       // is canonicalization's job, and a definition that reaches this point
@@ -272,6 +293,7 @@ export function resolveWorkflowReadiness(args: {
       const selected = capability.accountRef
         ? selectAccountRow(snapshot.providers.get(credential.provider) ?? [], capability.accountRef)
         : undefined;
+
       if (!selected) {
         problems.push({
           code: "choose_account",
@@ -281,6 +303,7 @@ export function resolveWorkflowReadiness(args: {
         });
         continue;
       }
+
       if (selected.status !== "active") {
         problems.push({
           code: "needs_reauth",
@@ -297,6 +320,7 @@ export function resolveWorkflowReadiness(args: {
         });
         continue;
       }
+
       if (!holdsAnyScope(selected.scopes, credential.anyOfScopes)) {
         problems.push({
           code: "missing_scope",
@@ -320,6 +344,7 @@ export function resolveWorkflowReadiness(args: {
           fact.accountRef === capability.accountRef &&
           canonicalJson(fact.resourceScope) === canonicalJson(capability.resourceScope),
       );
+
       if (!resourceFact?.granted) {
         problems.push({
           code: "resource_not_granted",
@@ -335,6 +360,7 @@ export function resolveWorkflowReadiness(args: {
 
   if (args.definition.trigger.kind === "event") {
     const problem = triggerProblem(args.definition.trigger, args.context);
+
     if (problem) problems.push(problem);
   }
 
@@ -356,22 +382,29 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
   const requiredCapabilities = args.requested.flatMap((requested) =>
     isToolName(requested.tool) ? [{ ...requested, tool: requested.tool }] : [],
   );
+
   const allowedTools = [...new Set(requiredCapabilities.map((capability) => capability.tool))];
+
   const integrationSet = new Set<ReturnType<typeof integrationFromToolName>>(
     allowedTools.map((tool) => integrationFromToolName(tool)),
   );
+
   for (const requested of args.requested) {
     const separator = requested.tool.indexOf(".");
     const prefix = separator === -1 ? requested.tool : requested.tool.slice(0, separator);
+
     if (isIntegrationSlug(prefix)) integrationSet.add(prefix);
   }
+
   if (
     args.definition.trigger.kind === "event" &&
     isIntegrationSlug(args.definition.trigger.source)
   ) {
     integrationSet.add(args.definition.trigger.source);
   }
+
   const allowedIntegrations = [...integrationSet].sort();
+
   const definition = canonicalizeWorkflowAccounts({
     definition: {
       ...args.definition,
@@ -382,6 +415,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     availability: args.context.availability,
     toolCatalog: args.toolCatalog,
   });
+
   const missing = resolveWorkflowReadiness({
     definition,
     context: args.context,
@@ -389,6 +423,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     toolCatalog: args.toolCatalog,
     ...(args.resourceAccessFacts ? { resourceAccessFacts: args.resourceAccessFacts } : {}),
   });
+
   return {
     definition,
     missing,
@@ -418,9 +453,11 @@ function triggerProblem(
   context: WorkflowReadinessContext,
 ): WorkflowReadinessProblem | null {
   const entry = context.eventSourceHealth[trigger.source];
+
   if (entry.grain === "source") return deliveryProblem(trigger.source, entry.health);
   const { integration } = entry.accounts;
   const rows = eventDeliveryRows(context.availability.providers, entry.accounts);
+
   if (rows.length === 0) {
     return deliveryProblem(trigger.source, {
       healthy: false,
@@ -434,7 +471,9 @@ function triggerProblem(
       recovery: { kind: "connect", integration },
     });
   }
+
   const selected = trigger.accountRef ? selectAccountRow(rows, trigger.accountRef) : undefined;
+
   if (!selected) {
     return {
       code: "choose_account",
@@ -443,6 +482,7 @@ function triggerProblem(
       recoveryAction: { kind: "choose_account", integration },
     };
   }
+
   return deliveryProblem(trigger.source, entry.healthOf(selected));
 }
 
@@ -460,8 +500,10 @@ function deliveryProblem(
 ): WorkflowReadinessProblem | null {
   if (health.healthy) return null;
   const notReady = health.recovery.kind === "connect";
+
   const recoveryAction: WorkflowRecoveryAction | undefined =
     health.recovery.kind === "none" ? undefined : health.recovery;
+
   return {
     code: notReady ? "trigger_not_ready" : "trigger_degraded",
     message: `${humanizeSlug(source)} event delivery is ${notReady ? "not ready" : "degraded"}: ${health.reason}.`,
@@ -478,8 +520,10 @@ function recoveryForToolProblem(
   if (code === "not_connected") {
     return { recoveryAction: { kind: "connect", integration: tool.integration } };
   }
+
   if (code === "needs_reauth" || code === "missing_scope") {
     const acceptableScopes = tool.availability?.credential?.anyOfScopes;
+
     return {
       recoveryAction: {
         kind: "reauthorize",
@@ -491,8 +535,10 @@ function recoveryForToolProblem(
       },
     };
   }
+
   if (code === "feature_disabled") {
     return { recoveryAction: { kind: "enable_feature", integration: tool.integration } };
   }
+
   return {};
 }

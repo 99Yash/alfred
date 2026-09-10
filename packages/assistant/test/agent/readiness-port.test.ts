@@ -19,8 +19,10 @@ describe("workflow readiness port", () => {
 
   test("forwards args to the registered check and returns its verdict", async () => {
     const seen: { runId: string; userId: string }[] = [];
+
     const unregister = registerWorkflowReadinessCheck(async (args) => {
       seen.push(args);
+
       return { kind: "blocked", problems: [{ code: "needs_reauth" }] };
     });
 
@@ -61,6 +63,7 @@ describe("workflow readiness port", () => {
       kind: "deferred",
       reason: "provider warming up",
     }));
+
     try {
       assert.deepEqual(await checkWorkflowReadiness({ runId: "run-4", userId: "user-4" }), {
         kind: "deferred",
@@ -74,6 +77,7 @@ describe("workflow readiness port", () => {
   test("a stale unregister after re-registration does not clear the new check", async () => {
     const unregisterFirst = registerWorkflowReadinessCheck(async () => ready);
     unregisterFirst();
+
     const unregisterSecond = registerWorkflowReadinessCheck(async () => ({
       kind: "blocked",
       problems: [],

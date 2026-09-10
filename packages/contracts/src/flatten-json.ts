@@ -10,13 +10,17 @@ export function flattenJson(value: unknown) {
   const leaves: { path: string[]; value: string; truncated: boolean }[] = [];
   let remaining = 48_000;
   let visited = 0;
+
   function visit(node: unknown, path: string[]): void {
     if (++visited > 4096 || remaining <= 0 || path.length > 16) return;
+
     if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
       const labelLength = path.join(".").length + 3;
+
       if (labelLength >= remaining) return;
       const scalar = String(node);
       const text = scalar.slice(0, remaining - labelLength);
+
       if (!text) return;
       remaining -= text.length + labelLength;
       leaves.push({ path, value: text, truncated: text.length < scalar.length });
@@ -27,6 +31,8 @@ export function flattenJson(value: unknown) {
       }
     }
   }
+
   visit(value, []);
+
   return leaves;
 }

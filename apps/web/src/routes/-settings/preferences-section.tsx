@@ -13,6 +13,7 @@ const SOUND_ITEMS: ReadonlyArray<AppSegmentedItem<ChatSoundPreference>> = [
 
 export function PreferencesSection() {
   const [productUpdates, setProductUpdates] = useState(true);
+
   const [soundPref, setSoundPref] = useState<ChatSoundPreference>(() =>
     getLocalStorageItem("alfred.chat.soundPreference"),
   );

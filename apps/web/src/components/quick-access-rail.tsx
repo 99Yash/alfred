@@ -103,6 +103,7 @@ export function QuickAccessRail() {
   const { todos, suggestions, createTodo, completeTodo, reopenTodo, promoteTodo } = useTodos();
   const [draft, setDraft] = useState("");
   const active = RAIL_TABS.find((tab) => tab.mode === mode) ?? RAIL_TABS[0]!;
+
   const onRailTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
     event.preventDefault();
@@ -122,6 +123,7 @@ export function QuickAccessRail() {
 
   const addDraft = () => {
     const trimmed = draft.trim();
+
     if (!trimmed) return;
     void createTodo(trimmed);
     setDraft("");
@@ -151,6 +153,7 @@ export function QuickAccessRail() {
             {RAIL_TABS.map((tab) => {
               const Icon = tab.icon;
               const selected = mode === tab.mode;
+
               return (
                 <button
                   key={tab.mode}
@@ -249,6 +252,7 @@ function TasksPanel({
       <ul className="mt-2 space-y-0.5">
         {todos.map((todo) => {
           const done = todo.status === "done";
+
           return (
             <li key={todo.id}>
               <button
@@ -362,6 +366,7 @@ function EmailsPanel({ emails }: { emails: ReadonlyArray<EmailDraft> }) {
   if (emails.length === 0) {
     return <RailEmpty title="All done!" text="No pending email drafts." />;
   }
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-white/20 pb-3">
@@ -404,6 +409,7 @@ function MeetingsPanel({ meetings }: { meetings: ReadonlyArray<MeetingItem> }) {
   if (meetings.length === 0) {
     return <RailEmpty title="All done!" text="You have no meetings scheduled for today." />;
   }
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-white/20 pb-3">
@@ -504,6 +510,7 @@ function WeatherLabel({
   if (loading || errored || !snapshot) {
     return <div className={wrapperClass} aria-hidden />;
   }
+
   return (
     <div
       className={wrapperClass}

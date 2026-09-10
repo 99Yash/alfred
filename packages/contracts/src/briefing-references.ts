@@ -55,6 +55,7 @@ interface ReferenceEntity {
 }
 
 const REFERENCE_RE = /\[\[([a-z_]+):([^\]\s]+)\]\]/g;
+
 const BRIEFING_REFERENCE_KIND_SET: ReadonlySet<string> = new Set(BRIEFING_REFERENCE_KINDS);
 
 /**
@@ -73,8 +74,10 @@ export function resolveBriefingReferences(
   const unresolved: string[] = [];
 
   let cursor = 0;
+
   for (const match of markdown.matchAll(REFERENCE_RE)) {
     const start = match.index ?? 0;
+
     if (start > cursor) {
       segments.push({ kind: "text", text: markdown.slice(cursor, start) });
     }
@@ -82,6 +85,7 @@ export function resolveBriefingReferences(
     const raw = rawReferenceFromMatch(match);
     const parsed = parseBriefingReference(raw);
     const entity = parsed ? entities.get(parsed.reference) : undefined;
+
     if (entity) {
       segments.push({ kind: "reference", ...entity });
       resolved.push(entity.reference);
@@ -102,16 +106,21 @@ export function resolveBriefingReferences(
 
 export function referencesFromSections(sections: FullBriefingSection[]): BriefingReference[] {
   const refs = new Set<BriefingReference>();
+
   for (const section of sections) {
     for (const reference of section.references ?? []) {
       const parsed = parseBriefingReference(reference);
+
       if (parsed) refs.add(parsed.reference);
     }
+
     for (const match of section.body.matchAll(REFERENCE_RE)) {
       const parsed = parseBriefingReference(rawReferenceFromMatch(match));
+
       if (parsed) refs.add(parsed.reference);
     }
   }
+
   return [...refs];
 }
 
@@ -126,10 +135,13 @@ export function listBriefingReferenceOptions(gather: BriefingGather): BriefingRe
 /** Parse a `<kind>:<id>` reference string; returns null for unknown kinds or empty ids. */
 export function parseBriefingReference(value: string): ParsedBriefingReference | null {
   const separator = value.indexOf(":");
+
   if (separator <= 0) return null;
   const kind = value.slice(0, separator);
   const id = value.slice(separator + 1);
+
   if (!id || !isBriefingReferenceKind(kind)) return null;
+
   return { kind, id, reference: briefingReference(kind, id) };
 }
 

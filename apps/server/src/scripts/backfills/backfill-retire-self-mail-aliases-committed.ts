@@ -58,6 +58,7 @@ import { and, eq, inArray, or, sql } from "drizzle-orm";
 function parseListFlag(flag: string, fallback: string): string[] {
   const arg = process.argv.find((a) => a.startsWith(`${flag}=`));
   const raw = arg ? arg.slice(`${flag}=`.length) : fallback;
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -65,10 +66,12 @@ function parseListFlag(flag: string, fallback: string): string[] {
 }
 
 const TARGET_EMAILS = parseListFlag("--emails", "yashgouravkar@gmail.com");
+
 // Historical Alfred send-from aliases the CURRENT `RESEND_FROM_EMAIL` no longer
 // matches. `yash@croisillies.xyz` is the envelope the 05-21 → 06-01 briefings on
 // the personal account shipped from (issue #266 evidence).
 const ALIAS_INPUT = parseListFlag("--aliases", "yash@croisillies.xyz");
+
 const COMMIT = process.argv.includes("--commit");
 
 async function processUser(
@@ -78,6 +81,7 @@ async function processUser(
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
 
   const addrList = [...selfAddrs];
+
   // Candidate self-docs: coarse substring filter on `metadata.from` (OR across
   // every self address), then an EXACT parsed-address match — the LIKE alone
   // over-matches display text, and this delete is destructive.
@@ -98,14 +102,18 @@ async function processUser(
         ),
       ),
     );
+
   const isSelf = (from: string | null): boolean => {
     const parsed = parseEmailAddress(from);
+
     return parsed !== null && selfAddrs.has(parsed);
   };
+
   const selfDocs = candidates.filter((d) => isSelf(d.from));
 
   if (selfDocs.length === 0) {
     console.log("  no self-authored documents on file — nothing to retire");
+
     return;
   }
 
@@ -128,10 +136,13 @@ async function processUser(
           ),
         )
     : [];
+
   const mixedSet = new Set<string>();
+
   for (const d of threadDocs) {
     if (d.threadId && !isSelf(d.from)) mixedSet.add(d.threadId);
   }
+
   const pureThreadIds = threadIds.filter((t) => !mixedSet.has(t));
   const pureThreadSet = new Set(pureThreadIds);
 
@@ -143,20 +154,24 @@ async function processUser(
   const docIds = deletableDocs.map((d) => d.id);
 
   console.log(`  ${selfDocs.length} self-authored docs across ${threadIds.length} threads`);
+
   if (mixedSet.size) {
     console.log(
       `  ! ${mixedSet.size} mixed thread(s) also contain non-self mail — docs AND triage LEFT intact (${skippedMixedDocs} self-doc(s) skipped)`,
     );
   }
+
   for (const d of deletableDocs.slice(0, 15)) {
     console.log(`    doc=${d.id} thread=${d.threadId} | ${d.from} | ${d.title ?? "(no subject)"}`);
   }
+
   if (deletableDocs.length > 15) console.log(`    … and ${deletableDocs.length - 15} more`);
 
   if (!COMMIT) {
     console.log(
       `  DRY — would delete ${docIds.length} docs and triage for ${pureThreadIds.length} pure threads`,
     );
+
     return;
   }
 
@@ -197,14 +212,19 @@ async function main() {
   // is normalized identically.
   const selfAddrs = new Set<string>();
   const current = selfSenderEmail();
+
   if (current) selfAddrs.add(current);
   const unparsed: string[] = [];
+
   for (const a of ALIAS_INPUT) {
     const parsed = parseEmailAddress(a);
+
     if (parsed) selfAddrs.add(parsed);
     else unparsed.push(a);
   }
+
   if (unparsed.length) console.log(`! ignored unparseable alias(es): ${unparsed.join(", ")}`);
+
   if (selfAddrs.size === 0) {
     throw new Error("no self addresses to match (RESEND_FROM_EMAIL unparseable and no aliases)");
   }
@@ -219,6 +239,7 @@ async function main() {
     .where(inArray(userTable.email, TARGET_EMAILS));
 
   const found = new Set(users.map((u) => u.email));
+
   for (const email of TARGET_EMAILS) {
     if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
   }

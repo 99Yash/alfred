@@ -145,9 +145,11 @@ const UNRECOGNIZED_NODE_ENV_LABEL = "unrecognized";
  */
 function routeSurfaceCaseByLabel(label: string): RouteSurfaceCase {
   const found = ROUTE_SURFACE_CASES.find((testCase) => testCase.label === label);
+
   if (found === undefined) {
     throw new Error(`the route surface table holds no row labelled "${label}"`);
   }
+
   return found;
 }
 
@@ -155,6 +157,7 @@ function routeSurfaceCaseByLabel(label: string): RouteSurfaceCase {
 export function routeSurfaceFor(testCase: RouteSurfaceCase): readonly string[] {
   if (testCase.includesDevelopmentOnlyRoutes) return ROUTE_SURFACE;
   const developmentOnly: readonly string[] = DEVELOPMENT_ONLY_ROUTES;
+
   return ROUTE_SURFACE.filter((route) => !developmentOnly.includes(route));
 }
 
@@ -165,6 +168,7 @@ export function routeSurfaceFor(testCase: RouteSurfaceCase): readonly string[] {
  */
 export function ambientRouteSurfaceCase(): RouteSurfaceCase {
   const ambient = process.env.NODE_ENV;
+
   return (
     ROUTE_SURFACE_CASES.find((testCase) => testCase.nodeEnv === ambient) ??
     routeSurfaceCaseByLabel(UNRECOGNIZED_NODE_ENV_LABEL)

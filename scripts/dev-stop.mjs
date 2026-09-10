@@ -20,6 +20,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
 const DRY_RUN = process.argv.includes("--dry-run");
 
 /**
@@ -50,17 +51,22 @@ const SUPERVISOR_PATTERNS = ["pnpm", "turbo", "npm exec", "node "];
 function listProcesses() {
   const out = execFileSync("ps", ["-eo", "pid=,ppid=,tty=,command="], { encoding: "utf8" });
   const byPid = new Map();
+
   for (const line of out.split("\n")) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line);
+
     if (!match) continue;
+
     const proc = {
       pid: Number(match[1]),
       ppid: Number(match[2]),
       tty: match[3],
       command: match[4].trim(),
     };
+
     byPid.set(proc.pid, proc);
   }
+
   return byPid;
 }
 
@@ -68,17 +74,22 @@ function listProcesses() {
 function selfLineage(byPid) {
   const mine = new Set([process.pid]);
   let pid = process.ppid;
+
   for (let hops = 0; hops < 16 && pid > 1; hops += 1) {
     mine.add(pid);
     const parent = byPid.get(pid);
+
     if (!parent) break;
     pid = parent.ppid;
   }
+
   return mine;
 }
 
 const byPid = listProcesses();
+
 const mine = selfLineage(byPid);
+
 const all = [...byPid.values()];
 
 const seeds = all.filter(
@@ -90,6 +101,7 @@ const seeds = all.filter(
 );
 
 const targets = new Map();
+
 for (const seed of seeds) targets.set(seed.pid, seed);
 
 // Walk UP from each seed. The supervisor chain (`pnpm --filter server dev` →
@@ -99,8 +111,10 @@ for (const seed of seeds) targets.set(seed.pid, seed);
 // not a plausible supervisor, so the walk never climbs into the user's shell.
 for (const seed of seeds) {
   let parent = byPid.get(seed.ppid);
+
   for (let hops = 0; hops < 8 && parent && parent.pid > 1; hops += 1) {
     if (mine.has(parent.pid)) break;
+
     if (!SUPERVISOR_PATTERNS.some((pattern) => parent.command.includes(pattern))) break;
     targets.set(parent.pid, parent);
     parent = byPid.get(parent.ppid);
@@ -109,14 +123,18 @@ for (const seed of seeds) {
 
 // Walk DOWN, so a server the supervisor already spawned dies with it.
 const childrenOf = new Map();
+
 for (const proc of all) {
   const siblings = childrenOf.get(proc.ppid) ?? [];
   siblings.push(proc);
   childrenOf.set(proc.ppid, siblings);
 }
+
 const queue = [...targets.keys()];
+
 while (queue.length > 0) {
   const pid = queue.pop();
+
   for (const child of childrenOf.get(pid) ?? []) {
     if (mine.has(child.pid) || targets.has(child.pid)) continue;
     targets.set(child.pid, child);
@@ -138,12 +156,14 @@ const unmatched = all.filter(
 function describe(proc) {
   const orphan = proc.ppid === 1 ? " [ORPHANED]" : "";
   const detached = proc.tty === "??" ? " [NO TTY]" : "";
+
   return `  pid ${proc.pid} (ppid ${proc.ppid})${orphan}${detached}\n    ${proc.command.slice(0, 132)}`;
 }
 
 function signal(pid, sig) {
   try {
     process.kill(pid, sig);
+
     return true;
   } catch {
     return false; // Already gone, or not ours to signal. Both are fine.
@@ -153,6 +173,7 @@ function signal(pid, sig) {
 function alive(pid) {
   try {
     process.kill(pid, 0);
+
     return true;
   } catch {
     return false;
@@ -161,17 +182,20 @@ function alive(pid) {
 
 if (unmatched.length > 0) {
   console.log(`Other processes under ${ROOT} (left alone):`);
+
   for (const proc of unmatched) console.log(describe(proc));
   console.log("");
 }
 
 const found = [...targets.values()];
+
 if (found.length === 0) {
   console.log("No Alfred dev processes are running.");
   process.exit(0);
 }
 
 console.log(`Found ${found.length} Alfred dev process(es):`);
+
 for (const proc of found) console.log(describe(proc));
 
 if (DRY_RUN) {
@@ -184,28 +208,35 @@ if (DRY_RUN) {
 const ordered = found.sort((a, b) => {
   const aSupervised = targets.has(a.ppid) ? 1 : 0;
   const bSupervised = targets.has(b.ppid) ? 1 : 0;
+
   return aSupervised - bSupervised;
 });
 
 console.log("\nSending SIGTERM...");
+
 for (const proc of ordered) signal(proc.pid, "SIGTERM");
 
 // Give them a moment to unwind — BullMQ workers close their queues on shutdown.
 const deadline = Date.now() + 3000;
+
 while (Date.now() < deadline && ordered.some((p) => alive(p.pid))) {
   execFileSync("sleep", ["0.2"]);
 }
 
 const stubborn = ordered.filter((p) => alive(p.pid));
+
 if (stubborn.length > 0) {
   console.log(`SIGKILL for ${stubborn.length} that ignored SIGTERM...`);
+
   for (const proc of stubborn) signal(proc.pid, "SIGKILL");
   execFileSync("sleep", ["0.5"]);
 }
 
 const survivors = ordered.filter((p) => alive(p.pid));
+
 if (survivors.length > 0) {
   console.error("Could not stop:");
+
   for (const proc of survivors) console.error(describe(proc));
   process.exit(1);
 }

@@ -18,6 +18,7 @@ const event = {
 describe("triggers", () => {
   test("publishes one event to every registered consumer", async () => {
     const received: string[] = [];
+
     const unregisterFirst = registerTriggerConsumer({
       name: "triggers-test-first",
       mode: "propagate",
@@ -25,6 +26,7 @@ describe("triggers", () => {
         received.push(`first:${published.eventId}`);
       },
     });
+
     const unregisterSecond = registerTriggerConsumer({
       name: "triggers-test-second",
       mode: "propagate",
@@ -74,6 +76,7 @@ describe("triggers", () => {
 
   test("lets every consumer claim an event before reporting a propagate failure", async () => {
     let successfulConsumerRan = false;
+
     const unregisterFailure = registerTriggerConsumer({
       name: "triggers-test-failure",
       mode: "propagate",
@@ -81,6 +84,7 @@ describe("triggers", () => {
         throw new Error("consumer failed");
       },
     });
+
     const unregisterSuccess = registerTriggerConsumer({
       name: "triggers-test-success",
       mode: "propagate",
@@ -103,6 +107,7 @@ describe("triggers", () => {
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => warnings.push(args);
+
     const unregisterFailure = registerTriggerConsumer({
       name: "triggers-test-best-effort-failure",
       mode: "best-effort",
@@ -110,6 +115,7 @@ describe("triggers", () => {
         throw new Error("reaction failed");
       },
     });
+
     const unregisterSibling = registerTriggerConsumer({
       name: "triggers-test-best-effort-sibling",
       mode: "best-effort",

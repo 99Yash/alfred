@@ -13,15 +13,19 @@ export {
   learnSkillDedupKey,
   learnSkillWorkflowInputSchema,
 } from "./workflow-input";
+
 export type { LearnSkillWorkflowInput } from "./workflow-input";
 
 export { MENTION_KINDS, parseMentions, parsedMentionSchema, resolveMentions } from "./mentions";
+
 export type { MentionKind, MentionRegistry, ParsedMention } from "./mentions";
 
 export { collectSkillLearnContext } from "./context";
+
 export type { SkillLearnContext } from "./context";
 
 export { distillResultSchema, distillSkill, skillProposalSchema } from "./distill";
+
 export type { DistillResult, DistillSkillArgs, DistillSkillResult, SkillProposal } from "./distill";
 
 export { learnSkillWorkflow } from "./learn-skill";
@@ -30,6 +34,7 @@ export { slugifyForUser } from "./slug";
 
 // Skill revision persistence (shared seam)
 export { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
+
 export type {
   CommitRevisionArgs,
   CommitRevisionResult,
@@ -43,15 +48,19 @@ export {
   skillDocumentationDedupKey,
   skillDocumentationInputSchema,
 } from "./skill-documentation-workflow-input";
+
 export type { SkillDocumentationInput } from "./skill-documentation-workflow-input";
 
 export { collectSkillDocumentationContext } from "./skill-documentation-context";
+
 export type { SkillDocumentationContext } from "./skill-documentation-context";
 
 export { composeSkillDocumentation } from "./compose";
+
 export type { ComposeArgs, ComposedDocumentation } from "./compose";
 
 export { composeSkillDocumentationEmail } from "./email";
+
 export type { SkillDocumentationEmailArgs } from "./email";
 
 export { skillDocumentationWorkflow } from "./skill-documentation";

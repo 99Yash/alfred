@@ -28,6 +28,7 @@ describe("hosted endpoint validation", () => {
         candidate,
       );
     }
+
     assert.throws(
       () =>
         validatePinnedHttpsEndpoint("https://other.example.test/mcp", "https://mcp.example.test"),
@@ -46,11 +47,13 @@ describe("hosted endpoint validation", () => {
     const codeOf = (expectedOrigin: string) => {
       try {
         validatePinnedHttpsEndpoint("https://mcp.example.test/mcp", expectedOrigin);
+
         return null;
       } catch (error) {
         return error instanceof HostedEndpointError ? error.code : null;
       }
     };
+
     assert.equal(codeOf("not a url"), "invalid_origin");
     assert.equal(codeOf("https://mcp.example.test/path"), "invalid_origin");
     assert.equal(codeOf("https://other.example.test"), "origin_mismatch");
@@ -63,6 +66,7 @@ describe("hostedEndpointErrorFrom", () => {
       new Error("'rebind.example' resolves to a private or internal address (10.0.0.5)."),
       { code: "EBLOCKEDHOST" },
     );
+
     const wrapped = new TypeError("fetch failed", { cause: blocked });
 
     const hosted = hostedEndpointErrorFrom(wrapped);
@@ -197,6 +201,7 @@ describe("pinningLookup (connect-time IP pin)", () => {
         { address: "93.184.216.34", family: 4 },
         { address: "127.0.0.1", family: 4 },
       ]);
+
     const { err } = await run("mixed.example", resolve);
     assert.equal(err?.code, "EBLOCKEDHOST");
   });
@@ -204,6 +209,7 @@ describe("pinningLookup (connect-time IP pin)", () => {
   test("passes validated public addresses through (all:true array shape)", async () => {
     const resolve: DnsLookupAll = (_h, _o, cb) =>
       cb(null, [{ address: "93.184.216.34", family: 4 }]);
+
     const { err, address } = await run("example.com", resolve);
     assert.equal(err, null);
     assert.ok(Array.isArray(address));
@@ -226,13 +232,16 @@ describe("pinningLookup (connect-time IP pin)", () => {
 describe("guarded fetch", () => {
   test("follows a same-origin GET redirect after validating the next hop", async () => {
     const seen: string[] = [];
+
     const requester: GuardedFetchRequester = async (input) => {
       const url = String(input);
       seen.push(url);
+
       return url.endsWith("/start")
         ? new Response(null, { status: 302, headers: { location: "/done" } })
         : new Response("ok", { status: 200 });
     };
+
     const guarded = createGuardedFetch({
       expectedOrigin: "https://mcp.example.test",
       requester,
@@ -246,27 +255,33 @@ describe("guarded fetch", () => {
 
   test("does not send a cross-origin redirect or replay a POST body", async () => {
     let crossOriginCalls = 0;
+
     const crossOrigin = createGuardedFetch({
       expectedOrigin: "https://mcp.example.test",
       requester: async () => {
         crossOriginCalls += 1;
+
         return new Response(null, {
           status: 302,
           headers: { location: "https://other.example.test/steal" },
         });
       },
     });
+
     await assert.rejects(crossOrigin("https://mcp.example.test/start"), /stored origin/);
     assert.equal(crossOriginCalls, 1);
 
     let postCalls = 0;
+
     const redirectedPost = createGuardedFetch({
       expectedOrigin: "https://mcp.example.test",
       requester: async () => {
         postCalls += 1;
+
         return new Response(null, { status: 307, headers: { location: "/again" } });
       },
     });
+
     await assert.rejects(
       redirectedPost("https://mcp.example.test/mcp", { method: "POST", body: "payload" }),
       /not replayed/,
@@ -276,9 +291,11 @@ describe("guarded fetch", () => {
 
   test("strips credentials before a public OAuth GET follows a cross-origin redirect", async () => {
     const seen: Array<{ url: string; headers: Headers }> = [];
+
     const guarded = createGuardedFetch({
       requester: async (input, init) => {
         seen.push({ url: String(input), headers: new Headers(init?.headers) });
+
         return seen.length === 1
           ? new Response(null, {
               status: 302,
@@ -302,6 +319,7 @@ describe("guarded fetch", () => {
 
     assert.equal(seen.length, 2);
     assert.equal(seen[1]?.url, "https://auth.example.test/metadata");
+
     for (const name of [
       "authorization",
       "cookie",

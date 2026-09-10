@@ -27,13 +27,19 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-briefing-day-shape-";
+
 const createdUserIds: string[] = [];
 
 const WINDOW_START = new Date("2026-06-27T00:00:00.000Z");
+
 const WINDOW_END = new Date("2026-06-28T00:00:00.000Z");
+
 const IN_WINDOW = new Date("2026-06-27T12:00:00.000Z");
+
 const BEFORE_WINDOW = new Date("2026-06-26T12:00:00.000Z");
+
 const AFTER_WINDOW = new Date("2026-06-28T12:00:00.000Z");
 
 async function seedUser(): Promise<string> {
@@ -42,6 +48,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Day Shape Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -73,9 +80,12 @@ async function mergePr(userId: string, number: number, deliveredAt: Date): Promi
 
 /** One GitHub App credential per user: every receipt is attributed to one (ADR-0097). */
 const githubCredentialByUser = new Map<string, string>();
+
 async function githubCredentialFor(userId: string): Promise<string> {
   const existing = githubCredentialByUser.get(userId);
+
   if (existing) return existing;
+
   const [row] = await db()
     .insert(integrationCredentials)
     .values({
@@ -90,8 +100,10 @@ async function githubCredentialFor(userId: string): Promise<string> {
       status: "active",
     })
     .returning({ id: integrationCredentials.id });
+
   if (!row) throw new Error("credential insert returned no row");
   githubCredentialByUser.set(userId, row.id);
+
   return row.id;
 }
 
@@ -128,6 +140,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();
@@ -171,6 +184,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
 
   test("a supplied activityCount wins over what the receipt log actually holds", async () => {
     const userId = await seedUser();
+
     for (let i = 0; i < 9; i++) await seedGithubReceipt(userId, IN_WINDOW);
 
     // `gatherBriefingWithSuppressionAudit` passes the already-fetched count to
@@ -231,6 +245,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
 
   test("shipped is capped at 6", async () => {
     const userId = await seedUser();
+
     for (let i = 51; i <= 58; i++) await mergePr(userId, i, IN_WINDOW);
 
     assert.equal((await shapeFor(userId, 0)).shipped.length, 6);

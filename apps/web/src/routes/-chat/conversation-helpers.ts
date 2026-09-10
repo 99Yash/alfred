@@ -56,9 +56,13 @@ export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
 export function describeActivity(stream: StreamingMessage): string {
   if (stream.compacting) return "Condensing conversation…";
   const lastTool = stream.tools[stream.tools.length - 1];
+
   if (lastTool && lastTool.status === "started") return `${presentTool(lastTool).running}…`;
+
   if (stream.text.length > 0) return "Responding…";
+
   if (stream.reasoningActive) return "Thinking…";
+
   return "Working…";
 }
 
@@ -66,17 +70,21 @@ export function buildFollowUpSuggestions(
   messages: readonly SyncedChatMessage[],
 ): FollowUpSuggestion[] {
   const last = messages[messages.length - 1];
+
   if (!last || last.role !== "assistant" || last.status !== "complete") return [];
 
   const tools = last.toolCalls ?? [];
   const out: FollowUpSuggestion[] = [];
   const seen = new Set<string>();
+
   for (const tool of tools) {
     const suggestion = followUpForTool(tool);
+
     if (!suggestion || seen.has(suggestion.text)) continue;
     out.push(suggestion);
     seen.add(suggestion.text);
   }
+
   return out.slice(0, 5);
 }
 
@@ -93,10 +101,13 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
       result && typeof result.totalCount === "number"
         ? result.totalCount
         : Number(/"totalCount"\s*:\s*(\d+)/.exec(raw)?.[1] ?? 0);
+
     const hasRows = result
       ? Array.isArray(result.items) && result.items.length > 0
       : /"items"\s*:\s*\[\s*\{/.test(raw);
+
     if (totalCount <= 0 || !hasRows) return null;
+
     return { id: "github-pr-list", text: "Show me the matching results.", brand: "github" };
   }
 
@@ -104,7 +115,9 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
     const hasEvents = result
       ? Array.isArray(result.events) && result.events.length > 0
       : /"events"\s*:\s*\[\s*\{/.test(raw);
+
     if (!hasEvents) return null;
+
     return {
       id: "calendar-meeting-prep",
       text: "What should I prep for my next meeting?",
@@ -116,7 +129,9 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
     const hasMessages = result
       ? Array.isArray(result.messages) && result.messages.length > 0
       : /"messages"\s*:\s*\[\s*\{/.test(raw);
+
     if (!hasMessages) return null;
+
     return { id: "gmail-draft-reply", text: "Draft a reply to one of these.", brand: "gmail" };
   }
 

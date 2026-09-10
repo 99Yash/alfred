@@ -43,9 +43,13 @@ import { cn } from "~/lib/utils";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={13} />;
+
 const ICON_REVISE = <RefreshCw size={13} />;
+
 const ICON_BAN = <Ban size={13} />;
+
 const ICON_CHECK = <Check size={13} />;
+
 const ICON_PENCIL = <Pencil size={13} />;
 
 /** The single accordion item value — one card holds one expandable panel. */
@@ -77,6 +81,7 @@ export function ChatApprovalTray({
 }) {
   const [recentDecision, setRecentDecision] = useState(false);
   const [previousRunId, setPreviousRunId] = useState(runId);
+
   if (runId !== previousRunId) {
     setPreviousRunId(runId);
     setRecentDecision(false);
@@ -95,8 +100,11 @@ export function ChatApprovalTray({
     const notified = (notifiedRef.current ??= new Set());
     const fresh = approvals.filter((row) => !notified.has(row.id));
     const live = new Set(approvals.map((row) => row.id));
+
     for (const id of notified) if (!live.has(id)) notified.delete(id);
+
     if (fresh.length === 0) return;
+
     for (const row of fresh) notified.add(row.id);
     const first = fresh[0];
     // A question is not a permission request, so it gets its own chime copy —
@@ -129,6 +137,7 @@ export function ChatApprovalTray({
 
   if (approvals.length === 0) {
     if (!awaitingApproval) return null;
+
     return (
       <div className="app-frost-overlay animate-chat-in rounded-2xl px-4 py-3">
         <div className="flex items-center gap-2 text-[13px] text-app-fg-3">
@@ -152,6 +161,7 @@ export function ChatApprovalTray({
         // the actions are Continue / Dismiss. A staged input that does not
         // parse falls back to the ordinary card rather than to nothing.
         const question = asQuestionStaging(staging);
+
         return question ? (
           <InlineQuestionCard
             key={staging.id}
@@ -209,21 +219,26 @@ function useRecordDecision<Decision extends RecordedDecision>({
 
   const decide = (decision: Decision) => {
     setDecisionKind(decision.decision);
+
     if (preview) {
       // Styleguide: land the decision locally so the collapse + badge states
       // are demonstrable without an API.
       setDecided(true);
+
       return;
     }
+
     return run(async () => {
       const { data, error: responseError } = await client.api
         .approvals({ stagingId: staging.id })
         .decision.post(decision);
+
       if (responseError) {
         throw new Error(
           responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
         );
       }
+
       if (data && "refreshed" in data && data.refreshed) {
         toast.info({
           message: "Review the refreshed contract",
@@ -231,8 +246,10 @@ function useRecordDecision<Decision extends RecordedDecision>({
             "Alfred updated the derived schedule and account details. Approve it again to activate the workflow.",
           position: "top-center",
         });
+
         return;
       }
+
       setDecided(true);
       onDecision();
       const { tone, message, description } = toastFor(decision);
@@ -272,6 +289,7 @@ function InlineApprovalCard({
     approveDecision,
     run,
   } = useApprovalDecision(staging);
+
   const { modeFor, setIntegrationMode } = useActionPolicy();
 
   // Which decision landed — drives the resolved badge (check = approved,
@@ -290,8 +308,10 @@ function InlineApprovalCard({
   // tracking (no effect) so the collapse lands on the same frame as `decided`.
   const [panelValue, setPanelValue] = useState(decided ? "" : PANEL_ITEM);
   const [prevDecided, setPrevDecided] = useState(decided);
+
   if (prevDecided !== decided) {
     setPrevDecided(decided);
+
     if (decided) setPanelValue("");
   }
 
@@ -538,6 +558,7 @@ function writeDecisionToast(decision: WriteDecision): DecisionToast {
       description: "Alfred is resuming the run.",
     };
   }
+
   if (decision.decision === "reject") {
     return {
       tone: "info",
@@ -545,12 +566,15 @@ function writeDecisionToast(decision: WriteDecision): DecisionToast {
       description: "Alfred is resuming the run.",
     };
   }
+
   if (decision.decision === "cancel_run") {
     return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
   }
+
   // A new arm on `WriteDecision` fails to compile here instead of falling
   // through to another decision's copy.
   const unhandled: never = decision;
+
   return unhandled;
 }
 
@@ -567,6 +591,7 @@ function questionDecisionToast(decision: QuestionDecision): DecisionToast {
       description: "Alfred is continuing the turn.",
     };
   }
+
   if (decision.decision === "reject") {
     return {
       tone: "info",
@@ -574,7 +599,9 @@ function questionDecisionToast(decision: QuestionDecision): DecisionToast {
       description: "Alfred is continuing without an answer.",
     };
   }
+
   const unhandled: never = decision;
+
   return unhandled;
 }
 
@@ -606,8 +633,10 @@ function InlineQuestionCard({
   onDecision: () => void;
 }) {
   const staging = question.staging;
+
   const { draftInput, setDraftInput, busy, decided, setDecided, error, approveDecision, run } =
     useApprovalDecision(staging);
+
   const { decisionKind, decide } = useRecordDecision<QuestionDecision>({
     staging,
     preview,
@@ -688,6 +717,7 @@ function PermissionsAffordance({
   // on the content directly (context still flows through the portal). Same
   // pattern as ApprovalModePicker / AppSelect.
   const themeCtx = use(AppThemeContext);
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
 
@@ -766,9 +796,12 @@ function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edite
   if (kind === "approve") {
     return edited ? "Approved with changes — resuming the run." : "Approved — resuming the run.";
   }
+
   if (kind === "reject") return "Sent back to Alfred with a revision note.";
+
   if (kind === "cancel_run") return "Run ended at your request.";
   const unhandled: never = kind;
+
   return unhandled;
 }
 
@@ -782,7 +815,9 @@ function canAlwaysAllow(staging: SyncedActionStaging): boolean {
 
 function approvalLabel(toolName: string, riskTier: ToolRiskTier, edited: boolean): string {
   if (edited && toolName === "system.activate_workflow") return "Review changes";
+
   if (edited) return isWriteRiskTier(riskTier) ? "Approve changes" : "Allow changes";
+
   return isWriteRiskTier(riskTier) ? "Approve" : "Allow once";
 }
 
@@ -790,8 +825,10 @@ function policyCopy(riskTier: ToolRiskTier): string {
   if (riskTier === "no_risk") {
     return "This integration is set to ask first. This action does not change external data.";
   }
+
   if (riskTier === "low") {
     return "This integration is set to ask first. Review the target before Alfred reads more context.";
   }
+
   return "This action can change data outside Alfred. Review the details before it runs.";
 }

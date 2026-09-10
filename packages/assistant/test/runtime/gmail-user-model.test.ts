@@ -78,17 +78,21 @@ describe("Gmail user-model composition seam", () => {
 
   test("passes validated requests and results through the registered handler", async () => {
     let received: unknown;
+
     const unregister = registerGmailUserModelHandler({
       async capture(request) {
         received = request;
+
         return { status: "captured" };
       },
       async refold(request) {
         assert.deepEqual(request, { userId: "user-1" });
+
         return { status: "skipped", reason: "up-to-date" };
       },
       async sweep(request) {
         assert.deepEqual(request, {});
+
         return { enqueued: 2 };
       },
     });
@@ -132,7 +136,9 @@ describe("Gmail user-model composition seam", () => {
         return { enqueued: -1 };
       },
     } as unknown as GmailUserModelHandler;
+
     const unregister = registerGmailUserModelHandler(invalidHandler);
+
     try {
       await assert.rejects(() => captureGmailObservations(captureRequest));
       await assert.rejects(() => refoldGmailKindProjection({ userId: "user-1" }));
@@ -144,18 +150,22 @@ describe("Gmail user-model composition seam", () => {
 
   test("preserves empty capture without loading, reducing, appending, or scheduling", async () => {
     let calls = 0;
+
     const unregister = registerGmailUserModelHandler(
       createGmailUserModelHandler({
         async loadDocumentChunk() {
           calls++;
+
           return [];
         },
         reduceDocument() {
           calls++;
+
           return { observations: [], issues: [] };
         },
         async appendObservation() {
           calls++;
+
           return { status: "inserted" };
         },
         async enqueueRefold() {
@@ -176,10 +186,12 @@ describe("Gmail user-model composition seam", () => {
 
   test("loads Gmail documents in 1,000-id chunks", async () => {
     const chunkSizes: number[] = [];
+
     const unregister = registerGmailUserModelHandler(
       createGmailUserModelHandler({
         async loadDocumentChunk(_userId, documentIds) {
           chunkSizes.push(documentIds.length);
+
           return [];
         },
       }),
@@ -204,6 +216,7 @@ describe("Gmail user-model composition seam", () => {
     console.warn = (...args: unknown[]) => warnings.push(args);
     console.log = (...args: unknown[]) => logs.push(args);
     const enqueued: string[] = [];
+
     const unregister = registerGmailUserModelHandler(
       createGmailUserModelHandler({
         async loadDocumentChunk() {
@@ -217,6 +230,7 @@ describe("Gmail user-model composition seam", () => {
         },
         reduceDocument(document) {
           if (document.id === "reduce-error") throw new Error("reduce unavailable");
+
           if (document.id === "skipped") {
             return {
               observations: [],
@@ -230,6 +244,7 @@ describe("Gmail user-model composition seam", () => {
               ],
             };
           }
+
           return {
             observations: [observationInput(document.id)],
             issues:
@@ -249,6 +264,7 @@ describe("Gmail user-model composition seam", () => {
           if (input.familyKey.endsWith(":append-error")) {
             throw new Error("append unavailable");
           }
+
           return { status: input.familyKey.endsWith(":inserted") ? "inserted" : "deduped" };
         },
         async enqueueRefold(userId) {
@@ -279,6 +295,7 @@ describe("Gmail user-model composition seam", () => {
 
   test("dedup-only capture does not schedule a refold", async () => {
     let enqueued = 0;
+
     const unregister = registerGmailUserModelHandler(
       createGmailUserModelHandler({
         async loadDocumentChunk() {
@@ -309,6 +326,7 @@ describe("Gmail user-model composition seam", () => {
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => warnings.push(args);
     const failure = new Error("user-model unavailable");
+
     const unregister = registerGmailUserModelHandler(
       createGmailUserModelHandler({
         async loadDocumentChunk() {
@@ -333,6 +351,7 @@ describe("Gmail user-model composition seam", () => {
 
   test("schedules one refold for each active projection user", async () => {
     const enqueued: string[] = [];
+
     const unregister = registerGmailUserModelHandler(
       createGmailUserModelHandler({
         async loadActiveProjectionUserIds() {
@@ -362,12 +381,14 @@ describe("Gmail user-model composition seam", () => {
     const captureFailure = new Error("capture unavailable");
     const refoldFailure = new Error("refold unavailable");
     let shouldFailRefold = false;
+
     const unregister = registerGmailUserModelHandler({
       async capture() {
         throw captureFailure;
       },
       async refold() {
         if (shouldFailRefold) throw refoldFailure;
+
         return {
           status: "activated",
           projectionVersion: 2,

@@ -14,7 +14,9 @@ import {
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const fakeTransaction = {} as DbTransaction;
+
 const changedAt = new Date("2026-08-02T09:00:00.000Z");
+
 const disconnectedAt = new Date("2026-08-02T10:00:00.000Z");
 
 const upsertRequest = {
@@ -91,21 +93,25 @@ describe("Google credential lifecycle composition seam", () => {
       code: "23505",
       constraint: "observations_no_fork_idx",
     });
+
     const previousCredential = {
       userId: "user-1",
       accountId: "google-account-1",
       accountEmail: "owner@old.example",
       metadata: { googleHostedDomain: "old.example" },
     };
+
     let attempts = 0;
     let commits = 0;
     const receivedPrevious: unknown[] = [];
     const receivedChangedAt: Date[] = [];
+
     const handler = createGoogleCredentialLifecycleHandler({
       async transaction(callback) {
         attempts++;
         const result = await callback(fakeTransaction);
         commits++;
+
         return result;
       },
       async loadPreviousCredential() {
@@ -117,7 +123,9 @@ describe("Google credential lifecycle composition seam", () => {
       async recordUpsert(args) {
         receivedPrevious.push(args.previousCredential);
         receivedChangedAt.push(args.changedAt);
+
         if (receivedPrevious.length < 3) throw conflict;
+
         return { connectedCurrent: { status: "emitted" } };
       },
     });
@@ -139,11 +147,13 @@ describe("Google credential lifecycle composition seam", () => {
     const appendFailure = new Error("append unavailable");
     let attempts = 0;
     let commits = 0;
+
     const handler = createGoogleCredentialLifecycleHandler({
       async transaction(callback) {
         attempts++;
         const result = await callback(fakeTransaction);
         commits++;
+
         return result;
       },
       async loadPreviousCredential() {
@@ -164,6 +174,7 @@ describe("Google credential lifecycle composition seam", () => {
 
   test("does not append after a losing delete", async () => {
     let appends = 0;
+
     const handler = createGoogleCredentialLifecycleHandler({
       async transaction(callback) {
         return callback(fakeTransaction);
@@ -173,6 +184,7 @@ describe("Google credential lifecycle composition seam", () => {
       },
       async recordDisconnect() {
         appends++;
+
         return { status: "emitted" };
       },
     });
@@ -191,10 +203,12 @@ describe("Google credential lifecycle composition seam", () => {
   test("rolls back a delete when the disconnect append fails", async () => {
     const appendFailure = new Error("append unavailable");
     let commits = 0;
+
     const handler = createGoogleCredentialLifecycleHandler({
       async transaction(callback) {
         const result = await callback(fakeTransaction);
         commits++;
+
         return result;
       },
       async deleteCredential() {
@@ -219,11 +233,13 @@ describe("Google credential lifecycle composition seam", () => {
 
   test("stops the remote watch only after the disconnect transaction commits", async () => {
     const calls: string[] = [];
+
     const result = await disconnectGoogleCredentialConnectionWith(
       { userId: "user-1", credentialId: "credential-1" },
       {
         async loadOwnedCredential() {
           calls.push("owned");
+
           return true;
         },
         mailboxWritesEnabled() {
@@ -231,10 +247,12 @@ describe("Google credential lifecycle composition seam", () => {
         },
         async getFreshAccessToken() {
           calls.push("token");
+
           return "access-token";
         },
         async commitDisconnect(request) {
           calls.push(`commit:${request.disconnectedAt.toISOString()}`);
+
           return { status: "deleted" };
         },
         async stopWatch() {

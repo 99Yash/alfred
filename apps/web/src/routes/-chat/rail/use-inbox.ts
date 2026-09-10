@@ -31,10 +31,13 @@ export function useInbox() {
           ...(pageParam ? { cursor: pageParam } : {}),
         },
       });
+
       if (res.error || !res.data) {
         return { items: [], nextCursor: null, total: 0 };
       }
+
       const items = Array.isArray(res.data.items) ? res.data.items.map(toInboxItem) : [];
+
       return {
         items,
         nextCursor: res.data.nextCursor ?? null,
@@ -53,14 +56,17 @@ export function useInbox() {
 
 export function useMarkInboxRead() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (documentIds: ReadonlyArray<string>) => {
       const res = await client.api.me.inbox["mark-read"].post({
         documentIds: [...documentIds],
       });
+
       if (res.error) {
         throw new Error(responseErrorMessage(res.error.value, res.status, "Mark-read"));
       }
+
       return res.data;
     },
     onMutate: async (documentIds: ReadonlyArray<string>) => {
@@ -70,6 +76,7 @@ export function useMarkInboxRead() {
       const markRead = new Set(documentIds);
       queryClient.setQueryData<InfiniteData<InboxPage, string | null>>(inboxKey, (current) => {
         if (!current) return current;
+
         return {
           ...current,
           pages: current.pages.map((page) => ({
@@ -80,6 +87,7 @@ export function useMarkInboxRead() {
           })),
         };
       });
+
       return { previous };
     },
     onError: (_err, _documentIds, context) => {
@@ -129,13 +137,16 @@ export function useInboxDetail(documentId: string | null) {
     queryFn: async () => {
       if (!documentId) return null;
       const res = await client.api.me.inbox({ documentId }).get();
+
       if (res.error || !res.data) return null;
       const data = res.data;
+
       const messages: InboxMessage[] = Array.isArray(data.messages)
         ? data.messages.map((m) => {
             const rawSender = m.sender ?? "";
             const display = parseSenderDisplay(rawSender);
             const email = parseSenderEmail(rawSender);
+
             const attachments: InboxAttachment[] = Array.isArray(m.attachments)
               ? m.attachments.map((a) => ({
                   partId: a.partId ?? null,
@@ -145,6 +156,7 @@ export function useInboxDetail(documentId: string | null) {
                   size: a.size,
                 }))
               : [];
+
             return {
               documentId: m.documentId,
               sender: m.sender,
@@ -163,6 +175,7 @@ export function useInboxDetail(documentId: string | null) {
             };
           })
         : [];
+
       return {
         threadId: data.threadId,
         subject: data.subject,
@@ -180,16 +193,21 @@ function parseSenderDisplay(raw: string): string {
   if (!raw) return "";
   const before = raw.split("<")[0]?.trim() ?? "";
   const unquoted = before.replace(/^"|"$/g, "").trim();
+
   if (unquoted) return unquoted;
   const addr = raw.match(/<([^>]+)>/)?.[1] ?? raw;
+
   return addr.split("@")[0] ?? raw;
 }
 
 function parseSenderEmail(raw: string): string | null {
   if (!raw) return null;
   const angle = raw.match(/<([^>]+)>/)?.[1];
+
   if (angle) return angle.trim();
+
   if (raw.includes("@")) return raw.trim();
+
   return null;
 }
 
@@ -199,6 +217,7 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
   const display = senderDisplay(row.sender);
   const domain = senderDomain(row.sender);
   const brand = brandFor(domain);
+
   return {
     id: row.documentId,
     threadId: row.threadId,
@@ -232,6 +251,7 @@ const PERSONAL_MAIL_DOMAINS = new Set([
 
 function isPersonalDomain(domain: string): boolean {
   if (!domain) return false;
+
   return PERSONAL_MAIL_DOMAINS.has(domain);
 }
 
@@ -240,8 +260,10 @@ function senderDisplay(raw: string | null): string {
   const trimmed = raw.trim();
   const beforeBracket = trimmed.split("<")[0]?.trim() ?? "";
   const unquoted = beforeBracket.replace(/^"|"$/g, "").trim();
+
   if (unquoted) return unquoted;
   const addr = trimmed.match(/<([^>]+)>/)?.[1] ?? trimmed;
+
   return addr.split("@")[0] ?? trimmed;
 }
 
@@ -249,7 +271,9 @@ function senderDomain(raw: string | null): string {
   if (!raw) return "";
   const addr = raw.match(/<([^>]+)>/)?.[1] ?? raw;
   const at = addr.lastIndexOf("@");
+
   if (at < 0) return "";
+
   return addr
     .slice(at + 1)
     .trim()
@@ -258,9 +282,13 @@ function senderDomain(raw: string | null): string {
 
 function brandFor(domain: string): IntegrationBrand | null {
   if (!domain) return null;
+
   if (matchesDomain(domain, "github.com")) return "github";
+
   if (matchesDomain(domain, "linear.app")) return "linear";
+
   if (matchesDomain(domain, "slack.com")) return "slack";
+
   return null;
 }
 
@@ -271,6 +299,7 @@ function matchesDomain(host: string, base: string): boolean {
 function initialFor(name: string): string {
   if (!name) return "?";
   const first = name.trim().charAt(0).toUpperCase();
+
   return first || "?";
 }
 
@@ -279,15 +308,19 @@ const TONE_PALETTE: ReadonlyArray<AppTint> = ["purple", "sky", "amber", "green",
 function toneFor(name: string): AppTint {
   if (!name) return "purple";
   let hash = 5381;
+
   for (let i = 0; i < name.length; i++) {
     hash = ((hash << 5) + hash + name.charCodeAt(i)) | 0;
   }
+
   const idx = Math.abs(hash) % TONE_PALETTE.length;
+
   return TONE_PALETTE[idx] ?? "purple";
 }
 
 function cleanPreview(snippet: string | null): string {
   if (!snippet) return "";
+
   return snippet
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -300,18 +333,26 @@ function cleanPreview(snippet: string | null): string {
 }
 
 const MINUTE = 60 * 1000;
+
 const HOUR = 60 * MINUTE;
+
 const DAY = 24 * HOUR;
 
 function formatRelativeShort(iso: string | null): string {
   if (!iso) return "";
   const t = Date.parse(iso);
+
   if (Number.isNaN(t)) return "";
   const delta = Date.now() - t;
+
   if (delta < MINUTE) return "now";
+
   if (delta < HOUR) return `${Math.floor(delta / MINUTE)}m`;
+
   if (delta < DAY) return `${Math.floor(delta / HOUR)}h`;
   const days = Math.floor(delta / DAY);
+
   if (days < 7) return `${days}d`;
+
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

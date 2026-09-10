@@ -27,6 +27,7 @@ import type { SenderExtractionEvent } from "@alfred/assistant/triage";
 // on these; the `export const` fixtures below are exported for the same reason
 // (matching the established `.type-test.ts` idiom in `@alfred/sync`).
 declare const ctx: StepContext<unknown>;
+
 declare const validEvent: SenderExtractionEvent;
 
 // POSITIVE — proves the augmentation is loaded and the negatives below fail for
@@ -35,6 +36,7 @@ declare const validEvent: SenderExtractionEvent;
 // `DecisionTraceKind` would be `never`, and BOTH of these would fail to compile —
 // failing the build here rather than passing a hollow negative test.
 ctx.trace("triage.classification", validEvent);
+
 export const _ok: DecisionTraceFor<"triage.classification"> = validEvent;
 
 // NEGATIVE (payload) — a payload that is not a `SenderExtractionEvent` must not
@@ -45,6 +47,7 @@ export const _ok: DecisionTraceFor<"triage.classification"> = validEvent;
 // anything, both directives below go unused, and `tsc` fails with TS2578.
 // @ts-expect-error wrong payload shape for "triage.classification" must fail to compile (guards widening the "triage.classification" entry to `unknown`)
 ctx.trace("triage.classification", { notASenderExtractionEvent: true });
+
 // @ts-expect-error same guarantee asserted directly on DecisionTraceFor<K>: a non-SenderExtractionEvent payload must not be assignable
 export const _bad: DecisionTraceFor<"triage.classification"> = { notASenderExtractionEvent: true };
 

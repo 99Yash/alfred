@@ -55,6 +55,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-closure-artifact-";
+
 const createdUserIds: string[] = [];
 
 async function seedThread(): Promise<{ userId: string; threadId: string }> {
@@ -63,12 +64,15 @@ async function seedThread(): Promise<{ userId: string; threadId: string }> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test", email: `${userId}@example.test` });
+
   const rows = await db()
     .insert(chatThreads)
     .values({ userId, title: "Placeholder title" })
     .returning({ id: chatThreads.id });
+
   const thread = rows[0];
   assert.ok(thread, "seeded a chat thread");
+
   return { userId, threadId: thread.id };
 }
 
@@ -113,6 +117,7 @@ async function seedTerminalRowWithArtifact(
       errorKind: messageStatus === "failed" ? "generic" : null,
       runId,
     });
+
   const artifactRows = await db()
     .insert(artifacts)
     .values({
@@ -125,8 +130,10 @@ async function seedTerminalRowWithArtifact(
       status: artifactStatus,
     })
     .returning({ id: artifacts.id });
+
   const artifact = artifactRows[0];
   assert.ok(artifact, "seeded an artifact");
+
   const state = chatRunStateSchema.parse({
     threadId,
     messageId,
@@ -137,6 +144,7 @@ async function seedTerminalRowWithArtifact(
     assistantText: "The committed reply.",
     narration: [],
   });
+
   return { userId, threadId, runId, messageId, artifactId: artifact.id, state };
 }
 
@@ -145,6 +153,7 @@ async function readArtifactStatus(artifactId: string): Promise<string | undefine
     .select({ status: artifacts.status })
     .from(artifacts)
     .where(eq(artifacts.id, artifactId));
+
   return rows[0]?.status;
 }
 
@@ -162,6 +171,7 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     resetToolFixtures();
     await closeConnections();
     await closeRedis();
@@ -183,10 +193,12 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
       "complete",
       "the artifact reaches the terminal status of the PERSISTED completed row, not the retry's failed kind",
     );
+
     const rows = await db()
       .select({ status: chatMessages.status })
       .from(chatMessages)
       .where(eq(chatMessages.id, messageId));
+
     assert.equal(rows[0]?.status, "complete", "and the message row stays complete");
   });
 

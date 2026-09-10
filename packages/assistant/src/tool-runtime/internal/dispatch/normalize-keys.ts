@@ -44,12 +44,14 @@ export function normalizeToolInputKeys(
 ): KeyNormalizationResult {
   if (!isRecord(input)) return { input, renamed: [] };
   const accepted = acceptedParamNames(schema);
+
   if (accepted.length === 0) return { input, renamed: [] };
 
   const acceptedSet = new Set(accepted);
   // canonical form → the single accepted key it maps to, or null when two
   // accepted keys collapse to the same form (ambiguous — never rename into it).
   const canonToKey = new Map<string, string | null>();
+
   for (const key of accepted) {
     const c = canonicalParamKey(key);
     canonToKey.set(c, canonToKey.has(c) ? null : key);
@@ -57,15 +59,20 @@ export function normalizeToolInputKeys(
 
   const renamed: { from: string; to: string }[] = [];
   let next = input;
+
   for (const key of Object.keys(input)) {
     if (acceptedSet.has(key)) continue; // already a canonical key — leave it
     const target = canonToKey.get(canonicalParamKey(key));
+
     if (!target) continue; // no match, or an ambiguous canonical form
+
     if (target in next) continue; // canonical key already present — don't clobber
+
     if (next === input) next = { ...input };
     next[target] = next[key];
     delete next[key];
     renamed.push({ from: key, to: target });
   }
+
   return { input: next, renamed };
 }

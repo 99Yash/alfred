@@ -8,7 +8,9 @@ export const actionStagingStatusSchema = z.enum([
   "executed",
   "failed",
 ]);
+
 export const ACTION_STAGING_STATUSES = Object.freeze([...actionStagingStatusSchema.options]);
+
 export type ActionStagingStatus = z.infer<typeof actionStagingStatusSchema>;
 
 /**
@@ -41,7 +43,9 @@ export const effectOutcomeSchema = z.enum([
   "compensated",
   "refused",
 ]);
+
 export const EFFECT_OUTCOMES = Object.freeze([...effectOutcomeSchema.options]);
+
 export type EffectOutcome = z.infer<typeof effectOutcomeSchema>;
 
 /**
@@ -59,6 +63,7 @@ export const unknownEffectEnvelopeSchema = z.object({
   retry: z.literal("blocked"),
   message: z.string(),
 });
+
 export type UnknownEffectEnvelope = z.infer<typeof unknownEffectEnvelopeSchema>;
 
 export function isUnknownEffectEnvelope(value: unknown): value is UnknownEffectEnvelope {

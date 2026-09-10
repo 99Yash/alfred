@@ -59,10 +59,12 @@ export interface McpCatalogProjection {
 export function projectCatalogRevision(tools: readonly Tool[]): McpCatalogProjection {
   const descriptorHashes: Record<string, string> = {};
   const readOnlyHints: Record<string, boolean> = {};
+
   for (const tool of tools) {
     defineRemoteNameKey(descriptorHashes, tool.name, descriptorHash(tool));
     defineRemoteNameKey(readOnlyHints, tool.name, tool.annotations?.readOnlyHint === true);
   }
+
   return { descriptorHashes, readOnlyHints };
 }
 

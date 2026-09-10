@@ -20,18 +20,24 @@ import { isRecord, toMessage } from "@alfred/contracts";
 type FrameListener = (frame: EventFrame) => void;
 
 const CHANNEL_PREFIX = "user-events:u:";
+
 const channelFor = (userId: string) => `${CHANNEL_PREFIX}${userId}`;
+
 const userIdFromChannel = (channel: string): string | null =>
   channel.startsWith(CHANNEL_PREFIX) ? channel.slice(CHANNEL_PREFIX.length) : null;
+
 const eventFor = (userId: string) => `frame:${userId}`;
 
 const emitter = new EventEmitter();
+
 emitter.setMaxListeners(0);
 
 let publisher: BoundedRedis | undefined;
+
 let subscriber: IORedis | undefined;
 
 const userRefCounts = new Map<string, number>();
+
 /**
  * Which users this replica actually holds a Redis subscription for, tracked
  * apart from the listener refcount — see the same pair in
@@ -39,16 +45,20 @@ const userRefCounts = new Map<string, number>();
  * SUBSCRIBE permanently deaf.
  */
 const subscribed = new Set<string>();
+
 const subscribing = new Set<string>();
 
 function ensureSubscribed(userId: string): void {
   const conn = subscriber;
+
   if (!conn) return;
+
   if (subscribed.has(userId) || subscribing.has(userId)) return;
   subscribing.add(userId);
   conn.subscribe(channelFor(userId)).then(
     () => {
       subscribing.delete(userId);
+
       if ((userRefCounts.get(userId) ?? 0) > 0) subscribed.add(userId);
       else conn.unsubscribe(channelFor(userId)).catch(() => {});
     },
@@ -69,6 +79,7 @@ function ensureSubscribed(userId: string): void {
 function resubscribeAll(): void {
   subscribed.clear();
   subscribing.clear();
+
   for (const [userId, count] of userRefCounts) {
     if (count > 0) ensureSubscribed(userId);
   }
@@ -77,6 +88,7 @@ function resubscribeAll(): void {
 function isFrame(value: unknown): value is EventFrame {
   if (!isRecord(value)) return false;
   const v = value;
+
   return (
     typeof v.id === "number" &&
     Number.isFinite(v.id) &&
@@ -89,6 +101,7 @@ function isFrame(value: unknown): value is EventFrame {
 export async function initUserEventsBus(): Promise<void> {
   if (publisher && subscriber) return;
   const { isQueueEnabled, createRedisConnection } = await import("@alfred/db/redis");
+
   if (!isQueueEnabled()) return;
 
   try {
@@ -102,9 +115,12 @@ export async function initUserEventsBus(): Promise<void> {
 
     subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);
+
       if (userId === null) return;
+
       try {
         const parsed: unknown = JSON.parse(raw);
+
         if (!isFrame(parsed)) return;
         emitter.emit(eventFor(userId), parsed);
       } catch {
@@ -123,10 +139,12 @@ export async function initUserEventsBus(): Promise<void> {
 export async function closeUserEventsBus(): Promise<void> {
   if (subscriber) {
     const channels = Array.from(subscribed).map(channelFor);
+
     if (channels.length > 0) {
       await subscriber.unsubscribe(...channels).catch(() => {});
     }
   }
+
   userRefCounts.clear();
   subscribed.clear();
   subscribing.clear();
@@ -137,10 +155,13 @@ export async function closeUserEventsBus(): Promise<void> {
 /** Called by the outbox relay after marking a row published. */
 export async function publishFrameToUser(userId: string, frame: EventFrame): Promise<void> {
   const body = JSON.stringify(frame);
+
   if (publisher) {
     await publisher.publish(channelFor(userId), body);
+
     return;
   }
+
   // Single-replica fallback — still deliver to local SSE listeners.
   emitter.emit(eventFor(userId), frame);
 }
@@ -155,8 +176,10 @@ export function subscribeUserEvents(userId: string, listener: FrameListener): ()
   return () => {
     emitter.off(eventName, listener);
     const remaining = (userRefCounts.get(userId) ?? 1) - 1;
+
     if (remaining <= 0) {
       userRefCounts.delete(userId);
+
       if (subscribed.delete(userId) && subscriber) {
         subscriber.unsubscribe(channelFor(userId)).catch(() => {});
       }

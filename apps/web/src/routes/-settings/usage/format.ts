@@ -15,6 +15,8 @@ const DATE_TIME_FMT = new Intl.DateTimeFormat("en-US", {
 /** "Jul 18, 3:04 PM" in the viewer's locale/timezone; empty on unparseable input. */
 export function formatDateTime(iso: string): string {
   const d = new Date(iso);
+
   if (Number.isNaN(d.getTime())) return "";
+
   return DATE_TIME_FMT.format(d);
 }

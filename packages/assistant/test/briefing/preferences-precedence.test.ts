@@ -29,6 +29,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-briefing-tz-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -37,6 +38,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -55,6 +57,7 @@ describe(
       if (createdUserIds.length > 0) {
         await db().delete(user).where(inArray(user.id, createdUserIds));
       }
+
       await closeConnections();
     });
 

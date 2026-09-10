@@ -28,7 +28,9 @@ import { z } from "zod";
  *                  never a body, and no authoring tool constructs it.
  */
 export const artifactKindValues = ["document", "pages", "spreadsheet", "external_file"] as const;
+
 export type ArtifactKind = (typeof artifactKindValues)[number];
+
 export const artifactKindSchema = z.enum(artifactKindValues);
 
 /**
@@ -38,7 +40,9 @@ export const artifactKindSchema = z.enum(artifactKindValues);
  *   - `pdf`    — portrait US-Letter (8.5×11) document pages.
  */
 export const artifactFormatValues = ["slides", "pdf"] as const;
+
 export type ArtifactFormat = (typeof artifactFormatValues)[number];
+
 export const artifactFormatSchema = z.enum(artifactFormatValues);
 
 /**
@@ -48,7 +52,9 @@ export const artifactFormatSchema = z.enum(artifactFormatValues);
  *   - `error`      — authoring failed; partial content may be present.
  */
 export const artifactStatusValues = ["generating", "complete", "error"] as const;
+
 export type ArtifactStatus = (typeof artifactStatusValues)[number];
+
 export const artifactStatusSchema = z.enum(artifactStatusValues);
 
 /**
@@ -92,11 +98,14 @@ export const artifactPageSchema = z.object({
    */
   html: z.string().max(200_000),
 });
+
 export type ArtifactPage = z.infer<typeof artifactPageSchema>;
 
 /** Providers whose files the agent can surface inline when it can't read them. */
 export const externalFileSourceValues = ["drive"] as const;
+
 export type ExternalFileSource = (typeof externalFileSourceValues)[number];
+
 export const externalFileSourceSchema = z.enum(externalFileSourceValues);
 
 /**
@@ -120,6 +129,7 @@ export const externalFileContentSchema = z.object({
   /** The file's own name, if known (the artifact `title` may differ). */
   fileName: z.string().max(500).optional(),
 });
+
 export type ExternalFileContent = z.infer<typeof externalFileContentSchema>;
 
 /**
@@ -135,11 +145,13 @@ export const artifactContentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("pages"), pages: z.array(artifactPageSchema).max(100) }),
   externalFileContentSchema,
 ]);
+
 export type ArtifactContent = z.infer<typeof artifactContentSchema>;
 
 /** Empty content for a freshly-created artifact of the given kind. */
 export function emptyArtifactContent(kind: ArtifactKind): ArtifactContent {
   if (kind === "pages") return { kind: "pages", pages: [] };
+
   // `document` is the v1 fallback; `spreadsheet` has no content variant yet and
   // is unreachable (no authoring tool constructs it).
   return { kind: "document", markdown: "" };

@@ -24,5 +24,6 @@ export function chunkMetadata(page: number | null): ChunkMetadata {
 export function extractPageFromMetadata(raw: unknown): number | null {
   if (!isRecord(raw)) return null;
   const page = raw.page;
+
   return isValidPage(page) ? page : null;
 }

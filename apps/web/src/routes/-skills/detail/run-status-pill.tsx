@@ -10,6 +10,7 @@ export function RunStatusPill({ status }: { status: SyncedSkillRun["status"] }) 
       </AppPill>
     );
   }
+
   if (status === "failed") {
     return (
       <AppPill tone="red">
@@ -17,7 +18,9 @@ export function RunStatusPill({ status }: { status: SyncedSkillRun["status"] }) 
       </AppPill>
     );
   }
+
   if (status === "cancelled") return <AppPill>Cancelled</AppPill>;
+
   return (
     <AppPill tone="amber">
       <span aria-hidden className="mr-1 size-1.5 animate-pulse rounded-full bg-app-amber-4" />

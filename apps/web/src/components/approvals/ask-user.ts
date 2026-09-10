@@ -42,6 +42,7 @@ export function isAnswerEmpty(answer: AskUserAnswer): boolean {
  */
 export function parseAskUserInput(value: unknown): AskUserInput | null {
   const parsed = askUserInput.safeParse(value);
+
   return parsed.success ? parsed.data : null;
 }
 
@@ -65,8 +66,10 @@ export interface QuestionStaging {
 export function asQuestionStaging(staging: SyncedActionStaging): QuestionStaging | null {
   if (!isQuestionApproval(staging.toolName)) return null;
   const raw = asRecord(staging.proposedInput);
+
   if (!raw) return null;
   const input = parseAskUserInput(raw);
+
   return input ? { staging, input, raw } : null;
 }
 
@@ -97,8 +100,10 @@ export function unansweredCount(input: AskUserInput): number {
  */
 export function withAnswers(rawInput: JsonRecord, answers: readonly AskUserAnswer[]): JsonRecord {
   const next = { ...rawInput };
+
   if (answers.every(isAnswerEmpty)) delete next.answers;
   else next.answers = answers;
+
   return next;
 }
 
@@ -136,11 +141,15 @@ export function askUserSummary(tool: {
 }): AskUserSummary | null {
   if (!tool.resultPreview || tool.resultTruncated) return null;
   const result = parseJsonWith(tool.resultPreview, askUserResultSchema);
+
   if (!result) return null;
+
   if (result.status === "unanswered") {
     return { status: "unanswered", reason: result.reason, questions: result.questions };
   }
+
   if (result.questions.length !== result.answers.length) return null;
+
   return {
     status: "answered",
     answered: result.questions.map((question, index) => ({

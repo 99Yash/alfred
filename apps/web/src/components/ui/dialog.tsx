@@ -60,6 +60,7 @@ export function DialogContent({
   // prefers-color-scheme rule in index.css resolve it instead.
   const themeCtx = use(AppThemeContext);
   const dataTheme = themed ? themeCtx?.resolved : undefined;
+
   return (
     <RadixDialog.Portal>
       <RadixDialog.Overlay

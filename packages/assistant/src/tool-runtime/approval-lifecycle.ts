@@ -18,6 +18,7 @@ export async function withdrawToolCallApproval(args: {
   reason: string;
 }): Promise<void> {
   const now = new Date();
+
   const withdrawn = await db().transaction(async (tx) => {
     // A reclaimed worker must not withdraw the current worker's approval.
     // Hold the run lease while changing the action, as cancellation does.
@@ -34,7 +35,9 @@ export async function withdrawToolCallApproval(args: {
         ),
       )
       .for("update");
+
     if (!run) return [];
+
     return tx
       .update(actionStagings)
       .set({
@@ -56,6 +59,7 @@ export async function withdrawToolCallApproval(args: {
       )
       .returning({ id: actionStagings.id });
   });
+
   if (withdrawn.length > 0) emitReplicachePokes([args.userId]);
   // Notification and expiry workers re-read status and skip rejected rows.
 }
