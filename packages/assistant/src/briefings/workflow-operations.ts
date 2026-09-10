@@ -13,13 +13,18 @@ import {
 } from "./store";
 import { send } from "@alfred/assistant/delivery";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
-import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
+import {
+  parseIanaTimezone,
+  type BriefingDegradedSource,
+  type BriefingGather,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { renderBriefingEmail } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { runBriefingAgent } from "./agent/agent";
+import { formatDegradedSources } from "./degraded-sources";
 
 /**
  * Daily briefing workflow — LLM-composed prose, two slots ('morning' |
@@ -71,6 +76,12 @@ export interface DailyBriefingOperationState {
   untilIngestedAt?: string;
   briefingId?: string;
   quietDay?: boolean;
+  /**
+   * Inbound sources this run reports as broken (#1035). Gather resolves them;
+   * compose appends the line after the agent's prose. Absent on a resumed run
+   * persisted before this field, which reads as "nothing to report".
+   */
+  degradedSources?: BriefingDegradedSource[];
   composed?: {
     subject: string;
     bodyText: string;
@@ -211,13 +222,15 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     emailCount: counts.email,
     activityCount: counts.activity,
     meetingCount: counts.meetings,
+    degradedSourceCount: counts.degradedSources,
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} degraded=${counts.degradedSources} ` +
+      `quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {
@@ -231,6 +244,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       sinceIngestedAt: since ? since.toISOString() : null,
       untilIngestedAt: until.toISOString(),
       quietDay,
+      degradedSources: gather.degraded_sources ?? [],
     },
     nextStep: "compose",
   };
@@ -281,6 +295,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await markBriefingComposing(briefingId);
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
+  let body: BriefingBody;
   try {
     result = await runBriefingAgent({
       userId: ctx.userId,
@@ -293,11 +308,12 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       runId: ctx.runId,
       stepId: "compose",
     });
+    body = appendDegradedSources(result.briefing, ctx.state.degradedSources ?? []);
     await markBriefingComposed({
       briefingId,
       // Prose body → breaking_summary; headline ← subject; no structured
       // sections (the model emits one markdown body, not buckets).
-      breakingSummary: result.briefing.bodyMarkdown,
+      breakingSummary: body.bodyMarkdown,
       fullBriefing: {
         headline: result.briefing.subject,
         sections: [],
@@ -318,6 +334,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await ctx.log(
     `compose: steps=${result.steps} model=${result.modelId} ` +
       `in=${result.usage.inputTokens ?? 0} out=${result.usage.outputTokens ?? 0} ` +
+      `degraded=${(ctx.state.degradedSources ?? []).length} ` +
       `subject="${result.briefing.subject}"`,
   );
 
@@ -327,8 +344,8 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       ...ctx.state,
       composed: {
         subject: result.briefing.subject,
-        bodyText: result.briefing.bodyText,
-        bodyMarkdown: result.briefing.bodyMarkdown,
+        bodyText: body.bodyText,
+        bodyMarkdown: body.bodyMarkdown,
         citedDocumentIds: result.briefing.citedDocumentIds,
         modelId: result.modelId,
       },
@@ -447,6 +464,8 @@ interface GatheredCounts {
   email: number;
   activity: number;
   meetings: number;
+  /** Inbound sources this run reports as broken (#1035); never a window count. */
+  degradedSources: number;
 }
 
 function gatherCounts(gather: BriefingGather): GatheredCounts {
@@ -457,6 +476,35 @@ function gatherCounts(gather: BriefingGather): GatheredCounts {
     ),
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
+    degradedSources: gather.degraded_sources?.length ?? 0,
+  };
+}
+
+interface BriefingBody {
+  bodyText: string;
+  bodyMarkdown: string;
+}
+
+/**
+ * Append the degraded-source block to both bodies the briefing carries (#1035).
+ *
+ * The append is deterministic and sits after the agent's paragraph, so the
+ * prose the model wrote is untouched and the line always states the source, the
+ * reason its own check gave, and the action that repairs it. An empty list
+ * returns the bodies unchanged, so a good day reads exactly as it does today.
+ *
+ * `breaking_summary` IS the markdown body, so this one append covers the email
+ * and the in-app briefing record together.
+ */
+function appendDegradedSources(
+  briefing: BriefingBody,
+  degraded: readonly BriefingDegradedSource[],
+): BriefingBody {
+  if (degraded.length === 0) return briefing;
+  const block = formatDegradedSources(degraded);
+  return {
+    bodyText: `${briefing.bodyText.trimEnd()}\n\n${block.text}`,
+    bodyMarkdown: `${briefing.bodyMarkdown.trimEnd()}\n\n${block.markdown}`,
   };
 }
 

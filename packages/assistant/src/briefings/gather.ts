@@ -51,6 +51,7 @@ import {
   weekdayIndex,
   type LocalDateKey,
 } from "@alfred/assistant/time";
+import { gatherDegradedSources } from "./degraded-sources";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 
@@ -396,7 +397,7 @@ export async function gatherBriefingWithSuppressionAudit(
   // Integration activity shares the email digest's window so the briefing
   // covers one coherent slice of time across sources.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
-  const [digest, calendar, weather, integrationActivity] = await Promise.all([
+  const [digest, calendar, weather, integrationActivity, degradedSources] = await Promise.all([
     gatherBriefingDigest({
       userId: args.userId,
       windowStart: args.windowStart,
@@ -418,6 +419,11 @@ export async function gatherBriefingWithSuppressionAudit(
       windowStart: activityStart,
       windowEnd,
     }),
+    // The scheduled inbound-health reconciler (#1035). A failure-only source
+    // cannot report its own silence, so the briefing schedule pulls the
+    // verdict instead. Empty on a good day, and empty for a source a recent
+    // briefing already reported.
+    gatherDegradedSources({ userId: args.userId, before: windowEnd }),
   ]);
   const categories: BriefingGather["email"]["categories"] = {};
   for (const category of PRIORITY_CATEGORIES) {
@@ -474,6 +480,7 @@ export async function gatherBriefingWithSuppressionAudit(
         demandingEmailCount: emailDemand.demandingCount,
         topEmailBand: emailDemand.topBand,
       },
+      degraded_sources: degradedSources,
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
