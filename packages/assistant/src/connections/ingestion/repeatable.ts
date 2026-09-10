@@ -20,6 +20,15 @@ import { getIngestionQueue, type IngestionJobData } from "./queue";
  *                        missed live-capture refolds / out-of-band
  *                        backfills; each per-user refold passes the
  *                        frozen-logic gate before it activates.
+ *   - ingress.health_sweep  every 6 hours — pulls each event source's own
+ *                        delivery health and emails the user about one that
+ *                        stopped delivering (ADR-0100). A broken source sends
+ *                        nothing, so no push signal exists and only a schedule
+ *                        can notice. Six hours, not daily: the email is rate
+ *                        limited to one per source per week, so the interval
+ *                        only bounds how long a break stays unreported, and a
+ *                        single failed run still has three more before the day
+ *                        is out.
  *
  * Idempotent: `upsertJobScheduler` keys by id, so calling this on every
  * server boot doesn't duplicate schedules. The schedulers survive
@@ -69,6 +78,21 @@ export async function scheduleRepeatableIngestionJobs(): Promise<void> {
         backoff: { type: "exponential", delay: 30_000 },
         removeOnComplete: { count: 20, age: 24 * 60 * 60 },
         removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
+      },
+    },
+  );
+
+  await queue.upsertJobScheduler(
+    "ingress.health_sweep",
+    { every: 6 * 60 * 60 * 1000 },
+    {
+      name: "ingress.health_sweep",
+      data: { kind: "ingress.health_sweep" } satisfies IngestionJobData,
+      opts: {
+        attempts: 3,
+        backoff: { type: "exponential", delay: 60_000 },
+        removeOnComplete: { count: 10, age: 7 * 24 * 60 * 60 },
+        removeOnFail: { count: 30, age: 30 * 24 * 60 * 60 },
       },
     },
   );

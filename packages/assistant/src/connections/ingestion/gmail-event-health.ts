@@ -1,12 +1,9 @@
 import { eventDeliveryAccounts, type ProviderAvailability } from "@alfred/contracts";
 import { pubSubOidcConfigFromEnv, readGmailWatchState } from "@alfred/integrations/google";
-import {
-  GMAIL_POLL_SWEEP_INTERVAL_MS,
-  readGmailDeliveryFacts,
-  type GmailDeliveryFacts,
-} from "@alfred/assistant/connections";
-import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
-import type { AccountDeliveryHealthReader } from "./event-source-health";
+import type { AccountDeliveryHealthReader } from "../event-source-health";
+import type { EventDeliveryHealth } from "../ingress/descriptor";
+import { GMAIL_POLL_SWEEP_INTERVAL_MS } from "./gmail-delivery-policy";
+import { readGmailDeliveryFacts, type GmailDeliveryFacts } from "./gmail-delivery-facts";
 
 /** The account space Gmail events deliver per: `google` rows that prove Gmail connected. */
 const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
@@ -34,6 +31,9 @@ export type GmailEventHealth = Pick<
  */
 const WATCH_NOT_INSTALLED: EventDeliveryHealth = {
   healthy: false,
+  // Account grain: this verdict is only ever asked of a row that exists, so
+  // the user connected Gmail and the watch has since lapsed (ADR-0100).
+  cause: "broken",
   reason: "reconnect Gmail or renew its watch",
   recovery: { kind: "connect", integration: GMAIL_DELIVERY.integration },
 };
@@ -57,6 +57,7 @@ function gmailAccountDeliveryHealth(
   if (!facts.receiverConfigured || !facts.topicMatches) {
     return {
       healthy: false,
+      cause: "broken",
       reason: "the push receiver is not configured for this watch",
       recovery: { kind: "none" },
     };
@@ -66,6 +67,7 @@ function gmailAccountDeliveryHealth(
   if (facts.coverageGap || !facts.cursorReady || stale) {
     return {
       healthy: false,
+      cause: "broken",
       reason: "retry after delivery coverage recovers",
       recovery: { kind: "retry" },
     };
@@ -86,11 +88,7 @@ export function gmailAccountHealth(
 }
 
 /** Read Gmail delivery health only for workflow trigger readiness. */
-export const readGmailEventHealth: AccountDeliveryHealthReader = async (
-  userId,
-  availability,
-  now,
-) => {
+export const readGmailEventHealth: AccountDeliveryHealthReader = async (userId, rows, now) => {
   const cursorByCredential = await readGmailDeliveryFacts(userId);
   const pushConfig = pubSubOidcConfigFromEnv();
   const receiverConfigured =
@@ -98,7 +96,7 @@ export const readGmailEventHealth: AccountDeliveryHealthReader = async (
     (pushConfig.nodeEnv !== "production" ||
       (Boolean(pushConfig.audience) && Boolean(pushConfig.expectedServiceAccount)));
   const healthByCredential = new Map(
-    (availability.providers.get(GMAIL_DELIVERY.provider) ?? []).map(
+    (rows.get(GMAIL_DELIVERY.provider) ?? []).map(
       ({ credentialId, metadata }): [string, GmailEventHealth] => {
         const cursor = cursorByCredential.get(credentialId);
         const watchTopic = readGmailWatchState(metadata)?.topic;

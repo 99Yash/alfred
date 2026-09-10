@@ -1,5 +1,7 @@
-import { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
-import { readEventSourceHealth } from "./event-source-health";
+import {
+  readEventSourceHealth,
+  readFreshIntegrationAvailability,
+} from "@alfred/assistant/connections";
 import type { WorkflowReadinessContext } from "./readiness";
 
 /**
@@ -13,6 +15,6 @@ export async function readWorkflowReadinessContext(
   userId: string,
 ): Promise<WorkflowReadinessContext> {
   const availability = await readFreshIntegrationAvailability(userId);
-  const eventSourceHealth = await readEventSourceHealth(userId, availability, new Date());
+  const eventSourceHealth = await readEventSourceHealth(userId, availability.providers, new Date());
   return { availability, eventSourceHealth };
 }

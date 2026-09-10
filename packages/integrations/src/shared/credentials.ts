@@ -2,7 +2,7 @@ import type { BearerSlug, CredentialProvider, InboundEventSource } from "@alfred
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 /**
  * Shared persistence layer for providers whose access is a single long-lived
@@ -244,30 +244,6 @@ export async function findActiveCredentialByInstallationId(args: {
     .orderBy(desc(integrationCredentials.updatedAt))
     .limit(1);
   return rows[0] ?? null;
-}
-
-/**
- * Whether the user has an active credential for `provider` that names an
- * installation: the subscription-health signal for an inbound source whose
- * deliveries are attributed by installation id (ADR-0097 item 5).
- */
-export async function hasActiveInstallationCredential(args: {
-  userId: string;
-  provider: InstallationProvider;
-}): Promise<boolean> {
-  const rows = await db()
-    .select({ id: integrationCredentials.id })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, args.userId),
-        eq(integrationCredentials.provider, args.provider),
-        eq(integrationCredentials.status, "active"),
-        isNotNull(integrationCredentials.installationId),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
 }
 
 /**

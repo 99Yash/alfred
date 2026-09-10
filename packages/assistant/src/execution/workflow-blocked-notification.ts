@@ -19,13 +19,8 @@ import { renderWorkflowBlockedEmail } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { send } from "@alfred/assistant/delivery";
-import { webOrigin } from "@alfred/assistant/settings";
+import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
 import type { WorkflowBlockedNotificationJobData } from "@alfred/assistant/tool-runtime";
-
-// Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
-export function emailLogoUrl(): string {
-  return `${webOrigin()}/images/logo/alfred-logo-email.png`;
-}
 
 /**
  * Opens the workflow page; with a revision, the recovery panel for it opens

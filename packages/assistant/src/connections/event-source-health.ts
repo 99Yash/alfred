@@ -1,20 +1,33 @@
+/**
+ * Every event source's delivery health for one user (#976, ADR-0097 item 5,
+ * ADR-0100).
+ *
+ * It sits in `connections/`, beside the credential rows and the ingestion state
+ * that every verdict is read from, and not in `automation/`, where its first
+ * reader lives. Two readers want it now: workflow trigger readiness, and the
+ * inbound delivery alert that rides the integration-status read. `automation ->
+ * connections` is an edge the module graph already carries, and the reverse is
+ * not, so a fold placed in `automation/` would have forced the alert reader to
+ * fold a strict subset of the sources instead. That subset is exactly how
+ * Gmail's lapsed watch went unread.
+ */
+
 import {
+  credentialSatisfies,
   EVENT_SOURCES,
   eventDeliveryAccounts,
   isInboundEventSource,
   type AccountGrainEventSource,
+  type CredentialRowsByProvider,
   type EventDeliveryAccounts,
   type EventSource,
   type EventSourceEntryOf,
   type InProcessEventSource,
-  type IntegrationAvailabilitySnapshot,
   type ProviderAvailability,
 } from "@alfred/contracts";
-import {
-  readInboundTriggerHealth,
-  type EventDeliveryHealth,
-} from "@alfred/assistant/connections/ingress";
-import { readGmailEventHealth } from "./gmail-event-readiness";
+import { readGmailEventHealth } from "./ingestion/gmail-event-health";
+import { readInboundTriggerHealth } from "./ingress/health";
+import type { EventDeliveryHealth } from "./ingress/descriptor";
 
 /**
  * Delivery health for one event source, at the grain its `EVENT_SOURCE_ENTRIES`
@@ -24,7 +37,7 @@ import { readGmailEventHealth } from "./gmail-event-readiness";
  * - `account`: `healthOf(row)` answers for one connected account of
  *   `accounts.integration`. It is a function of the row, not a map keyed by
  *   account id, so the resolver's lookup cannot miss: the resolver selects the
- *   row from the same availability snapshot the reader received, and a row the
+ *   row from the same credential rows the reader received, and a row the
  *   reader never saw still gets that reader's verdict for "no delivery state".
  *
  * The grain sits on the value, so the reader of the map handles both; a
@@ -45,13 +58,13 @@ export type EventSourceHealthMap = Readonly<Record<EventSource, EventSourceHealt
 /** Read one account's delivery verdict from the state the reader gathered. */
 export type AccountDeliveryHealthReader = (
   userId: string,
-  availability: IntegrationAvailabilitySnapshot,
+  rows: CredentialRowsByProvider,
   now: Date,
 ) => Promise<(row: ProviderAvailability) => EventDeliveryHealth>;
 
 type SourceDeliveryHealthReader = (
   userId: string,
-  availability: IntegrationAvailabilitySnapshot,
+  rows: CredentialRowsByProvider,
   now: Date,
 ) => Promise<EventDeliveryHealth>;
 
@@ -109,10 +122,10 @@ const HEALTHY: EventDeliveryHealth = { healthy: true };
  */
 export async function readEventSourceHealth(
   userId: string,
-  availability: IntegrationAvailabilitySnapshot,
+  rows: CredentialRowsByProvider,
   now: Date,
 ): Promise<EventSourceHealthMap> {
-  const inbound = readInboundTriggerHealth(userId);
+  const inbound = readInboundTriggerHealth(userId, rows);
   const entries = await Promise.all(
     EVENT_SOURCES.map(async (source): Promise<[EventSource, EventSourceHealth]> => {
       if (isInboundEventSource(source)) {
@@ -122,13 +135,31 @@ export async function readEventSourceHealth(
       if (reader === "healthy_by_construction")
         return [source, { grain: "source", health: HEALTHY }];
       if (reader.grain === "account") {
-        const healthOf = await reader.read(userId, availability, now);
+        const healthOf = await reader.read(userId, rows, now);
         return [source, { grain: "account", accounts: reader.accounts, healthOf }];
       }
-      return [source, { grain: "source", health: await reader.read(userId, availability, now) }];
+      return [source, { grain: "source", health: await reader.read(userId, rows, now) }];
     }),
   );
   // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
   // from EVENT_SOURCES, so the keys are exactly EventSource.
   return Object.fromEntries(entries) as Record<EventSource, EventSourceHealth>;
+}
+
+/**
+ * The rows an account-grain source may deliver from: the ones that prove its
+ * integration connected (ADR-0093's rule, {@link credentialSatisfies}).
+ *
+ * One helper for both readers of {@link EventSourceHealthMap}. Workflow
+ * readiness asks which row a trigger's `accountRef` resolves against; the
+ * delivery alert asks every row whose delivery could have stopped. A second
+ * copy of the filter would let one surface count a row the other ignores.
+ */
+export function eventDeliveryRows(
+  rows: CredentialRowsByProvider,
+  accounts: EventDeliveryAccounts,
+): ProviderAvailability[] {
+  return (rows.get(accounts.provider) ?? []).filter((row) =>
+    credentialSatisfies(accounts.credential, row),
+  );
 }
