@@ -60,8 +60,7 @@ function middlewareFor(provider: ProviderId): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
     transformParams: async ({ params }) => {
-      // SAFETY: params is LanguageModelV4CallOptions (the owning type); the param is widened via LanguageModelMiddleware in ai.
-      const { clean, cacheTtl } = cleanProviderRequest(params as LanguageModelV4CallOptions);
+      const { clean, cacheTtl } = cleanProviderRequest(params);
       return PROJECTIONS[provider](clean, cacheTtl);
     },
   };

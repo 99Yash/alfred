@@ -31,6 +31,19 @@ export type ChatProviderOptions = SharedV4ProviderOptions;
 export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
 export type MediaInputModality = (typeof MEDIA_INPUT_MODALITIES)[number];
 
+/**
+ * The generic AI SDK `reasoning` maps to Google `thinkingLevel`/`thinkingBudget`
+ * but never enables thought summaries. Alfred asks for them — the retired
+ * `reasoning-policy.ts` always sent `includeThoughts: true` on a reasoning-on
+ * Google leg — so a Google-bearing route with reasoning on carries this
+ * provider-option exception: the Google analogue of Anthropic's package-owned
+ * `display: "summarized"`. It rides on the whole route; non-Google primaries
+ * ignore the namespace.
+ */
+const GOOGLE_THOUGHT_SUMMARIES = {
+  google: { thinkingConfig: { includeThoughts: true } },
+} as const satisfies SharedV4ProviderOptions;
+
 interface ModelRoute {
   /** Leg makers, constructed in fallback order by their own provider factories. */
   readonly legs: readonly (() => LanguageModelV4)[];
@@ -50,6 +63,7 @@ const MODEL_ROUTES = {
   boss: {
     legs: [() => anthropicLeg("claude-sonnet-4-6"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
+    providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
   // Sub-agents follow the chat tiers onto Luna (ADR-0077 amendment
   // 2026-09-03d) so a delegating chat turn is one vendor end to end. The July
@@ -59,6 +73,7 @@ const MODEL_ROUTES = {
   subAgent: {
     legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
+    providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
   cheap: {
     legs: [() => googleLeg("gemini-2.5-flash-lite"), () => googleLeg("gemini-3.8-flash")],
@@ -90,6 +105,7 @@ const MODEL_ROUTES = {
   standard: {
     legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
+    providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
   // Deep is the same model at its strongest effort. `xhigh` is the generic AI
   // SDK ceiling; the OpenAI leg pins the provider-only `max` value and the
@@ -97,7 +113,7 @@ const MODEL_ROUTES = {
   deep: {
     legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "xhigh",
-    providerOptions: { openai: { reasoningEffort: "max" } },
+    providerOptions: { ...GOOGLE_THOUGHT_SUMMARIES, openai: { reasoningEffort: "max" } },
   },
 } as const satisfies Record<string, ModelRoute>;
 
@@ -161,6 +177,14 @@ interface MediaEnrichmentLeg {
 }
 
 /**
+ * Inline attachment ceilings: the largest payload each provider reads natively
+ * before Alfred must degrade it to text. Alfred product policy, not a model
+ * registry — the provider package still owns how the model reads the bytes.
+ */
+const GOOGLE_INLINE_MEDIA_BYTES = 50 * 1024 * 1024;
+const ANTHROPIC_INLINE_MEDIA_BYTES = 32 * 1024 * 1024;
+
+/**
  * Ordered multimodal legs, filtered before any provider receives the payload.
  * These are Alfred product policy (which leg attempts a given attachment), not
  * a second model-mechanics catalog: the provider package still owns how the
@@ -169,26 +193,34 @@ interface MediaEnrichmentLeg {
 const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
   {
     modalities: ["text", "image", "audio", "video", "pdf"],
-    maxInlineBytes: 50 * 1024 * 1024,
+    maxInlineBytes: GOOGLE_INLINE_MEDIA_BYTES,
     make: () => withDisabledReasoning(googleLeg("gemini-3.8-flash")),
   },
   {
     modalities: ["text", "image", "audio", "video"],
-    maxInlineBytes: 50 * 1024 * 1024,
+    maxInlineBytes: GOOGLE_INLINE_MEDIA_BYTES,
     make: () => withDisabledReasoning(googleLeg("gemini-2.5-flash")),
   },
   {
     modalities: ["text", "image", "audio", "video", "pdf"],
-    maxInlineBytes: 50 * 1024 * 1024,
+    maxInlineBytes: GOOGLE_INLINE_MEDIA_BYTES,
     make: () => withDisabledReasoning(googleLeg("gemini-2.5-flash-lite")),
   },
   {
     modalities: ["text", "image", "pdf"],
-    maxInlineBytes: 32 * 1024 * 1024,
+    maxInlineBytes: ANTHROPIC_INLINE_MEDIA_BYTES,
     make: () => withDisabledReasoning(anthropicLeg("claude-sonnet-4-6")),
   },
 ];
 
+/**
+ * Select the generic `none` ceiling. The provider package maps it to the
+ * generation's closest-to-off value: Gemini 2.5 gets `thinkingBudget: 0`, while
+ * Gemini 3 can only reach `thinkingLevel: "minimal"` — the package documents
+ * that full disable is unavailable there. The retired policy's `thinkingBudget:
+ * 0` for a Gemini 3 model was a shape that generation does not own; this is the
+ * SDK-owned equivalent, not a new budget.
+ */
 function withDisabledReasoning(leg: ProviderAdaptedLanguageModel): ProviderAdaptedLanguageModel {
   return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
 }
@@ -246,9 +278,9 @@ export function googleSearchGroundingTools(): ToolSet {
  * starts; a provider dying mid-stream after tokens flowed is not replayable.
  *
  * Attribution: the returned model proxies `provider`/`modelId` to whichever
- * model is *currently* serving, and the metering layer records the served
- * model from the response (`served` in `MeteredResult`), so `api_call_log`
- * stays correct when the fallback fires.
+ * model is *currently* serving, and after the call the metering layer reads
+ * that pair off the model object (`served` in `MeteredResult`), so
+ * `api_call_log` stays correct when the fallback fires.
  */
 /**
  * True when a 4xx is a billing/quota *capacity* condition (a workspace spend

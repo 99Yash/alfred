@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import { getPath } from "@alfred/contracts";
 import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
 import { APICallError, generateText, tool, type ToolSet } from "ai";
 import type { LanguageModel } from "ai-retry";
 import { MockLanguageModelV4 } from "ai/test";
@@ -355,6 +356,38 @@ describe("provider turn protocol", () => {
       /cannot attach the anthropic protocol to google\/gemini-3\.5-flash/,
     );
   });
+
+  // Wrapper ordering contract: the projection is outer, the name shim inner.
+  // In one call the envelope must be gone, the function tool encoded, and the
+  // provider-defined tool untouched — proving both layers ran, projection first.
+  test("strip the envelope outside the name shim without rewriting provider tools", async () => {
+    const inner = mockModel("google", "gemini-3.5-flash");
+    const model = adaptProviderModel("google", asModel(inner));
+
+    await generateText({
+      model,
+      prompt: "hello",
+      // SAFETY: the SDK unifies provider-defined tools' input generic to `never`
+      // inside the non-generic `ToolSet`, so the concrete grounding tool needs
+      // this cast; the built record is one provider tool under its own key.
+      tools: {
+        ...tools,
+        google_search: google.tools.googleSearch({}),
+      } as ToolSet,
+      providerOptions: attachProviderTurnPolicy(undefined, "1h"),
+    });
+
+    const call = inner.doGenerateCalls[0];
+    assert.ok(call);
+    assert.equal("alfredInternal" in (call.providerOptions ?? {}), false);
+    assert.equal(
+      call.tools?.find((definition) => definition.type === "function")?.name,
+      "system__search_tools",
+    );
+    const providerTool = call.tools?.find((definition) => definition.type === "provider");
+    assert.ok(providerTool);
+    assert.match(providerTool.id, /google_search/);
+  });
 });
 
 describe("route legs", () => {
@@ -375,11 +408,34 @@ describe("route legs", () => {
     assert.equal(route("compactor").reasoning(), "none");
   });
 
-  test("deep pins the provider-only OpenAI effort the generic value cannot express", () => {
+  test("carry the provider-option exceptions the generic reasoning setting cannot express", () => {
+    // Deep pins OpenAI's provider-only `max`; every reasoning-on Google-bearing
+    // route requests the thought summaries the generic value does not enable.
     assert.deepEqual(route("deep").providerOptions(), {
+      google: { thinkingConfig: { includeThoughts: true } },
       openai: { reasoningEffort: "max" },
     });
-    assert.deepEqual(route("standard").providerOptions(), {});
+    assert.deepEqual(route("standard").providerOptions(), {
+      google: { thinkingConfig: { includeThoughts: true } },
+    });
+    assert.deepEqual(route("cheap").providerOptions(), {});
+  });
+
+  test("forward the route's provider-option exceptions to the serving leg", async () => {
+    const inner = mockModel("google", "gemini-3.5-flash");
+    const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
+      reasoning: "medium",
+      providerOptions: { google: { thinkingConfig: { includeThoughts: true } } },
+    });
+
+    await generateText({ model, prompt: "hello" });
+
+    const call = inner.doGenerateCalls[0];
+    assert.ok(call);
+    assert.equal(call.reasoning, "medium");
+    assert.deepEqual(call.providerOptions, {
+      google: { thinkingConfig: { includeThoughts: true } },
+    });
   });
 
   test("apply the route reasoning default to the serving leg", async () => {
