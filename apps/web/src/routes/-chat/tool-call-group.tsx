@@ -22,6 +22,22 @@ const ITEM = "tools";
 const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
 
 /**
+ * A settled `system.ask_user` call draws its questions and the user's answers
+ * instead of the ordinary tool row, so the turn keeps a record of what was
+ * asked (ADR-0099). Null while the call is still parked — the approval tray
+ * below owns that state — and null when the result preview was pruned past
+ * reading, which falls back to the ordinary row.
+ *
+ * Module scope, unlike its two neighbours inside the component: those close
+ * over `subAgents`, this closes over nothing.
+ */
+function questionSummary(item: ToolCallView[]): AskUserSummary | null {
+  return item.length === 1 && item[0]!.toolName === ASK_USER_TOOL
+    ? askUserSummary(item[0]!.resultPreview)
+    : null;
+}
+
+/**
  * A turn's tool calls and the model's narration, woven into one collapsible
  * activity trail so a long agentic sequence doesn't bury the reply under a
  * wall of steps. While the turn runs the trail auto-expands — the model's
@@ -98,18 +114,6 @@ export function ToolCallGroup({
     const childRunId = asString(parseJsonRecord(item[0]!.argsPreview)?.childRunId);
     return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
   };
-
-  /**
-   * A settled `system.ask_user` call draws its questions and the user's
-   * answers instead of the ordinary tool row, so the turn keeps a record of
-   * what was asked (ADR-0099). Null while the call is still parked — the
-   * approval tray below owns that state — and null when the result preview was
-   * pruned past reading, which falls back to the ordinary row.
-   */
-  const questionSummary = (item: ToolCallView[]): AskUserSummary | null =>
-    item.length === 1 && item[0]!.toolName === ASK_USER_TOOL
-      ? askUserSummary(item[0]!.resultPreview)
-      : null;
 
   const trail = buildTrail(tools, narration);
   if (trail.length === 0) return null;
