@@ -20,6 +20,15 @@ import { preview } from "./tool-preview";
 export interface ToolEventOutcome {
   status: "succeeded" | "failed";
   resultPreview: string;
+  /**
+   * `preview()` lost something building `resultPreview`: a string shortened, an
+   * array sliced, or an object key dropped. Carried beside `sanitized` because
+   * it is the same kind of fact — a lossy-transform verdict only the producer
+   * can state — and because a preview that still parses gives its readers no
+   * way to notice. Every reader that treats `resultPreview` as the record it
+   * came from needs it (#1018 review, S2).
+   */
+  resultTruncated?: true | undefined;
   /** ADR-0070: non-text bytes were stripped from the result before storage. */
   sanitized?: true | undefined;
   /** Rejected before execution — the client retracts the card entirely. */
@@ -33,9 +42,11 @@ export interface ToolEventOutcome {
 }
 
 export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcome {
+  const result = preview(completion.result);
   return {
     status: completion.status,
-    resultPreview: preview(completion.result),
+    resultPreview: result.text,
+    resultTruncated: result.truncated ? true : undefined,
     sanitized: completion.sanitized ? true : undefined,
     // Only a `failed` status can be a non-execution bounce; an executed call
     // reached the side-effect path by definition.

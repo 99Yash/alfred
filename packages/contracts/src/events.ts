@@ -213,6 +213,13 @@ export const chatToolSchema = z.object({
   /** Trimmed preview of the tool result for the card's done state. */
   resultPreview: z.string().max(2_000).optional(),
   /**
+   * `preview()` had to prune `resultPreview` to fit the 2000-character cap: a
+   * string was shortened, an array sliced, or an object key dropped. A pruned
+   * preview still parses as JSON, so a reader that re-reads the preview as the
+   * record it came from cannot tell without this flag (#1018 review, S2).
+   */
+  resultTruncated: z.boolean().optional(),
+  /**
    * ADR-0070: the dispatch-boundary sanitizer stripped non-text bytes (U+0000 /
    * lone surrogates) from this result before storage, so the card can flag the
    * preview as possibly-incomplete instead of looking pristine. Absent/false on

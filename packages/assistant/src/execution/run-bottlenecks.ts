@@ -33,7 +33,7 @@
 
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, apiCallLog } from "@alfred/db/schemas";
-import { ASK_USER_TOOL, isParkedAgentStepStatus } from "@alfred/contracts";
+import { isParkedAgentStepStatus, isQuestionApproval } from "@alfred/contracts";
 import { asc, eq } from "drizzle-orm";
 
 /**
@@ -168,7 +168,7 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
     if (staging.decidedAt) approvalWaitMs += nonNegativeMs(staging.createdAt, staging.decidedAt);
     // A question the user dismissed or let lapse is a settled exchange, not a
     // vetoed write (ADR-0099). Its wait counts; its status does not.
-    if (staging.toolName === ASK_USER_TOOL) continue;
+    if (isQuestionApproval(staging.toolName)) continue;
     if (staging.status === "rejected") stagingsRejected += 1;
     if (staging.status === "expired") stagingsExpired += 1;
   }

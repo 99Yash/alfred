@@ -1845,6 +1845,13 @@ export const ASK_USER_LIMITS = {
   questions: { min: 1, max: 4 },
   /** Options per question. */
   options: { min: 2, max: 6 },
+  /**
+   * Characters of free text per answer. The card reads it too: it caps the
+   * textarea at this number, because the draft is re-parsed against
+   * `askUserAnswerSchema` on every keystroke and a longer paste would fail
+   * that parse and replace the card with a raw-JSON editor mid-edit.
+   */
+  customAnswer: { max: 4_000 },
 } as const;
 
 /** One option the user can pick for a `system.ask_user` question. */
@@ -1893,7 +1900,17 @@ export const askUserQuestionSchema = z
       .default(false)
       .describe("True when the user may pick several options at once."),
   })
-  .strict();
+  .strict()
+  // The label IS the option's identity: an answer carries labels, and the card
+  // keys each row on its label and marks it selected by membership. Two options
+  // sharing a label therefore render as one selection and un-toggle together.
+  // "Distinct choices" was prose in a `.describe()`, which the model may read
+  // and no boundary enforced; this makes the duplicate a validation error the
+  // dispatcher hands back with the repair.
+  .refine((v) => new Set(v.options.map((option) => option.label)).size === v.options.length, {
+    message: "options must carry distinct labels",
+    path: ["options"],
+  });
 export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
 
 /**
@@ -1911,7 +1928,7 @@ export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
 export const askUserAnswerSchema = z
   .object({
     selectedOptions: z.array(z.string().trim().min(1).max(120)).max(ASK_USER_LIMITS.options.max),
-    customAnswer: z.string().max(4_000).nullable(),
+    customAnswer: z.string().max(ASK_USER_LIMITS.customAnswer.max).nullable(),
   })
   .strict();
 export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>;
@@ -1959,6 +1976,14 @@ export const askUserModelInput = coerceJsonArrayFields(["questions"], askUserFie
 export type AskUserModelInput = z.infer<typeof askUserModelInput>;
 
 /**
+ * The whole sheet: the model's questions plus the user's answers. Named once
+ * because the two schemas below must stay byte-identical apart from the
+ * pairing rule — "the same shape plus one rule" is only true while one
+ * expression states the shape.
+ */
+const askUserAnswerSheet = askUserFields.extend({ answers: askUserAnswersField }).strict();
+
+/**
  * `system.ask_user` (ADR-0099) as the tool runtime validates it. The chat turn
  * parks on a `question` approval, the decision route writes the user's
  * `answers` into the row's decided input, and the dispatcher's ordinary
@@ -1972,10 +1997,7 @@ export type AskUserModelInput = z.infer<typeof askUserModelInput>;
  * the model to fill the field instead. {@link askUserDecidedInput} adds the
  * rule at the one boundary that writes answers.
  */
-export const askUserInput = coerceJsonArrayFields(
-  ["questions", "answers"],
-  askUserFields.extend({ answers: askUserAnswersField }).strict(),
-);
+export const askUserInput = coerceJsonArrayFields(["questions", "answers"], askUserAnswerSheet);
 export type AskUserInput = z.infer<typeof askUserInput>;
 
 /**
@@ -1986,13 +2008,13 @@ export type AskUserInput = z.infer<typeof askUserInput>;
  */
 export const askUserDecidedInput = coerceJsonArrayFields(
   ["questions", "answers"],
-  askUserFields
-    .extend({ answers: askUserAnswersField })
-    .strict()
-    .refine((v) => v.answers === undefined || v.answers.length === v.questions.length, {
+  askUserAnswerSheet.refine(
+    (v) => v.answers === undefined || v.answers.length === v.questions.length,
+    {
       message: "answers must carry exactly one entry per question",
       path: ["answers"],
-    }),
+    },
+  ),
 );
 export type AskUserDecidedInput = z.infer<typeof askUserDecidedInput>;
 
@@ -2016,17 +2038,6 @@ export const askUserResultSchema = z.discriminatedUnion("status", [
     status: z.literal("answered"),
     questions: z.array(askUserQuestionSchema),
     answers: z.array(askUserAnswerSchema),
-    /**
-     * How many questions the call asked. The web card reads this result back
-     * from a *preview*, which `preview()` caps at 2000 characters and prunes
-     * array-by-array on overflow — and it cuts `questions` and `answers` to the
-     * same length, so an equal pair count does not prove the pair set is
-     * complete. This scalar is what the pruner cannot touch: it shortens
-     * strings, slices arrays, and drops object keys past a limit this object
-     * stays far below. A card that reads fewer pairs than this number knows its
-     * preview is lossy and draws the plain tool row instead.
-     */
-    questionCount: z.number().int().nonnegative(),
   }),
   z.object({
     status: z.literal("unanswered"),

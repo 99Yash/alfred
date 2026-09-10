@@ -425,7 +425,13 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // `unrecognized_keys` failure family (`max_results`→`maxResults`, snake↔camel)
   // across every tool with one mechanism. Synonyms and the query DSL are still
   // handled by the schema's own preprocess wrappers, which run inside safeParse.
-  const normalized = normalizeToolInputKeys(args.input, tool.inputSchema);
+  //
+  // Reads the MODEL-facing schema, which is the surface the model was shown and
+  // the one `acceptedParamNames` documents. On every tool but `system.ask_user`
+  // the two are the same object; on that one the runtime schema also accepts
+  // `answers`, and normalizing against it would rename a model key into the
+  // user's field (ADR-0099).
+  const normalized = normalizeToolInputKeys(args.input, tool.modelInputSchema);
   if (normalized.renamed.length > 0) {
     // Surface the auto-repaired keys so prod traces can measure how often the
     // ergonomics pass fires, and on which tools/keys, without re-running the

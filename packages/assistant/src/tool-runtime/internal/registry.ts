@@ -296,9 +296,20 @@ export interface LiveToolArgs<
    * `system.ask_user` is the holder and the reason (ADR-0099): the decision
    * route writes the user's `answers` into the decided input, so the tool
    * schema has to accept `answers`, but a model that can see the key fills it.
-   * Every model-facing reader — the SDK tool surface, the schema budget, the
-   * compaction estimate, and the "this tool accepts only these parameters"
-   * repair line — reads {@link RegisteredTool.modelInputSchema} instead.
+   *
+   * Every model-facing reader takes this field instead of `inputSchema`:
+   * `surface-adapter.ts` (the tool surface the model is handed),
+   * `schema-budget.ts` (the advertised-bytes measure), the discovery
+   * derivation in `liveTool` above, and two dispatch-boundary readers —
+   * `normalizeToolInputKeys` (the "recognizable variant of an accepted key"
+   * rename) and `enrichInvalidInputMessage` (the "this tool accepts only
+   * these parameters" repair line). Defaulted to `inputSchema` at
+   * registration, so a reader never has to write the fallback and the two are
+   * the same object for every other tool.
+   *
+   * Registration proves the subset claim: {@link assertModelSchemaIsSubset}
+   * refuses a declaration whose model-facing top-level keys are not all
+   * accepted by the runtime schema.
    */
   modelInputSchema?: z.ZodTypeAny;
   /**
@@ -534,7 +545,11 @@ export function liveTool<
       integration: args.integration,
       action: args.action,
       description: args.description,
-      inputSchema: args.inputSchema,
+      // The MODEL-facing surface, because discovery ranks a tool against a
+      // user prompt and a field the model can never write is not a capability
+      // it can be found by. `answers` was a `system.ask_user` search keyword
+      // until this line read the narrower schema (ADR-0099).
+      inputSchema: args.modelInputSchema ?? args.inputSchema,
       overrides: args.discovery,
     }),
     availability: args.availability,
@@ -736,6 +751,7 @@ export function registerTool(tool: RegisteredTool): void {
       );
     }
   }
+  assertModelSchemaIsSubset(tool);
   // And the action must be a known action slug for that integration —
   // mirrors the compile-time check `liveTool` enforces, but covers the
   // case where someone bypasses the factory and constructs a
@@ -750,6 +766,48 @@ export function registerTool(tool: RegisteredTool): void {
   }
   REGISTRY.set(tool.name, tool);
   cachedSortedTools = null;
+}
+
+/**
+ * A declared `modelInputSchema` must accept only fields the runtime schema also
+ * accepts. `inputSchema` is what dispatch parses, so a model-facing key the
+ * runtime refuses would be advertised to the model, filled by it, and then
+ * rejected as `unrecognized_keys` on a strict schema — a bounce the model
+ * cannot repair, because the surface it was handed still lists the field.
+ *
+ * Compares TOP-LEVEL property names only, and only when the author declared a
+ * second schema (`liveTool` defaults the field to the same object, which is
+ * trivially a subset). Nested shapes and refinements are out of scope: the
+ * question probes above cover the one tool that splits the two today, and a
+ * top-level name check is the part a copy-paste gets wrong. An unreadable
+ * schema is not a failure — `z.toJSONSchema` throws on shapes it cannot
+ * represent, and refusing boot for that would be a new failure mode with no
+ * matching defect.
+ */
+function assertModelSchemaIsSubset(tool: RegisteredTool): void {
+  if (tool.modelInputSchema === tool.inputSchema) return;
+  const modelKeys = topLevelPropertyNames(tool.modelInputSchema);
+  const runtimeKeys = topLevelPropertyNames(tool.inputSchema);
+  if (!modelKeys || !runtimeKeys) return;
+  const extra = modelKeys.filter((key) => !runtimeKeys.includes(key));
+  if (extra.length === 0) return;
+  throw new Error(
+    `[tools] '${tool.name}' declares a modelInputSchema with ${extra.map((k) => `'${k}'`).join(", ")} ` +
+      "which inputSchema does not accept — the model-facing schema must be a subset of the " +
+      "validating one, or the model is shown a field its own call will be rejected for",
+  );
+}
+
+/** Top-level input property names, or `null` when the schema cannot be read. */
+function topLevelPropertyNames(schema: z.ZodTypeAny): string[] | null {
+  let json: z.core.JSONSchema.BaseSchema;
+  try {
+    json = z.toJSONSchema(schema, { io: "input", reused: "inline", unrepresentable: "any" });
+  } catch {
+    return null;
+  }
+  const properties = json.properties;
+  return properties && typeof properties === "object" ? Object.keys(properties) : null;
 }
 
 export function registerTools(tools: readonly RegisteredTool[]): void {

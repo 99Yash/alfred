@@ -7,7 +7,7 @@ import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { cn } from "~/lib/utils";
-import { ApprovalCard } from "~/components/approvals/approval-card";
+import { StagedApprovalCard } from "~/components/approvals/staged-approval-card";
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 
@@ -263,7 +263,7 @@ export function ApprovalsPage() {
                 className="app-card-in scroll-mt-6"
                 style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
               >
-                <ApprovalCard
+                <StagedApprovalCard
                   staging={staging}
                   onDecide={(decision) => decideApproval(staging.id, decision)}
                 />
