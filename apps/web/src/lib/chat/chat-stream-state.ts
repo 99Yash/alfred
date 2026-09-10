@@ -22,6 +22,8 @@ export interface StreamingToolCall {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string | undefined;
   resultPreview?: string | undefined;
+  /** `preview()` pruned `resultPreview`, so it is not the whole result. */
+  resultTruncated?: boolean | undefined;
   /** ADR-0070: non-text bytes were stripped from this result before storage. */
   sanitized?: boolean | undefined;
   /** Narration segment this call follows, ordering it against the narration trail. */
@@ -245,6 +247,7 @@ export function applyStreamingToolEvent(
     status: event.status,
     argsPreview: event.argsPreview ?? previous?.argsPreview,
     resultPreview: event.resultPreview ?? previous?.resultPreview,
+    resultTruncated: event.resultTruncated ?? previous?.resultTruncated,
     sanitized: event.sanitized ?? previous?.sanitized,
     segmentIndex: event.segmentIndex ?? previous?.segmentIndex ?? 0,
     startedTs: previous?.startedTs ?? now,
@@ -275,6 +278,22 @@ export function applyStreamingToolEvent(
  * the live ref would corrupt it. A same-turn frame reuses the ref regardless of
  * id, so a replayed frame for the live turn is not a mount at all.
  */
+/**
+ * Retire the approval wait, because the frame the caller just accepted proves
+ * the run is moving again. Mirrors the sub-agent trail's `waiting` clear.
+ *
+ * Called only from an arm that goes on to return `true`. Mounting used to clear
+ * the flag, which put the write ahead of that arm's `stopped` and seq-dedup
+ * guards: a replayed frame retired the wait and then returned `false`, so the
+ * projection never ran and the composer stayed disabled over a run that had
+ * already resumed. Without a clear the flag only ever fell on `completed`,
+ * which left the composer and the stall watchdog reading "parked" for the rest
+ * of the turn — so the write has to happen, just past the guards.
+ */
+function clearApprovalWait(ref: StreamRef): void {
+  ref.awaitingApproval = false;
+}
+
 function ensureStreamRef(
   cell: ChatStreamCell,
   frameId: number,
@@ -282,17 +301,7 @@ function ensureStreamRef(
   runId: string,
 ): StreamRef | null {
   const existing = cell.current;
-  if (existing && existing.messageId === messageId && existing.runId === runId) {
-    // A parked turn is silent by design, and every frame that reaches here
-    // belongs to the boss turn itself (the sub-agent arm of `chat.tool`
-    // returns before this call, and `approval.requested` reads `cell.current`
-    // directly). So one such frame proves the run is moving again and retires
-    // the wait. Mirrors the sub-agent trail's `waiting` clear below. Without
-    // it the flag only ever cleared on `completed`, which left the composer
-    // and the stall watchdog reading "parked" for the rest of the turn.
-    existing.awaitingApproval = false;
-    return existing;
-  }
+  if (existing && existing.messageId === messageId && existing.runId === runId) return existing;
   if (existing && frameId < existing.mountId) return null;
   const fresh: StreamRef = {
     messageId,
@@ -419,6 +428,7 @@ export function applyChatFrame(
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
     if (r === null || r.stopped) return false;
     if (p.seq <= r.reasoningSeq) return false;
+    clearApprovalWait(r);
     r.reasoningSeq = p.seq;
     if (r.reasoningStartTs === null) r.reasoningStartTs = now;
     r.reasoning += p.text;
@@ -442,6 +452,7 @@ export function applyChatFrame(
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
     if (r === null || r.stopped) return false;
     if (p.seq <= r.deltaSeq) return false;
+    clearApprovalWait(r);
     r.deltaSeq = p.seq;
     // First reply token: thinking for the answer is over — freeze its duration.
     if (!r.replyStarted) {
@@ -517,6 +528,9 @@ export function applyChatFrame(
     }
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
     if (r === null || r.stopped) return false;
+    // Every arm below this line returns `true`, so the clear and the
+    // re-projection that shows it land on the same frame.
+    clearApprovalWait(r);
     applyStreamingToolEvent(r.tools, p, now);
     if (p.connectNudge) {
       // The bounced call is retracted above; the repair is what the user sees
@@ -831,6 +845,7 @@ function toolListsEqual(a: StreamingToolCall[], b: StreamingToolCall[]): boolean
       left.status !== right.status ||
       left.argsPreview !== right.argsPreview ||
       left.resultPreview !== right.resultPreview ||
+      left.resultTruncated !== right.resultTruncated ||
       left.sanitized !== right.sanitized ||
       left.segmentIndex !== right.segmentIndex
     ) {

@@ -14,6 +14,7 @@
  * components/landing/landing-page.tsx).
  */
 
+import { ASK_USER_TOOL } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import {
   Archive,
@@ -2155,7 +2156,7 @@ const V2_STAGING_QUESTION: SyncedActionStaging = {
   id: "stg_styleguide_question",
   stepId: "step_3",
   toolCallId: "call_3",
-  toolName: "system.ask_user",
+  toolName: ASK_USER_TOOL,
   integration: "system",
   // What the tool declares. A question is not an irreversible action, so
   // ADR-0099 rejects the `high` tier for it by name.
@@ -2254,7 +2255,7 @@ function V2QuestionCardSection() {
     <Section
       id="v2-question-card"
       title="Chat question card"
-      recipe="routes/-chat/approval-tray.tsx with a `system.ask_user` staging (ADR-0099). The tray resolves the answer sheet through the shared ApprovalInputEditor: a multi-select question and a single-select one, paged with the arrows, each with a free-text field. Actions read Dismiss / Continue; Cmd+Enter continues. preview mode — decisions are local no-ops."
+      recipe="routes/-chat/approval-tray.tsx with a `system.ask_user` staging (ADR-0099). The card keeps the chrome and draws its body from components/approvals/question-sheet.tsx, which the /approvals queue draws too: a multi-select question and a single-select one, paged with the arrows and the dots, each with a free-text field. Actions read Dismiss / Continue; Cmd+Enter continues. preview mode — decisions are local no-ops."
     >
       <ThemePanes
         stacked

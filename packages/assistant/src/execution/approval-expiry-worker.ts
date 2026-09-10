@@ -156,6 +156,10 @@ export async function expireStaging(args: {
       .update(actionStagings)
       .set({
         status: "expired",
+        // The effect dimension, orthogonal to `status` (#559a). An expired gate
+        // never called the provider, so the effect is `refused` — the same
+        // value `withdrawToolCallApproval` writes for the same reason.
+        outcome: "refused",
         rejectReason: "auto-expired",
         decidedAt: now,
         rowVersion: sql`${actionStagings.rowVersion} + 1`,

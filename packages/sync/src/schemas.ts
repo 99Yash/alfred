@@ -262,6 +262,15 @@ export const syncedChatToolCallSchema = z.object({
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
   /**
+   * `preview()` pruned `resultPreview` to fit its cap. Synced because a pruned
+   * preview still parses as JSON, so the settled question card (ADR-0099) —
+   * and every other reader that re-reads a preview as its record — has no
+   * other way to know it is holding a partial answer sheet. Absent on rows
+   * written before this field existed, which read back as "not truncated";
+   * those rows are pre-#1018 and no reader keyed on the fact then.
+   */
+  resultTruncated: z.boolean().optional(),
+  /**
    * The narration segment this call follows, so a reload interleaves it with
    * the stored narration. Defaulted so rows written before this field existed
    * still parse (they read back at segment 0).

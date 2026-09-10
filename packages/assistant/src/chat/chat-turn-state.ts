@@ -39,6 +39,10 @@ const toolCallLogSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
+  // `preview()` pruned the result to fit its cap. Persisted so a reload keeps
+  // the fact, because a pruned preview still parses (#1018 review, S2).
+  // Optional so checkpoints written before this field still parse.
+  resultTruncated: z.boolean().optional(),
   // A `failed` entry rejected before execution: malformed, invented, inactive,
   // or disallowed. The honesty guard excludes recovered entries so an internal
   // first attempt cannot make it claim a later, successful call failed.

@@ -1,6 +1,6 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import * as Accordion from "@radix-ui/react-accordion";
-import { ASK_USER_TOOL, AWAIT_SUB_AGENT_TOOL, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
+import { AWAIT_SUB_AGENT_TOOL, isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
@@ -32,9 +32,8 @@ const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
  * over `subAgents`, this closes over nothing.
  */
 function questionSummary(item: ToolCallView[]): AskUserSummary | null {
-  return item.length === 1 && item[0]!.toolName === ASK_USER_TOOL
-    ? askUserSummary(item[0]!.resultPreview)
-    : null;
+  const only = item.length === 1 ? item[0]! : null;
+  return only && isQuestionApproval(only.toolName) ? askUserSummary(only) : null;
 }
 
 /**

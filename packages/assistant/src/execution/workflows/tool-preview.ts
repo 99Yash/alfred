@@ -46,10 +46,29 @@ function pruneForPreview(
   return value;
 }
 
-export function preview(value: unknown): string {
+/**
+ * One preview and whether producing it lost anything.
+ *
+ * `truncated` is the verdict this module owns and nothing downstream can
+ * recompute. Every reader that parses a preview back into the record it came
+ * from is reading a value that may have had strings shortened, arrays sliced,
+ * and object keys dropped — and the result still parses, so no reader can tell
+ * by looking. Pruning also cuts sibling arrays to the *same* length, which is
+ * why an equal pair count proves nothing about completeness. A reader that
+ * needs the whole record checks this flag and falls back.
+ */
+export interface Preview {
+  text: string;
+  /** A string was shortened, an array sliced, or an object key dropped. */
+  truncated: boolean;
+}
+
+export function preview(value: unknown): Preview {
   // Strings are plain text (error messages, model output) — slice directly.
   if (typeof value === "string") {
-    return value.length > PREVIEW_CHARS ? `${value.slice(0, PREVIEW_CHARS - 1)}…` : value;
+    return value.length > PREVIEW_CHARS
+      ? { text: `${value.slice(0, PREVIEW_CHARS - 1)}…`, truncated: true }
+      : { text: value, truncated: false };
   }
   let full: string;
   try {
@@ -57,16 +76,17 @@ export function preview(value: unknown): string {
   } catch {
     full = String(value);
   }
-  if (full.length <= PREVIEW_CHARS) return full;
+  if (full.length <= PREVIEW_CHARS) return { text: full, truncated: false };
 
   // Over budget: prune the structure, tightening tier by tier, so the preview
   // stays *valid JSON* under the cap. The `chat.tool` event schema caps
   // previews at PREVIEW_CHARS and `publishEvent` throws on overflow, so we must
-  // land under it.
+  // land under it. Reaching here at all means the value did not fit, so every
+  // return below is truncated.
   try {
     for (const [maxArray, maxString, maxKeys] of PREVIEW_TIERS) {
       const pruned = JSON.stringify(pruneForPreview(value, maxArray, maxString, maxKeys)) ?? "";
-      if (pruned && pruned.length <= PREVIEW_CHARS) return pruned;
+      if (pruned && pruned.length <= PREVIEW_CHARS) return { text: pruned, truncated: true };
     }
   } catch {
     // fall through to the slice below
@@ -74,5 +94,5 @@ export function preview(value: unknown): string {
   // Even the tightest tier overflowed (or pruning threw) — last resort is a
   // slice, accepting that this rare preview won't parse. Reserve a char for the
   // ellipsis.
-  return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
+  return { text: `${full.slice(0, PREVIEW_CHARS - 1)}…`, truncated: true };
 }

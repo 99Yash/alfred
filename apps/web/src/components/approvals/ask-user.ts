@@ -1,13 +1,16 @@
 import {
   askUserInput,
   askUserResultSchema,
+  isQuestionApproval,
   parseJsonWith,
   type AskUserAnswer,
   type AskUserInput,
   type AskUserQuestion,
   type AskUserUnansweredResult,
 } from "@alfred/contracts";
+import type { SyncedActionStaging } from "@alfred/sync";
 import type { JsonRecord } from "~/lib/json-record";
+import { asRecord } from "~/lib/json-record";
 
 /**
  * Readers for the `system.ask_user` approval (ADR-0099). The staged row's
@@ -42,9 +45,43 @@ export function parseAskUserInput(value: unknown): AskUserInput | null {
   return parsed.success ? parsed.data : null;
 }
 
+/** A staged row that is a question, with its input already parsed. */
+export interface QuestionStaging {
+  staging: SyncedActionStaging;
+  input: AskUserInput;
+  /** The same input unparsed — what an answer is written back onto. */
+  raw: JsonRecord;
+}
+
+/**
+ * Read one staged row as a question, or `null` when it is not one.
+ *
+ * Fuses the tool-name check with the parse, because the two are one question
+ * ("can this row draw an answer sheet?") and every caller asked both halves.
+ * The parse can fail on a row whose tool name matches — a build whose schema
+ * has moved on — and that row must fall back to the write card rather than to
+ * nothing.
+ */
+export function asQuestionStaging(staging: SyncedActionStaging): QuestionStaging | null {
+  if (!isQuestionApproval(staging.toolName)) return null;
+  const raw = asRecord(staging.proposedInput);
+  if (!raw) return null;
+  const input = parseAskUserInput(raw);
+  return input ? { staging, input, raw } : null;
+}
+
 /** The answers held on a draft input, padded to one entry per question. */
 export function answersOf(input: AskUserInput): AskUserAnswer[] {
   return input.questions.map((_, index) => input.answers?.[index] ?? EMPTY_ANSWER);
+}
+
+/**
+ * How many questions the user has left blank. Drives the card's warning line
+ * and its button copy: a pager shows one question at a time, so nothing else
+ * on screen says that page 3 of 4 was never opened.
+ */
+export function unansweredCount(input: AskUserInput): number {
+  return answersOf(input).filter(isAnswerEmpty).length;
 }
 
 /**
@@ -77,31 +114,33 @@ export type AskUserSummary =
   | Omit<AskUserUnansweredResult, "message">;
 
 /**
- * Read the settled summary off a finished tool call's result preview.
+ * Read the settled summary off a finished tool call.
  *
- * The preview is capped at 2000 characters and pruned array-by-array when it
- * overflows, so a long question set can arrive with trailing pairs dropped.
- * Pruning cuts `questions` and `answers` to the *same* length, which is why an
- * equal pair count proves nothing: a truncated preview still parses and still
- * pairs correctly, it just omits whole questions. The answered arm therefore
- * carries `questionCount`, a scalar the pruner leaves alone. Fewer pairs than
- * that count means the preview is lossy, this returns null, and the caller
- * draws the ordinary tool row rather than a card that hides answers under the
- * heading "Your answers".
+ * The card draws from a *preview*, and `preview()` prunes a preview that
+ * overflows its character budget: strings shorten, arrays slice, object keys
+ * past a limit drop. Pruning cuts `questions` and `answers` to the SAME
+ * length, so a truncated preview still parses and still pairs correctly — it
+ * just omits whole questions. No reader can detect that by looking, which is
+ * why `resultTruncated` is stated by the producer and carried on the tool call
+ * (live event, durable row, and sync entity alike). A truncated preview
+ * returns null here and the caller draws the ordinary tool row rather than a
+ * card that hides answers under the heading "Your answers".
  *
- * Two lesser losses survive the guard on purpose: one long question or answer
- * string can arrive truncated with `…`, and a `selectedOptions` list of 6 can
- * arrive holding 5. Neither attributes an answer to the wrong question.
+ * Measured at 3 options per question, a 3-question call with 120-character
+ * descriptions already overflows, so this is the common case for the pager,
+ * not a corner.
  */
-export function askUserSummary(resultPreview: string | undefined): AskUserSummary | null {
-  if (!resultPreview) return null;
-  const result = parseJsonWith(resultPreview, askUserResultSchema);
+export function askUserSummary(tool: {
+  resultPreview?: string | undefined;
+  resultTruncated?: boolean | undefined;
+}): AskUserSummary | null {
+  if (!tool.resultPreview || tool.resultTruncated) return null;
+  const result = parseJsonWith(tool.resultPreview, askUserResultSchema);
   if (!result) return null;
   if (result.status === "unanswered") {
     return { status: "unanswered", reason: result.reason, questions: result.questions };
   }
   if (result.questions.length !== result.answers.length) return null;
-  if (result.questions.length !== result.questionCount) return null;
   return {
     status: "answered",
     answered: result.questions.map((question, index) => ({

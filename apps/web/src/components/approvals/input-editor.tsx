@@ -1,5 +1,4 @@
 import {
-  ASK_USER_TOOL,
   calendarListEventsInput,
   toolInputFields,
   type FieldSpec,
@@ -9,9 +8,7 @@ import { useState } from "react";
 import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { asRecord, type JsonRecord } from "~/lib/json-record";
-import { parseAskUserInput } from "./ask-user";
 import { formatJson, parseJson } from "./format";
-import { AskUserQuestionPanel } from "./question-panel";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
 type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
@@ -23,10 +20,10 @@ type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
  * a multi-line editor — so the form can't drift from what the server accepts.
  * Tools without a derivable schema fall back to a raw-JSON editor.
  *
- * `system.ask_user` is the one tool whose input the *user* fills rather than
- * reviews, so it gets its own control set (ADR-0099). It resolves here, not at
- * each card, so the chat tray and the `/approvals` queue draw the same answer
- * sheet without either surface knowing the question shape.
+ * One editor, one job: review a proposed *write*. A `system.ask_user` row is
+ * not that (ADR-0099) — the user authors its input rather than reviewing it —
+ * and it never reaches here: both surfaces resolve a question to their own
+ * card, which draws `AskUserQuestionPanel` with the input already parsed.
  */
 export function ApprovalInputEditor({
   toolName,
@@ -42,24 +39,6 @@ export function ApprovalInputEditor({
   idPrefix: string;
 }) {
   const record = asRecord(value);
-
-  if (toolName === ASK_USER_TOOL && record) {
-    const askUser = parseAskUserInput(record);
-    // A value that does not parse falls through to the generic editors below,
-    // rather than drawing a question card over a shape it cannot read.
-    if (askUser) {
-      return (
-        <AskUserQuestionPanel
-          input={askUser}
-          rawValue={record}
-          onChange={onChange}
-          disabled={disabled}
-          idPrefix={idPrefix}
-        />
-      );
-    }
-  }
-
   const fieldSpecs = toolInputFields(toolName);
 
   if (!record || !fieldSpecs) {

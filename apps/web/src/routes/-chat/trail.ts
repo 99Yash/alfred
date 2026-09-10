@@ -1,4 +1,4 @@
-import { ASK_USER_TOOL, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
+import { isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import type { ToolCallView } from "./tool-call-presentation";
 
@@ -80,7 +80,7 @@ export function buildTrail(
         // is the same shape (ADR-0099): each call owns the answers the user
         // gave it, so a folded row would drop every record but the first.
         tool.toolName !== SPAWN_SUB_AGENT_TOOL &&
-        tool.toolName !== ASK_USER_TOOL
+        !isQuestionApproval(tool.toolName)
       ) {
         prev.tools.push(tool);
       } else {

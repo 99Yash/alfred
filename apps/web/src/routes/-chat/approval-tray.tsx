@@ -1,5 +1,5 @@
-import type { AskUserInput, IntegrationSlug, PolicyMode, ToolRiskTier } from "@alfred/contracts";
-import { ASK_USER_TOOL, isLoadableIntegrationSlug, isWriteRiskTier } from "@alfred/contracts";
+import type { IntegrationSlug, PolicyMode, ToolRiskTier } from "@alfred/contracts";
+import { isLoadableIntegrationSlug, isWriteRiskTier } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as Accordion from "@radix-ui/react-accordion";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -18,19 +18,19 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, use, useId, useState } from "react";
-import { parseAskUserInput } from "~/components/approvals/ask-user";
-import { approvalDecisionBody } from "~/components/approvals/decide-approval";
+import { asQuestionStaging, type QuestionStaging } from "~/components/approvals/ask-user";
 import { cardTitle, toolChipLabel } from "~/components/approvals/card-spec";
 import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor } from "~/components/approvals/input-editor";
 import { RiskChip } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
+import { QuestionSheet } from "~/components/approvals/question-sheet";
 import {
   useApprovalDecision,
-  type ApprovalDecision,
   type ApprovalDecisionState,
-  type QuestionDismissal,
+  type QuestionDecision,
   type RecordedDecision,
+  type WriteDecision,
 } from "~/components/approvals/use-approval-decision";
 import { AppButton, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { AppThemeContext } from "~/components/ui/v2/theme";
@@ -85,23 +85,29 @@ export function ChatApprovalTray({
   // Chime once per freshly-arrived batch of approvals. A per-card effect would
   // fire N toasts and stack N overlapping sounds when several actions gate at
   // once; centralizing it here keeps a single "review this" signal.
-  const notifiedRef = useRef<Set<string>>(new Set());
+  // Lazily allocated: `useRef(new Set())` builds and discards a Set on every
+  // render. Pruned to the rows still on screen on each fire, so a long thread
+  // does not accumulate an id per approval it ever showed — a row that leaves
+  // `pending` never comes back, so dropping it cannot re-chime.
+  const notifiedRef = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (preview) return;
-    const fresh = approvals.filter((row) => !notifiedRef.current.has(row.id));
+    const notified = (notifiedRef.current ??= new Set());
+    const fresh = approvals.filter((row) => !notified.has(row.id));
+    const live = new Set(approvals.map((row) => row.id));
+    for (const id of notified) if (!live.has(id)) notified.delete(id);
     if (fresh.length === 0) return;
-    for (const row of fresh) notifiedRef.current.add(row.id);
+    for (const row of fresh) notified.add(row.id);
     const first = fresh[0];
     // A question is not a permission request, so it gets its own chime copy —
     // "Approval needed" over a card asking which recipient to use reads as a
     // warning about an action the user never proposed.
     const lone = fresh.length === 1 ? first : undefined;
-    const loneQuestion =
-      lone?.toolName === ASK_USER_TOOL ? parseAskUserInput(lone.proposedInput) : null;
+    const loneQuestion = lone ? asQuestionStaging(lone) : null;
     callToast({
       message: loneQuestion ? "Alfred has a question" : "Approval needed",
       description: loneQuestion
-        ? (loneQuestion.questions[0]?.question ?? "Answer to continue the turn.")
+        ? (loneQuestion.input.questions[0]?.question ?? "Answer to continue the turn.")
         : lone
           ? cardTitle(lone.toolName, lone.proposedInput)
           : `${fresh.length} actions need your review`,
@@ -128,7 +134,10 @@ export function ChatApprovalTray({
         <div className="flex items-center gap-2 text-[13px] text-app-fg-3">
           <Loader2 size={14} className="animate-spin" />
           <span className={cn(!recentDecision && "animate-chat-shimmer")}>
-            {recentDecision ? "Resuming after your decision…" : "Waiting for approval…"}
+            {/* Neutral over both card kinds: the pending row below may be a
+             * question, and "Waiting for approval" reads as a permission
+             * prompt the user never asked for. */}
+            {recentDecision ? "Resuming after your decision…" : "Waiting for your decision…"}
           </span>
         </div>
       </div>
@@ -142,13 +151,11 @@ export function ChatApprovalTray({
         // staged row, same decision route, but the body is an answer sheet and
         // the actions are Continue / Dismiss. A staged input that does not
         // parse falls back to the ordinary card rather than to nothing.
-        const askUser =
-          staging.toolName === ASK_USER_TOOL ? parseAskUserInput(staging.proposedInput) : null;
-        return askUser ? (
+        const question = asQuestionStaging(staging);
+        return question ? (
           <InlineQuestionCard
             key={staging.id}
-            staging={staging}
-            askUser={askUser}
+            question={question}
             preview={preview}
             onDecision={() => setRecentDecision(true)}
           />
@@ -194,9 +201,10 @@ function useRecordDecision<Decision extends RecordedDecision>({
   setDecided: (value: boolean) => void;
   toastFor: (decision: Decision) => DecisionToast;
 }) {
-  // Generic over the decision, so a write card can never record a `dismiss`
-  // and a question card can never record a `cancel_run`. Each copy builder
-  // below then covers exactly the kinds its own card raises.
+  // Generic over the decision union, so a write card cannot record a
+  // reason-less rejection and a question card cannot record a `cancel_run`.
+  // The card passes its own union, so each copy builder below covers exactly
+  // the kinds its own card raises — and a `never` guard in each proves it.
   const [decisionKind, setDecisionKind] = useState<Decision["decision"] | null>(null);
 
   const decide = (decision: Decision) => {
@@ -210,7 +218,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
     return run(async () => {
       const { data, error: responseError } = await client.api
         .approvals({ stagingId: staging.id })
-        .decision.post(approvalDecisionBody(decision));
+        .decision.post(decision);
       if (responseError) {
         throw new Error(
           responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
@@ -522,7 +530,7 @@ function InlineApprovalCard({
 }
 
 /** The toast copy for a write approval's three decisions. */
-function writeDecisionToast(decision: ApprovalDecision): DecisionToast {
+function writeDecisionToast(decision: WriteDecision): DecisionToast {
   if (decision.decision === "approve") {
     return {
       tone: "success",
@@ -537,11 +545,21 @@ function writeDecisionToast(decision: ApprovalDecision): DecisionToast {
       description: "Alfred is resuming the run.",
     };
   }
-  return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
+  if (decision.decision === "cancel_run") {
+    return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
+  }
+  // A new arm on `WriteDecision` fails to compile here instead of falling
+  // through to another decision's copy.
+  const unhandled: never = decision;
+  return unhandled;
 }
 
-/** The toast copy for a question's two decisions. */
-function questionDecisionToast(decision: ApprovalDecision | QuestionDismissal): DecisionToast {
+/**
+ * The toast copy for a question's two decisions. Both arms are `approve` /
+ * `reject` on the wire, so the copy — not the wire shape — is what separates
+ * "answers sent" from "dismissed".
+ */
+function questionDecisionToast(decision: QuestionDecision): DecisionToast {
   if (decision.decision === "approve") {
     return {
       tone: "success",
@@ -549,11 +567,15 @@ function questionDecisionToast(decision: ApprovalDecision | QuestionDismissal): 
       description: "Alfred is continuing the turn.",
     };
   }
-  return {
-    tone: "info",
-    message: "Question dismissed",
-    description: "Alfred is continuing without an answer.",
-  };
+  if (decision.decision === "reject") {
+    return {
+      tone: "info",
+      message: "Question dismissed",
+      description: "Alfred is continuing without an answer.",
+    };
+  }
+  const unhandled: never = decision;
+  return unhandled;
 }
 
 /**
@@ -566,24 +588,27 @@ function questionDecisionToast(decision: ApprovalDecision | QuestionDismissal): 
  * field editor, the panel stays open (a question is the point of the turn, not
  * a detail to fold away), and the actions read Dismiss / Continue.
  *
+ * The card owns the chrome only. {@link QuestionSheet} owns the answer sheet,
+ * the action row, and the keyboard contract, so the `/approvals` queue's card
+ * draws the identical body from the identical component.
+ *
  * The answers ride the approval's `editedInput`. Continuing without answering
  * anything sends a plain approval, which the tool reports to the model as
  * `no_answers` rather than as a sheet full of blanks.
  */
 function InlineQuestionCard({
-  staging,
-  askUser,
+  question,
   preview = false,
   onDecision,
 }: {
-  staging: SyncedActionStaging;
-  askUser: AskUserInput;
+  question: QuestionStaging;
   preview?: boolean | undefined;
   onDecision: () => void;
 }) {
+  const staging = question.staging;
   const { draftInput, setDraftInput, busy, decided, setDecided, error, approveDecision, run } =
     useApprovalDecision(staging);
-  const { decisionKind, decide } = useRecordDecision({
+  const { decisionKind, decide } = useRecordDecision<QuestionDecision>({
     staging,
     preview,
     onDecision,
@@ -592,22 +617,12 @@ function InlineQuestionCard({
     toastFor: questionDecisionToast,
   });
 
-  const count = askUser.questions.length;
-  const dismiss = () => decide({ decision: "dismiss", expectedRowVersion: staging.rowVersion });
+  const count = question.input.questions.length;
 
   return (
     <section
       aria-label="Question from Alfred"
       className="app-frost-overlay animate-chat-in overflow-hidden rounded-2xl"
-      onKeyDown={(event) => {
-        // Cmd/Ctrl+Enter submits from anywhere in the card, including the
-        // custom-answer field. Scoped to the card, so it can never fire for a
-        // question the user is not looking at.
-        if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
-        if (busy || decided) return;
-        event.preventDefault();
-        void decide(approveDecision());
-      }}
     >
       <div className="flex items-center gap-3 p-3 sm:px-4">
         <img src="/images/logo/alfred-logo.svg" alt="" className="size-8 shrink-0 rounded-[9px]" />
@@ -625,48 +640,23 @@ function InlineQuestionCard({
         </div>
       </div>
 
-      <div className="border-t border-app-bg-a2 p-3 sm:px-4">
-        <ApprovalInputEditor
-          toolName={staging.toolName}
-          value={draftInput}
-          onChange={setDraftInput}
-          disabled={busy || decided}
-          idPrefix={`chat-question-${staging.id}`}
-        />
-
-        {error ? <p className="mt-2 text-[12px] text-app-red-4">{error}</p> : null}
-
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-          {decided ? (
-            <div className="flex min-h-8 items-center gap-2 text-[13px] font-medium text-app-fg-3">
-              <Loader2 size={14} className="animate-spin" />
-              Continuing…
-            </div>
-          ) : (
-            <>
-              <AppButton
-                variant="ghost"
-                size="sm"
-                leading={ICON_X}
-                disabled={busy}
-                onClick={dismiss}
-              >
-                Dismiss
-              </AppButton>
-              <AppButton
-                variant="primary"
-                size="sm"
-                leading={ICON_CHECK}
-                loading={busy}
-                disabled={busy}
-                onClick={() => decide(approveDecision())}
-              >
-                Continue
-              </AppButton>
-            </>
-          )}
-        </div>
-      </div>
+      <QuestionSheet
+        question={question}
+        draftInput={draftInput}
+        onDraftChange={setDraftInput}
+        busy={busy}
+        decided={decided}
+        error={error}
+        idPrefix={`chat-question-${staging.id}`}
+        settledLabel="Continuing…"
+        onContinue={() => void decide(approveDecision())}
+        // A dismissal IS the answer, so it goes on the wire as a plain
+        // reason-less rejection — the same shape the route already accepts for
+        // a question (ADR-0099). No separate decision kind exists.
+        onDismiss={() =>
+          void decide({ decision: "reject", expectedRowVersion: staging.rowVersion })
+        }
+      />
     </section>
   );
 }
@@ -769,13 +759,17 @@ function PermissionsAffordance({
   );
 }
 
-/** The trigger's subline once the decision has landed. */
-function ResolvedCopy({ kind, edited }: { kind: ApprovalDecision["decision"]; edited: boolean }) {
+/** The trigger's subline once the decision has landed. Write cards only — the
+ * question card carries its own subline, whose "reject" reads as a dismissal
+ * rather than as a revision note. */
+function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edited: boolean }) {
   if (kind === "approve") {
     return edited ? "Approved with changes — resuming the run." : "Approved — resuming the run.";
   }
   if (kind === "reject") return "Sent back to Alfred with a revision note.";
-  return "Run ended at your request.";
+  if (kind === "cancel_run") return "Run ended at your request.";
+  const unhandled: never = kind;
+  return unhandled;
 }
 
 /** "Always allow" is only offerable where it can actually take effect: high-tier

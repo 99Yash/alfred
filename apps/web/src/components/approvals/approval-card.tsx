@@ -1,4 +1,3 @@
-import { ASK_USER_TOOL } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucide-react";
@@ -9,9 +8,9 @@ import { formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
-import { useApprovalDecision, type RecordedDecision } from "./use-approval-decision";
+import { useApprovalDecision, type WriteDecision } from "./use-approval-decision";
 
-export type { ApprovalDecision, RecordedDecision } from "./use-approval-decision";
+export type { RecordedDecision, WriteDecision } from "./use-approval-decision";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={14} />;
@@ -20,13 +19,20 @@ const ICON_REVISE = <RefreshCw size={14} />;
 const ICON_REVISE_SM = <RefreshCw size={13} />;
 const ICON_CHECK = <Check size={14} />;
 
+/**
+ * One staged *write*, reviewed in the `/approvals` queue and in a workflow's
+ * Approvals tab. A question rides the same row and the same route but draws
+ * `QuestionApprovalCard` instead (ADR-0099); `StagedApprovalCard` picks. So
+ * this card only ever sees a write, and its decision union says so — a
+ * reason-less rejection and a dismissal are both uncompilable here.
+ */
 export function ApprovalCard({
   staging,
   onDecide,
 }: {
   staging: SyncedActionStaging;
   /** Resolves when the decision is recorded; throws with a message on failure. */
-  onDecide: (decision: RecordedDecision) => Promise<void>;
+  onDecide: (decision: WriteDecision) => Promise<void>;
 }) {
   const {
     draftInput,
@@ -47,12 +53,7 @@ export function ApprovalCard({
 
   // On success the row leaves the pending queue and Replicache removes the
   // card; `run` leaves `busy` set and no local cleanup is needed.
-  const decide = (decision: RecordedDecision) => run(() => onDecide(decision));
-
-  // A question has no revision: the user answers it, dismisses it, or ends the
-  // run (ADR-0099). The body is the answer sheet the shared input editor
-  // resolves, so only the action row changes here.
-  const isQuestion = staging.toolName === ASK_USER_TOOL;
+  const decide = (decision: WriteDecision) => run(() => onDecide(decision));
 
   return (
     <AppCard className="space-y-4">
@@ -181,44 +182,30 @@ export function ApprovalCard({
       {error ? <p className="text-[12px] text-app-red-4">{error}</p> : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {isQuestion ? (
-          <AppButton
-            variant="ghost"
-            size="md"
-            leading={ICON_X}
-            disabled={busy}
-            onClick={() => decide({ decision: "dismiss", expectedRowVersion: staging.rowVersion })}
-          >
-            Dismiss
-          </AppButton>
-        ) : (
-          /* Revise sends the action back to Alfred with a note — the run stays
-           * alive and Alfred tries again. End run (in the panel) stops it. */
-          <AppButton
-            variant="ghost"
-            size="md"
-            leading={showReason ? ICON_X : ICON_REVISE}
-            disabled={busy}
-            onClick={() => setShowReason((v) => !v)}
-          >
-            {showReason ? "Cancel" : "Revise"}
-          </AppButton>
-        )}
+        {/* Revise sends the action back to Alfred with a note — the run stays
+         * alive and Alfred tries again. End run (in the panel) stops it. */}
+        <AppButton
+          variant="ghost"
+          size="md"
+          leading={showReason ? ICON_X : ICON_REVISE}
+          disabled={busy}
+          onClick={() => setShowReason((v) => !v)}
+        >
+          {showReason ? "Cancel" : "Revise"}
+        </AppButton>
         <AppButton
           variant="primary"
           size="md"
-          leading={edited && !isQuestion ? ICON_PENCIL : ICON_CHECK}
+          leading={edited ? ICON_PENCIL : ICON_CHECK}
           loading={busy}
           disabled={busy}
           onClick={() => decide(approveDecision())}
         >
-          {isQuestion
-            ? "Continue"
-            : edited && staging.toolName === "system.activate_workflow"
-              ? "Review changes"
-              : edited
-                ? "Approve changes"
-                : "Approve"}
+          {edited && staging.toolName === "system.activate_workflow"
+            ? "Review changes"
+            : edited
+              ? "Approve changes"
+              : "Approve"}
         </AppButton>
       </div>
     </AppCard>

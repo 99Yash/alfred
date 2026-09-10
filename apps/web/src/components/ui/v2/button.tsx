@@ -11,6 +11,7 @@
  * Variants change fill + text color only.
  */
 
+import { Loader2 } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
@@ -27,9 +28,18 @@ interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: AppButtonSize | undefined;
   leading?: ReactNode | undefined;
   trailing?: ReactNode | undefined;
+  /**
+   * A decision is in flight: the button disables itself and swaps its leading
+   * icon for a spinner. Callers pass this instead of drawing their own, so
+   * every in-flight button in the app spins the same way.
+   */
   loading?: boolean | undefined;
   ref?: Ref<HTMLButtonElement> | undefined;
 }
+
+/* Matches the 13/14px icons the call sites pass as `leading`, so the swap does
+ * not resize the button. */
+const SPINNER_SIZE = { sm: 13, md: 14, lg: 14 } satisfies Record<AppButtonSize, number>;
 
 /* Radius scales with height: 12px on a 28px-tall `sm` button reads almost
  * pill-shaped, so small buttons step down to keep corners proportional. */
@@ -107,6 +117,10 @@ export function AppButton({
       type={type ?? "button"}
       disabled={disabled || loading}
       data-loading={loading || undefined}
+      // Assistive tech gets the in-flight state too. `disabled` alone says the
+      // button cannot be pressed, not that the app is working on the press
+      // that already happened.
+      aria-busy={loading || undefined}
       className={cn(
         "relative isolate inline-flex items-center justify-center",
         "font-medium whitespace-nowrap select-none",
@@ -123,7 +137,15 @@ export function AppButton({
       )}
       {...rest}
     >
-      {leading ? <span className="inline-flex shrink-0">{leading}</span> : null}
+      {/* The spinner takes the leading slot, so the label does not shift and a
+       * button with no leading icon still shows that it is working. */}
+      {loading ? (
+        <span className="inline-flex shrink-0">
+          <Loader2 size={SPINNER_SIZE[size]} className="animate-spin" aria-hidden />
+        </span>
+      ) : leading ? (
+        <span className="inline-flex shrink-0">{leading}</span>
+      ) : null}
       {children}
       {trailing ? <span className="inline-flex shrink-0">{trailing}</span> : null}
     </button>
