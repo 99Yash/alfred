@@ -467,13 +467,21 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
  * signalless day still sends if anything landed: erring toward sending is
  * ADR-0048's morning posture, and the wrong direction to fail is a silent
  * suppression that eats a real briefing.
+ *
+ * `degradedSourceCount` is the one signal that is not about the window (#1035).
+ * A broken inbound subscription produces no deliveries by definition, so it
+ * would otherwise read as the quietest possible day and suppress the very line
+ * that reports it. The count holds only sources this run will actually render,
+ * so a source a recent briefing already reported cannot force a send twice.
  */
 export function isQuietMorning(args: {
   demandingEmailCount: number | undefined;
   emailCount: number;
   activityCount: number;
   meetingCount: number;
+  degradedSourceCount: number;
 }): boolean {
+  if (args.degradedSourceCount > 0) return false;
   if (args.activityCount > 0 || args.meetingCount > 0) return false;
   return args.demandingEmailCount !== undefined
     ? args.demandingEmailCount === 0

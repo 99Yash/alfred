@@ -1,5 +1,5 @@
 import { INBOUND_EVENT_SOURCES, type InboundEventSource } from "@alfred/contracts";
-import type { EventDeliveryHealth } from "./descriptor";
+import type { EventDeliveryHealth, EventDeliveryRecovery } from "./descriptor";
 import { INBOUND_SOURCES } from "./registry";
 
 /**
@@ -31,4 +31,41 @@ export async function readInboundTriggerHealth(
   // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
   // from INBOUND_EVENT_SOURCES, so the keys are exactly InboundEventSource.
   return Object.fromEntries(entries) as Record<InboundEventSource, EventDeliveryHealth>;
+}
+
+/**
+ * One inbound source that its own subscription check reported broken (#1035).
+ * `reason` and `recovery` come from the descriptor verbatim, so the caller
+ * never restates a per-source rule.
+ */
+export interface DegradedInboundSource {
+  slug: InboundEventSource;
+  reason: string;
+  recovery: EventDeliveryRecovery;
+}
+
+/**
+ * The inbound sources that are broken right now, for one user (#1035).
+ *
+ * A source that produces deliveries only while it is healthy cannot report its
+ * own silence, so only a pull check answers the question. This is that pull
+ * read: the scheduled reconciler in the briefing gather calls it, and the
+ * per-source verdict stays the descriptor's own.
+ *
+ * A descriptor that declares no `subscription` adapter is skipped, not
+ * reported. Trigger readiness reads such a source as degraded on purpose —
+ * silence from it proves nothing — but that verdict is a statement about what
+ * Alfred can know, not a broken subscription a user can repair, so it is not a
+ * line worth a briefing.
+ */
+export async function readDegradedInboundSources(userId: string): Promise<DegradedInboundSource[]> {
+  const verdicts = await Promise.all(
+    INBOUND_EVENT_SOURCES.map(async (slug): Promise<DegradedInboundSource[]> => {
+      const adapter = INBOUND_SOURCES[slug].subscription;
+      if (!adapter) return [];
+      const health = await adapter.health(userId);
+      return health.healthy ? [] : [{ slug, reason: health.reason, recovery: health.recovery }];
+    }),
+  );
+  return verdicts.flat();
 }
