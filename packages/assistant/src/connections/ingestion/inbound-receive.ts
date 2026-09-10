@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolveTimezone } from "@alfred/assistant/settings";
 import {
   eventTypeName,
   jsonObjectSchema,
@@ -9,18 +10,19 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { eventReceipts, type EventReceipt, type NewEventReceipt } from "@alfred/db/schemas";
+import { report } from "@alfred/logging/report";
 import { and, eq } from "drizzle-orm";
 import {
   inboundDeliveryKey,
   inboundSource,
+  projectionKind,
+  type InboundAttribution,
   type InboundKeyInput,
   type InboundOwner,
   type InboundProjection,
 } from "../ingress";
-import { report } from "@alfred/logging";
 import { enqueueInboundDelivery } from "./queue";
 import { writeReceiptDocument } from "./receipt-document";
-import { resolveTimezone } from "@alfred/assistant/settings";
 
 /**
  * Result of receiving one delivery on `POST /webhooks/inbound/:source`. The
@@ -109,7 +111,7 @@ export async function receiveInboundDelivery(
 
   const attribution = await descriptor.resolveOwner(payload, args.headers);
   if (attribution.kind === "unowned") {
-    reportOwnerlessDelivery(source, projection, attribution.accountRef);
+    reportOwnerlessDelivery(source, projection, attribution);
     return { kind: "ignored", source, reason: "no-owner" };
   }
   const { owner } = attribution;
@@ -173,17 +175,18 @@ export async function receiveInboundDelivery(
  * only trace was a `console.warn` that reaches no sink a person watches. An
  * external monitor found the same root cause twice before Alfred said anything.
  *
- * Three facts make the report actionable, and they are the whole of it:
- * the source slug, the projected kind, and the account reference the payload
- * named. The reference is what a reader compares against
- * `integration_credentials` to tell "no credential" from "a credential for a
- * different account", without opening a stored body. The payload itself never
- * goes: it is third-party text of unbounded size and unknown sensitivity, and
- * the reference already answers the question it would be opened for.
+ * The report names the source slug, the projected kind, why attribution
+ * failed, and the provider-side reference the payload carried, filed under the
+ * credential column a reader compares it against. That last pair is what
+ * separates "no stored credential" from "a credential for a different
+ * account", without opening a stored body. The reference is omitted, not
+ * sentinelled, when the payload names none. The payload itself never goes: it
+ * is third-party text of unbounded size and unknown sensitivity, and the
+ * reference already answers the question it would be opened for.
  *
  * The fingerprint groups per source and kind rather than per account, so the
- * issue's own event count answers "how many did I drop", and the account
- * reference stays a filterable tag on each event. `warning`, not `error`: an
+ * issue's own event count answers "how many did I drop", and the reference and
+ * the reason stay filterable tags on each event. `warning`, not `error`: an
  * `installation.created` delivery legitimately arrives before the connect flow
  * has written its credential (ADR-0097 item 9), so an error level would page
  * an operator during an ordinary onboarding.
@@ -191,15 +194,21 @@ export async function receiveInboundDelivery(
 function reportOwnerlessDelivery(
   source: InboundEventSource,
   projection: Exclude<InboundProjection<InboundEventSource>, { kind: "ignore" }>,
-  accountRef: string | null,
+  attribution: Extract<InboundAttribution, { kind: "unowned" }>,
 ): void {
-  const kind = projection.kind === "raw" ? projection.rawKind : projection.type;
+  const kind = projectionKind(projection);
+  const { reason, reference } = attribution;
   report({
     event: "ingress.no_owner",
     message: "a verified inbound delivery matched no active credential and was dropped",
     level: "warning",
-    tags: { source, kind, account_ref: accountRef ?? "none" },
-    fingerprint: ["ingress", "no_owner", source, kind],
+    tags: {
+      source,
+      kind,
+      reason,
+      ...(reference ? { [reference.column]: reference.value } : {}),
+    },
+    dimensions: [source, kind],
   });
 }
 
@@ -266,7 +275,7 @@ async function insertReceipt(
         provider: source,
         userId: owner.userId,
         payload: args.payload,
-        kind: tier.kind === "raw" ? tier.rawKind : tier.type,
+        kind: projectionKind(tier),
         accountId: owner.accountRef,
       },
       timezone,
