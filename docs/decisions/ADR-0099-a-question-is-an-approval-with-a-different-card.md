@@ -5,8 +5,8 @@
 Three sub-decisions follow:
 
 1. **A question is an approval with a different card.** Alfred already has one complete human-in-the-loop path (ADR-0034): a staging row, a synced inline card, a decision route with row-version checks, a 24-hour expiry worker, and a debounced email. A question needs every one of those parts and no other part. opencode (`question` tool) and Dimension (`ASK_QUESTIONS` on the same `interrupts` row as write approvals) made the same choice. An in-process wait inside the tool is not possible: the dispatch lease is 60 seconds and a tool has no abort signal.
-2. **The `system` autonomy rule forces a fourth staging arm.** `resolvePolicyMode` answers `autonomy` for every `system.*` tool before it reads the user's policy. The only risk tier that still gates under autonomy is `high`, and `high` means an irreversible action. A question is not an irreversible action, so it cannot reach the gate through a risk tier without a false label. The dispatcher gets a fourth arm, `staging: "question"`, next to `staged`, `fast_path`, and `join`. The arm forces `requiresApproval` without a policy read. Boot proves that only one tool declares the arm, that the tool is a `system` tool, that it accepts the question contract, and that it is visible only to the chat boss on a live thread. This mirrors the `join` proof (ADR-0073).
-3. **The tool schema carries the answer.** `askUserInput` has an optional `answers` list, one entry per question. The model never fills it; the dispatcher refuses a fresh call that does. The decision route writes the user's answers into the row's `decided_input`. The dispatcher's ordinary resume path re-parses the decided input against the tool schema and runs `execute`, which returns the answers as a normal tool result. No new validation code or new route exists for the answer.
+2. **The `system` autonomy rule forces a fourth staging arm.** `resolvePolicyMode` answers `autonomy` for every `system.*` tool before it reads the user's policy. The only risk tier that still gates under autonomy is `high`, and `high` means an irreversible action. A question is not an irreversible action, so it cannot reach the gate through a risk tier without a false label. The dispatcher gets a fourth arm, `staging: "question"`, next to `staged`, `fast_path`, and `join`. The arm forces `requiresApproval` without a policy read. Boot proves that only one tool declares the arm, that the tool is a `system` tool, that it accepts the question contract, that its model-facing schema hides the answer half, and that it is visible only to the chat boss on a live thread. This mirrors the `join` proof (ADR-0073).
+3. **The tool schema carries the answer, and the model sees a narrower one.** `askUserInput` has an optional `answers` list, one entry per question. The decision route writes the user's answers into the row's `decided_input`. The dispatcher's ordinary resume path re-parses the decided input against the tool schema and runs `execute`, which returns the answers as a normal tool result. No new validation code or new route exists for the answer. The model is shown `askUserModelInput`, which has no `answers` key at all, so it cannot fill the user's field. The dispatcher still refuses a fresh call that carries answers, as a backstop. See **Two schemas, one tool** below.
 
 **The kind is written once, on the wake, and never matched.** No column on `action_stagings` holds the approval kind. It lives in `agent_runs.wake_condition`, where the dispatcher writes it from the staging arm's row in `STAGING_ARM`. The decision route and the expiry worker match a wake on `(runId, approvalId)` alone. The staging id is a UUID, so the kind adds nothing to the match, and a kind re-derived at the match site could only disagree with the stored one. This keeps the tool registry out of `@alfred/http` and out of the workers. Readers that need to know a row is a question without the registry (the reason rule in the decision route, the notification email copy, the recent-rejection note, run metrics) compare the row's tool name to `ASK_USER_TOOL` from `@alfred/contracts`. Boot proves that the single `question` declarer is that tool, so the name and the arm cannot drift.
 
@@ -30,7 +30,21 @@ An unanswered question rides its own dispatch kind, `unanswered`. It is not a fa
 
 ## The answer sheet
 
-The decision route validates a question's edited input against `askUserInput` before it stores it. The edited input is the whole tool input, with `answers` filled in, not the `answers` list alone. A wrong-length answer list is a 400 the card can show, not a failed row at resume and a generic `tool_input_invalid` the model re-asks past.
+The decision route validates a question's edited input against `askUserDecidedInput` before it stores it. The edited input is the whole tool input, with `answers` filled in, not the `answers` list alone. A wrong-length answer list is a 400 the card can show, not a failed row at resume and a generic `tool_input_invalid` the model re-asks past.
+
+## Two schemas, one tool
+
+*Amended after slice 1 (#1017) ran live.* Slice 1 gave the model and the runtime one schema. The model read the optional `answers` key as a field to fill, and the two rules that guard the field then contradicted each other: `askUserInput` refused `answers: []` because the list did not match the question count, and the dispatcher refused the two blank answers the model sent to satisfy that message. Four calls failed in a row and the turn ended with no card. So one `system.ask_user` call now has three schemas:
+
+| Schema | Who reads it | Holds `answers` |
+| --- | --- | --- |
+| `askUserModelInput` | the model, through `RegisteredTool.modelInputSchema` | no |
+| `askUserInput` | the tool runtime: dispatch validation, the resume re-parse, `execute` | yes, with no cross-field rule |
+| `askUserDecidedInput` | the decision route, which writes the answers | yes, one entry per question |
+
+`askUserInput` holds no pairing rule on purpose. A stray `answers` must reach the dispatcher's question arm, which names the one repair; a rule on the tool schema would answer first and send the model back to fill the field.
+
+`modelInputSchema` is a general slot on the tool registry, not a special case in the dispatcher. It defaults to `inputSchema`, so every other tool is unchanged, and each model-facing reader — the SDK tool surface, the schema budget, and the "this tool accepts only these parameters" repair line — reads it instead.
 
 ## The gate hint
 

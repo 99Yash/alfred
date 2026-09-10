@@ -20,7 +20,13 @@ import {
   startApprovalWaitSpan,
   type ApprovalWaitOutcome,
 } from "@alfred/assistant/execution/runtime-spans";
-import { ASK_USER_TOOL, askUserInput, Errors, jsonValueSchema, toMessage } from "@alfred/contracts";
+import {
+  ASK_USER_TOOL,
+  askUserDecidedInput,
+  Errors,
+  jsonValueSchema,
+  toMessage,
+} from "@alfred/contracts";
 import {
   prepareWorkflowApprovalEdit,
   restageWorkflowApproval,
@@ -163,7 +169,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             // answer list is a 400 the card shows, not a failed row and a
             // generic `tool_input_invalid` the model re-asks past (ADR-0099).
             if (row.toolName === ASK_USER_TOOL && editedInput !== undefined) {
-              const answered = askUserInput.safeParse(editedInput);
+              const answered = askUserDecidedInput.safeParse(editedInput);
               if (!answered.success) {
                 const issue = answered.error.issues[0];
                 const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";

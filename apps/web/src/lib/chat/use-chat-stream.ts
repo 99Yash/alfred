@@ -90,6 +90,13 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       clearWatchdog();
       const cur = cell.current;
       if (!cur || cur.done) return;
+      // A run parked on an approval sends no frames until the user decides, so
+      // silence proves nothing about the bus. Arming here painted "Connection
+      // stalled" over a healthy question card 45 seconds after it appeared
+      // (ADR-0099), and a question waits for a person. `ensureStreamRef`
+      // clears the flag on the first frame the resumed run sends, and that
+      // frame re-arms the timer through the `onFrame` handler below.
+      if (cur.awaitingApproval) return;
       watchdogId = window.setTimeout(() => {
         watchdogId = null;
         if (applyStreamError(cell, WATCHDOG_ERROR_MESSAGE)) {
