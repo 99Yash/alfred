@@ -43,14 +43,31 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   },
   resolveOwner: async (payload) => {
     const installationId = githubInstallationId(payload);
-    if (!installationId) return null;
+    // Every App delivery carries `installation.id`. A body without one is not
+    // an App delivery, so there is no reference to name in the report either.
+    if (!installationId) return { kind: "unowned", reason: "no_match", reference: null };
     const credential = await findActiveCredentialByInstallationId({
       provider: "github",
       installationId,
     });
+    // The installation id goes on the drop report (#1033). It is the exact
+    // value the reader compares against `integration_credentials.installation_id`,
+    // and the production incident was one active row whose id no longer
+    // matched it.
     return credential
-      ? { userId: credential.userId, credentialId: credential.id, accountRef: credential.accountId }
-      : null;
+      ? {
+          kind: "owned",
+          owner: {
+            userId: credential.userId,
+            credentialId: credential.id,
+            accountRef: credential.accountId,
+          },
+        }
+      : {
+          kind: "unowned",
+          reason: "no_match",
+          reference: { column: "installation_id", value: installationId },
+        };
   },
   subscription: {
     async health(_userId, rows) {
