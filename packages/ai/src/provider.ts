@@ -14,7 +14,6 @@ import {
   createProviderRouteModel,
   googleLeg,
   openAiLeg,
-  type ProviderAdaptedLanguageModel,
   type RouteReasoning,
 } from "./provider-adapter";
 
@@ -120,7 +119,7 @@ const MODEL_ROUTES = {
 export type ModelRouteName = keyof typeof MODEL_ROUTES;
 
 export interface ModelRouteHandle {
-  model(): ProviderAdaptedLanguageModel;
+  model(): LanguageModelV4;
   /** Alfred's provider-option exceptions; the generic reasoning rides on the model defaults. */
   providerOptions(): ChatProviderOptions;
   /** The generic reasoning ceiling this route selects. */
@@ -129,7 +128,7 @@ export interface ModelRouteHandle {
 
 function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
   const providerOptions: ChatProviderOptions = definition.providerOptions ?? {};
-  let model: ProviderAdaptedLanguageModel | undefined;
+  let model: LanguageModelV4 | undefined;
   return {
     model: () =>
       (model ??= createProviderRouteModel(definition.legs, withFallback, {
@@ -150,12 +149,9 @@ const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
  * handwritten model-to-provider table.
  */
 export function route(name: ModelRouteName): ModelRouteHandle;
+export function route(leg: LanguageModelV4, reasoning: RouteReasoning): ModelRouteHandle;
 export function route(
-  leg: ProviderAdaptedLanguageModel,
-  reasoning: RouteReasoning,
-): ModelRouteHandle;
-export function route(
-  nameOrLeg: ModelRouteName | ProviderAdaptedLanguageModel,
+  nameOrLeg: ModelRouteName | LanguageModelV4,
   reasoning?: RouteReasoning,
 ): ModelRouteHandle {
   if (typeof nameOrLeg === "string") {
@@ -173,7 +169,7 @@ export function route(
 interface MediaEnrichmentLeg {
   readonly modalities: readonly MediaInputModality[];
   readonly maxInlineBytes: number;
-  readonly make: () => ProviderAdaptedLanguageModel;
+  readonly make: () => LanguageModelV4;
 }
 
 /**
@@ -221,7 +217,7 @@ const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
  * `thinkingBudget: 0` for a Gemini 3 model was a shape that generation does not
  * own; this is the SDK-owned equivalent, not a new budget.
  */
-function withDisabledReasoning(leg: ProviderAdaptedLanguageModel): ProviderAdaptedLanguageModel {
+function withDisabledReasoning(leg: LanguageModelV4): LanguageModelV4 {
   return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
 }
 
@@ -229,7 +225,7 @@ function withDisabledReasoning(leg: ProviderAdaptedLanguageModel): ProviderAdapt
 export function getMediaEnrichmentModels(
   modality: MediaInputModality,
   byteSize: number,
-): ProviderAdaptedLanguageModel[] {
+): LanguageModelV4[] {
   if (!Number.isInteger(byteSize) || byteSize < 0) throw new Error("byteSize must be non-negative");
   const models = MEDIA_ENRICHMENT_LEGS.filter(
     (leg) => leg.modalities.includes(modality) && byteSize <= leg.maxInlineBytes,

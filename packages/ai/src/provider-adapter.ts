@@ -178,16 +178,6 @@ function toolNameMiddleware(
 // shim encodes only the final function-tool set and leaves provider-defined
 // tools alone. Order is load-bearing.
 
-declare const providerAdaptedModel: unique symbol;
-export type ProviderAdaptedLanguageModel = LanguageModelV4 & {
-  readonly [providerAdaptedModel]: true;
-};
-
-function brand(model: LanguageModelV4): ProviderAdaptedLanguageModel {
-  // SAFETY: brand is minted only after the matching provider adapter wraps a model built by that provider's factory.
-  return model as ProviderAdaptedLanguageModel;
-}
-
 /**
  * Attach the matching Alfred adapter to a model the provider package already
  * constructed. The provider is read off the model object, never a registry, and
@@ -211,13 +201,13 @@ export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4)
 }
 
 /** Construct an Anthropic leg with its adapter attached. */
-export function anthropicLeg(modelId: AnthropicModelId): ProviderAdaptedLanguageModel {
-  return brand(adaptProviderModel("anthropic", activeGateway().createAnthropic()(modelId)));
+export function anthropicLeg(modelId: AnthropicModelId): LanguageModelV4 {
+  return adaptProviderModel("anthropic", activeGateway().createAnthropic()(modelId));
 }
 
 /** Construct a Google leg with its adapter attached. */
-export function googleLeg(modelId: GoogleModelId): ProviderAdaptedLanguageModel {
-  return brand(adaptProviderModel("google", activeGateway().createGoogle()(modelId)));
+export function googleLeg(modelId: GoogleModelId): LanguageModelV4 {
+  return adaptProviderModel("google", activeGateway().createGoogle()(modelId));
 }
 
 /**
@@ -227,16 +217,14 @@ export function googleLeg(modelId: GoogleModelId): ProviderAdaptedLanguageModel 
  * so replaying a reasoning item by `rs_…` id 400s and kills the turn. See the
  * longer note in the removed `reasoning-policy.ts` history and ADR-0077.
  */
-export function openAiLeg(modelId: OpenAiModelId): ProviderAdaptedLanguageModel {
+export function openAiLeg(modelId: OpenAiModelId): LanguageModelV4 {
   const model = adaptProviderModel("openai", activeGateway().createOpenAI().responses(modelId));
-  return brand(
-    wrapLanguageModel({
-      model,
-      middleware: defaultSettingsMiddleware({
-        settings: { providerOptions: { openai: { store: false } } },
-      }),
+  return wrapLanguageModel({
+    model,
+    middleware: defaultSettingsMiddleware({
+      settings: { providerOptions: { openai: { store: false } } },
     }),
-  );
+  });
 }
 
 /**
@@ -265,14 +253,13 @@ export interface RouteModelSettings {
 /**
  * Compose a route's legs — constructed in order, each through its own provider
  * factory and adapter — then install the route's reasoning ceiling and provider
- * exceptions as overridable defaults. The brand is minted once here, at the
- * outer route seam.
+ * exceptions as overridable defaults.
  */
 export function createProviderRouteModel(
   legs: readonly (() => LanguageModelV4)[],
   composeFallback: (primary: LanguageModelV4, fallback: LanguageModelV4) => LanguageModelV4,
   settings: RouteModelSettings,
-): ProviderAdaptedLanguageModel {
+): LanguageModelV4 {
   const [first, ...rest] = legs;
   if (!first) throw new Error("a model route needs at least one leg");
   let model: LanguageModelV4 = first();
@@ -288,5 +275,5 @@ export function createProviderRouteModel(
     });
   }
   model = wrapLanguageModel({ model, middleware: reasoningMiddleware(settings.reasoning) });
-  return brand(model);
+  return model;
 }
