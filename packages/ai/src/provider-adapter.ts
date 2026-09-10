@@ -32,14 +32,18 @@ export type { CacheTtl } from "./request-projection";
 export type RouteReasoning = NonNullable<LanguageModelV4CallOptions["reasoning"]>;
 
 /**
- * The model-id parameter type each installed provider factory accepts. Taking
- * it from the factory keeps Alfred's call sites honest without a handwritten
- * model-to-provider registry: a provider package upgrade moves the accepted
- * ids with it.
+ * The provider factory's known model-id union with its `(string & {})` escape
+ * hatch stripped. The SDK keeps that hatch so a caller can pass a preview id it
+ * has not catalogued yet; Alfred does not want it, because it also admits a typo
+ * that should fail at compile time. Distributing the conditional drops the
+ * `string`-accepting member to `never` and keeps every literal. Deriving from
+ * the installed factory, so a provider upgrade moves the accepted ids with it.
  */
-type AnthropicModelId = Parameters<AnthropicProvider>[0];
-type GoogleModelId = Parameters<GoogleProvider>[0];
-type OpenAiModelId = Parameters<OpenAIProvider["responses"]>[0];
+type KnownModelId<T> = T extends string ? (string extends T ? never : T) : never;
+
+type AnthropicModelId = KnownModelId<Parameters<AnthropicProvider>[0]>;
+type GoogleModelId = KnownModelId<Parameters<GoogleProvider>[0]>;
+type OpenAiModelId = KnownModelId<Parameters<OpenAIProvider["responses"]>[0]>;
 
 // ── Provider projections ───────────────────────────────────────────────────
 // Each provider owns only the Alfred policy its package does not: cache
