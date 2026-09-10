@@ -15,6 +15,7 @@ export type {
   EventDeliveryFailure,
   EventDeliveryHealth,
   EventDeliveryRecovery,
+  InboundAttribution,
   InboundDedupRule,
   InboundKeyInput,
   InboundOwner,

@@ -17,6 +17,7 @@ import {
   type InboundOwner,
   type InboundProjection,
 } from "../ingress";
+import { report } from "@alfred/logging";
 import { enqueueInboundDelivery } from "./queue";
 import { writeReceiptDocument } from "./receipt-document";
 import { resolveTimezone } from "@alfred/assistant/settings";
@@ -30,8 +31,9 @@ import { resolveTimezone } from "@alfred/assistant/settings";
  * - `ignored`: authenticated, but nothing to store — a ping, a body that is
  *   not a JSON object, a subscribed delivery whose payload lacks the identity
  *   its key reads (logged at error level: a payload path moved, which is a
- *   descriptor bug), or a delivery no credential owns. Acknowledged with 200 so
- *   the provider does not retry what cannot change.
+ *   descriptor bug), or a delivery no credential owns (reported, see
+ *   {@link reportOwnerlessDelivery}). Acknowledged with 200 so the provider
+ *   does not retry what cannot change.
  * - `duplicate`: a receipt for this dedup key already exists (either tier).
  * - `accepted`: a new typed receipt row exists and the delivery job is enqueued.
  * - `raw`: a new raw receipt row exists (ADR-0097 items 9 and 11) and the same
@@ -105,11 +107,12 @@ export async function receiveInboundDelivery(
   const projection = descriptor.project(payload, args.headers);
   if (projection.kind === "ignore") return { kind: "ignored", source, reason: projection.reason };
 
-  const owner = await descriptor.resolveOwner(payload, args.headers);
-  if (!owner) {
-    console.warn(`[ingress] ${source}: no owner for delivery; dropped`);
+  const attribution = await descriptor.resolveOwner(payload, args.headers);
+  if (attribution.kind === "unowned") {
+    reportOwnerlessDelivery(source, projection, attribution.accountRef);
     return { kind: "ignored", source, reason: "no-owner" };
   }
+  const { owner } = attribution;
 
   const payloadHash = createHash("sha256").update(args.raw).digest("hex");
   const receipt = { source, owner, payload, payloadHash };
@@ -157,6 +160,47 @@ export async function receiveInboundDelivery(
     case "gone":
       return { kind: "ignored", source, reason: "receipt-gone" };
   }
+}
+
+/**
+ * The one place an unattributable delivery is reported (#1033).
+ *
+ * ADR-0097 alternative (e) keeps the drop: `event_receipts.credential_id` is
+ * `NOT NULL`, a row nobody owns has no consumer, and a retry cannot change the
+ * body, so the provider is acknowledged. What changes here is only what the
+ * system SAYS about that drop. In production no active `github` credential
+ * matched the App installation, every non-ping delivery was 200-acked, and the
+ * only trace was a `console.warn` that reaches no sink a person watches. An
+ * external monitor found the same root cause twice before Alfred said anything.
+ *
+ * Three facts make the report actionable, and they are the whole of it:
+ * the source slug, the projected kind, and the account reference the payload
+ * named. The reference is what a reader compares against
+ * `integration_credentials` to tell "no credential" from "a credential for a
+ * different account", without opening a stored body. The payload itself never
+ * goes: it is third-party text of unbounded size and unknown sensitivity, and
+ * the reference already answers the question it would be opened for.
+ *
+ * The fingerprint groups per source and kind rather than per account, so the
+ * issue's own event count answers "how many did I drop", and the account
+ * reference stays a filterable tag on each event. `warning`, not `error`: an
+ * `installation.created` delivery legitimately arrives before the connect flow
+ * has written its credential (ADR-0097 item 9), so an error level would page
+ * an operator during an ordinary onboarding.
+ */
+function reportOwnerlessDelivery(
+  source: InboundEventSource,
+  projection: Exclude<InboundProjection<InboundEventSource>, { kind: "ignore" }>,
+  accountRef: string | null,
+): void {
+  const kind = projection.kind === "raw" ? projection.rawKind : projection.type;
+  report({
+    event: "ingress.no_owner",
+    message: "a verified inbound delivery matched no active credential and was dropped",
+    level: "warning",
+    tags: { source, kind, account_ref: accountRef ?? "none" },
+    fingerprint: ["ingress", "no_owner", source, kind],
+  });
 }
 
 /**

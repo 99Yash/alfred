@@ -48,8 +48,14 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
   project(payload: JsonObject, headers: Headers): InboundProjection<S>;
   /** Describe a stored receipt; unknown kinds use the shared JSON fallback. */
   describe(kind: string, payload: unknown): InboundDescription;
-  /** Resolve the credential that owns the delivery; `null` means unattributable. */
-  resolveOwner(payload: JsonObject, headers: Headers): Promise<InboundOwner | null>;
+  /**
+   * Resolve the credential that owns the delivery. An `unowned` verdict is
+   * ADR-0097 alternative (e): the delivery is unattributable, so it is dropped.
+   * It carries the account reference the payload named, because the shared
+   * path reports that drop and the reference is the one fact that tells an
+   * operator whether a credential is missing or merely stale (#1033).
+   */
+  resolveOwner(payload: JsonObject, headers: Headers): Promise<InboundAttribution>;
   /**
    * Optional provider-native health signal for the subscription that produces
    * deliveries. A descriptor without one reads as degraded in trigger
@@ -129,6 +135,27 @@ export interface InboundOwner {
   /** The provider account id, carried on the domain event as `accountRef`. */
   accountRef: string;
 }
+
+/**
+ * What attribution settled to for one verified delivery.
+ *
+ * The failure arm is a value rather than `null` because the two questions an
+ * operator asks about a dropped delivery are answered by different facts, and
+ * only the descriptor holds them. `accountRef` is the account the PAYLOAD
+ * named — GitHub's `installation.id`, and nothing at all for a source that
+ * attributes by a shared secret. A reader compares it against
+ * `integration_credentials` and learns which of the two states holds: no
+ * credential was ever stored, or a stored one names a different account. A
+ * `null` verdict answered neither, so the drop that motivated #1033 was
+ * indistinguishable from a delivery that arrived before its connect flow.
+ *
+ * `accountRef` is `null` when the payload names no account. That is a real and
+ * ordinary answer, not a missing one: Sentry's descriptor attributes by one
+ * shared Client Secret, so its body carries no organization to read.
+ */
+export type InboundAttribution =
+  | { kind: "owned"; owner: InboundOwner }
+  | { kind: "unowned"; accountRef: string | null };
 
 /**
  * The user action that can restore deliveries from one event source. `connect`
