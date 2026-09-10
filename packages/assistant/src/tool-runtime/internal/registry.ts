@@ -45,7 +45,11 @@ import type { Integrations } from "@alfred/integrations";
 import type { SearchArgs, SearchHit } from "@alfred/corpus";
 import { z } from "zod";
 import { joinToolInput } from "../join-contract";
-import { QUESTION_TOOL_PROBE_INPUT, questionToolInput } from "../question-contract";
+import {
+  QUESTION_TOOL_MODEL_PROBE_INPUT,
+  QUESTION_TOOL_PROBE_INPUT,
+  questionToolInput,
+} from "../question-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
 export interface ToolDiscoveryMetadata {
@@ -283,6 +287,21 @@ export interface LiveToolArgs<
   availability?: ToolAvailabilityMetadata;
   inputSchema: S;
   /**
+   * Optional: the narrower schema the MODEL is shown, when the runtime must
+   * accept a field the model must never write. `inputSchema` stays the
+   * validating schema (it is what dispatch parses, what the resume path
+   * re-parses, and what `execute` receives), so this one must accept a subset
+   * of it.
+   *
+   * `system.ask_user` is the holder and the reason (ADR-0099): the decision
+   * route writes the user's `answers` into the decided input, so the tool
+   * schema has to accept `answers`, but a model that can see the key fills it.
+   * Every model-facing reader — the SDK tool surface, the schema budget, the
+   * compaction estimate, and the "this tool accepts only these parameters"
+   * repair line — reads {@link RegisteredTool.modelInputSchema} instead.
+   */
+  modelInputSchema?: z.ZodTypeAny;
+  /**
    * Pure side-effect: the dispatcher validates input against
    * `inputSchema` before calling, persists the proposed input + a hash,
    * and writes the resolved result back to `action_stagings.execute_result`.
@@ -320,6 +339,12 @@ export interface RegisteredTool {
   discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata | undefined;
   inputSchema: z.ZodTypeAny;
+  /**
+   * See {@link LiveToolArgs.modelInputSchema}. Always set: it falls back to
+   * `inputSchema`, so a model-facing reader never has to know which tools
+   * split the two.
+   */
+  modelInputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
   redactInput?: (input: unknown) => unknown;
@@ -514,6 +539,7 @@ export function liveTool<
     }),
     availability: args.availability,
     inputSchema: args.inputSchema,
+    modelInputSchema: args.modelInputSchema ?? args.inputSchema,
     execute: async (input, ctx) => {
       const parsed = args.inputSchema.parse(input);
       return args.execute(parsed, ctx);
@@ -659,6 +685,23 @@ export function registerTool(tool: RegisteredTool): void {
       throw new Error(
         `[tools] '${tool.name}' declares staging='question' but its inputSchema does not accept ` +
           "`{ questions, answers }` — the dispatcher's question arm reads both fields off the call",
+      );
+    }
+    // The other half of the same protocol, and the one slice 1 missed: the
+    // MODEL must not be able to write `answers`. A model that sees the key
+    // fills it, the question arm refuses the call, and the model has no field
+    // to drop because the schema it was given still lists one. So prove the
+    // model-facing schema hides the answer half and keeps the question half.
+    if (tool.modelInputSchema.safeParse(QUESTION_TOOL_PROBE_INPUT).success) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='question' but its modelInputSchema accepts ` +
+          "`answers` — declare a narrower modelInputSchema that omits the user's field (ADR-0099)",
+      );
+    }
+    if (!tool.modelInputSchema.safeParse(QUESTION_TOOL_MODEL_PROBE_INPUT).success) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='question' but its modelInputSchema does not ` +
+          "accept `{ questions }` — the model would have no way to ask anything",
       );
     }
     // The arm forces the approval without a policy read. That is only safe

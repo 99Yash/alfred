@@ -1,3 +1,4 @@
+import { ASK_USER_TOOL } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucide-react";
@@ -8,9 +9,9 @@ import { formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
-import { useApprovalDecision, type ApprovalDecision } from "./use-approval-decision";
+import { useApprovalDecision, type RecordedDecision } from "./use-approval-decision";
 
-export type { ApprovalDecision } from "./use-approval-decision";
+export type { ApprovalDecision, RecordedDecision } from "./use-approval-decision";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={14} />;
@@ -25,7 +26,7 @@ export function ApprovalCard({
 }: {
   staging: SyncedActionStaging;
   /** Resolves when the decision is recorded; throws with a message on failure. */
-  onDecide: (decision: ApprovalDecision) => Promise<void>;
+  onDecide: (decision: RecordedDecision) => Promise<void>;
 }) {
   const {
     draftInput,
@@ -46,7 +47,12 @@ export function ApprovalCard({
 
   // On success the row leaves the pending queue and Replicache removes the
   // card; `run` leaves `busy` set and no local cleanup is needed.
-  const decide = (decision: ApprovalDecision) => run(() => onDecide(decision));
+  const decide = (decision: RecordedDecision) => run(() => onDecide(decision));
+
+  // A question has no revision: the user answers it, dismisses it, or ends the
+  // run (ADR-0099). The body is the answer sheet the shared input editor
+  // resolves, so only the action row changes here.
+  const isQuestion = staging.toolName === ASK_USER_TOOL;
 
   return (
     <AppCard className="space-y-4">
@@ -175,30 +181,44 @@ export function ApprovalCard({
       {error ? <p className="text-[12px] text-app-red-4">{error}</p> : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {/* Revise sends the action back to Alfred with a note — the run stays
-         * alive and Alfred tries again. End run (in the panel) stops it. */}
-        <AppButton
-          variant="ghost"
-          size="md"
-          leading={showReason ? ICON_X : ICON_REVISE}
-          disabled={busy}
-          onClick={() => setShowReason((v) => !v)}
-        >
-          {showReason ? "Cancel" : "Revise"}
-        </AppButton>
+        {isQuestion ? (
+          <AppButton
+            variant="ghost"
+            size="md"
+            leading={ICON_X}
+            disabled={busy}
+            onClick={() => decide({ decision: "reject", expectedRowVersion: staging.rowVersion })}
+          >
+            Dismiss
+          </AppButton>
+        ) : (
+          /* Revise sends the action back to Alfred with a note — the run stays
+           * alive and Alfred tries again. End run (in the panel) stops it. */
+          <AppButton
+            variant="ghost"
+            size="md"
+            leading={showReason ? ICON_X : ICON_REVISE}
+            disabled={busy}
+            onClick={() => setShowReason((v) => !v)}
+          >
+            {showReason ? "Cancel" : "Revise"}
+          </AppButton>
+        )}
         <AppButton
           variant="primary"
           size="md"
-          leading={edited ? ICON_PENCIL : ICON_CHECK}
+          leading={edited && !isQuestion ? ICON_PENCIL : ICON_CHECK}
           loading={busy}
           disabled={busy}
           onClick={() => decide(approveDecision())}
         >
-          {edited && staging.toolName === "system.activate_workflow"
-            ? "Review changes"
-            : edited
-              ? "Approve changes"
-              : "Approve"}
+          {isQuestion
+            ? "Continue"
+            : edited && staging.toolName === "system.activate_workflow"
+              ? "Review changes"
+              : edited
+                ? "Approve changes"
+                : "Approve"}
         </AppButton>
       </div>
     </AppCard>

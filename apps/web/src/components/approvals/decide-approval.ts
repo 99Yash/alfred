@@ -1,6 +1,6 @@
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import type { ApprovalDecision } from "./approval-card";
+import type { RecordedDecision } from "./use-approval-decision";
 
 /**
  * Post one approval decision. Shared by the `/approvals` queue and the
@@ -8,7 +8,7 @@ import type { ApprovalDecision } from "./approval-card";
  * route with the same error wording. A successful decision flips the row out
  * of `pending` server-side; the resulting poke removes the card.
  */
-export async function decideApproval(stagingId: string, decision: ApprovalDecision): Promise<void> {
+export async function decideApproval(stagingId: string, decision: RecordedDecision): Promise<void> {
   const { error } = await client.api.approvals({ stagingId }).decision.post(decision);
   if (error) throw new Error(responseErrorMessage(error.value, error.status, "Approval decision"));
 }

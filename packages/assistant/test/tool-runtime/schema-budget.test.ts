@@ -133,12 +133,12 @@ describe("tool-schema budget", () => {
     const compact = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail",
-      inputSchema: sharedSchema,
+      modelInputSchema: sharedSchema,
     });
     const verbose = toolSchemaSize({
       name: "github.search",
       description: "Search repositories, issues, and pull requests across GitHub",
-      inputSchema: sharedSchema,
+      modelInputSchema: sharedSchema,
     });
 
     assert.ok(verbose.bytes > compact.bytes);
@@ -149,12 +149,12 @@ describe("tool-schema budget", () => {
     const ascii = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail - quickly",
-      inputSchema: z.object({}),
+      modelInputSchema: z.object({}),
     });
     const unicode = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail — quickly",
-      inputSchema: z.object({}),
+      modelInputSchema: z.object({}),
     });
 
     assert.equal(unicode.tokens, ascii.tokens);

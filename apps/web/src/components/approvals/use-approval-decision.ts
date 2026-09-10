@@ -13,6 +13,17 @@ export type ApprovalDecision =
   | { decision: "reject"; expectedRowVersion: number; reason: string }
   | { decision: "cancel_run"; expectedRowVersion: number; reason: string };
 
+/**
+ * Dismissing a parked `system.ask_user` question. The wire decision is still
+ * `reject`, but dismissing IS the answer (ADR-0099), so the route takes it
+ * with no revision note. Kept out of {@link ApprovalDecision} so a *write*
+ * rejection still cannot compile without a reason.
+ */
+export type QuestionDismissal = { decision: "reject"; expectedRowVersion: number };
+
+/** Anything a reviewer can record against one staged row. */
+export type RecordedDecision = ApprovalDecision | QuestionDismissal;
+
 export interface ApprovalDecisionState {
   /** The (possibly edited) tool input the reviewer will approve. */
   draftInput: unknown;

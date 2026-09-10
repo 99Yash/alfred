@@ -282,7 +282,17 @@ function ensureStreamRef(
   runId: string,
 ): StreamRef | null {
   const existing = cell.current;
-  if (existing && existing.messageId === messageId && existing.runId === runId) return existing;
+  if (existing && existing.messageId === messageId && existing.runId === runId) {
+    // A parked turn is silent by design, and every frame that reaches here
+    // belongs to the boss turn itself (the sub-agent arm of `chat.tool`
+    // returns before this call, and `approval.requested` reads `cell.current`
+    // directly). So one such frame proves the run is moving again and retires
+    // the wait. Mirrors the sub-agent trail's `waiting` clear below. Without
+    // it the flag only ever cleared on `completed`, which left the composer
+    // and the stall watchdog reading "parked" for the rest of the turn.
+    existing.awaitingApproval = false;
+    return existing;
+  }
   if (existing && frameId < existing.mountId) return null;
   const fresh: StreamRef = {
     messageId,
