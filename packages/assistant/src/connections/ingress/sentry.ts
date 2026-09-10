@@ -138,18 +138,21 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
   project: projectSentry,
   resolveOwner: async () => {
     const sole = await findSoleActiveCredential({ provider: "sentry" });
-    if (sole.kind === "many") {
-      console.error(
-        "[ingress] sentry: more than one active credential shares one SENTRY_WEBHOOK_CLIENT_SECRET; delivery not attributed",
-      );
-      return null;
-    }
-    if (sole.kind === "none") return null;
+    // The shared path reports this drop as `ambiguous`.
+    if (sole.kind === "many") return { kind: "unowned", reason: "ambiguous", reference: null };
+    // The body names no organization on either arm: one Client Secret is one
+    // integration, so the signature is the whole attribution. The drop report
+    // (#1033) therefore names the source, the kind, and the reason, and no
+    // account, which is the honest answer here rather than a missing one.
+    if (sole.kind === "none") return { kind: "unowned", reason: "no_match", reference: null };
     const { credential } = sole;
     return {
-      userId: credential.userId,
-      credentialId: credential.id,
-      accountRef: credential.accountId,
+      kind: "owned",
+      owner: {
+        userId: credential.userId,
+        credentialId: credential.id,
+        accountRef: credential.accountId,
+      },
     };
   },
   subscription: {

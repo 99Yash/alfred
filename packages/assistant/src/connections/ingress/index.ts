@@ -15,6 +15,7 @@ export type {
   EventDeliveryFailure,
   EventDeliveryHealth,
   EventDeliveryRecovery,
+  InboundAttribution,
   InboundDedupRule,
   InboundKeyInput,
   InboundOwner,
@@ -22,7 +23,8 @@ export type {
   InboundSourceDescriptor,
   InboundSubscriptionAdapter,
   InboundSyntheticKey,
+  UnattributedReference,
 } from "./descriptor";
-export { inboundDeliveryKey } from "./descriptor";
+export { inboundDeliveryKey, projectionKind } from "./descriptor";
 export { INBOUND_SOURCES, inboundSource } from "./registry";
 export { readInboundTriggerHealth } from "./health";
