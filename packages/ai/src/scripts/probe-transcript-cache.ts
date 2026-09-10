@@ -24,7 +24,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { getPath, toRecord } from "@alfred/contracts";
 import { generateText, type ModelMessage } from "ai";
-import { attachProviderTurnPolicy, withProviderAdapter } from "../provider-adapter";
+import { attachProviderTurnPolicy, adaptProviderModel } from "../provider-adapter";
 
 const TTL = "5m" as const;
 const GENERATE_TIMEOUT_MS = 60_000;
@@ -41,7 +41,7 @@ const systemBlock =
   "You are a terse test assistant. Reply with a single short sentence. " +
   "Here is durable context you must keep in mind: " +
   FILLER;
-const model = withProviderAdapter("claude-sonnet-4-6", anthropic("claude-sonnet-4-6"));
+const model = adaptProviderModel("anthropic", anthropic("claude-sonnet-4-6"));
 
 function cacheStats(meta: unknown) {
   // Anthropic reports cache accounting under providerMetadata.anthropic.usage

@@ -37,8 +37,8 @@ export interface ChatAttachmentDescriptor {
 
 /**
  * How an upload is normalized for the model. This *replaces* the rejected
- * `MODEL_CAPABILITIES` idea (ADR-0065): the question is never "which model reads
- * this" but "how is this turned into text + images."
+ * per-model multimodal capability registry (ADR-0065): the question is never
+ * "which model reads this" but "how is this turned into text + images."
  *   - `pass-through` — universally-supported image; enters the transcript as-is.
  *   - `degrade-text` — extract/transcribe to text (audio, pdf, docs, code).
  *   - `degrade-av`   — split audio→transcript + keyframes→images (video), or
