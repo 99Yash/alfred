@@ -15,13 +15,16 @@ interface RecoveryPanelProps {
 export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
   const send = useSendMessage();
   const [openingChat, setOpeningChat] = useState(false);
+
   const recovery = useQuery({
     queryKey: ["workflow-recovery", workflowId, revisionId],
     queryFn: async () => {
       const response = await client.api
         .workflows({ id: workflowId })
         .recovery.post({}, { query: { revisionId } });
+
       if (response.error || !response.data) throw new Error("Workflow recovery failed");
+
       return response.data;
     },
     retry: false,
@@ -52,6 +55,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
 
   if (recovery.data.status === "blocked") {
     const recoveryNavigation = recovery.data.recovery;
+
     return (
       <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-amber-800">
         <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -89,6 +93,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
   }
 
   const proposal = activateWorkflowInputSchema.safeParse(recovery.data.activationProposal);
+
   if (!proposal.success) {
     return (
       <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-rose-700">
@@ -100,11 +105,13 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
 
   const openActivationChat = async () => {
     setOpeningChat(true);
+
     const result = await send(
       undefined,
       `Resume workflow activation for workflow ${workflowId}, revision ${revisionId}. Call system.recover_workflow with these exact IDs. If it returns ready_to_activate, copy its activationProposal directly into system.activate_workflow without reconstructing it.`,
       "standard",
     );
+
     if (!result.ok) setOpeningChat(false);
   };
 

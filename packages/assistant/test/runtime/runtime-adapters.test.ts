@@ -100,6 +100,7 @@ describe("runtime adapter lifecycle", () => {
 
   test("registers adapters in manifest order", () => {
     const calls: string[] = [];
+
     const lifecycle = createRuntimeAdapterLifecycle([
       adapter("first", calls, {
         retainIfAgentWorkerActive: false,
@@ -120,6 +121,7 @@ describe("runtime adapter lifecycle", () => {
 
   test("unregisters every adapter in declared shutdown order after ingestion stops", () => {
     const calls: string[] = [];
+
     const lifecycle = createRuntimeAdapterLifecycle([
       adapter("first", calls, {
         retainIfAgentWorkerActive: false,
@@ -140,6 +142,7 @@ describe("runtime adapter lifecycle", () => {
 
   test("retains ingestion adapters when ingestion remains active", () => {
     const calls: string[] = [];
+
     const lifecycle = createRuntimeAdapterLifecycle([
       adapter("ingestion-first", calls, {
         retainIfAgentWorkerActive: false,
@@ -173,6 +176,7 @@ describe("runtime adapter lifecycle", () => {
       const agentWorkerStopped = await runShutdownStep("agent worker", () =>
         Promise.reject(new Error("worker close failed")),
       );
+
       unregisterRuntimeAdapters({ agentWorkerStopped, ingestionWorkerStopped: true });
 
       const agent: SystemToolAgentAdapter = {
@@ -189,14 +193,17 @@ describe("runtime adapter lifecycle", () => {
         writeScratch: () => Promise.resolve(undefined),
         promoteScratch: () => Promise.resolve(null),
       };
+
       const chat: SystemToolChatHistoryAdapter = {
         readChatHistory: () => Promise.resolve(null),
       };
+
       const workflows: SystemToolWorkflowAdapter = {
         authorWorkflow: () => Promise.resolve(null),
         recoverWorkflow: () => Promise.resolve(null),
         activateWorkflow: () => Promise.resolve(null),
       };
+
       const knowledge: SystemToolKnowledgeAdapter = {
         readUserContext: () => Promise.resolve(null),
         rememberSenderSuppressionAndDismissTodos: () => Promise.resolve(null),
@@ -205,6 +212,7 @@ describe("runtime adapter lifecycle", () => {
         editInstruction: () => Promise.resolve(null),
         webSearch: () => Promise.resolve(null),
       };
+
       const tasks: SystemToolTaskAdapter = {
         resolveTodo: () => Promise.resolve(null),
         suggestTodo: () => Promise.resolve(null),
@@ -219,6 +227,7 @@ describe("runtime adapter lifecycle", () => {
       ]) {
         assert.throws(install, /already registered/);
       }
+
       assert.equal(agentWorkerStopped, false);
       assert.equal(errors.length, 1);
     } finally {

@@ -12,7 +12,9 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-briefing-read-enrich-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -21,6 +23,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Briefing Enrich Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -69,6 +72,7 @@ async function seedEmail(args: {
     model: "test",
     documentId: docId,
   });
+
   return docId;
 }
 
@@ -83,6 +87,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();
@@ -102,6 +107,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
       ingestedAt: new Date("2026-06-26T21:41:00.000Z"),
       labelIds: ["INBOX", "UNREAD"],
     });
+
     const readDoc = await seedEmail({
       userId,
       subject: "Already opened",
@@ -110,6 +116,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
       ingestedAt: new Date("2026-06-26T21:42:00.000Z"),
       labelIds: ["INBOX"],
     });
+
     const readEmptyLabelsDoc = await seedEmail({
       userId,
       subject: "Already opened with no labels",
@@ -118,6 +125,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
       ingestedAt: new Date("2026-06-26T21:42:30.000Z"),
       labelIds: [],
     });
+
     const unknownDoc = await seedEmail({
       userId,
       subject: "No label signal",
@@ -132,6 +140,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
       untilIngestedAt: new Date("2026-06-26T23:00:00.000Z"),
       timezone: "Asia/Kolkata",
     });
+
     const byId = new Map(rows.map((r) => [r.documentId, r]));
 
     assert.equal(byId.get(unreadDoc)?.unread, true);

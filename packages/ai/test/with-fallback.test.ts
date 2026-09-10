@@ -30,6 +30,7 @@ type GenResult = Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>;
  */
 
 const TEXT_FALLBACK = "served-by-fallback";
+
 const TEXT_PRIMARY = "served-by-primary";
 
 function okResult(text: string): GenResult {
@@ -104,6 +105,7 @@ describe("withFallback", () => {
       await assert.rejects(run(primary, fallback), (err: unknown) => {
         assert.ok(APICallError.isInstance(err), "expected the raw APICallError");
         assert.equal(err.statusCode, code);
+
         return true;
       });
 
@@ -142,6 +144,7 @@ describe("withFallback", () => {
       }),
     ),
   ];
+
   for (const [i, err] of quotaErrors.entries()) {
     test(`billing/quota 4xx (#${i}) degrades to the fallback`, async () => {
       const primary = throwingModel("primary", err);
@@ -178,6 +181,7 @@ describe("withFallback", () => {
     await assert.rejects(run(primary, fallback), (err: unknown) => {
       assert.ok(err instanceof Error);
       assert.equal(err.name, "AbortError");
+
       return true;
     });
 
@@ -195,6 +199,7 @@ describe("withFallback", () => {
       "primary",
       new DOMException("timeout of 30000ms exceeded", "TimeoutError"),
     );
+
     const fallback = okModel("fallback", TEXT_FALLBACK);
 
     const { text } = await run(primary, fallback);

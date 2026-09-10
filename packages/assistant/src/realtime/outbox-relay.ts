@@ -23,13 +23,18 @@ import { publishFrameToUser } from "./user-events-bus";
 import { toMessage } from "@alfred/contracts";
 
 const NOTIFY_CHANNEL = "events_outbox_new";
+
 const BATCH_SIZE = 256;
+
 const BACKSTOP_POLL_MS = 5_000;
+
 const RECONNECT_DELAY_MS = 2_000;
+
 /** Batches per wake, so one busy user cannot starve other work. */
 const MAX_BATCHES_PER_WAKE = 64;
 
 let pool: pg.Pool | undefined;
+
 let listenClient: pg.Client | undefined;
 
 interface OutboxRow {
@@ -43,8 +48,10 @@ interface OutboxRow {
 async function drainOnce(): Promise<number> {
   if (!pool) return 0;
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
+
     const { rows } = await client.query<OutboxRow>(
       `SELECT id, user_id, kind, payload, created_at
          FROM events_outbox
@@ -57,11 +64,13 @@ async function drainOnce(): Promise<number> {
 
     if (rows.length === 0) {
       await client.query("ROLLBACK");
+
       return 0;
     }
 
     // Publish to Redis BEFORE marking published — at-least-once over at-most-once.
     const published: string[] = [];
+
     for (const row of rows) {
       if (!isKnownEventKind(row.kind)) {
         // Unknown kind made it into the outbox somehow; mark it published so
@@ -71,12 +80,14 @@ async function drainOnce(): Promise<number> {
         published.push(row.id);
         continue;
       }
+
       const frame: EventFrame = {
         id: Number(row.id),
         kind: row.kind,
         payload: row.payload,
         createdAt: row.created_at.toISOString(),
       };
+
       try {
         await publishFrameToUser(row.user_id, frame);
         published.push(row.id);
@@ -94,6 +105,7 @@ async function drainOnce(): Promise<number> {
     }
 
     await client.query("COMMIT");
+
     return rows.length;
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -114,13 +126,18 @@ async function drainOnce(): Promise<number> {
  */
 async function drainPass(signal: AbortSignal): Promise<void> {
   let batches = 0;
+
   while (batches < MAX_BATCHES_PER_WAKE) {
     if (signal.aborted) return;
+
     const drained = await drainOnce().catch((err) => {
       console.warn("[outbox-relay] drainOnce failed:", toMessage(err));
+
       return 0;
     });
+
     batches += 1;
+
     if (drained < BATCH_SIZE) break;
   }
 }

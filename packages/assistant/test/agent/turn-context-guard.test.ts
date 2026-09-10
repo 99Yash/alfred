@@ -29,6 +29,7 @@ import {
  */
 
 const userMsg = (content: string): AgentTranscriptMessage => ({ role: "user", content });
+
 const assistantMsg = (content: string): AgentTranscriptMessage => ({ role: "assistant", content });
 
 describe("guardTurnContext gate", () => {
@@ -44,6 +45,7 @@ describe("guardTurnContext gate", () => {
       },
     },
   ) as unknown as LanguageModel;
+
   /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
   const explodingTools = new Proxy(
     {},
@@ -76,6 +78,7 @@ describe("guardTurnContext gate", () => {
   test("passes through untouched past turn 1 with no in-flight tail", async () => {
     const stored = [userMsg("hi"), assistantMsg("hello")];
     const hydrated = [userMsg("hi"), assistantMsg("hello [image]")];
+
     const result = await guardTurnContext({
       ...baseArgs({ turnCount: 2, inFlightTailStart: 0 }),
       storedTranscript: stored,

@@ -22,7 +22,9 @@ import { selfIdentityGrounding } from "@alfred/assistant/settings";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-26T04:44:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const CONNECTED_SUMMARY = [
@@ -105,6 +107,7 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
       maxOutputTokens: 300,
       abortSignal: AbortSignal.timeout(EVAL_TIMEOUT_MS),
     });
+
     return { text: result.text };
   },
   scorers: [
@@ -112,13 +115,17 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
       name: "Voice contract in shipped prose",
       scorer: ({ input, output }) => {
         const text = output.text.trim();
+
         if (text.length === 0) return { score: 0, metadata: "empty output" };
+
         if (input.exactText !== undefined) {
           return text === input.exactText
             ? { score: 1, metadata: `exact copy preserved: ${text}` }
             : { score: 0, metadata: `expected exact copy: ${input.exactText}; received: ${text}` };
         }
+
         const tells = detectAiTells(text);
+
         return {
           score: tells.length === 0 ? 1 : 0,
           metadata:

@@ -53,15 +53,19 @@
  * purpose: they are internals of the delivery loop, and only its own tests reach them.
  */
 export { closeEventBridge, initEventBridge } from "./bridge";
+
 export { getEventsSince, getReplayHighWatermark } from "./replay";
+
 export {
   closeReplicachePokeBridge,
   emitReplicachePokesOverRedis,
   initReplicachePokeBridge,
   subscribeUserPokes,
 } from "./replicache-events";
+
 export {
   registerReplicachePokeAdapter,
   unregisterReplicachePokeAdapter,
 } from "./replicache-poke-adapter";
+
 export { subscribeUserEvents } from "./user-events-bus";

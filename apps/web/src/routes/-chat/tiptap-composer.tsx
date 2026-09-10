@@ -23,11 +23,15 @@ import { filterMentionOptions, getMentionOption, type MentionOption } from "./me
 function isInitialContentEmpty(initialJSON?: JSONContent): boolean {
   if (!initialJSON) return true;
   const content = initialJSON.content;
+
   if (!content || content.length === 0) return true;
+
   if (content.length === 1) {
     const only = content[0];
+
     if (only?.type === "paragraph" && (!only.content || only.content.length === 0)) return true;
   }
+
   return false;
 }
 
@@ -131,6 +135,7 @@ export function TiptapComposer({
     ghostTextRef.current = ghostText;
     onGhostAcceptRef.current = onGhostAccept;
     onGhostDismissRef.current = onGhostDismiss;
+
     if (disabled) suggestionOpenRef.current = false;
   }, [onChange, onSubmit, onSuggestionChange, disabled, ghostText, onGhostAccept, onGhostDismiss]);
 
@@ -154,6 +159,7 @@ export function TiptapComposer({
         // submission still carries the mention.
         renderText({ node }) {
           const label = node.attrs.label ?? node.attrs.id ?? "";
+
           return `@${label}`;
         },
         // Backspace immediately before a chip deletes the whole chip (default
@@ -223,9 +229,11 @@ export function TiptapComposer({
       },
       handleKeyDown: (view, event) => {
         if (disabledRef.current) return true;
+
         // Suggestion popup handles its own keys via the suggestion plugin's
         // onKeyDown above. Only step in when it's closed.
         if (suggestionOpenRef.current) return false;
+
         if (event.key === "Enter" && !event.shiftKey) {
           // Touch devices have no reliable Shift+Enter, and their return key
           // should behave like every mobile chat app: insert a newline (falls
@@ -234,32 +242,42 @@ export function TiptapComposer({
           if (isCoarsePointer()) return false;
           event.preventDefault();
           onSubmitRef.current();
+
           return true;
         }
+
         // Ghost text (only live while the doc is empty): Tab accepts the
         // suggested prompt into the editor; Escape dismisses it for this turn.
         // `editor` is safely referenced from this deferred closure — keydowns
         // only fire after `useEditor` has assigned it.
         const ghostActive = Boolean(ghostTextRef.current) && (editor?.isEmpty ?? false);
+
         if (ghostActive && event.key === "Tab") {
           event.preventDefault();
           const ghost = ghostTextRef.current;
+
           if (ghost) {
             editor?.chain().focus("end").insertContent(ghost).run();
             onGhostAcceptRef.current?.();
           }
+
           return true;
         }
+
         if (event.key === "Escape") {
           if (ghostActive) {
             onGhostDismissRef.current?.();
+
             return true;
           }
+
           // Blur so global shortcuts (⌘K etc.) route correctly without
           // wrestling for focus.
           if (view.dom instanceof HTMLElement) view.dom.blur();
+
           return false;
         }
+
         return false;
       },
     },
@@ -268,6 +286,7 @@ export function TiptapComposer({
       onChangeRef.current(editor.getText(), editor.getJSON(), empty);
     },
   });
+
   const isEmpty = editor?.isEmpty ?? isInitialContentEmpty(initialJSON);
 
   useEffect(() => {
@@ -374,6 +393,7 @@ function MentionChipNodeView({ node }: NodeViewProps) {
   const Icon = option?.icon;
   const connections = useMentionConnections();
   const disconnected = connections(id) === "connectable";
+
   return (
     <NodeViewWrapper
       as="span"

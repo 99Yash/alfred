@@ -30,8 +30,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-commit-guard-";
+
 const createdUserIds: string[] = [];
+
 const STEP = "chat-turn";
+
 const THROW_SLUG = "__test-commit-guard-throw";
 
 const supersededFailureWorkflow: Workflow<Record<string, never>> = {
@@ -75,6 +78,7 @@ async function seedRunningRun(attempt: number): Promise<{ userId: string; runId:
     lastCheckpointAt: new Date(),
   });
   await db().insert(agentSteps).values({ runId, stepId: STEP, attempt, status: "running" });
+
   return { userId, runId };
 }
 
@@ -97,6 +101,7 @@ async function seedRunnableRun(
     attempt,
     lastCheckpointAt: new Date(),
   });
+
   return { userId, runId };
 }
 
@@ -127,6 +132,7 @@ async function readRun(runId: string) {
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
+
   return rows[0];
 }
 
@@ -141,6 +147,7 @@ async function readStepStatus(runId: string, attempt: number) {
         eq(agentSteps.attempt, attempt),
       ),
     );
+
   return rows[0]?.status;
 }
 
@@ -149,18 +156,21 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
+
     if (!getWorkflow(THROW_SLUG)) registerRecipe(supersededFailureWorkflow);
   });
   after(async () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     await closeConnections();
   });
 
   test("happy path: a commit at the current attempt advances the run", async () => {
     const { userId, runId } = await seedRunningRun(5);
+
     const outcome = await commitStepSuccess(
       runRow(userId, runId, 5),
       STEP,
@@ -169,6 +179,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       [],
       [],
     );
+
     assert.equal(outcome.kind, "advanced");
     const run = await readRun(runId);
     assert.equal(run?.attempt, 6, "attempt advances");
@@ -180,6 +191,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
   test("a deferred step persists its retry boundary without ending the occurrence", async () => {
     const { userId, runId } = await seedRunningRun(2);
     const retryAt = new Date(Date.now() + 60_000);
+
     const outcome = await commitStepSuccess(
       runRow(userId, runId, 2),
       STEP,
@@ -188,6 +200,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       [],
       [],
     );
+
     assert.equal(outcome.kind, "deferred");
     const run = await readRun(runId);
     assert.equal(run?.status, "deferred");
@@ -198,6 +211,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
 
   test("a terminal readiness result blocks the occurrence", async () => {
     const { userId, runId } = await seedRunningRun(4);
+
     const outcome = await commitStepSuccess(
       runRow(userId, runId, 4),
       STEP,
@@ -206,6 +220,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       [],
       [],
     );
+
     assert.equal(outcome.kind, "blocked");
     const run = await readRun(runId);
     assert.equal(run?.status, "blocked");
@@ -250,6 +265,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       [],
       [],
     );
+
     assert.equal(outcome.kind, "skipped");
     const run = await readRun(runId);
     assert.equal(run?.status, "running", "the run is NOT marked completed by the stale worker");

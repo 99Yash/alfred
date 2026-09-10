@@ -46,6 +46,7 @@ export function useRightRail(node: ReactNode | null) {
   useLayoutEffect(() => {
     if (!ctx) return;
     ctx.setContent(node);
+
     return () => ctx.setContent(null);
   }, [ctx, node]);
 }
@@ -61,6 +62,7 @@ export function useShellThreadViewModel(viewModel: ShellThreadViewModel) {
   useLayoutEffect(() => {
     if (!ctx) return;
     ctx.setViewModel(viewModel);
+
     return () => ctx.setViewModel(null);
   }, [ctx, viewModel]);
 }
@@ -80,9 +82,11 @@ const SidebarStateContext = createContext<SidebarStateValue | null>(null);
 
 export function useSidebarState(): SidebarStateValue {
   const ctx = use(SidebarStateContext);
+
   if (!ctx) {
     throw new Error("useSidebarState must be used inside AppShell");
   }
+
   return ctx;
 }
 
@@ -96,19 +100,24 @@ export function useSidebarState(): SidebarStateValue {
  * -------------------------------------------------------------------------- */
 
 const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
+
 const LazyAuthedAppShell = lazy(() => import("./authed-app-shell"));
 
 function useSidebarMode(): "inline" | "overlay" {
   const [mode, setMode] = useState<"inline" | "overlay">(() => {
     if (typeof window === "undefined") return "inline";
+
     return window.matchMedia(SIDEBAR_BREAKPOINT).matches ? "inline" : "overlay";
   });
+
   useEffect(() => {
     const mq = window.matchMedia(SIDEBAR_BREAKPOINT);
     const handler = () => setMode(mq.matches ? "inline" : "overlay");
     mq.addEventListener("change", handler);
+
     return () => mq.removeEventListener("change", handler);
   }, []);
+
   return mode;
 }
 
@@ -176,28 +185,35 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarMode = useSidebarMode();
+
   const [shellState, dispatchShell] = useReducer(
     shellReducer,
     sidebarMode,
     createInitialShellState,
   );
+
   const { rightRailNode, paletteOpen, sidebarOpen, activeThread, threadViewModel } = shellState;
+
   const setRightRailNode = useCallback(
     (value: ReactNode | null) => dispatchShell({ type: "setRightRailNode", value }),
     [],
   );
+
   const setPaletteOpen = useCallback(
     (value: SetStateAction<boolean>) => dispatchShell({ type: "setPaletteOpen", value }),
     [],
   );
+
   const setSidebarOpen = useCallback(
     (value: SetStateAction<boolean>) => dispatchShell({ type: "setSidebarOpen", value }),
     [],
   );
+
   const setActiveThread = useCallback(
     (value: string) => dispatchShell({ type: "setActiveThread", value }),
     [],
   );
+
   const setThreadViewModel = useCallback(
     (value: ShellThreadViewModel | null) => dispatchShell({ type: "setThreadViewModel", value }),
     [],
@@ -209,6 +225,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // right-rail mode reset in `chat-shell.tsx`; the ref tracks the
   // previous mode so we only snap on the transition, not every render.
   const [prevSidebarMode, setPrevSidebarMode] = useState(sidebarMode);
+
   if (prevSidebarMode !== sidebarMode) {
     setPrevSidebarMode(sidebarMode);
     setSidebarOpen(sidebarMode === "inline");
@@ -227,11 +244,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPending) return;
     setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, !!session?.user);
   }, [isPending, session?.user]);
+
   const { data: onboardingData } = useQuery({
     queryKey: ["me", "onboarding"],
     queryFn: async () => {
       const res = await client.api.me.onboarding.get();
+
       if (res.error) throw new Error("Failed to load onboarding state");
+
       return res.data;
     },
     enabled: !isPending && !!sessionUser,
@@ -248,6 +268,7 @@ export function AppShell({ children }: { children: ReactNode }) {
    * matter where the user entered. */
   useEffect(() => {
     const nextRoute = onboardingData?.routeToOnboarding;
+
     if (nextRoute === undefined || !sessionUser?.id) return;
     writeOnboardingHint(sessionUser.id, !nextRoute);
   }, [onboardingData?.routeToOnboarding, sessionUser?.id]);
@@ -261,7 +282,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const onboardingHintComplete = readOnboardingHint(sessionUser?.id);
   useEffect(() => {
     const curId = sessionUser?.id;
+
     if (!curId) return;
+
     if (onboardingHintBelongsToAnotherUser(curId)) {
       // Stale hint for a different user (DB wipe → new signup) — reset.
       writeOnboardingHint(curId, false);
@@ -272,16 +295,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   // guard, not an event handler, so an effect is the correct primitive.
   useEffect(() => {
     if (!session?.user) return;
+
     // Optimistic: hint says not onboarded → go to onboarding immediately
     // (query may still be pending due to server restart / slow network).
     if (!onboardingHintComplete && !onOnboardingRoute) {
       const nextRoute = onboardingData?.routeToOnboarding;
+
       if (nextRoute === false) return;
       void navigate({ to: "/onboarding", search: { step: 1 } });
+
       return;
     }
+
     const nextRoute = onboardingData?.routeToOnboarding;
+
     if (nextRoute === undefined) return;
+
     if (nextRoute && !onOnboardingRoute) {
       void navigate({ to: "/onboarding", search: { step: 1 } });
     } else if (!nextRoute && onOnboardingRoute) {
@@ -301,16 +330,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   // the reset a pure render-phase state adjustment (a ref write during render
   // can leak if React discards the render; a queued setState cannot).
   const [prevLocation, setPrevLocation] = useState(location);
+
   if (prevLocation !== location) {
     const sameHref =
       prevLocation.pathname === location.pathname &&
       prevLocation.searchStr === location.searchStr &&
       prevLocation.hash === location.hash;
+
     setPrevLocation(location);
+
     if (!sameHref) {
       setPaletteOpen(false);
       setRightRailNode(null);
       setThreadViewModel(null);
+
       // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
       // leave it floating over the page it just routed to. Owned here (not via a
       // child effect calling back up) for the same reason as the palette close —
@@ -364,6 +397,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const newChatEvent = useEffectEvent(() => void navigate({ to: "/chat" }));
   useEffect(() => {
     if (!authed) return;
+
     const onKey = (e: KeyboardEvent) => {
       // No isEditableTarget guard: these are navigation chords with no
       // text-editing meaning, and the composer (the dominant focus surface) is
@@ -382,7 +416,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         newChatEvent();
       }
     };
+
     window.addEventListener("keydown", onKey);
+
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
 
@@ -390,14 +426,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => ({ setContent: setRightRailNode }),
     [setRightRailNode],
   );
+
   const sidebarStateValue = useMemo<SidebarStateValue>(
     () => ({ open: sidebarOpen, setOpen: setSidebarOpen }),
     [sidebarOpen, setSidebarOpen],
   );
+
   const chatContextValue = useMemo(
     () => ({ activeThread, setActiveThread }),
     [activeThread, setActiveThread],
   );
+
   const shellThreadViewModelContextValue = useMemo(
     () => ({ setViewModel: setThreadViewModel }),
     [setThreadViewModel],

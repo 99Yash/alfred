@@ -91,10 +91,13 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
       "/:stagingId/decision",
       async ({ params, body, user }) => {
         const decision = parseDecision(body.decision);
+
         if (!decision) {
           throw Errors.BadRequestError("decision must be 'approve' | 'reject' | 'cancel_run'");
         }
+
         const reason = body.reason?.trim();
+
         const editedInput =
           body.editedInput === undefined ? undefined : jsonValueSchema.parse(body.editedInput);
 
@@ -108,6 +111,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         // reads outside the decision transaction so the row lock covers only
         // the atomic staging update or run wake.
         let workflowEdit: WorkflowApprovalEditPreparation = { kind: "not_workflow" };
+
         if (decision === "approve") {
           workflowEdit = await prepareWorkflowApprovalEdit({
             userId: user.id,
@@ -115,6 +119,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             expectedRowVersion: body.expectedRowVersion,
             editedInput,
           });
+
           if (workflowEdit.kind === "invalid") {
             throw Errors.BadRequestError(workflowEdit.message);
           }
@@ -144,13 +149,17 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             .for("update");
 
           const row = rows[0];
+
           if (!row) return { notFound: true };
+
           if (!row.requiresApproval) {
             return { conflict: "Action does not require approval" };
           }
+
           if (row.status !== "pending") {
             return { conflict: `Action is already ${row.status}` };
           }
+
           if (row.rowVersion !== body.expectedRowVersion) {
             return { conflict: "The approval changed. Review the latest contract." };
           }
@@ -163,6 +172,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           }
 
           const now = new Date();
+
           if (decision === "approve") {
             // A question's edited input is the whole tool input with the
             // user's `answers` filled in. Validate it here, so a wrong-length
@@ -170,21 +180,26 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             // generic `tool_input_invalid` the model re-asks past (ADR-0099).
             if (isQuestionApproval(row.toolName) && editedInput !== undefined) {
               const answered = askUserDecidedInput.safeParse(editedInput);
+
               if (!answered.success) {
                 const issue = answered.error.issues[0];
                 const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
+
                 return {
                   badRequest: `Answers do not fit the questions${where}: ${issue?.message ?? "invalid input"}`,
                 };
               }
             }
+
             // Workflow activation edits change the exact unattended contract.
             // Rebuild the full card and require a second approval instead of
             // waking the run with fields the user did not see.
             if (workflowEdit.kind === "prepared" && workflowEdit.requiresReview) {
               const expiresAt = await restageWorkflowApproval(tx, row.id, workflowEdit.input);
+
               return { runId: row.runId, status: "pending", refreshed: true, expiresAt };
             }
+
             // Match on the staging id alone: the wake already carries the kind
             // the dispatcher wrote, and a kind re-derived here could only
             // disagree with it (ADR-0099).
@@ -192,7 +207,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               runId: row.runId,
               match: { kind: "hil", approvalId: params.stagingId },
             });
+
             const conflict = signalOutcomeConflict(signalOutcome);
+
             if (conflict) return { conflict };
             await tx
               .update(actionStagings)
@@ -206,6 +223,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
                 rowVersion: sql`${actionStagings.rowVersion} + 1`,
               })
               .where(eq(actionStagings.id, row.id));
+
             return {
               runId: row.runId,
               decision,
@@ -219,14 +237,18 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           }
 
           let shouldEnqueue = false;
+
           if (decision === "cancel_run") {
             const { outcome: cancelOutcome, afterCommit } = await cancelRunInTx(tx, {
               runId: row.runId,
               reason: CANCEL_RUN_REASON,
               pendingApprovalRejectReason: reason,
             });
+
             const conflict = cancelOutcomeConflict(cancelOutcome);
+
             if (conflict) return { conflict };
+
             return {
               runId: row.runId,
               decision,
@@ -240,7 +262,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               runId: row.runId,
               match: { kind: "hil", approvalId: params.stagingId },
             });
+
             const conflict = signalOutcomeConflict(signalOutcome);
+
             if (conflict) return { conflict };
             shouldEnqueue = signalOutcome === "woken";
           }
@@ -260,6 +284,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               rowVersion: sql`${actionStagings.rowVersion} + 1`,
             })
             .where(eq(actionStagings.id, row.id));
+
           return {
             runId: row.runId,
             decision,
@@ -273,10 +298,13 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         });
 
         if ("notFound" in outcome) throw Errors.NotFoundError("Approval not found");
+
         if ("conflict" in outcome) throw Errors.ConflictError(outcome.conflict);
+
         if ("badRequest" in outcome) throw Errors.BadRequestError(outcome.badRequest);
 
         emitReplicachePokes([user.id], params.stagingId);
+
         if ("refreshed" in outcome) {
           await removeApprovalExpiryJob(params.stagingId);
           await scheduleApprovalExpiryJob({
@@ -284,6 +312,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             userId: user.id,
             delayMs: outcome.expiresAt.getTime() - Date.now(),
           });
+
           return {
             ok: true,
             runId: outcome.runId,
@@ -292,6 +321,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             enqueued: false,
           };
         }
+
         // Everything a `cancel_run` owes once its tx lands: the workflow's
         // client closure (chat-turn has to persist its assistant row and emit
         // `chat.message completed` or the streaming bubble hangs forever —
@@ -306,6 +336,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         await removeApprovalExpiryJob(params.stagingId);
 
         let enqueued = false;
+
         if (outcome.shouldEnqueue) {
           try {
             await redeliverRun(outcome.runId);
@@ -318,6 +349,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             );
           }
         }
+
         // Best-effort approval-wait span (#409): the gated action's
         // request→decision wall-clock, opened backdated to the staging's
         // createdAt and closed now. Swallowed inside the runtime-span helper.
@@ -348,6 +380,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 
 function parseDecision(value: string): Decision | null {
   if (value === "approve" || value === "reject" || value === "cancel_run") return value;
+
   return null;
 }
 
@@ -380,20 +413,28 @@ function approvalWaitEmit(
  */
 function signalOutcomeConflict(outcome: SignalOutcome): string | null {
   if (outcome === "woken") return null;
+
   if (outcome === "not_found") return "Run not found";
+
   if (outcome === "not_waiting") return "Run is not waiting for an approval";
+
   if (outcome === "wake_mismatch") return "Run is not waiting for this approval";
+
   if (outcome === "already_terminal") return "Run has already finished";
   // A new outcome fails to compile here rather than silently reading as a
   // successful wake.
   const unhandled: never = outcome;
+
   return unhandled;
 }
 
 function cancelOutcomeConflict(outcome: CancelOutcome): string | null {
   if (outcome === "cancelled") return null;
+
   if (outcome === "not_found") return "Run not found";
+
   if (outcome === "already_terminal") return "Run has already finished";
   const unhandled: never = outcome;
+
   return unhandled;
 }

@@ -61,7 +61,9 @@ async function main() {
           (s) => s.provider === "gmail" && s.kind === "thread",
         )
       : undefined;
+
     const header = `[${t.email}] "${t.name}" (${t.status})`;
+
     if (!src) {
       console.log(`? ${header}\n    no gmail-thread source — skipped\n`);
       unresolved++;
@@ -83,6 +85,7 @@ async function main() {
         .orderBy(desc(documents.authoredAt))
         .limit(1)
     )[0];
+
     if (!docRow) {
       console.log(`? ${header}\n    source thread ${src.id} not in local documents — skipped\n`);
       unresolved++;
@@ -90,6 +93,7 @@ async function main() {
     }
 
     const ctxData = await loadTriageContext(docRow.id, t.userId);
+
     if (!ctxData) {
       console.log(`? ${header}\n    document gone — skipped\n`);
       unresolved++;
@@ -101,11 +105,13 @@ async function main() {
       subject: ctxData.document.title,
       body: ctxData.document.content,
     });
+
     const senderContext = scResult.context;
     const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
     const meta = ctxData.document.metadata;
     const labelIds = meta.labelIds ?? [];
     const isHumanSender = senderContext.effectiveAuthor === "person";
+
     const [senderPrior, thread, senderKind] = await Promise.all([
       senderKey ? getSenderPrior(t.userId, senderKey).catch(() => null) : Promise.resolve(null),
       getThreadState({
@@ -120,7 +126,9 @@ async function main() {
       })),
       resolveSenderKind(t.userId, scResult.senderAddress),
     ]);
+
     const usePersonTreatment = isHumanSender && senderKind == null;
+
     const [knownContact, relationship] = await Promise.all([
       usePersonTreatment && scResult.senderAddress
         ? isKnownContact(t.userId, scResult.senderAddress).catch(() => false)
@@ -131,6 +139,7 @@ async function main() {
         isHumanSender: usePersonTreatment,
       }).catch(() => ({ descriptor: null, isColdContact: false })),
     ]);
+
     const signalText = [
       meta.from,
       meta.to,
@@ -142,6 +151,7 @@ async function main() {
     ]
       .filter(Boolean)
       .join("\n");
+
     const observations = assembleObservations({
       senderKey,
       senderPrior,
@@ -156,6 +166,7 @@ async function main() {
     });
 
     let classification;
+
     try {
       ({ classification } = await classifyEmail({
         userId: t.userId,
@@ -180,6 +191,7 @@ async function main() {
     const note = classification.todoDecision?.note ? ` — ${classification.todoDecision.note}` : "";
     const cat = classification.category;
     const author = `author=${senderContext.effectiveAuthor}${senderContext.botSlug ? `/${senderContext.botSlug}` : ""}`;
+
     // Mirror production: the rail only mints what `resolveTodoSuggestion` keeps
     // (proposed outcome + todo-eligible category) AND survives the structural
     // suppressor (GitHub PR-review thread / Alfred's own approval mail).
@@ -189,6 +201,7 @@ async function main() {
         ? { sentAt: ctxData.document.authoredAt, timezone: await resolveTimezone(t.userId) }
         : null,
     );
+
     const suppression = resolved
       ? todoSuppressionReason({
           sender: ctxData.document.metadata.from ?? null,
@@ -199,6 +212,7 @@ async function main() {
           isColdContact: observations.senderRelationshipIsCold,
         })
       : null;
+
     if (resolved && !suppression) {
       kept++;
       console.log(

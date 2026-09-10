@@ -20,8 +20,11 @@ import { route } from "../provider";
 import { meteredGenerateText } from "../metering/wrappers";
 
 const stamp = randomUUID().slice(0, 8);
+
 const runId = `verify_capture_${stamp}`;
+
 const GENERATE_TIMEOUT_MS = 60_000;
+
 const LANGFUSE_FETCH_TIMEOUT_MS = 10_000;
 
 const weather = tool({
@@ -50,15 +53,19 @@ interface Obs {
 
 async function main() {
   const env = serverEnv();
+
   if (!env.LANGFUSE_CAPTURE_IO) {
     throw new Error("LANGFUSE_CAPTURE_IO must be true to verify captured output");
   }
+
   const host = env.LANGFUSE_HOST ?? "https://cloud.langfuse.com";
+
   const auth = Buffer.from(`${env.LANGFUSE_PUBLIC_KEY}:${env.LANGFUSE_SECRET_KEY}`).toString(
     "base64",
   );
 
   console.log(`[verify] forcing a tool-call turn (runId=${runId})`);
+
   const result = await meteredGenerateText(
     {
       model: route("cheap").model(),
@@ -69,6 +76,7 @@ async function main() {
     },
     { runId, role: "boss", name: "agent:chat", userId: "verify-user" },
   );
+
   console.log(
     `[verify] turn finished: text=${JSON.stringify(result.text)} toolCalls=${result.toolCalls.length}`,
   );
@@ -76,11 +84,13 @@ async function main() {
 
   // Poll the trace until the generation observation materializes.
   let gen: Obs | undefined;
+
   for (let attempt = 1; attempt <= 20; attempt++) {
     const res = await fetch(`${host}/api/public/traces/${runId}`, {
       headers: { Authorization: `Basic ${auth}` },
       signal: AbortSignal.timeout(LANGFUSE_FETCH_TIMEOUT_MS),
     });
+
     if (res.ok) {
       // SAFETY: Obs is the loose diagnostic view of one Langfuse observation;
       // the fields this verifier reads tolerate absence.
@@ -88,17 +98,21 @@ async function main() {
       gen = (t.observations ?? []).find(
         (o) => o.type === "GENERATION" && (o.metadata?.toolCallCount ?? 0) > 0,
       );
+
       if (gen) break;
     }
+
     process.stdout.write(`  poll ${attempt}/20\r`);
     await new Promise((r) => setTimeout(r, 1500));
   }
+
   console.log("");
 
   if (!gen) {
     console.log("❌ no tool-call generation observation appeared");
     process.exit(1);
   }
+
   const out = gen.output;
   const calls = isRecord(out) ? out.toolCalls : undefined;
   const ok = Array.isArray(calls) && calls.length > 0 && typeof calls[0]?.toolName === "string";

@@ -73,6 +73,7 @@ export interface SearchHit {
 
 export async function search(args: SearchArgs): Promise<SearchHit[]> {
   const limit = args.limit ?? 10;
+
   const queryVec =
     args.queryEmbedding ??
     (await embed(args.query, {
@@ -80,6 +81,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       userId: args.userId,
       idempotencyKey: `search:${args.userId}:${hashQuery(args.query)}`,
     }));
+
   assertQueryEmbedding(queryVec);
   // Match the DB vector adapter: pgvector stores float32, so avoid
   // sending float64-precision text for query literals too.
@@ -89,6 +91,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(chunks.userId, args.userId), isNotNull(chunks.embedding)];
+
   if (args.source) filters.push(eq(documents.source, args.source));
 
   // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
@@ -155,13 +158,19 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       similarity: 1 - Number(r.distance),
       authoredAt: r.authoredAt,
     };
+
     const kind = getStringPath(r.documentMetadata, "kind");
+
     if (kind) hit.kind = kind;
+
     if (r.url) hit.url = r.url;
+
     if (r.source === "gmail_attachment") {
       const occurrences = parseAttachmentContentReferences(r.documentMetadata);
+
       if (occurrences.length > 0) hit.occurrences = occurrences;
     }
+
     return hit;
   });
 }
@@ -169,7 +178,9 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
 function hashQuery(q: string): string {
   // Stable enough for idempotency keys; doesn't need to be cryptographic.
   let h = 0;
+
   for (let i = 0; i < q.length; i++) h = ((h << 5) - h + q.charCodeAt(i)) | 0;
+
   return Math.abs(h).toString(36);
 }
 

@@ -27,6 +27,7 @@ export function ArtifactCard({ artifact, index }: { artifact: SyncedArtifact; in
   const Icon = tint.icon;
   const firstPage = artifact.content?.kind === "pages" ? artifact.content.pages[0] : undefined;
   const markdown = artifact.content?.kind === "document" ? artifact.content.markdown : "";
+
   return (
     <Link
       to="/library/$artifact"

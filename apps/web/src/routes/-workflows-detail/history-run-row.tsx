@@ -39,7 +39,9 @@ function headlineIcon(headline: RunHeadline, status: WorkflowRunHistoryRow["stat
   if (status === "running" || status === "pending" || status === "runnable") {
     return <LoaderCircle size={16} className="animate-spin" />;
   }
+
   if (status === "waiting" || status === "deferred") return <Clock size={16} />;
+
   switch (headline.tone) {
     case "green":
       return <CheckCircle2 size={16} />;

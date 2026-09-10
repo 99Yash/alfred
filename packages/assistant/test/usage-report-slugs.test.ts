@@ -32,6 +32,7 @@ describe("SLUG_CATEGORY drift guard", () => {
     ["skill (documentation)", SKILL_DOCUMENTATION_WORKFLOW_SLUG],
     ["sub_agent", SUB_AGENT_WORKFLOW_SLUG],
   ];
+
   for (const [name, slug] of CONSTANT_SLUGS) {
     test(`recognizes the live ${name} slug (${slug})`, () => {
       assert.ok(

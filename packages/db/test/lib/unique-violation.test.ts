@@ -66,6 +66,7 @@ describe("uniqueViolationConstraint", () => {
       name: "DrizzleQueryError",
       cause: { name: "DatabaseError", code: "23505", constraint: "agent_runs_dedup_key_idx" },
     };
+
     assert.equal(uniqueViolationConstraint(wrapped), "agent_runs_dedup_key_idx");
   });
 

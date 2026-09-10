@@ -12,4 +12,5 @@ import { INBOUND_EVENT_SOURCES } from "./event-triggers";
 export const DOCUMENT_SOURCES = ["gmail", "gmail_attachment", ...INBOUND_EVENT_SOURCES] as const;
 
 export const documentSourceSchema = z.enum(DOCUMENT_SOURCES);
+
 export type DocumentSource = z.infer<typeof documentSourceSchema>;

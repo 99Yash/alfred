@@ -29,13 +29,17 @@ export async function recordReplyDraftDecision(args: {
     .from(agentRuns)
     .where(eq(agentRuns.id, args.runId))
     .limit(1);
+
   const run = runRows[0];
+
   if (!run) throw new Error(`[reply-drafting] decision trace run not found: ${args.runId}`);
+
   if (run.userId !== args.userId) {
     throw new Error(
       `[reply-drafting] decision trace run mismatch for run=${args.runId} user=${args.userId}`,
     );
   }
+
   await db()
     .insert(agentDecisionTraces)
     .values({

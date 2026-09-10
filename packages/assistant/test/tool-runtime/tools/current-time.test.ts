@@ -5,8 +5,11 @@ import { parseIanaTimezone } from "@alfred/contracts";
 import { currentTimeSnapshot } from "../../../src/tool-runtime/internal/tools/system";
 
 const UTC = parseIanaTimezone("UTC");
+
 const KOLKATA = parseIanaTimezone("Asia/Kolkata");
+
 const LOS_ANGELES = parseIanaTimezone("America/Los_Angeles");
+
 const NEW_YORK = parseIanaTimezone("America/New_York");
 
 describe("currentTimeSnapshot", () => {

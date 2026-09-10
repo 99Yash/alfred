@@ -26,6 +26,7 @@ export function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
       </span>
     );
   }
+
   // ring matches the page background so overlapping coins read as a clean stack
   // rather than a smudge.
   return (

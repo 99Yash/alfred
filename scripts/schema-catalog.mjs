@@ -59,52 +59,69 @@ function normalizeBody(body) {
 function balancedBraces(text, openIndex) {
   let depth = 0;
   let i = openIndex;
+
   while (i < text.length) {
     const ch = text[i];
+
     if (ch === "'" || ch === '"' || ch === "`") {
       i = skipString(text, i);
       continue;
     }
+
     if (ch === "/" && text[i + 1] === "/") {
       i = text.indexOf("\n", i);
+
       if (i === -1) break;
       continue;
     }
+
     if (ch === "/" && text[i + 1] === "*") {
       const end = text.indexOf("*/", i + 2);
+
       if (end === -1) break;
       i = end + 2;
       continue;
     }
+
     if (ch === "{") depth += 1;
+
     if (ch === "}") {
       depth -= 1;
+
       if (depth === 0) return i;
     }
+
     i += 1;
   }
+
   return null;
 }
 
 function skipString(text, start) {
   const quote = text[start];
   let i = start + 1;
+
   while (i < text.length) {
     if (text[i] === "\\") {
       i += 2;
       continue;
     }
+
     if (text[i] === quote) return i + 1;
+
     // A template literal may interpolate; treat ${ ... } as opaque by jumping
     // to its closing brace - nesting inside stays out of scope on purpose.
     if (quote === "`" && text[i] === "$" && text[i + 1] === "{") {
       const close = text.indexOf("}", i);
+
       if (close === -1) return text.length;
       i = close + 1;
       continue;
     }
+
     i += 1;
   }
+
   return text.length;
 }
 
@@ -120,8 +137,10 @@ export function scanFile(source) {
   // Compositions resolve against bases found above (same pass list, so a base
   // declared later in the file still counts once both passes have run).
   const bases = known();
+
   for (const [, name, base] of source.matchAll(COMPOSE_DEF)) {
     const isSchemaBase = bases.has(base) || /Schema$/.test(base);
+
     if (!isSchemaBase) continue;
     found.push({
       name,
@@ -135,11 +154,13 @@ export function scanFile(source) {
   for (const entry of found) {
     entry.signature = objectSignature(source, entry.name);
   }
+
   return found;
 }
 
 function isExported(source, name) {
   const re = new RegExp(`export[ \\t\\n]+(?:const|let|var)[ \\t]+${name}\\b`);
+
   return re.test(source);
 }
 
@@ -151,13 +172,18 @@ function objectSignature(source, name) {
   const decl = new RegExp(
     `(?:export[ \\t\\n]+)?(?:const|let|var)[ \\t]+${name}\\b[^=]*=[ \\t\\n]*z\\.object\\(`,
   );
+
   const match = decl.exec(source);
+
   if (!match) return null;
   const open = source.indexOf("{", match.index + match[0].length - 1);
+
   if (open === -1) return null;
   const close = balancedBraces(source, open);
+
   if (close === null) return null;
   const body = normalizeBody(source.slice(open + 1, close));
+
   return body.length > 0 ? body : null;
 }
 
@@ -165,19 +191,23 @@ function objectSignature(source, name) {
 export function scanRepo(cwd = process.cwd()) {
   const files = listGitSourceFiles(SCAN_PATTERNS, cwd);
   const results = [];
+
   for (const file of files) {
     const source = readFileSync(file, "utf8");
     const defs = scanFile(source);
+
     if (defs.length === 0) continue;
     const pkg = file.split("/")[1];
     results.push({ pkg, file, defs });
   }
+
   return results;
 }
 
 /** Group signatures shared by two or more distinct names. */
 export function findDupes(repoScan) {
   const bySignature = new Map();
+
   for (const { pkg, file, defs } of repoScan) {
     for (const def of defs) {
       if (!def.signature) continue;
@@ -187,6 +217,7 @@ export function findDupes(repoScan) {
       bySignature.set(key, list);
     }
   }
+
   return [...bySignature.entries()]
     .filter(([, list]) => list.length >= 2)
     .sort((a, b) => b[1].length - a[1].length);
@@ -194,38 +225,49 @@ export function findDupes(repoScan) {
 
 function printCatalog(repoScan, pkgFilter) {
   const packages = new Map();
+
   for (const { pkg, file, defs } of repoScan) {
     if (pkgFilter && pkg !== pkgFilter) continue;
     const files = packages.get(pkg) ?? [];
     files.push([file, defs]);
     packages.set(pkg, files);
   }
+
   if (packages.size === 0) {
     console.log(`no schemas found${pkgFilter ? ` in package '${pkgFilter}'` : ""}.`);
+
     return;
   }
+
   let total = 0;
+
   for (const [pkg, files] of [...packages].sort()) {
     const count = files.reduce((sum, [, defs]) => sum + defs.length, 0);
     total += count;
     console.log(`\n@alfred/${pkg}  (${count})`);
+
     for (const [file, defs] of files.sort((a, b) => b[1].length - a[1].length)) {
       console.log(`  ${file}`);
+
       for (const def of defs.sort((a, b) => a.name.localeCompare(b.name))) {
         const mark = def.exported ? "" : "(local)";
         console.log(`    ${mark.padEnd(7)}${def.name}`);
       }
     }
   }
+
   console.log(`\ntotal: ${total} schema binding(s)`);
 }
 
 function printDupes(dupes) {
   if (dupes.length === 0) {
     console.log("no identical object shapes under different names.");
+
     return;
   }
+
   console.log(`${dupes.length} duplicated shape group(s):\n`);
+
   for (const [signature, sites] of dupes) {
     console.log(sites.map((site) => `  ${site}`).join("\n"));
     console.log(`  shape: ${signature.slice(0, 140)}${signature.length > 140 ? "..." : ""}\n`);
@@ -234,14 +276,19 @@ function printDupes(dupes) {
 
 function main() {
   const args = process.argv.slice(2);
+
   if (args.includes("--selftest")) {
     const failures = schemaCatalogSelfTestFailures();
+
     if (failures.length > 0) {
       console.error("schema-catalog self-test failed:\n");
+
       for (const failure of failures) console.error(`  ${failure}`);
       process.exit(1);
     }
+
     console.log("schema-catalog: self-test ok.");
+
     return;
   }
 
@@ -252,6 +299,7 @@ function main() {
 
   if (args.includes("--dupes")) {
     printDupes(findDupes(repoScan));
+
     return;
   }
 

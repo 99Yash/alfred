@@ -27,6 +27,7 @@
  * compaction it drives in `chat/idle-capture-queue.ts`.
  */
 export { requireEntityIdNamespace } from "./namespace";
+
 export {
   appendObservationFamilyMember,
   insertObservation,
@@ -34,13 +35,16 @@ export {
   type AppendObservationFamilyMemberResult,
   type InsertObservationResult,
 } from "./observations";
+
 export {
   reduceGmailDocument,
   type GmailDocumentForReduction,
   type GmailReductionIssue,
   type GmailReductionResult,
 } from "./gmail-reducer";
+
 export { projectGmailKindProfiles, type ProjectGmailKindProfilesResult } from "./gmail-kind-fold";
+
 export {
   globalReferentIdentity,
   referentKeyForEmail,
@@ -53,6 +57,7 @@ export {
   type ReferentThreadingHeaders,
   type SenderScopedReferentKey,
 } from "./referent-identity";
+
 export {
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
@@ -67,7 +72,9 @@ export {
   type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
 } from "./affiliation";
+
 export { ensureEntityNode, recordEntityIdentity, EntityIdentityConflictError } from "./entities";
+
 export {
   activateProjectionVersion,
   completeProjectionRun,
@@ -75,8 +82,11 @@ export {
   startProjectionRun,
   writeProjectionCursor,
 } from "./projection";
+
 export { userModelReader, type ActiveEntityProfile } from "./reader";
+
 export { refoldActiveGmailKindProjection } from "./refold";
+
 export * from "./extractor";
 
 /**
@@ -155,8 +165,10 @@ export {
   type FactRow,
   type ProposeFactArgs,
 } from "./facts";
+
 // recall (chunks) + the cold-start write door.
 export { recallMemory, writeMemoryChunk, type RecallMemoryHit } from "./chunks";
+
 // contextFor.
 export { readUserContext, type UserContext } from "./user-context";
 
@@ -165,14 +177,18 @@ export { readUserContext, type UserContext } from "./user-context";
 // sanctioned observe/recall/contextFor/applyCorrection set, but genuinely
 // cross-module — curated here rather than left as a wholesale `export *`.
 export { valueSignature } from "./signature";
+
 export { isSingleValuedKey, isUninformativeRelationshipFact } from "./fact-policy";
+
 export {
   getSenderSignificance,
   getSenderSignificanceBatch,
   findPersonMetadataByAddress,
   type SenderSignificance,
 } from "./significance";
+
 export { type Significance } from "./entity-metadata";
+
 export {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -191,6 +207,7 @@ export {
 
 // Worker lifecycle — names preserved so `runtime.ts` re-exports resolve unchanged.
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";
+
 export { scheduleRepeatableMemoryJobs } from "./repeatable";
 
 // Product recipe owned by the knowledge module; the composition root builds it
@@ -208,5 +225,7 @@ export { buildMemoryExtractionWorkflow } from "./memory-extraction";
  * search) moves in alongside its now-primary consumer, cold-start research.
  */
 export * from "./cold-start";
+
 export * from "./drift-audit";
+
 export { runWebSearch, type WebSearchArgs, type WebSearchResult } from "./web-search";

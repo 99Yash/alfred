@@ -61,10 +61,12 @@ export async function authedJson(
 ): Promise<unknown> {
   const send = () => authedFetch(profile, request);
   const eligible = options.idempotent === true || isRetrySafeMethod(request.method);
+
   const res =
     options.retry && options.retry !== "none" && eligible
       ? await fetchWithRetry(send, { policy: options.retry })
       : await send();
+
   if (!res.ok) {
     return throwUpstreamError({
       provider: options.provider,
@@ -74,6 +76,8 @@ export async function authedJson(
       bodyPolicy: options.bodyPolicy,
     });
   }
+
   const text = await res.text();
+
   return text ? JSON.parse(text) : {};
 }

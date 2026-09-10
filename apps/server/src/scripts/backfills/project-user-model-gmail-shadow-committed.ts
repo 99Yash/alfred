@@ -47,18 +47,23 @@ import {
 import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+
 const ACTIVATE = process.argv.includes("--activate");
+
 const ALL_CONNECTED = process.argv.includes("--all-connected");
 
 function flagValue(name: string): string | undefined {
   const prefix = `--${name}=`;
   const found = process.argv.find((a) => a.startsWith(prefix));
+
   return found ? found.slice(prefix.length) : undefined;
 }
 
 function parseEmails(): string[] {
   const raw = flagValue("emails");
+
   if (!raw) return [];
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -67,11 +72,14 @@ function parseEmails(): string[] {
 
 function parseProjectionVersion(): number {
   const raw = flagValue("projection-version");
+
   if (!raw) throw new Error("--projection-version=N is required");
   const version = Number.parseInt(raw, 10);
+
   if (!Number.isFinite(version) || version <= 0) {
     throw new Error(`--projection-version must be a positive integer, got: ${raw}`);
   }
+
   return version;
 }
 
@@ -140,13 +148,17 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
     );
 
   const accountEmailsByUser = new Map<string, Set<string>>();
+
   for (const row of baseRows) {
     accountEmailsByUser.set(row.userId, new Set(canonicalEmailList([row.email])));
   }
+
   for (const credential of credentials) {
     const email = canonicalEmail(credential.accountLabel);
+
     if (!email) continue;
     const values = accountEmailsByUser.get(credential.userId);
+
     if (values) values.add(email);
   }
 
@@ -160,19 +172,24 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
 async function gmailHighWatermark(userId: string): Promise<ProjectionSourceHighWatermark> {
   return db().transaction(async (tx) => {
     const capturedAtResult = await tx.execute(sql`select now() as "capturedAt"`);
+
     const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(capturedAtResult)[0]
       ?.capturedAt;
+
     const capturedAt =
       rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
+
     if (Number.isNaN(capturedAt.getTime())) {
       throw new Error("failed to capture DB timestamp for Gmail watermark");
     }
+
     const baseWhere = and(
       eq(observations.userId, userId),
       eq(observations.source, "gmail"),
       eq(observations.kind, "email_message"),
       lte(observations.createdAt, capturedAt),
     );
+
     const activeHeadJoin = and(
       eq(observationFamilyHeads.userId, observations.userId),
       eq(observationFamilyHeads.familyKey, observations.familyKey),
@@ -189,6 +206,7 @@ async function gmailHighWatermark(userId: string): Promise<ProjectionSourceHighW
       .where(baseWhere)
       .orderBy(desc(observations.occurredAt), desc(observations.id))
       .limit(1);
+
     if (!eventRow) return {};
 
     return {
@@ -220,6 +238,7 @@ async function activeObservationCount(userId: string): Promise<number> {
         eq(observations.kind, "email_message"),
       ),
     );
+
   return row?.count ?? 0;
 }
 
@@ -241,6 +260,7 @@ async function runAttempt(args: {
         },
         tx,
       );
+
       if (started.reused) {
         await tx
           .delete(entityProfiles)
@@ -262,6 +282,7 @@ async function runAttempt(args: {
         },
         tx,
       );
+
       if (
         args.expected &&
         (projected.checksum !== args.expected.checksum ||
@@ -273,6 +294,7 @@ async function runAttempt(args: {
             `commit=${projected.checksum}/${projected.profileCount}`,
         );
       }
+
       if (args.sourceHighWatermark.gmail) {
         await writeProjectionCursor(
           {
@@ -286,6 +308,7 @@ async function runAttempt(args: {
           tx,
         );
       }
+
       await completeProjectionRun(
         {
           runId: started.run.id,
@@ -305,11 +328,14 @@ async function runAttempt(args: {
         checksum: projected.checksum,
         sourceHighWatermark: args.sourceHighWatermark,
       };
+
       if (!args.commit) throw new DryRunRollback(result);
+
       return result;
     });
 
   if (args.commit) return runBody();
+
   try {
     return await runBody();
   } catch (err) {
@@ -325,6 +351,7 @@ async function validateDeterminism(args: {
 }): Promise<AttemptResult> {
   const first = await runAttempt({ ...args, commit: false });
   const second = await runAttempt({ ...args, commit: false });
+
   if (first.checksum !== second.checksum || first.profileCount !== second.profileCount) {
     throw new Error(
       `determinism check failed for ${args.target.email}: ` +
@@ -332,12 +359,14 @@ async function validateDeterminism(args: {
         `second=${second.checksum}/${second.profileCount}`,
     );
   }
+
   return first;
 }
 
 function canonicalEmailList(values: readonly string[]): string[] {
   return values.flatMap((value) => {
     const email = canonicalEmail(value);
+
     return email ? [email] : [];
   });
 }
@@ -346,6 +375,7 @@ function canonicalEmail(value: string | null): string | null {
   if (!value) return null;
   const canonical = canonicalizeIdentityValue("email", value);
   const parsed = identityRefSchema.safeParse({ kind: "email", value: canonical });
+
   return parsed.success ? parsed.data.value : null;
 }
 
@@ -372,6 +402,7 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
     commit: true,
     expected: dry,
   });
+
   console.log(
     `  COMMITTED — run=${committed.runId} reused=${committed.reusedRun} ` +
       `profiles=${committed.profileCount} checksum=${committed.checksum}`,
@@ -388,15 +419,19 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
 
 async function main() {
   const emails = parseEmails();
+
   if (!ALL_CONNECTED && emails.length === 0) {
     throw new Error("specify --emails=a@x.com,b@y.com or --all-connected");
   }
+
   if (ALL_CONNECTED && emails.length > 0) {
     throw new Error("--emails and --all-connected are mutually exclusive");
   }
+
   if (ACTIVATE && !COMMIT) {
     throw new Error("--activate requires --commit");
   }
+
   const projectionVersion = parseProjectionVersion();
 
   requireEntityIdNamespace();
@@ -408,20 +443,25 @@ async function main() {
   );
 
   const targets = await resolveTargets(emails);
+
   if (!ALL_CONNECTED) {
     const found = new Set(targets.map((target) => target.email));
+
     for (const email of emails) {
       if (!found.has(email)) console.log(`! no user row for ${email}`);
     }
   }
+
   if (targets.length === 0) {
     console.log("no targets matched — nothing to do");
+
     return;
   }
 
   for (const target of targets) {
     await processTarget(target, projectionVersion);
   }
+
   console.log(COMMIT ? "\n# done" : "\n# DRY — re-run with --commit to persist");
 }
 

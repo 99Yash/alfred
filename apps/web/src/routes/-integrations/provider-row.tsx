@@ -7,6 +7,7 @@ import { ProviderTile } from "./provider-tile";
 
 export function ProviderRow({ provider, index }: { provider: IntegrationPage; index: number }) {
   const isSoon = provider.status === "soon";
+
   const content = (
     <>
       <ProviderTile brand={provider.brand} connected={provider.status === "connected"} />

@@ -16,6 +16,7 @@ import { type HTMLAttributes } from "react";
 import { cn } from "~/lib/utils";
 
 type StatusTone = "emerald" | "amber" | "red" | "muted";
+
 type StatusSize = "sm" | "md";
 
 interface StatusDotProps extends HTMLAttributes<HTMLSpanElement> {

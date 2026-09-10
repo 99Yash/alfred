@@ -74,8 +74,10 @@ interface Draft {
 
 function draftFromWorkflow(w: SyncedWorkflow): Draft {
   const t = w.trigger;
+
   const eventSource: AuthorableEventSource =
     t.kind === "event" && isAuthorableEventSource(t.source) ? t.source : "gmail";
+
   return {
     name: w.name,
     brief: w.brief ?? "",
@@ -96,12 +98,14 @@ function draftFromWorkflow(w: SyncedWorkflow): Draft {
 function buildTrigger(draft: Draft): WorkflowUpdateArgs["trigger"] {
   if (draft.kind === "cron") {
     const timezone = draft.cronTimezone.trim();
+
     return {
       kind: "cron",
       schedule: draft.cronSchedule.trim(),
       ...(timezone ? { timezone } : {}),
     };
   }
+
   if (draft.kind === "event") {
     if (isRawAuthorableEventSource(draft.eventSource)) {
       return {
@@ -111,14 +115,17 @@ function buildTrigger(draft: Draft): WorkflowUpdateArgs["trigger"] {
         rawKind: draft.eventRawKind,
       };
     }
+
     return { kind: "event", source: draft.eventSource, type: draft.eventType };
   }
+
   return { kind: "manual" };
 }
 
 function sameAllowed(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
+
   return b.every((s) => set.has(s));
 }
 
@@ -140,17 +147,21 @@ export function PlanTab({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const eventTypes = typedEventTypes(draft.eventSource);
+
   // The raw inventory is the option list for a raw-authorable source. The hook
   // call stays unconditional; `null` disables the query for Gmail and non-event kinds.
   const rawSource =
     draft.kind === "event" && isRawAuthorableEventSource(draft.eventSource)
       ? draft.eventSource
       : null;
+
   const rawKinds = useRawReceiptKinds(rawSource);
+
   const rawKindOptions = useMemo(
     () => (rawKinds.data?.kinds ?? []).map((entry) => ({ value: entry.kind, label: entry.kind })),
     [rawKinds.data],
   );
+
   const rawInventoryEmpty = rawSource !== null && rawKinds.isSuccess && rawKindOptions.length === 0;
   const rawKindMissing = rawSource !== null && draft.eventRawKind === "";
 
@@ -162,18 +173,23 @@ export function PlanTab({
     !draft.allowed.includes(draft.eventSource);
 
   const cronEmpty = draft.kind === "cron" && draft.cronSchedule.trim() === "";
+
   const cronInvalid =
     draft.kind === "cron" && !cronEmpty && !isLikelyValidWorkflowCron(draft.cronSchedule);
+
   const timezoneInvalid =
     draft.kind === "cron" &&
     draft.cronTimezone.trim() !== "" &&
     !isIanaTimezone(draft.cronTimezone.trim());
+
   const nameEmpty = draft.name.trim() === "";
+
   const invalid =
     nameEmpty || cronEmpty || cronInvalid || timezoneInvalid || eventCapViolation || rawKindMissing;
 
   const dirty = useMemo(() => {
     const original = draftFromWorkflow(workflow);
+
     return (
       draft.name !== original.name ||
       draft.brief !== original.brief ||
@@ -200,6 +216,7 @@ export function PlanTab({
     if (readOnly || invalid || !dirty || saving) return;
     setSaving(true);
     setSaveError(null);
+
     try {
       await onSave({
         name: draft.name.trim(),
@@ -386,6 +403,7 @@ export function PlanTab({
             <div className="mt-3 flex flex-wrap gap-2">
               {LOADABLE_INTEGRATION_SLUGS.map((slug) => {
                 const selected = draft.allowed.includes(slug);
+
                 return (
                   <AppPill
                     key={slug}

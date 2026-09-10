@@ -93,6 +93,7 @@ function resolveArtifactContext(
       },
     };
   }
+
   return {
     ok: true,
     ctx: {
@@ -142,7 +143,9 @@ export const systemTools: readonly RegisteredTool[] = [
         queryChars: input.query.length,
         startedAt: new Date(),
       });
+
       const startMs = Date.now();
+
       try {
         const candidates = await searchAvailableTools({
           userId: ctx.userId,
@@ -151,10 +154,12 @@ export const systemTools: readonly RegisteredTool[] = [
           allowedIntegrations: ctx.allowedIntegrations ?? [],
           context: ctx.runContext,
         });
+
         span.end({
           candidateNames: candidates.map((candidate) => candidate.name),
           latencyMs: Date.now() - startMs,
         });
+
         return { ok: true, candidates };
       } catch (error) {
         span.error();
@@ -187,7 +192,9 @@ export const systemTools: readonly RegisteredTool[] = [
         source: "model_load",
         startedAt: new Date(),
       });
+
       const startMs = Date.now();
+
       try {
         const result = await resolveExactToolLoad({
           userId: ctx.userId,
@@ -195,10 +202,12 @@ export const systemTools: readonly RegisteredTool[] = [
           allowedIntegrations: ctx.allowedIntegrations ?? [],
           context: ctx.runContext,
         });
+
         span.end({
           outcome: result.ok ? "ok" : result.status,
           latencyMs: Date.now() - startMs,
         });
+
         return result;
       } catch (error) {
         span.error();
@@ -321,6 +330,7 @@ export const systemTools: readonly RegisteredTool[] = [
           reason: "Conversation history is available only inside the current chat thread.",
         };
       }
+
       return readChatHistory({ userId: ctx.userId, threadId: ctx.threadId, input });
     },
   }),
@@ -337,6 +347,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
       const requestedAllowed = input.allowedIntegrations;
+
       if (
         workflowAllowed.length > 0 &&
         requestedAllowed.some((slug) => !workflowAllowed.includes(slug))
@@ -427,6 +438,7 @@ export const systemTools: readonly RegisteredTool[] = [
             "The user resumed the turn without answering. Continue on a reasonable assumption and state it in one sentence.",
         };
       }
+
       return { status: "answered", questions: input.questions, answers: input.answers };
     },
   }),
@@ -464,6 +476,7 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: readScratchInput,
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
+
       const entry =
         target.zone === "shared"
           ? await readScratch({ runId: ctx.scratchpadRunId, zone: "shared", path: target.path })
@@ -475,6 +488,7 @@ export const systemTools: readonly RegisteredTool[] = [
             });
 
       if (!entry) return { ok: true, key: input.key, found: false };
+
       return { ok: true, key: input.key, found: true, entry };
     },
   }),
@@ -491,6 +505,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
       const writtenBy = ctx.caller === "boss" ? "boss" : ctx.caller.subId;
+
       if (target.zone === "shared") {
         await writeScratch({
           runId: ctx.scratchpadRunId,
@@ -509,6 +524,7 @@ export const systemTools: readonly RegisteredTool[] = [
           writtenBy,
         });
       }
+
       return { ok: true, key: input.key, writtenBy };
     },
   }),
@@ -525,6 +541,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const from = parseScratchToolKey(input.fromKey);
       const to = parseScratchToolKey(input.toKey);
+
       if (from.zone !== "scratch" || to.zone !== "shared") {
         throw new AppError("tool_input_invalid");
       }
@@ -535,7 +552,9 @@ export const systemTools: readonly RegisteredTool[] = [
         fromPath: from.path,
         toSharedPath: to.path,
       });
+
       if (!entry) return { ok: true, promoted: false, fromKey: input.fromKey, toKey: input.toKey };
+
       return { ok: true, promoted: true, fromKey: input.fromKey, toKey: input.toKey, entry };
     },
   }),
@@ -724,7 +743,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: createArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await createArtifact(resolved.ctx, input);
     },
   }),
@@ -739,7 +760,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: appendArtifactPageInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await appendArtifactPage(resolved.ctx, input);
     },
   }),
@@ -754,7 +777,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: appendArtifactSectionInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await appendArtifactSection(resolved.ctx, input);
     },
   }),
@@ -769,7 +794,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: updateArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await updateArtifact(resolved.ctx, input);
     },
   }),

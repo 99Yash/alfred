@@ -61,6 +61,7 @@ export function isPreDeliveryErrorCode(code: McpClientErrorCode): boolean {
 
 /** Cap on error text persisted to an MCP row (connection `lastError`, ledger row). */
 const MAX_MCP_ERROR_CHARS = 500;
+
 /** How many `Error.cause` links the durable text keeps. */
 const MAX_MCP_ERROR_CAUSES = 3;
 
@@ -74,13 +75,16 @@ const MAX_MCP_ERROR_CAUSES = 3;
  */
 function causeChainText(err: unknown): string {
   const hosted = hostedEndpointErrorFrom(err);
+
   if (hosted) return hosted.message;
   const parts = [toMessage(err)];
   let cause: unknown = err instanceof Error ? err.cause : undefined;
+
   for (let depth = 0; depth < MAX_MCP_ERROR_CAUSES && cause !== undefined; depth += 1) {
     parts.push(toMessage(cause));
     cause = cause instanceof Error ? cause.cause : undefined;
   }
+
   return parts.join(": ");
 }
 
@@ -126,6 +130,7 @@ export class McpClientError extends Error {
     super(message);
     this.name = "McpClientError";
     this.code = code;
+
     if (options?.provenance) this.provenance = options.provenance;
   }
 }

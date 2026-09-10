@@ -118,6 +118,7 @@ describe("classifyEntityKind", () => {
     const referent = classifyEntityKind({
       identity: identity("integration_object_key", "github:pull_request:99yash/alfred#913"),
     });
+
     assert.equal(referent.kind, "referent");
     assert.deepEqual(referent.evidenceCodes, ["identity:integration_object_key:pull_request"]);
 
@@ -127,11 +128,13 @@ describe("classifyEntityKind", () => {
         "alfred:referent:ent_aaaa/baserow-response-time",
       ),
     });
+
     assert.equal(senderScoped.kind, "referent");
 
     const project = classifyEntityKind({
       identity: identity("integration_object_key", "clickup:project:901234"),
     });
+
     assert.equal(project.kind, "project");
   });
 
@@ -180,6 +183,7 @@ function gmailObservation(overrides: {
   readonly autoSubmitted?: string | null;
 }): Observation {
   const sender = emailIdentity("engineering@oliv.ai");
+
   const payload = gmailEmailMessagePayloadSchema.parse({
     provider: "gmail",
     documentId: "doc_1",

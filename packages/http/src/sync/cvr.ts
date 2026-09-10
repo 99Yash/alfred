@@ -13,8 +13,10 @@ const clientViewMapSchema = z.record(z.string(), cvrRowSchema);
 export type ClientViewMap = z.infer<typeof clientViewMapSchema>;
 
 const IDB_KEY_NAME_SET = new Set<string>(IDB_KEY_NAMES);
+
 const idbKeySchema = z.custom<IDBKeys>((value) => {
   const parsed = z.string().safeParse(value);
+
   return parsed.success && IDB_KEY_NAME_SET.has(parsed.data);
 }, "unknown synced entity slug");
 
@@ -50,10 +52,13 @@ export class CVRStore {
 
   async get(clientGroupId: string, version: number): Promise<CVRSnapshot | null> {
     const raw = await this.redis.get(this.key(clientGroupId, version));
+
     if (!raw) return null;
+
     try {
       const input: unknown = JSON.parse(raw);
       const parsed = cvrSnapshotSchema.safeParse(input);
+
       return parsed.success ? parsed.data : null;
     } catch {
       return null;
@@ -75,5 +80,6 @@ let _store: CVRStore | undefined;
 export function getCVRStore(): CVRStore {
   if (_store) return _store;
   _store = new CVRStore(createRedisConnection("command"));
+
   return _store;
 }

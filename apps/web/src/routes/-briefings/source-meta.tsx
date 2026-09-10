@@ -34,8 +34,10 @@ const SOURCE_LUCIDE = {
 /** Vendor brand mark where the source maps to one, else a toned lucide glyph. */
 export function SourceIcon({ source }: { source: GatherSourceSlug }) {
   const brand = SOURCE_BRAND.get(source);
+
   if (brand) return <IntegrationGlyph brand={brand} size={13} />;
   const Icon = SOURCE_LUCIDE[source] ?? Activity;
+
   return <Icon size={12} aria-hidden />;
 }
 
@@ -48,8 +50,11 @@ export function ProviderGlyph({ provider, size = 14 }: { provider: string; size?
   if (!isIntegrationSlug(provider)) {
     return <Activity size={size} aria-hidden className="text-app-fg-2" />;
   }
+
   const brand = brandForIntegration(provider);
+
   if (!brand) return <Activity size={size} aria-hidden className="text-app-fg-2" />;
+
   return (
     <IntegrationGlyph brand={brand} size={size} colorOverride={PROVIDER_COLOR.get(provider)} />
   );

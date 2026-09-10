@@ -82,8 +82,10 @@ export async function refoldActiveGmailKindProjection(
   userId: string,
 ): Promise<RefoldGmailKindProjectionResult> {
   const active = await userModelReader(userId).getActivePointer();
+
   if (!active) {
     console.log(`[user-model.refold] skip user=${userId} reason=no-active-projection`);
+
     return { status: "skipped", reason: "no-active-projection" };
   }
 
@@ -92,10 +94,13 @@ export async function refoldActiveGmailKindProjection(
   const activeGmailWatermark = activeRun?.sourceHighWatermark.gmail ?? null;
 
   const sourceHighWatermark = await gmailProjectionHighWatermark(userId);
+
   if (!sourceHighWatermark.gmail) {
     console.log(`[user-model.refold] skip user=${userId} reason=no-gmail-observations`);
+
     return { status: "skipped", reason: "no-gmail-observations" };
   }
+
   const gmailCursor = sourceHighWatermark.gmail;
 
   requireEntityIdNamespace();
@@ -111,6 +116,7 @@ export async function refoldActiveGmailKindProjection(
         `(active run ${active.activeRunId} missing checksum/watermark/append-snapshot) — ` +
         `re-activate via the script`,
     );
+
     return { status: "blocked", reason: "unverifiable-active-run" };
   }
 
@@ -121,6 +127,7 @@ export async function refoldActiveGmailKindProjection(
     gmailWatermark: activeGmailWatermark,
     excludeEmailValues,
   });
+
   if (recomputedChecksum !== activeChecksum) {
     console.warn(
       `[user-model.refold] BLOCKED user=${userId} reason=logic-drift ` +
@@ -128,6 +135,7 @@ export async function refoldActiveGmailKindProjection(
         `since activation; scheduled auto-activation is disabled until a manual re-validation ` +
         `(see docs/reference/user-model-gmail-projection-activation.md)`,
     );
+
     return { status: "blocked", reason: "logic-drift", activeChecksum, recomputedChecksum };
   }
 
@@ -137,12 +145,14 @@ export async function refoldActiveGmailKindProjection(
   ) {
     // Frozen logic AND no new observations since activation — already current.
     console.log(`[user-model.refold] skip user=${userId} reason=up-to-date`);
+
     return { status: "skipped", reason: "up-to-date" };
   }
 
   // Frozen logic + new observations: fold the advanced prefix into a fresh
   // version and activate it.
   const projectionVersion = active.activeVersion + 1;
+
   const completed = await db().transaction(async (tx) => {
     const started = await startProjectionRun(
       {
@@ -153,6 +163,7 @@ export async function refoldActiveGmailKindProjection(
       },
       tx,
     );
+
     if (started.reused) {
       await tx
         .delete(entityProfiles)
@@ -174,6 +185,7 @@ export async function refoldActiveGmailKindProjection(
       },
       tx,
     );
+
     await writeProjectionCursor(
       {
         userId,
@@ -196,6 +208,7 @@ export async function refoldActiveGmailKindProjection(
       },
       tx,
     );
+
     return { runId: started.run.id, ...projected };
   });
 
@@ -208,6 +221,7 @@ export async function refoldActiveGmailKindProjection(
     `[user-model.refold] ACTIVATED user=${userId} version=${projectionVersion} ` +
       `profiles=${completed.profileCount} checksum=${completed.checksum}`,
   );
+
   return {
     status: "activated",
     projectionVersion,
@@ -249,12 +263,14 @@ async function recomputeChecksumAtWatermark(args: {
         },
         tx,
       );
+
       throw new RefoldChecksumProbe(projected.checksum);
     });
   } catch (err) {
     if (err instanceof RefoldChecksumProbe) return err.checksum;
     throw err;
   }
+
   throw new Error("[user-model.refold] checksum probe did not roll back");
 }
 
@@ -264,6 +280,7 @@ async function loadProjectionRun(userId: string, runId: string): Promise<Project
     .from(projectionRuns)
     .where(and(eq(projectionRuns.id, runId), eq(projectionRuns.userId, userId)))
     .limit(1);
+
   return row ?? null;
 }
 
@@ -272,12 +289,14 @@ async function gmailProjectionHighWatermark(
 ): Promise<ProjectionSourceHighWatermark> {
   return db().transaction(async (tx) => {
     const capturedAt = await dbNow(tx);
+
     const baseWhere = and(
       eq(observations.userId, userId),
       eq(observations.source, "gmail"),
       eq(observations.kind, "email_message"),
       lte(observations.createdAt, capturedAt),
     );
+
     const [eventRow] = await tx
       .select({ id: observations.id, occurredAt: observations.occurredAt })
       .from(observations)
@@ -285,6 +304,7 @@ async function gmailProjectionHighWatermark(
       .where(baseWhere)
       .orderBy(desc(observations.occurredAt), desc(observations.id))
       .limit(1);
+
     if (!eventRow) return {};
 
     return {
@@ -301,9 +321,11 @@ async function dbNow(tx: DbTransaction): Promise<Date> {
   const result = await tx.execute(sql`select now() as "capturedAt"`);
   const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(result)[0]?.capturedAt;
   const capturedAt = rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
+
   if (Number.isNaN(capturedAt.getTime())) {
     throw new Error("[user-model.refold] failed to capture DB timestamp");
   }
+
   return capturedAt;
 }
 
@@ -313,6 +335,7 @@ async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> 
     .from(userTable)
     .where(eq(userTable.id, userId))
     .limit(1);
+
   const credentials = await db()
     .select({ accountLabel: integrationCredentials.accountLabel })
     .from(integrationCredentials)
@@ -323,6 +346,7 @@ async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> 
         eq(integrationCredentials.status, "active"),
       ),
     );
+
   return canonicalEmailList([
     userRow?.email ?? null,
     ...credentials.map((credential) => credential.accountLabel),
@@ -331,10 +355,13 @@ async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> 
 
 function canonicalEmailList(values: readonly (string | null)[]): string[] {
   const out = new Set<string>();
+
   for (const value of values) {
     const email = canonicalEmail(value);
+
     if (email) out.add(email);
   }
+
   return [...out].sort();
 }
 
@@ -342,6 +369,7 @@ function canonicalEmail(value: string | null): string | null {
   if (!value) return null;
   const canonical = canonicalizeIdentityValue("email", value);
   const parsed = identityRefSchema.safeParse({ kind: "email", value: canonical });
+
   return parsed.success ? parsed.data.value : null;
 }
 
@@ -355,8 +383,10 @@ function sameGmailEventWatermark(a: ProjectionCursorValue, b: ProjectionCursorVa
 
 function gmailAppendSnapshotCapturedAt(cursor: ProjectionCursorValue): Date | null {
   const capturedAt = getStringPath(cursor.sourceCursor, "appendSnapshot", "capturedAt");
+
   if (capturedAt === undefined) return null;
   const parsed = new Date(capturedAt);
+
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -365,7 +395,9 @@ async function hasGmailObservationsAfterAppendSnapshot(
   cursor: ProjectionCursorValue,
 ): Promise<boolean> {
   const capturedAt = gmailAppendSnapshotCapturedAt(cursor);
+
   if (!capturedAt) return true;
+
   const [row] = await db()
     .select({ id: observations.id })
     .from(observations)
@@ -379,5 +411,6 @@ async function hasGmailObservationsAfterAppendSnapshot(
       ),
     )
     .limit(1);
+
   return Boolean(row);
 }

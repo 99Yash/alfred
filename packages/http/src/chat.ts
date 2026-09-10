@@ -63,10 +63,14 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               "Voice transcription isn't configured — set the Cloudflare AI gateway or OPENAI_API_KEY on the server.",
             );
           }
+
           const audio = new Uint8Array(await body.audio.arrayBuffer());
+
           if (audio.byteLength === 0) throw Errors.BadRequestError("audio must not be empty");
+
           try {
             const { text } = await transcribeAudio(audio);
+
             return { text: text.trim() };
           } catch (err) {
             // Provider faults (bad audio container, clip too short, OpenAI
@@ -104,6 +108,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         "/attachments/upload",
         async ({ body, user }) => {
           const file = body.file;
+
           return await uploadChatAttachment({
             userId: user.id,
             threadId: body.threadId,
@@ -139,6 +144,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           set.headers["Location"] = await resolveChatAttachmentContentUrl(params.id, user.id);
           set.status = 302;
           set.headers["Cache-Control"] = "private, max-age=300";
+
           return null;
         },
         { params: t.Object({ id: t.String({ minLength: 1, maxLength: 100 }) }) },

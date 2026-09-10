@@ -4,6 +4,7 @@
 // (ADR-0050); `resolve` owns the dismiss-by-sender/thread reaction that the
 // suppression coordinator and the `resolve_todo` tool drive.
 export { suggestTodo, type SuggestTodoInput, type SuggestTodoResult } from "./suggest";
+
 export {
   resolveTodosForGmailSender,
   type ResolveTodosForGmailSenderArgs,

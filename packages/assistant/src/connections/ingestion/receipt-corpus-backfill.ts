@@ -32,6 +32,7 @@ export async function backfillReceiptDocuments(source: InboundEventSource): Prom
   for (const { receipt, accountId } of rows) {
     const kind =
       receipt.rawKind ?? parseEventTypeName(source, receipt.eventType) ?? receipt.eventType;
+
     try {
       const timezone = await resolveTimezone(receipt.userId);
       await db().transaction((tx) =>

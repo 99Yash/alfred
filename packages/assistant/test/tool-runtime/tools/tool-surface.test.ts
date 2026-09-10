@@ -53,6 +53,7 @@ describe("systemToolKernel", () => {
         .map((tool) => tool.name)
         .sort(),
     );
+
     for (const name of kernel) {
       const tool = getTool(name);
       assert.ok(tool, `kernel tool ${name} must be registered`);
@@ -71,6 +72,7 @@ describe("systemToolKernel", () => {
       "system.append_artifact_section",
       "system.update_artifact",
     ]);
+
     // The artifact edit rules are inlined by the builder (#896), so this reads
     // the production constant, not a hand-written stand-in.
     const prompt = buildChatSystemPrompt("Thursday, July 16, 2026", "", "");
@@ -85,6 +87,7 @@ describe("systemToolKernel", () => {
         `prompt-named tool ${name} must be kernel or explicitly intentionally lazy`,
       );
     }
+
     assert.ok(namedSystemTools.has("system.await_sub_agent"));
     assert.ok(kernel.has("system.await_sub_agent"));
   });
@@ -102,6 +105,7 @@ describe("buildSdkToolSet caller/interaction projection", () => {
     const chat = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "live_chat" }),
     );
+
     assert.equal(chat.length, 8, `[${[...chat].sort().join(", ")}]`);
   });
 
@@ -109,6 +113,7 @@ describe("buildSdkToolSet caller/interaction projection", () => {
     const brief = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "background" }),
     );
+
     assert.equal(brief.length, 7);
     assert.ok(!brief.includes("system.read_chat_history"), `[${[...brief].sort().join(", ")}]`);
   });
@@ -117,6 +122,7 @@ describe("buildSdkToolSet caller/interaction projection", () => {
     const sub = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "sub_agent", interaction: "background" }),
     );
+
     assert.equal(sub.length, 5);
     assert.ok(!sub.includes("system.read_chat_history"));
     assert.ok(!sub.includes("system.spawn_sub_agent"), `[${[...sub].sort().join(", ")}]`);
@@ -152,6 +158,7 @@ describe("preloadToolCatalog against the real registry", () => {
   const githubAccess = (): GitHubAccess => {
     const kernelNames = listKernelTools().map((t) => t.name);
     const githubNames = listToolsForIntegration("github").map((t) => t.name);
+
     return {
       kernelNames,
       access: {
@@ -165,11 +172,13 @@ describe("preloadToolCatalog against the real registry", () => {
 
   test("a strong-intent prompt preloads a non-kernel github tool (path B)", () => {
     const { access, kernelNames } = githubAccess();
+
     const selected = preloadToolCatalog({
       prompt: "find the pull request assigned to me",
       activeTools: kernelNames,
       access,
     });
+
     assert.ok(selected.length > 0, "expected at least one preloaded tool");
     assert.ok(
       selected.every((n) => n.startsWith("github.")),
@@ -179,21 +188,25 @@ describe("preloadToolCatalog against the real registry", () => {
 
   test("a github-relevant but loosely phrased ask preloads nothing → ladder only (path C)", () => {
     const { access, kernelNames } = githubAccess();
+
     const selected = preloadToolCatalog({
       prompt: "give me a summary of my github activity",
       activeTools: kernelNames,
       access,
     });
+
     assert.deepEqual(selected, [], `selected [${selected.join(", ")}]`);
   });
 
   test("a kernel tool is never re-preloaded (already active)", () => {
     const { access, kernelNames } = githubAccess();
+
     const selected = preloadToolCatalog({
       prompt: "what do you know about me? read my user context",
       activeTools: kernelNames,
       access,
     });
+
     assert.ok(!selected.includes("system.read_user_context"), `[${selected.join(", ")}]`);
   });
 });
@@ -205,6 +218,7 @@ describe("migrateActiveTools", () => {
       undefined,
       [],
     );
+
     assert.deepEqual(migrated, ["gmail.search", "system.load_tool"]);
     assert.ok(!(migrated as string[]).includes(RETIRED_TOOL));
   });
@@ -215,6 +229,7 @@ describe("migrateActiveTools", () => {
       undefined,
       [],
     );
+
     assert.deepEqual(migrated, ["gmail.search", "system.load_tool"]);
   });
 
@@ -225,9 +240,11 @@ describe("migrateActiveTools", () => {
   test("legacy expansion drops a retired pending name but keeps kernel + integration tools", () => {
     const migrated = migrateActiveTools(undefined, ["gmail"], [RETIRED_TOOL]);
     assert.ok(!(migrated as string[]).includes(RETIRED_TOOL), "retired pending name is dropped");
+
     for (const name of systemToolKernel()) {
       assert.ok(migrated.includes(name), `kernel tool ${name} retained`);
     }
+
     for (const name of toolNamesForIntegrations(["gmail"])) {
       assert.ok(migrated.includes(name), `gmail tool ${name} retained`);
     }

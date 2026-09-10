@@ -31,10 +31,13 @@ const ATTENTION_CATEGORIES = [
 
 /** The ingestor drops self-mail (#211), so any self-doc means the drop regressed. */
 const SELF_INGESTION_THRESHOLD = 0;
+
 /** #210 cited 26% of the inbox in the demanding lanes; 20% is the line. */
 const ATTENTION_SHARE_THRESHOLD = 0.2;
+
 /** Avoid paging on tiny samples like 1 urgent thread out of 1 classified thread. */
 const ATTENTION_SHARE_MIN_TOTAL = 10;
+
 /** Informational only — issue cited 41:1. A high bar so it speaks rarely. */
 const TODO_DISMISS_DONE_THRESHOLD = 20;
 
@@ -43,6 +46,7 @@ export const DRIFT_METRICS = [
   "attention_share_7d",
   "todo_dismiss_done_ratio",
 ] as const;
+
 export type DriftMetricName = (typeof DRIFT_METRICS)[number];
 
 export interface MetricResult {
@@ -68,6 +72,7 @@ export interface MetricResult {
  */
 export async function selfIngestionCount(userId: string): Promise<MetricResult | null> {
   const self = selfSenderEmail();
+
   if (!self) return null;
 
   const candidates = await db()
@@ -87,6 +92,7 @@ export async function selfIngestionCount(userId: string): Promise<MetricResult |
 
   const selfDocs = candidates.filter((d) => parseEmailAddress(d.from) === self);
   const count = selfDocs.length;
+
   return {
     metric: "self_ingestion_count",
     value: count,
@@ -120,6 +126,7 @@ export async function attentionShare7d(userId: string): Promise<MetricResult> {
   const total = rows[0]?.total ?? 0;
   const attention = rows[0]?.attention ?? 0;
   const share = total === 0 ? 0 : attention / total;
+
   return {
     metric: "attention_share_7d",
     value: share,
@@ -157,6 +164,7 @@ export async function todoDismissDoneRatio(userId: string): Promise<MetricResult
   const dismissed = rows[0]?.dismissed ?? 0;
   const done = rows[0]?.done ?? 0;
   const ratio = done === 0 ? dismissed : dismissed / done;
+
   return {
     metric: "todo_dismiss_done_ratio",
     value: ratio,
@@ -179,6 +187,7 @@ export interface DriftHealthCheckResult {
 }
 
 type MetricEvaluator = (userId: string) => Promise<MetricResult | null>;
+
 type NotifyFn = (args: SendArgs) => Promise<SendResult>;
 
 export interface RunDriftHealthCheckOptions {
@@ -208,14 +217,17 @@ export async function runDriftHealthCheck(
   const captureKey = inZone(DEFAULT_USER_TIMEZONE).day(now);
   const results: MetricResult[] = [];
   const metricFailures: string[] = [];
+
   const evaluators = options.metricEvaluators ?? [
     selfIngestionCount,
     attentionShare7d,
     todoDismissDoneRatio,
   ];
+
   for (const evaluate of evaluators) {
     try {
       const result = await evaluate(userId);
+
       if (result) results.push(result);
     } catch (err) {
       const failure = `${evaluate.name || "anonymous_metric"}: ${toMessage(err)}`;
@@ -223,6 +235,7 @@ export async function runDriftHealthCheck(
       console.error(`[drift-audit] metric failed for user=${userId}: ${failure}`);
     }
   }
+
   // Persist all snapshots in one insert (the trend substrate). Best-effort, but
   // idempotent by `(user, metric, captureKey)` so alert-send retries do not
   // inflate the daily trend rows.
@@ -249,17 +262,21 @@ export async function runDriftHealthCheck(
   }
 
   const breached = results.filter((r) => r.breached);
+
   const timezone =
     breached.length > 0
       ? (options.timezone ?? (await resolveTimezone(userId)))
       : DEFAULT_USER_TIMEZONE;
+
   const today = inZone(timezone).day(now);
   const notifyFn = options.notifyFn ?? send;
   let alertsSent = 0;
   const alertFailures: string[] = [];
+
   for (const result of breached) {
     try {
       const email = composeHealthAlertEmail(result);
+
       const res = await notifyFn({
         userId,
         kind: "health_alert",
@@ -269,7 +286,9 @@ export async function runDriftHealthCheck(
         text: email.text,
         payload: { metric: result.metric, value: result.value, detail: result.detail },
       });
+
       if (res.status === "sent") alertsSent++;
+
       if (res.status === "failed") {
         alertFailures.push(`${result.metric}: ${res.error}`);
       }
@@ -285,18 +304,22 @@ export async function runDriftHealthCheck(
     `[drift-audit] user=${userId} metrics=${results.length} breached=${breached.length} alertsSent=${alertsSent}`,
   );
   const healthCheckFailures: string[] = [];
+
   if (metricFailures.length > 0) {
     const prefix = results.length === 0 ? "all metrics failed" : "metric evaluator failed";
     healthCheckFailures.push(`${prefix}: ${metricFailures.join("; ")}`);
   }
+
   if (alertFailures.length > 0) {
     healthCheckFailures.push(`health_alert send failed: ${alertFailures.join("; ")}`);
   }
+
   if (healthCheckFailures.length > 0) {
     throw new Error(
       `[drift-audit] health check failed for user=${userId}: ${healthCheckFailures.join("; ")}`,
     );
   }
+
   return { userId, metrics: results, breached, alertsSent };
 }
 
@@ -309,18 +332,23 @@ interface HealthAlertEmail {
 
 function composeHealthAlertEmail(result: MetricResult): HealthAlertEmail {
   const subject = `[Alfred health] ${result.metric} drift`;
+
   const detailLines = Object.entries(result.detail)
     .map(([k, v]) => `${k}: ${JSON.stringify(v) ?? String(v)}`)
     .join("\n");
+
   const text = `${result.summary}\n\nthreshold: ${result.threshold}\nvalue: ${result.value}\n\n${detailLines}`;
+
   const htmlDetailLines = Object.entries(result.detail)
     .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(JSON.stringify(v) ?? String(v))}`)
     .join("\n");
+
   const html =
     `<p><strong>${escapeHtml(result.metric)}</strong> breached.</p>` +
     `<p>${escapeHtml(result.summary)}</p>` +
     `<pre>threshold: ${escapeHtml(result.threshold)}\n` +
     `value: ${escapeHtml(result.value)}\n\n${htmlDetailLines}</pre>`;
+
   return { subject, html, text };
 }
 

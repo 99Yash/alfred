@@ -105,7 +105,9 @@ const LABEL_ALIASES = {
 
 function humanizeKey(key: string): string {
   const alias = Object.entries(LABEL_ALIASES).find(([k]) => k === key)?.[1];
+
   if (alias) return alias;
+
   return key
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
@@ -123,10 +125,13 @@ function asString(value: unknown): string | undefined {
 /** The JSON-Schema `type` may be a string or an array (e.g. `["string","null"]`). */
 function primaryType(schema: JsonSchema): string | undefined {
   const t = schema.type;
+
   if (typeof t === "string") return t;
+
   if (Array.isArray(t)) {
     return t.find((v): v is string => typeof v === "string" && v !== "null");
   }
+
   return undefined;
 }
 
@@ -170,17 +175,22 @@ function fieldFromProperty(key: string, prop: JsonSchema, required: boolean): Fi
     // object; JsonSchema models one as this loose record shape.
     const items = (prop.items as JsonSchema | undefined) ?? {};
     const itemType = primaryType(items);
+
     if (itemType === "string") {
       return { ...base, kind: "string_array", multiline: true };
     }
+
     return { ...base, kind: "json", multiline: true };
   }
 
   if (type === "string") {
     if (prop.format === "date-time") return { ...base, kind: "datetime" };
+
     if (prop.format === "email") return { ...base, kind: "email" };
     const maxLength = asNumber(prop.maxLength) ?? 0;
+
     if (maxLength >= 2_000) return { ...base, kind: "textarea", multiline: true };
+
     return { ...base, kind: "text" };
   }
 
@@ -191,16 +201,19 @@ function fieldFromProperty(key: string, prop: JsonSchema, required: boolean): Fi
 /** Resolve a one-level `$ref` against the schema's `$defs`/`definitions`. */
 function deref(schema: JsonSchema, root: JsonSchema): JsonSchema {
   const ref = asString(schema.$ref);
+
   if (!ref) return schema;
   const name = ref.replace(/^#\/(\$defs|definitions)\//, "");
   // SAFETY: `$defs` / `definitions` hold named schema nodes per the JSON
   // Schema spec; the loose record view types that map.
   const defs = (root.$defs ?? root.definitions) as Record<string, JsonSchema> | undefined;
+
   return defs?.[name] ?? schema;
 }
 
 function deriveFields(schema: z.ZodType): FieldSpec[] | null {
   let json: JsonSchema;
+
   try {
     // `io: "input"` so defaulted fields read as optional; `reused: "inline"`
     // avoids `$ref` indirection for shared primitives; `unrepresentable: "any"`
@@ -222,6 +235,7 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
   // SAFETY: a JSON Schema `properties` keyword maps property names to schema
   // nodes; the loose record view types that map.
   const properties = resolved.properties as Record<string, JsonSchema> | undefined;
+
   if (!properties) return null;
 
   const required = new Set(
@@ -251,5 +265,6 @@ export function toolInputFields(toolName: ToolName): FieldSpec[] | null {
   const schema = (TOOL_INPUT_SCHEMAS as Partial<Record<ToolName, z.ZodType>>)[toolName];
   const fields = schema ? deriveFields(schema) : null;
   FIELD_CACHE.set(toolName, fields);
+
   return fields;
 }

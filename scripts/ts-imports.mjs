@@ -36,6 +36,7 @@ export function parseImports(source) {
   const tokens = lexSource(source);
   const imports = [];
   const lineStarts = [0];
+
   for (let index = 0; index < source.length; index += 1) {
     if (source[index] === "\n") lineStarts.push(index + 1);
   }
@@ -43,17 +44,21 @@ export function parseImports(source) {
   function lineAt(position) {
     let low = 0;
     let high = lineStarts.length;
+
     while (low < high) {
       const middle = Math.floor((low + high) / 2);
+
       if (lineStarts[middle] <= position) low = middle + 1;
       else high = middle;
     }
+
     return low;
   }
 
   /** The bound names, taken from the source rather than rebuilt from the tokens. */
   function clauseBetween(keyword, fromToken) {
     if (!fromToken) return "";
+
     return source.slice(keyword.start + keyword.value.length, fromToken.start);
   }
 
@@ -68,9 +73,11 @@ export function parseImports(source) {
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
+
     if (token.kind !== "identifier") continue;
     const next = tokens[index + 1];
     const argument = tokens[index + 2];
+
     if (
       (token.value === "import" || token.value === "require") &&
       next?.value === "(" &&
@@ -79,12 +86,16 @@ export function parseImports(source) {
       add(argument, token.value === "import" ? "dynamic-import" : "require", "");
       continue;
     }
+
     if (token.value === "import") {
       /** @type {(typeof tokens)[number] | null} */
       let fromToken = null;
+
       for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
         const candidate = tokens[cursor];
+
         if (candidate.value === ";") break;
+
         // The last `from` before the specifier, so `import { from } from "x"`
         // measures its clause from the keyword, not from the bound name. The
         // kind test matters: a specifier may itself be the string `"from"`.
@@ -94,14 +105,19 @@ export function parseImports(source) {
           break;
         }
       }
+
       continue;
     }
+
     if (token.value === "export") {
       /** @type {(typeof tokens)[number] | null} */
       let fromToken = null;
+
       for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
         const candidate = tokens[cursor];
+
         if (candidate.value === ";") break;
+
         if (candidate.kind === "identifier" && candidate.value === "from") fromToken = candidate;
         else if (fromToken && candidate.kind === "string") {
           add(candidate, "export", clauseBetween(token, fromToken));
@@ -110,6 +126,7 @@ export function parseImports(source) {
       }
     }
   }
+
   return [
     ...new Map(imports.map((entry) => [`${entry.line}:${entry.specifier}`, entry])).values(),
   ].sort((a, b) => a.line - b.line || a.specifier.localeCompare(b.specifier));
@@ -129,31 +146,40 @@ export function parseImports(source) {
 export function lexSource(source) {
   const tokens = [];
   let index = 0;
+
   while (index < source.length) {
     const char = source[index];
     const next = source[index + 1];
+
     if (/\s/.test(char)) {
       index += 1;
       continue;
     }
+
     if (char === "/" && next === "/") {
       index += 2;
+
       while (index < source.length && source[index] !== "\n") index += 1;
       continue;
     }
+
     if (char === "/" && next === "*") {
       index += 2;
+
       while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
         index += 1;
       }
+
       index += 2;
       continue;
     }
+
     if (char === '"' || char === "'") {
       const start = index;
       const quote = char;
       index += 1;
       let value = "";
+
       while (index < source.length && source[index] !== quote) {
         if (source[index] === "\\" && index + 1 < source.length) {
           value += source[index + 1];
@@ -163,12 +189,15 @@ export function lexSource(source) {
           index += 1;
         }
       }
+
       index += 1;
       tokens.push({ kind: "string", start, value });
       continue;
     }
+
     if (char === "`") {
       index += 1;
+
       while (index < source.length) {
         if (source[index] === "\\") index += 2;
         else if (source[index] === "`") {
@@ -176,17 +205,22 @@ export function lexSource(source) {
           break;
         } else index += 1;
       }
+
       continue;
     }
+
     if (/[A-Za-z_$]/.test(char)) {
       const start = index;
       index += 1;
+
       while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) index += 1;
       tokens.push({ kind: "identifier", start, value: source.slice(start, index) });
       continue;
     }
+
     tokens.push({ kind: "punctuation", start: index, value: char });
     index += 1;
   }
+
   return tokens;
 }

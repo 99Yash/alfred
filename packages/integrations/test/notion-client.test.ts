@@ -41,6 +41,7 @@ describe("Notion configured client", () => {
         filter: "all",
         pageSize: 10,
       });
+
       assert.deepEqual(
         result.hits.map(({ id, title }) => ({ id, title })),
         [
@@ -58,6 +59,7 @@ describe("Notion configured client", () => {
     const authorization: string[] = [];
     globalThis.fetch = (async (_input, init) => {
       authorization.push(new Headers(init?.headers).get("Authorization") ?? "");
+
       return new Response(JSON.stringify({ results: [], has_more: false }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -66,6 +68,7 @@ describe("Notion configured client", () => {
 
     let resolutions = 0;
     const client = createNotionClient(async () => `token-${++resolutions}`);
+
     try {
       await client.search({ filter: "all", pageSize: 10 });
       await client.search({ filter: "page", pageSize: 10 });
@@ -83,6 +86,7 @@ describe("Notion configured client", () => {
     globalThis.fetch = (async (input, init) => {
       const auth = new Headers(init?.headers).get("Authorization") ?? "";
       authorization.push(auth);
+
       const body = String(input).includes("/pages/")
         ? {
             id: "page_1",
@@ -94,6 +98,7 @@ describe("Notion configured client", () => {
             results: [{ type: "paragraph", paragraph: { rich_text: [{ plain_text: auth }] } }],
             has_more: false,
           };
+
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -102,6 +107,7 @@ describe("Notion configured client", () => {
 
     let resolutions = 0;
     const client = createNotionClient(async () => `token-${++resolutions}`);
+
     try {
       const page = await client.getPage({ pageId: "page_1" });
       assert.equal(page.title, "Bearer token-1");
@@ -119,21 +125,25 @@ describe("Notion configured client", () => {
     let attempts = 0;
     globalThis.fetch = (async () => {
       attempts += 1;
+
       return new Response(JSON.stringify({ results: [], has_more: false }), {
         status: attempts === 1 ? 503 : 200,
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch;
+
     const client = createNotionClient(async () => "token", {
       maxAttempts: 2,
       baseDelayMs: 0,
       maxDelayMs: 0,
     });
+
     try {
       await client.search({ filter: "all", pageSize: 10 });
     } finally {
       globalThis.fetch = originalFetch;
     }
+
     assert.equal(attempts, 2);
   });
 });

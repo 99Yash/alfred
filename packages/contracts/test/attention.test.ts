@@ -81,6 +81,7 @@ describe("attentionScore", () => {
       recurrenceIndex: 20,
       pinnedDemanding: true,
     });
+
     assert.equal(r.band, "demanding");
     assert.ok(r.score >= DEMANDING_AT);
   });
@@ -95,6 +96,7 @@ describe("attentionScore", () => {
         isBulkSender: true,
         recurrenceIndex: 50,
       });
+
       assert.ok(r.score >= 0 && r.score <= 1, `${category} → ${r.score} out of range`);
     }
   });
@@ -145,6 +147,7 @@ describe("scoreAttentionForItems", () => {
       subject: `ALARM: CPU at ${80 + i}% (1${i}:00)`,
       category: "urgent" as const,
     }));
+
     const [first, ...rest] = scoreAttentionForItems(items);
     const tenth = rest[rest.length - 1];
     assert.ok(first && tenth);
@@ -166,6 +169,7 @@ describe("scoreAttentionForItems", () => {
         category: "awaiting_reply",
       },
     ]);
+
     assert.ok(a && b);
     assert.equal(a.band, b.band);
     assert.equal(b.score, CATEGORY_BASE_DEMAND.awaiting_reply);
@@ -176,6 +180,7 @@ describe("scoreAttentionForItems", () => {
       { sender: "alerts@datadoghq.com", subject: "Disk space low", category: "urgent" },
       { sender: "alerts@datadoghq.com", subject: "Latency spike", category: "urgent" },
     ]);
+
     assert.ok(a && b);
     assert.equal(a.band, "demanding");
     assert.equal(b.band, "demanding");
@@ -192,6 +197,7 @@ describe("scoreAttentionForItems", () => {
       // i=0 is newest; oldest has the smallest timestamp.
       occurredAtMs: 10_000 - i * 1000,
     }));
+
     const results = scoreAttentionForItems(newestFirst);
     const newest = results[0];
     const oldest = results[results.length - 1];
@@ -207,6 +213,7 @@ describe("scoreAttentionForItems", () => {
       { sender: "Fabian <fabian@acme.com>", subject: "Hi", category: "fyi" },
       { sender: "no-reply@x.com", subject: "Deploy ok", category: "urgent" },
     ]);
+
     assert.equal(results.length, 2);
     assert.equal(results[0]?.band, "muted"); // fyi base
     assert.equal(results[1]?.band, "demanding"); // urgent, first sighting

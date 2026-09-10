@@ -50,6 +50,7 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 500;
+
 const POLL_TIMEOUT_MS = 120_000;
 
 interface CliArgs {
@@ -60,13 +61,16 @@ interface CliArgs {
 
 function parseArgs(): CliArgs {
   const out: CliArgs = { slot: "morning", email: null, noSend: false };
+
   for (const raw of process.argv.slice(2)) {
     if (raw === "--no-send") out.noSend = true;
     else if (raw.startsWith("--slot=")) {
       const v = raw.slice("--slot=".length);
+
       if (v !== "morning" && v !== "evening") {
         throw new Error(`unknown slot: ${v} (expected 'morning' or 'evening')`);
       }
+
       out.slot = v;
     } else if (raw.startsWith("--email=")) {
       out.email = raw.slice("--email=".length);
@@ -74,6 +78,7 @@ function parseArgs(): CliArgs {
       console.warn(`[smoke-daily-briefing] ignoring unknown arg: ${raw}`);
     }
   }
+
   return out;
 }
 
@@ -88,30 +93,39 @@ async function pickUser(email: string | null) {
       .from(userTable)
       .where(eq(userTable.email, email))
       .limit(1);
+
     return rows[0] ?? null;
   }
+
   const rows = await db()
     .select({ id: userTable.id, email: userTable.email, name: userTable.name })
     .from(userTable)
     .limit(1);
+
   return rows[0] ?? null;
 }
 
 async function pollRun(runId: string, label: string) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+
     if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       return row;
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
 async function fetchBriefing(id: string) {
   const rows = await db().select().from(briefings).where(eq(briefings.id, id)).limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -121,12 +135,15 @@ async function main() {
   registerBuiltinWorkflows();
 
   const u = await pickUser(cli.email);
+
   if (!u) {
     console.log(
       `[smoke-daily-briefing] no user found ${cli.email ? `for email=${cli.email}` : "(empty user table)"}.`,
     );
+
     return;
   }
+
   console.log(
     `[smoke-daily-briefing] target: ${u.email} (id=${u.id}) slot=${cli.slot}` +
       (cli.noSend ? " [--no-send]" : ""),
@@ -152,9 +169,11 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-daily-briefing] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "compose");
+
   if (run.status !== "completed") {
     console.error(`[smoke-daily-briefing] run failed: ${JSON.stringify(run.error)}`);
     throw new Error(`run status=${run.status}`);
@@ -167,6 +186,7 @@ async function main() {
     status?: string;
     slot: string;
   } | null;
+
   assert(output?.briefingId, "run completed but output.briefingId is missing");
   console.log(
     `[smoke-daily-briefing] run completed: briefingId=${output.briefingId} ` +
@@ -184,6 +204,7 @@ async function main() {
   );
   assert(row.fullBriefing?.headline, "briefings.full_briefing.headline is empty");
   assert(row.breakingSummary, "briefings.breaking_summary is empty");
+
   // Only terminal (sent/suppressed) rows consume the watermark; a --no-send
   // 'composed' row intentionally leaves it null so the next real run replays
   // the same delta.

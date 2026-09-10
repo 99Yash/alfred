@@ -55,6 +55,7 @@ describe("passthrough preference (default OFF)", () => {
 
   test("preference keys are namespaced per supported slug", () => {
     assert.equal(passthroughPreferenceKey("github"), "feature.passthrough.github");
+
     for (const slug of SUPPORTED_PASSTHROUGH_SLUGS) {
       assert.equal(PASSTHROUGH_PREFERENCE_KEYS[slug], `feature.passthrough.${slug}`);
     }

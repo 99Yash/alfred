@@ -58,13 +58,21 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-event-dedup-";
+
 const EVENT_WORKFLOW_SLUG = "__test-event-dedup";
+
 const SINGLETON_WORKFLOW_SLUG = "__test-event-dedup-singleton";
+
 const RAW_WORKFLOW_SLUG = "__test-event-dedup-raw";
+
 const SOURCE = "gmail";
+
 const TYPE = "message_received";
+
 const RAW_SOURCE = "sentry";
+
 const RAW_KIND = "comment.created";
+
 const createdUserIds: string[] = [];
 
 const finishStep: StepResult<Record<string, never>> = { kind: "done", state: {} };
@@ -136,6 +144,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -167,6 +176,7 @@ async function seedUserWithEventWorkflow(
       // Built-ins do not pin database revisions; user-authored rows must.
       isBuiltin: true,
     });
+
   return userId;
 }
 
@@ -183,6 +193,7 @@ async function seedUserWithRawEventWorkflow(): Promise<string> {
       status: "active",
       isBuiltin: true,
     });
+
   return userId;
 }
 
@@ -199,6 +210,7 @@ async function seedUserWithGoogleCallbackWorkflow(): Promise<string> {
       status: "active",
       isBuiltin: true,
     });
+
   return userId;
 }
 
@@ -216,6 +228,7 @@ async function insertEventRun(args: {
   omitSourceAndType?: boolean;
 }): Promise<string> {
   const runId = `run_${randomUUID().slice(0, 12)}`;
+
   const trigger: AgentRunTrigger = args.omitSourceAndType
     ? { kind: "event", eventId: args.eventId, payload: { reason: args.reason } }
     : {
@@ -225,6 +238,7 @@ async function insertEventRun(args: {
         eventId: args.eventId,
         payload: { reason: args.reason },
       };
+
   await db()
     .insert(agentRuns)
     .values({
@@ -235,6 +249,7 @@ async function insertEventRun(args: {
       status: args.status ?? "pending",
       trigger,
     });
+
   return runId;
 }
 
@@ -244,6 +259,7 @@ async function expectUniqueViolation(fn: () => Promise<unknown>): Promise<string
   } catch (err) {
     return uniqueViolationConstraint(err);
   }
+
   throw new Error("expected a unique violation, but the insert succeeded");
 }
 
@@ -259,8 +275,10 @@ async function countActiveEventRuns(
     .select({ status: agentRuns.status, trigger: agentRuns.trigger })
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, workflowSlug)));
+
   return rows.filter((r) => {
     const trigger = r.trigger as { eventId?: unknown } | null;
+
     return trigger?.eventId === eventId && !TERMINAL.has(r.status);
   }).length;
 }
@@ -271,22 +289,28 @@ async function countActiveRuns(userId: string, workflowSlug: string): Promise<nu
     .select({ status: agentRuns.status })
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, workflowSlug)));
+
   return rows.filter((r) => !TERMINAL.has(r.status)).length;
 }
 
 describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   before(() => {
     if (!getWorkflow(EVENT_WORKFLOW_SLUG)) registerRecipe(eventWorkflow);
+
     if (!getWorkflow(SINGLETON_WORKFLOW_SLUG)) registerRecipe(singletonEventWorkflow);
+
     if (!getWorkflow(RAW_WORKFLOW_SLUG)) registerRecipe(rawEventWorkflow);
+
     if (!getWorkflow(COLD_START_WORKFLOW_SLUG)) registerRecipe(coldStartResearchWorkflow);
     registerTriggerConsumers();
   });
   after(async () => {
     unregisterTriggerConsumers();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     await closeConnections();
     await closeRedis();
@@ -299,6 +323,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
       where tablename = 'agent_runs'
         and indexname = ${EVENT_ACTIVE_RUN_INDEX}
     `);
+
     const row = Array.isArray(result) ? result[0] : result.rows[0];
     assert.equal(Number((row as { count: number }).count), 1);
   });
@@ -360,6 +385,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     // so a redelivery of the same body carries the same id.
     const eventId = `raw:${RAW_KIND}:${randomUUID()}`;
     const payload = { receiptId: `rcpt-${randomUUID()}`, deliveryKey: eventId };
+
     const dispatch = () =>
       publishDomainEvent({
         userId,
@@ -386,6 +412,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
       eventId: `raw:issue.ignored:${randomUUID()}`,
       payload: { receiptId: `rcpt-${randomUUID()}`, deliveryKey: "other" },
     });
+
     assert.equal(otherKind.matched, 0);
     assert.equal(otherKind.created, 0);
   });
@@ -401,6 +428,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
       .where(
         and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, COLD_START_WORKFLOW_SLUG)),
       );
+
     assert.deepEqual(run?.state, { reason: "signup" });
   });
 
@@ -414,6 +442,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
       eventId: `evt-${randomUUID()}`,
       accountRef: "gmail-account-b",
     });
+
     assert.equal(wrongAccount.matched, 0);
     assert.equal(wrongAccount.created, 0);
 
@@ -424,12 +453,14 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
       eventId: `evt-${randomUUID()}`,
       accountRef: "gmail-account-a",
     });
+
     assert.equal(selectedAccount.matched, 1);
     assert.equal(selectedAccount.created, 1);
   });
 
   test("a dedup-key collision on a singleton workflow is a duplicate, not a failure", async () => {
     const userId = await seedUserWithEventWorkflow(SINGLETON_WORKFLOW_SLUG);
+
     // Two DIFFERENT events. Neither the fast-path read nor the event identity
     // index sees a duplicate — the workflow's `dedupKey` does, so the losing
     // insert raises 23505 on RUN_DEDUP_KEY_INDEX instead.
@@ -439,6 +470,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
       type: TYPE,
       eventId: `evt-${randomUUID()}`,
     });
+
     const second = await acceptEvent({
       userId,
       source: SOURCE,
@@ -469,6 +501,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
         },
       }),
     );
+
     assert.equal(constraint, RUN_DEDUP_KEY_INDEX);
   });
 
@@ -484,6 +517,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     const constraint = await expectUniqueViolation(() =>
       insertEventRun({ userId, eventId, omitSourceAndType: true }),
     );
+
     assert.equal(constraint, EVENT_ACTIVE_RUN_INDEX);
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });

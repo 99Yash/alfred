@@ -110,8 +110,10 @@ function buildAndVerifyUrl(profile: RestPassthroughProfile, request: RestPassthr
   const url = new URL(profile.baseUrl + request.path);
 
   const namespace = base.pathname.replace(/\/$/, "");
+
   const withinNamespace =
     namespace === "" || url.pathname === namespace || url.pathname.startsWith(`${namespace}/`);
+
   if (url.origin !== base.origin || !withinNamespace) {
     throw new PassthroughUrlError(
       "The constructed request URL left the pinned API namespace. Use a namespace-relative path.",
@@ -125,12 +127,14 @@ function buildAndVerifyUrl(profile: RestPassthroughProfile, request: RestPassthr
       url.searchParams.set(key, String(value));
     }
   }
+
   // Pin provider-mandated params last so the model's `query` can never override
   // an authority parameter (e.g. Vercel's `teamId`). `set` clears any value the
   // request supplied for the same key.
   for (const [key, value] of Object.entries(profile.fixedQuery ?? {})) {
     url.searchParams.set(key, value);
   }
+
   return url;
 }
 
@@ -152,6 +156,7 @@ export async function restPassthroughFetch(
       { headers: profile.headers, redirect: "manual" },
       { url, method, body: method === "POST" ? request.body : undefined },
     );
+
   // The API gate admits only reads, including the two provider-specific
   // read-via-POST endpoints. Retrying the capability is therefore safe even
   // when the wire method is POST.
@@ -161,6 +166,7 @@ export async function restPassthroughFetch(
     res.status >= 300 && res.status < 400
       ? redactLocation(res.headers.get("location"), url)
       : undefined;
+
   const redirect = redirectedTo !== undefined ? { redirectedTo } : {};
   const contentType = res.headers.get("content-type");
 
@@ -175,6 +181,7 @@ export async function restPassthroughFetch(
   }
 
   const text = await res.text();
+
   return { status: res.status, binary: false, body: parseBody(text, contentType), ...redirect };
 }
 
@@ -186,10 +193,15 @@ export async function restPassthroughFetch(
 function isBinary(contentType: string | null): boolean {
   if (!contentType) return false; // no type (e.g. an empty body) is treated as text
   const type = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+
   if (type.startsWith("text/")) return false;
+
   if (type.includes("json")) return false;
+
   if (type.endsWith("+xml") || type === "application/xml") return false;
+
   if (type === "application/x-www-form-urlencoded") return false;
+
   return true;
 }
 
@@ -198,6 +210,7 @@ function parseBody(text: string, contentType: string | null): unknown {
   if (text.length === 0) return null;
   const type = (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
   const looksJson = type.includes("json") || type === "";
+
   if (looksJson) {
     try {
       return JSON.parse(text);
@@ -207,13 +220,16 @@ function parseBody(text: string, contentType: string | null): unknown {
       return { nonJson: true, preview: summarizeBody(text) };
     }
   }
+
   return text; // text/* etc. — the result shaper bounds the string.
 }
 
 /** Byte count of a binary response: the declared Content-Length, else the observed length. */
 async function byteCountOf(res: Response): Promise<number> {
   const declared = res.headers.get("content-length");
+
   if (declared && /^\d+$/.test(declared)) return Number(declared);
+
   return (await res.arrayBuffer()).byteLength;
 }
 
@@ -224,8 +240,10 @@ async function byteCountOf(res: Response): Promise<number> {
  */
 function redactLocation(location: string | null, base: URL): string {
   if (!location) return "[no location header]";
+
   try {
     const resolved = new URL(location, base);
+
     return resolved.origin + resolved.pathname;
   } catch {
     return "[unparseable location]";

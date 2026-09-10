@@ -86,12 +86,15 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
                       panel.source === "integration_activity" && item.subtitle
                         ? parseActivitySubtitle(item.subtitle)
                         : null;
+
                     const subtitle = activity
                       ? activity.detail
                       : panel.source === "calendar" && item.subtitle
                         ? formatEventRange(item.subtitle, timezone)
                         : item.subtitle;
+
                     const isTime = panel.source === "calendar";
+
                     return (
                       <li key={item.id} className="flex items-baseline gap-2 text-sm leading-5">
                         {activity ? (

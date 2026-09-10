@@ -266,6 +266,7 @@ export function IntegrationIcon({
 
   if (hasTile(brand)) {
     const Tile = INTEGRATION_TILES[brand];
+
     return (
       <span
         className={cn("relative block shrink-0", TILE_SIZE_CLASS[size], className)}
@@ -324,6 +325,7 @@ export function IntegrationGlyph({
 
   if (meta.kind === "lucide") {
     const Icon = meta.icon;
+
     return (
       <Icon
         size={size}

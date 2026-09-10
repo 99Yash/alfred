@@ -71,6 +71,7 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
   if (!bodyActor && parsed && isGithubDomain(parsed.domain) && parsed.displayName) {
     const m = parsed.displayName.match(GITHUB_BOT_SUFFIX_RE);
     const handle = m?.[1]?.trim().toLowerCase();
+
     if (handle) {
       bodyActor = { kind: "bot", name: parsed.displayName, handle };
       parserHit = "github";
@@ -82,6 +83,7 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
     localPart: parsed?.localPart ?? null,
     bodyActor,
   });
+
   const effectiveAuthor = deriveEffectiveAuthor({ fromKind, bodyActor, botSlug });
 
   const context: SenderContext = {
@@ -113,16 +115,19 @@ const ANGLE_ADDR_RE = /^(.*?)<([^>]+)>\s*$/;
 function parseFromHeader(raw: string | null): ParsedFrom | null {
   if (!raw) return null;
   const trimmed = raw.trim();
+
   if (!trimmed) return null;
 
   let displayName: string | null = null;
   let addressRaw: string;
   const angle = trimmed.match(ANGLE_ADDR_RE);
+
   if (angle && angle[2] !== undefined) {
     const namePart = (angle[1] ?? "")
       .trim()
       .replace(/^"+|"+$/g, "")
       .trim();
+
     displayName = namePart || null;
     addressRaw = angle[2].trim();
   } else {
@@ -130,10 +135,13 @@ function parseFromHeader(raw: string | null): ParsedFrom | null {
   }
 
   const at = addressRaw.lastIndexOf("@");
+
   if (at < 1 || at === addressRaw.length - 1) return null;
   const localPart = addressRaw.slice(0, at).toLowerCase();
   const domain = addressRaw.slice(at + 1).toLowerCase();
+
   if (!localPart || !domain || domain.indexOf(".") === -1) return null;
+
   return { displayName, address: `${localPart}@${domain}`, localPart, domain };
 }
 
@@ -156,10 +164,13 @@ const RECIPIENT_ADDRESS_RE = /[^\s<>,";()]+@[^\s<>,";()]+/g;
  */
 export function recipientAddresses(header: string | null | undefined): string[] {
   const out: string[] = [];
+
   for (const m of String(header ?? "").matchAll(RECIPIENT_ADDRESS_RE)) {
     const addr = canonicalizeEmailForMatch(m[0]);
+
     if (addr) out.push(addr);
   }
+
   return out;
 }
 
@@ -173,12 +184,16 @@ export function canonicalizeEmailForMatch(raw: string | null | undefined): strin
   const value = String(raw ?? "")
     .trim()
     .toLowerCase();
+
   const at = value.lastIndexOf("@");
+
   if (at < 1 || at === value.length - 1) return "";
   const localFull = value.slice(0, at);
   const plus = localFull.indexOf("+");
   const local = plus > 0 ? localFull.slice(0, plus) : localFull;
+
   if (!local) return "";
+
   return `${local}@${value.slice(at + 1)}`;
 }
 
@@ -257,28 +272,38 @@ const SERVICE_LOCAL_PREFIX_RE =
   /^(no[-_.]?reply|donotreply|do[-_]not[-_]reply|notification|notifications|alerts?|security[-_]|billing[-_]|account[-_]|calendar[-_])/;
 
 const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
+
 const ORG_DISPLAY_TOKEN_RE =
   /\b(inc|incorporated|ltd|limited|llc|llp|gmbh|plc|corp|corporation|company|co|team|notifications?|depository|registrar|bank|services?|support|billing|payroll|careers?|jobs|sales|marketing|newsletter|news|alerts?)\b/i;
 
 function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
   if (!parsed) return "unknown";
   const { localPart, domain, displayName } = parsed;
+
   if (STRONG_SERVICE_LOCAL.has(localPart)) return "service";
+
   if (SERVICE_LOCAL_PREFIX_RE.test(localPart)) return "service";
+
   if (KNOWN_SERVICE_DOMAINS.has(domain)) return "service";
+
   // Weak service markers (`info`, `team`, `support`) on an *unknown* domain
   // are genuinely ambiguous — could be a small-company staffed mailbox or a
   // service envelope. Default to 'unknown' so the deepen gate's low-confidence
   // path catches it instead of an over-eager service classification.
   if (WEAK_SERVICE_LOCAL.has(localPart)) return "unknown";
+
   if (isLikelyPersonDisplayName(displayName)) return "person";
+
   if (FIRST_LAST_LOCAL_RE.test(localPart)) return "person";
+
   return "unknown";
 }
 
 function isLikelyPersonDisplayName(displayName: string | null): boolean {
   if (!displayName || !/\s/.test(displayName)) return false;
+
   if (ORG_DISPLAY_TOKEN_RE.test(displayName)) return false;
+
   return true;
 }
 
@@ -299,7 +324,9 @@ function isLikelyPersonDisplayName(displayName: string | null): boolean {
  */
 export function isHumanLikeSender(localPart: string, displayName: string | null): boolean {
   if (STRONG_SERVICE_LOCAL.has(localPart)) return false;
+
   if (SERVICE_LOCAL_PREFIX_RE.test(localPart)) return false;
+
   return isLikelyPersonDisplayName(displayName) || FIRST_LAST_LOCAL_RE.test(localPart);
 }
 
@@ -308,6 +335,7 @@ export function isHumanLikeSender(localPart: string, displayName: string | null)
 // ---------------------------------------------------------------------------
 
 type BodyActor = NonNullable<SenderContext["bodyActor"]>;
+
 type ParserHit = "github" | "calendar" | "linear";
 
 interface BodyActorDispatch {
@@ -318,16 +346,22 @@ interface BodyActorDispatch {
 function parseBodyActor(domain: string, localPart: string, body: string): BodyActorDispatch {
   if (isGithubDomain(domain)) {
     const actor = parseGithubBodyActor(body);
+
     return { actor, parserHit: actor ? "github" : null };
   }
+
   if (isCalendarSender(domain, localPart)) {
     const actor = parseCalendarBodyActor(body);
+
     return { actor, parserHit: actor ? "calendar" : null };
   }
+
   if (isLinearDomain(domain)) {
     const actor = parseLinearBodyActor(body);
+
     return { actor, parserHit: actor ? "linear" : null };
   }
+
   return { actor: undefined, parserHit: null };
 }
 
@@ -343,6 +377,7 @@ function isLinearDomain(domain: string): boolean {
 
 function isCalendarSender(domain: string, localPart: string): boolean {
   if (domain !== "google.com" && !domain.endsWith(".google.com")) return false;
+
   return localPart === "calendar-notification" || localPart.startsWith("calendar-");
 }
 
@@ -358,66 +393,87 @@ function unwrapBold(s: string): string {
 }
 
 const GITHUB_BOLD_RE = /\*\*([^*\n]{1,80})\*\*/;
+
 const GITHUB_BOT_SUFFIX_RE = /^(.+?)\s*\[bot\]\s*$/i;
 
 function parseGithubBodyActor(body: string): BodyActor | undefined {
   const head = body.split(/\r?\n/).slice(0, 12).join("\n");
   const m = head.match(GITHUB_BOLD_RE);
   const inner = m?.[1];
+
   if (!inner) return undefined;
   const raw = unwrapBold(inner);
+
   if (!raw) return undefined;
   const botMatch = raw.match(GITHUB_BOT_SUFFIX_RE);
   const botName = botMatch?.[1];
+
   if (botName) {
     return { kind: "bot", name: raw, handle: botName.trim().toLowerCase() };
   }
+
   return { kind: "person", name: raw, handle: raw.toLowerCase() };
 }
 
 const ICAL_ORGANIZER_RE = /ORGANIZER(?:;[^:\n]*?CN="?([^";:\n]+)"?)?[^:\n]*:mailto:([^\s>;]+)/i;
+
 const PLAIN_ORGANIZER_RE = /^\s*organizer:\s*(.+)$/im;
+
 const ANGLE_NAME_RE = /^(.+?)\s*<([^>]+)>\s*$/;
 
 function parseCalendarBodyActor(body: string): BodyActor | undefined {
   const ical = body.match(ICAL_ORGANIZER_RE);
+
   if (ical) {
     const cn = ical[1]?.trim();
     const email = ical[2]?.trim().toLowerCase();
+
     if (email) {
       const name = cn || email.split("@")[0] || email;
+
       return { kind: "person", name, handle: email };
     }
   }
+
   const plain = body.match(PLAIN_ORGANIZER_RE);
   const plainRaw = plain?.[1]?.trim();
+
   if (plainRaw) {
     const angle = plainRaw.match(ANGLE_NAME_RE);
     const angleEmail = angle?.[2];
+
     if (angleEmail) {
       const name = (angle?.[1] ?? "")
         .trim()
         .replace(/^"+|"+$/g, "")
         .trim();
+
       const handle = angleEmail.trim().toLowerCase();
+
       return { kind: "person", name: name || handle, handle };
     }
+
     return { kind: "person", name: plainRaw, handle: plainRaw.toLowerCase() };
   }
+
   return undefined;
 }
 
 const LINEAR_COMMENT_FROM_RE = /comment\s+from\s+([^\n<(]{1,80})/i;
+
 const LINEAR_COMMENTED_RE = /^([^\n<(]{1,80}?)\s+commented(?:\s+on)?/im;
 
 function parseLinearBodyActor(body: string): BodyActor | undefined {
   const head = body.split(/\r?\n/).slice(0, 30).join("\n");
   const m1 = head.match(LINEAR_COMMENT_FROM_RE);
   const m1Name = m1?.[1]?.trim();
+
   if (m1Name) return { kind: "person", name: m1Name, handle: m1Name.toLowerCase() };
   const m2 = head.match(LINEAR_COMMENTED_RE);
   const m2Name = m2?.[1]?.trim();
+
   if (m2Name) return { kind: "person", name: m2Name, handle: m2Name.toLowerCase() };
+
   return undefined;
 }
 
@@ -431,22 +487,30 @@ function resolveBotSlug(args: {
   bodyActor: BodyActor | undefined;
 }): BotSlug | undefined {
   const { domain, localPart, bodyActor } = args;
+
   if (!domain) return undefined;
 
   // GitHub: bot identity comes from the body-actor handle, not the envelope —
   // all GitHub notifications share `noreply@github.com`.
   if (isGithubDomain(domain)) {
     const handle = bodyActor?.handle?.toLowerCase();
+
     if (!handle) return undefined;
+
     if (handle.startsWith("coderabbitai")) return "coderabbit";
+
     if (handle.startsWith("copilot-pull-request-reviewer") || handle.startsWith("github-copilot")) {
       return "copilot-review";
     }
+
     if (handle === "github-actions" || handle.startsWith("github-actions")) {
       return "github-actions";
     }
+
     if (handle === "dependabot" || handle.startsWith("dependabot")) return "dependabot";
+
     if (handle === "renovate" || handle.startsWith("renovate")) return "renovate";
+
     return undefined;
   }
 
@@ -457,6 +521,7 @@ function resolveBotSlug(args: {
   }
 
   if (domain === "accounts.google.com") return "google-security";
+
   if (
     (domain === "google.com" || domain.endsWith(".google.com")) &&
     localPart &&
@@ -490,9 +555,14 @@ function deriveEffectiveAuthor(args: {
   // handle match still pins them as bots.
   if (args.botSlug) return "bot";
   const ba = args.bodyActor;
+
   if (ba?.kind === "bot") return "bot";
+
   if (ba?.kind === "person") return "person";
+
   if (args.fromKind === "person") return "person";
+
   if (args.fromKind === "service") return "service";
+
   return "unknown";
 }

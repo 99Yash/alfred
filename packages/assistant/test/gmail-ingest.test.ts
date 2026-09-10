@@ -24,6 +24,7 @@ import type { Extraction } from "@alfred/extraction";
 import { dbBackedSkip } from "./support/db-backed";
 
 const ID_PREFIX = "test-gmail-ingest-";
+
 const SKIP = dbBackedSkip("database");
 
 /** Test-only media door: supports PDF only, returns the given extract result. */
@@ -44,6 +45,7 @@ after(async () => {
     // integration_credentials + ingestion_state cascade on user delete.
     await db().delete(user).where(inArray(user.id, createdUserIds));
   }
+
   await closeConnections();
 });
 
@@ -53,6 +55,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Gmail Ingest Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -75,7 +78,9 @@ async function seedGoogleCredential(userId: string): Promise<string> {
       status: "active",
     })
     .returning({ id: integrationCredentials.id });
+
   assert.ok(row);
+
   return row.id;
 }
 
@@ -89,9 +94,12 @@ async function loadCursor(credentialId: string): Promise<{
     .where(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
+
   const row = rows[0];
+
   if (!row) return null;
   const state = row.state as { historyId?: string } | undefined;
+
   return { historyId: state?.historyId, lastSyncAt: row.lastSyncAt };
 }
 
@@ -182,6 +190,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const threadId = `thr-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
+
     const message = makePollMessage({
       id: messageId,
       threadId,
@@ -206,6 +215,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
         }),
         getMessage: async () => {
           getMessageCalls++;
+
           return message;
         },
         scheduleMediaIngest: async (args) => {
@@ -248,6 +258,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
           })),
           indexDocument: async () => {
             indexCalls++;
+
             return {
               documentId: "fake",
               chunksWritten: 1,
@@ -259,6 +270,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
         },
       },
     });
+
     assert.equal(jobResult.ingested, 1);
     assert.equal(indexCalls, 1);
 
@@ -266,6 +278,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(afterRows.length, 1);
     assert.equal(afterRows[0]!.sourceId, `${messageId}:${attachmentId}`);
     assert.equal(afterRows[0]!.content, "pdf text from job");
@@ -280,6 +293,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
 
     // Next poll: known + unflagged → no re-schedule, no re-fetch.
     const callsBeforePoll2 = getMessageCalls;
+
     const result2 = await pollGmailRecent({
       credentialId,
       window: "5m",
@@ -292,6 +306,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
         }),
         getMessage: async () => {
           getMessageCalls++;
+
           return message;
         },
         scheduleMediaIngest: async (args) => {
@@ -299,6 +314,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
         },
       },
     });
+
     assert.equal(result2.skipped, 1);
     assert.equal(scheduled.length, 1, "unflagged known message is not re-scheduled");
     assert.equal(getMessageCalls, callsBeforePoll2, "unflagged known message is not re-fetched");
@@ -311,6 +327,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
     const historyId = "3000";
+
     const message = makePollMessage({
       id: messageId,
       threadId,
@@ -344,6 +361,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
 
     let getMessageCalls = 0;
     const scheduled: { messageId: string; documentId: string }[] = [];
+
     const pollDeps = () => ({
       getFreshAccessToken: async () => "fake-token",
       listMessages: async () => ({
@@ -352,6 +370,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       }),
       getMessage: async () => {
         getMessageCalls++;
+
         return message;
       },
       scheduleMediaIngest: async (args: { messageId: string; documentId: string }) => {
@@ -368,6 +387,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       maxMessages: 10,
       deps: pollDeps(),
     });
+
     assert.equal(result1.skipped, 1);
     assert.equal(scheduled.length, 1, "flagged known message is re-scheduled");
     assert.equal(getMessageCalls, 0, "the retry schedules without re-fetching the message");
@@ -390,6 +410,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
         },
       },
     });
+
     assert.equal(jobResult.errors, 1);
 
     const afterFail = await loadMailRow(userId, messageId);
@@ -399,10 +420,12 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       true,
       "failure keeps the flag so the next poll retries",
     );
+
     const attRows = await db()
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(attRows.length, 0, "no gmail_attachment row after transient failure");
 
     const result2 = await pollGmailRecent({
@@ -411,6 +434,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       maxMessages: 10,
       deps: pollDeps(),
     });
+
     assert.equal(result2.errors, 0, "scheduling retry does not count as a poll error");
     assert.equal(scheduled.length, 2, "next poll re-schedules the flagged message");
     assert.equal(getMessageCalls, 0, "still no message fetch on the retry path");
@@ -422,6 +446,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const threadId = `thr-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
+
     const message = makePollMessage({
       id: messageId,
       threadId,
@@ -472,6 +497,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
         },
       },
     });
+
     assert.equal(jobResult.ingested, 0, "ingested counts only successful embeds");
     assert.equal(jobResult.embedFailures, 1);
     assert.equal(jobResult.errors, 0);
@@ -480,6 +506,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(attRows.length, 1);
     assert.equal(attRows[0]!.sourceId, `${messageId}:${attachmentId}`);
 
@@ -489,10 +516,12 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const mailRow = await loadMailRow(userId, messageId);
     assert.ok(mailRow);
     assert.equal((mailRow.metadata as Record<string, unknown>).mediaPending, undefined);
+
     const sweepCandidates = await findUnembeddedDocumentIds({
       source: "gmail_attachment",
       limit: 50,
     });
+
     assert.ok(
       sweepCandidates.includes(attRows[0]!.id),
       "embed_sweep candidate query must cover gmail_attachment rows",
@@ -511,5 +540,6 @@ async function loadMailRow(userId: string, sourceId: string) {
         eq(documents.sourceId, sourceId),
       ),
     );
+
   return rows[0] ?? null;
 }

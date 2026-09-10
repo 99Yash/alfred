@@ -97,10 +97,12 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
   // (the draft held a proposal the user could re-read on screen) and a data
   // loss for a question, whose draft holds content only the user can produce.
   const stagedInput = formatJson(staging.proposedInput);
+
   const [previousStaging, setPreviousStaging] = useState({
     id: staging.id,
     stagedInput,
   });
+
   const reasonRef = useRef<HTMLTextAreaElement>(null);
 
   // Re-seed when the staged value changes underneath us (streamed edits, or the
@@ -125,10 +127,12 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
     () => formatJson(draftInput).trim() !== stagedInput.trim(),
     [draftInput, stagedInput],
   );
+
   const title = useMemo(
     () => cardTitle(staging.toolName, edited ? draftInput : staging.proposedInput),
     [staging.toolName, edited, draftInput, staging.proposedInput],
   );
+
   const reasonMissing = reason.trim().length === 0;
 
   const approveDecision = (): ApproveDecision =>
@@ -140,6 +144,7 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
     if (busy || decided) return;
     setBusy(true);
     setError(null);
+
     try {
       await execute();
     } catch (err) {

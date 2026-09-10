@@ -34,22 +34,29 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   dedup: { kind: "delivery_id", header: "x-github-delivery" },
   project: (payload, headers) => {
     const event = headers.get("x-github-event");
+
     if (!event) return { kind: "ignore", reason: "no-kind-header" };
+
     // GitHub pings once on subscription; a 200 is what makes the App show green.
     if (event === "ping") return { kind: "ignore", reason: "ping" };
+
     if (isEventTypeForSource("github", event)) return { kind: "event", type: event };
     const action = getStringPath(payload, "action");
+
     return { kind: "raw", rawKind: action ? `${event}.${action}` : event };
   },
   resolveOwner: async (payload) => {
     const installationId = githubInstallationId(payload);
+
     // Every App delivery carries `installation.id`. A body without one is not
     // an App delivery, so there is no reference to name in the report either.
     if (!installationId) return { kind: "unowned", reason: "no_match", reference: null };
+
     const credential = await findActiveCredentialByInstallationId({
       provider: "github",
       installationId,
     });
+
     // The installation id goes on the drop report (#1033). It is the exact
     // value the reader compares against `integration_credentials.installation_id`,
     // and the production incident was one active row whose id no longer
@@ -72,12 +79,14 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   subscription: {
     async health(_userId, rows) {
       const github = rows.get("github") ?? [];
+
       // The connected rule (ADR-0093) is the same one the tile reads: an active
       // row that carries an `installation_id`. Reading it here, off the
       // caller's rows, is what keeps the tile and this verdict from disagreeing.
       if (github.some((row) => credentialSatisfies(GITHUB_CREDENTIAL, row))) {
         return { healthy: true };
       }
+
       // `installation_id` on ANY row, at any status, is the fact that separates
       // the two unhealthy answers (ADR-0100). It is a durable record that this
       // user once completed Install & Authorize, so App deliveries did flow and
@@ -98,6 +107,7 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
           recovery: { kind: "connect", integration: "github" },
         };
       }
+
       return {
         healthy: false,
         cause: "never_connected",

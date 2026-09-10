@@ -20,6 +20,7 @@ test("partial tool failures use an explicit safe fallback without exposing their
     new Error(RAW_SQL),
     publicAppError("account_read_failed", { integration: "calendar" }),
   );
+
   assert.deepEqual(result, {
     code: "account_read_failed",
     params: { integration: "calendar" },
@@ -33,6 +34,7 @@ test("registered errors keep their public code without exposing their cause", ()
   const result = toPublicAppError(
     new AppError("artifact_create_failed", { cause: new Error(RAW_SQL) }),
   );
+
   assert.deepEqual(result, {
     code: "artifact_create_failed",
     message: "Saving the artifact failed; nothing was created.",
@@ -46,10 +48,13 @@ test("logger serializer allowlists database diagnostics and drops SQL and params
     constraint: "artifacts_message_id_chat_messages_id_fk",
     detail: "Key (message_id)=(msg_private) is not present",
   });
+
   const drizzleWrapper = new Error(RAW_SQL, { cause });
+
   const serialized = serializeError(
     new AppError("artifact_create_failed", { cause: drizzleWrapper }),
   );
+
   const text = JSON.stringify(serialized);
   assert.equal(serialized.database?.code, "23503");
   assert.equal(serialized.database?.constraint, "artifacts_message_id_chat_messages_id_fk");
@@ -83,11 +88,13 @@ test("application error codes are not mislabeled as database diagnostics", () =>
 
 test("configured pino logger never writes raw error messages", () => {
   let output = "";
+
   const destination = {
     write(chunk: string) {
       output += chunk;
     },
   };
+
   // Pin `verboseErrors` — this asserts the strict production contract, and
   // `createLogger`'s default is derived from `NODE_ENV`, so leaving it implicit
   // made the assertion depend on the ambient environment (it passed only when
@@ -149,6 +156,7 @@ test("pino redact config censors the shared SENSITIVE_LOG_PATHS set", async () =
   });
   assert.match(output, /\[redacted\]/);
   assert.doesNotMatch(output, /sk_live|session=abc|"tok"/);
+
   // The sink-level walker and pino's path config interpret the same table.
   const viaWalker = JSON.stringify(
     redactSensitiveLogPaths({
@@ -156,6 +164,7 @@ test("pino redact config censors the shared SENSITIVE_LOG_PATHS set", async () =
       credential: { accessToken: "tok" },
     }),
   );
+
   assert.ok(SENSITIVE_LOG_PATHS.length > 0);
   assert.doesNotMatch(viaWalker, /sk_live|session=abc|"tok"/);
 });

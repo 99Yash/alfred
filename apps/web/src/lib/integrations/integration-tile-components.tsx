@@ -59,6 +59,7 @@ const GmailTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
 
 const GoogleCalendarTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   const idJitter = React.useId();
+
   return (
     <svg
       width="50"
@@ -390,6 +391,7 @@ const GoogleDocsTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
 
 const GoogleSheetsTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   const idJitter = React.useId();
+
   return (
     <svg
       width="50"

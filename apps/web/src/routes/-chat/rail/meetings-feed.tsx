@@ -64,6 +64,7 @@ export function MeetingsFeed({
 
 function MeetingRow({ meeting }: { meeting: RailMeetingItem }) {
   const isNext = meeting.status === "next";
+
   return (
     <li>
       <button

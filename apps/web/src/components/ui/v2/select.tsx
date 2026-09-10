@@ -53,10 +53,13 @@ export function AppSelect({
   // inheritance breaks — stamp the resolved theme on the content directly
   // (React context still flows through portals).
   const themeCtx = use(AppThemeContext);
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
+
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selected = options.find((option) => option.value === value);
+
   const rows = useMemo(
     () => [
       ...(clearable ? [{ value: undefined, label: placeholder, muted: true }] : []),
@@ -72,6 +75,7 @@ export function AppSelect({
 
   const focusRow = (index: number) => {
     const next = rowRefs.current[index];
+
     if (next) next.focus();
   };
 

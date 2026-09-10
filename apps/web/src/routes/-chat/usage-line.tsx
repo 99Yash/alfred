@@ -52,12 +52,15 @@ type ModelFallback = NonNullable<ChatMessageUsage["models"][number]["fallback"]>
 function fallbackNote(fallback: ModelFallback, calls: number): string {
   const share =
     fallback.calls === calls ? (calls === 1 ? "It" : "Every call") : `${fallback.calls} of them`;
+
   const primary = fallback.primary ? `the primary (${fallback.primary})` : "the primary";
+
   return `${share} ran here as a fallback: ${primary} errored, so withFallback degraded the turn.`;
 }
 
 /** Circumference of the ring below, hoisted so it isn't recomputed per render. */
 const RING_RADIUS = 5;
+
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /**
@@ -99,6 +102,7 @@ function CacheRing({ pct }: { pct: number }) {
  * are tints. Full class strings, so Tailwind can see them.
  */
 const BOSS_FILL = "bg-app-fg-4";
+
 const WORKER_FILLS = [
   "bg-app-purple-4",
   "bg-app-sky-4",
@@ -125,15 +129,20 @@ interface CostSlice {
 function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): CostSlice[] {
   const ordered = [...agents].sort((a, b) => {
     if ((a.subId === null) !== (b.subId === null)) return a.subId === null ? -1 : 1;
+
     return b.costUsd - a.costUsd;
   });
+
   let worker = 0;
+
   return ordered.map((agent) => {
     const subId = agent.subId;
+
     // `worker++` walks the tint list only for workers, so the boss never
     // consumes a tint and the first worker always wears the first tint.
     const fill =
       subId === null ? BOSS_FILL : (WORKER_FILLS[worker++ % WORKER_FILLS.length] ?? BOSS_FILL);
+
     return {
       key: subId === null ? "boss" : `sub:${subId}`,
       label: subId ?? "boss",
@@ -161,6 +170,7 @@ function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): Co
 function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]; total: number }) {
   const slices = costSlices(agents, total);
   const workers = slices.filter((s) => s.key !== "boss").length;
+
   return (
     <Tip
       label="Cost by agent"
@@ -225,6 +235,7 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
 export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usage"]> }) {
   const cost = formatCost(usage.costUsd);
   const tokensPerSecond = outputTokensPerSecond(usage.outputTokens, usage.modelLatencyMs);
+
   const cachePct =
     usage.inputTokens > 0 ? Math.round((usage.cachedInputTokens / usage.inputTokens) * 100) : 0;
 
@@ -301,8 +312,10 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         // back without a schema pass: absent must mean "no degrade", not amber.
         const fallback = m.fallback ?? null;
         const Icon = provider?.Icon;
+
         const served =
           m.calls === 1 ? "Served 1 call this turn." : `Served ${m.calls} calls this turn.`;
+
         return (
           <Tip
             key={m.model}

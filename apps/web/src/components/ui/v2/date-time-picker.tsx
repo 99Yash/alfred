@@ -29,8 +29,10 @@ interface AppDateTimePickerProps {
 }
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"] as const;
+
 const HOUR_OPTIONS: AppSelectOption[] = Array.from({ length: 12 }, (_, i) => {
   const h = i === 0 ? 12 : i;
+
   return { value: String(h), label: String(h) };
 });
 
@@ -47,8 +49,10 @@ export function AppDateTimePicker({
   // Portal content sits outside the `.app` subtree — stamp the theme so the
   // tokens resolve (same trick as AppSelect / the toast).
   const themeCtx = use(AppThemeContext);
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
+
   const selected = useMemo(() => parseDate(value), [value]);
   // The visible month — seeded from the value, advanced via the chevrons.
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(selected ?? todayLocal()));
@@ -56,6 +60,7 @@ export function AppDateTimePicker({
   const minuteOptions = useMemo(() => buildMinuteOptions(selected), [selected]);
   const weeks = useMemo(() => monthGrid(viewMonth), [viewMonth]);
   const gridDays = useMemo(() => weeks.flat(), [weeks]);
+
   const dayFocusIndex = Math.max(
     0,
     gridDays.findIndex((day) =>
@@ -87,6 +92,7 @@ export function AppDateTimePicker({
 
   const focusDay = (index: number) => {
     const next = dayRefs.current[index];
+
     if (next) next.focus();
   };
 
@@ -202,6 +208,7 @@ export function AppDateTimePicker({
                     const inMonth = day.getMonth() === viewMonth.getMonth();
                     const isSelected = selected ? isSameDay(day, selected) : false;
                     const isToday = isSameDay(day, todayLocal());
+
                     return (
                       <td key={day.toISOString()} aria-selected={isSelected}>
                         <button
@@ -328,11 +335,13 @@ function NavButton({
 function parseDate(value: string | undefined): Date | null {
   if (!value) return null;
   const d = new Date(value);
+
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
 function todayLocal(): Date {
   const now = new Date();
+
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
@@ -340,6 +349,7 @@ function todayLocal(): Date {
 function defaultDateTime(): Date {
   const d = todayLocal();
   d.setHours(9, 0, 0, 0);
+
   return d;
 }
 
@@ -356,10 +366,12 @@ function monthGrid(month: Date): Date[][] {
   const first = startOfMonth(month);
   const start = new Date(first);
   start.setDate(first.getDate() - first.getDay());
+
   return Array.from({ length: 6 }, (_, week) => {
     return Array.from({ length: 7 }, (_, day) => {
       const d = new Date(start);
       d.setDate(start.getDate() + week * 7 + day);
+
       return d;
     });
   });
@@ -375,13 +387,17 @@ function isSameDay(a: Date, b: Date): boolean {
 
 function to24Hour(hour12: number, pm: boolean): number {
   const base = hour12 % 12;
+
   return pm ? base + 12 : base;
 }
 
 function buildMinuteOptions(selected: Date | null): AppSelectOption[] {
   const steps = new Set<number>();
+
   for (let m = 0; m < 60; m += 5) steps.add(m);
+
   if (selected) steps.add(selected.getMinutes());
+
   return Array.from(steps)
     .toSorted((a, b) => a - b)
     .map((m) => ({ value: pad(m), label: pad(m) }));
@@ -397,6 +413,7 @@ function monthLabel(d: Date): string {
 
 function weekdayLabel(index: number): string {
   const d = new Date(2026, 5, 7 + index);
+
   return d.toLocaleDateString(undefined, { weekday: "long" });
 }
 
@@ -407,6 +424,7 @@ function dayLabel(d: Date, selected: boolean): string {
     day: "numeric",
     year: "numeric",
   });
+
   return selected ? `${label}, selected` : label;
 }
 

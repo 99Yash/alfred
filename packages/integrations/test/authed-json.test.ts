@@ -30,8 +30,10 @@ function stubFetch(response: Response): RecordedFetchCalls {
   const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     calls.push({ input, init });
+
     return Promise.resolve(response);
   }) as typeof fetch;
+
   return { calls };
 }
 
@@ -42,21 +44,25 @@ afterEach(() => {
 describe("authedJson", () => {
   test("a 2xx parses the JSON body and returns it as unknown", async () => {
     stubFetch(new Response(JSON.stringify({ ok: true, n: 2 }), { status: 200 }));
+
     const body = await authedJson(
       { headers: { Authorization: "Bearer tok" } },
       { url: "https://api.example.com/thing" },
       { provider: "example" },
     );
+
     assert.deepEqual(body, { ok: true, n: 2 });
   });
 
   test("a 204/empty body resolves to {}", async () => {
     stubFetch(new Response(null, { status: 200 }));
+
     const body = await authedJson(
       { headers: {} },
       { url: "https://api.example.com/empty" },
       { provider: "example" },
     );
+
     assert.deepEqual(body, {});
   });
 
@@ -76,6 +82,7 @@ describe("authedJson", () => {
         assert.equal(err.method, "GET");
         // The bounded upstream body rides along on the default mapping.
         assert.match(err.body, /upstream said no/);
+
         return true;
       },
     );
@@ -88,6 +95,7 @@ describe("authedJson", () => {
       (err: unknown) => {
         assert.ok(err instanceof HttpError);
         assert.equal(err.url, "https://api.example.com/x");
+
         return true;
       },
     );
@@ -98,6 +106,7 @@ describe("authedJson", () => {
     const logged: string[] = [];
     const realError = console.error;
     console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+
     try {
       await assert.rejects(
         authedJson(
@@ -113,12 +122,14 @@ describe("authedJson", () => {
           assert.equal(err.url, "/v1/pages/x");
           // …but the upstream body does not ride along into telemetry.
           assert.equal(err.body, "");
+
           return true;
         },
       );
     } finally {
       console.error = realError;
     }
+
     // The body survives exactly one place: the server-side log.
     assert.equal(logged.length, 1);
     assert.match(logged[0] ?? "", /secret page fragment/);
@@ -130,16 +141,19 @@ describe("authedJson", () => {
     const logged: string[] = [];
     const realError = console.error;
     console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+
     try {
       const body = await authedJson(
         { headers: {} },
         { url: "https://api.example.com/ok" },
         { provider: "example", bodyPolicy: "omit" },
       );
+
       assert.deepEqual(body, { fine: true });
     } finally {
       console.error = realError;
     }
+
     assert.deepEqual(logged, []);
   });
 });

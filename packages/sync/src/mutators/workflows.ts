@@ -36,6 +36,7 @@ const CRON_DAY_NAMES = {
 
 function cronFieldValue(value: string, names?: Readonly<Record<string, number>>): number | null {
   if (/^\d+$/.test(value)) return Number(value);
+
   return names?.[value.toUpperCase()] ?? null;
 }
 
@@ -47,21 +48,29 @@ function isValidCronField(
 ): boolean {
   for (const part of field.split(",")) {
     const [range, step] = part.split("/");
+
     if (!range || (step !== undefined && (!/^\d+$/.test(step) || Number(step) < 1))) {
       return false;
     }
+
     if (range === "*") continue;
     const bounds = range.split("-");
+
     if (bounds.length > 2) return false;
     const values: number[] = [];
+
     for (const bound of bounds) {
       const n = cronFieldValue(bound, names);
+
       if (n === null) return false;
+
       if (n < min || n > max) return false;
       values.push(n);
     }
+
     if (values.length === 2 && values[0]! > values[1]!) return false;
   }
+
   return true;
 }
 
@@ -71,8 +80,10 @@ function isValidCronField(
  */
 export function isLikelyValidWorkflowCron(schedule: string): boolean {
   const parts = schedule.trim().split(/\s+/);
+
   if (parts.length !== 5) return false;
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+
   return (
     isValidCronField(minute ?? "", 0, 59) &&
     isValidCronField(hour ?? "", 0, 23) &&
@@ -111,6 +122,7 @@ export const authorableWorkflowTriggerSchema = z
   ])
   .superRefine((trigger, ctx) => {
     if (trigger.kind !== "cron") return;
+
     if (!isLikelyValidWorkflowCron(trigger.schedule)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -118,6 +130,7 @@ export const authorableWorkflowTriggerSchema = z
         path: ["schedule"],
       });
     }
+
     if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -126,6 +139,7 @@ export const authorableWorkflowTriggerSchema = z
       });
     }
   });
+
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
 
 /**
@@ -145,6 +159,7 @@ export const workflowUpdateArgsSchema = z.object({
   status: workflowStatusSchema.optional(),
   trigger: authorableWorkflowTriggerSchema.optional(),
 });
+
 export type WorkflowUpdateArgs = z.infer<typeof workflowUpdateArgsSchema>;
 
 /**
@@ -157,7 +172,9 @@ export async function workflowUpdateClient(
   args: WorkflowUpdateArgs,
 ): Promise<void> {
   const current = await SYNC_MODEL.workflow.get(tx, { slug: args.slug });
+
   if (!current) return;
+
   if (current.isBuiltin) return;
 
   const next: SyncedWorkflow = {
@@ -172,5 +189,6 @@ export async function workflowUpdateClient(
     ...(args.trigger !== undefined ? { trigger: args.trigger } : {}),
     rowVersion: current.rowVersion + 1,
   };
+
   await SYNC_MODEL.workflow.put(tx, next);
 }

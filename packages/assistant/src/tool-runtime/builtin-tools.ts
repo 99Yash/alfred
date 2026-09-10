@@ -53,5 +53,6 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   assertKernelToolsRegistered(systemTools);
   registerToolsRuntimeAdapter();
   registerWorkflowToolCatalog();
+
   return builtinToolRegistry;
 }

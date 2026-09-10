@@ -53,6 +53,7 @@ export function AppSegmented<T extends string = string>({
   // SAFETY: Radix emits the string value of a rendered item, which is exactly
   // the generic T this component was instantiated with.
   const emit = (next: string) => onValueChange(next as T);
+
   return (
     <TabsPrimitive.Root value={value} onValueChange={emit}>
       <TabsPrimitive.List

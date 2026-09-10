@@ -36,6 +36,7 @@ import { selfIdentityGrounding } from "@alfred/assistant/settings";
 loadEnv({ path: path.resolve(import.meta.dirname, "../.env") });
 
 const NOW = new Date("2026-07-03T02:00:00Z");
+
 const YESTERDAY_MORNING = new Date("2026-07-02T02:30:00Z");
 
 /**
@@ -236,6 +237,7 @@ function modelForLane(lane: ModelLane): LanguageModel {
       return route(googleLeg("gemini-3.5-flash"), "medium").model();
     default: {
       const _exhaustive: never = lane;
+
       return _exhaustive;
     }
   }
@@ -280,6 +282,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
           inputSchema: z.object({ documentId: z.string() }),
           execute: async ({ documentId }) => {
             const hit = scenario.emails.find((e) => e.documentId === documentId);
+
             return hit
               ? {
                   documentId,
@@ -332,6 +335,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
               bodyText: input.bodyText,
               bodyMarkdown: input.bodyMarkdown,
             };
+
             return { ok: true };
           },
         }),
@@ -347,6 +351,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
   if (!dumped) return EMPTY_OUTPUT;
   // SAFETY: `dumped` is this eval's own rendered notification envelope.
   const d = dumped as { subject: string; bodyText: string; bodyMarkdown: string };
+
   return {
     ok: true,
     subject: d.subject,
@@ -382,7 +387,9 @@ evalite<ScenarioRun, ComposeOutput, null>(
               metadata: `[${input.modelLane}/${input.scenario.label}] compose failed: ${output.note}`,
             };
           }
+
           const hits = findAssertedProgress(output.combined);
+
           return {
             score: hits.length === 0 ? 1 : 0,
             metadata:
@@ -409,6 +416,7 @@ evalite<ScenarioRun, ComposeOutput, null>(
         scorer: ({ output }) => {
           if (!output.ok) return { score: 0, metadata: `compose failed: ${output.note}` };
           const surfaced = /fabian/i.test(output.combined);
+
           return {
             score: surfaced ? 1 : 0,
             metadata: surfaced

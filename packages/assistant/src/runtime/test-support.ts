@@ -11,10 +11,12 @@
  * `createAssistantRuntime`, in order.
  */
 export { registerTriggerConsumers, unregisterTriggerConsumers } from "./adapters/trigger-consumers";
+
 export {
   registerWorkflowReadiness,
   unregisterWorkflowReadiness,
 } from "./adapters/workflow-readiness";
+
 export {
   registerSystemToolProductAdapters,
   unregisterSystemToolProductAdapters,

@@ -24,24 +24,29 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // path resolves" means "looked and found nothing broken" rather than "looked at
 // nothing".
 const selfTest = scriptPathSelfTestFailures();
+
 if (selfTest.length > 0) {
   console.error("script-paths self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the grammar or the source discovery before trusting this check.");
   process.exit(1);
 }
 
 const { literals, failures } = repoPathLiterals(ROOT);
+
 const violations = unresolvedPathLiterals(literals, ROOT);
 
 if (failures.length > 0) {
   console.error("The scripts/ path-literal scan did not resolve, so some literals went unread:\n");
+
   for (const failure of failures) console.error(`  ${failure}`);
   console.error("");
 }
 
 if (violations.length > 0) {
   console.error("A repository path hardcoded in scripts/ no longer resolves:\n");
+
   for (const violation of violations) console.error(`  ${violation}\n`);
   console.error(
     `${violations.length} unresolved path literal(s). A checker whose root is gone enforces nothing.`,
@@ -51,6 +56,7 @@ if (violations.length > 0) {
 if (violations.length > 0 || failures.length > 0) process.exit(1);
 
 const exempt = literals.filter((entry) => entry.exempt !== null).length;
+
 console.log(
   `check-script-paths: ${literals.length} repo-path literals in scripts/ resolve (${exempt} declared absent).`,
 );

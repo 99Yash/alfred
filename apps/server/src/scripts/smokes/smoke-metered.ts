@@ -34,6 +34,7 @@ async function main() {
       requestMeta: { purpose: "m6-smoke" },
     },
   );
+
   console.log(`[smoke-metered] response: ${JSON.stringify(result.text)}`);
 
   // Wait briefly for the fire-and-forget DB write.
@@ -41,6 +42,7 @@ async function main() {
 
   const after = await db().select().from(apiCallLog).orderBy(desc(apiCallLog.id)).limit(1);
   const row = after[0];
+
   if (!row) throw new Error("no api_call_log row appeared after metered call");
 
   console.log(`[smoke-metered] log row:`);
@@ -55,14 +57,17 @@ async function main() {
   if ((row.inputTokens ?? 0) <= 0 && (row.outputTokens ?? 0) <= 0) {
     throw new Error("usage extraction failed — both input and output tokens are 0");
   }
+
   if (Number(row.costUsd) <= 0) {
     throw new Error(
       `cost computation failed — got ${row.costUsd} (expected > 0). Check that ${row.provider}/${row.model} is in model_prices.`,
     );
   }
+
   // SAFETY: apiCallLog.requestMeta is jsonb written by the metering layer with
   // the idempotency key included.
   const meta = row.requestMeta as { idempotencyKey?: string } | null;
+
   if (meta?.idempotencyKey !== idempotencyKey) {
     throw new Error(`idempotency key not persisted: got ${meta?.idempotencyKey}`);
   }

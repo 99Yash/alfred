@@ -21,6 +21,7 @@ import type { RailTodoSuggestion } from "./todo-feed";
 // referentially stable value before react-query's first fetch resolves —
 // otherwise every downstream callback / memo would churn on each render.
 const EMPTY_INBOX_PAGES: ReadonlyArray<InboxPage> = [];
+
 const EMPTY_INBOX_ITEMS: ReadonlyArray<RailInboxItem> = [];
 
 /**
@@ -50,12 +51,14 @@ export function useRailData(): RailData {
   const briefingStatus = briefing.data?.status;
   useEffect(() => {
     if (!composing) return;
+
     if (
       briefingStatus === "sent" ||
       briefingStatus === "suppressed" ||
       briefingStatus === "failed"
     ) {
       setComposing(false);
+
       if (briefingStatus === "failed") {
         toast.error({
           message: "Briefing failed",
@@ -64,6 +67,7 @@ export function useRailData(): RailData {
       }
     }
   }, [composing, briefing.data?.status]);
+
   const onGenerateBriefing = useCallback(() => {
     runBriefing.mutate(undefined, {
       onSuccess: (data) => {
@@ -91,7 +95,9 @@ export function useRailData(): RailData {
     dismissTodo,
     clearTodo,
   } = useTodos();
+
   const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
+
   // Dismissing a suggestion hides it immediately and only commits the
   // (terminal) `dismissed` mutation after the undo window closes — so "Undo"
   // is a local cancel, not a server round-trip (`dismissed` rows never sync
@@ -100,23 +106,30 @@ export function useRailData(): RailData {
     liveSuggestions,
     dismissTodo,
   );
+
   const todoSuggestions = useMemo(() => {
     const visible: RailTodoSuggestion[] = [];
+
     for (const suggestion of liveSuggestions) {
       if (!hiddenSuggestionIds.has(suggestion.id)) visible.push(toRailSuggestion(suggestion));
     }
+
     return visible;
   }, [liveSuggestions, hiddenSuggestionIds]);
+
   const onToggleTodo = useCallback(
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
   );
+
   const onClearTodo = useCallback((id: string) => void clearTodo(id), [clearTodo]);
   const onCreateTodo = useCallback((title: string) => void createTodo(title), [createTodo]);
+
   const onCompleteSuggestion = useCallback(
     (id: string) => void completeSuggestion(id),
     [completeSuggestion],
   );
+
   const onPromoteSuggestion = useCallback((id: string) => void promoteTodo(id), [promoteTodo]);
   const { tagsByThreadId, overrideTag } = useTriageTags();
 
@@ -138,10 +151,12 @@ export function useRailData(): RailData {
   // shows the last valid page without a state write. Prev/next handlers
   // read off `safeInboxPage` so a stale index can't strand the user.
   const safeInboxPage = Math.min(inboxPageIndex, inboxPageCount - 1);
+
   const rawInboxItems = useMemo(
     () => pages[safeInboxPage]?.items ?? EMPTY_INBOX_ITEMS,
     [pages, safeInboxPage],
   );
+
   const inboxItems = useMemo(
     () => overlayTriageTags(rawInboxItems, tagsByThreadId),
     [rawInboxItems, tagsByThreadId],
@@ -152,9 +167,12 @@ export function useRailData(): RailData {
   }, [safeInboxPage]);
 
   const fetchNextPage = inbox.fetchNextPage;
+
   const onNextInbox = useCallback(() => {
     const target = safeInboxPage + 1;
+
     if (target >= inboxPageCount) return;
+
     // If we haven't fetched this page yet, fire the request — the page
     // will land in cache and re-render with items populated. Don't gate
     // the index advance on the fetch; React Query renders the existing
@@ -167,6 +185,7 @@ export function useRailData(): RailData {
   const onOpenInbox = useCallback((documentId: string) => {
     setSelectedInboxId(documentId);
   }, []);
+
   const onCloseInbox = useCallback(() => setSelectedInboxId(null), []);
 
   // "Mark all read" is bulk by the page's visible-unread ids — InboxFeed
@@ -175,6 +194,7 @@ export function useRailData(): RailData {
   // already showing as read.
   const markInboxRead = useMarkInboxRead();
   const markInboxReadMutate = markInboxRead.mutate;
+
   const onMarkInboxRead = useCallback(
     (ids: ReadonlyArray<string>) => {
       if (ids.length === 0) return;
@@ -182,6 +202,7 @@ export function useRailData(): RailData {
     },
     [markInboxRead.mutate],
   );
+
   const onOverrideTriageTag = useCallback(
     (threadId: string, category: TriageCategory) => {
       void overrideTag(threadId, category);
@@ -191,8 +212,10 @@ export function useRailData(): RailData {
 
   const meetingsData = meetings.data;
   const briefingData = briefing.data;
+
   const latestBriefing =
     briefingData?.status === "sent" || briefingData?.status === "suppressed" ? briefingData : null;
+
   return useMemo(
     () => ({
       ...EMPTY_RAIL_DATA,
@@ -286,11 +309,14 @@ function overlayTriageTags(
   // 1. Merge the synced tag's category/source onto each row.
   const merged = items.map((item) => {
     const tag = item.threadId ? tagsByThreadId.get(item.threadId) : undefined;
+
     if (!tag) return { item, significanceBand: null };
+
     const withTag =
       item.category === tag.category && item.categorySource === tag.source
         ? item
         : { ...item, category: tag.category, categorySource: tag.source };
+
     return { item: withTag, significanceBand: tag.senderSignificanceBand };
   });
 
@@ -309,8 +335,10 @@ function overlayTriageTags(
       occurredAtMs: item.authoredAtMs,
     })),
   );
+
   const withBand = merged.map(({ item }, i) => {
     const band: AttentionBand | null = item.category ? (scored[i]?.band ?? null) : null;
+
     return item.attentionBand === band ? item : { ...item, attentionBand: band };
   });
 
@@ -321,6 +349,7 @@ function overlayTriageTags(
       const rank =
         ATTENTION_BAND_ORDER[a.item.attentionBand ?? "normal"] -
         ATTENTION_BAND_ORDER[b.item.attentionBand ?? "normal"];
+
       return rank !== 0 ? rank : a.index - b.index;
     })
     .map(({ item }) => item);
@@ -329,6 +358,7 @@ function overlayTriageTags(
 /** Map a synced todo to the rail's display shape (ADR-0050). */
 function toRailTodoItem(t: SyncedTodo): RailTodoItem {
   const provider = t.sources[0]?.provider;
+
   const source: RailTodoItem["source"] =
     provider === "gmail"
       ? "email"
@@ -337,6 +367,7 @@ function toRailTodoItem(t: SyncedTodo): RailTodoItem {
         : t.createdBy === "user"
           ? "manual"
           : undefined;
+
   return {
     id: t.id,
     title: t.name,
@@ -373,17 +404,21 @@ function useSuggestionDismissal(
   const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>> | null>(null);
+
   if (timers.current === null) timers.current = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingTimers = timers.current;
 
   useEffect(() => {
     const pending = pendingTimers;
+
     return () => {
       for (const [id, handle] of pending) {
         clearTimeout(handle);
         void dismissTodo(id);
       }
+
       pending.clear();
     };
   }, [pendingTimers, dismissTodo]);
@@ -391,12 +426,14 @@ function useSuggestionDismissal(
   const cancel = useCallback(
     (id: string) => {
       const handle = pendingTimers.get(id);
+
       if (handle) clearTimeout(handle);
       pendingTimers.delete(id);
       setHiddenSuggestionIds((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Set(prev);
         next.delete(id);
+
         return next;
       });
     },
@@ -410,18 +447,22 @@ function useSuggestionDismissal(
       setHiddenSuggestionIds((prev) => {
         const next = new Set(prev);
         next.add(id);
+
         return next;
       });
+
       const handle = setTimeout(() => {
         pendingTimers.delete(id);
         setHiddenSuggestionIds((prev) => {
           if (!prev.has(id)) return prev;
           const next = new Set(prev);
           next.delete(id);
+
           return next;
         });
         void dismissTodo(id);
       }, SUGGESTION_UNDO_MS);
+
       pendingTimers.set(id, handle);
       toast.message({
         message: "Suggestion dismissed",

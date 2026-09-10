@@ -27,6 +27,7 @@ export function DeliveryAlertBanner() {
   const [dismissed, setDismissed] = useState<readonly string[]>([]);
 
   const alert = alerts.find((entry) => !dismissed.includes(entry.integration));
+
   if (!alert) return null;
 
   const name = INTEGRATIONS[alert.integration].displayName;

@@ -28,6 +28,7 @@ export function capChunksForBudget(
   maxTokens: number,
 ): EmbedBudgetSlice {
   const total = chunks.reduce((sum, c) => sum + c.tokenCount, 0);
+
   if (total <= maxTokens) {
     return {
       chunks: [...chunks],
@@ -37,13 +38,16 @@ export function capChunksForBudget(
       total,
     };
   }
+
   let used = 0;
   let keep = 0;
+
   for (const c of chunks) {
     if (used + c.tokenCount > maxTokens) break;
     used += c.tokenCount;
     keep++;
   }
+
   return {
     chunks: chunks.slice(0, keep),
     hashes: hashes.slice(0, keep),

@@ -115,6 +115,7 @@ const REDUCERS = {
 } satisfies Record<ObjectStateProvider, ReduceFn>;
 
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
+
 const MAX_OBJECT_LIST_LIMIT = 250;
 
 function rowToObjectState(row: IntegrationObject): ObjectState {
@@ -139,11 +140,13 @@ export const objectStateStore: ObjectStateStore = {
   async applyEvent(args) {
     const reduce = REDUCERS[args.provider];
     const delta = reduce(args.eventType, args.action, args.payload);
+
     if (!delta) return;
 
     // Native → agnostic bucket. An unrecognized token is a no-op, never a
     // guessed state (absence never closes).
     const stateCategory = getObjectDef(args.provider).normalize(delta.kind, delta.nativeState);
+
     if (!stateCategory) return;
 
     await db().transaction(async (tx) => {
@@ -161,6 +164,7 @@ export const objectStateStore: ObjectStateStore = {
         .limit(1);
 
       let objectId: string;
+
       if (!existing) {
         const [row] = await tx
           .insert(integrationObjects)
@@ -178,17 +182,21 @@ export const objectStateStore: ObjectStateStore = {
             stateDeliveredAt: args.deliveredAt,
           })
           .returning({ id: integrationObjects.id });
+
         if (!row) throw new Error("[object-state] applyEvent insert returned no row");
         objectId = row.id;
       } else {
         objectId = existing.id;
+
         // Monotonicity: only advance state when this delivery is at least as
         // recent as the one that last set it. Resolved PRs are absorbing, so a
         // delayed open/synchronize delivery can't regress a merge back to active.
         const isNewer =
           existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt;
+
         const wouldReopenResolved =
           existing.stateCategory === "resolved" && stateCategory !== "resolved";
+
         if (isNewer && !wouldReopenResolved) {
           await tx
             .update(integrationObjects)
@@ -248,7 +256,9 @@ export const objectStateStore: ObjectStateStore = {
         ),
       )
       .limit(1);
+
     if (!row) return null;
+
     return { objectId: row.objectId, provider, kind: row.kind, externalId: row.externalId };
   },
 
@@ -258,7 +268,9 @@ export const objectStateStore: ObjectStateStore = {
       .from(integrationObjects)
       .where(and(eq(integrationObjects.id, ref.objectId), eq(integrationObjects.userId, userId)))
       .limit(1);
+
     if (!row) return null;
+
     return rowToObjectState(row);
   },
 
@@ -267,18 +279,23 @@ export const objectStateStore: ObjectStateStore = {
       eq(integrationObjects.userId, userId),
       eq(integrationObjects.provider, provider),
     ];
+
     if (filter?.kind) conditions.push(eq(integrationObjects.kind, filter.kind));
+
     if (filter?.stateCategory) {
       conditions.push(eq(integrationObjects.stateCategory, filter.stateCategory));
     }
+
     if (filter?.deliveredWithin) {
       conditions.push(
         gte(integrationObjects.stateDeliveredAt, filter.deliveredWithin.start),
         lte(integrationObjects.stateDeliveredAt, filter.deliveredWithin.end),
       );
     }
+
     const requestedLimit = filter?.limit ?? DEFAULT_OBJECT_LIST_LIMIT;
     const limit = Math.min(Math.max(1, requestedLimit), MAX_OBJECT_LIST_LIMIT);
+
     // When windowing on delivery time, the selected set must be the most recently
     // *resolved* objects (the event that delivered the state), not the most
     // recently rewritten projections — `updatedAt` only tie-breaks. Otherwise the
@@ -287,12 +304,14 @@ export const objectStateStore: ObjectStateStore = {
     const order = filter?.deliveredWithin
       ? [desc(integrationObjects.stateDeliveredAt), desc(integrationObjects.updatedAt)]
       : [desc(integrationObjects.updatedAt)];
+
     const rows = await db()
       .select()
       .from(integrationObjects)
       .where(and(...conditions))
       .orderBy(...order)
       .limit(limit);
+
     return rows.map(rowToObjectState);
   },
 };

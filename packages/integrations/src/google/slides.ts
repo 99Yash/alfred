@@ -61,6 +61,7 @@ export async function createPresentation(
       title: args.title,
     },
   );
+
   return { presentationId: parsed.presentationId, title: parsed.title };
 }
 
@@ -83,6 +84,7 @@ export async function getPresentation(
 ): Promise<GetPresentationResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.presentationId)}`;
   const parsed = await sendJson(presentationSchema, "GET", url, args.accessToken, undefined, retry);
+
   return {
     presentationId: parsed.presentationId,
     title: parsed.title,
@@ -111,9 +113,11 @@ export async function batchUpdatePresentation(
   args: BatchUpdatePresentationArgs,
 ): Promise<BatchUpdatePresentationResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.presentationId)}:batchUpdate`;
+
   const parsed = await sendJson(batchUpdateResponseSchema, "POST", url, args.accessToken, {
     requests: args.requests,
   });
+
   return { replies: parsed.replies ?? [] };
 }
 

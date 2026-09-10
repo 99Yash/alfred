@@ -38,6 +38,7 @@ export function extractGmailSignals(labelIds: readonly string[]): GmailSignals {
   let important = false;
   let starred = false;
   let inInbox = false;
+
   for (const id of labelIds) {
     if (id.startsWith(GMAIL_CATEGORY_PREFIX)) {
       categories.push(id.slice(GMAIL_CATEGORY_PREFIX.length).toLowerCase());
@@ -45,7 +46,9 @@ export function extractGmailSignals(labelIds: readonly string[]): GmailSignals {
     else if (id === "STARRED") starred = true;
     else if (id === "INBOX") inInbox = true;
   }
+
   categories.sort(); // stable order for snapshot tests
+
   return { categories, important, starred, inInbox };
 }
 
@@ -86,6 +89,7 @@ export interface ContentFlags {
 }
 
 const UNSUBSCRIBE_RE = /\bunsubscribe\b|\bmanage (your )?preferences\b|list-unsubscribe/i;
+
 // The trailing-symbol branch keeps `\b` only on the currency CODES (`100 EUR`),
 // never on the glyphs: a `\b` after `€`/`£` never holds (non-word glyph → EOL/
 // space is not a word boundary), so anchoring the whole branch on `\b` silently
@@ -100,9 +104,12 @@ const UNSUBSCRIBE_RE = /\bunsubscribe\b|\bmanage (your )?preferences\b|list-unsu
 // matching while making the failing-suffix backtrack linear.
 const CURRENCY_RE =
   /(?:[$€£₹]\s?\d|\b(?:usd|eur|gbp|inr)\b\s?\d|\d[\d.,]{0,20}\s?(?:[$€£₹]|\b(?:usd|eur|gbp|inr)\b))/i;
+
 const SECURITY_RE =
   /\bcve-\d{4}-\d+\b|\b(?:exposed|leaked|compromised)\b|\b(?:secret|credential|api[ -]?key|token|private key|password|passkey|security key|authenticator app|two[- ]factor|two[- ]step|2fa|mfa|2[- ]step|recovery (?:email|phone)|login method|oauth application)\b|\b(?:unauthorized|suspicious) (?:sign-?in|login|access)\b/i;
+
 const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
+
 // `proxy` and `registrar` are qualified to their financial sense: bare
 // `\bproxy\b`/`\bregistrar\b` false-positive on routine engineering prose
 // ("reverse proxy", "package registrar") for a developer's mail mix, setting a
@@ -110,6 +117,7 @@ const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
 // ("proxy voting", "registrar and transfer agent", "registrar to the issue").
 const INVESTOR_RE =
   /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\s+(?:vote|voting|statement|card|form|materials?)\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\s+(?:and|&|to)\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
+
 // `conference` requires a public-event qualifier (`conference 2026`,
 // `tech conference`) — bare `\bconference\b` false-positived on personal
 // "conference call" / "conference room", nudging the model off `meeting`.

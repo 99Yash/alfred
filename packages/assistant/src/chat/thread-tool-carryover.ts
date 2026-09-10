@@ -65,13 +65,18 @@ export async function carryForwardThreadTools(args: {
       }).values(),
     ].flat(),
   );
+
   const already = new Set(args.activeTools);
+
   for (const row of rows) {
     const carried = toolNamesFromState(row.state, "activeTools").filter(
       (name) => loadable.has(name) && !already.has(name),
     );
+
     if (carried.length === 0) continue;
+
     return { activeTools: uniqueToolNames([...args.activeTools, ...carried]), carried };
   }
+
   return { activeTools: [...args.activeTools], carried: [] };
 }

@@ -25,6 +25,7 @@ export interface RailwayCredentialRef {
 }
 
 export type RailwayProjectWithCredential = RailwayProject & RailwayCredentialRef;
+
 export type RailwayDeploymentWithCredential = RailwayDeployment & RailwayCredentialRef;
 
 /**
@@ -75,12 +76,16 @@ export function pickCredential<T extends RailwayCredential>(
 ): T {
   if (credentialId) {
     const credential = credentials.find((c) => c.id === credentialId);
+
     if (!credential) {
       throw new AppError("railway_credential_required");
     }
+
     return credential;
   }
+
   const [sole] = credentials;
+
   if (sole && credentials.length === 1) return sole;
   throw new AppError("railway_credential_required");
 }
@@ -108,6 +113,7 @@ export async function listProjectsForCredentials(
   const settled = await Promise.allSettled(
     credentials.map((credential) => listProjects(credential.id)),
   );
+
   // With a single credential there is no sibling to fall back to, so fail with
   // a safe actionable error while retaining the provider detail only as cause.
   if (credentials.length === 1 && settled[0]?.status === "rejected") {
@@ -123,21 +129,27 @@ export async function listProjectsForCredentials(
   let anySucceeded = false;
   settled.forEach((outcome, index) => {
     const credential = credentials[index];
+
     if (!credential) return;
+
     if (outcome.status === "fulfilled") {
       anySucceeded = true;
+
       for (const project of outcome.value.projects) {
         if (!projectsById.has(project.id)) {
           projectsById.set(project.id, withCredential(project, credential));
         }
       }
+
       return;
     }
+
     // A sibling may still answer, so record the failure and keep going.
     const failure = toPublicAppError(
       outcome.reason,
       publicAppError("account_read_failed", { integration: "railway" }),
     );
+
     logger.error(
       {
         err: outcome.reason,
@@ -152,12 +164,14 @@ export async function listProjectsForCredentials(
       ...failure,
     });
   });
+
   // Only an *all-failed* fan-out is an error. A credential that succeeded with
   // zero projects (empty workspace) must not be reported as a failure. List the
   // provider details remain in the per-account safe logs above.
   if (!anySucceeded && failures.length > 0) {
     throw new AppError("integration_unavailable", { integration: "railway" });
   }
+
   return { projects: [...projectsById.values()], failures };
 }
 
@@ -165,6 +179,7 @@ export async function listProjectsForCredentials(
 function byCreatedAtDesc(a: RailwayRecentDeployment, b: RailwayRecentDeployment): number {
   const at = a.createdAt ? Date.parse(a.createdAt) : NaN;
   const bt = b.createdAt ? Date.parse(b.createdAt) : NaN;
+
   return (Number.isNaN(bt) ? -Infinity : bt) - (Number.isNaN(at) ? -Infinity : at);
 }
 
@@ -200,15 +215,19 @@ export async function listRecentDeploymentsForCredentials(
   const settled = await Promise.allSettled(
     projects.map(async (project): Promise<RailwayRecentDeployment[]> => {
       const credential = credentials.find((candidate) => candidate.id === project.credentialId);
+
       // A project only surfaced because its credential listed it, so the lookup
       // always resolves; guard defensively rather than assert.
       if (!credential) return [];
+
       const { deployments } = await listDeployments({
         credentialId: credential.id,
         projectId: project.id,
         limit: perProjectLimit,
       });
+
       const serviceNameById = new Map(project.services.map((s) => [s.id, s.name]));
+
       return deployments.map((deployment) => ({
         ...withCredential(deployment, credential),
         projectId: project.id,
@@ -224,16 +243,21 @@ export async function listRecentDeploymentsForCredentials(
   const deploymentFailures: RailwayFanoutFailure[] = [...failures];
   settled.forEach((outcome, index) => {
     const project = projects[index];
+
     if (!project) return;
+
     if (outcome.status === "fulfilled") {
       deployments.push(...outcome.value);
+
       return;
     }
+
     // Tolerate one project's failure — the sweep still returns the rest.
     const failure = toPublicAppError(
       outcome.reason,
       publicAppError("account_read_failed", { integration: "railway" }),
     );
+
     logger.error(
       {
         err: outcome.reason,
@@ -251,5 +275,6 @@ export async function listRecentDeploymentsForCredentials(
   });
 
   deployments.sort(byCreatedAtDesc);
+
   return { deployments: deployments.slice(0, overallLimit), failures: deploymentFailures };
 }

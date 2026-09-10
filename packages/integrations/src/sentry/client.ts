@@ -78,9 +78,11 @@ export async function sentryValidateToken(args: {
   organization: string;
 }): Promise<SentryConnection> {
   const slug = encodeURIComponent(args.organization);
+
   const organization = organizationSchema.parse(
     await sentryGet(args.token, `/organizations/${slug}/`),
   );
+
   return { organization };
 }
 
@@ -107,6 +109,7 @@ export function createSentryClient(options: SentryClientOptions) {
     retry: options.retry,
     resolveProfile: async () => sentryPassthroughProfile((await options.resolveAuth()).token),
   });
+
   return {
     /**
      * Transport profile for the general read-only passthrough tier (ADR-0074):
@@ -122,9 +125,12 @@ export type SentryClient = ReturnType<typeof createSentryClient>;
 /** The call-site entry: a Sentry client for a user, resolving the active bearer credential per request. */
 export function sentryClientForUser(options: ProviderBindOptions): SentryClient {
   const { userId, retry } = options;
+
   const resolveAuth = async () => {
     const cred = await getActiveBearerCredential(userId, "sentry", options.accountRef);
+
     return { token: cred.accessToken };
   };
+
   return createSentryClient({ resolveAuth, retry });
 }

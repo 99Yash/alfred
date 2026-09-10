@@ -18,9 +18,13 @@ import { flushLangfuse, startLangfuseSpan } from "../metering/langfuse";
 import type { MeteredMeta } from "../metering/types";
 
 const stamp = randomUUID().slice(0, 8);
+
 const chatRun = `run_chat_${stamp}`;
+
 const jobRun = `run_job_${stamp}`;
+
 const embedRun = `run_embed_${stamp}`;
+
 const threadId = `thread_${stamp}`;
 
 const cases: Array<{
@@ -96,8 +100,11 @@ async function fetchTrace(
   const res = await fetch(`${host}/api/public/traces/${traceId}`, {
     headers: { Authorization: `Basic ${auth}` },
   });
+
   if (res.status === 404) return null;
+
   if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
+
   // SAFETY: VerifiedTrace is the loose diagnostic view this verifier reads;
   // field accesses tolerate absence, and a wrong shape fails the check itself.
   return res.json() as Promise<VerifiedTrace>;
@@ -105,10 +112,13 @@ async function fetchTrace(
 
 async function main() {
   const env = serverEnv();
+
   if (!env.LANGFUSE_PUBLIC_KEY || !env.LANGFUSE_SECRET_KEY) {
     throw new Error("LANGFUSE keys missing — point --env-file at a configured .env");
   }
+
   const host = env.LANGFUSE_HOST ?? "https://cloud.langfuse.com";
+
   const auth = Buffer.from(`${env.LANGFUSE_PUBLIC_KEY}:${env.LANGFUSE_SECRET_KEY}`).toString(
     "base64",
   );
@@ -120,27 +130,35 @@ async function main() {
   // Ingestion is async (worker). Poll until all three traces materialize.
   const ids = [chatRun, jobRun, embedRun];
   let traces: Record<string, VerifiedTrace> = {};
+
   for (let attempt = 1; attempt <= 20; attempt++) {
     traces = {};
+
     for (const id of ids) {
       const t = await fetchTrace(host, auth, id);
+
       if (t) traces[id] = t;
     }
+
     if (Object.keys(traces).length === ids.length) break;
     process.stdout.write(`  poll ${attempt}/20 (${Object.keys(traces).length}/3 visible)\r`);
     await new Promise((r) => setTimeout(r, 1500));
   }
+
   console.log("");
 
   let failures = 0;
+
   for (const c of cases) {
     const id = c.label.startsWith("chat") ? chatRun : c.label.startsWith("job") ? jobRun : embedRun;
     const t = traces[id];
+
     if (!t) {
       console.log(`❌ ${c.label}: trace ${id} never appeared`);
       failures++;
       continue;
     }
+
     const gotSession = t.sessionId ?? null;
     const gotTags = [...(t.tags ?? [])].sort();
     const wantTags = [...c.expectTags].sort();
@@ -153,6 +171,7 @@ async function main() {
         `    tags:      got=${JSON.stringify(gotTags)} ${tagsOk ? "" : `want=${JSON.stringify(wantTags)} <-- MISMATCH`}\n` +
         `    environment: ${JSON.stringify(env226)}`,
     );
+
     if (!sessionOk || !tagsOk) failures++;
   }
 

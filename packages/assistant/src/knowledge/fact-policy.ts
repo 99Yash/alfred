@@ -56,7 +56,9 @@ export type DocumentFactTier = "tierA" | "tierB" | "not_writable";
  */
 export function classifyDocumentFactKey(canonicalKey: string): DocumentFactTier {
   if (canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)) return "tierA";
+
   if (isFactKey(canonicalKey)) return "tierB";
+
   return "not_writable";
 }
 
@@ -80,6 +82,7 @@ export function isServiceSender(email: string): boolean {
 function relationshipEmail(canonicalKey: string): string | null {
   if (!canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)) return null;
   const email = canonicalKey.slice(RELATIONSHIP_FACT_PREFIX.length).trim();
+
   return email.length > 0 ? email : null;
 }
 
@@ -90,15 +93,20 @@ function relationshipEmail(canonicalKey: string): string | null {
  */
 function isServiceSenderRelationshipKey(canonicalKey: string): boolean {
   const email = relationshipEmail(canonicalKey);
+
   return email != null && isServiceSender(email);
 }
 
 /** True iff a nested field carries any reviewable content. */
 function fieldHasContent(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length > 0;
+
   if (typeof value === "number" || typeof value === "boolean") return true;
+
   if (Array.isArray(value)) return value.some(fieldHasContent);
+
   if (isRecord(value)) return Object.values(value).some(fieldHasContent);
+
   return false;
 }
 
@@ -111,7 +119,9 @@ function fieldHasContent(value: unknown): boolean {
  */
 export function isUninformativeRelationshipValue(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length === 0;
+
   if (isRecord(value)) return !Object.values(value).some(fieldHasContent);
+
   return true;
 }
 
@@ -124,6 +134,7 @@ export function isUninformativeRelationshipValue(value: unknown): boolean {
  */
 export function isUninformativeRelationshipFact(key: string, value: unknown): boolean {
   if (!key.startsWith(RELATIONSHIP_FACT_PREFIX)) return false;
+
   return isServiceSenderRelationshipKey(key) || isUninformativeRelationshipValue(value);
 }
 
@@ -156,8 +167,11 @@ export function validateFactValueForKey(canonicalKey: string, value: unknown): F
       ? { ok: false, reason: "invalid_relationship_value" }
       : { ok: true };
   }
+
   if (canonicalKey.startsWith(PREF_FACT_PREFIX)) return { ok: true };
+
   if (isNonEmptyString(value)) return { ok: true };
+
   return { ok: false, reason: "expected_string_value" };
 }
 
@@ -328,6 +342,7 @@ function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSou
       return "unknown";
     default: {
       const _exhaustive: never = source;
+
       return _exhaustive;
     }
   }
@@ -378,6 +393,7 @@ function authoredByGmail(
         },
       };
     }
+
     return {
       authoredByUser: false,
       source: "gmail",
@@ -389,6 +405,7 @@ function authoredByGmail(
   // No resolvable accountId (legacy rows / partial metadata): fall back to the
   // global self-email set.
   const selfEmails = new Set<string>(self.emails.map((e) => e.toLowerCase()));
+
   if (selfEmails.size === 0) {
     return {
       authoredByUser: false,
@@ -397,6 +414,7 @@ function authoredByGmail(
       observed: { kind: "email", value: fromEmail },
     };
   }
+
   if (selfEmails.has(fromEmail)) {
     return {
       authoredByUser: true,
@@ -411,6 +429,7 @@ function authoredByGmail(
       },
     };
   }
+
   return {
     authoredByUser: false,
     source: "gmail",
@@ -423,27 +442,34 @@ function authoredByGmail(
 function firstMetaString(metadata: unknown, paths: readonly string[]): string | null {
   for (const path of paths) {
     const v = getPath(metadata, path);
+
     if (isNonEmptyString(v)) return v;
   }
+
   return null;
 }
 
 function authoredByGithub(metadata: unknown, self: SelfIdentity): Authorship {
   const selfLogin = self.github?.login?.toLowerCase() || null;
   const selfUserId = self.github?.userId || null;
+
   if (!selfLogin && !selfUserId) {
     return { authoredByUser: false, source: "github", reason: "missing_self_identity" };
   }
+
   const authorId = firstMetaString(metadata, ["authorId", "author_id"]);
+
   const authorLogin = firstMetaString(metadata, [
     "authorLogin",
     "author_login",
     "authorHandle",
     "author",
   ]);
+
   if (!authorId && !authorLogin) {
     return { authoredByUser: false, source: "github", reason: "missing_author_identity" };
   }
+
   if (selfUserId && authorId && authorId === selfUserId) {
     return {
       authoredByUser: true,
@@ -456,6 +482,7 @@ function authoredByGithub(metadata: unknown, self: SelfIdentity): Authorship {
       },
     };
   }
+
   if (selfLogin && authorLogin && authorLogin.toLowerCase() === selfLogin) {
     return {
       authoredByUser: true,
@@ -468,6 +495,7 @@ function authoredByGithub(metadata: unknown, self: SelfIdentity): Authorship {
       },
     };
   }
+
   return {
     authoredByUser: false,
     source: "github",
@@ -487,6 +515,7 @@ function authoredByGithub(metadata: unknown, self: SelfIdentity): Authorship {
  */
 export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Authorship {
   const source = toAuthorshipSource(doc.source);
+
   switch (source) {
     case "gmail":
       return authoredByGmail(doc.sender, doc.accountId, self);
@@ -496,6 +525,7 @@ export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Aut
       return { authoredByUser: false, source, reason: "unsupported_source" };
     default: {
       const _exhaustive: never = source;
+
       return { authoredByUser: false, source: _exhaustive, reason: "unsupported_source" };
     }
   }
@@ -558,6 +588,7 @@ export interface DocumentFactGateInput {
 export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGateResult {
   const { proposal, document, selfIdentity } = input;
   const canon = canonicalizeFactKey(proposal.key);
+
   if (!canon.ok) {
     return {
       ok: false,
@@ -567,12 +598,15 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
       originalKey: proposal.key,
     };
   }
+
   const canonicalKey = canon.key;
 
   const tier = classifyDocumentFactKey(canonicalKey);
+
   if (tier === "not_writable") {
     return { ok: false, reason: "not_document_writable", originalKey: proposal.key, canonicalKey };
   }
+
   // #492: a relationship edge to a service/no-reply sender is never a real
   // relationship — drop it before the value check (an informative-looking role
   // on a service address is still junk). No-op for non-relationship keys.
@@ -584,6 +618,7 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
       canonicalKey,
     };
   }
+
   if (!validateFactValueForKey(canonicalKey, proposal.value).ok) {
     return {
       ok: false,
@@ -601,6 +636,7 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
   // authored the document.
   if (tier === "tierB") {
     const authorship = authoredByUser(document, selfIdentity);
+
     if (!authorship.authoredByUser) {
       return {
         ok: false,
@@ -610,6 +646,7 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
         authorship,
       };
     }
+
     return { ok: true, key: canonicalKey, value: proposal.value, meta, authorship };
   }
 

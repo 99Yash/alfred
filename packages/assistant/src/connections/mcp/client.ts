@@ -150,13 +150,21 @@ export interface McpRawClientOptions extends McpClientLimits {
  * number rather than invent a second one.
  */
 export const MCP_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 const DEFAULT_MAX_CATALOG_PAGES = 100;
+
 const DEFAULT_MAX_CATALOG_TOOLS = 1_000;
+
 const MAX_CATALOG_BYTES = 1024 * 1024;
+
 const MAX_TOOL_DESCRIPTOR_BYTES = 128 * 1024;
+
 const MAX_SCHEMA_DEPTH = 32;
+
 const MAX_SCHEMA_NODES = 5_000;
+
 const MAX_SCHEMA_REGEX_CHARS = 2_048;
+
 const encoder = new TextEncoder();
 
 interface McpClientGeneration {
@@ -239,15 +247,18 @@ export class McpRawClient {
 
   async #connect(trace?: McpTraceContext): Promise<void> {
     await this.#drainCleanup();
+
     if (this.#generation) return;
     let authorized: McpAuthorizedEndpoint | null = null;
     let protocol: McpProtocolClient | undefined;
     let oauth: McpBoundOAuthSession | null = null;
+
     try {
       authorized = await this.#options.endpointAuthorizer.authorize(this.#options.endpoint, {
         requestTimeoutMs: this.#limits.requestTimeoutMs,
       });
       oauth = this.#options.oauthProviderFactory?.(authorized.oauth) ?? null;
+
       if (oauth) await oauth.authorize();
       const boundOAuth = oauth;
       protocol = this.#options.protocolFactory
@@ -271,6 +282,7 @@ export class McpRawClient {
       await this.#closeAuthorization(authorized);
       throw error;
     }
+
     const generation: McpClientGeneration = {
       authorization: authorized,
       protocol,
@@ -279,20 +291,25 @@ export class McpRawClient {
       unhealthy: null,
       closeFlight: null,
     };
+
     protocol.onToolsChanged(() => {
       if (this.#generation === generation) this.#announceCatalogInvalidated();
     });
     protocol.onConnectionUnhealthy((error) => {
       generation.unhealthy = error;
       const wasCurrent = this.#generation === generation;
+
       if (wasCurrent) this.#generation = null;
       const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
       this.#registerCleanup(cleanup);
+
       if (wasCurrent) this.#announceCatalogInvalidated();
     });
+
     try {
       const server = await protocol.connect(trace);
       let negotiated: McpNegotiatedServer;
+
       try {
         negotiated = parseMcpNegotiatedServer(server);
       } catch (err) {
@@ -301,18 +318,22 @@ export class McpRawClient {
           err instanceof Error ? err.message : "MCP protocol negotiation failed",
         );
       }
+
       if (generation.unhealthy) throw generation.unhealthy;
+
       if (!negotiated.hasTools) {
         throw new McpClientError(
           "missing_tools_capability",
           "The MCP server did not advertise the tools capability",
         );
       }
+
       generation.negotiated = negotiated;
     } catch (err) {
       await this.#closeGeneration(generation, false).catch(() => undefined);
       throw err;
     }
+
     this.#generation = generation;
   }
 
@@ -325,15 +346,18 @@ export class McpRawClient {
     const generation = this.#generation;
     this.#generation = null;
     this.#invalidateCatalog();
+
     if (generation) await this.#closeGeneration(generation, options.terminateSession === true);
   }
 
   async refreshCatalog(signal?: AbortSignal, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
     const generation = this.#requireGeneration();
     const protocol = generation.protocol;
+
     if (this.#catalog && this.#options.now() < this.#catalogExpiresAt) {
       return this.#catalog;
     }
+
     const refreshGeneration = this.#catalogGeneration;
     const tools: Tool[] = [];
     const names = new Set<string>();
@@ -350,13 +374,16 @@ export class McpRawClient {
           `MCP catalog exceeded ${this.#limits.maxCatalogPages} pages`,
         );
       }
+
       const page: McpProtocolPage = await protocol
         .listTools(cursor, signal, trace)
         .catch((err: unknown) => this.#throwProtocolError(err, generation));
+
       if (pageNumber === 1) {
         ttlMs = page.ttlMs;
         cacheScope = page.cacheScope;
       }
+
       for (const tool of page.tools) {
         assertAdmissibleToolDescriptor(tool, {
           readOnlyCatalog: this.#options.readOnlyCatalog === true,
@@ -371,24 +398,30 @@ export class McpRawClient {
           mirrorsParamHeaders: generation.negotiated?.mirrorsParamHeaders !== false,
         });
         const descriptorBytes = encodedBytes(canonicalJson(tool));
+
         if (descriptorBytes > MAX_TOOL_DESCRIPTOR_BYTES) {
           throw new McpClientError(
             "catalog_limit",
             `MCP tool '${tool.name}' descriptor exceeded ${MAX_TOOL_DESCRIPTOR_BYTES} bytes`,
           );
         }
+
         catalogBytes += descriptorBytes;
+
         if (catalogBytes > MAX_CATALOG_BYTES) {
           throw new McpClientError(
             "catalog_limit",
             `MCP catalog exceeded ${MAX_CATALOG_BYTES} descriptor bytes`,
           );
         }
+
         if (names.has(tool.name)) {
           throw new McpClientError("duplicate_tool", `MCP catalog repeated tool '${tool.name}'`);
         }
+
         names.add(tool.name);
         tools.push(tool);
+
         if (tools.length > this.#limits.maxCatalogTools) {
           throw new McpClientError(
             "catalog_limit",
@@ -398,10 +431,13 @@ export class McpRawClient {
       }
 
       const nextCursor = page.nextCursor;
+
       if (!nextCursor) break;
+
       if (seenCursors.has(nextCursor)) {
         throw new McpClientError("catalog_limit", "MCP catalog repeated a pagination cursor");
       }
+
       seenCursors.add(nextCursor);
       cursor = nextCursor;
     }
@@ -417,12 +453,15 @@ export class McpRawClient {
         // strings is all that's needed.
         .sort((a, b) => compareMcpToolNames(a.name, b.name)),
     );
+
     const revision = sha256Canonical(sortedTools);
     const nextToolsByName = new Map(sortedTools.map((tool) => [tool.name, tool]));
     const nextInputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
     const nextOutputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
+
     for (const tool of sortedTools) {
       let validator: JsonSchemaValidator<Record<string, unknown>>;
+
       try {
         validator = this.#schemaValidator.getValidator<Record<string, unknown>>(
           // SAFETY: tool.inputSchema is the MCP JSON-schema envelope; the
@@ -435,7 +474,9 @@ export class McpRawClient {
           `MCP tool '${tool.name}' has an input schema Alfred cannot compile: ${errorMessage(err)}`,
         );
       }
+
       nextInputValidators.set(tool.name, validator);
+
       if (tool.outputSchema) {
         try {
           nextOutputValidators.set(
@@ -451,12 +492,14 @@ export class McpRawClient {
         }
       }
     }
+
     if (refreshGeneration !== this.#catalogGeneration) {
       throw new McpClientError(
         "catalog_stale",
         "The MCP catalog changed while Alfred was refreshing it; retry the refresh",
       );
     }
+
     this.#toolsByName = nextToolsByName;
     this.#inputValidators = nextInputValidators;
     this.#outputValidators = nextOutputValidators;
@@ -468,6 +511,7 @@ export class McpRawClient {
       cacheScope,
     });
     this.#catalogExpiresAt = this.#options.now() + ttlMs;
+
     return this.#catalog;
   }
 
@@ -477,6 +521,7 @@ export class McpRawClient {
     options: { signal?: AbortSignal; trace?: McpTraceContext } = {},
   ): Promise<McpCallEnvelope> {
     const prepared = await this.prepareToolCall(options.signal, options.trace);
+
     return prepared.call(ref, args, options);
   }
 
@@ -485,6 +530,7 @@ export class McpRawClient {
     trace?: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
     const generation = this.#requireGeneration();
+
     if (generation.oauth) {
       try {
         await generation.oauth.refreshIfNeeded();
@@ -492,11 +538,14 @@ export class McpRawClient {
         if (error instanceof McpOAuthAuthorizationRequiredError) {
           await this.#options.onAuthorizationRequired?.();
         }
+
         throw error;
       }
     }
+
     const catalog = await this.refreshCatalog(signal, trace);
     const catalogGeneration = this.#catalogGeneration;
+
     return Object.freeze({
       catalog,
       call: (
@@ -516,16 +565,20 @@ export class McpRawClient {
   ): Promise<McpCallEnvelope> {
     const generation = this.#requireGeneration();
     const protocol = generation.protocol;
+
     if (this.#authorizationBlocked) throw this.#authorizationBlocked;
+
     if (catalogGeneration !== this.#catalogGeneration || this.#catalog !== catalog) {
       throw new McpClientError(
         "catalog_required",
         "The MCP catalog changed after this tool call was prepared; refresh and reselect it",
       );
     }
+
     if (ref.connectionId !== this.#options.connectionId) {
       throw new McpClientError("unknown_tool", "The MCP tool belongs to another connection");
     }
+
     if (ref.catalogRevision !== catalog.revision) {
       throw new McpClientError(
         "catalog_stale",
@@ -535,17 +588,22 @@ export class McpRawClient {
 
     const tool = this.#toolsByName.get(ref.remoteName);
     const validator = this.#inputValidators.get(ref.remoteName);
+
     if (!tool || !validator) {
       throw new McpClientError("unknown_tool", `Unknown MCP tool '${ref.remoteName}'`);
     }
+
     const jsonArgs = jsonObjectSchema.safeParse(args);
+
     if (!jsonArgs.success) {
       throw new McpClientError(
         "invalid_arguments",
         `Arguments for MCP tool '${tool.name}' must be a JSON object`,
       );
     }
+
     const validated = validator(jsonArgs.data);
+
     if (!validated.valid) {
       throw new McpClientError(
         "invalid_arguments",
@@ -556,12 +614,15 @@ export class McpRawClient {
     const result: McpProtocolCallResult = await protocol
       .callTool(tool, validated.data, options.signal, options.trace)
       .catch((err: unknown) => this.#throwProtocolError(err, generation));
+
     const isToolError = isRecord(result) && result.isError === true;
     const outputValidator = this.#outputValidators.get(tool.name);
     let outputSchemaValidated = false;
+
     if (!isToolError && outputValidator) {
       const structuredContent = isRecord(result) ? result.structuredContent : undefined;
       const output = outputValidator(structuredContent);
+
       if (!output.valid) {
         // A response DID cross the wire — the census is derivable now. Carry it
         // on the error so the broker's ambiguous branch persists provenance
@@ -579,9 +640,12 @@ export class McpRawClient {
           },
         );
       }
+
       outputSchemaValidated = true;
     }
+
     const bounded = boundPassthroughBody(result);
+
     return {
       connectionId: this.#options.connectionId,
       toolName: tool.name,
@@ -601,6 +665,7 @@ export class McpRawClient {
     if (!this.#generation) {
       throw new McpClientError("not_connected", "The MCP client is not connected");
     }
+
     return this.#generation;
   }
 
@@ -625,17 +690,21 @@ export class McpRawClient {
           ?.split(/\s+/)
           .filter((scope) => /^[A-Za-z0-9._:/-]{1,200}$/.test(scope))
           .slice(0, 50) ?? [];
+
       await this.#options.onInsufficientScope?.(requiredScopes);
+
       const detail =
         requiredScopes.length > 0
           ? ` Additional permissions required: ${requiredScopes.join(", ")}.`
           : "";
+
       this.#authorizationBlocked = new McpClientError(
         "insufficient_scope",
         `The MCP connection needs renewed consent.${detail}`,
       );
       throw this.#authorizationBlocked;
     }
+
     if (isMcpDescriptorMismatchError(err)) {
       this.#announceCatalogInvalidated();
       throw new McpClientError(
@@ -643,13 +712,16 @@ export class McpRawClient {
         "The MCP server rejected the admitted tool descriptor; refresh and reselect it",
       );
     }
+
     if (generation.negotiated?.protocolEra !== "pre_2026_07_28" || !isMcpSessionExpiredError(err)) {
       throw err;
     }
+
     if (this.#generation === generation) {
       this.#generation = null;
       this.#invalidateCatalog();
     }
+
     const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
     this.#registerCleanup(cleanup);
     await cleanup;
@@ -682,6 +754,7 @@ export class McpRawClient {
     for (;;) {
       const cleanup = this.#cleanupTail;
       await cleanup;
+
       if (cleanup === this.#cleanupTail) return;
     }
   }
@@ -692,6 +765,7 @@ export class McpRawClient {
       () => undefined,
       () => undefined,
     );
+
     return run;
   }
 }
@@ -710,6 +784,7 @@ const MCP_CONTENT_KINDS: ReadonlySet<string> = new Set(mcpContentKindValues);
  */
 function contentKindOf(block: unknown): McpContentKind {
   const type = isRecord(block) && typeof block.type === "string" ? block.type : "unknown";
+
   // SAFETY: the Set membership test above proved type is one of the known
   // kinds; this narrows the string to that union.
   return MCP_CONTENT_KINDS.has(type) ? (type as McpContentKind) : "unknown";
@@ -728,10 +803,12 @@ function resultProvenance(
   const record = isRecord(result) ? result : undefined;
   const content = record && Array.isArray(record.content) ? record.content : [];
   const contentKinds: Partial<Record<McpContentKind, number>> = {};
+
   for (const block of content) {
     const kind = contentKindOf(block);
     contentKinds[kind] = (contentKinds[kind] ?? 0) + 1;
   }
+
   return {
     isError: facts.isToolError,
     hasStructuredContent: record ? record.structuredContent !== undefined : false,
@@ -752,7 +829,9 @@ function deepFreeze<T>(value: T): T {
   } else if (isRecord(value)) {
     for (const child of Object.values(value)) deepFreeze(child);
   }
+
   if (typeof value === "object" && value !== null) Object.freeze(value);
+
   return value;
 }
 
@@ -774,6 +853,7 @@ function assertAdmissibleToolDescriptor(tool: Tool, policy: ToolAdmissionPolicy)
       "MCP tool name must be 1-128 characters with no control characters",
     );
   }
+
   // A MISSING hint fails the same way an explicit `false` does. The MCP
   // specification makes every annotation optional, so absence carries no claim
   // at all, and treating "said nothing" as "is a read" is the one reading that
@@ -785,15 +865,19 @@ function assertAdmissibleToolDescriptor(tool: Tool, policy: ToolAdmissionPolicy)
       `MCP tool '${tool.name}' does not assert annotations.readOnlyHint, and this endpoint serves a read-only catalog`,
     );
   }
+
   assertSafeSchema(tool.name, "input", tool.inputSchema, policy);
+
   if (tool.outputSchema) assertSafeSchema(tool.name, "output", tool.outputSchema, policy);
 }
 
 function hasAsciiControlCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
+
     if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) return true;
   }
+
   return false;
 }
 
@@ -807,17 +891,22 @@ function assertSafeSchema(
 
   const visit = (value: unknown, depth: number): void => {
     nodes += 1;
+
     if (depth > MAX_SCHEMA_DEPTH || nodes > MAX_SCHEMA_NODES) {
       throw new McpClientError(
         "invalid_schema",
         `MCP tool '${toolName}' ${direction} schema exceeds Alfred's complexity limits`,
       );
     }
+
     if (Array.isArray(value)) {
       for (const item of value) visit(item, depth + 1);
+
       return;
     }
+
     if (!isRecord(value)) return;
+
     for (const [key, child] of Object.entries(value)) {
       // Reject schema identity anchors outright. Alfred forbids external refs
       // and only ever compiles inline schemas, so `$id`/`$anchor` carry no
@@ -833,6 +922,7 @@ function assertSafeSchema(
           `MCP tool '${toolName}' ${direction} schema declares a forbidden ${key}`,
         );
       }
+
       // `x-mcp-header` makes the SDK mirror the declared argument's value into a
       // `Mcp-Param-*` request header — a header channel a remote server authors
       // and the model fills. Alfred has never reviewed that channel, so it
@@ -854,6 +944,7 @@ function assertSafeSchema(
           `MCP tool '${toolName}' ${direction} schema declares x-mcp-header, which the negotiated protocol era mirrors into a request header`,
         );
       }
+
       if (
         (key === "$ref" || key === "$dynamicRef" || key === "$recursiveRef") &&
         (typeof child !== "string" || !child.startsWith("#"))
@@ -863,12 +954,14 @@ function assertSafeSchema(
           `MCP tool '${toolName}' ${direction} schema contains a non-local ${key}`,
         );
       }
+
       if (key === "pattern" && typeof child === "string" && child.length > MAX_SCHEMA_REGEX_CHARS) {
         throw new McpClientError(
           "invalid_schema",
           `MCP tool '${toolName}' ${direction} schema contains an oversized regex`,
         );
       }
+
       if (key === "patternProperties" && isRecord(child)) {
         for (const pattern of Object.keys(child)) {
           if (pattern.length > MAX_SCHEMA_REGEX_CHARS) {
@@ -879,6 +972,7 @@ function assertSafeSchema(
           }
         }
       }
+
       visit(child, depth + 1);
     }
   };

@@ -19,7 +19,9 @@ import {
 import { dbBackedSkip } from "../../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-drift-audit-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -28,6 +30,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Drift Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -92,6 +95,7 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
       // drift_metrics + documents/email_triage/todos all CASCADE on user delete.
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -167,6 +171,7 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
     const metricNames = new Set(rows.map((r) => r.metric));
     assert.ok(metricNames.has("attention_share_7d"));
     assert.ok(metricNames.has("todo_dismiss_done_ratio"));
+
     // self_ingestion_count is present whenever Alfred has a parseable identity.
     for (const row of rows) {
       assert.equal((row.detail as { breached: boolean }).breached, false);
@@ -178,8 +183,10 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     await seedBreachingAttentionShare(userId);
     const keys: string[] = [];
+
     const notifyFn: RunDriftHealthCheckOptions["notifyFn"] = async (args) => {
       keys.push(args.idempotencyKey);
+
       return { status: "sent", emailSendId: "ems_test", providerMessageId: "resend_test" };
     };
 
@@ -196,6 +203,7 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
   test("runDriftHealthCheck treats failed health alert sends as retryable", async () => {
     const userId = await seedUser();
     await seedBreachingAttentionShare(userId);
+
     const notifyFn: RunDriftHealthCheckOptions["notifyFn"] = async () => ({
       status: "failed",
       emailSendId: "ems_test",
@@ -218,6 +226,7 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
 
   test("runDriftHealthCheck treats partial metric evaluator failures as retryable", async () => {
     const userId = await seedUser();
+
     const passing = async (): Promise<MetricResult> => ({
       metric: "attention_share_7d",
       value: 0,
@@ -227,6 +236,7 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
       detail: { total: 0, attention: 0 },
       summary: "attention share is clean",
     });
+
     const failing = async () => {
       throw new Error("database unavailable");
     };
@@ -246,6 +256,7 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
   test("runDriftHealthCheck escapes dynamic health alert HTML", async () => {
     const userId = await seedUser();
     let html = "";
+
     const breaching = async (): Promise<MetricResult> => ({
       metric: "attention_share_7d",
       value: 1,
@@ -255,8 +266,10 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
       detail: { sample: "<script>alert(1)</script>" },
       summary: "summary with <img src=x onerror=alert(1)>",
     });
+
     const notifyFn: RunDriftHealthCheckOptions["notifyFn"] = async (args) => {
       html = args.html;
+
       return { status: "sent", emailSendId: "ems_test", providerMessageId: "resend_test" };
     };
 
@@ -274,6 +287,7 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
 
   test("runDriftHealthCheck fails loudly when every metric evaluator fails", async () => {
     const userId = await seedUser();
+
     const failing = async () => {
       throw new Error("database unavailable");
     };

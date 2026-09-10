@@ -40,8 +40,11 @@ export {
   type McpCallEnvelope,
   type McpPreparedToolCall,
 } from "./client";
+
 export type { ExternalToolRef } from "@alfred/contracts";
+
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+
 export {
   HostedMcpEndpointAuthorizer,
   withMcpEndpointAuthorization,
@@ -53,17 +56,23 @@ export {
   type McpEndpointConnection,
   type McpEndpointNetworkPolicy,
 } from "./endpoint-authorization";
+
 export {
   builtInProviderForEndpoint,
   builtInReadOnlyResource,
   type BuiltInProvider,
 } from "./built-ins";
+
 export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./consent";
+
 // `projectCatalogRevision` is deliberately absent: publication owns it, and no
 // reader outside this directory has any business minting a catalog projection.
 export { canonicalArgsHash, descriptorHash } from "./hash";
+
 export { listMcpToolsLocal } from "./list-tools";
+
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
+
 export {
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
@@ -72,12 +81,14 @@ export {
   type McpOAuthProviderForConnectionInput,
   type McpOAuthSessionFactory,
 } from "./oauth";
+
 export {
   ensureBuiltInConnection,
   listOwnedConnections,
   readOwnedConnection,
   updateConnection,
 } from "./persistence";
+
 export {
   MCP_CLIENT_CAPABILITIES,
   MCP_INPUT_REQUIRED_PROFILE,
@@ -87,5 +98,7 @@ export {
   type McpProtocolPage,
   type McpProtocolServer,
 } from "./protocol";
+
 export { getMcpConnectionManager } from "./runtime";
+
 export { startMcpTraceSpan, type McpTraceContext } from "./trace";

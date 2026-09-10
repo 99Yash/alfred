@@ -14,6 +14,7 @@ async function main() {
   await warmPool();
 
   let threw = false;
+
   try {
     await metered(
       {
@@ -28,10 +29,12 @@ async function main() {
     );
   } catch (err) {
     threw = true;
+
     if (!(err instanceof Error) || err.message !== "synthetic failure for smoke test") {
       throw new Error(`unexpected rethrow shape: ${String(err)}`);
     }
   }
+
   if (!threw) throw new Error("metered() swallowed the inner throw");
 
   await new Promise((r) => setTimeout(r, 500));
@@ -42,15 +45,19 @@ async function main() {
     .where(eq(apiCallLog.provider, "synthetic"))
     .orderBy(desc(apiCallLog.id))
     .limit(1);
+
   const row = rows[0];
+
   if (!row) throw new Error("no failure row in api_call_log");
 
   console.log(`[fail-smoke] failure row: cost=${row.costUsd} error=${JSON.stringify(row.error)}`);
+
   if (Number(row.costUsd) !== 0)
     throw new Error(`expected cost_usd=0 on failure, got ${row.costUsd}`);
   // SAFETY: agent_runs.error is jsonb written by the executor with a message
   // field for failed runs.
   const err = row.error as { message?: string } | null;
+
   if (err?.message !== "synthetic failure for smoke test") {
     throw new Error(`error column not populated correctly: ${JSON.stringify(row.error)}`);
   }

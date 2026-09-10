@@ -133,6 +133,7 @@ export const triageClassificationSchema = z.object({
    */
   collabActivity: collabActivitySchema.nullable().optional(),
 });
+
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
 /** A single cheap-model pass — the seam the second pass and tests drive. */
@@ -231,7 +232,9 @@ export interface ClassifyAudit {
 }
 
 const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
+
 const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]);
+
 /**
  * Categories that NEVER carry a rail todo regardless of model output (ADR-0050
  * amendment 2026-06-06). Shrunk to `{marketing, newsletter}`: these are the
@@ -243,8 +246,10 @@ const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]
  * go through the rubric (rule 16), which owns the todo decision everywhere else.
  */
 const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsletter"]);
+
 /** Categories that count toward a sender's "bulk" share for the over-classification net. */
 const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
+
 export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
 - urgent: action needed within hours, not days. Unsolicited security alerts (unrecognized/suspicious sign-in "was this you?", password or 2FA changed without the user, account compromised), billing failure that breaks access today, deadline today, critical CI/CD blocking ship. NOT a routine login link or code the user requested themselves — that is fyi (rule 15).
@@ -353,19 +358,23 @@ Todo-decision exemplars (each illustrates the ONE rubric test that decides it �
 function renderThreadObservation(obs: Observations): string[] {
   const lines: string[] = [];
   const t = obs.thread;
+
   if (t.messageCount > 0) {
     const replied = t.lastUserReplyAt
       ? `you last replied ${t.lastUserReplyAt.toISOString()}`
       : "you have not replied";
+
     lines.push(
       `Thread: ${t.messageCount} prior message(s); ${replied}; newest is ${t.newestDirection ?? "unknown"}`,
     );
+
     // Prior-message excerpts (newest first). The fed context that lets the
     // classifier of a trailing low-signal message see an earlier open ask in the
     // SAME thread (ADR-0051 amendment 2026-06-13). Labelled by direction so the
     // model knows which side spoke; "you sent" vs "you received".
     if (t.recentMessages.length) {
       lines.push(`Recent thread messages (newest first — the email below may be even newer):`);
+
       for (const m of t.recentMessages) {
         const who = m.direction === "sent" ? "you sent" : "received";
         lines.push(`  - [${who}] ${m.snippet}`);
@@ -374,6 +383,7 @@ function renderThreadObservation(obs: Observations): string[] {
   } else {
     lines.push(`Thread: new (no prior messages on file)`);
   }
+
   return lines;
 }
 
@@ -383,6 +393,7 @@ function renderObservations(obs: Observations): string {
 
   const counts = obs.senderPrior.categoryCounts;
   const keys = Object.keys(counts);
+
   if (obs.senderPrior.key && keys.length) {
     const hist = keys.map((k) => `${k}:${counts[k]}`).join(", ");
     lines.push(
@@ -399,10 +410,12 @@ function renderObservations(obs: Observations): string {
   if (obs.senderRelationship) {
     lines.push(`Sender relationship: ${obs.senderRelationship}`);
   }
+
   if (obs.senderKind) {
     const evidence = obs.senderKind.evidenceCodes.length
       ? `; evidence=${obs.senderKind.evidenceCodes.join(",")}`
       : "";
+
     lines.push(
       `Sender kind: ${obs.senderKind.kind} (active projection confidence=${obs.senderKind.confidence.toFixed(2)}${evidence})`,
     );
@@ -418,6 +431,7 @@ function renderObservations(obs: Observations): string {
     `Content flags: unsubscribe=${c.hasUnsubscribe}; currency=${c.hasCurrencyAmount}; security=${c.hasSecurityKeyword}; ` +
       `calendar=${c.hasCalendarInvite}; investorNotice=${c.hasInvestorNotice}; publicEvent=${c.hasPublicEventLanguage}`,
   );
+
   return lines.join("\n");
 }
 
@@ -434,6 +448,7 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   // name + account email; absent → the gate degrades to the model's best guess.
   const idName = args.identity?.name?.trim();
   const idEmail = args.identity?.email?.trim();
+
   if (idName || idEmail) {
     lines.push(
       `=== You (the user being triaged) ===\n${[idName, idEmail && `<${idEmail}>`].filter(Boolean).join(" ")}`,
@@ -445,8 +460,11 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   lines.push("");
 
   if (from) lines.push(`From: ${from}`);
+
   if (to) lines.push(`To: ${to}`);
+
   if (cc) lines.push(`Cc: ${cc}`);
+
   if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
   lines.push("");
 
@@ -454,18 +472,21 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   lines.push(args.document.title?.trim() || "(no subject)");
   lines.push("");
   lines.push("=== Body ===");
+
   const body = extractGmailDocumentBody(args.document.content, {
     from,
     to,
     cc,
     subject: args.document.title,
   });
+
   // Cap to keep token budget bounded — most emails fit easily; the rare long
   // thread gets truncated, which is fine for triage (the lede usually suffices).
   const content =
     body.length > TRIAGE_BODY_MAX_CHARS
       ? body.slice(0, TRIAGE_BODY_MAX_CHARS) + "\n[…truncated]"
       : body;
+
   lines.push(content);
 
   lines.push("");
@@ -483,6 +504,7 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
       "A deterministic check flags your first answer as a likely error. Re-read the email and the observations: if your first classification was right, keep it and say why; otherwise correct it.",
     );
   }
+
   return lines.join("\n");
 }
 
@@ -498,10 +520,13 @@ interface BulkProfile {
 function priorBulkProfile(categoryCounts: Record<string, number>): BulkProfile {
   let total = 0;
   let bulk = 0;
+
   for (const [cat, n] of Object.entries(categoryCounts)) {
     total += n;
+
     if (BULK_PRIOR_CATEGORIES.has(cat)) bulk += n;
   }
+
   return { total, bulkShare: total > 0 ? bulk / total : 0 };
 }
 
@@ -517,10 +542,13 @@ interface ActionShare {
 function priorActionShare(categoryCounts: Record<string, number>): ActionShare {
   let total = 0;
   let action = 0;
+
   for (const [cat, n] of Object.entries(categoryCounts)) {
     total += n;
+
     if (cat === "action_needed") action += n;
   }
+
   return { total, actionShare: total > 0 ? action / total : 0 };
 }
 
@@ -531,6 +559,7 @@ function priorActionShare(categoryCounts: Record<string, number>): ActionShare {
  */
 function hasPossiblyUnansweredReceivedContext(observations: Observations): boolean {
   const lastReply = observations.thread.lastUserReplyAt;
+
   return observations.thread.recentMessages.some(
     (message) =>
       message.direction === "received" &&
@@ -573,6 +602,7 @@ export function detectConflict(
   // the prior message. It replaces the phrase-specific "Done. Created" prompt
   // branch with one general condition over typed model output + thread order.
   const collabActivity = classification.collabActivity ?? null;
+
   if (
     PASSIVE_CATEGORIES.has(classification.category) &&
     collabActivity != null &&
@@ -603,6 +633,7 @@ export function detectConflict(
     !observations.gmail.important
   ) {
     const { total, bulkShare } = priorBulkProfile(observations.senderPrior.categoryCounts);
+
     if (total >= TRIAGE_STRONG_BULK_MIN_TOTAL && bulkShare >= TRIAGE_STRONG_BULK_MIN_SHARE) {
       return {
         kind: "over_classification",
@@ -627,11 +658,14 @@ export function detectConflict(
     !observations.gmail.important
   ) {
     const priorKey = observations.senderPrior.key;
+
     const isService =
       senderContext?.effectiveAuthor === "service" ||
       observations.senderKind?.kind === "service" ||
       (priorKey?.startsWith("service:") ?? false);
+
     const { total, actionShare } = priorActionShare(observations.senderPrior.categoryCounts);
+
     if (
       isService &&
       total >= TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL &&
@@ -658,10 +692,13 @@ export type ResolvedTodoSuggestion = { name: string; assist?: string };
 // deterministically here instead. Anything that isn't a short amount/date
 // fragment collapses to a title-only row.
 const ASSIST_URL_RE = /https?:\/\//i;
+
 const ASSIST_AMOUNT_RE =
   /[₹$€£¥]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:usd|eur|gbp|inr|rs\.?|rupees?|dollars?)\b/i;
+
 const ASSIST_DATE_RE =
   /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b\d{4}-\d{2}-\d{2}\b/i;
+
 // A rail todo persists for days, so a relative date word ("due tomorrow") reads
 // as a lie the moment it goes stale — the absolute calendar date is always the
 // better fact. The prompt tells the cheap model to resolve relative phrasing
@@ -673,6 +710,7 @@ const RELATIVE_DAY_OFFSETS: ReadonlyArray<readonly [RegExp, number]> = [
   [/\byesterday\b/gi, -1],
   [/\b(?:today|tonight)\b/gi, 0],
 ];
+
 // Relative phrasing we can't pin to a single calendar day ("next Friday", "in 3
 // days"). Left in place these go stale, so an assist that still contains one
 // after resolution is dropped rather than shown.
@@ -701,17 +739,21 @@ export interface AssistDateAnchor {
 function resolveRelativeDates(text: string, anchor: AssistDateAnchor | null): string {
   const sentDay = anchor ? inZone(anchor.timezone).day(anchor.sentAt) : null;
   let out = text;
+
   for (const [re, offset] of RELATIVE_DAY_OFFSETS) {
     const replacement = sentDay ? formatDay(addDays(sentDay, offset), "short") : "";
     out = out.replace(re, replacement);
   }
+
   // Tidy separators/words left dangling by stripped dates ("₹88.5 · due " → "₹88.5").
   let cleaned = out.replace(/\s{2,}/g, " ").trim();
   let previous: string;
+
   do {
     previous = cleaned;
     cleaned = cleaned.replace(/\s*(?:·|,|—|-|\bdue\b|\bby\b)\s*$/gi, "").trim();
   } while (cleaned !== previous);
+
   return cleaned;
 }
 
@@ -736,12 +778,18 @@ export function sanitizeAssist(
   anchor: AssistDateAnchor | null,
 ): string | undefined {
   const trimmed = assist?.trim();
+
   if (!trimmed) return undefined;
   const text = resolveRelativeDates(trimmed, anchor);
+
   if (!text || text.length > TRIAGE_TODO_ASSIST_MAX_CHARS) return undefined;
+
   if (ASSIST_URL_RE.test(text)) return undefined;
+
   if (RESIDUAL_RELATIVE_RE.test(text)) return undefined;
+
   if (!ASSIST_AMOUNT_RE.test(text) && !ASSIST_DATE_RE.test(text)) return undefined;
+
   return text;
 }
 
@@ -759,6 +807,7 @@ export function sanitizeAssist(
 // title still beats losing a real obligation (unlike `assist`, which is droppable).
 const TODO_HEDGE_PREFIX_RE =
   /^(?:please\s+)?(?:look into|look at|dig into|take a look at|provide (?:info|information|details)|investigate|view)\b/i;
+
 // Filler left dangling after the verb is stripped — a leading article, "into"/
 // "at" preposition, or the "task" noun ("View task Eng…" → "Eng…").
 const TODO_HEDGE_FILLER_RE = /^(?:the|a|an|this|that|into|at|on|for|about|tasks?)\s+/i;
@@ -770,17 +819,22 @@ const TODO_HEDGE_FILLER_RE = /^(?:the|a|an|this|that|into|at|on|for|about|tasks?
  */
 export function sanitizeTodoName(name: string): string {
   const trimmed = name.trim();
+
   if (!TODO_HEDGE_PREFIX_RE.test(trimmed)) return trimmed;
   let rest = trimmed.replace(TODO_HEDGE_PREFIX_RE, "").trimStart();
   let prev: string;
+
   do {
     prev = rest;
     rest = rest.replace(TODO_HEDGE_FILLER_RE, "").trimStart();
   } while (rest !== prev);
+
   rest = rest.replace(/^[\s:–—-]+/, "").trim();
+
   // A one-word or empty remainder means the hedge verb carried the meaning —
   // keep the original rather than mint a bare fragment.
   if (rest.split(/\s+/).filter(Boolean).length < 2 || rest.length < 4) return trimmed;
+
   // Capitalize a leading lowercase word ("baserow alarm" → "Baserow alarm").
   return /^[a-z]/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
 }
@@ -815,14 +869,19 @@ export function resolveTodoSuggestion(
   anchor: AssistDateAnchor | null,
 ): ResolvedTodoSuggestion | null {
   const suggestion = classification.todoSuggestion ?? null;
+
   if (!suggestion) return null;
+
   if (classification.todoDecision?.outcome !== "proposed") return null;
+
   // Contradiction backstop: a `proposed` decision whose note carries a
   // failing-outcome prefix is the model disagreeing with itself — drop it.
   if (noteMarksFailingOutcome(classification.todoDecision?.note)) return null;
+
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
   const name = sanitizeTodoName(suggestion.name);
   const assist = sanitizeAssist(suggestion.assist, anchor);
+
   return assist ? { name, assist } : { name };
 }
 
@@ -839,9 +898,11 @@ export type TodoSuppressionReason =
 // the `tracker_owned` suppression when the model omits `collabActivity`.
 const TASK_TRACKER_SENDER_RE =
   /@(?:[\w.-]*\.)?(?:clickup\.com|linear\.app|atlassian\.net|asana\.com|monday\.com|trello\.com|notion\.so|height\.app|shortcut\.com)\b/i;
+
 // Alfred's own human-in-the-loop approval mail: "[medium] Alfred wants to …".
 const ALFRED_APPROVAL_SUBJECT_RE =
   /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
+
 // The reply-shape categories where the ONLY stake is "a person is waiting on a
 // reply" — the exact stake rule 16b says a cold contact does NOT carry. A cold
 // sender landing any OTHER category (payment, action_needed with a real task,
@@ -863,6 +924,7 @@ function hasIntrinsicStakeSignal(signalText: string): boolean {
     ASSIST_DATE_RE.test(signalText)
   );
 }
+
 // Liveness escape for the PR gate — something already in production / `main` /
 // an exposed secret makes a PR thread a real stake (rule 16b), not advisory.
 const TODO_LIVENESS_RE =
@@ -904,10 +966,13 @@ export function todoSuppressionReason(email: {
   isColdContact?: boolean;
 }): TodoSuppressionReason | null {
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
+
   if (isGithubNotificationSender(email.sender) && matchesPrThread(email.signalText)) {
     const live = TODO_LIVENESS_RE.test(email.signalText) || matchesExposedSecret(email.signalText);
+
     if (!live) return "pre_merge_advisory";
   }
+
   // Tracker-owned (#353): an item living in a dedicated task/issue tracker or
   // doc-comment tool the user actively works is ALREADY tracked and re-notified
   // there — they will not forget it (rule 16c), so a rail todo only repeats the
@@ -925,6 +990,7 @@ export function todoSuppressionReason(email: {
   ) {
     return "tracker_owned";
   }
+
   // Cold-sender (rule 16b): a reply-shape ask from a cold human contact whose
   // only stake is "a person is waiting" mints no rail todo. Gated hard on the
   // reply-shape lanes AND the absence of any intrinsic stake, so a cold sender
@@ -937,16 +1003,20 @@ export function todoSuppressionReason(email: {
   ) {
     return "cold_sender";
   }
+
   return null;
 }
 
 /** Concatenated lowercased text the floor predicate scans (subject + body + snippet). */
 function floorSignalText(document: ClassifyEmailArgs["document"]): string {
   const parts: string[] = [];
+
   if (document.title) parts.push(document.title);
   parts.push(document.content);
   const { snippet } = document.metadata;
+
   if (snippet) parts.push(snippet);
+
   return parts.join("\n").toLowerCase();
 }
 
@@ -954,7 +1024,9 @@ function floorSignalText(document: ClassifyEmailArgs["document"]): string {
 function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
   const parts: string[] = [document.content];
   const { snippet } = document.metadata;
+
   if (snippet) parts.push(snippet);
+
   return parts.join("\n").toLowerCase();
 }
 
@@ -996,6 +1068,7 @@ export async function classifyEmail(
   let working = firstPass;
   let secondPass: TriageClassification | null = null;
   let secondPassFailure: { message: string } | null = null;
+
   if (conflict) {
     // The second pass is an OPTIONAL re-check. A failure on it must NOT discard
     // the already-valid first pass: if the error propagated, the workflow's
@@ -1024,6 +1097,7 @@ export async function classifyEmail(
   // the outcome then travels onto the audit and the model id unflattened.
   const meta = args.document.metadata;
   const { from, to, cc } = meta;
+
   const floors = applyFloors(working, {
     signalText,
     collabVetoText,
@@ -1036,6 +1110,7 @@ export async function classifyEmail(
     accountEmail: args.identity?.email ?? null,
     contentFlags: args.observations.content,
   });
+
   const classification = floors.classification;
 
   // The `model` string, as ONE ordered list of tags: this function's own pass
@@ -1065,8 +1140,10 @@ export async function classifyEmail(
  * have to satisfy.
  */
 let _hedgeBudget: HedgeBudget | undefined;
+
 function classifyHedgeBudget(): HedgeBudget {
   _hedgeBudget ??= createHedgeBudget(hedgeCeilingFor(serverEnv().AGENT_WORKER_CONCURRENCY));
+
   return _hedgeBudget;
 }
 
@@ -1140,6 +1217,7 @@ function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): R
   return async ({ system, prompt, pass }) => {
     if (!model) throw new Error("[triage] classifyEmail: no cheap model and no runPass injected");
     const delayMs = args.hedgeDelayMs ?? serverEnv().TRIAGE_CLASSIFY_HEDGE_MS;
+
     const result = await runHedged({
       delayMs,
       // Only when hedging is on: with `hedgeDelayMs: 0` (the eval) there is no
@@ -1179,7 +1257,9 @@ function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): R
           },
         ),
     });
+
     const object = result.output;
+
     // Clamp confidence into [0, 1] here rather than in the schema: the range
     // can't be expressed in the cheap-model structured-output JSON schema (see
     // `confidenceSchema`). `clamp01` is the shared boundary clamp.
@@ -1209,6 +1289,7 @@ function conservativeUnderClassificationFallback(
   message: string,
 ): TriageClassification {
   if (!PASSIVE_CATEGORIES.has(firstPass.category)) return firstPass;
+
   return {
     ...firstPass,
     category: "action_needed",

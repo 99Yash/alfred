@@ -28,6 +28,7 @@ export const FEATURE_FLAG_KEYS = {
 } as const;
 
 export type FeatureFlagId = keyof typeof FEATURE_FLAG_KEYS;
+
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[FeatureFlagId];
 
 export const FEATURE_FLAG_KEY_LIST: readonly FeatureFlagKey[] = Object.values(FEATURE_FLAG_KEYS);
@@ -52,7 +53,9 @@ export const FEATURE_FLAG_DEFAULTS = {
  */
 function parseFeatureFlagValue(value: unknown): boolean | null {
   if (value === false || value === "false" || value === 0) return false;
+
   if (value === true || value === "true" || value === 1) return true;
+
   return null;
 }
 

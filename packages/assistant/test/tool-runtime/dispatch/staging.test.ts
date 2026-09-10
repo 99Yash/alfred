@@ -50,6 +50,7 @@ import { dbBackedSkip } from "../../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-dispatch-";
+
 const createdUserIds: string[] = [];
 
 // Bumped every time the registered `load_tool` double actually runs, so
@@ -74,6 +75,7 @@ async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
     workflowSlug: "chat",
     currentStep: "dispatch-tools",
   });
+
   return { userId, runId };
 }
 
@@ -111,7 +113,9 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
               'Failed query: insert into "artifacts" ("user_id") values ($1) params: usr_private',
             );
           }
+
           executeCount += 1;
+
           // The `poison` sentinel returns a NUL byte the dispatch-boundary
           // sanitizer must strip (ADR-0070 §1.1) — used to prove the sanitize
           // verdict is persisted and replayed. Written as the `\x00` ESCAPE,
@@ -121,6 +125,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
           if (input.slug === "poison") {
             return { ok: true, note: "tail\x00end", call: executeCount };
           }
+
           return { ok: true, slug: input.slug, call: executeCount };
         },
       }),
@@ -134,6 +139,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         inputSchema: z.object({ url: z.string() }),
         execute: async (input) => {
           lastFetchUrlExecuteUrl = input.url;
+
           return { ok: true, url: input.url };
         },
         // Mirror the real fetch_url: scrub a credential query param to [REDACTED].
@@ -162,9 +168,11 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
 
   after(async () => {
     clearToolRegistryForTests();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     // Staging a call publishes to the action-policy channel, which opens a
     // tracked Redis connection (#546). Without this the socket stays
     // ESTABLISHED and the test child process never exits.
@@ -176,6 +184,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     const { userId, runId } = await seedUserAndRun();
     const before = executeCount;
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
     const args = {
       runId,
       stepId: "dispatch-tools",
@@ -220,6 +229,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     // stripped at the boundary, so both dispatches must flag `sanitized`.
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
     const args = {
       runId,
       stepId: "dispatch-tools",
@@ -253,12 +263,14 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       .select({ executeSanitized: actionStagings.executeSanitized })
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+
     assert.equal(rows[0]?.executeSanitized, true, "the verdict is persisted on the row");
   });
 
   test("raw thrown SQL never reaches the returned or persisted tool error", async () => {
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
     const result = await dispatchToolCall({
       runId,
       stepId: "dispatch-tools",
@@ -275,6 +287,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     if (result.kind !== "failed") {
       assert.fail(`load_tool failure returned ${result.kind}`);
     }
+
     assert.deepEqual(result, {
       kind: "failed",
       stagingId: result.stagingId,
@@ -285,6 +298,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       .select({ executeError: actionStagings.executeError })
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+
     const persisted = JSON.stringify(row?.executeError);
     assert.doesNotMatch(persisted, /Failed query|usr_private|insert into/i);
     assert.match(persisted, /tool_execution_failed/);
@@ -332,10 +346,12 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       stagingId: result.kind === "failed" ? result.stagingId : null,
       error: publicAppError("tool_input_invalid"),
     });
+
     const [row] = await db()
       .select({ executeError: actionStagings.executeError })
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+
     assert.deepEqual(row?.executeError, publicAppError("tool_input_invalid"));
     assert.doesNotMatch(JSON.stringify(row?.executeError), /edited-private-value|slug|42/);
   });
@@ -374,6 +390,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       })
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+
     const persisted = rows[0]?.proposedInput as { url?: string } | undefined;
     assert.ok(persisted?.url, "proposed_input has a url");
     assert.match(persisted.url, /code=\[REDACTED\]/);
@@ -533,6 +550,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
             status,
             ...(fenceGeneration === undefined ? {} : { cancellationGeneration: fenceGeneration }),
           });
+
         return { userId, runId };
       },
       async decide(stagingId, decision) {
@@ -569,6 +587,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
           })
           .from(actionStagings)
           .where(eq(actionStagings.id, stagingId));
+
         return row ?? null;
       },
       unknownRunId() {

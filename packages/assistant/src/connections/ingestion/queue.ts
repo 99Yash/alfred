@@ -54,7 +54,9 @@ import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
  *                    is the only thing that can notice.
  */
 const INGESTION_QUEUE_NAME = "ingestion-runs";
+
 const USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS = 10 * 60 * 1000;
+
 const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
 
 type GmailInsertJobKind = GmailDocumentsIngestedPayload["jobKind"];
@@ -250,6 +252,7 @@ export type IngestionJobData =
     };
 
 let _queue: Queue<IngestionJobData> | undefined;
+
 let _worker: Worker<IngestionJobData> | undefined;
 
 export function getIngestionQueue(): Queue<IngestionJobData> {
@@ -265,6 +268,7 @@ export function getIngestionQueue(): Queue<IngestionJobData> {
       removeOnFail: { count: 100, age: 7 * 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -343,9 +347,12 @@ export async function enqueueChatAttachmentEnrichmentWith(
   args: { userId: string; attachmentId: string; estimatedCostMicrousd: number },
 ): Promise<"scheduled" | "existing"> {
   const claim = await deps.claim(args.attachmentId);
+
   if (claim === "existing") return "existing";
+
   try {
     await deps.enqueue(args);
+
     return "scheduled";
   } catch (error) {
     await deps.recordEnqueueFailure(args.attachmentId);
@@ -445,10 +452,12 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         maxMessages: data.maxMessages,
         scheduleMediaIngest: enqueueGmailMediaIngest,
       });
+
       console.log(
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors}`,
       );
+
       if (hasGmailPostInsertSideEffects(result)) {
         // Publish the batch fact; the composition-registered consumers react.
         // The ingestor set `result.unembeddedDocumentIds`; this publisher forwards it.
@@ -459,8 +468,10 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           result,
         });
       }
+
       return result;
     }
+
     case "gmail.poll_recent": {
       // Pub/sub-driven realtime path (ADR-0037). Lists messages from Gmail's
       // search index (`newer_than:5m`), persists/dedupes by `documents.source_id`,
@@ -473,11 +484,13 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         pushHistoryId: data.pushHistoryId,
         deps: { scheduleMediaIngest: enqueueGmailMediaIngest },
       });
+
       console.log(
         `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
           `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
           `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
+
       if (hasGmailPostInsertSideEffects(result)) {
         await publishGmailDocumentsIngested({
           credentialId: data.credentialId,
@@ -485,20 +498,24 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           result,
         });
       }
+
       return result;
     }
+
     case "gmail.poll_history": {
       const result = await pollGmailHistory({
         credentialId: data.credentialId,
         reason: data.reason,
         scheduleMediaIngest: enqueueGmailMediaIngest,
       });
+
       console.log(
         `[ingestion:worker] gmail.poll_history credential=${data.credentialId} ` +
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
           `skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors} fullResync=${result.fullResync} ` +
           `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
+
       // Catch-up path (ADR-0037): the realtime `gmail.poll_recent` job covers
       // the steady state; anything it misses shows up here. The batch fact
       // carries `fullResync` so the triage consumer skips back-catalog triage
@@ -511,8 +528,10 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           result,
         });
       }
+
       return result;
     }
+
     case "gmail.watch_install": {
       // Net-new watch for a just-connected credential. Distinct from
       // `gmail.watch_renew`, which only refreshes already-installed watches
@@ -525,28 +544,37 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         console.log(
           "[ingestion:worker] gmail.watch_install: skipped reason=writes-disabled (non-prod)",
         );
+
         return { installed: false, reason: "writes-disabled" };
       }
+
       const env = serverEnv();
       const topic = env.GOOGLE_PUBSUB_TOPIC;
+
       if (!topic) {
         console.warn(
           "[ingestion:worker] gmail.watch_install: GOOGLE_PUBSUB_TOPIC not set — skipping",
         );
+
         return { installed: false, reason: "no-topic" };
       }
+
       assertGmailPushOidcConfigured();
+
       const state = await installGmailWatchAndSeedCursor({
         credentialId: data.credentialId,
         topicName: topic,
       });
+
       if (!state) return { installed: false, reason: "writes-disabled" };
       console.log(
         `[ingestion:worker] gmail.watch_install credential=${data.credentialId} ` +
           `expiresAt=${state.expiresAt}`,
       );
+
       return { installed: true, expiresAt: state.expiresAt };
     }
+
     case "gmail.watch_renew": {
       // Renew anything expiring within 24h. ADR-0024 caps watch life at
       // ~7d, so a daily renewal cycle is well within margin.
@@ -555,21 +583,27 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         console.log(
           "[ingestion:worker] gmail.watch_renew: skipped reason=writes-disabled (non-prod)",
         );
+
         return { renewed: 0, skipped: 0 };
       }
+
       const env = serverEnv();
       const topic = env.GOOGLE_PUBSUB_TOPIC;
+
       if (!topic) {
         console.warn(
           "[ingestion:worker] gmail.watch_renew: GOOGLE_PUBSUB_TOPIC not set — skipping",
         );
+
         return { renewed: 0, skipped: 0 };
       }
+
       assertGmailPushOidcConfigured();
       const horizon = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const candidates = await findExpiringGmailWatches(horizon);
       let renewed = 0;
       let failed = 0;
+
       for (const c of candidates) {
         try {
           await installGmailWatchAndSeedCursor({ credentialId: c.id, topicName: topic });
@@ -579,16 +613,20 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           console.warn(`[ingestion:worker] watch renew failed for ${c.id}:`, toMessage(err));
         }
       }
+
       console.log(
         `[ingestion:worker] gmail.watch_renew checked=${candidates.length} renewed=${renewed} failed=${failed}`,
       );
+
       return { renewed, failed, checked: candidates.length };
     }
+
     case "gmail.poll_sweep": {
       // Completion time must not make the next sweep skip a credential.
       // Even a recent push can miss mail outside its search window.
       const stale = await findCredentialsNeedingPoll();
       const queue = getIngestionQueue();
+
       for (const c of stale) {
         await queue.add(
           "gmail.poll_history",
@@ -604,9 +642,12 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           },
         );
       }
+
       console.log(`[ingestion:worker] gmail.poll_sweep enqueued=${stale.length}`);
+
       return { enqueued: stale.length };
     }
+
     case "gmail.embed_sweep": {
       // Pick up documents whose embed step failed during ingest. Bounded
       // batch — anything left over comes back next tick. The sweep loop is
@@ -619,18 +660,23 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         retryPending({ source: "gmail_attachment", limit: 50 }),
         ...INBOUND_EVENT_SOURCES.map(async (source) => {
           await backfillReceiptDocuments(source);
+
           return retryPending({ source, limit: 50 });
         }),
       ]);
+
       const candidates =
         mail.candidates + media.candidates + inbound.reduce((sum, r) => sum + r.candidates, 0);
+
       const succeeded =
         mail.succeeded + media.succeeded + inbound.reduce((sum, r) => sum + r.succeeded, 0);
+
       const failed = mail.failed + media.failed + inbound.reduce((sum, r) => sum + r.failed, 0);
       console.log(
         `[ingestion:worker] gmail.embed_sweep candidates=${candidates} succeeded=${succeeded} failed=${failed} ` +
           `(mail ${mail.candidates}/${mail.succeeded}/${mail.failed}, attachment ${media.candidates}/${media.succeeded}/${media.failed})`,
       );
+
       return {
         candidates,
         succeeded,
@@ -640,23 +686,29 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         inbound,
       };
     }
+
     case "gmail.media_ingest": {
       const result = await runGmailMediaIngest({
         credentialId: data.credentialId,
         messageId: data.messageId,
         documentId: data.documentId,
       });
+
       console.log(
         `[ingestion:worker] gmail.media_ingest message=${data.messageId} ${formatMediaTally(result)}`,
       );
+
       return result;
     }
+
     case "user_model.gmail_kind_refold": {
       return runGmailKindRefoldJob(data.userId);
     }
+
     case "user_model.gmail_kind_refold_sweep": {
       return scheduleGmailKindRefoldSweep({});
     }
+
     case "triage.relabel": {
       // One label-writer for both the classifier and user overrides
       // (rfc-triage-tags.md, Invariant 6).
@@ -664,6 +716,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         userId: data.userId,
         sourceThreadId: data.sourceThreadId,
       });
+
       if (result.applied) {
         console.log(
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=true label=${result.appliedLabelId}`,
@@ -682,14 +735,17 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} NOT applied reason=${result.reason}`,
         );
       }
+
       return result;
     }
+
     case "media.cleanup": {
       return cleanupChatMediaPrefix({
         userId: data.userId,
         prefix: data.prefix,
       });
     }
+
     case "media.enrich": {
       return enrichChatMedia({
         userId: data.userId,
@@ -697,18 +753,22 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         estimatedCostMicrousd: data.estimatedCostMicrousd,
       });
     }
+
     case "media.cleanup_pending_upload": {
       return cleanupPendingChatMediaUploads({
         userId: data.userId,
         keys: data.keys,
       });
     }
+
     case "ingress.deliver": {
       return deliverInboundReceipt(data.receiptId);
     }
+
     case "ingress.health_sweep": {
       return runDeliveryAlertSweepForAllUsers();
     }
+
     default: {
       const _exhaustive: never = data;
       throw new Error(`unknown ingestion job kind: ${JSON.stringify(_exhaustive)}`);

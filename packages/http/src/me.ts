@@ -73,6 +73,7 @@ import {
 // INBOX_DEFAULT_LIMIT / INBOX_MAX_LIMIT live in `@alfred/contracts` — the web
 // rail paginates with the same values.
 const BRIEFING_RUN_THROTTLE_SECONDS = 60;
+
 let briefingRunThrottleRedis: BoundedRedis | undefined;
 
 function getBriefingRunThrottleRedis(): BoundedRedis {
@@ -82,6 +83,7 @@ function getBriefingRunThrottleRedis(): BoundedRedis {
   // below reads that rejection as "not throttled" — so the throttle failed to
   // fire exactly once per process (#127).
   briefingRunThrottleRedis ??= createRedisConnection("command");
+
   return briefingRunThrottleRedis;
 }
 
@@ -92,6 +94,7 @@ async function claimBriefingRunRetry(args: {
 }): Promise<boolean> {
   try {
     const key = `rate:briefings:run:${args.userId}:${args.briefingDate}:${args.slot}`;
+
     const claimed = await getBriefingRunThrottleRedis().set(
       key,
       "1",
@@ -99,9 +102,11 @@ async function claimBriefingRunRetry(args: {
       BRIEFING_RUN_THROTTLE_SECONDS,
       "NX",
     );
+
     return claimed === "OK";
   } catch (err) {
     console.warn("[me:briefings] run throttle unavailable:", toMessage(err));
+
     return true;
   }
 }
@@ -115,6 +120,7 @@ async function claimBriefingRunRetry(args: {
  */
 function inboxCursorWhere(cursor: ParsedInboxCursor | null) {
   if (!cursor) return undefined;
+
   return or(
     lt(documents.authoredAt, cursor.authoredAt),
     and(eq(documents.authoredAt, cursor.authoredAt), lt(documents.id, cursor.documentId)),
@@ -268,6 +274,7 @@ function normalizeBodyForReader(
   body = body.replace(/<!--[\s\S]*?-->/g, "");
   body = body.replace(/<style[\s\S]*?<\/style>/gi, "");
   body = body.replace(/<script[\s\S]*?<\/script>/gi, "");
+
   if (HTML_TAG_RE.test(body)) {
     body = body
       .replace(/<br\s*\/?>/gi, "\n")
@@ -280,11 +287,13 @@ function normalizeBodyForReader(
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'");
   }
+
   // Tame whitespace introduced by the strip — keep paragraph breaks (two
   // newlines) but collapse anything denser. `\s*\n` first so trailing
   // spaces on otherwise-blank lines don't survive as visible whitespace.
   body = body.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   body = fenceDiffBlocks(body);
+
   return body.trim();
 }
 
@@ -309,9 +318,11 @@ function fenceDiffBlocks(body: string): string {
   const lines = body.split("\n");
   const out: string[] = [];
   let i = 0;
+
   while (i < lines.length) {
     if (looksLikeDiffLine(lines[i])) {
       let end = i;
+
       while (
         end < lines.length &&
         (looksLikeDiffLine(lines[end]) ||
@@ -319,20 +330,25 @@ function fenceDiffBlocks(body: string): string {
       ) {
         end++;
       }
+
       // Don't swallow trailing blanks into the fence.
       while (end > i + 1 && lines[end - 1] === "") end--;
       const slice = lines.slice(i, end);
+
       if (slice.length >= 2) {
         out.push("```diff");
+
         for (const l of slice) out.push(stripQuotePrefix(l));
         out.push("```");
         i = end;
         continue;
       }
     }
+
     out.push(lines[i] ?? "");
     i++;
   }
+
   return out.join("\n");
 }
 
@@ -346,6 +362,7 @@ function looksLikeDiffLine(line: string | undefined): boolean {
   // routinely lead the diff with `> +    foo(...)` (the `>` marking the
   // snippet as quoted from the source file).
   const stripped = stripQuotePrefix(line);
+
   // Multi-space indent after marker rules out genuine markdown list items
   // (`- bullet` and `+ bullet` both use a single space). Tab-separated and
   // bare `+`/`-` (diff hunk separators) also qualify, as does `@@ … @@`.
@@ -367,18 +384,24 @@ const USAGE_DEFAULT_WINDOW_DAYS = 30;
  */
 function resolveUsageRange(query: { start?: string; end?: string }) {
   const end = query.end ? new Date(query.end) : new Date();
+
   if (Number.isNaN(end.getTime())) throw Errors.BadRequestError("Invalid `end` timestamp");
+
   const start = query.start
     ? new Date(query.start)
     : new Date(end.getTime() - USAGE_DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
   if (Number.isNaN(start.getTime())) throw Errors.BadRequestError("Invalid `start` timestamp");
+
   if (start.getTime() > end.getTime()) throw Errors.BadRequestError("`start` must be before `end`");
+
   return { start, end };
 }
 
 /** Parse the comma-separated `categories` filter, dropping unknown values. */
 function parseUsageCategories(raw: string | undefined): UsageRunCategory[] {
   if (!raw) return [];
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -395,6 +418,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         async ({ user: u, query }) => {
           const limit = Math.min(INBOX_MAX_LIMIT, Math.max(1, query.limit ?? INBOX_DEFAULT_LIMIT));
           const parsedCursor = parseInboxCursor(query.cursor);
+
           if (parsedCursor === "invalid") {
             throw Errors.BadRequestError("Invalid cursor");
           }
@@ -425,6 +449,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ),
             )
             .where(baseWhere);
+
           const total = totalRow[0]?.value ?? 0;
 
           const cursorFilter = inboxCursorWhere(parsedCursor);
@@ -462,6 +487,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // has a date in practice. If it were null, nextCursor stays null and
           // pagination stops — residual liveness gap accepted for single-user inbox.
           const last = pageRows[pageRows.length - 1];
+
           const nextCursor =
             hasMore && last?.authoredAt
               ? encodeInboxCursor({ authoredAt: last.authoredAt, documentId: last.documentId })
@@ -470,6 +496,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const items: MeInboxItem[] = pageRows.map((r) => {
             const meta = parseGmailDocumentMetadata(r.metadata);
             const labelIds = meta.labelIds ?? [];
+
             return {
               documentId: r.documentId,
               threadId: r.threadId ?? null,
@@ -515,6 +542,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .limit(1);
 
           const selected = selectedRows[0];
+
           if (!selected) throw Errors.NotFoundError("Not found");
 
           // Fan out to every sibling message in the same thread. Falls
@@ -562,6 +590,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             const raw = (row.raw ?? null) as GmailMessage | null;
             const attachments: ExtractedAttachment[] = raw ? extractAttachments(raw) : [];
             const rawHtml = raw ? extractMessageHtml(raw) : null;
+
             return {
               documentId: row.documentId,
               sender: meta.from ?? null,
@@ -589,6 +618,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // with a delete — defensive).
           const selectedRow =
             threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
+
           // `satisfies`, not a type annotation: Eden Treaty infers the client
           // response type from this return, and it indexes the literal's
           // `messages: MeInboxMessage[]` correctly while the interface's
@@ -601,6 +631,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             selectedDocumentId: params.documentId,
             messages,
           } satisfies MeInboxDetail;
+
           return detail;
         },
         { params: t.Object({ documentId: t.String() }) },
@@ -637,8 +668,10 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const unreadRows = rows.filter((r) => {
             const meta = parseGmailDocumentMetadata(r.metadata);
             const labelIds = meta.labelIds ?? [];
+
             return labelIds.includes("UNREAD");
           });
+
           if (unreadRows.length === 0) return { marked: 0 };
 
           // Group unread rows by the Google account they were ingested
@@ -652,6 +685,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // bucket those under a sentinel and pick the lone modify-
           // scoped cred for them if there is one.
           const byAccount = new Map<string | null, typeof unreadRows>();
+
           for (const r of unreadRows) {
             const key = r.accountId ?? null;
             const bucket = byAccount.get(key) ?? [];
@@ -664,6 +698,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // Mirrors the calendar-scope filter in `/meetings` so a
           // Calendar-only Google account doesn't get picked up here.
           const modifyScope = GOOGLE_SCOPE.gmail.modify;
+
           const creds = await db()
             .select({
               id: integrationCredentials.id,
@@ -678,15 +713,19 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
                 eq(integrationCredentials.status, "active"),
               ),
             );
+
           const modifyCreds = creds.filter((c) => {
             const granted = toStringArray(c.scopes);
+
             return granted.includes(modifyScope);
           });
+
           if (modifyCreds.length === 0) {
             throw Errors.ConflictError(
               "Gmail modify scope not granted. Reconnect Gmail to enable this action.",
             );
           }
+
           const credByAccount = new Map(modifyCreds.map((c) => [c.accountId, c]));
           // Fallback for legacy NULL-accountId docs: the unique
           // modify-scoped cred if there's exactly one, otherwise
@@ -694,8 +733,10 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const fallbackCred = modifyCreds.length === 1 ? modifyCreds[0] : null;
 
           const markedRows: typeof unreadRows = [];
+
           for (const [accountId, group] of byAccount) {
             const cred = accountId ? credByAccount.get(accountId) : fallbackCred;
+
             if (!cred) continue;
             const accessToken = await getFreshAccessToken(cred.id);
             await batchModifyMessages({
@@ -705,6 +746,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             });
             markedRows.push(...group);
           }
+
           if (markedRows.length === 0) {
             throw Errors.ConflictError(
               "Gmail modify scope not granted for these messages. Reconnect Gmail to enable this action.",
@@ -772,13 +814,16 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
                 eq(integrationCredentials.status, "active"),
               ),
             );
+
           const row = creds.find((c) => {
             const granted = toStringArray(c.scopes);
+
             return (
               granted.includes(GOOGLE_SCOPE.calendar.readonly) ||
               granted.includes(GOOGLE_SCOPE.calendar.events)
             );
           });
+
           if (!row) return { items: [], connected: false };
 
           // "Today" is computed in the user's timezone (general
@@ -788,6 +833,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const { start, end } = inZone(await resolveTimezone(u.id)).dayBounds();
 
           const accessToken = await getFreshAccessToken(row.id);
+
           const { events } = await listEvents({
             accessToken,
             timeMin: start.toISOString(),
@@ -801,11 +847,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             const startIso = e.start?.dateTime ?? e.start?.date ?? null;
             const endIso = e.end?.dateTime ?? e.end?.date ?? null;
             const attendees: Array<{ email: string; displayName: string | null }> = [];
+
             for (const a of e.attendees ?? []) {
               if (!a.self && a.email) {
                 attendees.push({ email: a.email, displayName: a.displayName ?? null });
               }
             }
+
             return {
               id: e.id,
               title: e.summary ?? "(no title)",
@@ -818,6 +866,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               htmlLink: e.htmlLink ?? null,
             };
           });
+
           return { items, connected: true };
         },
       )
@@ -829,6 +878,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // pin the chip to a stale day. Among today's slots (morning fires
           // first, evening supersedes it), the most recent composed run wins.
           const today = inZone(await resolveTimezone(u.id)).day();
+
           const rows = await db()
             .select({
               id: briefings.id,
@@ -843,9 +893,11 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .where(and(eq(briefings.userId, u.id), eq(briefings.briefingDate, today)))
             .orderBy(desc(briefings.createdAt))
             .limit(1);
+
           const row = rows[0];
           const rawHeadline = getPath(row?.fullBriefing, "headline");
           const headline = rawHeadline === undefined ? null : String(rawHeadline);
+
           return {
             briefing: row
               ? {
@@ -885,11 +937,14 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             ),
           )
           .limit(1);
+
         const row = existing[0];
+
         if (row) {
           if (row.status === "sent" || row.status === "suppressed") {
             return { status: "exists", slot };
           }
+
           if (
             row.status === "pending" ||
             row.status === "gathering" ||
@@ -900,6 +955,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         }
 
         const claimed = await claimBriefingRunRetry({ userId: u.id, briefingDate, slot });
+
         if (!claimed) {
           throw Errors.TooManyRequestsError(
             "Briefing generation is already retrying. Try again in a minute.",
@@ -912,12 +968,14 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           briefingDate,
           reason: "manual",
         });
+
         return { status: "queued", slot, runId };
       })
       .get(
         "/usage/summary",
         async ({ user: u, query }) => {
           const { start, end } = resolveUsageRange(query);
+
           return getUsageSummary(u.id, start, end);
         },
         {
@@ -931,6 +989,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         "/usage/breakdown",
         async ({ user: u, query }) => {
           const { start, end } = resolveUsageRange(query);
+
           return getUsageBreakdown(u.id, start, end);
         },
         {
@@ -946,6 +1005,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const { start, end } = resolveUsageRange(query);
           const sortField: UsageSortField = query.sortField === "costUsd" ? "costUsd" : "createdAt";
           const sortDir: UsageSortDir = query.sortDir === "asc" ? "asc" : "desc";
+
           return getUsageActivity(u.id, {
             start,
             end,

@@ -25,6 +25,7 @@ export function useWorkflows(): WorkflowsState {
 
   useEffect(() => {
     if (!rep) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.workflow.scan(tx),
       (workflows) => {
@@ -35,6 +36,7 @@ export function useWorkflows(): WorkflowsState {
   }, [rep]);
 
   const workflows = snapshot?.rep === rep ? snapshot.value : null;
+
   return {
     workflows: workflows ?? [],
     loading: workflows === null && !loadError,
@@ -55,6 +57,7 @@ export interface WorkflowState {
 /** Live view of a single workflow by slug, with an update mutator bound to it. */
 export function useWorkflow(slug: string): WorkflowState {
   const { rep, loadError, retry } = useReplicacheStatus();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     slug: string;
@@ -63,6 +66,7 @@ export function useWorkflow(slug: string): WorkflowState {
 
   useEffect(() => {
     if (!rep) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.workflow.get(tx, { slug }),
       (workflow) => setSnapshot({ rep, slug, workflow }),
@@ -70,10 +74,12 @@ export function useWorkflow(slug: string): WorkflowState {
   }, [rep, slug]);
 
   const current = snapshot?.rep === rep && snapshot.slug === slug ? snapshot : null;
+
   const updateWorkflow = useCallback(
     async (args: Omit<WorkflowUpdateArgs, "slug" | "expectedRowVersion">): Promise<void> => {
       if (!rep) return;
       const expectedRowVersion = current?.workflow?.rowVersion;
+
       if (expectedRowVersion === undefined) return;
       await rep.mutate.workflowUpdate({ slug, expectedRowVersion, ...args });
     },

@@ -30,6 +30,7 @@ interface MadeClientTx {
 
 function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
+
   // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   const tx = {
     async get(key: string): Promise<unknown> {
@@ -45,6 +46,7 @@ function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
       store.delete(key);
     },
   } as unknown as ClientTx;
+
   return { tx, store };
 }
 
@@ -57,15 +59,18 @@ interface UpdateTxCalls {
 function makeUpdateTx(): UpdateTxCalls {
   let setValue: Record<string, unknown> | undefined;
   let whereCalled = false;
+
   return {
     tx: {
       update(_table: unknown) {
         return {
           set(value: Record<string, unknown>) {
             setValue = value;
+
             return {
               where(_condition: unknown): Promise<void> {
                 whereCalled = true;
+
                 return Promise.resolve();
               },
             };
@@ -107,6 +112,7 @@ describe("todoClearClient (#297: done → cleared)", () => {
     const { tx, store } = makeClientTx({
       [KEY]: todo({ status: "done", completedAt: "2026-06-21T00:00:00.000Z" }),
     });
+
     await todoClearClient(tx, { id: "todo_1" });
     assert.equal(store.has(KEY), false);
   });
@@ -161,6 +167,7 @@ describe("existing todo transitions still behave (no regression)", () => {
     const { tx, store } = makeClientTx({
       [KEY]: todo({ status: "done", completedAt: "2026-06-21T00:00:00.000Z" }),
     });
+
     await todoReopenClient(tx, { id: "todo_1" });
     const value = store.get(KEY) as SyncedTodo;
     assert.equal(value.status, "open");
@@ -171,6 +178,7 @@ describe("existing todo transitions still behave (no regression)", () => {
     const { tx, store } = makeClientTx({
       [KEY]: todo({ status: "suggested", createdBy: "agent" }),
     });
+
     await todoPromoteClient(tx, { id: "todo_1" });
     const value = store.get(KEY) as SyncedTodo;
     assert.equal(value.status, "open");

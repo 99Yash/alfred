@@ -51,9 +51,11 @@ function gmailAccountDeliveryHealth(
   now: Date,
 ): EventDeliveryHealth {
   const watch = readGmailWatchState(row.metadata);
+
   if (!facts || !watch || new Date(watch.expiresAt).getTime() <= now.getTime()) {
     return WATCH_NOT_INSTALLED;
   }
+
   if (!facts.receiverConfigured || !facts.topicMatches) {
     return {
       healthy: false,
@@ -62,8 +64,10 @@ function gmailAccountDeliveryHealth(
       recovery: { kind: "none" },
     };
   }
+
   const stale =
     !facts.lastSyncAt || now.getTime() - facts.lastSyncAt.getTime() > GMAIL_EVENT_HEALTH_MAX_AGE_MS;
+
   if (facts.coverageGap || !facts.cursorReady || stale) {
     return {
       healthy: false,
@@ -72,6 +76,7 @@ function gmailAccountDeliveryHealth(
       recovery: { kind: "retry" },
     };
   }
+
   return { healthy: true };
 }
 
@@ -91,15 +96,18 @@ export function gmailAccountHealth(
 export const readGmailEventHealth: AccountDeliveryHealthReader = async (userId, rows, now) => {
   const cursorByCredential = await readGmailDeliveryFacts(userId);
   const pushConfig = pubSubOidcConfigFromEnv();
+
   const receiverConfigured =
     Boolean(pushConfig.pushTopic) &&
     (pushConfig.nodeEnv !== "production" ||
       (Boolean(pushConfig.audience) && Boolean(pushConfig.expectedServiceAccount)));
+
   const healthByCredential = new Map(
     (rows.get(GMAIL_DELIVERY.provider) ?? []).map(
       ({ credentialId, metadata }): [string, GmailEventHealth] => {
         const cursor = cursorByCredential.get(credentialId);
         const watchTopic = readGmailWatchState(metadata)?.topic;
+
         return [
           credentialId,
           {
@@ -113,5 +121,6 @@ export const readGmailEventHealth: AccountDeliveryHealthReader = async (userId, 
       },
     ),
   );
+
   return gmailAccountHealth(healthByCredential, now);
 };

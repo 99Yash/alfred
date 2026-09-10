@@ -24,6 +24,7 @@ export type { AccountPersona } from "@alfred/contracts";
  */
 
 const AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth";
+
 const TOKEN_BASE = "https://oauth2.googleapis.com/token";
 
 /**
@@ -63,9 +64,11 @@ const ALL_FEATURES =
 export function scopesForFeatures(features?: readonly GoogleFeature[]): string[] {
   const wanted = features ?? ALL_FEATURES;
   const set = new Set<string>(IDENTITY_SCOPES);
+
   for (const f of wanted) {
     for (const scope of GOOGLE_FEATURE_SCOPES[f]) set.add(scope);
   }
+
   return [...set];
 }
 
@@ -96,6 +99,7 @@ export interface GoogleOAuthConfig {
 export function getGoogleOAuthConfig(): GoogleOAuthConfig {
   const { GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI } =
     serverEnv();
+
   return {
     clientId: GOOGLE_OAUTH_CLIENT_ID,
     clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
@@ -120,6 +124,7 @@ export interface BuildAuthorizeUrlArgs {
 export function buildAuthorizeUrl(args: BuildAuthorizeUrlArgs): string {
   const cfg = getGoogleOAuthConfig();
   const scopes = args.scopes ?? DEFAULT_GOOGLE_SCOPES;
+
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     redirect_uri: cfg.redirectUri,
@@ -129,8 +134,11 @@ export function buildAuthorizeUrl(args: BuildAuthorizeUrlArgs): string {
     state: args.state,
     include_granted_scopes: "true",
   });
+
   if (args.forceConsent !== false) params.set("prompt", "consent");
+
   if (args.loginHint) params.set("login_hint", args.loginHint);
+
   return `${AUTH_BASE}?${params.toString()}`;
 }
 
@@ -143,6 +151,7 @@ const tokenResponseSchema = z.object({
   refresh_token: z.string().optional(),
   id_token: z.string().optional(),
 });
+
 type GoogleTokenResponse = z.infer<typeof tokenResponseSchema>;
 
 export interface ExchangeCodeResult extends GoogleTokenResponse {
@@ -164,6 +173,7 @@ export interface ExchangeCodeResult extends GoogleTokenResponse {
 
 export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
   const cfg = getGoogleOAuthConfig();
+
   const body = new URLSearchParams({
     code,
     client_id: cfg.clientId,
@@ -171,23 +181,30 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     redirect_uri: cfg.redirectUri,
     grant_type: "authorization_code",
   });
+
   const res = await fetch(TOKEN_BASE, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
     signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
+
   const json = await res.json().catch(() => null);
+
   if (!res.ok) {
     throw new Error(`[google.oauth] token exchange failed: ${res.status} ${JSON.stringify(json)}`);
   }
+
   const parsed = tokenResponseSchema.parse(json);
+
   if (!parsed.refresh_token) {
     // Forcing consent above should make this near-impossible; treat as
     // hard error so we don't silently accept short-lived credentials.
     throw new Error("[google.oauth] no refresh_token returned; re-run with prompt=consent");
   }
+
   const claims = await verifyIdToken(parsed.id_token, cfg.clientId);
+
   return {
     ...parsed,
     accountId: claims.sub,
@@ -233,26 +250,33 @@ export class GoogleReauthRequiredError extends Error {
 
 export async function refreshAccessToken(refreshToken: string): Promise<RefreshTokenResult> {
   const cfg = getGoogleOAuthConfig();
+
   const body = new URLSearchParams({
     client_id: cfg.clientId,
     client_secret: cfg.clientSecret,
     refresh_token: refreshToken,
     grant_type: "refresh_token",
   });
+
   const res = await fetch(TOKEN_BASE, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
     signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
+
   const json = await res.json().catch(() => null);
+
   if (!res.ok) {
     if (isRecord(json) && json.error === "invalid_grant") {
       throw new GoogleReauthRequiredError(JSON.stringify(json));
     }
+
     throw new Error(`[google.oauth] refresh failed: ${res.status} ${JSON.stringify(json)}`);
   }
+
   const parsed = tokenResponseSchema.parse(json);
+
   return {
     accessToken: parsed.access_token,
     expiresAt: new Date(Date.now() + parsed.expires_in * 1000),
@@ -273,6 +297,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
  * unknown-kid lookups, so the cost is one fetch per pod per ~hours.
  */
 const GOOGLE_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+
 const GOOGLE_ID_TOKEN_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 interface GoogleIdTokenClaims extends JWTPayload {
@@ -290,23 +315,30 @@ async function verifyIdToken(
   if (!idToken) {
     throw new Error("[google.oauth] id_token missing — request 'openid email' scopes");
   }
+
   let claims: GoogleIdTokenClaims;
+
   try {
     const { payload } = await jwtVerify<GoogleIdTokenClaims>(idToken, GOOGLE_JWKS, {
       issuer: GOOGLE_ID_TOKEN_ISSUERS,
       audience,
     });
+
     claims = payload;
   } catch (err) {
     throw new Error(`[google.oauth] id_token verification failed: ${toMessage(err)}`);
   }
+
   if (!claims.sub || !claims.email) {
     throw new Error("[google.oauth] id_token missing sub or email claims");
   }
+
   if (claims.email_verified === false) {
     throw new Error("[google.oauth] id_token email is not verified");
   }
+
   const hostedDomain =
     typeof claims.hd === "string" && claims.hd.trim() ? claims.hd.trim() : undefined;
+
   return { sub: claims.sub, email: claims.email, ...(hostedDomain ? { hostedDomain } : {}) };
 }

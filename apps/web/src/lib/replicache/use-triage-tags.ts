@@ -21,6 +21,7 @@ export interface TriageTagsState {
  */
 export function useTriageTags(): TriageTagsState {
   const { rep, loadError, retry } = useReplicacheStatus();
+
   const [tagsByThreadId, setTagsByThreadId] = useState<ReadonlyMap<string, SyncedTriageTag> | null>(
     null,
   );
@@ -28,15 +29,19 @@ export function useTriageTags(): TriageTagsState {
   useEffect(() => {
     if (!rep) {
       setTagsByThreadId(null);
+
       return;
     }
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.triagetag.scan(tx),
       (tags) => {
         const next = new Map<string, SyncedTriageTag>();
+
         for (const tag of tags) {
           next.set(tag.threadId, tag);
         }
+
         setTagsByThreadId(next);
       },
     );

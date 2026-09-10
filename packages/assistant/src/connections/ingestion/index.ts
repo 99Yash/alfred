@@ -36,25 +36,32 @@ export {
   enqueuePendingUploadCleanup,
   getIngestionQueue,
 } from "./queue";
+
 export type { IngestionJobData } from "./queue";
+
 export {
   receiveInboundDelivery,
   type InboundDeliveryOutcome,
   type ReceiveInboundDeliveryArgs,
 } from "./inbound-receive";
+
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
+
 export { installGmailWatchAndSeedCursor } from "./gmail-ingest";
+
 export {
   registerChatMediaHandler,
   type ChatMediaHandler,
   type ChatMediaPendingUploadCleanupRequest,
 } from "./chat-media";
+
 export {
   captureGmailObservations,
   registerGmailUserModelHandler,
   type GmailKindRefoldResult,
   type GmailUserModelHandler,
 } from "./gmail-user-model";
+
 export {
   registerGmailTriageHandler,
   runGmailPostInsertTriage,
@@ -62,10 +69,12 @@ export {
   type GmailTriageHandler,
   type GmailTriageRelabelResult,
 } from "./gmail-triage";
+
 export {
   registerWorkflowRecoveryHandler,
   resolveWorkflowRecoveryTarget,
   workflowRecoveryStateSchema,
   type WorkflowRecoveryResult,
 } from "./workflow-recovery";
+
 export { GMAIL_POLL_DEDUP_TTL_MS } from "./gmail-delivery-policy";

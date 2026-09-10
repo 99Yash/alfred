@@ -65,7 +65,9 @@ export function redactSecrets(text: string): string {
  */
 export function summarizeBody(text: string, max: number = MAX_ERROR_BODY_CHARS): string {
   const redacted = redactSecrets(text);
+
   if (redacted.length <= max) return redacted;
+
   return `${redacted.slice(0, max)}…[+${redacted.length - max} chars]`;
 }
 
@@ -186,6 +188,7 @@ export async function httpErrorFromResponse(
   } = {},
 ): Promise<HttpError> {
   const raw = await res.text().catch(() => "");
+
   return new HttpError({
     provider,
     status: res.status,

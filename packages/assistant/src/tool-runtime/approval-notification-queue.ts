@@ -26,6 +26,7 @@ export const approvalNotificationJobDataSchema = z.object({
   stagingId: z.string().min(1),
   userId: z.string().min(1),
 });
+
 export type ApprovalNotificationJobData = z.infer<typeof approvalNotificationJobDataSchema>;
 
 /**
@@ -41,6 +42,7 @@ export const workflowBlockedNotificationJobDataSchema = z.object({
   /** `workflowBlockedGeneration(blocked)` at enqueue time; the worker sends only while it still matches. */
   generation: z.string().min(1),
 });
+
 export type WorkflowBlockedNotificationJobData = z.infer<
   typeof workflowBlockedNotificationJobDataSchema
 >;
@@ -49,6 +51,7 @@ export const notificationJobDataSchema = z.union([
   workflowBlockedNotificationJobDataSchema,
   approvalNotificationJobDataSchema,
 ]);
+
 export type NotificationJobData = z.infer<typeof notificationJobDataSchema>;
 
 let _queue: Queue<NotificationJobData> | undefined;
@@ -70,6 +73,7 @@ export function getApprovalNotificationQueue(): Queue<NotificationJobData> {
       removeOnFail: { count: 200, age: 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -79,6 +83,7 @@ export async function scheduleApprovalNotificationJob(args: {
   delayMs: number;
 }): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled()) return "disabled";
+
   try {
     await getApprovalNotificationQueue().add(
       "approval.notify",
@@ -88,6 +93,7 @@ export async function scheduleApprovalNotificationJob(args: {
         jobId: approvalNotificationJobId(args.stagingId),
       },
     );
+
     return "scheduled";
   } catch (err) {
     console.warn(
@@ -95,6 +101,7 @@ export async function scheduleApprovalNotificationJob(args: {
       args.stagingId,
       toMessage(err),
     );
+
     return "failed";
   }
 }
@@ -116,12 +123,14 @@ export async function scheduleWorkflowBlockedNotificationJob(
   args: Omit<WorkflowBlockedNotificationJobData, "kind">,
 ): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled()) return "disabled";
+
   try {
     await getApprovalNotificationQueue().add(
       "workflow.blocked",
       { kind: "workflow_blocked", ...args },
       { jobId: workflowBlockedNotificationJobId(args) },
     );
+
     return "scheduled";
   } catch (err) {
     console.warn(
@@ -129,12 +138,14 @@ export async function scheduleWorkflowBlockedNotificationJob(
       args.workflowId,
       toMessage(err),
     );
+
     return "failed";
   }
 }
 
 export async function removeApprovalNotificationJob(stagingId: string): Promise<void> {
   if (!isQueueEnabled()) return;
+
   try {
     const job = await getApprovalNotificationQueue().getJob(approvalNotificationJobId(stagingId));
     await job?.remove();

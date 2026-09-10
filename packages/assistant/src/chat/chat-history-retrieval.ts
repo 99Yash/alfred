@@ -10,6 +10,7 @@ import {
 } from "./attachments";
 
 const CHAT_HISTORY_RESULT_LIMIT = 10;
+
 export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
 
 type MessageRow = {
@@ -19,6 +20,7 @@ type MessageRow = {
   toolCalls: ChatMessageToolCall[] | null;
   createdAt: Date;
 };
+
 type AttachmentRow = {
   id: string;
   messageId: string;
@@ -69,16 +71,20 @@ export async function readChatHistory(
   // can't dereference an undefined.
   if (args.input.mode === "search") {
     const { query } = args.input;
+
     if (query === undefined) {
       return { ok: false, mode: "search", error: "query is required in search mode" };
     }
+
     const limit = Math.min(Math.max(args.input.limit, 1), CHAT_HISTORY_RESULT_LIMIT);
+
     const rows = await (dependencies.searchMessages ?? searchMessages)({
       userId: args.userId,
       threadId: args.threadId,
       query,
       limit,
     });
+
     return {
       ok: true,
       mode: "search",
@@ -88,6 +94,7 @@ export async function readChatHistory(
   }
 
   const { kind, id } = args.input;
+
   if (kind === undefined || id === undefined) {
     return { ok: false, mode: "fetch", error: "kind and id are required in fetch mode" };
   }
@@ -98,6 +105,7 @@ export async function readChatHistory(
       threadId: args.threadId,
       id,
     });
+
     return row
       ? { ok: true, mode: "fetch", found: true, result: attachmentEvidence(row) }
       : { ok: true, mode: "fetch", found: false, kind, id };
@@ -107,12 +115,17 @@ export async function readChatHistory(
     kind === "message"
       ? (dependencies.fetchMessage ?? fetchMessage)
       : (dependencies.fetchToolCall ?? fetchToolCall);
+
   const row = await loader({ userId: args.userId, threadId: args.threadId, id });
+
   if (!row) return { ok: true, mode: "fetch", found: false, kind, id };
+
   if (kind === "message") {
     return { ok: true, mode: "fetch", found: true, result: messageEvidence(row) };
   }
+
   const call = row.toolCalls?.find((candidate) => candidate.toolCallId === id);
+
   return call
     ? {
         ok: true,
@@ -148,6 +161,7 @@ function messageEvidence(row: MessageRow) {
 
 function attachmentEvidence(row: AttachmentRow) {
   const parsed = chatAttachmentRepresentationSchema.safeParse(row.representation);
+
   return {
     kind: "attachment",
     id: row.id,
@@ -164,6 +178,7 @@ function attachmentEvidence(row: AttachmentRow) {
 
 function excerpt(value: string) {
   const clean = value.replaceAll("\u0000", "");
+
   return {
     text: clean.slice(0, CHAT_HISTORY_EXCERPT_CHARS),
     truncated: clean.length > CHAT_HISTORY_EXCERPT_CHARS,
@@ -215,6 +230,7 @@ async function fetchMessage(args: { userId: string; threadId: string; id: string
       ),
     )
     .limit(1);
+
   return row ?? null;
 }
 
@@ -236,6 +252,7 @@ async function fetchToolCall(args: { userId: string; threadId: string; id: strin
       ),
     )
     .limit(1);
+
   return row ?? null;
 }
 
@@ -274,6 +291,7 @@ async function fetchAttachment(args: { userId: string; threadId: string; id: str
       ),
     )
     .limit(1);
+
   return row ?? null;
 }
 

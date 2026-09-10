@@ -44,8 +44,11 @@ export type RuntimeLatencyKind = keyof typeof RUNTIME_LATENCY_THRESHOLDS;
  */
 export function classifyLatency(kind: RuntimeLatencyKind, ms: number): LatencyHealth {
   const threshold = RUNTIME_LATENCY_THRESHOLDS[kind];
+
   if (ms > threshold.redMs) return "red";
+
   if (ms > threshold.yellowMs) return "yellow";
+
   return "ok";
 }
 
@@ -59,5 +62,6 @@ export function classifyLatency(kind: RuntimeLatencyKind, ms: number): LatencyHe
 export function boundedNameList(names: readonly string[]): string | null {
   if (names.length === 0) return null;
   const joined = names.join(",");
+
   return joined.length <= 800 ? joined : `${joined.slice(0, 797)}...`;
 }

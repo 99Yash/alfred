@@ -33,6 +33,7 @@ import type { BetterAuthOptions } from "better-auth";
  * an explicit value is also what stops a library default from moving under us.
  */
 const AUTH_RATE_LIMIT_MAX = 100;
+
 const AUTH_RATE_LIMIT_WINDOW_SECONDS = 10;
 
 /**
@@ -64,7 +65,9 @@ const TRUSTED_PROXY_RANGES = [
 ] as const;
 
 type RateLimitOptions = NonNullable<BetterAuthOptions["rateLimit"]>;
+
 type RateLimitStorage = NonNullable<RateLimitOptions["customStorage"]>;
+
 /** Better Auth's own row shape, derived rather than restated. */
 type RateLimitRow = Parameters<RateLimitStorage["set"]>[1];
 
@@ -94,6 +97,7 @@ function getRateLimitRedis(): RateLimitRedis {
   // construction even against a healthy Redis — see the decision test in
   // `packages/db/src/redis.ts`.
   rateLimitRedis ??= createRedisConnection("command");
+
   return rateLimitRedis;
 }
 
@@ -107,6 +111,7 @@ function getRateLimitRedis(): RateLimitRedis {
 function bucketFor(key: string, windowSeconds: number, nowMs: number) {
   const windowMs = windowSeconds * 1000;
   const index = Math.floor(nowMs / windowMs);
+
   return { key: `rate:auth:${key}:${index}`, endsAtMs: (index + 1) * windowMs };
 }
 
@@ -130,6 +135,7 @@ function createFallbackStore() {
     // map is capped as well. Iteration order is insertion order, so this drops
     // the oldest buckets first.
     let overflow = entries.size - MAX_FALLBACK_ENTRIES;
+
     for (const key of entries.keys()) {
       if (overflow <= 0) break;
       entries.delete(key);
@@ -143,10 +149,12 @@ function createFallbackStore() {
       const current = entries.get(key);
       const count = (current?.count ?? 0) + 1;
       entries.set(key, { count, expiresAtMs });
+
       return count;
     },
     read(key: string, nowMs: number): number | null {
       prune(nowMs);
+
       return entries.get(key)?.count ?? null;
     },
     write(key: string, count: number, expiresAtMs: number, nowMs: number): void {
@@ -186,6 +194,7 @@ export function createAuthRateLimitStorage(
       const nowMs = Date.now();
       const bucket = bucketFor(key, rule.window, nowMs);
       let count: number;
+
       try {
         // SAFETY: RateLimitRedis carries eval (the drift-guard comment in
         // @alfred/db/redis pins it); EvalRedis names that single-command
@@ -195,8 +204,10 @@ export function createAuthRateLimitStorage(
         degrade(err);
         count = fallback.increment(bucket.key, bucket.endsAtMs, nowMs);
       }
+
       if (count <= rule.max) return { allowed: true, retryAfter: null };
       const retryAfter = Math.max(1, Math.ceil((bucket.endsAtMs - nowMs) / 1000));
+
       return { allowed: false, retryAfter };
     },
 
@@ -216,21 +227,27 @@ export function createAuthRateLimitStorage(
       // is still inside the window, which is true for exactly this window.
       const lastRequest = bucket.endsAtMs - AUTH_RATE_LIMIT_WINDOW_SECONDS * 1000;
       let raw: string | null;
+
       try {
         raw = await redis().get(bucket.key);
       } catch (err) {
         degrade(err);
         const counted = fallback.read(bucket.key, nowMs);
+
         return counted === null ? null : { key, count: counted, lastRequest };
       }
+
       const count = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+
       if (!Number.isFinite(count)) return null;
+
       return { key, count, lastRequest };
     },
 
     set: async (key, value): Promise<void> => {
       const nowMs = Date.now();
       const bucket = bucketFor(key, AUTH_RATE_LIMIT_WINDOW_SECONDS, nowMs);
+
       try {
         await redis().set(bucket.key, String(value.count), "EX", AUTH_RATE_LIMIT_WINDOW_SECONDS);
       } catch (err) {

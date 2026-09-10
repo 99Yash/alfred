@@ -45,6 +45,7 @@ import type { ToolEventOutcome } from "./tool-event-outcome";
  * payload — the builders below assemble a fresh literal and never spread a target.
  */
 const PROVEN_LIVE = Symbol("liveParentRun");
+
 type ProvenLive = { readonly [PROVEN_LIVE]: true };
 
 /** The three address fields every card carries — the turn's own `runId`. */
@@ -104,7 +105,9 @@ export async function subAgentToolCardTarget(
   isParentOpen: (parentRunId: string, userId: string) => Promise<boolean>,
 ): Promise<LiveSubAgentToolCardTarget | null> {
   if (!subAgent?.chat) return null;
+
   if (!(await isParentOpen(subAgent.parentRunId, userId))) return null;
+
   return {
     runId: subAgent.parentRunId,
     threadId: subAgent.chat.threadId,

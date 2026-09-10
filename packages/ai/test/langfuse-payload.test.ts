@@ -85,6 +85,7 @@ describe("buildTracePayload", () => {
       meta: { ...baseMeta, runId: "run_1", sessionId: "thread_42" },
       captureIo: false,
     });
+
     assert.equal(chat.sessionId, "thread_42");
 
     // Background/job run with no session → sessionless (NOT runId), so the
@@ -98,6 +99,7 @@ describe("buildTracePayload", () => {
       meta: { ...baseMeta, input: "hello" },
       captureIo: true,
     });
+
     assert.equal(adhocOn.input, "hello");
 
     // A run trace holds many generations — never mirror one call's input up.
@@ -105,6 +107,7 @@ describe("buildTracePayload", () => {
       meta: { ...baseMeta, runId: "run_1", input: "hello" },
       captureIo: true,
     });
+
     assert.equal(runOn.input, undefined);
 
     // Capture off → no input regardless of trace shape.
@@ -112,6 +115,7 @@ describe("buildTracePayload", () => {
       meta: { ...baseMeta, input: "hello" },
       captureIo: false,
     });
+
     assert.equal(adhocOff.input, undefined);
   });
 });
@@ -125,6 +129,7 @@ describe("buildGenerationPayload", () => {
       startedAt,
       captureIo: false,
     });
+
     assert.equal(gen.traceId, "run_1");
     assert.equal(gen.model, "claude-sonnet-4-6");
     assert.equal(gen.startTime, startedAt);
@@ -146,6 +151,7 @@ describe("buildGenerationPayload", () => {
       startedAt,
       captureIo: true,
     });
+
     assert.deepEqual(gen.input, { prompt: "hi" });
   });
 });
@@ -160,6 +166,7 @@ describe("buildGenerationEndPayload", () => {
       responseMeta: { finishReason: "stop" },
       captureIo: false,
     });
+
     // Unchanged served model → leave generation model untouched (undefined).
     assert.equal(end.model, undefined);
     assert.deepEqual(end.metadata, { finishReason: "stop" });
@@ -176,6 +183,7 @@ describe("buildGenerationEndPayload", () => {
       responseMeta: { finishReason: "stop" },
       captureIo: false,
     });
+
     assert.equal(end.model, "gemini-2.5-flash");
     assert.deepEqual(end.metadata, {
       finishReason: "stop",
@@ -190,6 +198,7 @@ describe("buildGenerationEndPayload", () => {
       output: "the answer",
       captureIo: true,
     });
+
     assert.equal(on.output, "the answer");
 
     const off = buildGenerationEndPayload({
@@ -198,12 +207,14 @@ describe("buildGenerationEndPayload", () => {
       output: "the answer",
       captureIo: false,
     });
+
     assert.equal(off.output, undefined);
   });
 });
 
 describe("buildDispatchRejectionSpanPayload", () => {
   const startedAt = new Date("2026-06-29T00:00:00.000Z");
+
   const base = {
     runId: "run_1",
     toolName: "sheets.update_values",
@@ -285,6 +296,7 @@ describe("buildDispatchRejectionSpanPayload", () => {
 
 describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
   const startedAt = new Date("2026-07-14T00:00:00.000Z");
+
   const base = {
     runId: "run_9",
     name: "runtime.dispatch.batch",
@@ -319,6 +331,7 @@ describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
       { status: "committed", metadata: { executed: 2 } },
       false,
     );
+
     assert.equal(end.level, "DEFAULT");
     assert.equal(end.output, undefined);
     assert.deepEqual(end.metadata, { status: "committed", executed: 2 });
@@ -329,6 +342,7 @@ describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
       { status: "error", level: "ERROR", output: "boom" },
       false,
     );
+
     assert.equal(errored.level, "ERROR");
     assert.equal(errored.output, undefined);
     assert.deepEqual(errored.metadata, { status: "error" });
@@ -337,6 +351,7 @@ describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
       { status: "committed", output: { ok: true } },
       true,
     );
+
     assert.deepEqual(captured.output, { ok: true });
   });
 });

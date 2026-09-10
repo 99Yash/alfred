@@ -39,12 +39,14 @@ const instruction = standingInstructionValueSchema.parse({
 describe("sender suppression coordinator", () => {
   test("writes the instruction before it dismisses todos", async () => {
     const calls: Array<{ name: string; args: unknown }> = [];
+
     const remembered: RememberSenderSuppressionResult = {
       ok: true,
       status: "remembered",
       factId: "fact_1",
       instruction,
     };
+
     const dismissed: ResolveTodosForGmailSenderResult = {
       ok: true,
       status: "dismissed",
@@ -52,13 +54,16 @@ describe("sender suppression coordinator", () => {
       todoIds: ["todo_1"],
       matchedThreadIds: ["thread_1"],
     };
+
     const coordinate = createRememberSenderSuppressionCoordinator({
       remember: (args) => {
         calls.push({ name: "remember", args });
+
         return Promise.resolve(remembered);
       },
       dismissTodos: (args) => {
         calls.push({ name: "dismiss", args });
+
         return Promise.resolve(dismissed);
       },
     });
@@ -100,11 +105,14 @@ describe("sender suppression coordinator", () => {
       reason: "invalid_sender_email",
       message: "Which sender should I suppress?",
     };
+
     let dismissCount = 0;
+
     const coordinate = createRememberSenderSuppressionCoordinator({
       remember: () => Promise.resolve(clarification),
       dismissTodos: () => {
         dismissCount += 1;
+
         return Promise.resolve({
           ok: true,
           status: "not_found",

@@ -69,20 +69,26 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
 
           // Phase 2 + 3: snapshot watermark, replay rows in (since, watermark].
           let watermark = sinceId;
+
           if (sinceId !== undefined) {
             try {
               watermark = await getReplayHighWatermark(userId);
+
               if (watermark > sinceId) {
                 const replay = await getEventsSince(userId, sinceId, watermark);
+
                 for (const frame of replay.frames) writeFrame(frame);
+
                 // Unknown legacy kinds are filtered from dispatch, but their
                 // ids must still advance Last-Event-ID or reconnect could
                 // request the same page forever.
                 if (replay.cursor > (replay.frames.at(-1)?.id ?? sinceId)) {
                   conn.cursor(replay.cursor);
                 }
+
                 if (replay.hasMore) {
                   conn.close();
+
                   return;
                 }
               }
@@ -93,9 +99,11 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
 
           // Phase 4: flush buffered live frames newer than the watermark.
           const cutoff = watermark ?? 0;
+
           for (const frame of buffer) {
             if (frame.id > cutoff) writeFrame(frame);
           }
+
           buffer.length = 0;
           mode = "passthrough";
         });
@@ -149,6 +157,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
                     message: body.message,
                   },
                 });
+
                 return { ok: true } as const;
               },
               {
@@ -166,6 +175,8 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
 function parseSinceId(raw: string | undefined): number | undefined {
   if (!raw) return undefined;
   const n = Number(raw);
+
   if (!Number.isFinite(n) || n < 0) return undefined;
+
   return Math.floor(n);
 }

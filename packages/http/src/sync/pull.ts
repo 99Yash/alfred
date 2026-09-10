@@ -37,6 +37,7 @@ export interface PullResponse {
  */
 function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
   const parsed = ReplicacheModel.pullCookieSchema.safeParse(raw);
+
   return parsed.success ? parsed.data : null;
 }
 
@@ -73,18 +74,22 @@ export async function handlePull(
     // Load the previous CVR snapshot. A missing cookie, a different client
     // group, or persisted data that CVRStore rejects is a cold sync.
     const cookieMatchesGroup = cookie != null && cookie.clientGroupID === clientGroupID;
+
     const prev: CVRSnapshot | null = cookieMatchesGroup
       ? await cvrStore.get(clientGroupID, cookie.order)
       : null;
+
     const isColdSync = prev == null;
     const prevSnapshot: CVRSnapshot = prev ?? { entities: {} };
 
     const patch: PatchOp[] = [];
+
     if (isColdSync) patch.push({ op: "clear" });
 
     // Generic per-entity diff loop. `SYNC_ENTITIES` is compile-tied to
     // `SYNC_MODEL`, so a new client-visible entity cannot skip server pull.
     const nextEntities: Partial<Record<IDBKeys, ClientViewMap>> = {};
+
     for (const { slug, fetchRows } of SYNC_ENTITIES) {
       const rows = await fetchRows(tx, userId);
       const nextMap: ClientViewMap = {};
@@ -93,6 +98,7 @@ export async function handlePull(
       for (const r of rows) {
         nextMap[r.id] = { v: r.rowVersion };
         const prevRow: CVRRow | undefined = prevMap[r.id];
+
         if (!prevRow || prevRow.v !== r.rowVersion) {
           patch.push({
             op: "put",
@@ -121,9 +127,11 @@ export async function handlePull(
       .orderBy(asc(replicacheClient.id));
 
     const currentLmids: Record<string, number> = {};
+
     for (const c of clients) currentLmids[c.id] = c.lastMutationId;
     const prevLmids = prevSnapshot.clients ?? {};
     const lastMutationIDChanges: Record<string, number> = {};
+
     for (const [cid, lmid] of Object.entries(currentLmids)) {
       if (prevLmids[cid] !== lmid) lastMutationIDChanges[cid] = lmid;
     }

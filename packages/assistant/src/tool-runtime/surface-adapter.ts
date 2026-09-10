@@ -29,12 +29,15 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
         return registeredToolNames(source.names);
       case "legacy": {
         const integrationNames = new Set<ToolName>();
+
         for (const integration of source.integrationNames) {
           if (integration === "system" || !isIntegrationSlug(integration)) continue;
+
           for (const definition of listToolsForIntegration(integration)) {
             integrationNames.add(definition.name);
           }
         }
+
         return uniqueToolNames([
           ...requiredToolKernelNames(),
           ...integrationNames,
@@ -55,12 +58,15 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
     // ToolName is a dotted identifier and cannot contain a comma, so this join is collision-free.
     const key = `${input.context.caller}:${input.context.interaction}:${activeNames.join(",")}`;
     const cached = sdkSurfaceCache.get(key);
+
     if (cached) return cached;
 
     const definitions: RegisteredTool[] = [];
     const tools: Partial<Record<ToolName, Tool>> = {};
+
     for (const name of activeNames) {
       const definition = getTool(name);
+
       if (!definition || !evaluateToolRunContext(definition, input.context).available) continue;
       definitions.push(definition);
       tools[name] = tool({
@@ -73,9 +79,11 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
 
     const budget = estimateToolSurfaceBudget(definitions);
     const surfacedNames = definitions.map((definition) => definition.name);
+
     const loadedNames = definitions
       .filter((definition) => definition.availability?.surface !== "kernel")
       .map((definition) => definition.name);
+
     const resolved: ResolvedToolSurface = {
       // SAFETY: the SDK ToolSet is an index-signature record of tools; the
       // resolved tool map satisfies it by construction.
@@ -86,42 +94,54 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       schemaBytes: budget.schemaBytes,
       schemaTokens: budget.schemaTokens,
     };
+
     sdkSurfaceCache.set(key, resolved);
+
     return resolved;
   },
 
   namesForIntegrations(integrations) {
     const names = new Set<ToolName>();
+
     for (const integration of integrations) {
       if (!isIntegrationSlug(integration)) continue;
+
       for (const definition of listToolsForIntegration(integration)) {
         names.add(definition.name);
       }
     }
+
     return uniqueToolNames([...names]);
   },
 
   availableToolNamesByIntegration(input) {
     const registeredTools = listRegisteredTools();
+
     const available = availableToolNames(
       input.availability,
       registeredTools,
       input.allowedIntegrations,
       input.context,
     );
+
     const grouped = new Map<string, ToolName[]>();
+
     for (const tool of registeredTools) {
       if (!available.has(tool.name)) continue;
       const names = grouped.get(tool.integration);
+
       if (names) names.push(tool.name);
       else grouped.set(tool.integration, [tool.name]);
     }
+
     for (const names of grouped.values()) names.sort();
+
     return grouped;
   },
 
   async selectPreload(input) {
     const prompt = latestUserPrompt(input.transcript);
+
     return {
       promptChars: prompt.length,
       selectedNames: await preloadToolsForPrompt({
@@ -147,9 +167,11 @@ export function clearToolRuntimeCacheForTests(): void {
 
 function requiredToolKernelNames(): ToolName[] {
   const kernel = listKernelTools();
+
   if (kernel.length === 0) {
     throw new Error("No system tools are registered for the kernel surface");
   }
+
   return kernel.map((definition) => definition.name);
 }
 

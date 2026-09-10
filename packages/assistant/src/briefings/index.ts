@@ -17,6 +17,7 @@ export {
   DEFAULT_BRIEFING_TIMEZONE,
   DEFAULT_BRIEFING_DELIVERY_HOUR,
 } from "./preferences";
+
 export type { BriefingPreferences } from "./preferences";
 
 export {
@@ -28,6 +29,7 @@ export {
   PRIORITY_CATEGORIES,
   SUPPRESSED_CATEGORIES,
 } from "./gather";
+
 export type {
   BriefingDigest,
   BriefingItem,
@@ -41,6 +43,7 @@ export type {
 } from "./gather";
 
 export { composeBriefing, composeInboxBriefing } from "./compose";
+
 export type { ComposedBriefing, ComposeBriefingArgs, ComposeInboxBriefingArgs } from "./compose";
 
 export {
@@ -73,6 +76,7 @@ export {
   dailyBriefingWorkflowInputSchema,
   legacyMorningBriefingWorkflowInputSchema,
 } from "./workflow-input";
+
 export type {
   DailyBriefingWorkflowInput,
   LegacyMorningBriefingWorkflowInput,
@@ -100,8 +104,11 @@ export {
   enqueueBriefingRun,
   type BriefingJobData,
 } from "./queue";
+
 export { scheduleRepeatableBriefingJobs } from "./repeatable";
+
 export { buildSystemPrompt } from "./agent/prompt";
+
 export {
   runDailyBriefingCompose,
   runDailyBriefingGather,
@@ -112,4 +119,5 @@ export {
 // Product recipes owned by the briefing module. The composition root
 // (`apps/server/src/builtins/index.ts`) registers these with execution.
 export { dailyBriefingWorkflow } from "./daily-briefing";
+
 export { morningBriefingWorkflow } from "./legacy-morning-briefing";

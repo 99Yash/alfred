@@ -98,7 +98,9 @@ function resolveDocumentView(
     artifact?.kind === "document" && artifact.content?.kind === "document"
       ? artifact.content.markdown
       : "";
+
   const streaming = liveStream != null && !liveStream.done;
+
   // Show the live body while authoring, or when a create's row hasn't synced
   // yet (done but no synced content). `append` renders after existing content.
   // A just-finished append also stays live until the synced row actually carries
@@ -109,15 +111,19 @@ function resolveDocumentView(
     liveStream.mode === "append" &&
     syncedMarkdown.length > 0 &&
     !syncedMarkdown.endsWith(liveStream.text);
+
   const showLive =
     liveStream != null && (streaming || syncedMarkdown.length === 0 || appendPendingSync);
+
   if (showLive) {
     const body =
       liveStream.mode === "append" && syncedMarkdown.length > 0
         ? `${syncedMarkdown}\n\n${liveStream.text}`
         : liveStream.text;
+
     return { markdown: body, generating: streaming || artifact?.status === "generating" };
   }
+
   return { markdown: syncedMarkdown, generating: artifact?.status === "generating" };
 }
 
@@ -132,6 +138,7 @@ export function ArtifactSidebar({
 }: ArtifactSidebarProps) {
   const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
+
   // Which page is in view. Lifted here so it is the single source of truth
   // shared by the thumbnail strip, the header's "present" button, and the
   // fullscreen viewer — so opening fullscreen starts on the page the user is
@@ -142,12 +149,15 @@ export function ArtifactSidebar({
     forId: artifactId,
     index: 0,
   });
+
   const pageIndex = pageState.forId === artifactId ? pageState.index : 0;
+
   const setPageIndex = useCallback<Dispatch<SetStateAction<number>>>(
     (action) =>
       setPageState((s) => {
         const current = s.forId === artifactId ? s.index : 0;
         const next = typeof action === "function" ? action(current) : action;
+
         return { forId: artifactId, index: next };
       }),
     [artifactId],
@@ -160,20 +170,25 @@ export function ArtifactSidebar({
     if (fullscreen) setFullscreen(false);
     else if (mode === "overlay") onClose();
   });
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onEscape();
     };
+
     window.addEventListener("keydown", handler);
+
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
   const isPages = artifact?.kind === "pages";
   const isExternalFile = artifact?.kind === "external_file";
+
   // A pending create has no synced row yet — the live stream is always a
   // document (pages never stream), so treat it as one for the whole panel.
   const isDocument =
     !isPages && !isExternalFile && (artifact?.kind === "document" || liveStream != null);
+
   const documentView = resolveDocumentView(artifact, liveStream);
   const title = artifact?.title ?? liveStream?.title ?? "Artifact";
 
@@ -183,6 +198,7 @@ export function ArtifactSidebar({
   const onEdit = useCallback(() => {
     if (!artifact || !onSuggestEdit) return;
     onSuggestEdit({ artifactTargetId: artifact.id, text: "Edit this artifact: " });
+
     if (mode === "overlay") onClose();
   }, [artifact, onSuggestEdit, mode, onClose]);
 
@@ -369,21 +385,26 @@ function ArtifactSubline({
       </>
     );
   }
+
   if (!artifact) return <span>Loading…</span>;
+
   // An external_file is minted `generating` (its content is complete at mint;
   // the run finalizer flips it + backfills messageId), so skip the lifecycle
   // states below — there is nothing to generate — and label it by source/type.
   if (artifact.content?.kind === "external_file") {
     const { source, mimeType } = artifact.content;
     const sourceLabel = source === "drive" ? "Google Drive" : source;
+
     return <span>{mimeType ? `${sourceLabel} · ${mimeType}` : sourceLabel}</span>;
   }
+
   const kindLabel =
     artifact.kind === "pages"
       ? artifact.format === "slides"
         ? "Slides"
         : "PDF document"
       : "Document";
+
   if (artifact.status === "generating") {
     return (
       <>
@@ -395,6 +416,7 @@ function ArtifactSubline({
       </>
     );
   }
+
   if (artifact.status === "error") {
     return (
       <>
@@ -403,6 +425,7 @@ function ArtifactSubline({
       </>
     );
   }
+
   return (
     <span>
       {kindLabel}
@@ -434,6 +457,7 @@ function ArtifactBody({
   // a synced document; the body comes from `documentView` either way.
   if (isDocument) {
     const markdown = documentView.markdown;
+
     if (markdown.trim().length === 0) {
       return documentView.generating ? (
         <CenteredState icon={<Loader2 size={20} className="animate-spin" />} text="Writing…" />
@@ -441,6 +465,7 @@ function ArtifactBody({
         <CenteredState icon={<FileText size={20} />} text="Empty document." />
       );
     }
+
     return (
       <div className="minimal-scrollbar flex-1 overflow-y-auto p-5">
         <MarkdownRenderer size="reading">{markdown}</MarkdownRenderer>
@@ -463,6 +488,7 @@ function ArtifactBody({
   // kind === "pages"
   const content = artifact.content;
   const pages: ArtifactPage[] = content?.kind === "pages" ? content.pages : [];
+
   return (
     <PagesBody
       pages={pages}
@@ -491,6 +517,7 @@ const TRUSTED_PREVIEW_HOSTS = new Set(["drive.google.com", "docs.google.com"]);
 function isTrustedPreviewUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
+
     return parsed.protocol === "https:" && TRUSTED_PREVIEW_HOSTS.has(parsed.hostname);
   } catch {
     return false;
@@ -512,6 +539,7 @@ function isTrustedPreviewUrl(url: string): boolean {
  */
 function ExternalFileBody({ content, title }: { content: ExternalFileContent; title: string }) {
   const previewTrusted = isTrustedPreviewUrl(content.previewUrl);
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {previewTrusted ? (
@@ -585,6 +613,7 @@ function PagesBody({
         <div className="minimal-scrollbar flex gap-2 overflow-x-auto pb-1">
           {pages.map((page, index) => {
             const active = index === safeIndex;
+
             return (
               <button
                 // `ArtifactPage` carries no id, so key by content (title + body
@@ -673,8 +702,11 @@ function ArtifactFullscreen({
     (delta: number) =>
       onIndexChange((i) => {
         const next = i + delta;
+
         if (next < 0) return 0;
+
         if (next > pages.length - 1) return Math.max(0, pages.length - 1);
+
         return next;
       }),
     [pages.length, onIndexChange],
@@ -685,13 +717,16 @@ function ArtifactFullscreen({
       if (e.key === "ArrowRight" || e.key === "ArrowDown") go(1);
       else if (e.key === "ArrowLeft" || e.key === "ArrowUp") go(-1);
     };
+
     window.addEventListener("keydown", handler);
+
     return () => window.removeEventListener("keydown", handler);
   }, [go]);
 
   // Lock background scroll while presenting.
   useEffect(() => {
     document.body.style.overflow = "hidden";
+
     return () => {
       document.body.style.overflow = "";
     };
@@ -876,6 +911,7 @@ function DownloadPagesButton({
   title: string;
 }) {
   const [busy, setBusy] = useState(false);
+
   const onDownload = useCallback(() => {
     setBusy(true);
     void printArtifactPages(
@@ -884,6 +920,7 @@ function DownloadPagesButton({
       title,
     ).finally(() => setBusy(false));
   }, [pages, format, title]);
+
   return (
     <IconButton label="Download PDF" onClick={busy ? undefined : onDownload}>
       {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
@@ -893,12 +930,14 @@ function DownloadPagesButton({
 
 function CopyMarkdownButton({ markdown }: { markdown: string }) {
   const [copied, setCopied] = useState(false);
+
   const onCopy = useCallback(() => {
     void navigator.clipboard.writeText(markdown).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     });
   }, [markdown]);
+
   return (
     <IconButton label={copied ? "Copied" : "Copy markdown"} onClick={onCopy}>
       {copied ? (

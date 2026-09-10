@@ -62,8 +62,11 @@ const SERVER_ENV_FIXTURES = {
 } satisfies Record<string, string>;
 
 const SLUG = "__test-start-run";
+
 const ID_PREFIX = "test-start-run-direct-";
+
 const createdUserIds: string[] = [];
+
 const createdRunIds: string[] = [];
 
 function seedServerEnvForQueueTests(): void {
@@ -95,6 +98,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -102,10 +106,13 @@ async function queuedAgentRunIds(): Promise<Set<string>> {
   const queue = getAgentQueue();
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   const runIds = new Set<string>();
+
   for (const job of jobs) {
     const runId = getPath(job.data, "runId");
+
     if (typeof runId === "string") runIds.add(runId);
   }
+
   return runIds;
 }
 
@@ -115,6 +122,7 @@ async function removeQueuedAgentRuns(): Promise<void> {
   await Promise.all(
     jobs.map(async (job) => {
       const runId = getPath(job.data, "runId");
+
       if (typeof runId === "string" && createdRunIds.includes(runId)) {
         await job.remove();
       }
@@ -125,6 +133,7 @@ async function removeQueuedAgentRuns(): Promise<void> {
 describe("startRun persists then enqueues (DB/Redis-backed)", { skip: SKIP }, () => {
   before(async () => {
     seedServerEnvForQueueTests();
+
     if (!getWorkflow(SLUG)) registerRecipe(startRunTestRecipe);
     await db()
       .delete(user)
@@ -137,9 +146,11 @@ describe("startRun persists then enqueues (DB/Redis-backed)", { skip: SKIP }, ()
 
   after(async () => {
     _resetRegistryForTests();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeAgentQueue();
     await closeRedis();
     await closeConnections();
@@ -154,6 +165,7 @@ describe("startRun persists then enqueues (DB/Redis-backed)", { skip: SKIP }, ()
       trigger: { kind: "manual" },
       occurrence: { kind: "manual", requestId: randomUUID() },
     });
+
     createdRunIds.push(runId);
 
     assert.equal(created, true);
@@ -162,6 +174,7 @@ describe("startRun persists then enqueues (DB/Redis-backed)", { skip: SKIP }, ()
       .select({ status: agentRuns.status })
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
+
     assert.equal(rows.length, 1, "expected exactly one agent_runs row");
     assert.equal(rows[0]?.status, "pending", "run row should be pending after startRun");
 

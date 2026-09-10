@@ -11,6 +11,7 @@ import { cn } from "~/lib/utils";
  * the whole card red. `danger` is kept as a back-compat alias for `error`.
  */
 export type ToastVariant = "default" | "success" | "info" | "warning" | "error";
+
 type LegacyVariant = ToastVariant | "danger";
 
 /** Where the toast docks. Generic action/confirmation toasts read best in a
@@ -75,7 +76,9 @@ const VARIANTS = {
 
 function normalizeVariant(variant?: ToastVariant, legacy?: LegacyVariant): ToastVariant {
   if (variant) return variant;
+
   if (legacy === "danger") return "error";
+
   return legacy ?? "default";
 }
 
@@ -88,6 +91,7 @@ function normalizeVariant(variant?: ToastVariant, legacy?: LegacyVariant): Toast
  */
 function appThemeAttr(): "dark" | "light" | undefined {
   const mode = getLocalStorageItem("app-theme");
+
   return mode === "dark" || mode === "light" ? mode : undefined;
 }
 
@@ -189,6 +193,7 @@ type Shorthand = string | (Omit<CallToastOptions, "variant" | "type"> & { messag
 function shorthand(variant: ToastVariant, defaultPosition: ToastPosition) {
   return (input: Shorthand): string | number => {
     const opts = typeof input === "string" ? { message: input } : input;
+
     return callToast({ position: defaultPosition, ...opts, variant });
   };
 }

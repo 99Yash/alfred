@@ -21,4 +21,5 @@ export const replyDraftingWorkflowInputSchema = z.object({
   invocation: replyDraftInvocationSchema,
   triage: replyDraftTriageSnapshotSchema.nullable().optional(),
 });
+
 export type ReplyDraftingWorkflowInput = z.infer<typeof replyDraftingWorkflowInputSchema>;

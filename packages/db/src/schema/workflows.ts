@@ -44,6 +44,7 @@ export {
   workflowStepsSchema,
   workflowTriggerSchema,
 };
+
 export type {
   WorkflowAuthoringProposal,
   WorkflowBlocked,
@@ -345,6 +346,9 @@ export const workflowRevisions = pgTable(
 );
 
 export type Workflow = typeof workflows.$inferSelect;
+
 export type NewWorkflow = typeof workflows.$inferInsert;
+
 export type WorkflowRevision = typeof workflowRevisions.$inferSelect;
+
 export type NewWorkflowRevision = typeof workflowRevisions.$inferInsert;

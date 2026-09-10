@@ -15,6 +15,7 @@ import {
  */
 
 const GMAIL_SEARCH: ToolName = "gmail.search";
+
 const call = { toolCallId: "call_1", toolName: GMAIL_SEARCH, input: {} };
 
 const floorRefusal = (code: ToolUnavailabilityCode): TerminalToolCallDispatchResult => ({
@@ -65,6 +66,7 @@ describe("completedToolCall → connectNudge", () => {
         message: "Outside the approved capability envelope.",
       },
     };
+
     const completed = completedToolCall(call, result);
     assert.equal(completed.connectNudge, undefined);
     assert.equal(completed.nonExecution, true);
@@ -80,6 +82,7 @@ describe("completedToolCall → connectNudge", () => {
         message: "Tier disabled.",
       },
     };
+
     assert.equal(completedToolCall(call, result).connectNudge, undefined);
   });
 });
@@ -100,6 +103,7 @@ describe("toolEventOutcome → chat.tool payload fact", () => {
         editedByUser: false,
       }),
     );
+
     assert.equal(outcome.nonExecution, undefined);
     assert.equal(outcome.connectNudge, undefined);
   });

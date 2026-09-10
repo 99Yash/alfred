@@ -77,7 +77,9 @@ const CASES: Case[] = [
 async function main(): Promise<void> {
   const registry = registerBuiltinTools();
   const tool = registry.get("system.fetch_url");
+
   if (!tool) throw new Error("system.fetch_url did not register");
+
   const context = toolExecuteContext({
     runId: "smoke-run",
     scratchpadRunId: "smoke-run",
@@ -90,24 +92,30 @@ async function main(): Promise<void> {
   });
 
   let failures = 0;
+
   for (const c of CASES) {
     const result = await tool.execute({ url: c.url }, context);
     const ok = getPath(result, "ok") === true;
     const reason = getStringPath(result, "reason");
     const text = getStringPath(result, "text");
     const got = ok ? "ok" : reason === "blocked_host" ? "blocked" : `error:${reason}`;
+
     const pass =
       c.expect === "blocked"
         ? got === "blocked"
         : c.expect === "empty_content"
           ? got === "error:empty_content"
           : got === "ok" && (!c.contains || text?.includes(c.contains) === true);
+
     if (!pass) failures++;
+
     const detail = ok
       ? `title=${JSON.stringify(getStringPath(result, "title"))} chars=${String(getPath(result, "chars"))} ct=${getStringPath(result, "contentType")}`
       : `reason=${reason} msg=${JSON.stringify(getStringPath(result, "message"))}`;
+
     console.log(`${pass ? "✓" : "✗"} [${c.label}] expect=${c.expect} got=${got} — ${detail}`);
   }
+
   console.log(failures === 0 ? "\nall smoke cases passed" : `\n${failures} smoke case(s) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
 }

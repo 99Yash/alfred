@@ -37,8 +37,10 @@ function IndexRoute() {
 
   // Confirmed authed → redirect is in flight, render nothing.
   if (isAuthed) return null;
+
   // Session not yet resolved → defer to the hint to avoid flashing the landing
   // at a returning signed-in user before the redirect fires.
   if (isPending && getLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED)) return null;
+
   return <LandingPage />;
 }

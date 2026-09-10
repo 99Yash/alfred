@@ -27,8 +27,11 @@ import { chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, desc, eq } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+
 const USER_ID = stringFlag("user-id");
+
 const LIMIT = integerFlag("limit", 250, 1, 10_000);
+
 const DELAY_MS = integerFlag("delay-ms", 250, 0, 10_000);
 
 if (COMMIT && !USER_ID) {
@@ -37,10 +40,12 @@ if (COMMIT && !USER_ID) {
 
 async function main(): Promise<void> {
   await warmPool();
+
   const effectiveWindow = await resolveEffectiveInputWindowTokens({
     models: [route("standard").model(), route("compactor").model()],
     outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
   });
+
   const threshold = backgroundCompactionThresholdTokens(effectiveWindow);
   console.log(
     `# Chat-compaction backfill — mode=${COMMIT ? "COMMIT" : "DRY"} ` +
@@ -59,6 +64,7 @@ async function main(): Promise<void> {
   let belowThreshold = 0;
   let noBoundary = 0;
   let disabled = 0;
+
   for (const [index, thread] of threads.entries()) {
     const [latestUser] = await db()
       .select({ id: chatMessages.id })
@@ -72,10 +78,12 @@ async function main(): Promise<void> {
       )
       .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
       .limit(1);
+
     if (!latestUser) {
       noBoundary += 1;
       continue;
     }
+
     if (!COMMIT) {
       console.log(`  DRY thread=${thread.id} latestUser=${latestUser.id}`);
       continue;
@@ -87,6 +95,7 @@ async function main(): Promise<void> {
       latestUserMessageId: latestUser.id,
       tier: "standard",
     });
+
     if (outcome === "scheduled") scheduled += 1;
     else if (outcome === "deduplicated") deduplicated += 1;
     else if (outcome === "below_threshold") belowThreshold += 1;
@@ -106,20 +115,25 @@ async function main(): Promise<void> {
 
 function stringFlag(name: string): string | undefined {
   const prefix = `--${name}=`;
+
   const value = process.argv
     .find((arg) => arg.startsWith(prefix))
     ?.slice(prefix.length)
     .trim();
+
   return value || undefined;
 }
 
 function integerFlag(name: string, fallback: number, min: number, max: number): number {
   const raw = stringFlag(name);
+
   if (raw === undefined) return fallback;
   const value = Number(raw);
+
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new Error(`--${name} must be an integer between ${min} and ${max}`);
   }
+
   return value;
 }
 

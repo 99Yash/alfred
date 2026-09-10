@@ -45,9 +45,11 @@ export async function readInboundTriggerHealth(
   const entries = await Promise.all(
     INBOUND_EVENT_SOURCES.map(async (slug): Promise<[InboundEventSource, EventDeliveryHealth]> => {
       const adapter = INBOUND_SOURCES[slug].subscription;
+
       return [slug, adapter ? await adapter.health(userId, rows) : NO_SUBSCRIPTION_HEALTH_SIGNAL];
     }),
   );
+
   // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
   // from INBOUND_EVENT_SOURCES, so the keys are exactly InboundEventSource.
   return Object.fromEntries(entries) as Record<InboundEventSource, EventDeliveryHealth>;

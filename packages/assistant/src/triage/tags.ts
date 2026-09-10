@@ -98,26 +98,33 @@ export async function reconcileThreadLabel(
   deps: Partial<ReconcileThreadLabelDeps> = {},
 ): Promise<ReconcileResult> {
   const d = withDefaults(DEFAULT_DEPS, deps);
+
   // #278: dev and prod share one real Gmail account. A non-prod instance must
   // not mutate the mailbox (writing/stripping labels), or it fights prod over
   // the shared thread state. The canonical `email_triage` row is already
   // committed by the classify step — only the outbound Gmail write is skipped.
   if (!d.mailboxWritesEnabled()) {
     const row = await d.getTriage(args.userId, args.sourceThreadId);
+
     return { applied: false, reason: "writes-disabled", category: row?.category };
   }
+
   return d.withThreadLock(args.userId, args.sourceThreadId, async () => {
     const row = await d.getTriage(args.userId, args.sourceThreadId);
+
     if (!row) return { applied: false, reason: "tag-not-found" };
     const targetDocId = row.documentId ?? args.fallbackDocumentId;
+
     if (!targetDocId) {
       return { applied: false, reason: "document-not-found", category: row.category };
     }
 
     let target = await d.loadTriageContext(targetDocId, args.userId);
+
     if (!target && args.fallbackDocumentId && targetDocId !== args.fallbackDocumentId) {
       target = await d.loadTriageContext(args.fallbackDocumentId, args.userId);
     }
+
     if (!target) {
       return { applied: false, reason: "document-not-found", category: row.category };
     }
@@ -131,6 +138,7 @@ export async function reconcileThreadLabel(
         threadId: args.sourceThreadId,
         excludeMessageId: ctx.document.sourceId,
       });
+
       const result = await d.applyTriageLabel({
         credentialId: ctx.credentialId,
         messageId: ctx.document.sourceId,
@@ -138,11 +146,13 @@ export async function reconcileThreadLabel(
         stripAllAlfredLabels: true,
         threadSiblings: siblings,
       });
+
       return { result, siblingCount: siblings.length };
     };
 
     let outcome: Awaited<ReturnType<typeof labelTarget>>;
     let repointed = false;
+
     try {
       outcome = await labelTarget(target);
     } catch (err) {
@@ -153,15 +163,18 @@ export async function reconcileThreadLabel(
       // (Sibling 404s are already swallowed inside applyTriageLabel, so a 404
       // surfacing here is the *target* message.)
       if (!isHttpError(err) || err.status !== 404) throw err;
+
       const [live] = await d.findNewestLiveInbound({
         credentialId: target.credentialId,
         userId: args.userId,
         threadIds: [args.sourceThreadId],
       });
+
       const liveTarget =
         live && live.documentId !== target.document.id
           ? await d.loadTriageContext(live.documentId, args.userId)
           : null;
+
       if (!liveTarget) {
         // Nothing live to fall back to — surface a durable signal (the worker
         // logs this at error level) rather than leaving applied_label_id
@@ -171,8 +184,10 @@ export async function reconcileThreadLabel(
             `${target.document.sourceId} is gone (Gmail 404) and no live inbound ` +
             `message to relabel — applied_label_id left unset`,
         );
+
         return { applied: false, reason: "target-unresolvable", category: row.category };
       }
+
       target = liveTarget;
       repointed = true;
       // A second 404 here (e.g. the live message died in a race) bubbles to the
@@ -181,6 +196,7 @@ export async function reconcileThreadLabel(
     }
 
     const appliedDocId = target.document.id;
+
     if (repointed) {
       // Persist BOTH the re-resolved document pointer and the applied label so
       // the row reflects the message that was actually labeled (#277).
@@ -193,6 +209,7 @@ export async function reconcileThreadLabel(
     } else {
       await d.setAppliedLabelId(args.userId, args.sourceThreadId, outcome.result.appliedLabelId);
     }
+
     return {
       applied: true,
       category: row.category,

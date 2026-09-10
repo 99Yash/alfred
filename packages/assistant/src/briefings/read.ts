@@ -40,16 +40,21 @@ import { inZone } from "@alfred/assistant/time";
  */
 
 const PRIOR_BRIEFINGS_DEFAULT_LIMIT = 5;
+
 const EMAIL_LIST_DEFAULT_LIMIT = 60;
+
 /** Metadata-only page size while skipping standing-instruction-suppressed senders. */
 const EMAIL_LIST_SUPPRESSION_PAGE_SIZE = 200;
+
 const READ_EMAIL_BODY_CHAR_CAP = 8_000;
+
 /**
  * Lookback for the "already surfaced" continuation signal. 16h spans both
  * directions that produce same-thread repetition across consecutive briefings:
  * this morning → this evening (~10h) and last night → this morning (~12h).
  */
 const SURFACED_LOOKBACK_MS = 16 * 60 * 60 * 1000;
+
 /** Only the last few terminal briefings can fall inside the lookback window. */
 const SURFACED_LOOKBACK_LIMIT = 4;
 
@@ -162,6 +167,7 @@ export async function listEmailsSinceWatermark(
     eq(documents.source, "gmail"),
     sql`${documents.ingestedAt} <= ${args.untilIngestedAt}`,
   ];
+
   if (args.sinceIngestedAt) {
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
@@ -183,6 +189,7 @@ export async function listEmailsSinceWatermark(
   const hasSuppression = suppressionInstructions.length > 0;
   const pageSize = hasSuppression ? Math.max(limit, EMAIL_LIST_SUPPRESSION_PAGE_SIZE) : limit;
   let offset = 0;
+
   while (rows.length < limit) {
     const page = await db()
       .select({
@@ -221,15 +228,18 @@ export async function listEmailsSinceWatermark(
     for (const row of page) {
       if (hasSuppression) {
         const from = parseGmailDocumentMetadata(row.metadata).from;
+
         const suppressed = findSenderSuppression(suppressionInstructions, {
           senderEmail: from ?? null,
           accountId: row.accountId,
           effect: "exclude_briefing_priority",
         });
+
         if (suppressed) continue;
       }
 
       rows.push(row);
+
       if (rows.length >= limit) break;
     }
 
@@ -246,8 +256,10 @@ export async function listEmailsSinceWatermark(
   // deduped; an unscored / non-human / unknown sender degrades to neutral —
   // exactly the Phase-A intrinsic-only behavior.
   const significanceByAddress = await loadSignificanceBands(args.userId, senders);
+
   const bandFor = (from: string | null): SignificanceBand | null => {
     const address = parseEmailAddress(from);
+
     return address ? (significanceByAddress.get(address) ?? null) : null;
   };
 
@@ -275,6 +287,7 @@ export async function listEmailsSinceWatermark(
     const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
     const surfacedByLoop = loopKey ? surfaced.loopKeys.has(loopKey) : false;
     const receiptInstant = gmailReceivedAt(r.gmailInternalDate);
+
     return {
       documentId: r.documentId,
       subject: r.subject,
@@ -325,8 +338,10 @@ function unreadFromLabels(labelIds: readonly string[] | undefined): boolean | nu
 function gmailReceivedAt(internalDate: string | null): Date | null {
   if (!internalDate) return null;
   const epochMs = Number(internalDate);
+
   if (!Number.isFinite(epochMs)) return null;
   const date = new Date(epochMs);
+
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -344,18 +359,23 @@ async function loadSignificanceBands(
   rawSenders: ReadonlyArray<string | null>,
 ): Promise<Map<string, SignificanceBand>> {
   const addresses = new Set<string>();
+
   for (const raw of rawSenders) {
     const address = parseEmailAddress(raw);
+
     if (address) addresses.add(address);
   }
+
   if (addresses.size === 0) return new Map();
 
   const significanceByAddress = await getSenderSignificanceBatch(userId, [...addresses]);
 
   const out = new Map<string, SignificanceBand>();
+
   for (const [address, significance] of significanceByAddress) {
     out.set(address, significance.band);
   }
+
   return out;
 }
 
@@ -404,6 +424,7 @@ export async function scorePriorityEmailDemand(
   if (items.length === 0) return { demandingCount: 0, topBand: "muted" };
 
   let bands: Map<string, SignificanceBand> = new Map();
+
   try {
     bands = await loadSignificanceBands(
       userId,
@@ -414,8 +435,10 @@ export async function scorePriorityEmailDemand(
     // intrinsic-only scoring (today's Phase-A behavior).
     console.warn("[briefing.read] significance unavailable for suppression gate:", toMessage(err));
   }
+
   const bandFor = (from: string | null): SignificanceBand | null => {
     const address = parseEmailAddress(from);
+
     return address ? (bands.get(address) ?? null) : null;
   };
 
@@ -433,13 +456,16 @@ export async function scorePriorityEmailDemand(
   let demandingCount = 0;
   let topScore = -1;
   let topBand: AttentionBand = "muted";
+
   for (const result of scored) {
     if (result.band === "demanding") demandingCount += 1;
+
     if (result.score > topScore) {
       topScore = result.score;
       topBand = result.band;
     }
   }
+
   return { demandingCount, topBand };
 }
 
@@ -449,6 +475,7 @@ const ACTIONABLE_PAYMENT_RE =
 function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
   if (item.category !== "payment") return false;
   const text = [item.subject, item.snippet].filter(Boolean).join("\n");
+
   return ACTIONABLE_PAYMENT_RE.test(text);
 }
 
@@ -475,6 +502,7 @@ export function isQuietMorning(args: {
   meetingCount: number;
 }): boolean {
   if (args.activityCount > 0 || args.meetingCount > 0) return false;
+
   return args.demandingEmailCount !== undefined
     ? args.demandingEmailCount === 0
     : args.emailCount === 0;
@@ -535,15 +563,19 @@ async function listRecentlySurfacedKeys(args: {
  */
 export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>): Set<string> {
   const ids = new Set<string>();
+
   for (const gather of gathers) {
     const categories = gather?.email.categories;
+
     if (!categories) continue;
+
     for (const items of Object.values(categories)) {
       for (const item of items ?? []) {
         if (item.threadId) ids.add(item.threadId);
       }
     }
   }
+
   return ids;
 }
 
@@ -554,16 +586,21 @@ export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>):
  */
 export function collectSurfacedLoopKeys(gathers: Array<BriefingGather | null>): Set<string> {
   const keys = new Set<string>();
+
   for (const gather of gathers) {
     const categories = gather?.email.categories;
+
     if (!categories) continue;
+
     for (const items of Object.values(categories)) {
       for (const item of items ?? []) {
         const key = deriveLoopKey(item.subject, { sender: item.sender });
+
         if (key) keys.add(key);
       }
     }
   }
+
   return keys;
 }
 
@@ -583,16 +620,20 @@ export function collectSurfacedKeys(rows: ReadonlyArray<SurfacedBriefingPayload>
 
   for (const row of rows) {
     const surfacedDocumentIds = new Set(row.fullBriefing?.surfacedDocumentIds ?? []);
+
     if (surfacedDocumentIds.size === 0) continue;
 
     const categories = row.gather?.email.categories;
+
     if (!categories) continue;
 
     for (const items of Object.values(categories)) {
       for (const item of items ?? []) {
         if (!surfacedDocumentIds.has(item.documentId)) continue;
+
         if (item.threadId) threadIds.add(item.threadId);
         const key = deriveLoopKey(item.subject, { sender: item.sender });
+
         if (key) loopKeys.add(key);
       }
     }
@@ -625,21 +666,26 @@ export async function readEmailDocument(args: {
     .limit(1);
 
   const row = rows[0];
+
   if (!row) return null;
   const meta = parseGmailDocumentMetadata(row.metadata);
+
   const suppressionInstructions = await listActiveSuppressionInstructions(
     args.userId,
     "exclude_briefing_priority",
   );
+
   const suppressed = findSenderSuppression(suppressionInstructions, {
     senderEmail: meta.from ?? null,
     accountId: row.accountId,
     effect: "exclude_briefing_priority",
   });
+
   if (suppressed) return null;
 
   const full = row.content ?? "";
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;
+
   return {
     documentId: row.documentId,
     subject: row.subject,
@@ -666,6 +712,7 @@ export async function listPriorBriefings(
     eq(briefings.userId, args.userId),
     inArray(briefings.status, ["sent", "suppressed"]),
   ];
+
   if (args.slot) conditions.push(eq(briefings.slot, args.slot));
 
   const rows = await db()
@@ -714,6 +761,7 @@ export async function fetchLatestWatermark(args: {
     )
     .orderBy(desc(briefings.watermarkAt))
     .limit(1);
+
   return rows[0]?.watermarkAt ?? null;
 }
 
@@ -722,10 +770,12 @@ function priorBriefingBodyText(
   breakingSummary: string | null,
 ): string | null {
   if (!fullBriefing) return breakingSummary;
+
   const parts = [
     fullBriefing.headline,
     breakingSummary,
     ...fullBriefing.sections.map((section) => section.body),
   ].filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+
   return parts.length ? parts.join("\n\n") : null;
 }

@@ -59,11 +59,13 @@ export interface CreateReplicacheOptions {
 // we get. Read the body (bounded) so a 401/5xx says *why* it failed.
 async function describeFailure(response: Response): Promise<string> {
   let body = "";
+
   try {
     body = summarizeBody(await response.text());
   } catch {
     // Body already consumed or unreadable — fall back to the status line.
   }
+
   return `${response.status} ${response.statusText}${body ? `: ${body}` : ""}`;
 }
 
@@ -85,6 +87,7 @@ export function createReplicache(
   // diagnosable instead of a blank errorMessage. Keeps puller/pusher in step.
   const failureInfo = async (response: Response) => {
     if (response.status === 401) options.onAuthError?.();
+
     return { httpStatusCode: response.status, errorMessage: await describeFailure(response) };
   };
 
@@ -102,16 +105,20 @@ export function createReplicache(
           credentials: "include",
           signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
         });
+
         if (response.ok) {
           const body = await response.json();
           options.onPullSuccess?.();
+
           return {
             response: body,
             httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" },
           };
         }
+
         const httpRequestInfo = await failureInfo(response);
         options.onPullError?.(`Sync failed: ${httpRequestInfo.errorMessage}`);
+
         return { httpRequestInfo };
       } catch (error) {
         options.onPullError?.(describePullError(error));
@@ -127,9 +134,11 @@ export function createReplicache(
         credentials: "include",
         signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
       });
+
       if (response.ok) {
         return { httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" } };
       }
+
       return { httpRequestInfo: await failureInfo(response) };
     },
   });
@@ -138,6 +147,7 @@ export function createReplicache(
   const source = new EventSource(`${API_URL}/api/replicache/events`, {
     withCredentials: true,
   });
+
   source.addEventListener("poke", () => {
     rep.pull();
   });

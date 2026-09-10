@@ -65,6 +65,7 @@ export async function authedFetch(
   request: AuthedFetchRequest,
 ): Promise<Response> {
   const hasBody = request.body !== undefined;
+
   return fetch(request.url, {
     method: request.method ?? "GET",
     headers: {

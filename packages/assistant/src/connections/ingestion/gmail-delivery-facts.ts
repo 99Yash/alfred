@@ -57,11 +57,14 @@ export function gmailPushStaleStatus(
 ): ConnectedAccount["pushStale"] {
   if (slug !== GMAIL_DELIVERY.integration) return null;
   const facts = byCredential.get(row.credentialId);
+
   if (!facts?.lastFallbackInsertAt) return null;
   const watch = readGmailWatchState(row.metadata);
   const baseline = facts.lastPushDeliveredAt ?? (watch ? new Date(watch.installedAt) : null);
+
   if (!baseline) return null;
   const trail = facts.lastFallbackInsertAt.getTime() - baseline.getTime();
+
   return trail > GMAIL_PUSH_DELIVERY_GRACE_MS
     ? {
         since: baseline.toISOString(),
@@ -109,9 +112,11 @@ export async function readGmailDeliveryFacts(
       )
       .groupBy(typedEventReceipts.credentialId),
   ]);
+
   const pushByCredential = new Map(
     pushes.map((row) => [row.credentialId, row.lastPushDeliveredAt] as const),
   );
+
   return new Map(
     cursors.map((row): [string, GmailDeliveryFacts] => [
       row.credentialId,

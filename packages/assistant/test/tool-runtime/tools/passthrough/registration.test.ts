@@ -31,6 +31,7 @@ describe("passthrough tool registration", () => {
   test("every supported slug registers exactly one passthrough tool", () => {
     clearToolRegistryForTests();
     registerBuiltinTools();
+
     try {
       for (const slug of SUPPORTED_PASSTHROUGH_SLUGS) {
         const tools = passthroughToolsFor(slug);
@@ -52,6 +53,7 @@ describe("passthrough tool registration", () => {
   test("planned providers and channels expose no passthrough tool", () => {
     clearToolRegistryForTests();
     registerBuiltinTools();
+
     try {
       for (const slug of ["slack", "linear", "imessage"] as const) {
         assert.equal(isSupportedPassthroughSlug(slug), false);

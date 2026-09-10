@@ -18,6 +18,7 @@ function describeError(error: unknown): DescribedError {
   const name = error instanceof Error ? error.name : "Error";
   const message = error instanceof Error ? error.message : String(error); // drift-ok: protocol boundary
   const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+
   return { name, message, ...(code === undefined ? {} : { code }) };
 }
 
@@ -33,16 +34,19 @@ async function writeReply(reply: PdfExtractionChildReply): Promise<void> {
 /** Run one request, write one bounded JSON reply, and return its exit code. */
 export async function runPdfExtractionChild(): Promise<number> {
   let request;
+
   try {
     request = await readPdfExtractionChildRequest(process.stdin);
   } catch (error) {
     process.stderr.write(`Invalid PDF extraction child request: ${describeError(error).message}\n`);
+
     return 2;
   }
 
   try {
     const result = await extractPdfCore(request.bytes, request.limits);
     await writeReply({ kind: "result", result });
+
     return 0;
   } catch (error) {
     const pdfExtractionError = error instanceof PdfExtractionError;
@@ -56,11 +60,13 @@ export async function runPdfExtractionChild(): Promise<number> {
         ...described,
       },
     });
+
     return 0;
   }
 }
 
 const invokedPath = process.argv[1];
+
 if (invokedPath !== undefined && pathToFileURL(invokedPath).href === import.meta.url) {
   process.exit(await runPdfExtractionChild());
 }

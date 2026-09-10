@@ -52,11 +52,14 @@ import { closeScriptResources } from "../script-runtime";
 async function findOrCreateSmokeUser(): Promise<string> {
   const email = "smoke-memory@alfred.local";
   const existing = await db().select().from(userTable).where(eq(userTable.email, email));
+
   if (existing[0]) return existing[0].id;
+
   const inserted = await db()
     .insert(userTable)
     .values({ name: "Smoke Memory", email, emailVerified: true })
     .returning({ id: userTable.id });
+
   return inserted[0]!.id;
 }
 
@@ -87,6 +90,7 @@ async function main() {
     confidence: 0.6,
     source: { kind: "document", id: "doc_test_001" },
   });
+
   assert(proposed, "proposeFact returned null on a fresh key");
   assert(proposed.status === "proposed", `expected proposed, got ${proposed.status}`);
   console.log(`[smoke] 1. proposed low-confidence fact ${proposed.id} status=${proposed.status}`);
@@ -101,6 +105,7 @@ async function main() {
     confidence: AUTO_CONFIRM_THRESHOLD + 0.05,
     source: { kind: "document", id: "doc_test_002" },
   });
+
   assert(autoConfirmed, "proposeFact returned null");
   assert(
     autoConfirmed.status === "confirmed",
@@ -127,6 +132,7 @@ async function main() {
     confidence: 0.9,
     source: { kind: "document", id: "doc_test_003" },
   });
+
   assert(superseded, "supersedeFact returned null");
   assert(superseded.status === "confirmed", `new row should auto-confirm`);
   assert(superseded.supersedesId === confirmed.id, `supersedesId should link to old row`);
@@ -140,6 +146,7 @@ async function main() {
     userId,
     newValue: { name: "Alice Q. Doe", email: "alice.doe@example.com" },
   });
+
   assert(edited, "editFact returned null");
   assert(edited.status === "confirmed", `edited row should be confirmed`);
   assert(edited.confidence === 1, `user-edits land at full confidence`);
@@ -169,12 +176,15 @@ async function main() {
     confidence: 0.7,
     source: { kind: "document", id: "doc_test_004" },
   });
+
   assert(toReject, "proposeFact returned null on fresh key");
+
   const rejected = await rejectFact({
     factId: toReject.id,
     userId,
     reason: { code: "wrong-entity", note: "smoke-test rejection" },
   });
+
   assert(rejected, "rejectFact returned null");
   assert(rejected.status === "rejected", `expected rejected, got ${rejected.status}`);
   const isBlocked = await isRejected(userId, rejectedKey, "Wrong Company");
@@ -191,6 +201,7 @@ async function main() {
     confidence: 0.95,
     source: { kind: "document", id: "doc_test_005" },
   });
+
   assert(reprop === null, `extraction guard should return null, got ${JSON.stringify(reprop)}`);
   console.log(`[smoke] 8. re-extraction guard blocked the duplicate proposal`);
 
@@ -223,6 +234,7 @@ async function main() {
     source: { kind: "user" },
     metadata: { tag: runTag },
   });
+
   assert(chunk.contentHash.length === 64, `expected sha256 hash, got ${chunk.contentHash}`);
   assert(chunk.hasEmbedding === false, `chunk should be unembedded at write`);
 
@@ -233,6 +245,7 @@ async function main() {
     content: `Smoke run ${runTag}: alice manages the data team and prefers concise updates.`,
     source: { kind: "user" },
   });
+
   assert(chunk2.id === chunk.id, `same content should dedup to same row`);
   console.log(`[smoke] 10. memory_chunk write idempotent ok (id=${chunk.id})`);
 
@@ -264,6 +277,7 @@ async function main() {
       userId,
       idempotencyKey: `smoke-memory:${chunk.id}`,
     });
+
     assert(vec.length === 1024, `expected 1024-dim vector, got ${vec.length}`);
     await embedMemoryChunk(chunk.id, userId, vec);
 
@@ -278,6 +292,7 @@ async function main() {
       query: "who manages the data team?",
       limit: 5,
     });
+
     const ourHit = hits.find((h) => h.chunkId === chunk.id);
     assert(ourHit, `recallMemory should surface our chunk ${chunk.id}`);
     assert(

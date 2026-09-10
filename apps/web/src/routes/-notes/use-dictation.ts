@@ -30,6 +30,7 @@ export function useDictation() {
 
   const stop = () => {
     const rec = recognitionRef.current;
+
     if (rec) {
       rec.onresult = null;
       rec.onerror = null;
@@ -37,6 +38,7 @@ export function useDictation() {
       rec.stop();
       recognitionRef.current = null;
     }
+
     setListening(false);
     setInterim("");
   };
@@ -44,6 +46,7 @@ export function useDictation() {
   const start = (onFinal: (chunk: string) => void) => {
     if (recognitionRef.current) return;
     const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+
     if (!Ctor) return;
     onFinalRef.current = onFinal;
     setError(null);
@@ -55,16 +58,20 @@ export function useDictation() {
 
     rec.onresult = (event) => {
       let interimText = "";
+
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
+
         if (!result) continue;
         const transcript = result[0]?.transcript ?? "";
+
         if (result.isFinal) {
           onFinalRef.current(transcript.trim());
         } else {
           interimText += transcript;
         }
       }
+
       setInterim(interimText);
     };
 

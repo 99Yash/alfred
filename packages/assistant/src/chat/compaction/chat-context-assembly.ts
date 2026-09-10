@@ -34,10 +34,12 @@ export function assembleChatContext({
   context: LoadedChatThreadContext | null;
 }): AssembledChatContext {
   const watermark = completeWatermark(context);
+
   const candidate =
     context?.invalidSummary !== true && context?.summary != null && watermark !== null
       ? { summary: context.summary, watermark }
       : null;
+
   const watermarkIndex = candidate
     ? messages.findIndex(
         (message) =>
@@ -45,6 +47,7 @@ export function assembleChatContext({
           message.createdAt.getTime() === candidate.watermark.createdAt.getTime(),
       )
     : -1;
+
   const applied = candidate && watermarkIndex >= 0 ? candidate : null;
   const eligibleTail = applied ? messages.slice(watermarkIndex + 1) : [...messages];
 
@@ -65,6 +68,7 @@ export function selectVerbatimTail(
 ): ChatContextMessage[] {
   if (messages.length === 0) return [];
   let latestUserIndex = -1;
+
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]!.role === "user") {
       latestUserIndex = index;
@@ -75,12 +79,15 @@ export function selectVerbatimTail(
   // An assistant-only legacy suffix has no exchange boundary. Keep it intact.
   if (latestUserIndex < 0) return [...messages];
   let selectedStart = latestUserIndex;
+
   for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
     if (messages[index]!.role !== "user") continue;
     const candidate = messages.slice(index);
+
     if (estimateMessageTokens(candidate) > budgetTokens) break;
     selectedStart = index;
   }
+
   return messages.slice(selectedStart);
 }
 

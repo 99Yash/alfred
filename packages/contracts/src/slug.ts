@@ -19,7 +19,9 @@ export function availableSlug(base: string, taken: ReadonlySet<string>): string 
 
   for (let n = 2; n < 1_000; n++) {
     const candidate = `${base}-${n}`;
+
     if (!taken.has(candidate)) return candidate;
   }
+
   return `${base}-${Date.now()}`;
 }

@@ -71,18 +71,24 @@ function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExt
       const markdowns: string[] = [];
       const pageOffsets: { page: number; start: number; end: number }[] = [];
       let offset = 0;
+
       for (const [idx, page] of result.pages.entries()) {
         const text = page.markdown;
         markdowns.push(text);
+
         if (text.length > 0) {
           const start = offset;
           const end = start + text.length;
           pageOffsets.push({ page: page.pageNumber, start, end });
         }
+
         offset += text.length;
+
         if (idx < result.pages.length - 1) offset += 2; // "\n\n"
       }
+
       const content = markdowns.join("\n\n");
+
       return {
         kind: "extracted",
         format,
@@ -90,6 +96,7 @@ function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExt
         pages: pageOffsets.length > 0 ? pageOffsets : null,
       };
     }
+
     case "text_without_pages":
       return { kind: "extracted", format, content: result.text, pages: null };
     case "needs_ocr":
@@ -109,6 +116,7 @@ function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExt
       };
     default: {
       const _exhaustive: never = result;
+
       return _exhaustive;
     }
   }
@@ -116,14 +124,17 @@ function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExt
 
 function createPdfMediaExtractor(limits: ExtractionLimits): MediaExtractor {
   const pdfExtractor = createPdfExtractor(parsePdfExtractionLimits(limits));
+
   return async (bytes) => {
     const result = await pdfExtractor(bytes);
+
     return pdfResultToMedia(result, "pdf");
   };
 }
 
 function createTextMediaExtractor(format: ContentFormat, limits: ExtractionLimits): MediaExtractor {
   const parsed = parsePdfExtractionLimits(limits);
+
   return async (bytes) => {
     if (bytes.byteLength > parsed.maxBytes) {
       return {
@@ -135,14 +146,17 @@ function createTextMediaExtractor(format: ContentFormat, limits: ExtractionLimit
         message: `input byte limit exceeded: ${bytes.byteLength} > ${parsed.maxBytes}`,
       };
     }
+
     if (bytes.byteLength === 0) {
       return { kind: "invalid", format, reason: "empty file" };
     }
+
     // NUL-safe decode — strip controls that would poison the document table.
     let text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
     // Remove NUL bytes (ADR-0070 sanitizer also does this at persist, but
     // the extractor should not produce them).
     text = text.replace(/\0/g, "");
+
     if (text.length > parsed.maxCharacters) {
       if (parsed.truncateOnOutputExceed) {
         text = truncateTextToFit(text, parsed.maxCharacters);
@@ -157,9 +171,11 @@ function createTextMediaExtractor(format: ContentFormat, limits: ExtractionLimit
         };
       }
     }
+
     if (text.trim().length === 0) {
       return { kind: "invalid", format, reason: "empty text" };
     }
+
     return { kind: "extracted", format, content: text, pages: null };
   };
 }
@@ -175,6 +191,7 @@ function createOfficeMediaExtractor(
   limits: ExtractionLimits,
 ): MediaExtractor {
   const parsed = parsePdfExtractionLimits(limits);
+
   return async (bytes) => {
     if (bytes.byteLength > parsed.maxBytes) {
       return {
@@ -186,6 +203,7 @@ function createOfficeMediaExtractor(
         message: `input byte limit exceeded: ${bytes.byteLength} > ${parsed.maxBytes}`,
       };
     }
+
     // Docx/xlsx are ZIP containers (PK header). Don't decode as UTF-8 — we'd
     // embed binary noise. Signal `invalid` until a real parser replaces this.
     return { kind: "invalid", format, reason: "office extraction not yet implemented" };

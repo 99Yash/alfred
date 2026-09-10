@@ -333,7 +333,9 @@ export const postgresStagingStore: StagingStore = {
       )
       .orderBy(desc(actionStagings.decidedAt))
       .limit(1);
+
     const row = rows[0];
+
     return row ? { reason: row.reason, status: row.status } : null;
   },
 
@@ -349,7 +351,9 @@ export const postgresStagingStore: StagingStore = {
         ),
       )
       .limit(1);
+
     const row = rows[0];
+
     return row ? parseStagingRow(row) : null;
   },
 
@@ -359,7 +363,9 @@ export const postgresStagingStore: StagingStore = {
       .from(agentRuns)
       .where(eq(agentRuns.id, runId))
       .limit(1);
+
     const parsed = runStatusSchema.safeParse(rows[0]?.status);
+
     return parsed.success ? parsed.data : null;
   },
 
@@ -369,6 +375,7 @@ export const postgresStagingStore: StagingStore = {
       .from(agentRuns)
       .where(eq(agentRuns.id, runId))
       .limit(1);
+
     return cancellationFenceSchema.parse({
       generation: rows[0]?.generation ?? 0,
     });
@@ -402,12 +409,15 @@ export const postgresStagingStore: StagingStore = {
       .returning({ ...STAGING_COLUMNS, wasInserted: sql<boolean>`xmax = 0` });
 
     const upsertedRow = upserted[0];
+
     if (!upsertedRow) {
       throw new Error(
         `[dispatch] action_stagings upsert returned no row (run=${values.runId}, toolCallId=${values.toolCallId})`,
       );
     }
+
     const { wasInserted, ...rowColumns } = upsertedRow;
+
     return { row: parseStagingRow(rowColumns), wasInserted };
   },
 
@@ -433,7 +443,9 @@ export const postgresStagingStore: StagingStore = {
         ),
       )
       .returning(STAGING_COLUMNS);
+
     const row = promoted[0];
+
     return row ? parseStagingRow(row) : null;
   },
 
@@ -463,6 +475,7 @@ export const postgresStagingStore: StagingStore = {
         ),
       )
       .returning({ id: actionStagings.id });
+
     return Boolean(updated);
   },
 };
@@ -483,6 +496,7 @@ export function stagingStore(): StagingStore {
 export function _setStagingStoreForTests(store: StagingStore): () => void {
   const previous = activeStagingStore;
   activeStagingStore = store;
+
   return () => {
     activeStagingStore = previous;
   };

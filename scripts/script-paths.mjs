@@ -62,16 +62,20 @@ const GLOB_META = /[*?[\]{}]/;
  */
 export function trackedTopLevelDirectories(root) {
   const directories = new Set();
+
   for (const file of listGitSourceFiles([], root)) {
     const slash = file.indexOf("/");
+
     if (slash > 0) directories.add(file.slice(0, slash));
   }
+
   return directories;
 }
 
 /** A JSDoc or comment line. Prose there quotes paths it never resolves. */
 function isCommentLine(line) {
   const trimmed = line.trimStart();
+
   return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
 }
 
@@ -83,10 +87,13 @@ function isCommentLine(line) {
  */
 function pathLiteralTarget(literal, trackedDirectories) {
   if (/[\s:]/.test(literal)) return null;
+
   if (!trackedDirectories.has(literal.split("/")[0])) return null;
   const meta = literal.search(GLOB_META);
+
   if (meta === -1) return literal;
   const cut = literal.lastIndexOf("/", meta);
+
   return cut > 0 ? literal.slice(0, cut) : null;
 }
 
@@ -107,6 +114,7 @@ export function repoPathLiterals(root) {
   const literals = [];
 
   const tracked = trackedTopLevelDirectories(root);
+
   if (tracked.size === 0) {
     failures.push(
       "no tracked top-level directory resolved, so every path literal is out of scope and the rule enforces nothing",
@@ -116,12 +124,14 @@ export function repoPathLiterals(root) {
   const files = listGitSourceFiles([SCAN_PATTERN], root).filter(
     (file) => !file.endsWith(".selftest.mjs"),
   );
+
   if (files.length === 0) {
     failures.push(`the ${SCAN_PATTERN} walk yielded 0 scanned files, so the rule enforces nothing`);
   }
 
   for (const file of files) {
     let source;
+
     try {
       source = readFileSync(join(root, file), "utf8");
     } catch (error) {
@@ -130,12 +140,15 @@ export function repoPathLiterals(root) {
       );
       continue;
     }
+
     source.split("\n").forEach((line, index) => {
       if (isCommentLine(line)) return;
       const exempt = EXEMPTION.exec(line)?.[1]?.trim() ?? null;
+
       for (const match of line.matchAll(STRING_LITERAL)) {
         const literal = match[2] ?? "";
         const target = pathLiteralTarget(literal, tracked);
+
         if (target === null) continue;
         literals.push({ file, line: index + 1, literal, target, exempt });
       }
@@ -148,18 +161,23 @@ export function repoPathLiterals(root) {
 /** Literals that resolve to nothing and carry no `// path-ok:`. */
 export function unresolvedPathLiterals(literals, root) {
   const violations = [];
+
   for (const entry of literals) {
     if (entry.exempt !== null) continue;
+
     if (existsSync(join(root, entry.target))) continue;
+
     const prefix =
       entry.target === entry.literal
         ? ""
         : ` (its directory prefix ${JSON.stringify(entry.target)})`;
+
     violations.push(
       `${entry.file}:${entry.line}: the repository path ${JSON.stringify(entry.literal)} does not resolve${prefix}\n` +
         "    Fix: repoint the literal at the path it now means, or delete the rule it feeds.\n" +
         "    If the path is meant to be absent, append `// path-ok: <reason>` to the line.",
     );
   }
+
   return violations;
 }

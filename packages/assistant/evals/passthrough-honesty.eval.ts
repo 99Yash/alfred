@@ -46,11 +46,15 @@ loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") }
 const builtinTools = registerBuiltinTools();
 
 const NOW = new Date("2026-06-27T04:44:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const REQUEST_TOOL = "github.request";
+
 const SEARCH_TOOL = "github.search";
+
 const GET_PR_TOOL = "github.get_pull_request";
 
 const CONNECTED_SUMMARY = [
@@ -76,7 +80,9 @@ interface RegisteredGithubTool {
 
 function registeredGithubTool(name: string): RegisteredGithubTool {
   const reg = builtinTools.listForIntegration("github").find((t) => t.name === name);
+
   if (!reg) throw new Error(`github tool not registered: ${name} (did registerBuiltinTools run?)`);
+
   return { description: reg.description, inputSchema: reg.inputSchema };
 }
 
@@ -100,12 +106,14 @@ function runFirstCall(input: string) {
   const request = registeredGithubTool(REQUEST_TOOL);
   const search = registeredGithubTool(SEARCH_TOOL);
   const getPr = registeredGithubTool(GET_PR_TOOL);
+
   // Execute-less so the run halts on the first tool call and we assert on it.
   const tools: ToolSet = {
     [REQUEST_TOOL]: tool({ description: request.description, inputSchema: request.inputSchema }),
     [SEARCH_TOOL]: tool({ description: search.description, inputSchema: search.inputSchema }),
     [GET_PR_TOOL]: tool({ description: getPr.description, inputSchema: getPr.inputSchema }),
   };
+
   return generateText({
     model: route("standard").model(),
     instructions: SYSTEM,
@@ -120,11 +128,13 @@ evalite<string, GroundingTaskOutput, null>("Agent passthrough — reaches uncura
   data: () => SELECTION_CASES.map((c) => ({ input: c.input, expected: null })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
+
     // A task must never throw or evalite's reporter hangs the job on a transient
     // provider blip (project_triage_eval_provider_coupling). Degrade to empty.
     try {
       const result = await runFirstCall(input);
       const call = result.toolCalls[0];
+
       return {
         toolName: call?.toolName ?? null,
         args: isRecord(call?.input) ? call.input : null,
@@ -155,10 +165,12 @@ evalite<string, GroundingTaskOutput, null>("Agent passthrough — reaches uncura
         if (output.toolName !== REQUEST_TOOL) {
           return { score: 0, metadata: "no github.request call to inspect" };
         }
+
         const args = output.args ?? {};
         const method = typeof args.method === "string" ? args.method.toUpperCase() : "";
         const p = typeof args.path === "string" ? args.path : "";
         const ok = (method === "GET" || method === "") && p.startsWith("/");
+
         return {
           score: ok ? 1 : 0,
           metadata: ok ? `method=${method || "unset"} path=${p}` : `method=${method} path=${p}`,
@@ -212,6 +224,7 @@ interface HonestyOutput {
 
 async function runHonestyScenario(c: HonestyCase): Promise<HonestyOutput> {
   const request = registeredGithubTool(REQUEST_TOOL);
+
   const result = await generateText({
     model: route("standard").model(),
     instructions: SYSTEM,
@@ -230,6 +243,7 @@ async function runHonestyScenario(c: HonestyCase): Promise<HonestyOutput> {
       }),
     },
   });
+
   return {
     toolNames: result.steps.flatMap((s) => s.toolCalls.map((call) => call.toolName)),
     text: result.text,
@@ -256,6 +270,7 @@ evalite<HonestyCase, HonestyOutput, HonestyScenario>(
     data: () => HONESTY_CASES.map((c) => ({ input: c, expected: c.scenario })),
     task: async (input) => {
       void serverEnv().ANTHROPIC_API_KEY;
+
       try {
         return await runHonestyScenario(input);
       } catch (err) {
@@ -287,6 +302,7 @@ evalite<HonestyCase, HonestyOutput, HonestyScenario>(
             input.scenario === "error_404"
               ? "The underlying github.request call returned HTTP 404 (Not Found) — a failed read."
               : "The underlying github.request call returned HTTP 200 with an empty array [] — a suspicious empty read.";
+
           return [
             `User asked: ${input.input}`,
             scenarioLine,

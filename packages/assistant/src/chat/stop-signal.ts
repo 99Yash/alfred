@@ -47,16 +47,20 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
  */
 
 let boundedConn: BoundedRedis | null = null;
+
 /** Waits for `ready`: every caller on this handle gets one read and no retry. */
 function boundedRedis(): BoundedRedis {
   if (!boundedConn) boundedConn = createRedisConnection("command");
+
   return boundedConn;
 }
 
 let pollConn: BoundedRedis | null = null;
+
 /** Never waits, because the stream loop awaits this read on every chunk. */
 function pollRedis(): BoundedRedis {
   if (!pollConn) pollConn = createRedisConnection("fail-fast");
+
   return pollConn;
 }
 
@@ -69,6 +73,7 @@ const STOP_TTL_SECONDS = 15 * 60;
 export async function requestChatStop(runId: string): Promise<boolean> {
   try {
     await boundedRedis().set(stopKey(runId), "1", "EX", STOP_TTL_SECONDS);
+
     return true;
   } catch {
     return false;

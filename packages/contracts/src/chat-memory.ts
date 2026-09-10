@@ -34,6 +34,7 @@ export const propositionValueSchema = z.union([
   z.boolean(),
   z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
 ]);
+
 export type PropositionValue = z.infer<typeof propositionValueSchema>;
 
 /**
@@ -53,7 +54,9 @@ export const VERIFICATION_CLASSES = [
   "external_checkable",
   "user_only",
 ] as const;
+
 export const verificationClassSchema = z.enum(VERIFICATION_CLASSES);
+
 export type VerificationClass = (typeof VERIFICATION_CLASSES)[number];
 
 /**
@@ -63,7 +66,9 @@ export type VerificationClass = (typeof VERIFICATION_CLASSES)[number];
  *                  carries a re-verification / `valid_until` window downstream.
  */
 export const VOLATILITY_CLASSES = ["stable", "volatile"] as const;
+
 export const volatilitySchema = z.enum(VOLATILITY_CLASSES);
+
 export type Volatility = (typeof VOLATILITY_CLASSES)[number];
 
 /**
@@ -94,7 +99,9 @@ export const PROPOSITION_ATTRIBUTIONS = [
   /** Alfred inferred it (e.g. from a web lookup) — provisional, decays. */
   "alfred_enrichment",
 ] as const;
+
 export const propositionAttributionSchema = z.enum(PROPOSITION_ATTRIBUTIONS);
+
 export type PropositionAttribution = (typeof PROPOSITION_ATTRIBUTIONS)[number];
 
 /**
@@ -140,6 +147,7 @@ export const chatPropositionSchema = z
         message: "entity propositions require subjectRef",
       });
     }
+
     if (value.subject === "user" && value.subjectRef !== undefined) {
       ctx.addIssue({
         code: "custom",
@@ -148,6 +156,7 @@ export const chatPropositionSchema = z
       });
     }
   });
+
 export type ChatProposition = z.infer<typeof chatPropositionSchema>;
 
 /**
@@ -160,4 +169,5 @@ export const MAX_CHAT_PROPOSITIONS = 20;
 export const chatMemoryExtractionResultSchema = z.object({
   propositions: z.array(chatPropositionSchema).max(MAX_CHAT_PROPOSITIONS),
 });
+
 export type ChatMemoryExtractionResult = z.infer<typeof chatMemoryExtractionResultSchema>;

@@ -28,10 +28,12 @@ import { and, asc, desc, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
  * has a deterministic order so the cap is a stable top-N, not an arbitrary slice.
  */
 const DEFAULT_READ_LIMIT = 500;
+
 const MAX_READ_LIMIT = 2000;
 
 function clampLimit(limit?: number): number {
   if (limit === undefined || !Number.isFinite(limit) || limit <= 0) return DEFAULT_READ_LIMIT;
+
   return Math.min(Math.floor(limit), MAX_READ_LIMIT);
 }
 
@@ -42,7 +44,9 @@ function clampLimit(limit?: number): number {
  * slice) these become the view row types with no consumer change.
  */
 export type ActiveEntityProfile = EntityProfile;
+
 export type ActiveEntityEdge = EntityEdge;
+
 export type ActiveEntityCoOccurrence = EntityCoOccurrence;
 
 /**
@@ -81,6 +85,7 @@ export function userModelReader(
         ),
       )
       .limit(1);
+
     return row ?? null;
   }
 
@@ -93,7 +98,9 @@ export function userModelReader(
       eq(entityProfiles.projectionVersion, activeProjectionVersions.activeVersion),
       eq(entityProfiles.projectionRunId, activeProjectionVersions.activeRunId),
     ];
+
     if (opts.kind) conds.push(eq(entityProfiles.kind, opts.kind));
+
     const rows = await db()
       .select()
       .from(entityProfiles)
@@ -109,6 +116,7 @@ export function userModelReader(
       // deterministic top-N so the cap below is stable across calls.
       .orderBy(sql`${entityProfiles.lastSeenAt} desc nulls last`, asc(entityProfiles.entityId))
       .limit(clampLimit(opts.limit));
+
     return rows.map((r) => r.entity_profiles);
   }
 
@@ -153,6 +161,7 @@ export function userModelReader(
         ),
       )
       .limit(1);
+
     return rows[0]?.entity_profiles ?? null;
   }
 
@@ -161,6 +170,7 @@ export function userModelReader(
     value: string;
   }): Promise<ActiveEntityProfile | null> {
     const identity = identityRefSchema.parse(args);
+
     const rows = await db()
       .select({ profile: entityProfiles })
       .from(entityIdentities)
@@ -191,6 +201,7 @@ export function userModelReader(
         ),
       )
       .limit(1);
+
     return rows[0]?.profile ?? null;
   }
 
@@ -203,8 +214,11 @@ export function userModelReader(
       eq(entityEdges.projectionVersion, activeProjectionVersions.activeVersion),
       eq(entityEdges.projectionRunId, activeProjectionVersions.activeRunId),
     ];
+
     if (opts.relationType) conds.push(eq(entityEdges.relationType, opts.relationType));
+
     if (opts.fromEntityId) conds.push(eq(entityEdges.fromEntityId, opts.fromEntityId));
+
     const rows = await db()
       .select()
       .from(entityEdges)
@@ -219,6 +233,7 @@ export function userModelReader(
       // Strongest edges first, `id` to break ties — a deterministic top-N.
       .orderBy(desc(entityEdges.weight), asc(entityEdges.id))
       .limit(clampLimit(opts.limit));
+
     return rows.map((r) => r.entity_edges);
   }
 
@@ -231,7 +246,9 @@ export function userModelReader(
       eq(entityCoOccurrence.projectionVersion, activeProjectionVersions.activeVersion),
       eq(entityCoOccurrence.projectionRunId, activeProjectionVersions.activeRunId),
     ];
+
     if (opts.minWeight !== undefined) conds.push(gte(entityCoOccurrence.weight, opts.minWeight));
+
     const rows = await db()
       .select()
       .from(entityCoOccurrence)
@@ -246,6 +263,7 @@ export function userModelReader(
       // Heaviest pairs first, `id` to break ties — a deterministic top-N.
       .orderBy(desc(entityCoOccurrence.weight), asc(entityCoOccurrence.id))
       .limit(clampLimit(opts.limit));
+
     return rows.map((r) => r.entity_co_occurrence);
   }
 

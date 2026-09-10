@@ -27,8 +27,11 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-standing-manage-";
+
 const USER_MEMORY_SOURCE = { kind: "user" } satisfies MemorySource;
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -37,6 +40,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Manage Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -46,8 +50,11 @@ async function remember(userId: string, email: string, label: string): Promise<s
     senderEmail: email,
     senderLabel: label,
   });
+
   assert.equal(result.ok, true);
+
   if (!result.ok) throw new Error("unreachable");
+
   return result.factId;
 }
 
@@ -79,6 +86,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();
@@ -130,6 +138,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
 
     const result = await forgetStandingInstruction({ userId, factId, reason: "user asked" });
     assert.equal(result.ok, true);
+
     if (result.ok) assert.equal(result.status, "forgotten");
 
     const after = await listStandingInstructions(userId);
@@ -178,7 +187,9 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       directive: "Quietly ignore the reframed sender.",
       senderLabel: "New Label",
     });
+
     assert.equal(result.ok, true);
+
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "edited");
     assert.notEqual(result.factId, factId);
@@ -202,7 +213,9 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       factId,
       directive: "Use observed wording.",
     });
+
     assert.equal(edited.ok, true);
+
     if (!edited.ok || edited.status !== "edited") throw new Error("unreachable");
 
     const forgotten = await forgetStandingInstruction({
@@ -210,6 +223,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       factId: edited.factId,
       reason: "user asked",
     });
+
     assert.equal(forgotten.ok, true);
 
     const rows = await db()
@@ -220,6 +234,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       })
       .from(observations)
       .where(eq(observations.userId, userId));
+
     assert.equal(rows.length, 3);
     assert.ok(rows.every((row) => row.kind === "user_standing_instruction"));
     assert.ok(rows.every((row) => row.source === "user"));
@@ -237,7 +252,9 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       factId,
       directive: "Use this new wording.",
     });
+
     assert.equal(first.ok, true);
+
     if (!first.ok || first.status !== "edited") throw new Error("unreachable");
 
     assert.deepEqual(
@@ -265,7 +282,9 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       directive: "   ",
       senderLabel: "Same Label",
     });
+
     assert.equal(result.ok, true);
+
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "unchanged");
     assert.equal(result.factId, factId);
@@ -275,6 +294,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       .select({ id: userFacts.id })
       .from(userFacts)
       .where(eq(userFacts.userId, userId));
+
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.id, factId);
   });

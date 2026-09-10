@@ -48,7 +48,9 @@ export function verifySentryWebhookSignature(
   signatureHeader: string | null,
 ): SentryWebhookVerdict {
   const secret = serverEnv().SENTRY_WEBHOOK_CLIENT_SECRET;
+
   if (!secret) return "no_secret";
+
   return signatureMatches(hmacSha256Hex(secret, rawBody), signatureHeader)
     ? "verified"
     : "mismatch";
@@ -85,5 +87,6 @@ export type SeerPullRequestsCreated = z.infer<typeof seerPullRequestsCreatedSche
 /** Parse a stored `sentry.seer_pr_created` receipt body, or `null` when it is not one. */
 export function parseSeerPullRequestsCreated(payload: unknown): SeerPullRequestsCreated | null {
   const parsed = seerPullRequestsCreatedSchema.safeParse(payload);
+
   return parsed.success ? parsed.data : null;
 }

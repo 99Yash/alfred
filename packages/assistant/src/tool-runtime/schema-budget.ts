@@ -39,9 +39,11 @@ const schemaSizeCache = new WeakMap<ToolSchemaDefinition, ToolSchemaSize>();
  */
 export function toolSchemaSize(tool: ToolSchemaDefinition): ToolSchemaSize {
   const cached = schemaSizeCache.get(tool);
+
   if (cached) return cached;
 
   let inputSchema: unknown;
+
   try {
     // The budget measures what the model is sent, so it reads the model-facing
     // schema rather than the wider one the runtime validates against.
@@ -49,16 +51,20 @@ export function toolSchemaSize(tool: ToolSchemaDefinition): ToolSchemaSize {
   } catch {
     inputSchema = undefined;
   }
+
   const serialized = JSON.stringify({
     name: tool.name,
     description: tool.description,
     inputSchema,
   });
+
   const size: ToolSchemaSize = {
     bytes: new TextEncoder().encode(serialized).byteLength,
     tokens: Math.ceil(serialized.length / APPROXIMATE_CHARS_PER_TOKEN),
   };
+
   schemaSizeCache.set(tool, size);
+
   return size;
 }
 
@@ -67,11 +73,13 @@ export function estimateToolSurfaceBudget(
 ): ToolSurfaceBudget {
   let schemaBytes = 0;
   let schemaTokens = 0;
+
   for (const definition of definitions) {
     const size = toolSchemaSize(definition);
     schemaBytes += size.bytes;
     schemaTokens += size.tokens;
   }
+
   return {
     toolCount: definitions.length,
     schemaBytes,

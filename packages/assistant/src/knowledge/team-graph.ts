@@ -62,6 +62,7 @@ function touch(
   authoredAt: Date | null,
 ): void {
   let agg = map.get(person.address);
+
   if (!agg) {
     agg = {
       address: person.address,
@@ -75,7 +76,9 @@ function touch(
     };
     map.set(person.address, agg);
   }
+
   agg[field] += 1;
+
   // Keep the richest display name (longest non-empty).
   if (
     person.displayName &&
@@ -83,8 +86,10 @@ function touch(
   ) {
     agg.displayName = person.displayName;
   }
+
   if (authoredAt) {
     if (!agg.firstSeenAt || authoredAt < agg.firstSeenAt) agg.firstSeenAt = authoredAt;
+
     if (!agg.lastSeenAt || authoredAt > agg.lastSeenAt) agg.lastSeenAt = authoredAt;
   }
 }
@@ -127,6 +132,7 @@ export function accumulateDoc(
     if (from && from.address !== self) {
       touch(contacts, from, "inbound", authoredAt);
     }
+
     for (const p of recipients) {
       if (p.address !== self) touch(contacts, p, "coRecipient", authoredAt);
     }
@@ -135,13 +141,17 @@ export function accumulateDoc(
 
 function minIso(a: string | null, b: string | null): string | null {
   if (!a) return b;
+
   if (!b) return a;
+
   return a < b ? a : b;
 }
 
 function maxIso(a: string | null, b: string | null): string | null {
   if (!a) return b;
+
   if (!b) return a;
+
   return a > b ? a : b;
 }
 
@@ -151,6 +161,7 @@ function mergeStats(
   delta: ContactAggregate,
 ): CorrespondenceStats {
   const d = toStats(delta);
+
   return {
     inbound: (prior?.inbound ?? 0) + d.inbound,
     outbound: (prior?.outbound ?? 0) + d.outbound,
@@ -169,9 +180,11 @@ export interface ApplyIncrementsResult {
 /** Non-consumer sender domains worth an organization node (≥1 contact). */
 function collectOrgDomains(contacts: Map<string, ContactAggregate>): Set<string> {
   const orgDomains = new Set<string>();
+
   for (const agg of contacts.values()) {
     if (agg.domain && !isFreeMail(agg.domain)) orgDomains.add(agg.domain);
   }
+
   return orgDomains;
 }
 
@@ -205,6 +218,7 @@ async function persistContacts(
 
   // Organizations first, so we can wire `works_at` as we go.
   const orgIdByDomain = new Map<string, string>();
+
   for (const domain of orgDomains) {
     const org = await upsertEntity(
       {
@@ -216,10 +230,12 @@ async function persistContacts(
       },
       tx,
     );
+
     orgIdByDomain.set(domain, org.id);
   }
 
   let relations = 0;
+
   for (const agg of contacts.values()) {
     // Match the existing person by EMAIL ALIAS so the write lands on the same
     // row even when the display name drifts (and never collides onto a
@@ -235,7 +251,9 @@ async function persistContacts(
         buildMetadata: (prior) => {
           const priorStats =
             mode === "merge" ? parsePersonEntityMetadata(prior).correspondence : undefined;
+
           const stats = mode === "merge" ? mergeStats(priorStats, agg) : toStats(agg);
+
           return {
             primaryAddress: agg.address,
             domain: agg.domain,
@@ -247,6 +265,7 @@ async function persistContacts(
     );
 
     const orgId = agg.domain ? orgIdByDomain.get(agg.domain) : undefined;
+
     if (orgId) {
       await linkEntities(
         {
@@ -324,6 +343,7 @@ export async function aggregateCorrespondence(
   maxDocs = 5000,
 ): Promise<{ contacts: Map<string, ContactAggregate>; docsScanned: number }> {
   const self = userEmail.trim().toLowerCase();
+
   const rows = await db()
     .select({
       authoredAt: documents.authoredAt,
@@ -375,6 +395,7 @@ export async function backfillTeamGraph(
     const applied = await persistContacts(userId, contacts, "overwrite");
     const pass = await runSignificancePass(userId, { now, userDomains, commit: true });
     const scoreByAddr = new Map(pass.top.map((t) => [t.address ?? "", t.score]));
+
     return {
       docsScanned,
       contacts: contacts.size,
@@ -388,9 +409,11 @@ export async function backfillTeamGraph(
   // Dry run — compute significance in-memory for the ranking, persist nothing.
   const orgDomains = collectOrgDomains(contacts);
   let relations = 0;
+
   for (const agg of contacts.values()) {
     if (agg.domain && orgDomains.has(agg.domain)) relations += 1;
   }
+
   return {
     docsScanned,
     contacts: contacts.size,
@@ -410,6 +433,7 @@ function rankTop(
 ): BackfillTeamGraphResult["top"] {
   const ranked = [...contacts.values()].map((agg) => {
     const persisted = persistedScore(agg.address);
+
     const score =
       persisted ??
       computeSignificance({
@@ -417,6 +441,7 @@ function rankTop(
         sameOrg: agg.domain ? userDomains.has(agg.domain) : false,
         now,
       }).score;
+
     return {
       name: agg.displayName ?? agg.address,
       address: agg.address,
@@ -425,6 +450,8 @@ function rankTop(
       score,
     };
   });
+
   ranked.sort((a, b) => b.score - a.score);
+
   return ranked.slice(0, 15);
 }

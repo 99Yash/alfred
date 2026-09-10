@@ -98,10 +98,12 @@ export const OBSERVATION_REDUCERS = {
 
 /** Where an observation came from — the reducer keys, in record order. */
 export type ObservationSource = keyof typeof OBSERVATION_REDUCERS;
+
 export const OBSERVATION_SOURCES: readonly ObservationSource[] =
   // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
   // non-indexed literal are exactly `keyof typeof OBSERVATION_REDUCERS`.
   Object.keys(OBSERVATION_REDUCERS) as ObservationSource[];
+
 export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
 
 /** Fold precedence, projected off the registry. See `ObservationReducerEntry.rank`. */
@@ -130,9 +132,11 @@ export const OBSERVATION_KINDS_BY_SOURCE: {
 
 /** Every evidence kind some reducer emits, deduplicated across shared tuples. */
 export type ObservationKind = (typeof OBSERVATION_REDUCERS)[ObservationSource]["kinds"][number];
+
 export const OBSERVATION_KINDS: readonly ObservationKind[] = [
   ...new Set(OBSERVATION_SOURCES.flatMap((source) => OBSERVATION_REDUCERS[source].kinds)),
 ];
+
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 
 /** True iff `kind` is one of the kinds the reducer for `source` may emit. */
@@ -141,6 +145,7 @@ export function isObservationKindForSource(
   kind: ObservationKind,
 ): boolean {
   const kinds: readonly ObservationKind[] = OBSERVATION_KINDS_BY_SOURCE[source];
+
   return kinds.includes(kind);
 }
 
@@ -169,6 +174,7 @@ export const observationSourceKindSchema = z
     error: "observation kind is not valid for its source",
     path: ["kind"],
   });
+
 export type ObservationSourceKind = z.infer<typeof observationSourceKindSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -207,7 +213,9 @@ export const IDENTITY_KINDS = [
   "github_repository_full_name",
   "integration_object_key",
 ] as const;
+
 export const identityKindSchema = z.enum(IDENTITY_KINDS);
+
 export type IdentityKind = (typeof IDENTITY_KINDS)[number];
 
 export const MAX_IDENTITY_VALUE_BYTES = 1024;
@@ -267,6 +275,7 @@ const CASE_FOLDED_IDENTITY_KINDS: ReadonlySet<IdentityKind> = new Set([
  */
 export function canonicalizeIdentityValue(kind: IdentityKind, value: string): string {
   const trimmed = value.trim();
+
   return CASE_FOLDED_IDENTITY_KINDS.has(kind) ? trimmed.toLowerCase() : trimmed;
 }
 
@@ -333,6 +342,7 @@ const IDENTITY_VALUE_FORMATS = {
  */
 export function identityValueMatchesKind(kind: IdentityKind, value: string): boolean {
   const format = Object.entries(IDENTITY_VALUE_FORMATS).find(([k]) => k === kind)?.[1];
+
   return format ? format.test(value) : true;
 }
 
@@ -363,6 +373,7 @@ export const identityRefSchema = z
     error: "identity value is not a valid format for its kind",
     path: ["value"],
   });
+
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
 /**
@@ -383,9 +394,11 @@ export const observationSubjectSchema = z.union([
   identityRefSchema,
   z.object({ kind: z.literal("user") }).strict(),
 ]);
+
 export type ObservationSubject = z.infer<typeof observationSubjectSchema>;
 
 export type JsonPrimitive = string | number | boolean | null;
+
 /**
  * Exactly what `jsonValueSchema` below accepts — no `undefined` on the value
  * side. The two must stay in lockstep: this type guards the same values the
@@ -415,6 +428,7 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 
 export const jsonObjectSchema = z.record(z.string(), jsonValueSchema);
+
 export type JsonObject = z.infer<typeof jsonObjectSchema>;
 
 export const OBSERVATION_PARTICIPANT_ROLES = [
@@ -429,7 +443,9 @@ export const OBSERVATION_PARTICIPANT_ROLES = [
   "assignee",
   "committer",
 ] as const;
+
 export const observationParticipantRoleSchema = z.enum(OBSERVATION_PARTICIPANT_ROLES);
+
 export type ObservationParticipantRole = (typeof OBSERVATION_PARTICIPANT_ROLES)[number];
 
 export const observationParticipantSchema = z
@@ -440,6 +456,7 @@ export const observationParticipantSchema = z
     raw: z.string().optional(),
   })
   .strict();
+
 export type ObservationParticipant = z.infer<typeof observationParticipantSchema>;
 
 /**
@@ -497,6 +514,7 @@ const CONTRIBUTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(["com
  */
 function distinctRecipientCount(items: readonly ObservationParticipant[]): number {
   const seen = new Set<string>();
+
   for (const p of items) {
     // Join with an escaped NUL (\u0000 — never a LITERAL NUL byte in source,
     // which turns this file binary to rg/grep and silently breaks plain-text
@@ -505,8 +523,10 @@ function distinctRecipientCount(items: readonly ObservationParticipant[]): numbe
     // (kind:"email", value:"a") distinct from (kind:"email_a", value:"").
     if (RECIPIENT_ROLES.has(p.role)) seen.add(`${p.identity.kind}\u0000${p.identity.value}`);
   }
+
   return seen.size;
 }
+
 const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(
   OBSERVATION_PARTICIPANT_ROLES.filter(
     (role) => !ACTOR_ROLES.has(role) && !CONTRIBUTOR_ROLES.has(role),
@@ -533,6 +553,7 @@ export const observationParticipantsSchema = z
       "recipientCount must be >= the number of DISTINCT enumerated recipient identities (a blast can't masquerade as a 1:1 and bypass FAN_OUT_CUTOFF)",
     path: ["recipientCount"],
   });
+
 export type ObservationParticipants = z.infer<typeof observationParticipantsSchema>;
 
 export type ObservationPayload = z.infer<typeof jsonObjectSchema>;
@@ -562,6 +583,7 @@ export const gmailEmailMessagePayloadSchema = z
       .strict(),
   })
   .strict();
+
 export type GmailEmailMessagePayload = z.infer<typeof gmailEmailMessagePayloadSchema>;
 
 const canonicalDomainSchema = identityValueSchema
@@ -595,6 +617,7 @@ export const userOrgAffiliationPayloadSchema = z
     evidence: z.string().min(1).optional(),
   })
   .strict();
+
 export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayloadSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -608,6 +631,7 @@ export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayload
  * app boundary with a field-level message instead of surfacing as a raw 23514.
  */
 export const MAX_FAMILY_KEY_BYTES = 512;
+
 export const MAX_EVIDENCE_HASH_BYTES = 256;
 
 /**
@@ -678,6 +702,7 @@ export const observationInsertSchema = z
   .superRefine(({ kind, payload, subjectIdentity }, ctx) => {
     if (kind === "email_message") {
       const parsed = gmailEmailMessagePayloadSchema.safeParse(payload);
+
       if (!parsed.success) {
         for (const issue of parsed.error.issues) {
           ctx.addIssue({
@@ -687,10 +712,13 @@ export const observationInsertSchema = z
           });
         }
       }
+
       return;
     }
+
     if (kind !== "user_org_affiliation") return;
     const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
+
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
         ctx.addIssue({
@@ -699,8 +727,10 @@ export const observationInsertSchema = z
           message: issue.message,
         });
       }
+
       return;
     }
+
     if (subjectIdentity.kind !== "user") {
       ctx.addIssue({
         code: "custom",
@@ -708,10 +738,12 @@ export const observationInsertSchema = z
         message: "user_org_affiliation observations must be about the user",
       });
     }
+
     const expectedDomainClass = classifyEmailDomain({
       email: parsed.data.accountEmail,
       verifiedHostedDomain: parsed.data.verifiedHostedDomain,
     });
+
     if (expectedDomainClass !== parsed.data.domainClass) {
       ctx.addIssue({
         code: "custom",
@@ -719,6 +751,7 @@ export const observationInsertSchema = z
         message: "domainClass must match accountEmail/verifiedHostedDomain classification",
       });
     }
+
     if (
       parsed.data.verifiedHostedDomain != null &&
       parsed.data.verifiedHostedDomain !== parsed.data.orgDomain
@@ -730,8 +763,10 @@ export const observationInsertSchema = z
       });
     }
   });
+
 /** Caller-facing input (pre-parse): defaulted fields are optional. */
 export type ObservationInsertInput = z.input<typeof observationInsertSchema>;
+
 /** Validated, defaults-applied observation ready to persist. */
 export type ObservationInsert = z.infer<typeof observationInsertSchema>;
 
@@ -777,6 +812,7 @@ export function isImmutableAccountBridge({ kind, verified }: AccountBridgeInput)
   // widening its element type to the full union only lets .includes take the
   // wider `kind` argument — every member already is an IdentityKind.
   if ((IMMUTABLE_ACCOUNT_ID_KINDS as readonly IdentityKind[]).includes(kind)) return true;
+
   return kind === "google_directory_id" && verified === true;
 }
 
@@ -815,6 +851,7 @@ export const IDENTITY_ANCHOR_TIER = {
   /** Provisional / source-local / unknown. */
   provisional: 6,
 } as const;
+
 export type IdentityAnchorTier = (typeof IDENTITY_ANCHOR_TIER)[keyof typeof IDENTITY_ANCHOR_TIER];
 
 export interface IdentityAnchorInput {
@@ -832,6 +869,7 @@ export function identityAnchorRank({
   verified,
 }: IdentityAnchorInput): IdentityAnchorTier {
   if (userPinned) return IDENTITY_ANCHOR_TIER.userPinned;
+
   switch (kind) {
     case "google_directory_id":
       // Tier 2 means a *verified* Workspace Directory identity (D2/D3). An
@@ -862,6 +900,7 @@ export function identityAnchorRank({
       return IDENTITY_ANCHOR_TIER.provisional;
     default: {
       const _exhaustive: never = kind;
+
       return _exhaustive;
     }
   }
@@ -879,6 +918,7 @@ export function identityAnchorRank({
  * id, or a projection version — only stable identity material + `userId`.
  */
 export const STABLE_ENTITY_ID_VERSION = 1 as const;
+
 export interface StableEntityIdInput {
   readonly v: typeof STABLE_ENTITY_ID_VERSION;
   readonly userId: string;
@@ -920,7 +960,9 @@ export const ENTITY_NODE_KINDS = [
   "referent",
   "unknown",
 ] as const;
+
 export const entityNodeKindSchema = z.enum(ENTITY_NODE_KINDS);
+
 export type EntityNodeKind = (typeof ENTITY_NODE_KINDS)[number];
 
 /** Kinds that are never scored as a person (the dist-list / service gate, D7). */
@@ -1017,7 +1059,9 @@ export function integrationObjectKey(
 export function integrationObjectKeySegment(value: string): IntegrationObjectKindSegment | null {
   const segments = value.split(":");
   const candidate = segments.length >= 3 ? segments[1] : undefined;
+
   if (!candidate) return null;
+
   return isIntegrationObjectKindSegment(candidate) ? candidate : null;
 }
 
@@ -1032,7 +1076,9 @@ export const ENTITY_KIND_RESEARCH_STATUS = [
   "completed",
   "failed",
 ] as const;
+
 export const entityKindResearchStatusSchema = z.enum(ENTITY_KIND_RESEARCH_STATUS);
+
 export type EntityKindResearchStatus = (typeof ENTITY_KIND_RESEARCH_STATUS)[number];
 
 /**
@@ -1050,6 +1096,7 @@ export const entityKindClassificationSchema = z
     researchStatus: entityKindResearchStatusSchema.default("not_needed"),
   })
   .strict();
+
 export type EntityKindClassification = z.infer<typeof entityKindClassificationSchema>;
 
 // `looseObject` rather than `.catchall(jsonValueSchema)`: a catchall checks the
@@ -1063,6 +1110,7 @@ export const projectionProvenanceSchema = z.looseObject({
   familyKeys: z.array(z.string()).optional(),
   classification: entityKindClassificationSchema.optional(),
 });
+
 export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /**
@@ -1078,7 +1126,9 @@ export const ENTITY_EDGE_TYPES = [
   "frequent_collaborator",
   "in_org",
 ] as const;
+
 export const entityEdgeTypeSchema = z.enum(ENTITY_EDGE_TYPES);
+
 export type EntityEdgeType = (typeof ENTITY_EDGE_TYPES)[number];
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1115,6 +1165,7 @@ export const PROMOTION_THRESHOLD = 2.0;
  * promoting a collaborator edge.
  */
 export const PROMOTION_MIN_OBSERVATIONS = 3;
+
 export const PROMOTION_MIN_FAMILIES = 2;
 
 /**
@@ -1147,6 +1198,7 @@ export const SOURCE_WEIGHTS = {
   gmail_cc: 0.25,
   gmail_blast: 0.0,
 } as const;
+
 export type SourceWeightKey = keyof typeof SOURCE_WEIGHTS;
 
 export function sourceWeight(key: SourceWeightKey): number {
@@ -1171,6 +1223,7 @@ export const significanceComponentsSchema = z
     topObservationIds: z.array(z.string()).optional(),
   })
   .strict();
+
 export type SignificanceComponents = z.infer<typeof significanceComponentsSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1192,11 +1245,15 @@ export const GMAIL_KIND_REFOLD_SKIPPED_REASONS = [
   "no-gmail-observations",
   "up-to-date",
 ] as const;
+
 export const gmailKindRefoldSkippedReasonSchema = z.enum(GMAIL_KIND_REFOLD_SKIPPED_REASONS);
+
 export type GmailKindRefoldSkippedReason = z.infer<typeof gmailKindRefoldSkippedReasonSchema>;
 
 export const PROJECTION_RUN_STATUS = ["running", "completed", "failed"] as const;
+
 export const projectionRunStatusSchema = z.enum(PROJECTION_RUN_STATUS);
+
 export type ProjectionRunStatus = (typeof PROJECTION_RUN_STATUS)[number];
 
 export const projectionCursorValueSchema = z
@@ -1206,6 +1263,7 @@ export const projectionCursorValueSchema = z
     sourceCursor: jsonValueSchema.optional(),
   })
   .strict();
+
 export type ProjectionCursorValue = z.infer<typeof projectionCursorValueSchema>;
 
 /**
@@ -1218,9 +1276,11 @@ export const projectionSourceHighWatermarkSchema = z.partialRecord(
   observationSourceSchema,
   projectionCursorValueSchema,
 );
+
 export type ProjectionSourceHighWatermark = z.infer<typeof projectionSourceHighWatermarkSchema>;
 
 export const projectionRowCountsSchema = z.record(z.string(), z.number().int().nonnegative());
+
 export type ProjectionRowCounts = z.infer<typeof projectionRowCountsSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1233,7 +1293,9 @@ export type ProjectionRowCounts = z.infer<typeof projectionRowCountsSchema>;
  * bind to `{kind:'user'}`. `any` = either.
  */
 export const FACT_SUBJECT_KINDS = ["user", "entity"] as const;
+
 export const factSubjectKindSchema = z.enum(FACT_SUBJECT_KINDS);
+
 export type FactSubjectKind = (typeof FACT_SUBJECT_KINDS)[number];
 
 export interface FactTypeDef {
@@ -1292,6 +1354,7 @@ export const FACT_ONTOLOGY = {
   twitter_handle: { subject: "any", description: "Twitter / X handle." },
   linkedin_url: { subject: "any", description: "LinkedIn profile URL." },
 } as const satisfies Record<string, FactTypeDef>;
+
 export type FactKey = keyof typeof FACT_ONTOLOGY;
 
 export function isFactKey(key: string): key is FactKey {
@@ -1315,7 +1378,9 @@ export const CANONICAL_FACT_KEYS =
  * The suffix is validated/normalized per-prefix by `canonicalizeFactKey`.
  */
 export const RELATIONSHIP_FACT_PREFIX = "relationship:";
+
 export const PREF_FACT_PREFIX = "pref:";
+
 export const CANONICAL_FACT_PREFIXES = [RELATIONSHIP_FACT_PREFIX, PREF_FACT_PREFIX] as const;
 
 /**
@@ -1340,6 +1405,7 @@ export const FACT_KEY_ALIASES = {
   name: "full_name",
   personal_website: "personal_site",
 } as const satisfies Record<string, FactKey>;
+
 export type FactKeyAlias = keyof typeof FACT_KEY_ALIASES;
 
 export function isFactKeyAlias(key: string): key is FactKeyAlias {
@@ -1374,32 +1440,42 @@ export type CanonicalizeFactKeyResult =
  */
 export function canonicalizeFactKey(rawKey: string): CanonicalizeFactKeyResult {
   const key = rawKey.trim();
+
   if (isFactKey(key)) {
     return key === rawKey
       ? { ok: true, key, wasAlias: false }
       : { ok: true, key, wasAlias: true, originalKey: rawKey };
   }
+
   if (isFactKeyAlias(key)) {
     return { ok: true, key: FACT_KEY_ALIASES[key], wasAlias: true, originalKey: rawKey };
   }
+
   if (key.startsWith(RELATIONSHIP_FACT_PREFIX)) {
     const email = key.slice(RELATIONSHIP_FACT_PREFIX.length).trim().toLowerCase();
+
     if (!email || !identityValueMatchesKind("email", email)) {
       return { ok: false, reason: "unknown_key" };
     }
+
     const canonical = `${RELATIONSHIP_FACT_PREFIX}${email}`;
+
     return canonical === rawKey
       ? { ok: true, key: canonical, wasAlias: false }
       : { ok: true, key: canonical, wasAlias: true, originalKey: rawKey };
   }
+
   if (key.startsWith(PREF_FACT_PREFIX)) {
     const name = key.slice(PREF_FACT_PREFIX.length).trim();
+
     if (!name) return { ok: false, reason: "unknown_key" };
     const canonical = `${PREF_FACT_PREFIX}${name}`;
+
     return canonical === rawKey
       ? { ok: true, key: canonical, wasAlias: false }
       : { ok: true, key: canonical, wasAlias: true, originalKey: rawKey };
   }
+
   return { ok: false, reason: "unknown_key" };
 }
 

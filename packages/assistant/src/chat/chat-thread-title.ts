@@ -39,6 +39,7 @@ export async function maybeGenerateThreadTitle(args: {
   assistantText: string;
 }): Promise<void> {
   const { userId, runId, threadId, assistantMessageId, assistantText } = args;
+
   try {
     // Only the first reply names the thread. Any earlier assistant row means
     // the title was already derived on a prior turn — leave it.
@@ -54,6 +55,7 @@ export async function maybeGenerateThreadTitle(args: {
         ),
       )
       .limit(1);
+
     if (priorReply.length > 0) return;
 
     const firstUser = await db()
@@ -68,8 +70,10 @@ export async function maybeGenerateThreadTitle(args: {
       )
       .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id))
       .limit(1);
+
     const userText = firstUser[0]?.content?.trim() ?? "";
     const firstUserId = firstUser[0]?.id;
+
     const attachmentNames =
       userText.length === 0 && firstUserId
         ? await db()
@@ -85,6 +89,7 @@ export async function maybeGenerateThreadTitle(args: {
             )
             .limit(3)
         : [];
+
     const userLine =
       userText.length > 0
         ? `User: ${userText.slice(0, 1_000)}`
@@ -93,8 +98,10 @@ export async function maybeGenerateThreadTitle(args: {
               .map((a) => a.name)
               .join(", ")}]`
           : null;
+
     const assistantLine =
       assistantText.trim().length > 0 ? `Alfred: ${assistantText.slice(0, 1_000)}` : null;
+
     if (!userLine && !assistantLine) return;
 
     const result = await meteredGenerateText(
@@ -112,6 +119,7 @@ export async function maybeGenerateThreadTitle(args: {
     );
 
     const title = cleanTitle(result.text);
+
     if (!title) return;
 
     await db()
@@ -131,12 +139,16 @@ export async function maybeGenerateThreadTitle(args: {
  */
 function cleanTitle(raw: string): string | null {
   let s = raw.trim();
+
   if (s.length === 0) return null;
   s = s.replace(/^title\s*[:\-—]\s*/i, "");
   s = s.replace(/^["'“”`]+|["'“”`]+$/g, "");
   s = s.replace(/\s+/g, " ").trim();
   s = s.replace(/[.。!?]+$/, "").trim();
+
   if (s.length === 0) return null;
+
   if (s.length > TITLE_MAX_CHARS) s = `${s.slice(0, TITLE_MAX_CHARS - 1).trimEnd()}…`;
+
   return s;
 }

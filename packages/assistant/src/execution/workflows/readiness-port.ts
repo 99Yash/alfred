@@ -24,6 +24,7 @@ export function registerWorkflowReadinessCheck(check: WorkflowReadinessCheck): (
   if (readinessCheck) {
     throw new Error("[agent] a workflow readiness check is already registered");
   }
+
   readinessCheck = check;
 
   return () => {
@@ -44,5 +45,6 @@ export async function checkWorkflowReadiness(args: {
   if (!readinessCheck) {
     throw new Error("[agent] no workflow readiness check is registered");
   }
+
   return readinessCheck(args);
 }

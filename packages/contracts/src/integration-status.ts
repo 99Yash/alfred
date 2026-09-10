@@ -42,6 +42,7 @@ export const connectedAccountSchema = z.object({
     })
     .nullable(),
 });
+
 export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
 
 /**
@@ -54,6 +55,7 @@ export const integrationConnectionSchema = z.object({
   health: integrationHealthSchema.nullable(),
   accounts: z.array(connectedAccountSchema),
 });
+
 export type IntegrationConnection = z.infer<typeof integrationConnectionSchema>;
 
 /**
@@ -69,6 +71,7 @@ export const activeCredentialSchema = z.object({
   accountLabel: z.string().nullable(),
   missing: z.array(z.enum(LIVE_PROVIDER_SLUGS)),
 });
+
 export type ActiveCredential = z.infer<typeof activeCredentialSchema>;
 
 /**
@@ -100,6 +103,7 @@ export const deliveryAlertSchema = z.object({
   /** The one sentence the source's own health check gave, for the banner's body. */
   reason: z.string().min(1).max(200),
 });
+
 export type DeliveryAlert = z.infer<typeof deliveryAlertSchema>;
 
 export const integrationStatusSchema = z.object({
@@ -118,6 +122,7 @@ export const integrationStatusSchema = z.object({
    */
   deliveryAlerts: z.array(deliveryAlertSchema).default([]),
 });
+
 export type IntegrationStatus = z.infer<typeof integrationStatusSchema>;
 
 /**
@@ -131,6 +136,7 @@ export const rawReceiptKindSchema = z.object({
   count: z.number().int().nonnegative(),
   lastSeenAt: z.string(),
 });
+
 export type RawReceiptKind = z.infer<typeof rawReceiptKindSchema>;
 
 /** The wire shape of `GET /api/integrations/raw-kinds/:slug`, most recently seen first. */
@@ -141,4 +147,5 @@ export const rawReceiptInventorySchema = z.object({
     cappedCount: z.number().int().nonnegative(),
   }),
 });
+
 export type RawReceiptInventory = z.infer<typeof rawReceiptInventorySchema>;

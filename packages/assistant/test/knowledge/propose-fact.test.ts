@@ -24,6 +24,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-pf-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -32,6 +33,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -53,6 +55,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
     if (createdUserIds.length) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     // The fact-capture path opens a tracked Redis connection (#546); leaving it
     // ESTABLISHED keeps the test child process alive forever.
     await closeRedis();
@@ -61,6 +64,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
 
   test("canonicalizes an alias key (document) and records originalKey", async () => {
     const userId = await seedUser();
+
     const fact = await proposeFact({
       userId,
       key: "current_company",
@@ -68,6 +72,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 0.95,
       source: { kind: "document", id: "doc_1" },
     });
+
     assert.ok(fact, "alias key should persist under the canonical key");
     assert.equal(fact.key, "employer");
     assert.equal((fact.source.meta as { originalKey?: string })?.originalKey, "current_company");
@@ -161,6 +166,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 0.99,
       source: { kind: "agent" },
     });
+
     assert.ok(good, "a genuine relationship to a real person persists");
     assert.equal(good.key, "relationship:alice@oliv.ai");
 
@@ -170,6 +176,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
 
   test("persists an unknown key as-is for a trusted (non-document) source", async () => {
     const userId = await seedUser();
+
     const fact = await proposeFact({
       userId,
       key: "custom_curated_key",
@@ -177,12 +184,14 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 0.99,
       source: { kind: "user" },
     });
+
     assert.ok(fact, "non-document unknown key should persist as-is");
     assert.equal(fact.key, "custom_curated_key");
   });
 
   test("single-valued conflict from an autonomous source is held as proposed", async () => {
     const userId = await seedUser();
+
     const truth = await proposeFact({
       userId,
       key: "employer",
@@ -190,6 +199,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 1,
       source: { kind: "user" },
     });
+
     assert.equal(truth?.status, "confirmed");
 
     const conflict = await proposeFact({
@@ -199,12 +209,14 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 0.99, // would normally auto-confirm
       source: { kind: "document", id: "doc_leak" },
     });
+
     assert.equal(conflict?.status, "proposed", "a leaked conflicting value must NOT auto-confirm");
 
     // The authoritative value is still the single active confirmed one.
     const confirmed = (await activeRows(userId, "employer")).filter(
       (r) => r.status === "confirmed",
     );
+
     assert.equal(confirmed.length, 1);
     assert.equal(confirmed[0]?.value, "Oliv AI");
   });
@@ -218,6 +230,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 1,
       source: { kind: "user" },
     });
+
     const moved = await proposeFact({
       userId,
       key: "employer",
@@ -225,10 +238,13 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 1,
       source: { kind: "user" },
     });
+
     assert.equal(moved?.status, "confirmed");
+
     const confirmed = (await activeRows(userId, "employer")).filter(
       (r) => r.status === "confirmed",
     );
+
     assert.equal(confirmed.length, 1, "exactly one active confirmed value after a user move");
     assert.equal(confirmed[0]?.value, "NewCo");
     // Recall returns the single authoritative value.
@@ -239,6 +255,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
 
   test("confirming a held single-valued conflict supersedes the prior confirmed value", async () => {
     const userId = await seedUser();
+
     const truth = await proposeFact({
       userId,
       key: "employer",
@@ -246,6 +263,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 1,
       source: { kind: "user" },
     });
+
     assert.equal(truth?.status, "confirmed");
 
     const conflict = await proposeFact({
@@ -255,6 +273,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       confidence: 0.99,
       source: { kind: "document", id: "doc_claim" },
     });
+
     assert.equal(conflict?.status, "proposed");
 
     const confirmedConflict = conflict ? await confirmFact(conflict.id, userId) : null;

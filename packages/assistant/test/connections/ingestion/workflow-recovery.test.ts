@@ -116,6 +116,7 @@ describe("integration workflow recovery", () => {
     console.warn = (...args: unknown[]) => {
       warnings.push(args);
     };
+
     const unregister = registerWorkflowRecoveryHandler(async () => {
       throw new Error("recovery unavailable");
     });

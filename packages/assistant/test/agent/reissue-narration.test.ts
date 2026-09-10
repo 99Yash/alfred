@@ -14,6 +14,7 @@ describe("closeLeadInNarration", () => {
       segmentIndex: 1,
       reissuePending: false,
     };
+
     closeLeadInNarration(state);
     assert.deepEqual(state.narration, [
       { index: 0, text: "Checking your calendar." },
@@ -33,6 +34,7 @@ describe("closeLeadInNarration", () => {
       segmentIndex: 1,
       reissuePending: true,
     };
+
     closeLeadInNarration(state);
     assert.deepEqual(state.narration, [{ index: 0, text: "Pulling everything in at once." }]);
     assert.equal(state.assistantText, "");
@@ -46,6 +48,7 @@ describe("closeLeadInNarration", () => {
       segmentIndex: 0,
       reissuePending: false,
     };
+
     closeLeadInNarration(state);
     assert.deepEqual(state.narration, []);
     assert.equal(state.segmentIndex, 1);
@@ -65,6 +68,7 @@ describe("closeNarrationSegment", () => {
       assistantText: "I've created your spreadsheet.",
       segmentIndex: 0,
     };
+
     assert.equal(closeNarrationSegment(state, prematureAnswer), true);
     assert.deepEqual(state.narration, [{ index: 0, text: "I've created your spreadsheet." }]);
     assert.equal(state.assistantText, "");
@@ -77,6 +81,7 @@ describe("closeNarrationSegment", () => {
       assistantText: "  ",
       segmentIndex: 1,
     };
+
     assert.equal(closeNarrationSegment(state, prematureAnswer), false);
     assert.deepEqual(state.narration, [{ index: 0, text: "Working on it." }]);
     assert.equal(state.segmentIndex, 1);

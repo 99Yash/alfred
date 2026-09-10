@@ -21,4 +21,5 @@ export const triageWorkflowInputSchema = z.object({
    */
   force: z.boolean().optional(),
 });
+
 export type TriageWorkflowInput = z.infer<typeof triageWorkflowInputSchema>;

@@ -20,6 +20,7 @@ import { buildColdStartWebTool } from "./web-tool";
  */
 
 const ASPECT_MAX_STEPS = 4;
+
 /** Findings are ephemeral run-state; the cap keeps the synthesis prompt lean. */
 const ASPECT_MAX_OUTPUT_TOKENS = 1_200;
 
@@ -93,6 +94,7 @@ function buildPrompt(args: {
   const lines: string[] = [];
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
+
   // Deliberately NOT the full email — the local-part is a contact detail that
   // adds nothing to web research and would otherwise ride into the checkpointed
   // finding + synthesis. The resolved anchor + domain disambiguate. (Identity
@@ -104,6 +106,7 @@ function buildPrompt(args: {
   lines.push("");
   lines.push(`Your facet — ${args.aspect.label}:`);
   lines.push(args.aspect.brief);
+
   return lines.join("\n");
 }
 
@@ -116,6 +119,7 @@ async function runAspect(args: {
   abortSignal?: AbortSignal | undefined;
 }): Promise<AspectFinding> {
   const stepId = `aspect:${args.aspect.id}`;
+
   const web = buildColdStartWebTool({
     userId: args.signals.userId,
     runId: args.runId,

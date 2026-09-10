@@ -76,6 +76,7 @@ export async function compactConversationSynchronously(
   const context = await loadContext(args.userId, args.threadId);
   const expectedWatermark = contextWatermark(context);
   const rebuildFromRaw = context?.invalidSummary === true;
+
   if (
     !rebuildFromRaw &&
     expectedWatermark &&
@@ -83,6 +84,7 @@ export async function compactConversationSynchronously(
   ) {
     return { kind: "nothing_to_compact" };
   }
+
   const loaded = await loadEvidence({
     userId: args.userId,
     threadId: args.threadId,
@@ -90,17 +92,21 @@ export async function compactConversationSynchronously(
     afterWatermark: rebuildFromRaw ? null : expectedWatermark,
     throughWatermark: args.throughWatermark,
   });
+
   const summary = await generateSummary({
     evidence: loaded.evidence,
     attribution: args.attribution,
     abortSignal: args.abortSignal,
     timeoutMs: args.timeoutMs,
   });
+
   const eligibleSources = eligibleConversationSummarySources(loaded.evidence);
+
   const estimatedReplayTokens = estimateTranscriptTokens([
     conversationSummaryMessage(summary),
     ...args.replayTail,
   ]);
+
   const persisted = await persistSummary({
     userId: args.userId,
     threadId: args.threadId,
@@ -112,6 +118,7 @@ export async function compactConversationSynchronously(
     replayEstimateWatermark: args.replayTailWatermark,
     eligibleSources,
   });
+
   return persisted
     ? { kind: "persisted", summary, estimatedReplayTokens, watermark: loaded.watermark }
     : { kind: "superseded" };

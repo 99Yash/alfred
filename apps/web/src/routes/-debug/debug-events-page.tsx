@@ -14,6 +14,7 @@ export function DebugEventsPage() {
   const sendDemo = async () => {
     if (!session?.user) return;
     setSending(true);
+
     try {
       await fetch(`${API_URL}/api/events/_demo`, {
         method: "POST",

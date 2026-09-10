@@ -25,6 +25,7 @@ export const corpusTools: readonly RegisteredTool[] = [
     inputSchema: corpusSearchInput,
     execute: async (input, ctx) => {
       const hits = await ctx.corpus.search({ query: input.query, userId: ctx.userId });
+
       return { ok: true, query: input.query, hits };
     },
   }),

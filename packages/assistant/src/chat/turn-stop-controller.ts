@@ -46,7 +46,9 @@ export function createTurnStopController(
 
   const checkStop = (): Promise<boolean> => {
     if (stopRequested) return Promise.resolve(true);
+
     if (Date.now() - lastStopCheck < STOP_CHECK_MS) return Promise.resolve(false);
+
     if (stopCheckInFlight) return stopCheckInFlight;
     lastStopCheck = Date.now();
     stopCheckInFlight = isStopRequested(runId)
@@ -55,11 +57,13 @@ export function createTurnStopController(
           stopRequested = true;
           controller.abort();
         }
+
         return stopRequested;
       })
       .finally(() => {
         stopCheckInFlight = undefined;
       });
+
     return stopCheckInFlight;
   };
 
@@ -69,6 +73,7 @@ export function createTurnStopController(
         console.warn(`[chat-turn] stop polling failed (run ${runId}):`, toMessage(error));
       });
     }, STOP_CHECK_MS);
+
     return () => clearInterval(handle);
   };
 

@@ -20,6 +20,7 @@ import {
 function gen(output: unknown, startTime: string): TraceObservation {
   return { type: "GENERATION", name: "agent:chat", startTime, output };
 }
+
 function span(
   toolName: string,
   input: unknown,
@@ -60,6 +61,7 @@ describe("extractTrajectory", () => {
         span("system.read_user_context", { query: "client" }, "2026-06-26T01:00:01"),
       ],
     };
+
     const tj = extractTrajectory(trace);
     assert.deepEqual(
       tj.steps.map((s) => [s.toolName, s.status]),
@@ -90,6 +92,7 @@ describe("extractTrajectory", () => {
         span("github.search", { q: "is:open" }, "2026-06-26T01:00:02", { toolCallId: "c1" }),
       ],
     };
+
     const tj = extractTrajectory(trace);
     assert.deepEqual(
       tj.steps.map((s) => s.toolName),
@@ -134,6 +137,7 @@ describe("extractTrajectory", () => {
         ),
       ],
     };
+
     const tj = extractTrajectory(trace);
     assert.deepEqual(tj.decidedNotExecuted, [
       { toolName: "calendar.list_events", input: { timeframe: "today" } },
@@ -166,6 +170,7 @@ describe("diffTrajectories", () => {
         span("drive.download_file", { id: "f1" }, "t3"),
       ],
     };
+
     const d = diffTrajectories(extractTrajectory(base()), extractTrajectory(cand));
     assert.equal(d.identical, false);
     assert.equal(d.changed.length, 1);
@@ -185,6 +190,7 @@ describe("diffTrajectories", () => {
         span("drive.download_file", { id: "f1" }, "t3"),
       ],
     };
+
     const d1 = diffTrajectories(extractTrajectory(base()), extractTrajectory(added));
     assert.deepEqual(
       d1.added.map((s) => s.toolName),

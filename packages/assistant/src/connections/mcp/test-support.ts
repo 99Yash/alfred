@@ -27,6 +27,7 @@
  */
 
 export { publishCatalogRevision } from "./persistence";
+
 export { _setMcpConnectionManagerForTests } from "./runtime";
 
 import type { McpAuthorizedOAuth, McpEndpointAuthorizer } from "./endpoint-authorization";
@@ -40,6 +41,7 @@ export function permissiveMcpOAuthAuthorizationForTests(
     fetch,
     authorizeServer: (input) => {
       const server = new URL(input instanceof URL ? input.href : String(input));
+
       return {
         issuer: server.href,
         origin: server.origin,
@@ -60,6 +62,7 @@ export function permissiveMcpEndpointAuthorizerForTests(
   return {
     authorize: async ({ endpointUrl }) => {
       const authorizedEndpoint = new URL(endpointUrl);
+
       return {
         oauth: permissiveMcpOAuthAuthorizationForTests(authorizedEndpoint, fetch),
         protocol: { endpoint: authorizedEndpoint, fetch },

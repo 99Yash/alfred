@@ -24,6 +24,7 @@ import { GITHUB_API, GITHUB_REST_HEADERS } from "./rest";
  */
 
 const TOKEN_BASE = "https://github.com/login/oauth/access_token";
+
 const USER_BASE = `${GITHUB_API}/user`;
 
 function githubFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
@@ -46,6 +47,7 @@ export interface GithubAppConfig {
 
 export function getGithubAppConfig(): GithubAppConfig {
   const env = serverEnv();
+
   return {
     appId: env.GITHUB_APP_ID,
     slug: env.GITHUB_APP_SLUG,
@@ -61,6 +63,7 @@ export function getGithubAppConfig(): GithubAppConfig {
  *  request_oauth_on_install) authorizes the user in one screen. */
 export function buildInstallUrl(state: string): string {
   const { slug } = getGithubAppConfig();
+
   return `https://github.com/apps/${slug}/installations/new?state=${encodeURIComponent(state)}`;
 }
 
@@ -80,18 +83,24 @@ export async function getInstallation(
 ): Promise<{ accountId: string; accountLogin: string } | null> {
   if (!/^\d+$/.test(installationId)) return null;
   const jwt = await mintAppJwt();
+
   const res = await githubFetch(`${GITHUB_API}/app/installations/${installationId}`, {
     headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${jwt}` },
   });
+
   if (res.status === 404) return null;
+
   if (!res.ok) {
     throw await httpErrorFromResponse("github.app", res, {
       url: `${GITHUB_API}/app/installations/${installationId}`,
     });
   }
+
   const parsed = installationSchema.parse(await res.json());
   const acct = parsed.account;
+
   if (!acct) return null;
+
   return { accountId: String(acct.id), accountLogin: acct.login };
 }
 
@@ -99,8 +108,10 @@ export async function getInstallation(
 // jose's importPKCS8 rejects; Node's createPrivateKey auto-detects the
 // encoding and yields a KeyObject jose signs with directly.
 let _signingKey: KeyObject | undefined;
+
 function signingKey(): KeyObject {
   if (!_signingKey) _signingKey = createPrivateKey(getGithubAppConfig().privateKey);
+
   return _signingKey;
 }
 
@@ -108,6 +119,7 @@ function signingKey(): KeyObject {
 export async function mintAppJwt(): Promise<string> {
   const { appId } = getGithubAppConfig();
   const now = Math.floor(Date.now() / 1000);
+
   return new SignJWT({})
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
     .setIssuedAt(now - 60)
@@ -129,27 +141,34 @@ export interface InstallationToken {
 // In-process cache keyed by installation id. Re-mint a couple minutes before
 // expiry so a cached token never goes stale mid-request.
 const _installationTokens = new Map<string, InstallationToken>();
+
 const TOKEN_SAFETY_MS = 5 * 60 * 1000;
 
 export async function getInstallationToken(installationId: string): Promise<InstallationToken> {
   const cached = _installationTokens.get(installationId);
+
   if (cached && cached.expiresAt.getTime() - Date.now() > TOKEN_SAFETY_MS) {
     return cached;
   }
+
   const jwt = await mintAppJwt();
+
   const res = await githubFetch(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, {
     method: "POST",
     headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${jwt}` },
   });
+
   if (!res.ok) {
     throw await httpErrorFromResponse("github.app", res, {
       url: `${GITHUB_API}/app/installations/${installationId}/access_tokens`,
       method: "POST",
     });
   }
+
   const parsed = installationTokenSchema.parse(await res.json());
   const token: InstallationToken = { token: parsed.token, expiresAt: new Date(parsed.expires_at) };
   _installationTokens.set(installationId, token);
+
   return token;
 }
 
@@ -196,6 +215,7 @@ const FAR_FUTURE = () => new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
  */
 export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeResult> {
   const cfg = getGithubAppConfig();
+
   const tokenRes = await githubFetch(TOKEN_BASE, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -206,14 +226,17 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
       redirect_uri: cfg.redirectUri,
     }),
   });
+
   if (!tokenRes.ok) {
     const body = await tokenRes.text().catch(() => "");
     throw new Error(
       `[github.app] user code exchange failed: ${tokenRes.status} ${body.slice(0, 300)}`,
     );
   }
+
   const tokenJson = await tokenRes.json();
   const parsed = userTokenResponseSchema.safeParse(tokenJson);
+
   if (!parsed.success) {
     throw new Error(
       `[github.app] user code exchange returned non-token payload: ${getStringPath(tokenJson, "error") ?? ""} ${getStringPath(tokenJson, "error_description") ?? ""}`.trim(),
@@ -223,9 +246,11 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
   const userRes = await githubFetch(USER_BASE, {
     headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${parsed.data.access_token}` },
   });
+
   if (!userRes.ok) {
     throw await httpErrorFromResponse("github.app", userRes, { url: USER_BASE });
   }
+
   const user = githubUserSchema.parse(await userRes.json());
 
   return {
@@ -256,16 +281,19 @@ export async function canUserAccessInstallation(args: {
 
   const url = new URL(`${GITHUB_API}/user/installations/${args.installationId}/repositories`);
   url.searchParams.set("per_page", "1");
+
   const res = await githubFetch(url, {
     headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${args.accessToken}` },
   });
 
   if (res.status === 403 || res.status === 404) return false;
+
   if (!res.ok) {
     throw await httpErrorFromResponse("github.app", res, { url: url.toString() });
   }
 
   userInstallationRepositoriesSchema.parse(await res.json());
+
   return true;
 }
 
@@ -276,5 +304,6 @@ export async function canUserAccessInstallation(args: {
  */
 export function verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
   const { webhookSecret } = getGithubAppConfig();
+
   return signatureMatches(`sha256=${hmacSha256Hex(webhookSecret, rawBody)}`, signatureHeader);
 }

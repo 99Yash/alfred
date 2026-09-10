@@ -57,16 +57,19 @@ export function splitPersistedToolCalls(
 ): PersistedToolCallSplit {
   const cards: SyncedChatToolCall[] = [];
   const offers = new Map<string, ChatConnectNudge>();
+
   for (const call of toolCalls) {
     if (call.connectNudge === undefined) {
       cards.push(call);
       continue;
     }
+
     // A bounce whose persisted repair no longer parses (see the sync schema):
     // neither a card nor an offer.
     if (call.connectNudge === null) continue;
     offers.set(call.connectNudge.integration, call.connectNudge);
   }
+
   return { cards, nudges: [...offers.values()] };
 }
 
@@ -89,9 +92,12 @@ export function presentConnectNudges(
 ): ConnectNudgeView[] {
   if (statusBySlug === undefined) return [];
   const views: ConnectNudgeView[] = [];
+
   for (const nudge of nudges) {
     const slug = nudge.integration;
+
     if (!isLiveProviderSlug(slug)) continue;
+
     if (statusBySlug.get(slug) === "connected") continue;
     const { name, brand } = integrationPage(slug);
     views.push({
@@ -107,5 +113,6 @@ export function presentConnectNudges(
       cta: `${nudge.action === "connect" ? "Connect" : "Reconnect"} ${name}`,
     });
   }
+
   return views;
 }

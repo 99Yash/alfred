@@ -551,7 +551,9 @@ export function matchLine(line, file, lanes) {
   if (line.includes("// drift-ok")) return [];
   // Skip whole-line comments — doc examples of a banned idiom are not drift.
   const trimmed = line.trim();
+
   if (trimmed.startsWith("//") || trimmed.startsWith("*")) return [];
+
   return RULES.filter(
     (rule) =>
       rule.scope !== "chain" &&
@@ -601,25 +603,34 @@ export function matchChains(text, file, lanes) {
   const lines = text.split("\n");
   /** @type {{rule: ConsolidationRule, line: number, text: string}[]} */
   const found = [];
+
   for (const rule of RULES) {
     if (rule.scope !== "chain") continue;
+
     if (lanes !== "all" && rule.severity !== "gate") continue;
+
     if (!coversFile(rule, file)) continue;
     const re = new RegExp(rule.re.source, `${rule.re.flags.replace(/g/g, "")}g`);
+
     for (let m = re.exec(code); m !== null; m = re.exec(code)) {
       // Widen the match to the whole lines it touches: that is the unit the
       // reported snippet works in.
       const start = code.lastIndexOf("\n", m.index) + 1;
       const lineEnd = code.indexOf("\n", m.index + m[0].length);
       const first = code.slice(0, start).split("\n").length - 1;
+
       const last =
         lineEnd === -1 ? lines.length - 1 : code.slice(0, lineEnd).split("\n").length - 1;
+
       // Then widen again, for the marker only, over the comment block above.
       let markerFrom = first;
+
       while (markerFrom > 0 && isCommentLine(lines[markerFrom - 1])) markerFrom--;
+
       const exempt = lines
         .slice(markerFrom, last + 1)
         .some((line) => /\/\/\s*drift-ok:\s*\S/.test(line));
+
       if (exempt) continue;
       found.push({
         rule,
@@ -632,5 +643,6 @@ export function matchChains(text, file, lanes) {
       });
     }
   }
+
   return found;
 }

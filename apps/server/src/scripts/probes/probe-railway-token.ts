@@ -36,6 +36,7 @@ async function run(
       body: JSON.stringify({ query, variables: variables ?? {} }),
       signal: AbortSignal.timeout(30_000),
     });
+
     const text = await res.text();
     console.log(`\n=== ${label} ===\nHTTP ${res.status}\n${text.slice(0, 1500)}`);
   } catch (err) {
@@ -45,6 +46,7 @@ async function run(
 
 async function main(): Promise<void> {
   const token = process.env.RAILWAY_TOKEN ?? process.argv[2];
+
   if (!token) {
     console.error("Pass a token via RAILWAY_TOKEN=... or as the first argument.");
     process.exit(1);
@@ -68,6 +70,7 @@ async function main(): Promise<void> {
   );
 
   const workspaceId = process.env.RAILWAY_WORKSPACE_ID;
+
   if (workspaceId) {
     await run(
       token,

@@ -19,7 +19,9 @@ import { resolveTodosForGmailSender, suggestTodo } from "@alfred/assistant/tasks
 const SENDER_SUPPRESSION_REASON = "standing_instruction_sender_suppression";
 
 type RememberSenderSuppressionResult = Awaited<ReturnType<typeof rememberSenderSuppression>>;
+
 type ResolveSenderTodosResult = Awaited<ReturnType<typeof resolveTodosForGmailSender>>;
+
 export type RememberAndDismissResult =
   | (Extract<RememberSenderSuppressionResult, { ok: true }> & {
       resolvedTodos: ResolveSenderTodosResult;
@@ -66,7 +68,9 @@ interface SenderSuppressionDependencies {
 }
 
 type RememberRequest = SystemToolRequest<"system.remember">;
+
 type RememberInput = RememberRequest["input"];
+
 /**
  * One sender to remember: the single-sender fields of the tool input. A
  * `senders[]` entry is the same pair with the email required, so it is
@@ -97,6 +101,7 @@ async function rememberOneSender(
       meta: { runId: context.runId, stepId: context.stepId },
     },
   });
+
   if (!result.ok) return result;
 
   const resolvedTodos = await dependencies.dismissTodos({
@@ -105,6 +110,7 @@ async function rememberOneSender(
     accountId: result.instruction.target.accountId,
     reason: SENDER_SUPPRESSION_REASON,
   });
+
   return { ...result, resolvedTodos };
 }
 
@@ -122,6 +128,7 @@ export function createRememberSenderSuppressionCoordinator(
 ): (args: RememberRequest) => Promise<RememberAndDismissResult | RememberAndDismissBatchResult> {
   return async (args) => {
     const { input } = args;
+
     if (!input.senders) {
       return rememberOneSender(dependencies, args, {
         senderEmail: input.senderEmail,
@@ -132,17 +139,20 @@ export function createRememberSenderSuppressionCoordinator(
     // Keyed by email so a sender named twice (or once at the top level and
     // once in the array) is remembered once; the first spelling's label wins.
     const entries = new Map<string, SenderEntry>();
+
     if (input.senderEmail) {
       entries.set(input.senderEmail, {
         senderEmail: input.senderEmail,
         senderLabel: input.senderLabel,
       });
     }
+
     for (const entry of input.senders) {
       if (!entries.has(entry.senderEmail)) entries.set(entry.senderEmail, entry);
     }
 
     const results: RememberAndDismissBatchResult["results"] = [];
+
     for (const [senderEmail, entry] of entries) {
       try {
         results.push({ senderEmail, result: await rememberOneSender(dependencies, args, entry) });
@@ -153,8 +163,10 @@ export function createRememberSenderSuppressionCoordinator(
         });
       }
     }
+
     const rememberedCount = results.filter(({ result }) => result.ok).length;
     const failedCount = results.filter(({ result }) => result.status === "failed").length;
+
     return {
       ok: rememberedCount > 0,
       status: "batch",
@@ -216,6 +228,7 @@ const knowledgeAdapter: SystemToolKnowledgeAdapter = {
       stepId: context.stepId,
       idempotencyKey: context.toolCallId,
     });
+
     return { ok: true, query: input.query, answer, citations, results, searchQueries };
   },
 };
@@ -243,6 +256,7 @@ const taskAdapter: SystemToolTaskAdapter = {
 };
 
 let unregisterKnowledge: (() => void) | undefined;
+
 let unregisterTasks: (() => void) | undefined;
 
 export function registerSystemToolProductAdapters(): void {

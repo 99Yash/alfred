@@ -46,11 +46,14 @@ export function buildConnectedSummaryFromAvailability(
     allowedIntegrations,
     context,
   });
+
   const allowed = new Set(allowedIntegrations);
   const lines: string[] = [];
+
   for (const entry of LIVE_PROVIDERS) {
     if (allowed.size > 0 && !allowed.has(entry.slug)) continue;
     const access = availability.integrations.get(entry.slug);
+
     if (!access || access.health === null) continue;
     // List the fully-qualified tool names (`calendar.list_events`), not the
     // bare actions. A slug-then-actions shape ("calendar — list_events, …")
@@ -61,6 +64,7 @@ export function buildConnectedSummaryFromAvailability(
     const identity = entry.identityInSummary ? access.accountLabel : null;
     const binding = identity ? ` — connected as ${identity}` : "";
     const tools = availableByIntegration.get(entry.slug) ?? [];
+
     // A slug with credentials but no executable tools needs reauthorization.
     // Exact tool availability wins when a narrower scope still supports part
     // of the integration (for example Gmail read without Gmail send).
@@ -70,9 +74,11 @@ export function buildConnectedSummaryFromAvailability(
       );
       continue;
     }
+
     if (tools.length > 0) lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${binding}`);
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;
+
   return [CONNECTED_HEADER, ...lines].join("\n");
 }

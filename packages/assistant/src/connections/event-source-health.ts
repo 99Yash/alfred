@@ -126,21 +126,28 @@ export async function readEventSourceHealth(
   now: Date,
 ): Promise<EventSourceHealthMap> {
   const inbound = readInboundTriggerHealth(userId, rows);
+
   const entries = await Promise.all(
     EVENT_SOURCES.map(async (source): Promise<[EventSource, EventSourceHealth]> => {
       if (isInboundEventSource(source)) {
         return [source, { grain: "source", health: (await inbound)[source] }];
       }
+
       const reader = inProcessReader(source);
+
       if (reader === "healthy_by_construction")
         return [source, { grain: "source", health: HEALTHY }];
+
       if (reader.grain === "account") {
         const healthOf = await reader.read(userId, rows, now);
+
         return [source, { grain: "account", accounts: reader.accounts, healthOf }];
       }
+
       return [source, { grain: "source", health: await reader.read(userId, rows, now) }];
     }),
   );
+
   // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
   // from EVENT_SOURCES, so the keys are exactly EventSource.
   return Object.fromEntries(entries) as Record<EventSource, EventSourceHealth>;

@@ -25,6 +25,7 @@ export function ConnectedAccounts({
   connected: boolean;
 }) {
   const accounts = provider.connectedAccounts ?? [];
+
   // A planned provider has no credential rows, so nothing to disconnect.
   const credentialProvider = isLiveProviderSlug(provider.slug)
     ? credentialProviderOf(provider.slug)
@@ -79,10 +80,12 @@ export function ConnectedAccounts({
 function AccountStatus({ account }: { account: ConnectedAccount }) {
   if (account.pushStale) {
     const { since, baseline } = account.pushStale;
+
     const detail =
       baseline === "push-received"
         ? `Last Gmail push received ${formatDateTime(since)}.`
         : `No Gmail push received. Watch installed ${formatDateTime(since)}.`;
+
     return (
       <span
         className="inline-flex items-center gap-1.5 text-sm text-app-fg-3"
@@ -94,6 +97,7 @@ function AccountStatus({ account }: { account: ConnectedAccount }) {
       </span>
     );
   }
+
   return (
     <span className="inline-flex items-center gap-1.5 text-sm text-app-fg-3">
       <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
@@ -169,7 +173,9 @@ function DisconnectControl({
 
 function formatConnectedDate(iso: string): string {
   const d = new Date(iso);
+
   if (Number.isNaN(d.getTime())) return "—";
+
   return d.toLocaleDateString(undefined, {
     month: "long",
     day: "numeric",

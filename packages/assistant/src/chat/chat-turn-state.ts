@@ -31,6 +31,7 @@ const pendingToolCallSchema = basePendingToolCallSchema.extend({
   /** Narration segment this call follows (see `chatRunStateSchema.segmentIndex`). */
   segmentIndex: z.number().int().nonnegative().default(0),
 });
+
 export type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const toolCallLogSchema = z.object({
@@ -199,6 +200,7 @@ export const chatRunStateSchema = z
     // the best timestamp available for an already-started legacy checkpoint.
     startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
   }));
+
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
 /**
@@ -211,10 +213,13 @@ export function assertStableChatSystem(
   systemPrompt: string,
 ): void {
   const hash = createHash("sha256").update(systemPrompt).digest("hex");
+
   if (state.systemPromptHash === undefined) {
     state.systemPromptHash = hash;
+
     return;
   }
+
   if (state.systemPromptHash === hash) return;
   throw new Error(
     "[chat] system prompt changed within a cache-stable chat run. " +
@@ -228,6 +233,7 @@ export function admitPdfDesignGuide(
 ): AgentTranscriptMessage | undefined {
   if (state.artifactDesignMedium !== "pdf" || state.pdfDesignGuideAdmitted) return;
   state.pdfDesignGuideAdmitted = true;
+
   // A trailing assistant message is an unsupported prefill on the Anthropic
   // fallback. Like finalize-guard notes, runtime guidance uses the user role.
   return { role: "user", content: ARTIFACT_DOCUMENT_DESIGN_PROMPT };
@@ -247,6 +253,7 @@ export function interruptChatRun(
   // (`await_sub_agent`), an HIL wake is a gated action waiting on the user.
   state.parkedAt = new Date().toISOString();
   state.parkKind = wake.kind === "hil" ? "gate" : "join";
+
   return { kind: "interrupt", state, transcript, wake };
 }
 
@@ -268,9 +275,11 @@ export function foldResumedPark(
   if (state.parkedAt === undefined || state.parkKind === undefined) return 0;
   const parkedAtMs = Date.parse(state.parkedAt);
   const gap = Number.isFinite(parkedAtMs) ? Math.max(0, now - parkedAtMs) : 0;
+
   if (state.parkKind === "join") state.dispatchMs += gap;
   state.parkedAt = undefined;
   state.parkKind = undefined;
+
   return gap;
 }
 
@@ -322,15 +331,19 @@ export function closeNarrationSegment(
   close: NarrationClose,
 ): boolean {
   const kept = close.keepText && state.assistantText.trim().length > 0;
+
   if (!kept && !close.advanceWhenNothingKept) return false;
+
   if (kept) {
     state.narration = [
       ...state.narration,
       { index: state.segmentIndex, text: state.assistantText },
     ];
   }
+
   state.assistantText = "";
   state.segmentIndex += 1;
+
   return kept;
 }
 

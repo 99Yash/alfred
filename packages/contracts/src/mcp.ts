@@ -27,7 +27,9 @@ export const mcpConnectionStatusValues = [
   "auth_required",
   "failed",
 ] as const;
+
 export type McpConnectionStatus = (typeof mcpConnectionStatusValues)[number];
+
 export const mcpConnectionStatusSchema = z.enum(mcpConnectionStatusValues);
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,7 @@ export const mcpServerIdentitySchema = z.object({
   hasTools: z.boolean(),
   toolsListChanged: z.boolean(),
 });
+
 export type McpServerIdentity = z.infer<typeof mcpServerIdentitySchema>;
 
 // ---------------------------------------------------------------------------
@@ -52,11 +55,15 @@ export type McpServerIdentity = z.infer<typeof mcpServerIdentitySchema>;
 // Defaults are conservative: unknown effect handled as effectful, never retry.
 // ---------------------------------------------------------------------------
 export const mcpEffectClassValues = ["read", "write", "unknown"] as const;
+
 export type McpEffectClass = (typeof mcpEffectClassValues)[number];
+
 export const mcpEffectClassSchema = z.enum(mcpEffectClassValues);
 
 export const mcpRetryContractValues = ["never", "same_key", "reconcile"] as const;
+
 export type McpRetryContract = (typeof mcpRetryContractValues)[number];
+
 export const mcpRetryContractSchema = z.enum(mcpRetryContractValues);
 
 // ---------------------------------------------------------------------------
@@ -74,15 +81,21 @@ export const mcpAttemptLifecycleValues = [
   "delivery_possible",
   "response_received",
 ] as const;
+
 export type McpAttemptLifecycle = (typeof mcpAttemptLifecycleValues)[number];
+
 export const mcpAttemptLifecycleSchema = z.enum(mcpAttemptLifecycleValues);
 
 export const mcpEffectOutcomeValues = ["succeeded", "rejected", "failed", "unknown"] as const;
+
 export type McpEffectOutcome = (typeof mcpEffectOutcomeValues)[number];
+
 export const mcpEffectOutcomeSchema = z.enum(mcpEffectOutcomeValues);
 
 export const mcpRetryDispositionValues = ["safe", "blocked", "reconcile", "same_key_only"] as const;
+
 export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
+
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 
 // ---------------------------------------------------------------------------
@@ -90,11 +103,14 @@ export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 // staging proposal and decided input remain server-side.
 // ---------------------------------------------------------------------------
 export const mcpRecoveryDecisionSchema = z.enum(["confirmed_succeeded", "confirmed_not_applied"]);
+
 export type McpRecoveryDecision = z.infer<typeof mcpRecoveryDecisionSchema>;
+
 /** The one request body the resolve route accepts; the HTTP layer validates with it directly. */
 export const mcpRecoveryDecisionBodySchema = z
   .object({ decision: mcpRecoveryDecisionSchema })
   .strict();
+
 export type McpRecoveryDecisionBody = z.infer<typeof mcpRecoveryDecisionBodySchema>;
 
 const mcpRecoveryOperationBaseSchema = z.object({
@@ -140,19 +156,26 @@ export const mcpRecoveryOperationSchema = z.union([
     })
     .strict(),
 ]);
+
 export type McpRecoveryOperation = z.infer<typeof mcpRecoveryOperationSchema>;
 
 /** Twenty keeps the card-heavy recovery view bounded while showing a useful batch. */
 export const MCP_RECOVERY_PAGE_SIZE = 20;
+
 export const mcpRecoveryCursorSchema = z.string().min(1);
+
 export const mcpRecoveryOperationsPageQuerySchema = z
   .object({ cursor: mcpRecoveryCursorSchema.optional() })
   .strict();
+
 export type McpRecoveryOperationsPageQuery = z.infer<typeof mcpRecoveryOperationsPageQuerySchema>;
+
 export const mcpRecoveryOperationsPageInputSchema = mcpRecoveryOperationsPageQuerySchema
   .extend({ userId: z.string().min(1) })
   .strict();
+
 export type McpRecoveryOperationsPageInput = z.infer<typeof mcpRecoveryOperationsPageInputSchema>;
+
 /**
  * One page of the recovery list. The read is pure: it never repairs a row.
  * `awaitingRepair` counts the owner's invocations whose provider phase ended
@@ -167,6 +190,7 @@ export const mcpRecoveryOperationsPageSchema = z
     awaitingRepair: z.number().int().nonnegative(),
   })
   .strict();
+
 export type McpRecoveryOperationsPage = z.infer<typeof mcpRecoveryOperationsPageSchema>;
 
 export const mcpRecoveryMutationStatusSchema = z.enum([
@@ -176,6 +200,7 @@ export const mcpRecoveryMutationStatusSchema = z.enum([
   "ambiguous",
   "blocked",
 ]);
+
 export const mcpRecoveryMutationResultSchema = z
   .object({
     status: mcpRecoveryMutationStatusSchema,
@@ -183,6 +208,7 @@ export const mcpRecoveryMutationResultSchema = z
     successorInvocationId: z.string().nullable(),
   })
   .strict();
+
 export type McpRecoveryMutationResult = z.infer<typeof mcpRecoveryMutationResultSchema>;
 
 // ---------------------------------------------------------------------------
@@ -202,7 +228,9 @@ export const mcpContentKindValues = [
   "resource",
   "unknown",
 ] as const;
+
 export type McpContentKind = (typeof mcpContentKindValues)[number];
+
 export const mcpContentKindSchema = z.enum(mcpContentKindValues);
 
 // ---------------------------------------------------------------------------
@@ -246,6 +274,7 @@ export const mcpResultProvenanceSchema = z.object({
   /** The model projection was bounded/clipped on the way out. */
   truncated: z.boolean(),
 });
+
 export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;
 
 // ---------------------------------------------------------------------------
@@ -270,6 +299,7 @@ export const mcpExternalToolRefSchema = z
     catalogRevision: z.string().min(1),
   })
   .strict();
+
 export type ExternalToolRef = z.infer<typeof mcpExternalToolRefSchema>;
 
 export const mcpCallInput = z
@@ -283,6 +313,7 @@ export const mcpCallInput = z
     arguments: jsonObjectSchema,
   })
   .strict();
+
 export type McpCallInput = z.infer<typeof mcpCallInput>;
 
 /**
@@ -292,6 +323,7 @@ export type McpCallInput = z.infer<typeof mcpCallInput>;
  * explicitly selected `remoteName` (issue clarification #5).
  */
 export const MCP_LIST_TOOLS_MAX_LIMIT = 50;
+
 export const MCP_LIST_TOOLS_DEFAULT_LIMIT = 25;
 
 /**
@@ -306,7 +338,9 @@ export const MCP_LIST_TOOLS_DEFAULT_LIMIT = 25;
  *    narrowing with `query` or asking for one descriptor.
  */
 export const mcpListToolsDetailValues = ["names", "summary"] as const;
+
 export type McpListToolsDetail = (typeof mcpListToolsDetailValues)[number];
+
 export const mcpListToolsDetailSchema = z.enum(mcpListToolsDetailValues);
 
 export const mcpToolSearchInputSchema = z
@@ -324,6 +358,7 @@ export const mcpToolSearchInputSchema = z
     limit: z.coerce.number().int().positive().max(MCP_LIST_TOOLS_MAX_LIMIT).optional(),
   })
   .strict();
+
 export type McpToolSearchInput = z.infer<typeof mcpToolSearchInputSchema>;
 
 export const mcpToolInspectInputSchema = z
@@ -331,6 +366,7 @@ export const mcpToolInspectInputSchema = z
     ref: mcpExternalToolRefSchema,
   })
   .strict();
+
 export type McpToolInspectInput = z.infer<typeof mcpToolInspectInputSchema>;
 
 /**
@@ -346,7 +382,9 @@ export const mcpListToolsInput = z
   .strict()
   .superRefine((input, ctx) => {
     const inputKeys = Object.keys(input);
+
     if (!inputKeys.includes("ref")) return;
+
     if (input.ref === undefined || inputKeys.some((key) => key !== "ref")) {
       ctx.addIssue({
         code: "custom",
@@ -354,6 +392,7 @@ export const mcpListToolsInput = z
       });
     }
   });
+
 export type McpListToolsInput = z.infer<typeof mcpListToolsInput>;
 
 export type McpListToolsOperation =
@@ -363,9 +402,11 @@ export type McpListToolsOperation =
 /** Parse the provider-compatible root object into its strict domain operation. */
 export function parseMcpListToolsOperation(input: unknown): McpListToolsOperation {
   const parsed = mcpListToolsInput.parse(input);
+
   if (parsed.ref !== undefined) {
     return { operation: "inspect", input: { ref: parsed.ref } };
   }
+
   return { operation: "search", input: mcpToolSearchInputSchema.parse(parsed) };
 }
 
@@ -376,6 +417,7 @@ export const mcpDiscoveryConnectionSchema = z
     label: z.string().min(1),
   })
   .strict();
+
 export type McpDiscoveryConnection = z.infer<typeof mcpDiscoveryConnectionSchema>;
 
 function enforceConnectionRefIdentity(
@@ -400,6 +442,7 @@ function enforceInspectionIdentity(
   ctx: z.RefinementCtx,
 ): void {
   enforceConnectionRefIdentity(input, ctx);
+
   if (input.tool.name !== input.ref.remoteName) {
     ctx.addIssue({
       code: "custom",
@@ -419,6 +462,7 @@ export const mcpToolDiscoveryHitSchema = z
   })
   .strict()
   .superRefine(enforceConnectionRefIdentity);
+
 export type McpToolDiscoveryHit = z.infer<typeof mcpToolDiscoveryHitSchema>;
 
 export const mcpToolDiscoveryPageSchema = z
@@ -428,6 +472,7 @@ export const mcpToolDiscoveryPageSchema = z
     nextCursor: z.string().min(1).nullable(),
   })
   .strict();
+
 export type McpToolDiscoveryPage = z.infer<typeof mcpToolDiscoveryPageSchema>;
 
 export const mcpToolInspectionSuccessSchema = z
@@ -439,6 +484,7 @@ export const mcpToolInspectionSuccessSchema = z
   })
   .strict()
   .superRefine(enforceInspectionIdentity);
+
 export type McpToolInspectionSuccess = z.infer<typeof mcpToolInspectionSuccessSchema>;
 
 export const mcpToolInspectionNotFoundSchema = z
@@ -448,6 +494,7 @@ export const mcpToolInspectionNotFoundSchema = z
     message: z.string(),
   })
   .strict();
+
 export type McpToolInspectionNotFound = z.infer<typeof mcpToolInspectionNotFoundSchema>;
 
 export const mcpToolInspectionCatalogStaleSchema = z
@@ -457,6 +504,7 @@ export const mcpToolInspectionCatalogStaleSchema = z
     message: z.string(),
   })
   .strict();
+
 export type McpToolInspectionCatalogStale = z.infer<typeof mcpToolInspectionCatalogStaleSchema>;
 
 export const mcpToolInspectionResultSchema = z.union([
@@ -464,4 +512,5 @@ export const mcpToolInspectionResultSchema = z.union([
   mcpToolInspectionNotFoundSchema,
   mcpToolInspectionCatalogStaleSchema,
 ]);
+
 export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSchema>;

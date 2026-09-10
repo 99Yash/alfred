@@ -48,8 +48,10 @@ export const DEFAULT_SIGNIFICANCE_WEIGHTS: SignificanceWeights = {
 
 /** Correspondence volume at which the (log-scaled) frequency component ~saturates. */
 const VOLUME_SATURATION = 40;
+
 /** Half-life (days) of the recency component — ~one quarter. */
 const RECENCY_HALFLIFE_DAYS = 90;
+
 /** Co-recipient touches count for less than a direct send/receive. */
 const CO_RECIPIENT_WEIGHT = 0.25;
 
@@ -81,6 +83,7 @@ export function computeSignificance(
   const frequency = volume <= 0 ? 0 : clamp01(Math.log1p(volume) / Math.log1p(VOLUME_SATURATION));
 
   const lastSeen = stats.lastSeenAt ? new Date(stats.lastSeenAt) : null;
+
   const recency =
     lastSeen && !Number.isNaN(lastSeen.getTime())
       ? clamp01(
@@ -120,7 +123,9 @@ export function computeSignificance(
 function domainOf(email: string | null | undefined): string | null {
   if (!email) return null;
   const at = email.lastIndexOf("@");
+
   if (at < 1 || at === email.length - 1) return null;
+
   return email.slice(at + 1).toLowerCase();
 }
 
@@ -135,9 +140,12 @@ export async function loadUserDomains(userId: string): Promise<Set<string>> {
     .from(user)
     .where(eq(user.id, userId))
     .limit(1);
+
   const domains = new Set<string>();
   const d = domainOf(rows[0]?.email ?? null);
+
   if (d) domains.add(d);
+
   return domains;
 }
 
@@ -190,6 +198,7 @@ export async function runSignificancePass(
   for (const row of rows) {
     const meta = parsePersonEntityMetadata(row.metadata);
     const stats = meta.correspondence;
+
     if (!stats) continue; // no correspondence aggregate → nothing to score
 
     const sameOrg = meta.domain ? userDomains.has(meta.domain) : false;
@@ -224,6 +233,7 @@ export async function runSignificancePass(
   }
 
   scoredRows.sort((a, b) => b.score - a.score);
+
   return { total: rows.length, scored: scoredRows.length, top: scoredRows.slice(0, 15) };
 }
 
@@ -242,6 +252,7 @@ export async function findPersonMetadataByAddress(
   address: string,
 ): Promise<PersonEntityMetadata | null> {
   const target = address.trim().toLowerCase();
+
   if (!target) return null;
 
   const rows = await db()
@@ -260,6 +271,7 @@ export async function findPersonMetadataByAddress(
     .limit(1);
 
   if (rows.length === 0) return null;
+
   return parsePersonEntityMetadata(rows[0]?.metadata);
 }
 
@@ -292,6 +304,7 @@ export async function getSenderSignificance(
   if (!address) return null;
 
   let meta: PersonEntityMetadata | null;
+
   try {
     meta = await findPersonMetadataByAddress(userId, address);
   } catch {
@@ -299,6 +312,7 @@ export async function getSenderSignificance(
   }
 
   const significance = meta?.significance;
+
   if (!significance) return null;
 
   return {
@@ -324,14 +338,18 @@ export async function getSenderSignificanceBatch(
   const out = new Map<string, SenderSignificance>();
 
   const targets = new Set<string>();
+
   for (const raw of addresses) {
     const normalized = raw?.trim().toLowerCase();
+
     if (normalized) targets.add(normalized);
   }
+
   if (targets.size === 0) return out;
   const targetList = [...targets];
 
   let rows: { metadata: unknown; aliases: unknown }[];
+
   try {
     rows = await db()
       .select({ metadata: entities.metadata, aliases: entities.aliases })
@@ -348,24 +366,30 @@ export async function getSenderSignificanceBatch(
       );
   } catch (err) {
     console.warn(`[knowledge.significance] batch alias read failed: ${toMessage(err)}`);
+
     return out;
   }
 
   for (const row of rows) {
     const meta = parsePersonEntityMetadata(row.metadata);
     const significance = meta?.significance;
+
     if (!significance) continue;
+
     const resolved: SenderSignificance = {
       score: significance.score,
       band: bucketSignificance(significance.score),
       sameOrg: significance.components.sameOrg >= 1,
     };
+
     // Map every requested address this entity carries as an alias back to its
     // significance — one entity can answer several of the distinct senders.
     const aliases = Array.isArray(row.aliases) ? row.aliases : [];
+
     for (const alias of aliases) {
       if (typeof alias !== "string") continue;
       const normalized = alias.trim().toLowerCase();
+
       if (targets.has(normalized)) out.set(normalized, resolved);
     }
   }

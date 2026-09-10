@@ -19,11 +19,14 @@ import { workflowRecoveryStateSchema } from "./ingestion/workflow-recovery";
  */
 
 const KEY_PREFIX = "oauth:state:";
+
 const DEFAULT_TTL_SECONDS = 600; // 10 minutes — generous for slow IdP redirects
 
 let _client: BoundedRedis | undefined;
+
 function client(): BoundedRedis {
   if (!_client) _client = createRedisConnection("command");
+
   return _client;
 }
 
@@ -56,6 +59,7 @@ export async function consumeOAuthNonce(
   nonce: string,
 ): Promise<string | null> {
   const v = await client().getdel(key(provider, nonce));
+
   return v ?? null;
 }
 
@@ -85,21 +89,26 @@ export function signOAuthState(state: SignedOAuthState): string {
   const env = serverEnv();
   const payload = Buffer.from(JSON.stringify(state)).toString("base64url");
   const sig = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
+
   return `${payload}.${sig}`;
 }
 
 export function verifyOAuthState(raw: string): SignedOAuthState | null {
   const env = serverEnv();
   const [payload, sig] = raw.split(".");
+
   if (!payload || !sig) return null;
   const expected = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
+
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+
   try {
     const parsed = signedOAuthStateSchema.safeParse(
       JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
     );
+
     return parsed.success ? parsed.data : null;
   } catch {
     return null;

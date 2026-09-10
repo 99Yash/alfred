@@ -99,6 +99,7 @@ export function Composer({
   const [isDragging, setIsDragging] = useState(false);
   const dragDepth = useRef(0);
   const artifactTargetKey = `alfred:chat-artifact-target:${threadId ?? "new"}`;
+
   // Event-driven mutable state read only at submit time stays off the render
   // path. Seed once from the persisted draft's target (ignoring an orphaned
   // target that has no draft) with a lazy state initializer, so the ref starts
@@ -106,16 +107,21 @@ export function Composer({
   const [initialArtifactTarget] = useState<string | undefined>(() =>
     initialJSON ? (safeGet(artifactTargetKey) ?? undefined) : undefined,
   );
+
   const artifactTargetIdRef = useRef<string | undefined>(initialArtifactTarget);
+
   const setArtifactTargetId = useCallback(
     (targetId: string | undefined) => {
       artifactTargetIdRef.current = targetId;
+
       if (targetId) safeSet(artifactTargetKey, targetId);
       else safeRemove(artifactTargetKey);
     },
     [artifactTargetKey],
   );
+
   const composerDisabled = disabled || sending;
+
   // While a turn is streaming, submitting enqueues instead of being dropped
   // (#489). Keep the composer enabled so the user can line up follow-ups; the
   // send action distinguishes "streaming → enqueue" from "idle → start".
@@ -140,10 +146,12 @@ export function Composer({
   const appliedPrefillNonce = useRef<number | null>(null);
   useEffect(() => {
     if (!prefill || disabled || sending) return;
+
     // Ignore a prefill created for a different thread — the Composer remounts
     // per-thread, so without this a stale prefill would re-apply after the user
     // navigates away from the thread it was requested in.
     if (prefill.threadId !== threadId) return;
+
     if (appliedPrefillNonce.current === prefill.nonce) return;
     appliedPrefillNonce.current = prefill.nonce;
     setArtifactTargetId(prefill.artifactTargetId);
@@ -153,6 +161,7 @@ export function Composer({
   const handleEditorChange = useCallback(
     (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
       onEditorChange(nextText, nextJSON, nextEmpty);
+
       if (nextEmpty) setArtifactTargetId(undefined);
     },
     [onEditorChange, setArtifactTargetId],
@@ -197,6 +206,7 @@ export function Composer({
   const onDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
     if (!e.dataTransfer.types.includes("Files")) return;
     dragDepth.current = Math.max(0, dragDepth.current - 1);
+
     if (dragDepth.current === 0) setIsDragging(false);
   }, []);
 
@@ -204,8 +214,10 @@ export function Composer({
     (e: DragEvent<HTMLDivElement>) => {
       dragDepth.current = 0;
       setIsDragging(false);
+
       if (!e.dataTransfer.files.length) return;
       e.preventDefault();
+
       if (disabled || sending) return;
       attachments.addFiles(e.dataTransfer.files);
     },
@@ -215,10 +227,12 @@ export function Composer({
   const onPaste = useCallback(
     (e: ClipboardEvent<HTMLDivElement>) => {
       const files = Array.from(e.clipboardData.files);
+
       if (files.length === 0) return;
       // Only intercept when the clipboard carries files (pasted image); let
       // normal text paste fall through to the editor.
       e.preventDefault();
+
       if (disabled || sending) return;
       attachments.addFiles(files);
     },
@@ -370,6 +384,7 @@ export function Composer({
 function formatElapsed(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
+
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 

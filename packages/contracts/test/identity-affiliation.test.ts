@@ -152,9 +152,11 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
       classifyEmailDomain({ domain: "mit.edu" }),
       classifyEmailDomain({ email: "noreply@x.com" }),
     ]);
+
     for (const c of seen) {
       if (c !== null) assert.ok(domainClassSchema.safeParse(c).success, String(c));
     }
+
     assert.equal(DOMAIN_CLASSES.length, 4);
   });
 });
@@ -194,6 +196,7 @@ describe("grounding-tier authority ranking (§5)", () => {
       "corroborated_public_or_cold_start",
       "weak_mentions",
     ];
+
     assert.deepEqual([...GROUNDING_TIERS], expected);
   });
 
@@ -216,6 +219,7 @@ describe("grounding-tier authority ranking (§5)", () => {
 describe("per-key grounding rule (§5)", () => {
   test("corporate affiliation grounds employer ONLY", () => {
     assert.equal(canGroundIdentityKey("corporate_affiliation", "employer"), true);
+
     for (const key of ["job_title", "team", "manager", "location", "personal_site"] as const) {
       assert.equal(
         canGroundIdentityKey("corporate_affiliation", key),
@@ -239,6 +243,7 @@ describe("per-key grounding rule (§5)", () => {
       "self_authored_profile_or_signature",
       "corroborated_public_or_cold_start",
     ];
+
     for (const tier of strong) {
       for (const key of PROJECTION_IDENTITY_KEYS) {
         assert.equal(canGroundIdentityKey(tier, key), true, `${tier} should ground ${key}`);
@@ -251,6 +256,7 @@ describe("per-key grounding rule (§5)", () => {
       assert.ok(isUserFactKey(key), key);
       assert.ok(isProjectionIdentityKey(key), key);
     }
+
     assert.equal(isProjectionIdentityKey("birthday"), false);
     assert.equal(isProjectionIdentityKey("not_a_key"), false);
   });
@@ -307,6 +313,7 @@ describe("user_org_affiliation observation kind wiring", () => {
         status: "connected",
       },
     });
+
     assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
     assert.deepEqual(parsed.data?.subjectIdentity, { kind: "user" });
   });
@@ -329,6 +336,7 @@ describe("user_org_affiliation observation kind wiring", () => {
         status: "disconnected",
       },
     });
+
     assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
   });
 
@@ -342,6 +350,7 @@ describe("user_org_affiliation observation kind wiring", () => {
       evidenceHash: "h1",
       subjectIdentity: { kind: "user" as const },
     };
+
     const validPayload = {
       accountId: "google-sub-1",
       accountEmail: "yash@oliv.ai",

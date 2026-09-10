@@ -12,6 +12,7 @@ export function ThoughtRow({
   defaultOpen?: boolean | undefined;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+
   return (
     <div>
       <button

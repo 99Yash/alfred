@@ -25,13 +25,17 @@ import { Tip } from "./tip";
 
 function artifactIcon(artifact: SyncedArtifact, size: number) {
   if (artifact.status === "generating") return <Loader2 size={size} className="animate-spin" />;
+
   return artifact.kind === "pages" ? <Layers size={size} /> : <FileText size={size} />;
 }
 
 function artifactSubtitle(artifact: SyncedArtifact): string {
   if (artifact.status === "generating") return "Generating…";
+
   if (artifact.status === "error") return "Failed to generate";
+
   if (artifact.kind === "pages") return artifact.format === "slides" ? "Slides" : "PDF document";
+
   return "Document";
 }
 
@@ -52,6 +56,7 @@ export function ArtifactMenu({
   // breaks — stamp the resolved theme on the content directly (React context
   // still flows through portals). Same pattern as `ModelTierPicker`.
   const themeCtx = use(AppThemeContext);
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
 
@@ -61,6 +66,7 @@ export function ArtifactMenu({
   if (artifacts.length === 1) {
     const only = artifacts[0]!;
     const active = selectedId === only.id;
+
     return (
       <Tip label={active ? "Hide artifact" : `Open ${only.title}`}>
         <IconButton
@@ -77,6 +83,7 @@ export function ArtifactMenu({
   // 2+ artifacts → a count button opening a picker. The button reads "active"
   // whenever one of this thread's artifacts is the panel's current occupant.
   const panelShowsArtifact = artifacts.some((a) => a.id === selectedId);
+
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <Tip label="View artifacts">
@@ -118,6 +125,7 @@ export function ArtifactMenu({
         >
           {artifacts.map((artifact) => {
             const checked = artifact.id === selectedId;
+
             return (
               <button
                 key={artifact.id}

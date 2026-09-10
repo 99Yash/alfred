@@ -21,6 +21,7 @@ const HEADER_MISMATCH_ERROR_CODE = -32020;
 
 /** Alfred offers no server-callable handlers and no Tasks capability. */
 export const MCP_CLIENT_CAPABILITIES = Object.freeze({}) satisfies ClientCapabilities;
+
 export const MCP_INPUT_REQUIRED_PROFILE = Object.freeze({ autoFulfill: false });
 
 export type McpProtocolCallResult = Awaited<ReturnType<Client["callTool"]>>;
@@ -60,9 +61,12 @@ const MCP_PROTOCOL_PROFILES = {
 >;
 
 type McpProtocolProfile = (typeof MCP_PROTOCOL_PROFILES)[ProtocolEra];
+
 export type McpProtocolEra = McpProtocolProfile["protocolEra"];
+
 export const MCP_SUPPORTED_PROTOCOL_VERSIONS: readonly McpProtocolProfile["protocolVersion"][] =
   Object.freeze(Object.values(MCP_PROTOCOL_PROFILES).map((profile) => profile.protocolVersion));
+
 const MCP_SUPPORTED_PROTOCOL_VERSION_SET: ReadonlySet<string> = new Set(
   MCP_SUPPORTED_PROTOCOL_VERSIONS,
 );
@@ -167,10 +171,13 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       onInsufficientScope: "throw",
       fetch: (input, init) => {
         const connectTrace = this.#connectTrace;
+
         if (!connectTrace) return fetchFn(input, init);
         const headers = new Headers(init?.headers);
         headers.set("traceparent", connectTrace.traceparent);
+
         if (connectTrace.tracestate) headers.set("tracestate", connectTrace.tracestate);
+
         return fetchFn(input, { ...init, headers });
       },
     });
@@ -189,6 +196,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   async connect(trace?: McpTraceContext): Promise<McpProtocolServer> {
     this.#closing = false;
     this.#connectTrace = trace;
+
     // Third-party variance gap, not a claim about our types: the MCP SDK's own
     // transport classes declare `sessionId?: string | undefined` / `onclose?:
     // (() => void) | undefined` while its `Transport` interface declares those
@@ -205,10 +213,12 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     } finally {
       this.#connectTrace = undefined;
     }
+
     const capabilities = this.#client.getServerCapabilities();
     const server = this.#client.getServerVersion();
     const protocolEra = this.#era();
     const protocolVersion = this.#client.getNegotiatedProtocolVersion();
+
     if (!protocolEra || !protocolVersion) {
       // Reachable if a pinned era stops being on offer: `mode: "legacy"` asks
       // for `2025-11-25` alone, so a server that drops it leaves the SDK with
@@ -222,13 +232,16 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
           : "The MCP SDK connected without a negotiated protocol era and version",
       );
     }
+
     if (protocolEra === "post_2026_07_28" && capabilities?.tools?.listChanged === true) {
       const subscription = this.#client.autoOpenedSubscription;
+
       if (!subscription) {
         throw new Error(
           "MCP server advertised tools list changes, but the modern list-change subscription did not open",
         );
       }
+
       void subscription.closed.then((cause) => {
         if (this.#closing || cause === "local") return;
         void this.#connectionUnhealthyHandler?.(
@@ -236,6 +249,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         );
       });
     }
+
     return {
       protocolEra,
       protocolVersion,
@@ -248,11 +262,13 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
   #era(): McpProtocolEra | null {
     const era = this.#client.getProtocolEra();
+
     return era ? MCP_PROTOCOL_PROFILES[era].protocolEra : null;
   }
 
   async close(terminateSession: boolean): Promise<void> {
     this.#closing = true;
+
     if (terminateSession && this.#era() === "pre_2026_07_28" && this.#transport.sessionId) {
       try {
         await this.#transport.terminateSession();
@@ -261,6 +277,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         // must still succeed when a server returns 405 or is already gone.
       }
     }
+
     await this.#client.close();
   }
 
@@ -282,6 +299,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       },
       requestOptions(this.#requestTimeoutMs, signal, trace),
     );
+
     return {
       tools: result.tools,
       ttlMs: normalizeCacheTtl(result.ttlMs),
@@ -314,6 +332,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
 function normalizeCacheTtl(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+
   return Math.min(Math.max(0, value), MAX_CACHE_TTL_MS);
 }
 
@@ -331,6 +350,7 @@ export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiat
       candidate.protocolEra === server.protocolEra &&
       candidate.protocolVersion === server.protocolVersion,
   );
+
   if (profile) {
     const facts = {
       serverName: server.serverName,
@@ -338,6 +358,7 @@ export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiat
       hasTools: server.hasTools,
       toolsListChanged: server.toolsListChanged,
     };
+
     switch (profile.protocolEra) {
       case "pre_2026_07_28":
         return { ...facts, ...profile };
@@ -345,12 +366,15 @@ export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiat
         return { ...facts, ...profile };
     }
   }
+
   const version = server.protocolVersion || "unknown";
+
   if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(version)) {
     throw new Error(
       `Alfred MCP supports protocols ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(" and ")}; server negotiated ${version}`,
     );
   }
+
   throw new Error(
     `MCP protocol era '${server.protocolEra}' does not match negotiated version ${version}`,
   );

@@ -23,6 +23,7 @@ describe("compactWithRetry cost bound", () => {
       compactWithRetry(
         (attempt) => {
           attempts = attempt;
+
           return Promise.reject(new Error("provider blip"));
         },
         { abortSignal: "none" },
@@ -40,6 +41,7 @@ describe("compactWithRetry cost bound", () => {
         (attempt) => {
           attempts = attempt;
           controller.abort();
+
           return Promise.reject(new Error("aborted mid-call"));
         },
         { abortSignal: controller.signal },
@@ -57,6 +59,7 @@ describe("compactWithRetry cost bound", () => {
       compactWithRetry(
         (attempt) => {
           attempts = attempt;
+
           return Promise.reject(new Error("provider blip"));
         },
         {
@@ -64,6 +67,7 @@ describe("compactWithRetry cost bound", () => {
           // Stand in for the user hitting Stop while the loop is backing off.
           delayBeforeRetryMs: () => {
             controller.abort();
+
             return 1;
           },
         },
@@ -79,6 +83,7 @@ describe("compactWithRetry cost bound", () => {
       compactWithRetry(
         (attempt) => {
           attempts = attempt;
+
           return Promise.reject(new Error("compactor_input_too_large"));
         },
         { abortSignal: "none" },
@@ -90,14 +95,18 @@ describe("compactWithRetry cost bound", () => {
 
   test("a success on a later attempt returns without further calls", async () => {
     let attempts = 0;
+
     const compacted = await compactWithRetry(
       (attempt) => {
         attempts = attempt;
+
         if (attempt === 1) return Promise.reject(new Error("provider blip"));
+
         return Promise.resolve(result);
       },
       { abortSignal: "none" },
     );
+
     assert.equal(attempts, 2);
     assert.equal(compacted, result, "the winning attempt's result is what comes back");
   });

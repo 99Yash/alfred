@@ -18,10 +18,13 @@ export function effectiveInputWindowTokens({
   fixedInputOverheadTokens = 0,
 }: ContextWindowBudget): number {
   if (contextWindowTokens <= 0) throw new Error("contextWindowTokens must be positive");
+
   if (outputReserveTokens < 0) throw new Error("outputReserveTokens must be non-negative");
+
   if (fixedInputOverheadTokens < 0) {
     throw new Error("fixedInputOverheadTokens must be non-negative");
   }
+
   return Math.max(0, contextWindowTokens - outputReserveTokens - fixedInputOverheadTokens);
 }
 
@@ -30,6 +33,7 @@ export function requestFitsContextWindow(
   budget: ContextWindowBudget,
 ): boolean {
   if (inputTokens < 0) throw new Error("inputTokens must be non-negative");
+
   return inputTokens <= effectiveInputWindowTokens(budget);
 }
 
@@ -45,6 +49,7 @@ export async function resolveEffectiveInputWindowTokens({
 }): Promise<number> {
   if (models.length === 0) throw new Error("at least one model is required");
   const windows = await Promise.all(models.map((model) => resolveModelContextWindow(model)));
+
   return effectiveInputWindowTokens({
     contextWindowTokens: Math.min(...windows),
     outputReserveTokens,

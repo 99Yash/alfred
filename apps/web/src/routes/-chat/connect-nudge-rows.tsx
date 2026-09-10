@@ -20,13 +20,17 @@ import { presentConnectNudges } from "./connect-nudges";
  */
 export function ConnectNudgeRows({ nudges }: { nudges: readonly ChatConnectNudge[] }) {
   const { integrations, ready } = useResolvedIntegrationsWithReady();
+
   const statusBySlug = useMemo(
     () => (ready ? new Map(integrations.map((p) => [p.slug, p.status])) : undefined),
     [integrations, ready],
   );
+
   const views = useMemo(() => presentConnectNudges(nudges, statusBySlug), [nudges, statusBySlug]);
   const navigate = useNavigate();
+
   if (views.length === 0) return null;
+
   return (
     <>
       {views.map((view) => (

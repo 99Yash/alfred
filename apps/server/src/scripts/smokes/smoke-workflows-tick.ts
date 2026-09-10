@@ -47,11 +47,14 @@ function assert(cond: unknown, msg: string): asserts cond {
 async function findOrCreateSmokeUser(): Promise<string> {
   const email = "smoke-workflows-tick@alfred.local";
   const existing = await db().select().from(userTable).where(eq(userTable.email, email));
+
   if (existing[0]) return existing[0].id;
+
   const inserted = await db()
     .insert(userTable)
     .values({ name: "WF Tick Smoke", email, emailVerified: true })
     .returning({ id: userTable.id });
+
   return inserted[0]!.id;
 }
 
@@ -78,6 +81,7 @@ async function main() {
 
   const fakeSchedule = "*/5 * * * *"; // every 5 minutes
   const scheduledFor = new Date(Date.now() - 60_000); // 60s in the past
+
   const insertedWf = await db()
     .insert(workflows)
     .values({
@@ -94,6 +98,7 @@ async function main() {
       nextRunAt: scheduledFor,
     })
     .returning({ id: workflows.id, nextRunAt: workflows.nextRunAt });
+
   const wfRow = insertedWf[0]!;
   const scheduledForIso = scheduledFor.toISOString();
   console.log(
@@ -111,6 +116,7 @@ async function main() {
     .select()
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
+
   assert(runs.length === 1, `expected exactly 1 run row after tick 1; got ${runs.length}`);
   const run = runs[0]!;
   // SAFETY: agent_runs.trigger is jsonb written by the cron scheduler with
@@ -128,6 +134,7 @@ async function main() {
     .select({ nextRunAt: workflows.nextRunAt, lastScheduledAt: workflows.lastScheduledAt })
     .from(workflows)
     .where(eq(workflows.id, wfRow.id));
+
   const advanced = after1[0]!;
   assert(advanced.nextRunAt, "next_run_at became null after tick 1");
   assert(
@@ -153,6 +160,7 @@ async function main() {
     .select()
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
+
   assert(runs2.length === 1, `tick 2 created an extra run; total=${runs2.length}`);
 
   // --- Race simulation: rewind + concurrent dispatch ---------------------
@@ -164,10 +172,12 @@ async function main() {
     .update(workflows)
     .set({ nextRunAt: replayScheduledFor })
     .where(eq(workflows.id, wfRow.id));
+
   const [raceA, raceB] = await Promise.all([
     dispatchDueCronWorkflows(),
     dispatchDueCronWorkflows(),
   ]);
+
   console.log(`[smoke-workflows-tick] race A=${JSON.stringify(raceA)} B=${JSON.stringify(raceB)}`);
   const totalEnqueued = raceA.enqueued + raceB.enqueued;
   const totalRaced = raceA.raced + raceB.raced;

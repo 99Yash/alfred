@@ -32,14 +32,17 @@ function isTimerOrConnection(kind: string): boolean {
 /** Counts each watched resource type so a delta reads as "how many more of each kind". */
 function timerAndConnectionCounts(): Record<string, number> {
   const counts = new Map<string, number>();
+
   for (const kind of process.getActiveResourcesInfo()) {
     if (!isTimerOrConnection(kind)) continue;
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
+
   return Object.fromEntries(counts);
 }
 
 const target = process.argv[2];
+
 if (target === undefined || target === "") {
   process.stderr.write("import-probe: expected one argument, an absolute specifier\n");
   process.exit(2);
@@ -51,24 +54,32 @@ const arms: string[] = [];
 // which restores itself. This program is not a `node:test` file, so there is no `t`; the
 // swap is hand-rolled with a `finally` restore on purpose. Do not "fix" it toward the idiom.
 const real = { setInterval: globalThis.setInterval, setTimeout: globalThis.setTimeout };
+
 // Generic over the timer it wraps: `setInterval` and `setTimeout` are NOT one type
 // (`@types/node` gives `setTimeout` a `__promisify__` member), so a single alias for both
 // is wrong on the `setTimeout` arm. `Parameters<F>` stays bound to the real global.
 const counted = <F extends (...args: never[]) => unknown>(fn: F, kind: string): F =>
   ((...args: Parameters<F>) => {
     arms.push(kind);
+
     return fn(...args);
   }) as F;
 
 let names: string[] = [];
+
 let importError: string | null = null;
+
 let before: Record<string, number> = {};
+
 let after: Record<string, number> = {};
 
 globalThis.setInterval = counted(real.setInterval, "setInterval");
+
 globalThis.setTimeout = counted(real.setTimeout, "setTimeout");
+
 try {
   before = timerAndConnectionCounts();
+
   try {
     const namespace: Record<string, unknown> = await import(target);
     names = Object.keys(namespace).sort();
@@ -80,6 +91,7 @@ try {
     importError =
       error instanceof Error ? `${error.name}: ${error.message.split("\n")[0]}` : String(error);
   }
+
   after = timerAndConnectionCounts();
 } finally {
   globalThis.setInterval = real.setInterval;
@@ -87,12 +99,15 @@ try {
 }
 
 const handleDelta: Record<string, number> = {};
+
 for (const [kind, count] of Object.entries(after)) {
   const delta = count - (before[kind] ?? 0);
+
   if (delta > 0) handleDelta[kind] = delta;
 }
 
 const report: ImportProbeReport = { arms, handleDelta, names, importError };
+
 // The exit is the write's completion callback, not the next statement. A write to a pipe is
 // asynchronous and `process.exit` does not flush, so exiting immediately truncates the
 // report at the 64 KiB pipe buffer — measured on this platform: a 100 KB line comes back as

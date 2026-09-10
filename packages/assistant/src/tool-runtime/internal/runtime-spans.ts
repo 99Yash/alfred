@@ -11,6 +11,7 @@ import type { ToolCallRun } from "../index";
 import type { ToolCallDispatchResult } from "./adapter";
 
 const RUNTIME_DISPATCH_BATCH = "runtime.dispatch.batch";
+
 let runtimeSpanStarter: (input: RuntimeSpanInput) => RuntimeSpanCloser = startRuntimeSpan;
 
 export interface ToolCallBatchSpan {
@@ -33,7 +34,9 @@ export function startToolCallBatchSpan(run: ToolCallRun, callCount: number): Too
       callCount,
     },
   });
+
   let ended = false;
+
   const end = (
     terminal: "committed" | "staged" | "parked" | "error",
     results?: readonly (ToolCallDispatchResult | undefined)[],
@@ -46,6 +49,7 @@ export function startToolCallBatchSpan(run: ToolCallRun, callCount: number): Too
       metadata: results ? summarize(results) : undefined,
     });
   };
+
   return {
     end,
   };
@@ -131,6 +135,7 @@ export interface ToolLoadSpanCloser {
 export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
   const span = runtimeSpanStarter(buildToolLoadSpanInput(args));
   let ended = false;
+
   return {
     end({ outcome, latencyMs }) {
       if (ended) return;
@@ -208,6 +213,7 @@ export interface ToolSearchSpanCloser {
 export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanCloser {
   const span = runtimeSpanStarter(buildToolSearchSpanInput(args));
   let ended = false;
+
   return {
     end({ candidateNames, latencyMs }) {
       if (ended) return;
@@ -235,6 +241,7 @@ export function _setToolRuntimeSpanStarterForTests(
 ): () => void {
   const previous = runtimeSpanStarter;
   runtimeSpanStarter = starter;
+
   return () => {
     runtimeSpanStarter = previous;
   };
@@ -255,8 +262,10 @@ function summarize(
     ["featureDisabled", 0],
     ["failed", 0],
   ]);
+
   for (const result of results) {
     if (!result) continue;
+
     const key =
       result.kind === "invalid_input"
         ? "invalidInput"
@@ -269,7 +278,9 @@ function summarize(
               : result.kind === "feature_disabled"
                 ? "featureDisabled"
                 : result.kind;
+
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
+
   return Object.fromEntries(counts);
 }

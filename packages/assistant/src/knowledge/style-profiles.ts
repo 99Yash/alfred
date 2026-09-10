@@ -23,9 +23,13 @@ import {
  */
 
 const channelSchema = styleChannelSchema;
+
 const audienceBucketSchema = styleAudienceBucketSchema;
+
 const styleProfileStatusSchema = z.enum(["draft", "active", "superseded"]);
+
 const stringArraySchema = z.array(z.string());
+
 const unknownArraySchema = z.array(z.unknown());
 
 export const upsertStyleProfileArgsSchema = styleProfileInsertSchema
@@ -66,6 +70,7 @@ export const upsertStyleProfileArgsSchema = styleProfileInsertSchema
     | "status"
   >
 >;
+
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 
 /**
@@ -128,6 +133,7 @@ export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<
           );
 
     const [existing] = await tx.select().from(styleProfiles).where(where).limit(1);
+
     if (!existing) {
       const [row] = await tx
         .insert(styleProfiles)
@@ -145,7 +151,9 @@ export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<
           status,
         })
         .returning();
+
       if (!row) throw new Error("[memory.style-profiles] insert returned no row");
+
       return rowToProfile(row);
     }
 
@@ -163,7 +171,9 @@ export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<
       })
       .where(eq(styleProfiles.id, existing.id))
       .returning();
+
     if (!row) throw new Error("[memory.style-profiles] update returned no row");
+
     return rowToProfile(row);
   });
 }
@@ -212,11 +222,16 @@ export async function getStyleProfile(
   // distinctions left are: exact-recipient match, exact-bucket match, generic.
   const score = (r: StyleProfile) => {
     let s = 0;
+
     if (r.recipientId != null && r.recipientId === recipientId) s += 4;
+
     if (r.audienceBucket === audienceBucket && audienceBucket !== "generic") s += 2;
+
     return s;
   };
+
   candidates.sort((a, b) => score(b) - score(a));
   const top = candidates[0];
+
   return top ? rowToProfile(top) : null;
 }

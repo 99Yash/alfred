@@ -31,7 +31,9 @@ export const REPLY_DRAFT_OUTCOMES = [
   /** A draft was composed but the verifier refused to stage it. */
   "withheld",
 ] as const;
+
 export type ReplyDraftOutcome = (typeof REPLY_DRAFT_OUTCOMES)[number];
+
 export const replyDraftOutcomeSchema = z.enum(REPLY_DRAFT_OUTCOMES);
 
 /**
@@ -41,7 +43,9 @@ export const replyDraftOutcomeSchema = z.enum(REPLY_DRAFT_OUTCOMES);
  * blockers. Recorded on every result so telemetry never mixes the two.
  */
 export const REPLY_DRAFT_INVOCATIONS = ["post_triage", "manual"] as const;
+
 export type ReplyDraftInvocation = (typeof REPLY_DRAFT_INVOCATIONS)[number];
+
 export const replyDraftInvocationSchema = z.enum(REPLY_DRAFT_INVOCATIONS);
 
 /**
@@ -55,6 +59,7 @@ export const REPLY_EXPECTED_TRIAGE_CATEGORIES = [
   "awaiting_reply",
   "follow_up",
 ] as const satisfies readonly TriageCategory[];
+
 export const isReplyExpectedTriageCategory = enumGuard(REPLY_EXPECTED_TRIAGE_CATEGORIES);
 
 /**
@@ -101,7 +106,9 @@ export const REPLY_NO_DRAFT_REASONS = [
   /** A proactive run has no current triage row. */
   "triage_unavailable",
 ] as const;
+
 export type ReplyNoDraftReason = (typeof REPLY_NO_DRAFT_REASONS)[number];
+
 export const replyNoDraftReasonSchema = z.enum(REPLY_NO_DRAFT_REASONS);
 
 export const REPLY_NO_ACCESS_REASONS = [
@@ -110,7 +117,9 @@ export const REPLY_NO_ACCESS_REASONS = [
   /** The credential exists but was never granted `gmail.send`. */
   "gmail_send_scope_missing",
 ] as const;
+
 export type ReplyNoAccessReason = (typeof REPLY_NO_ACCESS_REASONS)[number];
+
 export const replyNoAccessReasonSchema = z.enum(REPLY_NO_ACCESS_REASONS);
 
 /** Why the verifier refused to stage a composed draft. */
@@ -128,7 +137,9 @@ export const REPLY_WITHHELD_REASONS = [
   "invalid_candidate",
   "staging_unavailable",
 ] as const;
+
 export type ReplyWithheldReason = (typeof REPLY_WITHHELD_REASONS)[number];
+
 export const replyWithheldReasonSchema = z.enum(REPLY_WITHHELD_REASONS);
 
 export const REPLY_CLARIFICATION_REASONS = [
@@ -137,7 +148,9 @@ export const REPLY_CLARIFICATION_REASONS = [
   /** The thread has several people and the right recipient is unclear. */
   "ambiguous_recipient",
 ] as const;
+
 export type ReplyClarificationReason = (typeof REPLY_CLARIFICATION_REASONS)[number];
+
 export const replyClarificationReasonSchema = z.enum(REPLY_CLARIFICATION_REASONS);
 
 /**
@@ -147,7 +160,9 @@ export const replyClarificationReasonSchema = z.enum(REPLY_CLARIFICATION_REASONS
  * happened. A real `drafts.create` tool adds a second member here.
  */
 export const REPLY_DRAFT_ACTION_KINDS = ["approval_staged_send"] as const;
+
 export type ReplyDraftActionKind = (typeof REPLY_DRAFT_ACTION_KINDS)[number];
+
 export const replyDraftActionKindSchema = z.enum(REPLY_DRAFT_ACTION_KINDS);
 
 // ─── Provenance bundle ────────────────────────────────────────────────────
@@ -171,6 +186,7 @@ export const replyDraftTriageSnapshotSchema = z.object({
   senderRelationshipIsCold: z.boolean().nullable(),
   senderSignificanceBand: significanceBandSchema.nullable(),
 });
+
 export type ReplyDraftTriageSnapshot = z.infer<typeof replyDraftTriageSnapshotSchema>;
 
 /** Which style profile the draft used, or the honest absence of one. */
@@ -178,6 +194,7 @@ export const replyDraftStyleSelectionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("profile"), styleProfileId: z.string().min(1) }),
   z.object({ kind: z.literal("style_missing") }),
 ]);
+
 export type ReplyDraftStyleSelection = z.infer<typeof replyDraftStyleSelectionSchema>;
 
 /**
@@ -193,6 +210,7 @@ export const REPLY_GATHERED_OBJECT_KINDS = [
   "user_context",
   "reply_context",
 ] as const;
+
 export const replyDraftGatheredObjectSchema = z.object({
   kind: z.enum(REPLY_GATHERED_OBJECT_KINDS),
   /** Stable reference the resolver used (URL, `owner/repo#number`). */
@@ -201,6 +219,7 @@ export const replyDraftGatheredObjectSchema = z.object({
   /** Grounded, quotable facts about the object; the only prose a draft may assert. */
   facts: z.array(z.string()),
 });
+
 export type ReplyDraftGatheredObject = z.infer<typeof replyDraftGatheredObjectSchema>;
 
 /**
@@ -215,6 +234,7 @@ export const replyDraftVerifierBindingSchema = z.object({
   style: replyDraftStyleSelectionSchema,
   featureFlagEnabled: z.boolean(),
 });
+
 export type ReplyDraftVerifierBinding = z.infer<typeof replyDraftVerifierBindingSchema>;
 
 export const replyDraftVerifierDecisionSchema = z.discriminatedUnion("decision", [
@@ -226,6 +246,7 @@ export const replyDraftVerifierDecisionSchema = z.discriminatedUnion("decision",
     boundTo: replyDraftVerifierBindingSchema,
   }),
 ]);
+
 export type ReplyDraftVerifierDecision = z.infer<typeof replyDraftVerifierDecisionSchema>;
 
 /**
@@ -251,6 +272,7 @@ export const replyDraftProvenanceSchema = z.object({
   gatheredObjects: z.array(replyDraftGatheredObjectSchema),
   verifier: replyDraftVerifierDecisionSchema.nullable(),
 });
+
 export type ReplyDraftProvenance = z.infer<typeof replyDraftProvenanceSchema>;
 
 // ─── The result ───────────────────────────────────────────────────────────
@@ -291,4 +313,5 @@ export const replyDraftResultSchema = z.discriminatedUnion("outcome", [
     ...resultBase,
   }),
 ]);
+
 export type ReplyDraftResult = z.infer<typeof replyDraftResultSchema>;

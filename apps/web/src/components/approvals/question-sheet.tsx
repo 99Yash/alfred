@@ -7,6 +7,7 @@ import { AskUserQuestionPanel } from "./question-panel";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={13} />;
+
 const ICON_CHECK = <Check size={13} />;
 
 /**
@@ -65,6 +66,7 @@ export function QuestionSheet({
         // custom-answer field. Scoped to the sheet, so it can never fire for a
         // question the user is not looking at.
         if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+
         if (locked) return;
         event.preventDefault();
         onContinue();

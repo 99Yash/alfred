@@ -6,6 +6,7 @@
 // `extract-pdf` or `media-extraction`. Those modules import from constants
 // for internal use only; public consumers import from this barrel.
 export { createPdfExtractor, PdfExtractionError } from "./extract-pdf";
+
 export type {
   ExtractPdf,
   ExtractedPdf,
@@ -14,15 +15,22 @@ export type {
   PdfDocumentType,
   PdfExtractionLimitKind,
 } from "./extract-pdf";
+
 export {
   DOOR_LIMITS,
   OFFICE_LIMITS_BY_DOOR,
   REALTIME_PDF_EXTRACTION_LIMITS,
   TEXT_LIMITS_BY_DOOR,
 } from "./constants";
+
 export type { ExtractionDoor, ExtractionLimits, PdfExtractionLimits } from "./constants";
+
 export { formatExtractedMediaText, mediaFailureMessage } from "./format-extracted-pdf";
+
 export { FORMAT_REGISTRY } from "./media-extraction";
+
 export type { MediaExtractionResult, MediaExtractor } from "./media-extraction";
+
 export { extraction } from "./extraction.facade";
+
 export type { Extraction, ExtractionOptions } from "./extraction.facade";

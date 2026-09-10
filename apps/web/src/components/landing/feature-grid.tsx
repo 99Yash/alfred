@@ -190,6 +190,7 @@ const TONE_ACCENT = {
 function FeatureCardView({ card }: { card: FeatureCard }) {
   const tone = TONE_ACCENT[card.tone];
   const Icon = card.icon;
+
   return (
     <article
       className={cn(
@@ -397,6 +398,7 @@ function MeetingPrepMockupCard() {
  */
 function ChatBubbleMockup() {
   const ref = useRef<HTMLDivElement | null>(null);
+
   const [phase, setPhase] = useState<"idle" | "asked" | "typing" | "done">(() =>
     typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
       ? "done"
@@ -405,6 +407,7 @@ function ChatBubbleMockup() {
 
   useEffect(() => {
     const el = ref.current;
+
     if (!el) return;
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -413,6 +416,7 @@ function ChatBubbleMockup() {
 
     let typingTimer: ReturnType<typeof setTimeout> | undefined;
     let doneTimer: ReturnType<typeof setTimeout> | undefined;
+
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (!entry?.isIntersecting) return;
@@ -423,10 +427,14 @@ function ChatBubbleMockup() {
       },
       { threshold: 0.45 },
     );
+
     obs.observe(el);
+
     return () => {
       obs.disconnect();
+
       if (typingTimer) clearTimeout(typingTimer);
+
       if (doneTimer) clearTimeout(doneTimer);
     };
   }, []);

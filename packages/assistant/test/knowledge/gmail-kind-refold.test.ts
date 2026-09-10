@@ -24,10 +24,15 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const ID_PREFIX = "test-gmail-kind-refold-";
+
 const BASE_AT = new Date("2026-06-30T08:00:00.000Z");
+
 const BACKFILL_AT = new Date("2026-06-29T08:00:00.000Z");
+
 const LATER_AT = new Date("2026-07-01T08:00:00.000Z");
+
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
+
 const createdUserIds: string[] = [];
 
 const SERVER_ENV_FIXTURES = {
@@ -61,6 +66,7 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -121,16 +127,19 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
 
     const result = await refoldActiveGmailKindProjection(userId);
     assert.equal(result.status, "activated");
+
     if (result.status !== "activated") return;
     assert.equal(result.projectionVersion, 2);
     assert.notEqual(result.checksum, initial.checksum);
 
     const active = await userModelReader(userId).getActivePointer();
     assert.equal(active?.activeVersion, 2);
+
     const bob = await userModelReader(userId).getProfileByIdentity({
       kind: "email",
       value: "bob@example.com",
     });
+
     assert.equal(bob?.kind, "person");
   });
 
@@ -160,6 +169,7 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
 
     const result = await refoldActiveGmailKindProjection(userId);
     assert.equal(result.status, "activated");
+
     if (result.status !== "activated") return;
     assert.equal(result.projectionVersion, 2);
     assert.notEqual(result.checksum, initial.checksum);
@@ -168,6 +178,7 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
       kind: "email",
       value: "carol@example.com",
     });
+
     assert.equal(carol?.kind, "person");
   });
 
@@ -193,6 +204,7 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
 
     const result = await refoldActiveGmailKindProjection(userId);
     assert.equal(result.status, "blocked");
+
     if (result.status !== "blocked") return;
     assert.equal(result.reason, "logic-drift");
 
@@ -208,12 +220,14 @@ async function initialActivate(
   excludeEmailValues: readonly string[],
 ): Promise<{ runId: string; checksum: string }> {
   const sourceHighWatermark = await currentGmailWatermark(userId);
+
   const { run } = await startProjectionRun({
     userId,
     projectionName: USER_MODEL_PROJECTION_NAME,
     projectionVersion: 1,
     sourceHighWatermark,
   });
+
   const projected = await projectGmailKindProfiles({
     userId,
     projectionRunId: run.id,
@@ -221,6 +235,7 @@ async function initialActivate(
     gmailHighWatermark: sourceHighWatermark.gmail,
     excludeEmailValues,
   });
+
   await completeProjectionRun({
     runId: run.id,
     userId,
@@ -234,32 +249,40 @@ async function initialActivate(
     projectionName: USER_MODEL_PROJECTION_NAME,
     runId: run.id,
   });
+
   return { runId: run.id, checksum: projected.checksum };
 }
 
 async function currentGmailWatermark(userId: string) {
   return db().transaction(async (tx) => {
     const capturedAtResult = await tx.execute(sql`select now() as "capturedAt"`);
+
     const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(capturedAtResult)[0]
       ?.capturedAt;
+
     const capturedAt =
       rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
+
     if (Number.isNaN(capturedAt.getTime())) {
       throw new Error("failed to capture DB timestamp for Gmail watermark");
     }
+
     const baseWhere = and(
       eq(observations.userId, userId),
       eq(observations.source, "gmail"),
       eq(observations.kind, "email_message"),
       lte(observations.createdAt, capturedAt),
     );
+
     const [eventRow] = await tx
       .select({ id: observations.id, occurredAt: observations.occurredAt })
       .from(observations)
       .where(baseWhere)
       .orderBy(desc(observations.occurredAt), desc(observations.id))
       .limit(1);
+
     if (!eventRow) throw new Error("no gmail observations to watermark");
+
     return {
       gmail: {
         lastObservationId: eventRow.id,
@@ -281,6 +304,7 @@ async function seedUser(): Promise<{ userId: string; email: string }> {
   const email = `${userId}@example.com`;
   createdUserIds.push(userId);
   await db().insert(user).values({ id: userId, name: "Test User", email });
+
   return { userId, email };
 }
 
@@ -293,6 +317,7 @@ async function appendObs(args: {
   readonly occurredAt?: Date;
 }): Promise<void> {
   const occurredAt = args.occurredAt ?? BASE_AT;
+
   const payload = gmailEmailMessagePayloadSchema.parse({
     provider: "gmail",
     documentId: `doc_${args.messageId}`,

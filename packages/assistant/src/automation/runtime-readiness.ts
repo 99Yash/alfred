@@ -24,6 +24,7 @@ export function runtimeReadinessDisposition(
   problems: readonly WorkflowReadinessProblem[],
 ): "ready" | "deferred" | "blocked" {
   if (problems.length === 0) return "ready";
+
   // `trigger_degraded` describes delivery health that time or an operator can
   // restore, not a definition the user must change, so the run waits instead
   // of blocking (#976).
@@ -53,13 +54,16 @@ export async function checkWorkflowRunReadiness(args: {
     .limit(1);
 
   if (!row) throw new Error(`[workflows:readiness] run not found: ${args.runId}`);
+
   // Built-ins and sub-agents do not pin a user-authored revision.
   if (!row.run.workflowRevisionId) return { kind: "ready" };
+
   if (!row.workflow || !row.revision) {
     throw new Error(`[workflows:readiness] pinned revision is unavailable: ${args.runId}`);
   }
 
   let context: WorkflowReadinessContext;
+
   try {
     context = await readWorkflowReadinessContext(args.userId);
   } catch (error) {
@@ -75,6 +79,7 @@ export async function checkWorkflowRunReadiness(args: {
     allowedTools: row.revision.allowedTools,
     requiredCapabilities: row.revision.requiredCapabilities,
   };
+
   const problems = resolveWorkflowReadiness({
     definition,
     context,
@@ -82,6 +87,7 @@ export async function checkWorkflowRunReadiness(args: {
   });
 
   const disposition = runtimeReadinessDisposition(problems);
+
   if (disposition === "deferred") {
     return { kind: "deferred", reason: problems.map((problem) => problem.message).join(" ") };
   }
@@ -92,11 +98,15 @@ export async function checkWorkflowRunReadiness(args: {
       .from(workflows)
       .where(and(eq(workflows.id, row.workflow!.id), eq(workflows.userId, args.userId)))
       .for("update");
+
     if (!lockedWorkflow) throw new Error(`[workflows:readiness] workflow disappeared`);
+
     if (lockedWorkflow.publishedRevisionId !== row.revision!.id) {
       return { ownsWorkflow: false as const };
     }
+
     const before = lockedWorkflow.blocked;
+
     const reconciled = await reconcileWorkflowReadiness({
       userId: args.userId,
       workflow: lockedWorkflow,
@@ -105,20 +115,27 @@ export async function checkWorkflowRunReadiness(args: {
       target: "activation",
       tx,
     });
+
     return { ownsWorkflow: true as const, before, reconciled };
   });
+
   if (!recorded.ownsWorkflow) {
     if (disposition === "ready") return { kind: "ready" };
+
     return { kind: "blocked", problems, newlyBlocked: false };
   }
+
   if (!recorded.reconciled.ok) {
     throw new Error(`[workflows:readiness] failed to record readiness verdict`);
   }
+
   if (disposition === "ready") return { kind: "ready" };
   const blocked = recorded.reconciled.workflow.blocked;
   const generation = blocked ? workflowBlockedGeneration(blocked) : null;
+
   const newlyBlocked =
     generation !== (recorded.before ? workflowBlockedGeneration(recorded.before) : null);
+
   // #561: a blocker the owner has not seen yet owes them one email. The job id
   // is keyed by the blocker generation, and the worker re-checks `notifiedAt`,
   // so a re-observed blocker never sends twice. Scheduling returns a status
@@ -130,5 +147,6 @@ export async function checkWorkflowRunReadiness(args: {
       generation,
     });
   }
+
   return { kind: "blocked", problems, newlyBlocked };
 }

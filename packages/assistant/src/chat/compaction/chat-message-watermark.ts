@@ -15,6 +15,7 @@ export function nullableChatMessageWatermark(
   messageId: string | null | undefined,
 ): ChatMessageWatermark | null {
   if (!createdAt || !messageId) return null;
+
   return { createdAt, messageId };
 }
 
@@ -23,8 +24,11 @@ export function compareChatMessageWatermarks(
   right: ChatMessageWatermark,
 ): number {
   const timestampDifference = left.createdAt.getTime() - right.createdAt.getTime();
+
   if (timestampDifference !== 0) return timestampDifference;
+
   if (left.messageId === right.messageId) return 0;
+
   return left.messageId < right.messageId ? -1 : 1;
 }
 
@@ -43,6 +47,7 @@ export function afterChatMessageWatermark(
   watermark: ChatMessageWatermark,
 ) {
   const createdAt = millisecondTimestamp(createdAtColumn);
+
   return or(
     gt(createdAt, watermark.createdAt),
     and(eq(createdAt, watermark.createdAt), gt(messageIdColumn, watermark.messageId)),
@@ -55,6 +60,7 @@ export function throughChatMessageWatermark(
   watermark: ChatMessageWatermark,
 ) {
   const createdAt = millisecondTimestamp(createdAtColumn);
+
   return or(
     lt(createdAt, watermark.createdAt),
     and(eq(createdAt, watermark.createdAt), lte(messageIdColumn, watermark.messageId)),

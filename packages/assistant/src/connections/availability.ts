@@ -73,6 +73,7 @@ export function readIntegrationAvailability(
 ): Promise<IntegrationAvailabilitySnapshot> {
   const now = Date.now();
   const cached = availabilityMemo.get(userId);
+
   if (cached && now - cached.readAt < AVAILABILITY_MEMO_TTL_MS) return cached.snapshot;
 
   // Drop everything already expired while we are here — the map is keyed by user
@@ -85,7 +86,9 @@ export function readIntegrationAvailability(
     availabilityMemo.delete(userId);
     throw err;
   });
+
   availabilityMemo.set(userId, { readAt: now, snapshot: pending });
+
   return pending;
 }
 
@@ -94,6 +97,7 @@ export async function readFreshIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
   availabilityMemo.delete(userId);
+
   return readIntegrationAvailability(userId);
 }
 
@@ -116,16 +120,19 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
   // The rows come first because the alert read runs on them; the two reads that
   // need nothing from each other still go together.
   const byProvider = await loadCredentialRowsByProvider(userId);
+
   const [gmailDelivery, deliveryAlerts] = await Promise.all([
     readGmailDeliveryFacts(userId),
     readWireDeliveryAlerts(userId, byProvider),
   ]);
+
   const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
     byProvider.get(provider) ?? [];
 
   const integrations = projectSlugs(LIVE_PROVIDER_SLUGS, (slug): IntegrationConnection => {
     const spec = INTEGRATIONS[slug].credential;
     const rows = rowsOf(credentialProviderOf(slug));
+
     return {
       health: resolveIntegrationAvailability(spec, rows).health,
       accounts: rows
@@ -143,8 +150,10 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
   // provider's live slugs whose rule it fails: the Google scopes the user
   // unchecked, or the GitHub App installation a classic-OAuth row never had.
   const providers: IntegrationStatus["providers"] = {};
+
   for (const provider of CREDENTIAL_PROVIDERS) {
     const active = rowsOf(provider).filter((row) => row.status === "active");
+
     if (active.length === 0) continue;
     const entries = LIVE_PROVIDERS.filter((entry) => entry.provider === provider);
     providers[provider] = active.map((row) => ({
@@ -187,6 +196,7 @@ async function readWireDeliveryAlerts(
     console.error(
       `[integrations] inbound delivery health read failed for user=${userId}: ${toMessage(err)}`,
     );
+
     return [];
   }
 }
@@ -224,6 +234,7 @@ async function loadCredentialRowsByProvider(
     .orderBy(asc(integrationCredentials.createdAt), asc(integrationCredentials.id));
 
   const byProvider = new Map<CredentialProvider, AvailabilityRow[]>();
+
   for (const row of rows) {
     // The column's type is the CHECK constraint's promise, and this is the one
     // read that consumes the value (every other read filters on it). A miss is
@@ -234,6 +245,7 @@ async function loadCredentialRowsByProvider(
         `[availability] integration_credentials.provider ${JSON.stringify(row.provider)} is not a registry provider; the CHECK constraint and the registry disagree`,
       );
     }
+
     const list = byProvider.get(row.provider) ?? [];
     list.push({
       credentialId: row.id,
@@ -247,6 +259,7 @@ async function loadCredentialRowsByProvider(
     });
     byProvider.set(row.provider, list);
   }
+
   return byProvider;
 }
 
@@ -262,6 +275,7 @@ function resolveIntegrationAvailability(
 ): IntegrationAvailability {
   if (providerRows.length === 0) return { health: null, accountLabel: null };
   const active = providerRows.find((row) => credentialSatisfies(spec, row));
+
   return {
     health: active ? "active" : "needs_reauth",
     accountLabel: active ? credentialAccountLabel(active) : null,
@@ -272,6 +286,7 @@ async function loadIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
   const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
+
   const [byProvider, prefRows] = await Promise.all([
     loadCredentialRowsByProvider(userId),
     db()
@@ -284,6 +299,7 @@ async function loadIntegrationAvailability(
 
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
   const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
+
   // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug
   // with string preference keys, so Object.entries yields exactly these tuples.
   for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
@@ -294,12 +310,14 @@ async function loadIntegrationAvailability(
   }
 
   const availability = new Map<LoadableIntegrationSlug, IntegrationAvailability>();
+
   for (const entry of LIVE_PROVIDERS) {
     availability.set(
       entry.slug,
       resolveIntegrationAvailability(entry.credential, byProvider.get(entry.provider) ?? []),
     );
   }
+
   // The rows carry `createdAt` past the `ProviderAvailability` the snapshot
   // declares: structural widening, read by nothing on the dispatch side.
   return { integrations: availability, providers: byProvider, passthroughEnabled };

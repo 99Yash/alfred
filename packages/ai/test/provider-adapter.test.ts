@@ -171,7 +171,9 @@ describe("provider turn protocol", () => {
         });
       },
     });
+
     const fallback = mockModel("google", "gemini-3.5-flash");
+
     const model = withFallback(
       adaptProviderModel("anthropic", asModel(primary)),
       adaptProviderModel("google", asModel(fallback)),
@@ -270,6 +272,7 @@ describe("provider turn protocol", () => {
   test("tool-result bursts retain a prior cache-read boundary within the four-breakpoint cap", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
     const model = adaptProviderModel("anthropic", asModel(inner));
+
     const toolResults = Array.from({ length: 32 }, (_, index) => ({
       type: "tool-result" as const,
       toolCallId: `call_${index}`,
@@ -303,9 +306,11 @@ describe("provider turn protocol", () => {
 
     const call = inner.doGenerateCalls[0];
     assert.ok(call);
+
     const cached = call.prompt.flatMap((message, index) =>
       cacheControl(message) === undefined ? [] : [index],
     );
+
     assert.deepEqual(cached, [0, 3, call.prompt.length - 1]);
     assert.ok(cached.length + 1 <= 4, "system + tool + transcript cache points stay within cap");
   });
@@ -313,6 +318,7 @@ describe("provider turn protocol", () => {
   test("compacted tool bursts stay within the four-breakpoint cap", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
     const model = adaptProviderModel("anthropic", asModel(inner));
+
     const toolResults = Array.from({ length: 8 }, (_, index) => ({
       type: "tool-result" as const,
       toolCallId: `call_${index}`,
@@ -423,6 +429,7 @@ describe("route legs", () => {
 
   test("forward the route's provider-option exceptions to the serving leg", async () => {
     const inner = mockModel("google", "gemini-3.5-flash");
+
     const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
       reasoning: "medium",
       providerOptions: { google: { thinkingConfig: { includeThoughts: true } } },
@@ -440,6 +447,7 @@ describe("route legs", () => {
 
   test("apply the route reasoning default to the serving leg", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
+
     const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
       reasoning: "medium",
     });
@@ -451,6 +459,7 @@ describe("route legs", () => {
 
   test("let a caller override the route reasoning default", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
+
     const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
       reasoning: "medium",
     });

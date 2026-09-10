@@ -46,6 +46,7 @@ describe("htmlToText", () => {
     const html = `
       <html><head><title>T</title><style>.a{color:red}</style></head>
       <body><script>alert(1)</script><h1>Hello</h1><p>World copy.</p></body></html>`;
+
     const text = htmlToText(html);
     assert.match(text, /Hello/);
     assert.match(text, /World copy\./);
@@ -90,6 +91,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     const contentTypeHeader = res.contentType ?? "text/html";
     const bare = contentTypeHeader.split(";", 1)[0]?.trim().toLowerCase() ?? "";
     const charsetMatch = /(?:^|;)\s*charset\s*=\s*("?)([^";]+)\1/i.exec(contentTypeHeader);
+
     return async () => ({
       finalUrl: res.finalUrl ?? "https://example.com/",
       status: res.status ?? 200,
@@ -105,6 +107,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     destroy: () => void;
   } {
     let destroyed = false;
+
     return {
       get destroyed() {
         return destroyed;
@@ -123,12 +126,14 @@ describe("runFetchUrl (stubbed transport)", () => {
   test("rejects a non-http scheme before any socket", async () => {
     const r = await runFetchUrl({ url: "ftp://example.com/x" });
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "blocked_host");
   });
 
   test("rejects a private host before any socket and names the host", async () => {
     const r = await runFetchUrl({ url: "http://192.168.1.1/admin" });
     assert.equal(r.ok, false);
+
     if (!r.ok) {
       assert.equal(r.reason, "blocked_host");
       assert.match(r.message, /'192\.168\.1\.1'/);
@@ -138,6 +143,7 @@ describe("runFetchUrl (stubbed transport)", () => {
   test("rejects a URL that embeds credentials before any socket", async () => {
     const r = await runFetchUrl({ url: "https://user:pw@example.com/" });
     assert.equal(r.ok, false);
+
     if (!r.ok) {
       assert.equal(r.reason, "blocked_host");
       assert.doesNotMatch(JSON.stringify(r), /user:pw/);
@@ -156,6 +162,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     test(`#292 rejects non-default port ${url} before any socket`, async () => {
       const r = await runFetchUrl({ url });
       assert.equal(r.ok, false);
+
       if (!r.ok) {
         assert.equal(r.reason, "blocked_port");
         assert.match(r.message, new RegExp(`port ${new URL(url).port} on 'example\\.com'`));
@@ -176,6 +183,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     test(`#293 rejects credential URL ${url} before any socket`, async () => {
       const r = await runFetchUrl({ url });
       assert.equal(r.ok, false);
+
       if (!r.ok) {
         assert.equal(r.reason, "credential_url");
         // The error's url/finalUrl must not echo the secret back.
@@ -198,7 +206,9 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.equal(r.title, "Yash");
       assert.match(r.text, /Hi/);
@@ -219,7 +229,9 @@ describe("runFetchUrl (stubbed transport)", () => {
         render: async () => null,
       },
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "empty_content");
   });
 
@@ -229,7 +241,9 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/blank" },
       { transport: transportOf({ contentType: "text/html", body: "<html><body></body></html>" }) },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) assert.equal(r.chars, 0);
   });
 
@@ -240,11 +254,14 @@ describe("runFetchUrl (stubbed transport)", () => {
         transport: transportOf({ contentType: "text/html", body: jsShell }),
         render: async (url) => {
           assert.equal(url, "https://x.com/thdxr"); // renders the SAME url
+
           return { text: "building @opencode at @anomalyco / not the ceo", title: "dax (@thdxr)" };
         },
       },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.match(r.text, /building @opencode/);
       assert.equal(r.title, "dax (@thdxr)");
@@ -261,12 +278,15 @@ describe("runFetchUrl (stubbed transport)", () => {
         render: async () => ({ text: "   " }), // whitespace-only → below MIN_READABLE_CHARS
       },
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "empty_content");
   });
 
   test("#510 does not escalate a normal readable page", async () => {
     let rendered = false;
+
     const r = await runFetchUrl(
       { url: "https://www.yashk.xyz" },
       {
@@ -275,10 +295,12 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
         render: async () => {
           rendered = true;
+
           return { text: "should not be used" };
         },
       },
     );
+
     assert.equal(r.ok, true);
     assert.equal(rendered, false);
   });
@@ -293,7 +315,9 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.match(r.text, /<not a tag>/);
       assert.equal(r.contentType, "text/plain");
@@ -310,7 +334,9 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) assert.equal(r.text, "café");
   });
 
@@ -319,7 +345,9 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/data" },
       { transport: transportOf({ contentType: "", body: "just some plain words" }) },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) assert.equal(r.contentType, "text/plain");
   });
 
@@ -328,8 +356,10 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/resume.pdf" },
       { transport: transportOf({ contentType: "application/pdf", body: "%PDF-1.7" }) },
     );
+
     // Fake PDF data fails extraction — honest error, not a rejection.
     assert.equal(r.ok, false);
+
     if (!r.ok) {
       assert.equal(r.reason, "unsupported_content_type");
       assert.match(r.message, /invalid PDF/);
@@ -342,12 +372,14 @@ describe("runFetchUrl (stubbed transport)", () => {
         new URL("../../../../extraction/test/fixtures/born-digital-two-page.pdf", import.meta.url),
       ),
     );
+
     const r = await runFetchUrl(
       { url: "https://example.com/report.pdf" },
       { transport: transportOf({ contentType: "application/pdf", body: [bytes] }) },
     );
 
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
       assert.match(r.text, /\[page 2\]\n.*PAGE TWO MARKER bravo/s);
@@ -361,12 +393,14 @@ describe("runFetchUrl (stubbed transport)", () => {
         new URL("../../../../extraction/test/fixtures/born-digital-two-page.pdf", import.meta.url),
       ),
     );
+
     const r = await runFetchUrl(
       { url: "https://example.com/download" },
       { transport: transportOf({ contentType: "application/octet-stream", body: [bytes] }) },
     );
 
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
       assert.equal(r.contentType, "application/octet-stream");
@@ -402,6 +436,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
   test("reads the body for PDF extraction instead of disposing it eagerly", async () => {
     const body = destroyableBody();
+
     const r = await runFetchUrl(
       { url: "https://example.com/resume.pdf" },
       {
@@ -415,6 +450,7 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     // The body is read for extraction, not disposed eagerly.
     assert.equal(r.ok, false);
     assert.equal(body.destroyed, false);
@@ -425,8 +461,10 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/sneaky" },
       { transport: transportOf({ contentType: "text/html", body: "%PDF-1.7\n%binary" }) },
     );
+
     // Fake PDF data fails extraction — honest error, not a rejection.
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
   });
 
@@ -435,7 +473,9 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/blob" },
       { transport: transportOf({ contentType: "text/plain", body: "ok\u0000then binary" }) },
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
   });
 
@@ -444,7 +484,9 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/blob" },
       { transport: transportOf({ contentType: "text/plain", body: `${"a".repeat(2048)}\u0000` }) },
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
   });
 
@@ -456,8 +498,10 @@ describe("runFetchUrl (stubbed transport)", () => {
         "http://169.254.169.254/",
       );
     };
+
     const r = await runFetchUrl({ url: "https://example.com/redirector" }, { transport });
     assert.equal(r.ok, false);
+
     if (!r.ok) {
       assert.equal(r.reason, "blocked_host");
       assert.equal(r.finalUrl, "http://169.254.169.254/");
@@ -469,7 +513,9 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/missing" },
       { transport: transportOf({ status: 404, contentType: "text/html" }) },
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) {
       assert.equal(r.reason, "http_error");
       assert.match(r.message, /404/);
@@ -478,6 +524,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
   test("disposes the body when surfacing an HTTP error", async () => {
     const body = destroyableBody();
+
     const r = await runFetchUrl(
       { url: "https://example.com/missing" },
       {
@@ -491,6 +538,7 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     assert.equal(r.ok, false);
     assert.equal(body.destroyed, true);
   });
@@ -500,12 +548,15 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/huge" },
       { transport: transportOf({ contentType: "text/html", contentLength: 50_000_000 }) },
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "too_large");
   });
 
   test("disposes the body when declared content-length is too large", async () => {
     const body = destroyableBody();
+
     const r = await runFetchUrl(
       { url: "https://example.com/huge" },
       {
@@ -519,6 +570,7 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     assert.equal(r.ok, false);
     assert.equal(body.destroyed, true);
   });
@@ -526,6 +578,7 @@ describe("runFetchUrl (stubbed transport)", () => {
   test("refuses an oversized chunked body with no content-length (streamed bound)", async () => {
     // 9 × 1MB chunks, no declared length — must abort, not buffer it all.
     const chunk = new Uint8Array(1_000_000).fill(0x61); // 'a'
+
     const r = await runFetchUrl(
       { url: "https://example.com/chunked" },
       {
@@ -535,7 +588,9 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     assert.equal(r.ok, false);
+
     if (!r.ok) assert.equal(r.reason, "too_large");
   });
 
@@ -546,7 +601,9 @@ describe("runFetchUrl (stubbed transport)", () => {
       { url: "https://example.com/page#access_token=secretfrag&state=ok" },
       { transport: transportOf({ finalUrl: "https://example.com/page", body: "<p>hi</p>" }) },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.match(r.url, /access_token=\[REDACTED\]/);
       assert.match(r.url, /state=ok/); // non-credential params survive
@@ -564,8 +621,10 @@ describe("runFetchUrl (stubbed transport)", () => {
       redirectChain: ["https://example.com/start?sig=hopsecret"],
       body: streamOf("<p>ok</p>"),
     });
+
     const r = await runFetchUrl({ url: "https://example.com/start" }, { transport });
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.match(r.finalUrl, /token=\[REDACTED\]/);
       assert.match(r.finalUrl, /page=2/);
@@ -584,7 +643,9 @@ describe("runFetchUrl (stubbed transport)", () => {
         }),
       },
     );
+
     assert.equal(r.ok, true);
+
     if (r.ok) {
       assert.equal(r.truncated, true);
       assert.equal(r.chars, FETCH_URL_MAX_TEXT_CHARS);
@@ -651,7 +712,9 @@ function streamOfBytes(...parts: Uint8Array[]): AsyncIterable<Uint8Array> {
 
 async function collect(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
   const chunks: Buffer[] = [];
+
   for await (const c of body) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+
   return Buffer.concat(chunks);
 }
 
@@ -669,6 +732,7 @@ describe("decodeResponseBody", () => {
         encoding,
         "https://example.com/",
       );
+
       assert.equal(decoded, true);
       assert.deepEqual(await collect(body), payload);
     });
@@ -677,11 +741,13 @@ describe("decodeResponseBody", () => {
   test("decodes a doubly-encoded body (gzip then deflate) in the right order", async () => {
     // Content-Encoding lists outermost-first; decoders apply in reverse.
     const doubly = deflateSync(gzipSync(payload));
+
     const { body, decoded } = decodeResponseBody(
       streamOfBytes(doubly),
       "gzip, deflate",
       "https://example.com/",
     );
+
     assert.equal(decoded, true);
     assert.deepEqual(await collect(body), payload);
   });
@@ -731,6 +797,7 @@ describe("safeRequest (manual redirect re-validation)", () => {
         return res({ statusCode: 302, headers: { location: "http://169.254.169.254/latest" } });
       throw new Error("must not fetch the private target");
     };
+
     await assert.rejects(
       safeRequest("https://innocuous.example/", signal, requester),
       (e) =>
@@ -747,6 +814,7 @@ describe("safeRequest (manual redirect re-validation)", () => {
         return res({ statusCode: 302, headers: { location: "https://innocuous.example:8443/" } });
       throw new Error("must not fetch the non-default-port target");
     };
+
     await assert.rejects(
       safeRequest("https://innocuous.example/", signal, requester),
       (e) =>
@@ -766,6 +834,7 @@ describe("safeRequest (manual redirect re-validation)", () => {
         });
       throw new Error("must not fetch the credential target");
     };
+
     await assert.rejects(
       safeRequest("https://innocuous.example/", signal, requester),
       (e) =>
@@ -782,10 +851,12 @@ describe("safeRequest (manual redirect re-validation)", () => {
     const requester: HttpRequester = async (url) => {
       if (url === "https://a.example/")
         return res({ statusCode: 301, headers: { location: "https://b.example/" } });
+
       if (url === "https://b.example/")
         return res({ statusCode: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
       throw new Error(`unexpected url ${url}`);
     };
+
     const out = await safeRequest("https://a.example/", signal, requester);
     assert.equal(out.finalUrl, "https://b.example/");
     assert.deepEqual(out.redirectChain, ["https://a.example/"]);
@@ -795,6 +866,7 @@ describe("safeRequest (manual redirect re-validation)", () => {
 
   test("redirect cleanup swallows asynchronous body abort errors", async () => {
     const emitter = new EventEmitter();
+
     const redirectBody = Object.assign(emitter, {
       destroy() {
         queueMicrotask(() => emitter.emit("error", new Error("Request aborted")));
@@ -811,6 +883,7 @@ describe("safeRequest (manual redirect re-validation)", () => {
           headers: { location: "https://b.example/" },
           body: redirectBody,
         });
+
       return res({ statusCode: 200, headers: { "content-type": "text/plain" } });
     };
 
@@ -822,6 +895,7 @@ describe("safeRequest (manual redirect re-validation)", () => {
   test("gives up after too many redirects rather than auto-following forever", async () => {
     const requester: HttpRequester = async () =>
       res({ statusCode: 302, headers: { location: "https://loop.example/next" } });
+
     await assert.rejects(
       safeRequest("https://loop.example/", signal, requester),
       (e) => e instanceof FetchError && /Too many redirects/.test(e.message),
@@ -832,15 +906,18 @@ describe("safeRequest (manual redirect re-validation)", () => {
     const requester: HttpRequester = async (url) => {
       if (url === "https://start.example/")
         return res({ statusCode: 302, headers: { location: "https://final.example/" } });
+
       return res({
         statusCode: 200,
         headers: { "content-type": "text/plain" },
         body: streamOfBytes(new TextEncoder().encode("hi")),
       });
     };
+
     const transport: Transport = (url, sig) => safeRequest(url, sig, requester);
     const r = await runFetchUrl({ url: "https://start.example/" }, { transport });
     assert.equal(r.ok, true);
+
     if (r.ok) assert.deepEqual(r.redirects, ["https://start.example/"]);
   });
 });

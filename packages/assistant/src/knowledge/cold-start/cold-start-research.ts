@@ -123,6 +123,7 @@ const stateSchema = z.object({
     )
     .optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 export const coldStartResearchWorkflow: Workflow<State> = {
@@ -139,6 +140,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
 
   initialState(input) {
     const parsed = coldStartWorkflowInputSchema.parse(input.input ?? {});
+
     return { reason: parsed.reason };
   },
 
@@ -164,6 +166,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
             signals.emailDomainIsConsumer ? " (consumer)" : ""
           } google=${signals.integrations.google ? "yes" : "no"}`,
         );
+
         return {
           kind: "next",
           state: { ...ctx.state, signals },
@@ -178,6 +181,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         if (!ctx.state.signals) {
           throw new Error("[cold-start] seed entered without signals");
         }
+
         // Stable per-run key so retries of this step share a trace.
         const identity: IdentityAnchor = await resolveIdentity({
           signals: ctx.state.signals,
@@ -185,9 +189,11 @@ export const coldStartResearchWorkflow: Workflow<State> = {
           stepId: "seed",
           idempotencyKey: `cold-start.seed:${ctx.runId}`,
         });
+
         await ctx.log(
           `seed: confident=${identity.confident} anchorChars=${identity.anchor.length} citations=${identity.citations.length}`,
         );
+
         return {
           kind: "next",
           state: { ...ctx.state, identity },
@@ -202,17 +208,20 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         if (!ctx.state.signals || !ctx.state.identity) {
           throw new Error("[cold-start] research-aspects entered without signals/identity");
         }
+
         const aspects: AspectFinding[] = await researchAspects({
           signals: ctx.state.signals,
           anchor: ctx.state.identity,
           runId: ctx.runId,
           idempotencyKey: `cold-start.aspects:${ctx.runId}`,
         });
+
         await ctx.log(
           `research-aspects: ${aspects
             .map((a) => `${a.id}(${a.finding.length}c/${a.citations.length}cit)`)
             .join(" ")}`,
         );
+
         return {
           kind: "next",
           state: { ...ctx.state, aspects },
@@ -227,6 +236,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         if (!ctx.state.signals || !ctx.state.identity || !ctx.state.aspects) {
           throw new Error("[cold-start] synthesis entered without signals/identity/aspects");
         }
+
         const result: ResearchResult = await synthesizeColdStart({
           signals: ctx.state.signals,
           anchor: ctx.state.identity,
@@ -235,9 +245,11 @@ export const coldStartResearchWorkflow: Workflow<State> = {
           stepId: "synthesis",
           idempotencyKey: `cold-start.synthesis:${ctx.runId}`,
         });
+
         await ctx.log(
           `synthesis: finishReason=${result.meta.finishReason} chars=${result.content.length} citations=${result.citations.length}`,
         );
+
         return {
           kind: "next",
           state: { ...ctx.state, research: result },
@@ -252,6 +264,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         if (!ctx.state.signals || !ctx.state.research) {
           throw new Error("[cold-start] extract-facts entered without signals/research");
         }
+
         // Stable per-run key so retries of this step share a trace.
         const proposals: ColdStartProposal[] = await extractColdStartFacts({
           signals: ctx.state.signals,
@@ -263,7 +276,9 @@ export const coldStartResearchWorkflow: Workflow<State> = {
           stepId: "extract-facts",
           idempotencyKey: `cold-start.extract:${ctx.runId}`,
         });
+
         await ctx.log(`extract-facts: proposals=${proposals.length}`);
+
         return {
           kind: "next",
           state: { ...ctx.state, proposals },
@@ -281,6 +296,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
 
         let inserted = 0;
         let skipped = 0;
+
         for (const p of ctx.state.proposals) {
           const fact = await proposeFact({
             userId: ctx.userId,
@@ -296,6 +312,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
               },
             },
           });
+
           if (fact) inserted++;
           else skipped++;
         }

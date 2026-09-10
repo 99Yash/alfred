@@ -10,7 +10,9 @@ import { useEventStreamStatus } from "~/lib/events/event-stream-status";
  */
 export function EventStreamBanner() {
   const status = useEventStreamStatus();
+
   if (status !== "reconnecting") return null;
+
   return (
     <div
       role="status"

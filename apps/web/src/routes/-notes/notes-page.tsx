@@ -20,13 +20,17 @@ export function NotesPage() {
 
   const createNote = () => {
     const trimmed = text.trim();
+
     if (!trimmed) return;
+
     if (dictation.listening) dictation.stop();
+
     const next: LocalNote = {
       id: `local-${Date.now()}`,
       text: trimmed,
       createdAt: new Date().toISOString(),
     };
+
     setNotes((prev) => [next, ...prev]);
     setText("");
     queueMicrotask(() => textareaRef.current?.focus());
@@ -35,8 +39,10 @@ export function NotesPage() {
   const toggleDictation = () => {
     if (dictation.listening) {
       dictation.stop();
+
       return;
     }
+
     // Append each finalised segment to the note, separated by a space so
     // dictation flows naturally after any text already typed.
     dictation.start((chunk) => {
@@ -180,15 +186,18 @@ export function NotesPage() {
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
+
   const sameDay =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
+
   if (sameDay) {
     return `Today, ${d.toLocaleTimeString(undefined, {
       hour: "numeric",
       minute: "2-digit",
     })}`;
   }
+
   return formatDateTime(iso);
 }

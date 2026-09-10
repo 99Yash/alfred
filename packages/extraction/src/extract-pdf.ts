@@ -13,6 +13,7 @@ import {
 import type { PdfExtractionLimits } from "./constants";
 
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
+
 export type InvalidPdfCause = "not_a_pdf" | "damaged";
 
 export interface ExtractedPdfPage {
@@ -72,6 +73,7 @@ export class PdfExtractionError extends Error {
 
 function describeErrorCode(error: unknown): string {
   if (error instanceof Error && "code" in error) return String(error.code);
+
   return "none";
 }
 
@@ -90,11 +92,14 @@ interface PdfExtractorChildOptions {
 }
 
 const CHILD_HEAP_MEGABYTES = 256;
+
 const PROTOCOL_OVERHEAD_BYTES = 1_048_576;
+
 const STDERR_LIMIT_BYTES = 65_536;
 
 function defaultChildEntry(): URL {
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
+
   return new URL(`./extract-pdf-child.${extension}`, import.meta.url);
 }
 
@@ -102,14 +107,17 @@ function sourceLoaderArguments(childEntry: URL): readonly string[] {
   if (!childEntry.pathname.endsWith(".ts")) return [];
 
   const arguments_: string[] = [];
+
   for (let index = 0; index < process.execArgv.length - 1; index += 1) {
     const flag = process.execArgv[index];
     const value = process.execArgv[index + 1];
+
     if ((flag === "--require" || flag === "--import") && value?.includes("/tsx/")) {
       arguments_.push(flag, value);
       index += 1;
     }
   }
+
   return arguments_;
 }
 
@@ -120,9 +128,11 @@ function maximumReplyBytes(maxCharacters: number): number {
 function remoteNativeError(name: string, message: string, code?: string): Error {
   const error = new Error(message);
   error.name = name;
+
   if (code !== undefined) {
     Object.defineProperty(error, "code", { configurable: true, enumerable: true, value: code });
   }
+
   return error;
 }
 
@@ -132,6 +142,7 @@ async function runPdfExtractionChild(
   options: PdfExtractorChildOptions,
 ): Promise<ExtractedPdf> {
   const startedAt = performance.now();
+
   const spawnDefault = () =>
     spawn(
       process.execPath,
@@ -145,12 +156,15 @@ async function runPdfExtractionChild(
         stdio: ["pipe", "pipe", "pipe"],
       },
     );
+
   let child: ChildProcessWithoutNullStreams;
+
   try {
     child = options.spawnChild?.(spawnDefault) ?? spawnDefault();
   } catch (error) {
     throw new PdfExtractionError(error);
   }
+
   options.onSpawn?.(child.pid);
 
   return new Promise<ExtractedPdf>((resolve, reject) => {
@@ -159,6 +173,7 @@ async function runPdfExtractionChild(
     let stderrBytes = 0;
     let deadline: ReturnType<typeof setTimeout> | undefined;
     let childExitedSuccessfullyBeforeDeadline = false;
+
     let terminalCause:
       | { readonly kind: "deadline"; readonly actual: number }
       | { readonly kind: "process_failure"; readonly error: Error }
@@ -186,8 +201,10 @@ async function runPdfExtractionChild(
     const recordExitedChildFailure = (code: number | null, signal: NodeJS.Signals | null) => {
       if (terminalCause === undefined && code === 0) {
         childExitedSuccessfullyBeforeDeadline = true;
+
         return;
       }
+
       if (terminalCause !== undefined) return;
       terminalCause = {
         kind: "process_failure",
@@ -202,6 +219,7 @@ async function runPdfExtractionChild(
           actual: Math.max(limits.maxParseMilliseconds, Math.ceil(performance.now() - startedAt)),
         };
       }
+
       killChild();
       child.stdin.destroy();
       child.stdout.destroy();
@@ -210,15 +228,19 @@ async function runPdfExtractionChild(
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.byteLength;
+
       if (stdoutBytes > maximumReplyBytes(limits.maxCharacters)) {
         stopForFailure(new Error("PDF extraction child exceeded the bounded stdout protocol"));
+
         return;
       }
+
       stdout.push(chunk);
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.byteLength;
+
       if (stderrBytes > STDERR_LIMIT_BYTES) {
         stopForFailure(new Error("PDF extraction child exceeded the bounded stderr protocol"));
       }
@@ -245,32 +267,39 @@ async function runPdfExtractionChild(
             limits.maxParseMilliseconds,
           ),
         );
+
         return;
       }
 
       if (terminalCause?.kind === "process_failure") {
         reject(new PdfExtractionError(terminalCause.error));
+
         return;
       }
 
       if (code !== 0) {
         reject(new PdfExtractionError(childExitError(code, signal)));
+
         return;
       }
 
       try {
         const reply = parsePdfExtractionChildReply(Buffer.concat(stdout));
+
         if (reply.kind === "dependency_error") {
           const cause = remoteNativeError(reply.error.name, reply.error.message, reply.error.code);
+
           if (reply.error.source === "native_load") {
             reject(cause);
           } else {
             reject(new PdfExtractionError(cause));
           }
+
           return;
         }
 
         const { result } = reply;
+
         if (
           result.kind === "limit_exceeded" &&
           (result.limit !== "output_characters" || result.maximum !== limits.maxCharacters)
@@ -286,10 +315,12 @@ async function runPdfExtractionChild(
               limits.maxParseMilliseconds,
             ),
           );
+
           return;
         }
 
         const characterCount = pdfExtractionContentCharacterCount(result);
+
         // Defensive: the child already truncates (or fails) against
         // `maxCharacters` when `truncateOnOutputExceed` is forwarded, so a
         // well-formed reply never lands here over budget. The re-check guards
@@ -316,8 +347,10 @@ async function runPdfExtractionChild(
     });
 
     const remainingMilliseconds = limits.maxParseMilliseconds - (performance.now() - startedAt);
+
     if (remainingMilliseconds <= 0) {
       stopForDeadline();
+
       return;
     }
 
@@ -346,6 +379,7 @@ export function createPdfExtractorWithChild(
         configuredLimits.maxBytes,
       );
     }
+
     return runPdfExtractionChild(bytes, configuredLimits, options);
   };
 }

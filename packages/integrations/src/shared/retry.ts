@@ -88,6 +88,7 @@ function isRetryableStatus(status: number): boolean {
  */
 export function isRetrySafeMethod(method: string | undefined): boolean {
   const normalized = (method ?? "GET").toUpperCase();
+
   return normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS";
 }
 
@@ -108,15 +109,19 @@ function sleep(ms: number): Promise<void> {
  */
 function retryAfterMs(res: Response, policy: Required<RetryPolicy>): number | null {
   const header = res.headers.get("retry-after");
+
   if (!header) return null;
   const seconds = Number(header);
+
   if (!Number.isFinite(seconds) || seconds < 0) return null;
+
   return Math.min(seconds * 1_000, policy.maxDelayMs);
 }
 
 function backoffMs(attempt: number, policy: Required<RetryPolicy>): number {
   const exponential = policy.baseDelayMs * 2 ** (attempt - 1);
   const capped = Math.min(exponential, policy.maxDelayMs);
+
   // Full jitter (AWS) — spread retries so a fleet doesn't reconverge on the
   // upstream in lockstep. Runtime code, so `Math.random` is fine here.
   return Math.random() * capped;
@@ -145,10 +150,13 @@ export async function fetchWithRetry(
   const policy = withDefaults(DEFAULT_POLICY, options.policy);
 
   let lastError: unknown;
+
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
     const isLast = attempt === policy.maxAttempts;
+
     try {
       const res = await send();
+
       if (isLast || !isRetryableStatus(res.status)) return res;
       await sleep(retryAfterMs(res, policy) ?? backoffMs(attempt, policy));
     } catch (err) {
@@ -157,6 +165,7 @@ export async function fetchWithRetry(
       await sleep(backoffMs(attempt, policy));
     }
   }
+
   // Unreachable: the loop returns or throws on the last attempt. Satisfy the
   // type checker without a cast.
   throw lastError instanceof Error ? lastError : new Error("fetchWithRetry: exhausted");

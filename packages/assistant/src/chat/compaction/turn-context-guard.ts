@@ -31,14 +31,18 @@ export function withEphemeralReference(
 ): AgentTranscriptMessage[] {
   if (!reference) return [...transcript];
   let userIndex = -1;
+
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     if (transcript[index]?.role === "user") {
       userIndex = index;
       break;
     }
   }
+
   const message = { role: "assistant", content: reference } satisfies AgentTranscriptMessage;
+
   if (userIndex < 0) return [message, ...transcript];
+
   return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
 }
 
@@ -103,17 +107,23 @@ async function loadForegroundCompactionBoundary(
     .from(chatMessages)
     .where(and(eq(chatMessages.userId, userId), eq(chatMessages.threadId, threadId)))
     .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+
   let latestUserIndex = -1;
+
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
+
     if (row.role !== "user") continue;
+
     if (latestUserMessageId && row.id !== latestUserMessageId) continue;
     latestUserIndex = index;
     break;
   }
+
   if (latestUserIndex <= 0) return null;
   const cutoff = rows[latestUserIndex - 1]!;
   const replayTail = rows[rows.length - 1]!;
+
   return {
     compaction: { createdAt: cutoff.createdAt, messageId: cutoff.id },
     replayTail: { createdAt: replayTail.createdAt, messageId: replayTail.id },
@@ -124,6 +134,7 @@ function latestUserSuffixStart(transcript: readonly AgentTranscriptMessage[]): n
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     if (transcript[index]?.role === "user") return index;
   }
+
   return 0;
 }
 
@@ -166,6 +177,7 @@ async function applyForegroundContextGuard({
   continuationTranscript: AgentTranscriptMessage[];
 }> {
   const contextWindowTokens = await resolveModelContextWindow(model);
+
   const assess = (candidate: readonly AgentTranscriptMessage[]) =>
     assessChatRequestPressure({
       systemPrompt,
@@ -176,34 +188,43 @@ async function applyForegroundContextGuard({
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
+
   const initialPressure = await assess(
     withEphemeralReference(hydratedTranscript, artifactReference),
   );
+
   if (!initialPressure.requiresSynchronousCompaction) {
     return {
       modelTranscript: [...hydratedTranscript],
       continuationTranscript: [...storedTranscript],
     };
   }
+
   await onCompactionStart?.();
+
   try {
     const replayTailStart = latestUserSuffixStart(hydratedTranscript);
     const replayTail = hydratedTranscript.slice(replayTailStart);
     const storedReplayTail = storedTranscript.slice(replayTailStart);
     const backgroundWinner = await waitForActiveConversationCompaction(userId, threadId);
+
     if (backgroundWinner?.summary) {
       const summaryMessage = conversationSummaryMessage(backgroundWinner.summary);
       const reused = buildCompactedChatTranscriptPair(summaryMessage, storedReplayTail, replayTail);
+
       const reusedPressure = await assess(
         withEphemeralReference(reused.modelTranscript, artifactReference),
       );
+
       if (!reusedPressure.requiresSynchronousCompaction) {
         return reused;
       }
     }
 
     const boundary = await loadForegroundCompactionBoundary(userId, threadId, latestUserMessageId);
+
     if (!boundary) throw new Error("prompt is too long: no compactable history before latest user");
+
     const result = await compactConversationSynchronously({
       userId,
       threadId,
@@ -214,30 +235,38 @@ async function applyForegroundContextGuard({
       abortSignal,
       timeoutMs: FOREGROUND_COMPACTION_TIMEOUT_MS,
     });
+
     const winningSummary =
       result.kind === "persisted"
         ? result.summary
         : (await loadChatThreadContext(userId, threadId))?.summary;
+
     if (!winningSummary) {
       throw new Error("prompt is too long: synchronous compaction lost without a valid winner");
     }
+
     const rebuilt = buildCompactedChatTranscriptPair(
       conversationSummaryMessage(winningSummary),
       storedReplayTail,
       replayTail,
     );
+
     const rebuiltPressure = await assess(
       withEphemeralReference(rebuilt.modelTranscript, artifactReference),
     );
+
     if (!rebuiltPressure.requiresSynchronousCompaction) {
       return rebuilt;
     }
 
     const latestUser = replayTail[0];
+
     if (!latestUser || latestUser.role !== "user" || !latestUserMessageId) {
       throw new Error("prompt is too long after synchronous compaction");
     }
+
     let oversized: Awaited<ReturnType<typeof compactTranscript>>;
+
     try {
       oversized = await compactTranscript({
         prior: storedCompactionPrefix(storedReplayTail, 1),
@@ -258,25 +287,32 @@ async function applyForegroundContextGuard({
       if (toMessage(error) === "compactor_input_too_large") {
         throw new Error("prompt is too long: latest user message exceeds compactor input");
       }
+
       throw error;
     }
+
     const oversizedMessage = oversizedUserMessageSummaryMessage(
       latestUserMessageId,
       oversized.raw.text,
     );
+
     const boundedModelTail = [oversizedMessage, ...replayTail.slice(1)];
     const boundedStoredTail = [oversizedMessage, ...storedReplayTail.slice(1)];
+
     const bounded = buildCompactedChatTranscriptPair(
       conversationSummaryMessage(winningSummary),
       boundedStoredTail,
       boundedModelTail,
     );
+
     const boundedPressure = await assess(
       withEphemeralReference(bounded.modelTranscript, artifactReference),
     );
+
     if (boundedPressure.requiresSynchronousCompaction) {
       throw new Error("prompt is too long after oversized user message summarization");
     }
+
     return bounded;
   } finally {
     await onCompactionFinish?.();
@@ -321,6 +357,7 @@ async function applyWithinRunContextGuard({
   compacted: boolean;
 }> {
   const contextWindowTokens = await resolveModelContextWindow(model);
+
   const assess = (candidate: readonly AgentTranscriptMessage[]) =>
     assessChatRequestPressure({
       systemPrompt,
@@ -335,7 +372,9 @@ async function applyWithinRunContextGuard({
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
+
   const pressure = await assess(hydratedTranscript);
+
   if (!pressure.requiresSynchronousCompaction) {
     return {
       modelTranscript: [...hydratedTranscript],
@@ -343,14 +382,18 @@ async function applyWithinRunContextGuard({
       compacted: false,
     };
   }
+
   if (inFlightTailStart <= 0 || inFlightTailStart >= transcript.length) {
     throw new Error("prompt is too long: no within-run history can be compacted safely");
   }
+
   await onCompactionStart?.();
+
   try {
     const prior = storedCompactionPrefix(transcript, inFlightTailStart);
     const inFlightTail = hydratedTranscript.slice(inFlightTailStart);
     const storedInFlightTail = transcript.slice(inFlightTailStart);
+
     // No inter-attempt delay: this is holding up a live turn. A stop request is
     // fatal on top of the shared `compactor_input_too_large` — burning two more
     // compactor calls on a turn nobody is waiting for is pure spend.
@@ -372,10 +415,13 @@ async function applyWithinRunContextGuard({
         }),
       { abortSignal },
     );
+
     const postPressure = await assess(compacted.transcript);
+
     if (postPressure.requiresSynchronousCompaction) {
       throw new Error("prompt is too long after within-run compaction");
     }
+
     return {
       ...buildCompactedChatTranscriptPair(
         compacted.summary,
@@ -469,6 +515,7 @@ async function guardExistingTurnContext(args: {
       onCompactionStart: () => args.onPhase("compaction_started", "foreground"),
       onCompactionFinish: () => args.onPhase("compaction_finished", "foreground"),
     });
+
     // Turn 1 always has `inFlightTailStart === 0`, so it never triggers the
     // caller's reset — mirror the pre-extraction behavior with `compacted: false`.
     return {
@@ -495,6 +542,7 @@ async function guardExistingTurnContext(args: {
     onCompactionStart: () => args.onPhase("compaction_started", "within_run"),
     onCompactionFinish: () => args.onPhase("compaction_finished", "within_run"),
   });
+
   return {
     continuationTranscript: withinRun.continuationTranscript,
     modelTranscript: withinRun.modelTranscript,
@@ -505,7 +553,9 @@ async function guardExistingTurnContext(args: {
 /** Admit pending guidance only after compaction, in both checkpoint and model views. */
 export async function guardTurnContext(args: Parameters<typeof guardExistingTurnContext>[0]) {
   const guarded = await guardExistingTurnContext(args);
+
   if (!args.pendingGuidance) return guarded;
+
   return {
     ...guarded,
     continuationTranscript: [...guarded.continuationTranscript, args.pendingGuidance],

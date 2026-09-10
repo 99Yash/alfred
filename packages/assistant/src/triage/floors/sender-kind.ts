@@ -83,6 +83,7 @@ export function applySenderKindDemotionFloor(
   }
 
   const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
+
   if (
     !senderKind ||
     !senderKindCanDemoteDemand(senderKind) ||
@@ -90,6 +91,7 @@ export function applySenderKindDemotionFloor(
   ) {
     return { verdict: { kind: "keep" }, reason: null };
   }
+
   const note =
     classification.category === "awaiting_reply"
       ? `${senderKind.kind} sender is not awaiting a reply`
@@ -102,6 +104,7 @@ export function applySenderKindDemotionFloor(
             : reason === "collab_passive_activity"
               ? `${senderKind.kind} sender sent passive collaboration activity not directed at the user`
               : `${senderKind.kind} sender sent a passive collaboration state transition`;
+
   return {
     verdict: {
       kind: "demote",
@@ -118,6 +121,7 @@ export function applySenderKindDemotionFloor(
 
 function senderKindCanDemoteDemand(senderKind: NonNullable<Observations["senderKind"]>) {
   if (senderKind.kind === "group") return true;
+
   return senderKind.evidenceCodes.some(
     (code) => code === "email:local:service_strong" || code === "gmail:auto_submitted",
   );
@@ -128,17 +132,22 @@ function senderKindFloorShouldDemoteCategory(
   reason: SenderKindDemotionReason | null,
 ): boolean {
   if (category === "awaiting_reply") return true;
+
   if (category === "urgent") {
     return reason === "broadcast_auth_signin_confirmation" || reason === "monitoring_alarm";
   }
+
   if (category !== "action_needed") return false;
+
   return reason !== null;
 }
 
 const COLLAB_STATE_TRANSITION_RE =
   /\b(?:changed status|set the status to|moved (?:task )?(?:to|from)|marked (?:as )?(?:done|complete|completed|resolved|closed)|status changed|re-?opened|closed task)\b/i;
+
 const COLLAB_DIRECT_OWNERSHIP_RE =
   /\b(?:assigned (?:task )?to you|assigned you\b|you were assigned|mentioned you|can you|could you|please|pls\s+merge|review and merge|pick this up)\b/i;
+
 const COLLAB_INTRINSIC_STAKE_RE =
   /\b(?:payment failed|card declined|invoice due|past due|access (?:will be )?(?:disabled|suspended|lost)|security|compromis|exposed|leaked|secret|token|api[ -]?key|private key|production outage|prod outage|blocked deploy|critical)\b/i;
 
@@ -172,9 +181,11 @@ function senderKindDemotionReason(
   // regex path honors (a "someone changed status" line that also names an exposed
   // secret or a past-due invoice keeps its escalation).
   const collab = context.collabActivity;
+
   if (collab != null) {
     if (isPassiveCollabActivity(collab)) {
       const signalText = context.collabVetoText ?? context.signalText ?? "";
+
       if (!matchesExposedSecret(signalText) && !COLLAB_INTRINSIC_STAKE_RE.test(signalText)) {
         return "collab_passive_activity";
       }
@@ -182,20 +193,27 @@ function senderKindDemotionReason(
   } else if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
     return "collab_state_transition";
   }
+
   if (isPassiveGithubPrOrCiNotification(context)) return "github_passive_pr_or_ci";
+
   if (isBroadcastAuthSignInConfirmation(context, senderKind)) {
     return "broadcast_auth_signin_confirmation";
   }
+
   if (isMonitoringAlarmBroadcast(context)) return "monitoring_alarm";
+
   return null;
 }
 
 const GITHUB_NOTIFICATION_RE = /notifications@github\.com/i;
+
 // A GitHub PR-notification thread: the body carries a `/pull/N` link and the
 // subject a `(PR #N)` ref. `/issues/N` and issue refs deliberately don't match —
 // an issue can be a real ask; review of unmerged PR code is not (rule 16b).
 const PR_THREAD_RE = /\/pull\/\d+|\bpull request\b|\bpr #\d+\b/i;
+
 const GITHUB_REASON_ALIAS_RE = /<([^>]+@noreply\.github\.com)>/gi;
+
 const PASSIVE_GITHUB_REASON_ALIASES = new Set([
   "author@noreply.github.com",
   "ci_activity@noreply.github.com",
@@ -215,8 +233,11 @@ export function matchesPrThread(text: string): boolean {
 function isPassiveGithubPrOrCiNotification(context: SenderKindDemotionFloorContext): boolean {
   if (!GITHUB_NOTIFICATION_RE.test(context.sender ?? "")) return false;
   const reasons = githubReasonAliases(context.cc);
+
   if (!reasons.some((r) => PASSIVE_GITHUB_REASON_ALIASES.has(r))) return false;
+
   if (reasons.includes("ci_activity@noreply.github.com")) return true;
+
   return PR_THREAD_RE.test(context.subject ?? "");
 }
 
@@ -227,7 +248,9 @@ function githubReasonAliases(cc: string | null | undefined): string[] {
 }
 
 const AUTH_SIGNIN_NOTICE_RE = /\b(?:new sign-?in|new login|new sign in|new device sign-?in)\b/i;
+
 const AUTH_NO_ACTION_IF_YOU_RE = /\bif this was you,\s*no action is needed\b/i;
+
 const AUTH_UNRECOGNIZED_RE = /\b(?:if you (?:do not|don't) recognize|if this wasn't you)\b/i;
 
 function isBroadcastAuthSignInConfirmation(
@@ -236,11 +259,13 @@ function isBroadcastAuthSignInConfirmation(
 ): boolean {
   if (senderKind.kind !== "group") return false;
   const text = [context.subject, context.signalText].filter(Boolean).join("\n");
+
   // A sign-in notice that also names a leaked secret must escape demotion, the
   // same veto `collab_passive_activity` and `monitoring_alarm` carry (#580).
   // Otherwise the override floor's `urgent` is demoted straight back to `fyi`
   // and the rotate-now todo it protects is cleared.
   if (matchesExposedSecret(text)) return false;
+
   return (
     AUTH_SIGNIN_NOTICE_RE.test(text) &&
     AUTH_NO_ACTION_IF_YOU_RE.test(text) &&
@@ -264,16 +289,21 @@ function isBroadcastAuthSignInConfirmation(
 // HYPOTHESIS — they only fire if `resolveSenderKind` confidently tags them group/
 // service, and are unverified against real mail.
 const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
+
 const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\b\s*:/i;
+
 function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): boolean {
   const shaped =
     MONITORING_SENDER_RE.test(context.sender ?? "") ||
     MONITORING_ALARM_SUBJECT_RE.test(context.subject ?? "");
+
   if (!shaped) return false;
   const signalText = context.signalText ?? "";
+
   // A leaked-secret alarm must escape demotion entirely — keep the security
   // escalation + any legitimate rotate-now todo (mirrors the collab carve-out).
   if (matchesExposedSecret(signalText)) return false;
+
   // Do not infer ownership from body prose here. Monitoring/list mail is wrapped
   // in provider and distribution-list boilerplate, so generic second-person or
   // request language is not reliable evidence that THIS user owns the alarm.
@@ -306,10 +336,13 @@ function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): bo
  */
 function isBroadcastAudience(context: SenderKindDemotionFloorContext): boolean {
   const account = canonicalizeEmailForMatch(context.accountEmail);
+
   if (!account) return false;
   const to = context.to ?? "";
   const cc = context.cc ?? "";
+
   if (!to.trim() && !cc.trim()) return false;
   const addressed = new Set([...recipientAddresses(to), ...recipientAddresses(cc)]);
+
   return !addressed.has(account);
 }

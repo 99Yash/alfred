@@ -22,6 +22,7 @@ import type { SyncedFact } from "../types";
 export const factConfirmArgsSchema = z.object({
   factId: z.string().min(1).max(100),
 });
+
 export type FactConfirmArgs = z.infer<typeof factConfirmArgsSchema>;
 
 export const factRejectArgsSchema = z.object({
@@ -29,6 +30,7 @@ export const factRejectArgsSchema = z.object({
   /** Free-form rejection reason ("wrong person", "no longer true"). */
   reason: z.string().max(2_000).optional(),
 });
+
 export type FactRejectArgs = z.infer<typeof factRejectArgsSchema>;
 
 export const factCreateArgsSchema = z.object({
@@ -44,6 +46,7 @@ export const factCreateArgsSchema = z.object({
   /** Optional source override; defaults to `{ kind: 'user' }` server-side. */
   source: memorySourceSchema.optional(),
 });
+
 export type FactCreateArgs = z.infer<typeof factCreateArgsSchema>;
 
 export const factEditArgsSchema = z.object({
@@ -58,6 +61,7 @@ export const factEditArgsSchema = z.object({
   /** Optional source override; defaults to `{ kind: 'user' }` server-side. */
   source: memorySourceSchema.optional(),
 });
+
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
 
 async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFact | null> {
@@ -78,6 +82,7 @@ async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> 
  */
 export async function factCreateClient(tx: WriteTransaction, args: FactCreateArgs): Promise<void> {
   const now = new Date().toISOString();
+
   const fact: SyncedFact = {
     id: args.id,
     userId: args.userId,
@@ -93,6 +98,7 @@ export async function factCreateClient(tx: WriteTransaction, args: FactCreateArg
     createdAt: now,
     updatedAt: now,
   };
+
   await writeFact(tx, fact);
 }
 
@@ -106,7 +112,9 @@ export async function factConfirmClient(
   args: FactConfirmArgs,
 ): Promise<void> {
   const fact = await readFact(tx, args.factId);
+
   if (!fact) return;
+
   if (fact.status !== "proposed") return;
   await writeFact(tx, { ...fact, status: "confirmed", rowVersion: fact.rowVersion + 1 });
 }
@@ -128,10 +136,12 @@ export async function factRejectClient(tx: WriteTransaction, args: FactRejectArg
  */
 export async function factEditClient(tx: WriteTransaction, args: FactEditArgs): Promise<void> {
   const old = await readFact(tx, args.factId);
+
   if (!old) return;
   await SYNC_MODEL.fact.del(tx, { id: args.factId });
 
   const now = new Date().toISOString();
+
   const replacement: SyncedFact = {
     id: args.newFactId,
     userId: old.userId,
@@ -147,5 +157,6 @@ export async function factEditClient(tx: WriteTransaction, args: FactEditArgs): 
     createdAt: now,
     updatedAt: now,
   };
+
   await writeFact(tx, replacement);
 }

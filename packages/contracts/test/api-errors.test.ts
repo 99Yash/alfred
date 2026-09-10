@@ -24,6 +24,7 @@ test("every code has a status, and every factory carries the code it names", () 
   const built = Object.values(Errors).map((make) => make());
   const codes = built.map((err) => err.code);
   assert.deepEqual([...codes].sort(), [...API_ERROR_CODES].sort());
+
   for (const err of built) {
     assert.equal(err.statusCode, API_ERROR_STATUS[err.code]);
     assert.ok(err.message.length > 0, `${err.code} has an empty default message`);
@@ -65,6 +66,7 @@ test("a factory name reads as the code it produces", () => {
     const stem = name.endsWith("Error") ? name.slice(0, -"Error".length) : name;
     const screaming = stem.replace(/(?<=[a-z0-9])(?=[A-Z])/g, "_").toUpperCase();
     const candidates: readonly string[] = [screaming, `${screaming}_ERROR`];
+
     return API_ERROR_CODES.find((code) => candidates.includes(code));
   };
 

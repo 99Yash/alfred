@@ -17,6 +17,7 @@ import { readManifest, repoRoot, runsRoot } from "./manifest.mjs";
 const USAGE = `node scripts/bench/run.mjs <taskId> [--model <model>] [--timeout-min <n>] [--install] [--dry-run]`;
 
 const DEFAULT_TIMEOUT_MIN = 30;
+
 const INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
 
 /**
@@ -38,8 +39,10 @@ export function parseArgs(argv) {
     install: false,
     dryRun: false,
   };
+
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
+
     switch (flag) {
       case "--model":
         args.model = argv[++i] ?? null;
@@ -61,10 +64,13 @@ export function parseArgs(argv) {
         }
     }
   }
+
   if (!/^[a-z][a-z0-9-]*$/.test(args.taskId))
     throw new Error(`bad taskId ${JSON.stringify(args.taskId)}\n${USAGE}`);
+
   if (!Number.isFinite(args.timeoutMin) || args.timeoutMin <= 0)
     throw new Error(`bad --timeout-min ${args.timeoutMin}`);
+
   return args;
 }
 
@@ -72,6 +78,7 @@ export function parseArgs(argv) {
 export function timestamp() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
+
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
@@ -87,20 +94,25 @@ export function timestamp() {
 export function runCommand(cwd, argv, options = {}) {
   return new Promise((resolve) => {
     const sink = options.capture ? createWriteStream(options.capture) : null;
+
     const child = spawn(argv[0], argv.slice(1), {
       cwd,
       detached: true,
       stdio: ["ignore", sink ? "pipe" : "inherit", sink ? "pipe" : "inherit"],
     });
+
     if (sink && child.stdout) child.stdout.pipe(sink);
+
     if (sink && child.stderr) child.stderr.pipe(sink);
     let timedOut = false;
     const pid = child.pid;
+
     const timer =
       options.timeoutMs === undefined
         ? null
         : setTimeout(() => {
             timedOut = true;
+
             if (pid !== undefined) {
               try {
                 process.kill(-pid, "SIGKILL");
@@ -109,14 +121,17 @@ export function runCommand(cwd, argv, options = {}) {
               }
             }
           }, options.timeoutMs);
+
     child.on("error", (error) => {
       if (timer !== null) clearTimeout(timer);
+
       if (sink) sink.end();
       console.error(`spawn failed: ${error.message}`);
       resolve({ code: -1, timedOut });
     });
     child.on("close", (code) => {
       if (timer !== null) clearTimeout(timer);
+
       if (sink) sink.end();
       resolve({ code, timedOut });
     });
@@ -140,9 +155,11 @@ export async function runTask(args) {
     cwd: root,
     encoding: "utf8",
   }).trim();
+
   const clone = join(runsDir, "clone");
   const initArgv = ["git", "init", "--quiet", clone];
   const remoteArgv = ["git", "-C", clone, "remote", "add", "origin", originUrl];
+
   // Depth 1 on purpose: the agent must not see any commit past the base. A
   // task mined from this repo's history is answerable from that history (the
   // a-834 run proved it: the agent `git show`-ed the real solution commit and
@@ -158,8 +175,10 @@ export async function runTask(args) {
     "origin",
     manifest.base,
   ];
+
   const addArgv = ["git", "-C", clone, "worktree", "add", "--detach", worktree, manifest.base];
   const agentArgv = ["opencode", "run", "--format", "json", "--dir", worktree, "--auto"];
+
   if (args.model !== null) agentArgv.push("--model", args.model);
   agentArgv.push(
     "Complete the task described in TASK.md at the repository root. The definition of done lists the commands that must pass. Do not commit.",
@@ -175,11 +194,13 @@ export async function runTask(args) {
     console.log(`$ ${fetchArgv.join(" ")}`);
     console.log(`$ ${addArgv.join(" ")}`);
     console.log(`TASK.md <- ${manifest.promptFile}`);
+
     if (args.install) console.log(`$ ${installArgv.join(" ")}`);
     console.log(`$ ${agentArgv.join(" ")}  (timeout ${args.timeoutMin} min, -> ${trajectory})`);
     console.log(`$ git add -A && git ${diffArgv.join(" ")}  -> agent.patch`);
     console.log(`$ git worktree remove --force ${worktree}`);
     console.log(`$ rm -rf ${clone}`);
+
     return null;
   }
 
@@ -187,15 +208,19 @@ export async function runTask(args) {
   await runCommand(root, ["git", "fetch", "origin", manifest.base], { timeoutMs: 5 * 60 * 1000 });
   mkdirSync(clone, { recursive: true });
   const initResult = await runCommand(root, initArgv);
+
   if (initResult.code !== 0)
     throw new Error(`git init failed (${initResult.code}): ${initArgv.join(" ")}`);
   const remoteResult = await runCommand(root, remoteArgv);
+
   if (remoteResult.code !== 0)
     throw new Error(`git remote add failed (${remoteResult.code}): ${remoteArgv.join(" ")}`);
   const fetchResult = await runCommand(root, fetchArgv, { timeoutMs: 10 * 60 * 1000 });
+
   if (fetchResult.code !== 0)
     throw new Error(`depth-1 fetch failed (${fetchResult.code}): ${fetchArgv.join(" ")}`);
   const addResult = await runCommand(root, addArgv);
+
   if (addResult.code !== 0) {
     throw new Error(`git worktree add failed (${addResult.code}): ${addArgv.join(" ")}`);
   }
@@ -207,6 +232,7 @@ export async function runTask(args) {
     const installResult = await runCommand(worktree, installArgv, {
       timeoutMs: INSTALL_TIMEOUT_MS,
     });
+
     if (installResult.code !== 0) {
       console.error(`install failed (${installResult.code}); continuing without node_modules`);
     }
@@ -243,13 +269,16 @@ export async function runTask(args) {
 
   await runCommand(clone, ["git", "worktree", "remove", "--force", worktree]);
   await runCommand(root, ["rm", "-rf", clone]);
+
   return runsDir;
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+
   try {
     const runsDir = await runTask(args);
+
     if (runsDir !== null) console.log(`run complete -> ${runsDir}`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

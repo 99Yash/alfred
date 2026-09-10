@@ -18,6 +18,7 @@ import { and, count, desc, eq, isNotNull, max, type SQL } from "drizzle-orm";
  */
 function rawKindGroups(scope: SQL | undefined) {
   const lastSeenAt = max(eventReceipts.deliveredAt);
+
   return db()
     .select({ rawKind: eventReceipts.rawKind, count: count(), lastSeenAt })
     .from(eventReceipts)
@@ -89,6 +90,7 @@ export async function seenRawKinds(userId: string, source: InboundEventSource): 
   const rows = await rawKindGroups(
     and(eq(eventReceipts.userId, userId), eq(eventReceipts.provider, source)),
   ).limit(SEEN_RAW_KINDS_LIMIT);
+
   // `IS NOT NULL` in the WHERE clause proves it; the select type cannot see it.
   return rows.flatMap((row) => (row.rawKind ? [row.rawKind] : []));
 }

@@ -10,12 +10,16 @@ export function parseIntegrationMentions(
     allowedIntegrations.length > 0
       ? new Set<string>(allowedIntegrations)
       : new Set<string>(INTEGRATION_SLUGS);
+
   const seen = new Set<IntegrationSlug>();
 
   for (const match of brief.matchAll(MENTION_RE)) {
     const slug = match[1]?.toLowerCase() ?? "";
+
     if (!isIntegrationSlug(slug)) continue;
+
     if (slug === "system") continue;
+
     if (!allowed.has(slug)) continue;
     seen.add(slug);
   }

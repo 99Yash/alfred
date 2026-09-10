@@ -23,22 +23,27 @@ interface CapturedSpans {
   opened: RuntimeSpanInput[];
   ended: RuntimeSpanEndArgs[];
 }
+
 function capture(fn: (recorded: CapturedSpans) => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
+
   const restore = _setRuntimeSpanStarterForTests((input) => {
     opened.push(input);
+
     return {
       end(args) {
         ended.push(args);
       },
     };
   });
+
   try {
     fn({ opened, ended });
   } finally {
     restore();
   }
+
   return { opened, ended };
 }
 
@@ -66,9 +71,11 @@ describe("runtime.approval.wait", () => {
 
   test("closer routes the built input through the injected starter and folds outcome + waitMs", () => {
     const endedAt = new Date("2026-07-15T00:00:05.000Z");
+
     const { opened, ended } = capture(() => {
       startApprovalWaitSpan(args).end("approved", endedAt);
     });
+
     assert.equal(opened.length, 1);
     assert.equal(opened[0]?.name, "runtime.approval.wait");
     // Expected, not an error: approval waits always close at DEFAULT (level unset).
@@ -81,6 +88,7 @@ describe("runtime.approval.wait", () => {
     const { ended } = capture(() => {
       startApprovalWaitSpan(args).end("expired", new Date("2026-07-14T23:59:59.000Z"));
     });
+
     assert.equal(ended[0]?.metadata?.waitMs, 0);
   });
 
@@ -90,6 +98,7 @@ describe("runtime.approval.wait", () => {
       closer.end("approved", new Date("2026-07-15T00:00:05.000Z"));
       closer.end("rejected", new Date("2026-07-15T00:00:09.000Z"));
     });
+
     assert.equal(ended.length, 1);
     assert.equal(ended[0]?.status, "approved");
   });
@@ -120,6 +129,7 @@ describe("runtime.sub_agent.wait", () => {
     const { ended } = capture(() => {
       startSubAgentWaitSpan(args).end("failed", new Date("2026-07-15T00:00:12.000Z"));
     });
+
     assert.deepEqual(ended, [
       { status: "failed", metadata: { outcome: "failed", waitMs: 12_000 } },
     ]);
@@ -141,6 +151,7 @@ describe("runtime.queue.lease", () => {
       reclaimed: false,
       queueMs: 4000,
     });
+
     assert.equal(input.name, RUNTIME_QUEUE_LEASE);
     assert.equal(input.name, "runtime.queue.lease");
     // 10s lease minus 4s queue → start at 6s.
@@ -159,6 +170,7 @@ describe("runtime.queue.lease", () => {
       reclaimed: false,
       queueMs: null,
     });
+
     assert.equal(input.startedAt, base.leasedAt);
   });
 
@@ -171,6 +183,7 @@ describe("runtime.queue.lease", () => {
         queueMs: 4000,
       }).end();
     });
+
     assert.deepEqual(ended, [
       { status: "leased", level: "DEFAULT", metadata: { reclaimed: false, queueMs: 4000 } },
     ]);
@@ -185,6 +198,7 @@ describe("runtime.queue.lease", () => {
         queueMs: 90_000,
       }).end();
     });
+
     assert.deepEqual(ended, [
       { status: "reclaimed", level: "WARNING", metadata: { reclaimed: true, queueMs: 90_000 } },
     ]);
@@ -198,9 +212,11 @@ describe("runtime.queue.lease", () => {
         reclaimed: false,
         queueMs: 1000,
       });
+
       closer.end();
       closer.end();
     });
+
     assert.equal(ended.length, 1);
   });
 });

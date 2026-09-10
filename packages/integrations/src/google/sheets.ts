@@ -80,6 +80,7 @@ export async function createSpreadsheet(
       properties: { title: args.title },
     },
   );
+
   return {
     spreadsheetId: parsed.spreadsheetId,
     spreadsheetUrl: parsed.spreadsheetUrl,
@@ -106,6 +107,7 @@ export async function getValues(
 ): Promise<GetValuesResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}`;
   const parsed = await sendJson(valueRangeSchema, "GET", url, args.accessToken, undefined, retry);
+
   return {
     range: parsed.range,
     // SAFETY: valueRangeSchema validated values as unknown[][]; CellValue is
@@ -134,7 +136,9 @@ export async function updateValues(args: UpdateValuesArgs): Promise<UpdateValues
   const url = new URL(
     `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}`,
   );
+
   url.searchParams.set("valueInputOption", args.valueInputOption ?? "USER_ENTERED");
+
   const parsed = await sendJson(
     updateValuesResponseSchema,
     "PUT",
@@ -146,6 +150,7 @@ export async function updateValues(args: UpdateValuesArgs): Promise<UpdateValues
       values: args.values,
     },
   );
+
   return { updatedRange: parsed.updatedRange, updatedCells: parsed.updatedCells };
 }
 
@@ -168,8 +173,10 @@ export async function appendValues(args: AppendValuesArgs): Promise<AppendValues
   const url = new URL(
     `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}:append`,
   );
+
   url.searchParams.set("valueInputOption", args.valueInputOption ?? "USER_ENTERED");
   url.searchParams.set("insertDataOption", "INSERT_ROWS");
+
   const parsed = await sendJson(
     appendValuesResponseSchema,
     "POST",
@@ -181,6 +188,7 @@ export async function appendValues(args: AppendValuesArgs): Promise<AppendValues
       values: args.values,
     },
   );
+
   return {
     updatedRange: parsed.updates?.updatedRange,
     updatedCells: parsed.updates?.updatedCells,
@@ -207,9 +215,11 @@ export async function batchUpdateSpreadsheet(
   args: BatchUpdateSpreadsheetArgs,
 ): Promise<BatchUpdateSpreadsheetResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}:batchUpdate`;
+
   const parsed = await sendJson(batchUpdateResponseSchema, "POST", url, args.accessToken, {
     requests: args.requests,
   });
+
   return { replies: parsed.replies ?? [] };
 }
 

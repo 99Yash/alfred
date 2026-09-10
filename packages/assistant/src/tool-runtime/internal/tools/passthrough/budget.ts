@@ -82,5 +82,6 @@ export async function countRunPassthroughCalls(runId: string): Promise<number> {
         inArray(actionStagings.toolName, [...PASSTHROUGH_TOOL_NAMES]),
       ),
     );
+
   return rows[0]?.count ?? 0;
 }

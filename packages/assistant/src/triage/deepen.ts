@@ -13,6 +13,7 @@ import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import type { TriageUserContext } from "./user-context";
 
 export const DEEPEN_REASONS = ["severity_suspect_bot", "low_confidence", "unknown_human"] as const;
+
 export type DeepenReason = (typeof DEEPEN_REASONS)[number];
 
 export type DeepenMode = "skip" | "shadow" | "execute";
@@ -58,6 +59,7 @@ const deepenOutputSchema = z.object({
   severityFlag: z.enum(["severe", "normal", "low"]),
   dossierRequest: z.object({ personEmail: z.string().email() }).optional(),
 });
+
 type DeepenOutput = z.infer<typeof deepenOutputSchema>;
 
 const DEEPEN_SYSTEM_PROMPT = `You refine email triage for Alfred, a personal assistant.
@@ -111,6 +113,7 @@ export async function deepenTriageClassification(
   args: DeepenTriageArgs,
 ): Promise<DeepenTriageResult> {
   const model = route("boss").model();
+
   const result = await meteredGenerateObject<DeepenOutput>(
     {
       model,
@@ -167,12 +170,15 @@ function deepenUserPrompt(args: DeepenTriageArgs): string {
   appendStringMeta(lines, "From", meta.from);
   appendStringMeta(lines, "To", meta.to);
   appendStringMeta(lines, "Cc", meta.cc);
+
   if (args.document.title) lines.push(`Subject: ${args.document.title}`);
+
   if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
   appendStringMeta(lines, "GmailSnippet", meta.snippet);
   lines.push("");
   lines.push("=== Body ===");
   lines.push(truncateText(args.document.content, 8_000));
+
   return lines.join("\n");
 }
 
@@ -184,6 +190,7 @@ function appendStringMeta(lines: string[], label: string, value: unknown): void 
 
 function compactJson(value: unknown, maxChars: number): string {
   const text = JSON.stringify(value);
+
   return truncateText(text, maxChars);
 }
 

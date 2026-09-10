@@ -38,6 +38,7 @@ applyServerEnvFixtures();
 const SKIP = dbBackedSkip("database+redis");
 
 const ID_PREFIX = "test-rpush-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -46,6 +47,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -72,6 +74,7 @@ async function lastMutationId(clientID: string): Promise<number> {
     .select({ lmid: replicacheClient.lastMutationId })
     .from(replicacheClient)
     .where(eq(replicacheClient.id, clientID));
+
   return row?.lmid ?? 0;
 }
 
@@ -82,6 +85,7 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
       // cascade from user.
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeRedis();
     await closeConnections();
   });
@@ -201,6 +205,7 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
       .select({ title: chatThreads.title })
       .from(chatThreads)
       .where(eq(chatThreads.id, threadId));
+
     assert.equal(
       thread?.title,
       "written after the push",
@@ -244,6 +249,7 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
       .select({ id: notes.id })
       .from(notes)
       .where(eq(notes.userId, intruderId));
+
     assert.deepEqual(rows, [], "a refused push writes no row");
   });
 });

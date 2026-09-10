@@ -39,7 +39,9 @@ export interface RestProviderGateConfig {
 }
 
 const NO_READ_VIA_POST: readonly RegExp[] = [];
+
 const NO_SIDE_EFFECTING_GET: readonly RegExp[] = [];
+
 const NO_AUTH_SCOPE_DENIALS: readonly { pattern: RegExp; detail: string }[] = [];
 
 /**

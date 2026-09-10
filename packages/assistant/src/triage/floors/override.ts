@@ -16,7 +16,9 @@ import type { FloorResult } from "./floor";
  * unrecoverable — a false positive force-tags an architecture email `urgent`.
  */
 const OVERRIDE_FLOOR_SECRET_NOUN = String.raw`(?:secret|api[ -]?key|token|private key|password)`;
+
 const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
+
 const OVERRIDE_FLOOR_SECRET_RE = new RegExp(
   String.raw`\b(?:${OVERRIDE_FLOOR_SECRET_NOUN}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_SECRET_NOUN})\b`,
   "i",
@@ -49,10 +51,12 @@ export function applyOverrideFloor(
   if (!OVERRIDE_FLOOR_SECRET_RE.test(signalText)) {
     return { verdict: { kind: "keep" }, matched: false };
   }
+
   if (classification.category === "urgent") {
     // Floor agrees with the model — no change, nothing to force.
     return { verdict: { kind: "keep" }, matched: true };
   }
+
   return {
     verdict: {
       kind: "escalate",

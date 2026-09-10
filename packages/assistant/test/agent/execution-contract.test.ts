@@ -71,24 +71,34 @@ const SERVER_ENV_FIXTURES = {
 } satisfies Record<string, string>;
 
 const ID_PREFIX = "test-exec-contract-";
+
 const SIGNAL_NAME = "exec-contract-go";
+
 const STEP = "work";
 
 type ContractState = Record<string, never>;
 
 const START_SLUG = "__exec-contract-start";
+
 const RETRY_SLUG = "__exec-contract-retry";
+
 const SIGNAL_SLUG = "__exec-contract-signal";
+
 const CANCEL_SLUG = "__exec-contract-cancel";
+
 const COMPLETE_SLUG = "__exec-contract-complete";
+
 const FAIL_SLUG = "__exec-contract-fail";
+
 const RESUME_SLUG = "__exec-contract-resume";
 
 const createdUserIds: string[] = [];
+
 const createdRunIds: string[] = [];
 
 /** Every step-body entry, in order — proves what ran (and at which attempt). */
 const bodyRuns: { runId: string; attempt: number }[] = [];
+
 /** Every client-closure invocation — records WHICH branch fired, and its reason. */
 const terminalCalls: { runId: string; outcome: TerminalOutcome["outcome"]; reason: string }[] = [];
 
@@ -131,6 +141,7 @@ function contractRecipe(
 // start: never leaves `pending` here — the test asserts persist, not execution.
 const startRecipe = contractRecipe(START_SLUG, async (ctx) => {
   recordBody(ctx);
+
   return { kind: "done", state: {}, output: {} };
 });
 
@@ -139,9 +150,11 @@ const startRecipe = contractRecipe(START_SLUG, async (ctx) => {
 // executor's bounded-retry seam — a THROW is terminal, not a retry.
 const retryRecipe = contractRecipe(RETRY_SLUG, async (ctx) => {
   recordBody(ctx);
+
   if (ctx.attempt === 0) {
     return { kind: "defer", state: {}, retryAt: new Date(Date.now() - 1_000) };
   }
+
   return { kind: "done", state: {}, output: { retriedAt: ctx.attempt } };
 });
 
@@ -149,9 +162,11 @@ const retryRecipe = contractRecipe(RETRY_SLUG, async (ctx) => {
 // re-lease runs the same step at the bumped attempt 1 and completes.
 const signalRecipe = contractRecipe(SIGNAL_SLUG, async (ctx) => {
   recordBody(ctx);
+
   if (ctx.attempt === 0) {
     return { kind: "interrupt", state: {}, wake: { kind: "signal", name: SIGNAL_NAME } };
   }
+
   return { kind: "done", state: {}, output: { woken: true } };
 });
 
@@ -160,6 +175,7 @@ const cancelRecipe = contractRecipe(
   CANCEL_SLUG,
   async (ctx) => {
     recordBody(ctx);
+
     return { kind: "done", state: {}, output: {} };
   },
   recordingClosure,
@@ -171,6 +187,7 @@ const completeRecipe = contractRecipe(
   COMPLETE_SLUG,
   async (ctx) => {
     recordBody(ctx);
+
     return { kind: "done", state: {}, output: { done: true } };
   },
   recordingClosure,
@@ -191,6 +208,7 @@ const failRecipe = contractRecipe(
 // (default) stale window when reclaiming a presumed-dead worker.
 const resumeRecipe = contractRecipe(RESUME_SLUG, async (ctx) => {
   recordBody(ctx);
+
   return { kind: "done", state: {}, output: {} };
 });
 
@@ -216,20 +234,24 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Exec Contract", email: `${userId}@example.test` });
+
   return userId;
 }
 
 /** Start a run through the public entry point and track it for teardown. */
 async function startContractRun(workflowSlug: string): Promise<{ userId: string; runId: string }> {
   const userId = await seedUser();
+
   const { runId, created } = await startRun({
     userId,
     workflowSlug,
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   assert.equal(created, true, "startRun persists a fresh run row");
   createdRunIds.push(runId);
+
   return { userId, runId };
 }
 
@@ -239,6 +261,7 @@ async function removeQueuedContractRuns(): Promise<void> {
   await Promise.all(
     jobs.map(async (job) => {
       const runId = getStringPath(job.data, "runId");
+
       if (runId && createdRunIds.includes(runId)) await job.remove();
     }),
   );
@@ -250,6 +273,7 @@ async function failedRunFrames(userId: string, runId: string): Promise<unknown[]
     .select({ payload: eventsOutbox.payload })
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "agent.run")));
+
   return rows
     .map((row) => row.payload)
     .filter(
@@ -261,9 +285,11 @@ async function failedRunFrames(userId: string, runId: string): Promise<unknown[]
 describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
   before(async () => {
     seedServerEnv();
+
     for (const recipe of RECIPES) {
       if (!getWorkflow(recipe.slug)) registerRecipe(recipe);
     }
+
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
@@ -280,9 +306,11 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
 
   after(async () => {
     _resetRegistryForTests();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeAgentQueue();
     await closeRedis();
     await closeConnections();
@@ -480,6 +508,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
       .select({ status: agentSteps.status, reason: agentSteps.error })
       .from(agentSteps)
       .where(and(eq(agentSteps.runId, runId), eq(agentSteps.attempt, 3)));
+
     assert.equal(orphan[0]?.status, "failed", "the orphan step row is marked failed for audit");
     assert.equal(
       getStringPath(orphan[0]?.reason, "reason"),

@@ -45,6 +45,7 @@ describe("chat-stop one-shot read on a cold process", { skip }, () => {
     // resumed run reads the flag with a connection that has never been used.
     const seeder = createRedisConnection("command");
     seeder.on("error", () => {});
+
     try {
       await seeder.set(stopKey(runId), "1", "EX", 60);
 

@@ -15,6 +15,7 @@ describe("normalizeToolInputKeys", () => {
       { q: "hi", max_results: 5 },
       gmailSearchInput,
     );
+
     assert.deepEqual(input, { q: "hi", maxResults: 5 });
     assert.deepEqual(renamed, [{ from: "max_results", to: "maxResults" }]);
     // And it validates first-try after normalization.
@@ -27,6 +28,7 @@ describe("normalizeToolInputKeys", () => {
       { owner: "99Yash", repo: "alfred", pullNumber: 305 },
       githubGetPullRequestInput,
     );
+
     assert.deepEqual(input, { owner: "99Yash", repo: "alfred", pull_number: 305 });
   });
 
@@ -35,6 +37,7 @@ describe("normalizeToolInputKeys", () => {
       { time_min: "2026-07-01T00:00:00Z", time_max: "2026-07-02T00:00:00Z" },
       calendarListEventsInput,
     );
+
     assert.deepEqual(input, {
       timeMin: "2026-07-01T00:00:00Z",
       timeMax: "2026-07-02T00:00:00Z",
@@ -53,6 +56,7 @@ describe("normalizeToolInputKeys", () => {
       { q: "hi", maxResults: 5, max_results: 99 },
       gmailSearchInput,
     );
+
     assert.equal((input as { maxResults?: number }).maxResults, 5);
     assert.ok("max_results" in (input as object));
     assert.deepEqual(renamed, []);

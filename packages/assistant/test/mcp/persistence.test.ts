@@ -65,6 +65,7 @@ function tool(name: string): Tool {
 }
 
 const ID_PREFIX = "test-mcp-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -81,6 +82,7 @@ async function seedUser(): Promise<string> {
       workflowSlug: "chat",
       currentStep: "dispatch-tools",
     });
+
   return userId;
 }
 
@@ -91,6 +93,7 @@ async function seedStaging(userId: string): Promise<string> {
     .from(agentRuns)
     .where(eq(agentRuns.userId, userId))
     .limit(1);
+
   assert.ok(run, "seed run missing");
   const stagingId = `stg_${randomUUID().slice(0, 12)}`;
   const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
@@ -113,6 +116,7 @@ async function seedStaging(userId: string): Promise<string> {
       requestHash: `req_seed_${randomUUID()}`,
       requiresApproval: true,
     });
+
   return stagingId;
 }
 
@@ -124,6 +128,7 @@ async function seedConnection(userId: string): Promise<string> {
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://example.test/mcp"),
   });
+
   return conn.id;
 }
 
@@ -145,6 +150,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -172,6 +178,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       canonicalResource,
       endpoint,
     });
+
     const work = await ensureConnection({
       userId,
       label: "Work",
@@ -189,6 +196,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:personal",
       descriptors: [tool("personal_tool")],
     });
+
     const [personalCredential, workCredential] = await db()
       .insert(mcpOauthCredentials)
       .values([
@@ -196,6 +204,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
         { userId, connectionId: work.id, issuer: "https://auth.work.example.test" },
       ])
       .returning();
+
     assert.ok(personalCredential);
     assert.ok(workCredential);
     await selectCredentialForTest(personal.id, personalCredential.id);
@@ -221,6 +230,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const personalId = await seedConnection(userId);
     const workId = await seedConnection(userId);
+
     const [workCredential] = await db()
       .insert(mcpOauthCredentials)
       .values({
@@ -229,6 +239,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
         issuer: "https://auth.work.example.test",
       })
       .returning();
+
     assert.ok(workCredential);
 
     await assert.rejects(
@@ -247,6 +258,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   test("a connection cannot refer to another owner's server", async () => {
     const ownerId = await seedUser();
     const otherUserId = await seedUser();
+
     const owned = await ensureConnection({
       userId: ownerId,
       label: "Owned server",
@@ -337,6 +349,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
         grantedScopes: ["repo"],
         lastError: "legacy-state",
       });
+
     const [credential] = await db()
       .insert(mcpOauthCredentials)
       .values({
@@ -345,13 +358,16 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
         issuer: "https://github.com/login/oauth",
       })
       .returning();
+
     assert.ok(credential);
     await selectCredentialForTest(migratedConnectionId, credential.id);
+
     const revision = await publishCatalogRevision({
       connectionId: migratedConnectionId,
       revisionHash: "sha256:migrated-github",
       descriptors: [tool("search_repositories")],
     });
+
     const policy = await upsertToolPolicy({
       userId,
       connectionId: migratedConnectionId,
@@ -361,6 +377,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "read",
       retryContract: "never",
     });
+
     const invocation = await reserveMcpInvocationForTests({
       userId,
       connectionId: migratedConnectionId,
@@ -369,6 +386,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       effectClass: "read",
     });
+
     assert.ok(invocation.ok);
 
     const [first, second] = await Promise.all([
@@ -390,18 +408,22 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
         ?.id,
       policy.id,
     );
+
     const [preservedInvocation] = await db()
       .select({ id: mcpInvocation.id, connectionId: mcpInvocation.connectionId })
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, invocation.invocation.id));
+
     assert.deepEqual(preservedInvocation, {
       id: invocation.invocation.id,
       connectionId: migratedConnectionId,
     });
+
     const rows = await db()
       .select({ id: mcpConnections.id })
       .from(mcpConnections)
       .where(eq(mcpConnections.userId, userId));
+
     assert.deepEqual(rows, [{ id: migratedConnectionId }]);
   });
 
@@ -417,6 +439,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       canonicalResource,
       endpoint,
     });
+
     await updateConnection(first.id, { status: "ready", lastError: "preserved" });
 
     const replay = await ensureConnection({
@@ -460,6 +483,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:aaa",
       descriptors: [tool("tool_a")],
     });
+
     // Pointer advanced to the new revision.
     assert.equal((await readConnection(connId))?.currentCatalogRevisionId, revA.id);
     assert.equal((await readCurrentRevision(connId))?.id, revA.id);
@@ -470,6 +494,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:aaa",
       descriptors: [tool("tool_a")],
     });
+
     assert.equal(revAAgain.id, revA.id);
 
     // A NEW hash mints a new revision and moves the pointer.
@@ -478,6 +503,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       revisionHash: "sha256:bbb",
       descriptors: [tool("tool_a"), tool("tool_b")],
     });
+
     assert.notEqual(revB.id, revA.id);
     assert.equal((await readCurrentRevision(connId))?.id, revB.id);
     // The old revision is still readable (append-only history).
@@ -502,11 +528,13 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   test("catalog pointer compare-and-swap rejects a stale publisher", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
+
     const revisionA = await insertCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:cas-a",
       descriptors: [tool("tool_a")],
     });
+
     const revisionB = await insertCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:cas-b",
@@ -519,6 +547,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       nextRevisionId: revisionA.id,
       patch: { status: "ready" },
     });
+
     assert.equal(winner?.currentCatalogRevisionId, revisionA.id);
 
     const stale = await compareAndSetCatalogRevision({
@@ -527,6 +556,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       nextRevisionId: revisionB.id,
       patch: { status: "ready" },
     });
+
     assert.equal(stale, undefined);
     assert.equal((await readConnection(connId))?.currentCatalogRevisionId, revisionA.id);
   });
@@ -570,14 +600,17 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const searchTool = tool("search");
+
     const revision = await publishCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:catalog",
       descriptors: [searchTool],
     });
+
     // Publication derives the hash, so the review has to bind to the derived
     // one — a literal here would be a miss, which is the point of the binding.
     const searchHash = descriptorHash(searchTool);
+
     const policy = await upsertToolPolicy({
       userId,
       connectionId: connId,
@@ -594,7 +627,9 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       remoteName: "search",
       catalogRevision: "sha256:catalog",
     });
+
     assert.equal(identity.status, "resolved");
+
     if (identity.status !== "resolved") return;
     assert.equal(identity.connection.id, connId);
     assert.equal(identity.connection.currentCatalogRevisionId, revision.id);
@@ -607,22 +642,26 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       remoteName: "search",
       catalogRevision: "sha256:stale",
     });
+
     assert.equal(stale.status, "unresolved");
     assert.equal(stale.connection?.id, connId, "an owned connection row remains reusable");
 
     const otherUserId = await seedUser();
+
     const foreign = await resolveMcpToolIdentity({
       userId: otherUserId,
       connectionId: connId,
       remoteName: "search",
       catalogRevision: "sha256:catalog",
     });
+
     assert.deepEqual(foreign, { status: "unresolved", connection: undefined });
   });
 
   test("ledger barrier blocks an identical unresolved proposal", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
+
     const barrierKey = {
       userId,
       connectionId: connId,
@@ -635,6 +674,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       effectClass: "write",
     });
+
     assert.equal(first.ok, true);
 
     // A second, distinct staging with the SAME barrier key is rejected.
@@ -643,6 +683,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       effectClass: "write",
     });
+
     assert.deepEqual(second, { ok: false, reason: "barrier" });
 
     // The broker can read WHY it is blocked.
@@ -655,11 +696,13 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       resolvedAt: new Date(),
       resolutionReason: "succeeded",
     });
+
     const third = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
       effectClass: "write",
     });
+
     assert.equal(third.ok, true);
   });
 
@@ -676,6 +719,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       stagingId,
       effectClass: "read",
     });
+
     assert.equal(first.ok, true);
 
     // Same staging id, different barrier key → the 1:1 staging index fires.
@@ -687,6 +731,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       stagingId,
       effectClass: "read",
     });
+
     assert.deepEqual(dup, { ok: false, reason: "duplicate_staging" });
   });
 
@@ -703,6 +748,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "write",
       attemptLifecycle: "prepared",
     });
+
     const readInflight = await seedMcpInvocationForTests({
       userId,
       connectionId: connId,
@@ -712,7 +758,9 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "read",
       attemptLifecycle: "delivery_possible",
     });
+
     const writeStagingId = await seedStaging(userId);
+
     const writeInflight = await seedMcpInvocationForTests({
       userId,
       connectionId: connId,
@@ -722,6 +770,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       effectClass: "write",
       attemptLifecycle: "delivery_possible",
     });
+
     assert.equal(readInflight.attemptLifecycle, "delivery_possible");
     const summary = await reconcileInflightInvocations(userId);
     assert.equal(summary.abandoned, 1);
@@ -734,22 +783,26 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       .select()
       .from(mcpInvocation)
       .where(inArray(mcpInvocation.id, [prepared.id, writeInflight.id]));
+
     const byId = new Map(rows.map((r) => [r.id, r]));
     assert.ok(byId.get(prepared.id)?.resolvedAt);
     const write = byId.get(writeInflight.id);
     assert.equal(write?.resolvedAt, null);
     assert.equal(write?.effectOutcome, "unknown");
     assert.equal(write?.retryDisposition, "blocked");
+
     const [writeStaging] = await db()
       .select({ outcome: actionStagings.outcome })
       .from(actionStagings)
       .where(eq(actionStagings.id, writeStagingId));
+
     assert.equal(writeStaging?.outcome, "unknown");
   });
 
   test("a crash after delivery_possible blocks an identical fresh proposal on resume", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
+
     const key = {
       userId,
       connectionId: connId,
@@ -760,26 +813,32 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     // A process died right after crossing the delivery boundary: a
     // `delivery_possible` write row with no outcome yet.
     const crashedStagingId = await seedStaging(userId);
+
     const crashed = await seedMcpInvocationForTests({
       ...key,
       stagingId: crashedStagingId,
       effectClass: "write",
       attemptLifecycle: "delivery_possible",
     });
+
     // Boot reconcile normalizes the possibly-delivered write to unknown/blocked
     // WITHOUT resolving it — the barrier must survive the crash.
     await reconcileInflightInvocations(userId);
+
     const [recovered] = await db()
       .select()
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, crashed.id));
+
     assert.equal(recovered?.effectOutcome, "unknown");
     assert.equal(recovered?.retryDisposition, "blocked");
     assert.equal(recovered?.resolvedAt, null);
+
     const [recoveredStaging] = await db()
       .select({ outcome: actionStagings.outcome })
       .from(actionStagings)
       .where(eq(actionStagings.id, crashedStagingId));
+
     assert.equal(recoveredStaging?.outcome, "unknown");
 
     // On resume a fresh `tool_call_id` (new staging) proposing the identical call
@@ -789,6 +848,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       effectClass: "write",
     });
+
     assert.deepEqual(resumed, { ok: false, reason: "barrier" });
   });
 
@@ -800,6 +860,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       .update(actionStagings)
       .set({ status: "approved", outcome: "dispatching" })
       .where(eq(actionStagings.id, stagingId));
+
     const crashed = await seedMcpInvocationForTests({
       userId,
       connectionId: connId,
@@ -812,21 +873,26 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       retryDisposition: "blocked",
       deliveryPossibleAt: new Date(),
     });
+
     const firstBoot = await reconcileInflightInvocations(userId);
     assert.equal(firstBoot.markedUnknown, 0, "the broker had already recorded ambiguity");
     assert.equal(firstBoot.alignedStagingBarriers, 1);
+
     const [staging] = await db()
       .select({ status: actionStagings.status, outcome: actionStagings.outcome })
       .from(actionStagings)
       .where(eq(actionStagings.id, stagingId));
+
     assert.deepEqual(staging, { status: "executed", outcome: "unknown" });
 
     const secondBoot = await reconcileInflightInvocations(userId);
     assert.equal(secondBoot.alignedStagingBarriers, 0, "the repair is idempotent");
+
     const [invocation] = await db()
       .select({ resolvedAt: mcpInvocation.resolvedAt })
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, crashed.id));
+
     assert.equal(invocation?.resolvedAt, null, "repair keeps the no-replay barrier unresolved");
   });
 
@@ -851,6 +917,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       (err: unknown) => {
         const cause = err instanceof Error ? err.cause : undefined;
         const text = `${String(err)} ${cause instanceof Error ? cause.message : String(cause)}`;
+
         return /foreign key|violates|constraint/i.test(text);
       },
     );
@@ -883,6 +950,7 @@ describe("test reservation unique-violation classification", () => {
     err: unknown,
   ): Parameters<typeof reserveMcpInvocationForTests>[1] {
     const correlation = [{ traceId: "run_fake", stepId: "step_fake", toolCallId: "tc_fake" }];
+
     // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     return {
       select: () => ({
@@ -912,6 +980,7 @@ describe("test reservation unique-violation classification", () => {
       values,
       runnerThatRejectsInsertWith(wrappedPgError({ code: "23505" })),
     );
+
     assert.deepEqual(result, { ok: false, reason: "barrier" });
   });
 
@@ -922,6 +991,7 @@ describe("test reservation unique-violation classification", () => {
         wrappedPgError({ code: "23505", constraint: "mcp_invocation_staging_idx" }),
       ),
     );
+
     assert.deepEqual(result, { ok: false, reason: "duplicate_staging" });
   });
 

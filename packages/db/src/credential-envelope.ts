@@ -17,6 +17,7 @@ const FORMAT = {
 } as const;
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
+
 const ENVELOPE_FAMILY_PATTERN = /^acv\d+\./;
 
 /** Reasons a persisted value is not openable. Never carries the value itself. */
@@ -78,9 +79,11 @@ function toSealedEnvelope(joined: string): SealedCredentialSecret {
 function decode(part: string, expectedBytes?: number): Buffer {
   if (!BASE64URL_PATTERN.test(part)) throw new CredentialVaultError("malformed_envelope");
   const bytes = Buffer.from(part, "base64url");
+
   if (encode(bytes) !== part || (expectedBytes !== undefined && bytes.length !== expectedBytes)) {
     throw new CredentialVaultError("malformed_envelope");
   }
+
   return bytes;
 }
 
@@ -110,6 +113,7 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
   if (kek.length !== FORMAT.keyBytes) {
     throw new CredentialVaultError("invalid_key_length");
   }
+
   const key = Buffer.from(kek);
   const kid = keyId(key);
 
@@ -117,7 +121,9 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
     if (belongsToEnvelopeFamily(plaintext)) {
       throw new CredentialVaultError("already_sealed");
     }
+
     const dek = randomBytes(FORMAT.keyBytes);
+
     try {
       const wrapNonce = randomBytes(FORMAT.nonceBytes);
       const wrapper = createCipheriv(FORMAT.cipher, key, wrapNonce);
@@ -152,9 +158,11 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
   function open(persisted: unknown): string {
     if (typeof persisted !== "string") throw new CredentialVaultError("not_a_string");
     const parts = persisted.split(FORMAT.separator);
+
     if (parts.length !== FORMAT.partCount) {
       throw new CredentialVaultError("malformed_envelope");
     }
+
     const [
       prefix,
       algorithm,
@@ -166,10 +174,13 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
       rawCiphertext,
       rawTag,
     ] = parts;
+
     if (prefix !== FORMAT.prefix) throw new CredentialVaultError("unsupported_version");
+
     if (algorithm !== FORMAT.algorithm) {
       throw new CredentialVaultError("unsupported_algorithm");
     }
+
     if (
       envelopeKid === undefined ||
       rawWrapNonce === undefined ||
@@ -181,7 +192,9 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
     ) {
       throw new CredentialVaultError("malformed_envelope");
     }
+
     decode(envelopeKid, FORMAT.kidBytes);
+
     if (envelopeKid !== kid) throw new CredentialVaultError("unknown_key");
 
     const wrapNonce = decode(rawWrapNonce, FORMAT.nonceBytes);
@@ -192,11 +205,13 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
     const tag = decode(rawTag, FORMAT.tagBytes);
 
     let dek: Buffer | undefined;
+
     try {
       const unwrapper = createDecipheriv(FORMAT.cipher, key, wrapNonce);
       unwrapper.setAAD(additionalData(kid, "dek"));
       unwrapper.setAuthTag(wrapTag);
       dek = Buffer.concat([unwrapper.update(wrappedDek), unwrapper.final()]);
+
       if (dek.length !== FORMAT.keyBytes) {
         throw new CredentialVaultError("malformed_envelope");
       }
@@ -204,6 +219,7 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
       const decipher = createDecipheriv(FORMAT.cipher, dek, nonce);
       decipher.setAAD(additionalData(kid, "payload"));
       decipher.setAuthTag(tag);
+
       return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
     } catch (error) {
       if (error instanceof CredentialVaultError) throw error;

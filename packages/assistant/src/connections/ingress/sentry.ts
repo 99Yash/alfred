@@ -57,8 +57,10 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
   switch (type) {
     case "error_created": {
       const eventId = getIdPath(payload, "data", "error", "event_id");
+
       return eventId ? `${type}:${eventId}` : null;
     }
+
     case "event_alert_triggered": {
       // One event can legitimately match two alert rules; the rule label keeps
       // those two alerts distinct without splitting one alert's retries. A
@@ -66,14 +68,19 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
       // unlabeled alerts loses less than dropping a real one, and a retry
       // carries the same body either way.
       const eventId = getIdPath(payload, "data", "event", "event_id");
+
       if (!eventId) return null;
       const rule = getStringPath(payload, "data", "triggered_rule");
+
       return rule ? `${type}:${eventId}:${rule}` : `${type}:${eventId}`;
     }
+
     case "issue_created": {
       const issueId = getIdPath(payload, "data", "issue", "id");
+
       return issueId ? `${type}:${issueId}` : null;
     }
+
     case "issue_resolved":
     case "issue_unresolved":
     case "issue_assigned":
@@ -91,14 +98,19 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
       // rare (network failure or timeout only), so that duplicate loses less
       // than the dropped transition it replaces.
       const issueId = getIdPath(payload, "data", "issue", "id");
+
       return issueId ? `${type}:${issueId}:${payloadHash.slice(0, 16)}` : null;
     }
+
     case "seer_pr_created": {
       const runId = getIdPath(payload, "data", "run_id");
+
       return runId ? `${type}:${runId}` : null;
     }
+
     default: {
       const _exhaustive: never = type;
+
       return _exhaustive;
     }
   }
@@ -106,8 +118,10 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
 
 function projectSentry(payload: JsonObject, headers: Headers): InboundProjection<"sentry"> {
   const resource = headers.get(SENTRY_HOOK_HEADERS.resource);
+
   if (!resource) return { kind: "ignore", reason: "no-kind-header" };
   const action = getStringPath(payload, "action");
+
   // A resource with no `action` is still a real delivery; GitHub keeps the bare
   // event the same way, so the two descriptors agree on what "unnamed" means.
   if (!action) return { kind: "raw", rawKind: resource };
@@ -115,6 +129,7 @@ function projectSentry(payload: JsonObject, headers: Headers): InboundProjection
   // and `metric_alert` deliveries fall out here as raw under Sentry's own
   // `<resource>.<action>` spelling; no second list names them.
   const type = `${resource}_${action}`;
+
   return isEventTypeForSource("sentry", type)
     ? { kind: "event", type }
     : { kind: "raw", rawKind: `${resource}.${action}` };
@@ -125,6 +140,7 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
   describe: (kind, payload) => describeInboundJson("sentry", kind, payload),
   verify: (raw, headers) => {
     const verdict = verifySentryWebhookSignature(raw, headers.get(SENTRY_HOOK_HEADERS.signature));
+
     if (verdict === "no_secret") {
       // Named apart from a mismatch so an operator reads "set the env var",
       // not "find the key that disagrees".
@@ -132,20 +148,24 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
         "[ingress] sentry: SENTRY_WEBHOOK_CLIENT_SECRET is not set; delivery rejected unverified",
       );
     }
+
     return verdict === "verified";
   },
   dedup: { kind: "synthetic", key: sentryDeliveryKey },
   project: projectSentry,
   resolveOwner: async () => {
     const sole = await findSoleActiveCredential({ provider: "sentry" });
+
     // The shared path reports this drop as `ambiguous`.
     if (sole.kind === "many") return { kind: "unowned", reason: "ambiguous", reference: null };
+
     // The body names no organization on either arm: one Client Secret is one
     // integration, so the signature is the whole attribution. The drop report
     // (#1033) therefore names the source, the kind, and the reason, and no
     // account, which is the honest answer here rather than a missing one.
     if (sole.kind === "none") return { kind: "unowned", reason: "no_match", reference: null };
     const { credential } = sole;
+
     return {
       kind: "owned",
       owner: {
@@ -181,9 +201,11 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
           recovery: { kind: "none" },
         };
       }
+
       // The same rule `resolveOwner` applies, so health cannot read green while
       // every delivery is being dropped.
       const sole = await findSoleActiveCredential({ provider: "sentry" });
+
       if (sole.kind === "many") {
         return {
           healthy: false,
@@ -193,7 +215,9 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
           recovery: { kind: "none" },
         };
       }
+
       if (sole.kind === "one" && sole.credential.userId === userId) return { healthy: true };
+
       return {
         healthy: false,
         cause: "never_connected",

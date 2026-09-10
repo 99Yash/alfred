@@ -120,6 +120,7 @@ async function findCanonicalByContentHash(
       ),
     )
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -172,6 +173,7 @@ export async function ingestGmailMediaAttachments(
   args: GmailMediaIngestArgs,
 ): Promise<GmailMediaIngestResult> {
   const attachments = extractAttachments(args.message);
+
   if (attachments.length === 0) {
     return { ...ZERO_MEDIA_TALLY, documentIds: [] };
   }
@@ -185,6 +187,7 @@ export async function ingestGmailMediaAttachments(
   const media = args.deps?.media ?? extraction({ door: GMAIL_MEDIA_DOOR });
 
   const candidates = attachments.filter((a) => media.isSupported(a.mimeType));
+
   if (candidates.length === 0) {
     return { ...ZERO_MEDIA_TALLY, documentIds: [] };
   }
@@ -205,6 +208,7 @@ export async function ingestGmailMediaAttachments(
   // only an explicit `indexDocument` call revives it.
   const sourceIdOf = (att: { attachmentId: string }): string =>
     `${args.message.id}:${att.attachmentId}`;
+
   const existingRows = await db()
     .select({ sourceId: documents.sourceId })
     .from(documents)
@@ -215,6 +219,7 @@ export async function ingestGmailMediaAttachments(
         inArray(documents.sourceId, candidates.map(sourceIdOf)),
       ),
     );
+
   const existingSourceIds = new Set(existingRows.map((row) => row.sourceId));
 
   const tally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
@@ -241,6 +246,7 @@ export async function ingestGmailMediaAttachments(
     try {
       await appendContentReference(canonicalId, ref);
       tally.referenced++;
+
       return true;
     } catch (err) {
       tally.errors++;
@@ -248,6 +254,7 @@ export async function ingestGmailMediaAttachments(
         `[gmail.media] reference append failed for ${label} doc=${canonicalId}:`,
         toMessage(err),
       );
+
       return false;
     }
   };
@@ -270,12 +277,14 @@ export async function ingestGmailMediaAttachments(
     }
 
     let bytes: Uint8Array;
+
     try {
       const fetched = await getAttachmentFn({
         accessToken: args.accessToken,
         messageId: args.message.id,
         attachmentId: att.attachmentId,
       });
+
       bytes = fetched.bytes;
     } catch (err) {
       tally.errors++;
@@ -289,6 +298,7 @@ export async function ingestGmailMediaAttachments(
     }
 
     let result: MediaExtractionResult | null;
+
     try {
       result = await media.extract({ mime: att.mimeType, bytes });
     } catch (err) {
@@ -308,10 +318,12 @@ export async function ingestGmailMediaAttachments(
     }
 
     const content = result.content;
+
     if (content.trim().length === 0) {
       tally.skipped++;
       continue;
     }
+
     const pages = result.pages && result.pages.length > 0 ? result.pages : null;
 
     const sourceId = sourceIdOf(att);
@@ -335,11 +347,13 @@ export async function ingestGmailMediaAttachments(
     // the carrier's mimeType, so a folded .txt/.pdf pair stays traceable at
     // retrieval instead of the second format vanishing without trace.
     const canonical = await findCanonicalByContentHash(args.userId, contentHash);
+
     if (canonical) {
       if (canonical.sourceId === sourceId) {
         tally.deduped++;
         continue;
       }
+
       await recordOccurrence(canonical.id, referenceFor(att), att.filename);
       continue;
     }
@@ -356,6 +370,7 @@ export async function ingestGmailMediaAttachments(
     };
 
     let documentId: string | null = null;
+
     try {
       // `onConflictDoNothing` (not a targeted upsert) so EITHER unique index
       // can win the concurrent-poll race: an identical part persisted by a
@@ -406,16 +421,21 @@ export async function ingestGmailMediaAttachments(
             or(eq(documents.sourceId, sourceId), eq(documents.contentHash, contentHash)),
           ),
         );
+
       const twin = winners.find((row) => row.sourceId === sourceId);
+
       if (twin) {
         tally.deduped++;
         continue;
       }
+
       const canon = winners.find((row) => row.contentHash === contentHash);
+
       if (!canon) {
         tally.errors++;
         continue;
       }
+
       await recordOccurrence(canon.id, referenceFor(att), att.filename);
       continue;
     }

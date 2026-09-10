@@ -110,6 +110,7 @@ export async function getDocument(
 
   const lines: string[] = [];
   const headings: DocumentHeading[] = [];
+
   for (const element of parsed.body?.content ?? []) {
     collectElement(element, lines, headings);
   }
@@ -133,13 +134,17 @@ function collectElement(
       .map((el) => el.textRun?.content ?? "")
       .join("")
       .replace(/\n+$/, "");
+
     if (text.length > 0) lines.push(text);
     const style = element.paragraph.paragraphStyle?.namedStyleType;
+
     if (style && HEADING_STYLES.has(style) && text.length > 0) {
       headings.push({ style, text });
     }
+
     return;
   }
+
   if (element.table) {
     for (const row of element.table.tableRows ?? []) {
       for (const cell of row.tableCells ?? []) {

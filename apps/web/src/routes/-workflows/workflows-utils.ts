@@ -13,6 +13,7 @@ import {
 
 /** Fallback tile tints, cycled by slug hash for workflows without bespoke art. */
 const FALLBACK_TINTS = ["violet", "emerald", "amber"] as const;
+
 type WorkflowTint = (typeof FALLBACK_TINTS)[number];
 
 export type WorkflowDefinition = {
@@ -41,16 +42,21 @@ const KNOWN_PRESENTATION = new Map<string, { icon: LucideIcon; tint: WorkflowTin
 
 function hashSlug(slug: string): number {
   let h = 0;
+
   for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) >>> 0;
+
   return h;
 }
 
 function presentationFor(w: SyncedWorkflow) {
   const known = KNOWN_PRESENTATION.get(w.slug);
+
   if (known) return known;
   const tint = FALLBACK_TINTS[hashSlug(w.slug) % FALLBACK_TINTS.length] ?? "violet";
+
   const icon =
     w.trigger.kind === "cron" ? CalendarClock : w.trigger.kind === "event" ? Zap : WorkflowIcon;
+
   return { icon, tint };
 }
 
@@ -64,8 +70,10 @@ function titleCase(slug: string): string {
 function describeCron(schedule: string, timezone?: string): string {
   const tzSuffix = timezone ? ` (${timezone})` : "";
   const parts = schedule.trim().split(/\s+/);
+
   if (parts.length === 5) {
     const [min, hour, dom, mon, dow] = parts;
+
     if (
       min !== undefined &&
       hour !== undefined &&
@@ -78,6 +86,7 @@ function describeCron(schedule: string, timezone?: string): string {
       return `Every day at ${hour.padStart(2, "0")}:${min.padStart(2, "0")}${tzSuffix}`;
     }
   }
+
   return `On schedule (${schedule})${tzSuffix}`;
 }
 
@@ -90,20 +99,24 @@ interface TriggerView {
 function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
   if (trigger.kind === "cron") {
     const cadence = describeCron(trigger.schedule, trigger.timezone);
+
     return {
       type: "Schedule",
       summary: `Run ${lowerFirst(cadence)}.`,
       cadence,
     };
   }
+
   if (trigger.kind === "event") {
     const phrase = eventTriggerPhrase(trigger);
+
     return {
       type: "Event",
       summary: `Run when a ${phrase} event arrives.`,
       cadence: `On ${phrase}`,
     };
   }
+
   if (trigger.kind === "on_signal") {
     return {
       type: "Event",
@@ -111,6 +124,7 @@ function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
       cadence: "On signal",
     };
   }
+
   return {
     type: "Event",
     summary: "Run manually via Run now.",
@@ -121,6 +135,7 @@ function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
 export function syncedWorkflowToView(w: SyncedWorkflow): WorkflowDefinition {
   const { icon, tint } = presentationFor(w);
   const t = describeTrigger(w.trigger);
+
   return {
     id: w.slug,
     name: w.name,

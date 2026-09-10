@@ -120,12 +120,14 @@ export const mcpTools: readonly RegisteredTool[] = [
         // is a wiring bug, not a runtime condition — fail loud.
         throw new Error("mcp.call executed without a staging row id");
       }
+
       const ref: ExternalToolRef = {
         kind: "mcp",
         connectionId: input.connectionId,
         remoteName: input.remoteName,
         catalogRevision: input.catalogRevision,
       };
+
       const outcome = await getMcpExecutionBroker().callTool({
         userId: ctx.userId,
         stagingId: ctx.stagingId,
@@ -136,6 +138,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         // persistence layer copies it from the authorizing staging row at mint, so
         // the ledger's breadcrumbs cannot drift from the row they describe (#541).
       });
+
       return brokerResult(outcome);
     },
   }),
