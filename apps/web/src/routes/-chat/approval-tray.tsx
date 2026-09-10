@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, use, useId, useState } from "react";
 import { parseAskUserInput } from "~/components/approvals/ask-user";
+import { approvalDecisionBody } from "~/components/approvals/decide-approval";
 import { cardTitle, toolChipLabel } from "~/components/approvals/card-spec";
 import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor } from "~/components/approvals/input-editor";
@@ -28,6 +29,7 @@ import {
   useApprovalDecision,
   type ApprovalDecision,
   type ApprovalDecisionState,
+  type QuestionDismissal,
   type RecordedDecision,
 } from "~/components/approvals/use-approval-decision";
 import { AppButton, AppSwitch, AppTextarea } from "~/components/ui/v2";
@@ -140,13 +142,13 @@ export function ChatApprovalTray({
         // staged row, same decision route, but the body is an answer sheet and
         // the actions are Continue / Dismiss. A staged input that does not
         // parse falls back to the ordinary card rather than to nothing.
-        const questions =
+        const askUser =
           staging.toolName === ASK_USER_TOOL ? parseAskUserInput(staging.proposedInput) : null;
-        return questions ? (
+        return askUser ? (
           <InlineQuestionCard
             key={staging.id}
             staging={staging}
-            questions={questions}
+            askUser={askUser}
             preview={preview}
             onDecision={() => setRecentDecision(true)}
           />
@@ -177,7 +179,7 @@ interface DecisionToast {
  * copy they raise — the route, the error wording, and the preview no-op are
  * the same for both.
  */
-function useRecordDecision({
+function useRecordDecision<Decision extends RecordedDecision>({
   staging,
   preview,
   onDecision,
@@ -190,11 +192,14 @@ function useRecordDecision({
   onDecision: () => void;
   run: ApprovalDecisionState["run"];
   setDecided: (value: boolean) => void;
-  toastFor: (decision: RecordedDecision) => DecisionToast;
+  toastFor: (decision: Decision) => DecisionToast;
 }) {
-  const [decisionKind, setDecisionKind] = useState<RecordedDecision["decision"] | null>(null);
+  // Generic over the decision, so a write card can never record a `dismiss`
+  // and a question card can never record a `cancel_run`. Each copy builder
+  // below then covers exactly the kinds its own card raises.
+  const [decisionKind, setDecisionKind] = useState<Decision["decision"] | null>(null);
 
-  const decide = (decision: RecordedDecision) => {
+  const decide = (decision: Decision) => {
     setDecisionKind(decision.decision);
     if (preview) {
       // Styleguide: land the decision locally so the collapse + badge states
@@ -205,7 +210,7 @@ function useRecordDecision({
     return run(async () => {
       const { data, error: responseError } = await client.api
         .approvals({ stagingId: staging.id })
-        .decision.post(decision);
+        .decision.post(approvalDecisionBody(decision));
       if (responseError) {
         throw new Error(
           responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
@@ -517,7 +522,7 @@ function InlineApprovalCard({
 }
 
 /** The toast copy for a write approval's three decisions. */
-function writeDecisionToast(decision: RecordedDecision): DecisionToast {
+function writeDecisionToast(decision: ApprovalDecision): DecisionToast {
   if (decision.decision === "approve") {
     return {
       tone: "success",
@@ -536,7 +541,7 @@ function writeDecisionToast(decision: RecordedDecision): DecisionToast {
 }
 
 /** The toast copy for a question's two decisions. */
-function questionDecisionToast(decision: RecordedDecision): DecisionToast {
+function questionDecisionToast(decision: ApprovalDecision | QuestionDismissal): DecisionToast {
   if (decision.decision === "approve") {
     return {
       tone: "success",
@@ -567,12 +572,12 @@ function questionDecisionToast(decision: RecordedDecision): DecisionToast {
  */
 function InlineQuestionCard({
   staging,
-  questions,
+  askUser,
   preview = false,
   onDecision,
 }: {
   staging: SyncedActionStaging;
-  questions: AskUserInput;
+  askUser: AskUserInput;
   preview?: boolean | undefined;
   onDecision: () => void;
 }) {
@@ -587,8 +592,8 @@ function InlineQuestionCard({
     toastFor: questionDecisionToast,
   });
 
-  const count = questions.questions.length;
-  const dismiss = () => decide({ decision: "reject", expectedRowVersion: staging.rowVersion });
+  const count = askUser.questions.length;
+  const dismiss = () => decide({ decision: "dismiss", expectedRowVersion: staging.rowVersion });
 
   return (
     <section

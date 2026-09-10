@@ -187,7 +187,7 @@ export function ApprovalCard({
             size="md"
             leading={ICON_X}
             disabled={busy}
-            onClick={() => decide({ decision: "reject", expectedRowVersion: staging.rowVersion })}
+            onClick={() => decide({ decision: "dismiss", expectedRowVersion: staging.rowVersion })}
           >
             Dismiss
           </AppButton>

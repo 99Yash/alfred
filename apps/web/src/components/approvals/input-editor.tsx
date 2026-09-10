@@ -44,13 +44,13 @@ export function ApprovalInputEditor({
   const record = asRecord(value);
 
   if (toolName === ASK_USER_TOOL && record) {
-    const questions = parseAskUserInput(record);
+    const askUser = parseAskUserInput(record);
     // A value that does not parse falls through to the generic editors below,
     // rather than drawing a question card over a shape it cannot read.
-    if (questions) {
+    if (askUser) {
       return (
         <AskUserQuestionPanel
-          input={questions}
+          input={askUser}
           rawValue={record}
           onChange={onChange}
           disabled={disabled}

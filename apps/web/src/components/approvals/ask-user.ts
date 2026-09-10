@@ -5,7 +5,7 @@ import {
   type AskUserAnswer,
   type AskUserInput,
   type AskUserQuestion,
-  type AskUserUnansweredReason,
+  type AskUserUnansweredResult,
 } from "@alfred/contracts";
 import type { JsonRecord } from "~/lib/json-record";
 
@@ -74,7 +74,7 @@ export interface AnsweredQuestion {
 /** What a settled `system.ask_user` call resolved to, for the read-only card. */
 export type AskUserSummary =
   | { status: "answered"; answered: AnsweredQuestion[] }
-  | { status: "unanswered"; reason: AskUserUnansweredReason; questions: AskUserQuestion[] };
+  | Omit<AskUserUnansweredResult, "message">;
 
 /**
  * Read the settled summary off a finished tool call's result preview.
