@@ -1,7 +1,6 @@
 import {
   INTEGRATIONS,
   canonicalJson,
-  credentialSatisfies,
   eventDeliveryAccounts,
   holdsAnyScope,
   humanizeSlug,
@@ -10,7 +9,6 @@ import {
   isToolName,
   toolLabel,
   type CredentialProvider,
-  type EventDeliveryAccounts,
   type EventSource,
   type IntegrationAvailabilitySnapshot,
   type ProviderAvailability,
@@ -26,7 +24,7 @@ import {
 } from "@alfred/contracts";
 import type { WorkflowToolCatalog, WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
 import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
-import type { EventSourceHealthMap } from "./event-source-health";
+import { eventDeliveryRows, type EventSourceHealthMap } from "@alfred/assistant/connections";
 
 type WorkflowReadinessProblemCode =
   | ToolUnavailabilityCode
@@ -94,16 +92,6 @@ function selectAccountRow(
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
-/** The rows an account-grain trigger may deliver from: the ones that prove its integration connected. */
-function deliveryRows(
-  availability: IntegrationAvailabilitySnapshot,
-  accounts: EventDeliveryAccounts,
-): ProviderAvailability[] {
-  return (availability.providers.get(accounts.provider) ?? []).filter((row) =>
-    credentialSatisfies(accounts.credential, row),
-  );
-}
-
 function eligibleRows(
   availability: IntegrationAvailabilitySnapshot,
   capability: WorkflowRequiredCapability,
@@ -132,7 +120,7 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefiniti
   const accounts = trigger.kind === "event" ? eventDeliveryAccounts(trigger.source) : null;
   if (trigger.kind === "event" && accounts) {
     const selected = selectAccountRow(
-      deliveryRows(args.availability, accounts),
+      eventDeliveryRows(args.availability.providers, accounts),
       trigger.accountRef,
     );
     const capabilityAccounts = new Set(
@@ -432,12 +420,15 @@ function triggerProblem(
   const entry = context.eventSourceHealth[trigger.source];
   if (entry.grain === "source") return deliveryProblem(trigger.source, entry.health);
   const { integration } = entry.accounts;
-  const rows = deliveryRows(context.availability, entry.accounts);
+  const rows = eventDeliveryRows(context.availability.providers, entry.accounts);
   if (rows.length === 0) {
     return deliveryProblem(trigger.source, {
       healthy: false,
-      // No row satisfies the connected rule, so nothing was ever delivering
-      // for this trigger to lose (ADR-0100).
+      // No row satisfies the connected rule, so this trigger has no account to
+      // deliver from. The cause is not a claim about history — a revoked row
+      // reaches here too — it is the claim an alert surface reads: readiness
+      // must refuse the trigger either way, and the repair for the revoked row
+      // is the integration's own reconnect nag, not a second card (ADR-0100).
       cause: "never_connected",
       reason: `no connected ${INTEGRATIONS[integration].displayName} account`,
       recovery: { kind: "connect", integration },

@@ -1,3 +1,4 @@
+import { emailLogoUrl } from "@alfred/assistant/settings";
 import { serverEnv } from "@alfred/env/server";
 import { type ComposedEmail, renderSkillDocumentationEmail } from "@alfred/mailer";
 import type { SkillDocumentationContext } from "./skill-documentation-context";
@@ -45,8 +46,7 @@ export async function composeSkillDocumentationEmail(
 
   const origin = (args.alfredUrl ?? serverEnv().CORS_ORIGIN).replace(/\/+$/, "");
   const skillUrl = `${origin}/skills/${args.context.skill.slug}`;
-  // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
-  const logoUrl = `${origin}/images/logo/alfred-logo-email.png`;
+  const logoUrl = emailLogoUrl(origin);
 
   const text = renderText({ greetingName, provenance, preview, skillUrl });
   const html = await renderSkillDocumentationEmail({

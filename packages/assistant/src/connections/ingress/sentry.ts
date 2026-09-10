@@ -154,27 +154,33 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
   },
   subscription: {
     async health(userId) {
-      // The credential question comes first, and the deployment question
-      // second, because only the first order tells the truth to a user who
-      // never connected Sentry (ADR-0100). The env var is unset by default and
-      // `.env.example` ships it empty, so a secret-first order answers
-      // "SENTRY_WEBHOOK_CLIENT_SECRET is not set" to every user of every
-      // deployment that has not registered Sentry — including the ones with
-      // nothing to repair. Both orders return the same healthy/unhealthy
-      // verdict; they differ only in which reason wins when both are wrong,
-      // and the connected question is the one the user can answer.
+      // The order of these two checks is main's order, and it stays that way.
+      // `deliveryProblem` in workflow readiness branches on the RECOVERY kind,
+      // not on the cause, so putting the credential question first would turn a
+      // deployment with no Client Secret from `trigger_degraded` (the run
+      // defers, silently) into `trigger_not_ready` (the workflow blocks, and the
+      // owner is emailed). A reorder that only improves which reason an operator
+      // reads must not buy that with an email nobody asked for, and it buys
+      // nothing for the alert surface: both unhealthy arms below carry
+      // `recovery: { kind: "none" }`, so ADR-0100's rule filters both out
+      // whichever one wins.
       //
+      // Without the Client Secret every delivery is rejected with 401, and
+      // Sentry does not retry a 4xx. That is a subscription that cannot
+      // deliver, so it reads unhealthy here (ADR-0097 item 5) instead of
+      // silently filling Sentry's delivery log with rejections. Only an
+      // operator can set the env var, so there is no user-facing recovery.
+      if (!sentryWebhookSecretConfigured()) {
+        return {
+          healthy: false,
+          cause: "broken",
+          reason: "SENTRY_WEBHOOK_CLIENT_SECRET is not set, so every Sentry delivery is rejected",
+          recovery: { kind: "none" },
+        };
+      }
       // The same rule `resolveOwner` applies, so health cannot read green while
       // every delivery is being dropped.
       const sole = await findSoleActiveCredential({ provider: "sentry" });
-      if (sole.kind === "none" || (sole.kind === "one" && sole.credential.userId !== userId)) {
-        return {
-          healthy: false,
-          cause: "never_connected",
-          reason: "no Sentry organization is connected",
-          recovery: { kind: "connect", integration: "sentry" },
-        };
-      }
       if (sole.kind === "many") {
         return {
           healthy: false,
@@ -184,21 +190,13 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
           recovery: { kind: "none" },
         };
       }
-      // Without the Client Secret every delivery is rejected with 401, and
-      // Sentry does not retry a 4xx. That is a subscription that cannot
-      // deliver, so it reads unhealthy here (ADR-0097 item 5) instead of
-      // silently filling Sentry's delivery log with rejections. Only an
-      // operator can set the env var, so there is no user-facing recovery and
-      // the `none` recovery keeps this reason out of every user surface.
-      if (!sentryWebhookSecretConfigured()) {
-        return {
-          healthy: false,
-          cause: "broken",
-          reason: "SENTRY_WEBHOOK_CLIENT_SECRET is not set, so every Sentry delivery is rejected",
-          recovery: { kind: "none" },
-        };
-      }
-      return { healthy: true };
+      if (sole.kind === "one" && sole.credential.userId === userId) return { healthy: true };
+      return {
+        healthy: false,
+        cause: "never_connected",
+        reason: "no Sentry organization is connected",
+        recovery: { kind: "connect", integration: "sentry" },
+      };
     },
   },
 };
