@@ -9,12 +9,13 @@ import { APICallError, type ToolSet } from "ai";
 // warden does; see its packages/ai/src/models.ts.
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { createRetryableModel, error, or, timeout } from "ai-retry/language-model";
-import { MODEL_CAPABILITIES, type ModelId } from "./models";
 import {
+  anthropicLeg,
   createProviderRouteModel,
-  type ModelReasoningPolicy,
-  providerOptionsForModel,
+  googleLeg,
+  openAiLeg,
   type ProviderAdaptedLanguageModel,
+  type RouteReasoning,
 } from "./provider-adapter";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
@@ -27,20 +28,27 @@ export type { ChatModelTier };
 // indirection from the original `provider-adapter.ts:CallOptions` alias.
 export type ChatProviderOptions = SharedV4ProviderOptions;
 
-type ModelChain = readonly [ModelId, ...ModelId[]];
+export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
+export type MediaInputModality = (typeof MEDIA_INPUT_MODALITIES)[number];
+
 interface ModelRoute {
-  readonly chain: ModelChain;
-  readonly reasoning: ModelReasoningPolicy;
+  /** Leg makers, constructed in fallback order by their own provider factories. */
+  readonly legs: readonly (() => LanguageModelV4)[];
+  /** Generic AI SDK reasoning ceiling; the provider package maps/clamps it. */
+  readonly reasoning: RouteReasoning;
+  /** Provider-option exception the generic reasoning setting cannot express (e.g. OpenAI `max`). */
+  readonly providerOptions?: SharedV4ProviderOptions;
 }
 
 /**
- * Product model routes. A route is the model chain plus the reasoning policy
- * that must travel with every leg. Adding a fallback is one edit to `chain`;
- * model composition and provider-option projection both fold that same tuple.
+ * Product model routes. A route is the ordered leg list plus the reasoning
+ * policy that travels with every leg. Every leg is constructed directly by its
+ * installed provider package and carries its matching adapter; the model
+ * object, not a second registry entry, supplies provider and model id.
  */
 const MODEL_ROUTES = {
   boss: {
-    chain: ["claude-sonnet-4-6", "gemini-3.8-flash"],
+    legs: [() => anthropicLeg("claude-sonnet-4-6"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
   },
   // Sub-agents follow the chat tiers onto Luna (ADR-0077 amendment
@@ -49,24 +57,24 @@ const MODEL_ROUTES = {
   // worst shape at 10 calls / 97s / $0.241, and a Sonnet worker still costs
   // 13× a Luna one. `boss` stays on Sonnet: it drives background work only.
   subAgent: {
-    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
   },
   cheap: {
-    chain: ["gemini-2.5-flash-lite", "gemini-3.8-flash"],
-    reasoning: "disabled",
+    legs: [() => googleLeg("gemini-2.5-flash-lite"), () => googleLeg("gemini-3.8-flash")],
+    reasoning: "none",
   },
   webSearch: {
-    chain: ["gemini-3.8-flash"],
-    reasoning: "disabled",
+    legs: [() => googleLeg("gemini-3.8-flash")],
+    reasoning: "none",
   },
   compactor: {
-    chain: ["claude-sonnet-4-6"],
-    reasoning: "disabled",
+    legs: [() => anthropicLeg("claude-sonnet-4-6")],
+    reasoning: "none",
   },
   compactorFallback: {
-    chain: ["gemini-3.8-flash"],
-    reasoning: "disabled",
+    legs: [() => googleLeg("gemini-3.8-flash")],
+    reasoning: "none",
   },
   // Both chat tiers run `gpt-5.6-luna` and differ only in effort (ADR-0077
   // amendment 2026-09-03d). The 2026-09-02 `db:sync-prices` run cut Luna 5×
@@ -80,14 +88,16 @@ const MODEL_ROUTES = {
   // / 63s against Sonnet's 4 / 28s, and the first live Auto turn took 16 legs
   // / 86s.
   standard: {
-    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
   },
-  // Deep is the same model at its strongest effort. `max` is in Luna's
-  // vocabulary; the Gemini leg clamps it to `high`.
+  // Deep is the same model at its strongest effort. `xhigh` is the generic AI
+  // SDK ceiling; the OpenAI leg pins the provider-only `max` value and the
+  // Gemini leg maps `xhigh` to its own `high`.
   deep: {
-    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
-    reasoning: "max",
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
+    reasoning: "xhigh",
+    providerOptions: { openai: { reasoningEffort: "max" } },
   },
 } as const satisfies Record<string, ModelRoute>;
 
@@ -95,92 +105,105 @@ export type ModelRouteName = keyof typeof MODEL_ROUTES;
 
 export interface ModelRouteHandle {
   model(): ProviderAdaptedLanguageModel;
+  /** Alfred's provider-option exceptions; the generic reasoning rides on the model defaults. */
   providerOptions(): ChatProviderOptions;
-}
-
-function mergeRouteProviderOptions(definition: ModelRoute): ChatProviderOptions {
-  const merged: ChatProviderOptions = {};
-  for (const modelId of definition.chain) {
-    const next = providerOptionsForModel(modelId, definition.reasoning);
-    for (const [provider, options] of Object.entries(next)) {
-      const previous = merged[provider];
-      if (previous && JSON.stringify(previous) !== JSON.stringify(options)) {
-        throw new Error(
-          `route maps multiple ${provider} models with incompatible provider options`,
-        );
-      }
-      merged[provider] = options;
-    }
-  }
-  return merged;
+  /** The generic reasoning ceiling this route selects. */
+  reasoning(): RouteReasoning;
 }
 
 function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
-  const providerOptions = mergeRouteProviderOptions(definition);
+  const providerOptions: ChatProviderOptions = definition.providerOptions ?? {};
   let model: ProviderAdaptedLanguageModel | undefined;
   return {
     model: () =>
-      (model ??= createProviderRouteModel(definition.chain, withFallback, providerOptions)),
+      (model ??= createProviderRouteModel(definition.legs, withFallback, {
+        reasoning: definition.reasoning,
+        ...(definition.providerOptions ? { providerOptions: definition.providerOptions } : {}),
+      })),
     providerOptions: () => providerOptions,
+    reasoning: () => definition.reasoning,
   };
 }
 
 const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
-function isModelRouteName(value: ModelRouteName | ModelId): value is ModelRouteName {
-  return Object.hasOwn(MODEL_ROUTES, value);
-}
-
 /**
- * Resolve a named product route, or build a one-model probe/eval route with an
- * explicit reasoning policy. Both forms return the same paired route handle.
+ * Resolve a named product route, or build a one-model probe/eval route from an
+ * already-constructed, adapter-attached leg. The probe form takes the model
+ * object so identity is read off the leg rather than reconstructed from a
+ * handwritten model-to-provider table.
  */
 export function route(name: ModelRouteName): ModelRouteHandle;
-export function route(modelId: ModelId, reasoning: ModelReasoningPolicy): ModelRouteHandle;
 export function route(
-  nameOrModelId: ModelRouteName | ModelId,
-  reasoning?: ModelReasoningPolicy,
+  leg: ProviderAdaptedLanguageModel,
+  reasoning: RouteReasoning,
+): ModelRouteHandle;
+export function route(
+  nameOrLeg: ModelRouteName | ProviderAdaptedLanguageModel,
+  reasoning?: RouteReasoning,
 ): ModelRouteHandle {
-  if (isModelRouteName(nameOrModelId)) {
-    let handle = namedRouteHandles.get(nameOrModelId);
+  if (typeof nameOrLeg === "string") {
+    let handle = namedRouteHandles.get(nameOrLeg);
     if (!handle) {
-      handle = createRouteHandle(MODEL_ROUTES[nameOrModelId]);
-      namedRouteHandles.set(nameOrModelId, handle);
+      handle = createRouteHandle(MODEL_ROUTES[nameOrLeg]);
+      namedRouteHandles.set(nameOrLeg, handle);
     }
     return handle;
   }
-  if (!reasoning) throw new Error(`registered model route ${nameOrModelId} needs reasoning policy`);
-  return createRouteHandle({ chain: [nameOrModelId], reasoning });
+  if (!reasoning) throw new Error("a one-model probe route needs a reasoning policy");
+  return createRouteHandle({ legs: [() => nameOrLeg], reasoning });
 }
 
-const MEDIA_ENRICHMENT_ROUTES = [
-  "gemini-3.8-flash",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "claude-sonnet-4-6",
-] as const satisfies readonly ModelId[];
-
-export function mediaEnrichmentModelRoutes(
-  modality: import("./models").MediaInputModality,
-  byteSize: number,
-): ModelId[] {
-  if (!Number.isInteger(byteSize) || byteSize < 0) throw new Error("byteSize must be non-negative");
-  return MEDIA_ENRICHMENT_ROUTES.filter((id) => {
-    const capabilities = MODEL_CAPABILITIES[id];
-    const inputModalities: readonly import("./models").MediaInputModality[] =
-      capabilities.inputModalities;
-    return inputModalities.includes(modality) && byteSize <= capabilities.maxInlineMediaBytes;
-  });
+interface MediaEnrichmentLeg {
+  readonly modalities: readonly MediaInputModality[];
+  readonly maxInlineBytes: number;
+  readonly make: () => ProviderAdaptedLanguageModel;
 }
 
-/** Ordered multimodal routes, filtered before any provider receives the payload. */
+/**
+ * Ordered multimodal legs, filtered before any provider receives the payload.
+ * These are Alfred product policy (which leg attempts a given attachment), not
+ * a second model-mechanics catalog: the provider package still owns how the
+ * model reads the bytes. The order is the enrichment attempt order.
+ */
+const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
+  {
+    modalities: ["text", "image", "audio", "video", "pdf"],
+    maxInlineBytes: 50 * 1024 * 1024,
+    make: () => withDisabledReasoning(googleLeg("gemini-3.8-flash")),
+  },
+  {
+    modalities: ["text", "image", "audio", "video"],
+    maxInlineBytes: 50 * 1024 * 1024,
+    make: () => withDisabledReasoning(googleLeg("gemini-2.5-flash")),
+  },
+  {
+    modalities: ["text", "image", "audio", "video", "pdf"],
+    maxInlineBytes: 50 * 1024 * 1024,
+    make: () => withDisabledReasoning(googleLeg("gemini-2.5-flash-lite")),
+  },
+  {
+    modalities: ["text", "image", "pdf"],
+    maxInlineBytes: 32 * 1024 * 1024,
+    make: () => withDisabledReasoning(anthropicLeg("claude-sonnet-4-6")),
+  },
+];
+
+function withDisabledReasoning(leg: ProviderAdaptedLanguageModel): ProviderAdaptedLanguageModel {
+  return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
+}
+
+/** Ordered multimodal route legs for a payload, filtered by modality and inline size. */
 export function getMediaEnrichmentModels(
-  modality: import("./models").MediaInputModality,
+  modality: MediaInputModality,
   byteSize: number,
 ): ProviderAdaptedLanguageModel[] {
-  const routes = mediaEnrichmentModelRoutes(modality, byteSize);
-  if (routes.length === 0) throw new Error("media_enrichment_input_unsupported");
-  return routes.map((modelId) => route(modelId, "disabled").model());
+  if (!Number.isInteger(byteSize) || byteSize < 0) throw new Error("byteSize must be non-negative");
+  const models = MEDIA_ENRICHMENT_LEGS.filter(
+    (leg) => leg.modalities.includes(modality) && byteSize <= leg.maxInlineBytes,
+  ).map((leg) => leg.make());
+  if (models.length === 0) throw new Error("media_enrichment_input_unsupported");
+  return models;
 }
 
 /**
