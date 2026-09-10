@@ -19,6 +19,11 @@ type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
  * a dropdown, a bounded integer a stepper, a datetime a picker, an email list
  * a multi-line editor — so the form can't drift from what the server accepts.
  * Tools without a derivable schema fall back to a raw-JSON editor.
+ *
+ * One editor, one job: review a proposed *write*. A `system.ask_user` row is
+ * not that (ADR-0099) — the user authors its input rather than reviewing it —
+ * and it never reaches here: both surfaces resolve a question to their own
+ * card, which draws `AskUserQuestionPanel` with the input already parsed.
  */
 export function ApprovalInputEditor({
   toolName,

@@ -20,7 +20,13 @@ import {
   startApprovalWaitSpan,
   type ApprovalWaitOutcome,
 } from "@alfred/assistant/execution/runtime-spans";
-import { ASK_USER_TOOL, askUserInput, Errors, jsonValueSchema, toMessage } from "@alfred/contracts";
+import {
+  askUserDecidedInput,
+  Errors,
+  isQuestionApproval,
+  jsonValueSchema,
+  toMessage,
+} from "@alfred/contracts";
 import {
   prepareWorkflowApprovalEdit,
   restageWorkflowApproval,
@@ -152,7 +158,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           // A rejection reason is the revision note the model reads back. A
           // question has no revision: dismissing it IS the answer (ADR-0099),
           // so the user is not made to invent a reason to skip it.
-          if (decision === "reject" && !reason && row.toolName !== ASK_USER_TOOL) {
+          if (decision === "reject" && !reason && !isQuestionApproval(row.toolName)) {
             return { badRequest: "Rejecting an action requires a reason" };
           }
 
@@ -162,8 +168,8 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             // user's `answers` filled in. Validate it here, so a wrong-length
             // answer list is a 400 the card shows, not a failed row and a
             // generic `tool_input_invalid` the model re-asks past (ADR-0099).
-            if (row.toolName === ASK_USER_TOOL && editedInput !== undefined) {
-              const answered = askUserInput.safeParse(editedInput);
+            if (isQuestionApproval(row.toolName) && editedInput !== undefined) {
+              const answered = askUserDecidedInput.safeParse(editedInput);
               if (!answered.success) {
                 const issue = answered.error.issues[0];
                 const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
@@ -207,7 +213,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               shouldEnqueue: signalOutcome === "woken",
               approvalWait: approvalWaitEmit(
                 row,
-                row.toolName === ASK_USER_TOOL ? "answered" : "approved",
+                isQuestionApproval(row.toolName) ? "answered" : "approved",
               ),
             };
           }
@@ -243,6 +249,12 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             .update(actionStagings)
             .set({
               status: "rejected",
+              // The effect dimension, orthogonal to `status` (#559a). The gate
+              // never called the provider, so the effect is `refused` — not
+              // `failed`, which counts as an attempt. The sibling writer
+              // `withdrawToolCallApproval` already states it; a row rejected
+              // through this route used to keep `awaiting_approval` forever.
+              outcome: "refused",
               rejectReason: reason ?? null,
               decidedAt: now,
               rowVersion: sql`${actionStagings.rowVersion} + 1`,
@@ -255,7 +267,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             shouldEnqueue,
             approvalWait: approvalWaitEmit(
               row,
-              row.toolName === ASK_USER_TOOL ? "dismissed" : "rejected",
+              isQuestionApproval(row.toolName) ? "dismissed" : "rejected",
             ),
           };
         });
@@ -354,15 +366,34 @@ function approvalWaitEmit(
   };
 }
 
+/**
+ * Map a wake attempt to the conflict message the decision route reports, or
+ * `null` when the run really did wake.
+ *
+ * `not_waiting` is a conflict, not a success. It says the run is alive but is
+ * parked on nothing — it never reached this approval, or another writer has
+ * already woken it. Recording the decision anyway retires the staged row while
+ * the run keeps running, and the tool call it gates never receives the answer.
+ * The expiry worker refuses the same case for the same reason
+ * (`approval-expiry-worker.ts`, `signalOutcome !== "woken"`), so both writers
+ * now agree on what a decided approval means.
+ */
 function signalOutcomeConflict(outcome: SignalOutcome): string | null {
+  if (outcome === "woken") return null;
   if (outcome === "not_found") return "Run not found";
+  if (outcome === "not_waiting") return "Run is not waiting for an approval";
   if (outcome === "wake_mismatch") return "Run is not waiting for this approval";
   if (outcome === "already_terminal") return "Run has already finished";
-  return null;
+  // A new outcome fails to compile here rather than silently reading as a
+  // successful wake.
+  const unhandled: never = outcome;
+  return unhandled;
 }
 
 function cancelOutcomeConflict(outcome: CancelOutcome): string | null {
+  if (outcome === "cancelled") return null;
   if (outcome === "not_found") return "Run not found";
   if (outcome === "already_terminal") return "Run has already finished";
-  return null;
+  const unhandled: never = outcome;
+  return unhandled;
 }

@@ -3,15 +3,40 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { cardTitle } from "./card-spec";
 import { formatJson } from "./format";
 
+/** The approve arm, shared by both cards: it may carry an edited input. */
+type ApproveDecision = {
+  decision: "approve";
+  expectedRowVersion: number;
+  editedInput?: unknown;
+  reason?: never;
+};
+
 /**
- * The decision a reviewer records for one staged action. Approving may carry an
- * edited input (the fields are always live); rejecting/cancelling carries the
- * note sent back to Alfred.
+ * The decision a reviewer records for one staged *write*. Approving may carry
+ * an edited input (the fields are always live); rejecting/cancelling carries
+ * the revision note sent back to Alfred, which is why `reason` is required
+ * here and not optional.
  */
-export type ApprovalDecision =
-  | { decision: "approve"; expectedRowVersion: number; editedInput?: unknown; reason?: never }
+export type WriteDecision =
+  | ApproveDecision
   | { decision: "reject"; expectedRowVersion: number; reason: string }
   | { decision: "cancel_run"; expectedRowVersion: number; reason: string };
+
+/**
+ * The decision a reviewer records for one parked `system.ask_user` question
+ * (ADR-0099). Two arms only: send the answers, or dismiss. A dismissal IS the
+ * answer, so its `reject` carries no revision note — and it carries no
+ * `cancel_run` either, because the question card offers no such button.
+ *
+ * Both unions are `reject`-on-the-wire and neither needs a mapper. Keeping
+ * them separate is what makes a reason-less write rejection uncompilable and a
+ * `cancel_run` from a question card uncompilable, including where a generic
+ * parameter widens to {@link RecordedDecision}.
+ */
+export type QuestionDecision = ApproveDecision | { decision: "reject"; expectedRowVersion: number };
+
+/** Anything a reviewer can record against one staged row. */
+export type RecordedDecision = WriteDecision | QuestionDecision;
 
 export interface ApprovalDecisionState {
   /** The (possibly edited) tool input the reviewer will approve. */
@@ -37,7 +62,7 @@ export interface ApprovalDecisionState {
   /** Input-aware headline for the card. */
   title: string;
   /** The approve decision for the current edit state (plain vs approve-with-edits). */
-  approveDecision: () => ApprovalDecision;
+  approveDecision: () => ApproveDecision;
   /**
    * Run a decision executor under the shared guard: bails if already busy or
    * decided, toggles `busy`, and surfaces a thrown error (leaving `busy` false).
@@ -63,9 +88,18 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
   const [busy, setBusy] = useState(false);
   const [decided, setDecided] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Compared BY VALUE, never by reference. Every Replicache poke re-parses the
+  // whole pending set (`SYNC_MODEL.actionstaging.scan`), so each pending row
+  // gets a fresh object identity on every fire — and something fires without
+  // any user action: the approval notification worker stamps `notified_at`
+  // and bumps `row_version` five minutes in. A reference compare therefore
+  // discarded the draft on a routine poke. That is survivable for a write
+  // (the draft held a proposal the user could re-read on screen) and a data
+  // loss for a question, whose draft holds content only the user can produce.
+  const stagedInput = formatJson(staging.proposedInput);
   const [previousStaging, setPreviousStaging] = useState({
     id: staging.id,
-    proposedInput: staging.proposedInput,
+    stagedInput,
   });
   const reasonRef = useRef<HTMLTextAreaElement>(null);
 
@@ -73,11 +107,8 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
   // same card component being reused for a different row). A render-phase state
   // adjustment, so React discards the queued setState with the render if it
   // bails out — a ref write would leak and desync the tracker.
-  if (
-    staging.id !== previousStaging.id ||
-    staging.proposedInput !== previousStaging.proposedInput
-  ) {
-    setPreviousStaging({ id: staging.id, proposedInput: staging.proposedInput });
+  if (staging.id !== previousStaging.id || stagedInput !== previousStaging.stagedInput) {
+    setPreviousStaging({ id: staging.id, stagedInput });
     setDraftInput(staging.proposedInput);
     setShowReason(false);
     setReason("");
@@ -91,8 +122,8 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
   }, [showReason]);
 
   const edited = useMemo(
-    () => formatJson(draftInput).trim() !== formatJson(staging.proposedInput).trim(),
-    [draftInput, staging.proposedInput],
+    () => formatJson(draftInput).trim() !== stagedInput.trim(),
+    [draftInput, stagedInput],
   );
   const title = useMemo(
     () => cardTitle(staging.toolName, edited ? draftInput : staging.proposedInput),
@@ -100,7 +131,7 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
   );
   const reasonMissing = reason.trim().length === 0;
 
-  const approveDecision = (): ApprovalDecision =>
+  const approveDecision = (): ApproveDecision =>
     edited
       ? { decision: "approve", expectedRowVersion: staging.rowVersion, editedInput: draftInput }
       : { decision: "approve", expectedRowVersion: staging.rowVersion };

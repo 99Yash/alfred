@@ -25,11 +25,11 @@ export const questionToolInput = z
 export type QuestionToolInput = z.infer<typeof questionToolInput>;
 
 /**
- * One question with one answer. The boot proof feeds this to the declaring
- * tool's `inputSchema`, so a schema that accepts a question but refuses the
- * answer the decision route writes back fails at boot, not at the first resume.
+ * One question, with no answer: what the MODEL is allowed to send. The boot
+ * proof feeds this to the declaring tool's `modelInputSchema`, so a tool that
+ * leaves the model no way to ask a question fails at boot.
  */
-export const QUESTION_TOOL_PROBE_INPUT = {
+export const QUESTION_TOOL_MODEL_PROBE_INPUT = {
   questions: [
     {
       question: "Which option should Alfred take?",
@@ -41,5 +41,16 @@ export const QUESTION_TOOL_PROBE_INPUT = {
       multiSelect: false,
     },
   ],
+} satisfies QuestionToolInput;
+
+/**
+ * The same question with the user's answer on it. The boot proof feeds this to
+ * the declaring tool's `inputSchema`, so a schema that accepts a question but
+ * refuses the answer the decision route writes back fails at boot, not at the
+ * first resume. It feeds it to `modelInputSchema` too, which must REFUSE it:
+ * the model may never write the user's half (ADR-0099).
+ */
+export const QUESTION_TOOL_PROBE_INPUT = {
+  ...QUESTION_TOOL_MODEL_PROBE_INPUT,
   answers: [{ selectedOptions: ["First"], customAnswer: null }],
 } satisfies QuestionToolInput;

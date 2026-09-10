@@ -8,9 +8,9 @@ import { formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
-import { useApprovalDecision, type ApprovalDecision } from "./use-approval-decision";
+import { useApprovalDecision, type WriteDecision } from "./use-approval-decision";
 
-export type { ApprovalDecision } from "./use-approval-decision";
+export type { RecordedDecision, WriteDecision } from "./use-approval-decision";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={14} />;
@@ -19,13 +19,20 @@ const ICON_REVISE = <RefreshCw size={14} />;
 const ICON_REVISE_SM = <RefreshCw size={13} />;
 const ICON_CHECK = <Check size={14} />;
 
+/**
+ * One staged *write*, reviewed in the `/approvals` queue and in a workflow's
+ * Approvals tab. A question rides the same row and the same route but draws
+ * `QuestionApprovalCard` instead (ADR-0099); `StagedApprovalCard` picks. So
+ * this card only ever sees a write, and its decision union says so — a
+ * reason-less rejection and a dismissal are both uncompilable here.
+ */
 export function ApprovalCard({
   staging,
   onDecide,
 }: {
   staging: SyncedActionStaging;
   /** Resolves when the decision is recorded; throws with a message on failure. */
-  onDecide: (decision: ApprovalDecision) => Promise<void>;
+  onDecide: (decision: WriteDecision) => Promise<void>;
 }) {
   const {
     draftInput,
@@ -46,7 +53,7 @@ export function ApprovalCard({
 
   // On success the row leaves the pending queue and Replicache removes the
   // card; `run` leaves `busy` set and no local cleanup is needed.
-  const decide = (decision: ApprovalDecision) => run(() => onDecide(decision));
+  const decide = (decision: WriteDecision) => run(() => onDecide(decision));
 
   return (
     <AppCard className="space-y-4">

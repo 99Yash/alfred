@@ -425,7 +425,13 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // `unrecognized_keys` failure family (`max_results`→`maxResults`, snake↔camel)
   // across every tool with one mechanism. Synonyms and the query DSL are still
   // handled by the schema's own preprocess wrappers, which run inside safeParse.
-  const normalized = normalizeToolInputKeys(args.input, tool.inputSchema);
+  //
+  // Reads the MODEL-facing schema, which is the surface the model was shown and
+  // the one `acceptedParamNames` documents. On every tool but `system.ask_user`
+  // the two are the same object; on that one the runtime schema also accepts
+  // `answers`, and normalizing against it would rename a model key into the
+  // user's field (ADR-0099).
+  const normalized = normalizeToolInputKeys(args.input, tool.modelInputSchema);
   if (normalized.renamed.length > 0) {
     // Surface the auto-repaired keys so prod traces can measure how often the
     // ergonomics pass fires, and on which tools/keys, without re-running the
@@ -438,9 +444,11 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   }
   const parsed = tool.inputSchema.safeParse(normalized.input);
   if (!parsed.success) {
+    // Repair advice the model reads, so it lists the model-facing parameters.
+    // Naming a runtime-only field here would invite the model to send it.
     const message = enrichInvalidInputMessage(
       parsed.error.message,
-      tool.inputSchema,
+      tool.modelInputSchema,
       parsed.error.issues,
     );
     recordRejection({
@@ -527,6 +535,12 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
       // re-parses it. A fresh call that already carries answers is the model
       // answering its own question, so refuse it before any row is written.
       // PARSED with the question contract the registry proved at boot, not cast.
+      //
+      // Kept as a backstop, not as the first line of defence. The tool's
+      // `modelInputSchema` has no `answers` key, so a well-behaved model cannot
+      // reach this branch; a hallucinated key, a replayed call, or a future
+      // caller that bypasses the surface still can, and this is the one place
+      // that names the repair.
       const question = questionToolInput.parse(input);
       if (question.answers !== undefined) {
         const message =

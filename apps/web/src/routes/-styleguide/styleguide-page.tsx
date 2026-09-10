@@ -14,6 +14,7 @@
  * components/landing/landing-page.tsx).
  */
 
+import { ASK_USER_TOOL } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import {
   Archive,
@@ -57,6 +58,7 @@ import {
 } from "~/components/ui/v2";
 import { toast } from "~/lib/toast";
 import { ChatApprovalTray } from "../-chat/approval-tray";
+import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
 import { AuroraGlow } from "~/components/landing/aurora-glow";
@@ -1730,6 +1732,8 @@ function V2Half() {
       <V2ToastSection />
       <V2FrostOverlaySection />
       <V2ApprovalTraySection />
+      <V2QuestionCardSection />
+      <V2QuestionAnswersSection />
     </div>
   );
 }
@@ -2146,6 +2150,129 @@ const V2_STAGING_EVENT: SyncedActionStaging = {
   },
   createdAt: "2026-06-07T08:31:00.000Z",
 };
+
+const V2_STAGING_QUESTION: SyncedActionStaging = {
+  ...V2_STAGING_EMAIL,
+  id: "stg_styleguide_question",
+  stepId: "step_3",
+  toolCallId: "call_3",
+  toolName: ASK_USER_TOOL,
+  integration: "system",
+  // What the tool declares. A question is not an irreversible action, so
+  // ADR-0099 rejects the `high` tier for it by name.
+  riskTier: "no_risk",
+  brief: "Ask which recipients and tone to use before sending the update.",
+  proposedInput: {
+    context: "I drafted the update. Two things are ambiguous before I send it.",
+    questions: [
+      {
+        question: "Who should receive the update?",
+        header: "Recipients",
+        multiSelect: true,
+        options: [
+          { label: "Maya only", description: "The one person who asked for it." },
+          { label: "The design channel", description: "Everyone who joined the review." },
+          { label: "Leadership", description: "Adds two directors to the thread." },
+        ],
+      },
+      {
+        question: "How direct should the tone be?",
+        header: "Tone",
+        multiSelect: false,
+        options: [
+          { label: "Plain", description: "Short sentences, no hedging." },
+          { label: "Warm", description: "Keeps the context and the thanks." },
+        ],
+      },
+    ],
+  },
+  recentRejection: null,
+  createdAt: "2026-06-07T08:32:00.000Z",
+};
+
+function V2QuestionAnswersSection() {
+  return (
+    <Section
+      id="v2-question-answers"
+      title="Chat question, settled"
+      recipe="components/approvals/question-answers-card.tsx — what a `system.ask_user` call leaves in the transcript once it settles. Rendered from the tool result, so a reload shows the same thing. Left: answered. Right: dismissed."
+    >
+      <ThemePanes
+        stacked
+        render={() => (
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+            <QuestionAnswersCard
+              summary={{
+                status: "answered",
+                answered: [
+                  {
+                    question: {
+                      question: "Who should receive the update?",
+                      header: "Recipients",
+                      multiSelect: true,
+                      options: [],
+                    },
+                    answer: {
+                      selectedOptions: ["Maya only", "The design channel"],
+                      customAnswer: null,
+                    },
+                  },
+                  {
+                    question: {
+                      question: "How direct should the tone be?",
+                      header: "Tone",
+                      multiSelect: false,
+                      options: [],
+                    },
+                    answer: { selectedOptions: [], customAnswer: "Plain, but keep the thanks." },
+                  },
+                ],
+              }}
+            />
+            <QuestionAnswersCard
+              summary={{
+                status: "unanswered",
+                reason: "dismissed",
+                questions: [
+                  {
+                    question: "Who should receive the update?",
+                    header: "Recipients",
+                    multiSelect: true,
+                    options: [],
+                  },
+                ],
+              }}
+            />
+          </div>
+        )}
+      />
+    </Section>
+  );
+}
+
+function V2QuestionCardSection() {
+  return (
+    <Section
+      id="v2-question-card"
+      title="Chat question card"
+      recipe="routes/-chat/approval-tray.tsx with a `system.ask_user` staging (ADR-0099). The card keeps the chrome and draws its body from components/approvals/question-sheet.tsx, which the /approvals queue draws too: a multi-select question and a single-select one, paged with the arrows and the dots, each with a free-text field. Actions read Dismiss / Continue; Cmd+Enter continues. preview mode — decisions are local no-ops."
+    >
+      <ThemePanes
+        stacked
+        render={(theme) => (
+          <div className="mx-auto w-full max-w-3xl">
+            <ChatApprovalTray
+              runId={`run_styleguide_question_${theme}`}
+              approvals={[V2_STAGING_QUESTION]}
+              awaitingApproval
+              preview
+            />
+          </div>
+        )}
+      />
+    </Section>
+  );
+}
 
 function V2ApprovalTraySection() {
   return (

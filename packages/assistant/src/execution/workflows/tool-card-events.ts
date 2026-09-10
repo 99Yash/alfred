@@ -158,7 +158,7 @@ export function toolCardStarted(
     messageId: target.messageId,
     ...boundToolIdentity(call),
     status: "started",
-    argsPreview: preview(call.input),
+    argsPreview: preview(call.input).text,
     segmentIndex,
     ...(target.subAgent ? { subAgent: target.subAgent } : {}),
   };
@@ -183,6 +183,7 @@ export function toolCardTerminal(
     ...boundToolIdentity(call),
     status: outcome.status,
     resultPreview: outcome.resultPreview,
+    ...(outcome.resultTruncated ? { resultTruncated: outcome.resultTruncated } : {}),
     ...(outcome.sanitized ? { sanitized: outcome.sanitized } : {}),
     ...(outcome.nonExecution ? { nonExecution: outcome.nonExecution } : {}),
     ...(outcome.connectNudge ? { connectNudge: outcome.connectNudge } : {}),
