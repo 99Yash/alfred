@@ -12,6 +12,7 @@ import {
   markBriefingSuppressed,
 } from "./store";
 import { send } from "@alfred/assistant/delivery";
+import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -373,8 +374,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     content: composed.bodyMarkdown,
     createdAt: new Date().toISOString(),
     timezone: ctx.state.timezone,
-    // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
-    logoUrl: `${webOrigin}/images/logo/alfred-logo-email.png`,
+    logoUrl: emailLogoUrl(webOrigin),
     previewText: composed.subject,
     // Both slots get the CTA, pointed at the full briefing for that day
     // (`/briefings/{YYYY-MM-DD}`, ADR-0049) rather than the chat surface.

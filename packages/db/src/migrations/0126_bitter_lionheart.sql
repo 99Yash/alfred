@@ -1,0 +1,2 @@
+ALTER TABLE "email_sends" DROP CONSTRAINT "email_sends_kind_valid";--> statement-breakpoint
+ALTER TABLE "email_sends" ADD CONSTRAINT "email_sends_kind_valid" CHECK ("email_sends"."kind" IN ('approval', 'briefing', 'delivery_alert', 'evening_recap', 'health_alert', 'skill_documented', 'workflow_blocked'));

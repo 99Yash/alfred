@@ -22,7 +22,7 @@ const GMAIL_DELIVERY = eventDeliveryAccounts("gmail");
 /**
  * The delivery facts one Gmail credential's ingestion leaves behind, read for
  * the two surfaces that judge the push path: workflow trigger readiness
- * (`automation/gmail-event-readiness.ts`) and the integration status the Gmail
+ * (`connections/ingestion/gmail-event-health.ts`) and the integration status the Gmail
  * page renders (`connections/availability.ts`).
  *
  * The cheap `@alfred/assistant/connections` barrel can reach this reader without

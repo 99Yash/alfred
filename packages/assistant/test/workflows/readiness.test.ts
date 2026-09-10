@@ -15,11 +15,11 @@ import { workflowToolCatalog, type WorkflowToolFacts } from "@alfred/assistant/t
 import type {
   EventSourceHealth,
   EventSourceHealthMap,
-} from "../../src/automation/event-source-health";
+} from "../../src/connections/event-source-health";
 import {
   gmailAccountHealth,
   type GmailEventHealth,
-} from "../../src/automation/gmail-event-readiness";
+} from "../../src/connections/ingestion/gmail-event-health";
 import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowCapabilities,
@@ -766,6 +766,7 @@ describe("workflow readiness", () => {
           grain: "source",
           health: {
             healthy: false,
+            cause: "broken",
             reason: "the GitHub App is not installed",
             recovery: { kind: "connect", integration: "github" },
           },
