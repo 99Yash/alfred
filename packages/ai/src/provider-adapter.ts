@@ -1,3 +1,6 @@
+import type { AnthropicProvider } from "@ai-sdk/anthropic";
+import type { GoogleProvider } from "@ai-sdk/google";
+import type { OpenAIProvider } from "@ai-sdk/openai";
 import type {
   LanguageModelV4CallOptions,
   LanguageModelV4Middleware,
@@ -6,15 +9,7 @@ import type {
 import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { activeGateway } from "./gateway";
-import {
-  MODEL_CAPABILITIES,
-  MODEL_IDS,
-  MODEL_REGISTRY,
-  type ModelId,
-  type ModelIdFor,
-  type ModelProviderId,
-  normalizeProvider,
-} from "./models";
+import { normalizeProvider, type ProviderId } from "./models";
 import {
   cleanProviderRequest,
   projectAnthropicRequest,
@@ -26,108 +21,53 @@ import { codecForProvider } from "./tool-name-codec";
 // ── Re-exports preserving the public seam ──────────────────────────────────
 export { attachProviderTurnPolicy } from "./request-projection";
 export type { CacheTtl } from "./request-projection";
-export type { ModelReasoningPolicy } from "./reasoning-policy";
-export { providerOptionsForModel } from "./reasoning-policy";
 
-// Thin adapter map — each entry delegates to a deep module instead of owning
-// the implementation. No generic erasure: lookup is via MODEL_REGISTRY.
-type ProviderSpec = {
-  readonly nativeToolSearch: boolean;
-  createModel(modelId: string): LanguageModelV4;
-  projectRequest(
-    params: LanguageModelV4CallOptions,
-    cacheTtl: CacheTtl | undefined,
-  ): LanguageModelV4CallOptions;
-};
+/**
+ * Provider-neutral reasoning ceiling a product route selects. The concrete
+ * provider package maps or clamps it for the model that actually serves
+ * (`@ai-sdk/anthropic` thinking budgets/effort, `@ai-sdk/google` thinking
+ * levels/budgets, `@ai-sdk/openai` reasoning effort). Alfred keeps no parallel
+ * effort vocabulary of its own.
+ */
+export type RouteReasoning = NonNullable<LanguageModelV4CallOptions["reasoning"]>;
 
-const PROVIDER_SPECS = {
-  anthropic: {
-    nativeToolSearch: false,
-    createModel: (modelId: string) => {
-      // SAFETY: PROVIDER_SPECS is keyed by ModelProviderId; each branch creates only its own provider's model type.
-      return activeGateway().createAnthropic()(modelId as ModelIdFor<"anthropic">);
-    },
-    projectRequest: projectAnthropicRequest,
-  },
-  google: {
-    nativeToolSearch: false,
-    createModel: (modelId: string) => {
-      // SAFETY: keyed by provider, so google branch only receives google ids.
-      return activeGateway().createGoogle()(modelId as ModelIdFor<"google">);
-    },
-    projectRequest: projectApplicationRequest,
-  },
-  openai: {
-    nativeToolSearch: false,
-    createModel: (modelId: string) => {
-      // SAFETY: openai branch only receives openai ids; .responses is the language-model factory.
-      return activeGateway()
-        .createOpenAI()
-        .responses(modelId as ModelIdFor<"openai">);
-    },
-    projectRequest: projectApplicationRequest,
-  },
-} as const satisfies Record<ModelProviderId, ProviderSpec>;
+/**
+ * The model-id parameter type each installed provider factory accepts. Taking
+ * it from the factory keeps Alfred's call sites honest without a handwritten
+ * model-to-provider registry: a provider package upgrade moves the accepted
+ * ids with it.
+ */
+type AnthropicModelId = Parameters<AnthropicProvider>[0];
+type GoogleModelId = Parameters<GoogleProvider>[0];
+type OpenAiModelId = Parameters<OpenAIProvider["responses"]>[0];
 
-const NATIVE_TOOL_LOADING_MODELS: ReadonlySet<ModelId> = new Set();
+// ── Provider projections ───────────────────────────────────────────────────
+// Each provider owns only the Alfred policy its package does not: cache
+// placement for Anthropic; envelope removal is provider-neutral and happens
+// before the projection runs.
+type RequestProjection = (
+  params: LanguageModelV4CallOptions,
+  cacheTtl: CacheTtl | undefined,
+) => LanguageModelV4CallOptions;
 
-function specForModel(modelId: ModelId): ProviderSpec {
-  return PROVIDER_SPECS[MODEL_REGISTRY[modelId]];
-}
+const PROJECTIONS = {
+  anthropic: projectAnthropicRequest,
+  google: projectApplicationRequest,
+  openai: projectApplicationRequest,
+} as const satisfies Record<ProviderId, RequestProjection>;
 
-type ToolLoadingProtocol = "application" | "native";
-
-function toolLoadingProtocolForModel(modelId: ModelId): ToolLoadingProtocol {
-  return MODEL_CAPABILITIES[modelId].nativeToolSearch &&
-    specForModel(modelId).nativeToolSearch &&
-    NATIVE_TOOL_LOADING_MODELS.has(modelId)
-    ? "native"
-    : "application";
-}
-
-function assertProtocolRegistry(): void {
-  for (const modelId of NATIVE_TOOL_LOADING_MODELS) {
-    if (toolLoadingProtocolForModel(modelId) !== "native") {
-      throw new Error(
-        `${modelId} enables native tool loading without capability and adapter support`,
-      );
-    }
-  }
-  // SAFETY: PROVIDER_SPECS is Record<ModelProviderId, ProviderSpec>, so entries are exactly these tuples.
-  for (const [provider, spec] of Object.entries(PROVIDER_SPECS) as [
-    ModelProviderId,
-    ProviderSpec,
-  ][]) {
-    const reachable = MODEL_IDS.some(
-      (modelId) =>
-        MODEL_REGISTRY[modelId] === provider && MODEL_CAPABILITIES[modelId].nativeToolSearch,
-    );
-    if (spec.nativeToolSearch && !reachable) {
-      throw new Error(`${provider} native tool-search adapter is unreachable`);
-    }
-  }
-}
-
-assertProtocolRegistry();
-
-// ── Middleware: ordered chain [toolName (inner) ← projection (outer)] ────────
-// Original nesting: withProviderAdapter did wrap(toolName) then wrap(projection).
-// Outer (projection) sees the envelope and strips it, then inner encodes names.
-// Order is load-bearing — preserved here explicitly.
-
-function middlewareFor(modelId: ModelId): LanguageModelV4Middleware {
-  const spec = specForModel(modelId);
+function middlewareFor(provider: ProviderId): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
     transformParams: async ({ params }) => {
       // SAFETY: params is LanguageModelV4CallOptions (the owning type); the param is widened via LanguageModelMiddleware in ai.
       const { clean, cacheTtl } = cleanProviderRequest(params as LanguageModelV4CallOptions);
-      return spec.projectRequest(clean, cacheTtl);
+      return PROJECTIONS[provider](clean, cacheTtl);
     },
   };
 }
 
-// Provider-boundary name transform
+// ── Provider-boundary name transform ───────────────────────────────────────
 type GenerateResult = Awaited<ReturnType<NonNullable<LanguageModelV4Middleware["wrapGenerate"]>>>;
 type ContentPart = GenerateResult["content"][number];
 type StreamResult = Awaited<ReturnType<NonNullable<LanguageModelV4Middleware["wrapStream"]>>>;
@@ -233,19 +173,33 @@ function toolNameMiddleware(
   };
 }
 
+// ── Adapter attachment ─────────────────────────────────────────────────────
+// Ordered chain [toolName (inner) ← projection (outer)]: the outer projection
+// strips the internal envelope and decorates for the provider, the inner name
+// shim encodes only the final function-tool set and leaves provider-defined
+// tools alone. Order is load-bearing.
+
 declare const providerAdaptedModel: unique symbol;
 export type ProviderAdaptedLanguageModel = LanguageModelV4 & {
   readonly [providerAdaptedModel]: true;
 };
 
-export function withProviderAdapter(modelId: ModelId, model: LanguageModelV4): LanguageModelV4 {
-  const provider = MODEL_REGISTRY[modelId];
+function brand(model: LanguageModelV4): ProviderAdaptedLanguageModel {
+  // SAFETY: brand is minted only after the matching provider adapter wraps a model built by that provider's factory.
+  return model as ProviderAdaptedLanguageModel;
+}
+
+/**
+ * Attach the matching Alfred adapter to a model the provider package already
+ * constructed. The provider is read off the model object, never a registry, and
+ * the call fails loudly on a mismatch so an adapter cannot decorate the wrong
+ * provider's request.
+ */
+export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4): LanguageModelV4 {
   const codec = codecForProvider(provider);
   const actualProvider = normalizeProvider(model.provider);
-  if (actualProvider !== provider || model.modelId !== modelId) {
-    throw new Error(
-      `${modelId} protocol cannot wrap ${actualProvider}/${model.modelId}; expected ${provider}/${modelId}`,
-    );
+  if (actualProvider !== provider) {
+    throw new Error(`cannot attach the ${provider} protocol to ${actualProvider}/${model.modelId}`);
   }
   const named = wrapLanguageModel({
     model,
@@ -253,32 +207,87 @@ export function withProviderAdapter(modelId: ModelId, model: LanguageModelV4): L
   });
   return wrapLanguageModel({
     model: named,
-    middleware: middlewareFor(modelId),
+    middleware: middlewareFor(provider),
   });
 }
 
-export function createProviderModel(modelId: ModelId): LanguageModelV4 {
-  const spec = specForModel(modelId);
-  return withProviderAdapter(modelId, spec.createModel(modelId));
+/** Construct an Anthropic leg with its adapter attached. */
+export function anthropicLeg(modelId: AnthropicModelId): ProviderAdaptedLanguageModel {
+  return brand(adaptProviderModel("anthropic", activeGateway().createAnthropic()(modelId)));
 }
 
+/** Construct a Google leg with its adapter attached. */
+export function googleLeg(modelId: GoogleModelId): ProviderAdaptedLanguageModel {
+  return brand(adaptProviderModel("google", activeGateway().createGoogle()(modelId)));
+}
+
+/**
+ * Construct an OpenAI Responses leg with its adapter attached. Every OpenAI leg
+ * carries `store: false` and the reason is reasoning-item retention rather than
+ * privacy: Cloudflare Unified Billing puts Alfred on a Zero Data Retention org,
+ * so replaying a reasoning item by `rs_…` id 400s and kills the turn. See the
+ * longer note in the removed `reasoning-policy.ts` history and ADR-0077.
+ */
+export function openAiLeg(modelId: OpenAiModelId): ProviderAdaptedLanguageModel {
+  const model = adaptProviderModel("openai", activeGateway().createOpenAI().responses(modelId));
+  return brand(
+    wrapLanguageModel({
+      model,
+      middleware: defaultSettingsMiddleware({
+        settings: { providerOptions: { openai: { store: false } } },
+      }),
+    }),
+  );
+}
+
+/**
+ * Install the route's generic reasoning ceiling as a default — a caller that
+ * sets `reasoning` explicitly still wins. `defaultSettingsMiddleware` owns the
+ * other call settings but its options type omits `reasoning`, so this is the
+ * narrow seam that carries the provider-neutral value.
+ */
+function reasoningMiddleware(reasoning: RouteReasoning): LanguageModelV4Middleware {
+  return {
+    specificationVersion: "v4",
+    transformParams: async ({ params }) => {
+      // SAFETY: ai's LanguageModelMiddleware widens params; the owning type is LanguageModelV4CallOptions.
+      const call = params as LanguageModelV4CallOptions;
+      return call.reasoning === undefined ? { ...call, reasoning } : call;
+    },
+  };
+}
+
+export interface RouteModelSettings {
+  readonly reasoning: RouteReasoning;
+  /** Alfred's provider-option exceptions the generic reasoning setting cannot express. */
+  readonly providerOptions?: SharedV4ProviderOptions;
+}
+
+/**
+ * Compose a route's legs — constructed in order, each through its own provider
+ * factory and adapter — then install the route's reasoning ceiling and provider
+ * exceptions as overridable defaults. The brand is minted once here, at the
+ * outer route seam.
+ */
 export function createProviderRouteModel(
-  chain: readonly [ModelId, ...ModelId[]],
+  legs: readonly (() => LanguageModelV4)[],
   composeFallback: (primary: LanguageModelV4, fallback: LanguageModelV4) => LanguageModelV4,
-  defaultProviderOptions?: SharedV4ProviderOptions,
+  settings: RouteModelSettings,
 ): ProviderAdaptedLanguageModel {
-  let model: LanguageModelV4 = createProviderModel(chain[0]);
-  for (const modelId of chain.slice(1)) {
-    model = composeFallback(model, createProviderModel(modelId));
+  const [first, ...rest] = legs;
+  if (!first) throw new Error("a model route needs at least one leg");
+  let model: LanguageModelV4 = first();
+  for (const makeLeg of rest) {
+    model = composeFallback(model, makeLeg());
   }
-  if (defaultProviderOptions) {
+  if (settings.providerOptions) {
     model = wrapLanguageModel({
       model,
       middleware: defaultSettingsMiddleware({
-        settings: { providerOptions: defaultProviderOptions },
+        settings: { providerOptions: settings.providerOptions },
       }),
     });
   }
-  // SAFETY: model is LanguageModelV4 composed entirely from createProviderModel / composeFallback; brand minted once here at the outer route seam.
-  return model as ProviderAdaptedLanguageModel;
+  model = wrapLanguageModel({ model, middleware: reasoningMiddleware(settings.reasoning) });
+  return brand(model);
 }

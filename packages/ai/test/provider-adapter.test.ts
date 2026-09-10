@@ -7,13 +7,13 @@ import { APICallError, generateText, tool, type ToolSet } from "ai";
 import type { LanguageModel } from "ai-retry";
 import { MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
-import { MODEL_DEFINITIONS, type ModelId, type ModelProviderId } from "../src/models";
+import { identifyLanguageModel, type ProviderId } from "../src/models";
 import {
+  adaptProviderModel,
   attachProviderTurnPolicy,
-  createProviderModel,
-  withProviderAdapter,
+  createProviderRouteModel,
 } from "../src/provider-adapter";
-import { withFallback } from "../src/provider";
+import { route, withFallback } from "../src/provider";
 
 type GenResult = Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>;
 
@@ -29,7 +29,7 @@ function okResult(): GenResult {
   };
 }
 
-function mockModel(provider: ModelProviderId, modelId: ModelId): MockLanguageModelV4 {
+function mockModel(provider: ProviderId, modelId: string): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     provider,
     modelId,
@@ -54,17 +54,9 @@ const tools: ToolSet = {
 };
 
 describe("provider turn protocol", () => {
-  test("constructs every registered model through the provider adapter seam", () => {
-    for (const definition of MODEL_DEFINITIONS) {
-      const model = createProviderModel(definition.id);
-      assert.equal(model.modelId, definition.id);
-      assert.match(model.provider, new RegExp(`^${definition.provider}(?:\\.|$)`));
-    }
-  });
-
   test("Anthropic consumes the internal envelope and owns all cache decoration", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner));
 
     await generateText({
       model,
@@ -92,7 +84,7 @@ describe("provider turn protocol", () => {
 
   test("Google consumes the same envelope without receiving Anthropic metadata", async () => {
     const inner = mockModel("google", "gemini-3.5-flash");
-    const model = withProviderAdapter("gemini-3.5-flash", asModel(inner));
+    const model = adaptProviderModel("google", asModel(inner));
 
     await generateText({
       model,
@@ -118,7 +110,7 @@ describe("provider turn protocol", () => {
 
   test("OpenAI consumes the envelope and uses the adapter-owned name policy", async () => {
     const inner = mockModel("openai", "gpt-5.6-sol");
-    const model = withProviderAdapter("gpt-5.6-sol", asModel(inner));
+    const model = adaptProviderModel("openai", asModel(inner));
 
     await generateText({
       model,
@@ -138,7 +130,7 @@ describe("provider turn protocol", () => {
 
   test("name encoding leaves provider-defined tools unchanged", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner));
 
     await generateText({
       model,
@@ -180,8 +172,8 @@ describe("provider turn protocol", () => {
     });
     const fallback = mockModel("google", "gemini-3.5-flash");
     const model = withFallback(
-      withProviderAdapter("claude-sonnet-4-6", asModel(primary)),
-      withProviderAdapter("gemini-3.5-flash", asModel(fallback)),
+      adaptProviderModel("anthropic", asModel(primary)),
+      adaptProviderModel("google", asModel(fallback)),
     );
 
     await generateText({
@@ -208,7 +200,7 @@ describe("provider turn protocol", () => {
 
   test("malformed internal metadata fails closed and is still stripped", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner));
 
     await generateText({
       model,
@@ -226,7 +218,7 @@ describe("provider turn protocol", () => {
 
   test("disabled caching strips the envelope without adding breakpoints", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner));
 
     await generateText({
       model,
@@ -246,7 +238,7 @@ describe("provider turn protocol", () => {
 
   test("cache projection preserves existing provider options", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner));
 
     await generateText({
       model,
@@ -276,7 +268,7 @@ describe("provider turn protocol", () => {
 
   test("tool-result bursts retain a prior cache-read boundary within the four-breakpoint cap", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner));
     const toolResults = Array.from({ length: 32 }, (_, index) => ({
       type: "tool-result" as const,
       toolCallId: `call_${index}`,
@@ -319,7 +311,7 @@ describe("provider turn protocol", () => {
 
   test("compacted tool bursts stay within the four-breakpoint cap", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner));
     const toolResults = Array.from({ length: 8 }, (_, index) => ({
       type: "tool-result" as const,
       toolCallId: `call_${index}`,
@@ -357,11 +349,58 @@ describe("provider turn protocol", () => {
     assert.ok(cached.length + 1 <= 4, "system + tool + transcript cache points stay within cap");
   });
 
-  test("refuses to bind a protocol to the wrong concrete model", () => {
+  test("refuses to attach the wrong provider's protocol", () => {
     assert.throws(
-      () =>
-        withProviderAdapter("claude-sonnet-4-6", asModel(mockModel("google", "gemini-3.5-flash"))),
-      /expected anthropic\/claude-sonnet-4-6/,
+      () => adaptProviderModel("anthropic", asModel(mockModel("google", "gemini-3.5-flash"))),
+      /cannot attach the anthropic protocol to google\/gemini-3\.5-flash/,
     );
+  });
+});
+
+describe("route legs", () => {
+  test("preserve the provider and model identity the factory supplied", () => {
+    const standard = identifyLanguageModel(route("standard").model());
+    assert.equal(standard.provider, "openai");
+    assert.equal(standard.modelId, "gpt-5.6-luna");
+
+    const boss = identifyLanguageModel(route("boss").model());
+    assert.equal(boss.provider, "anthropic");
+    assert.equal(boss.modelId, "claude-sonnet-4-6");
+  });
+
+  test("select the generic AI SDK reasoning ceiling", () => {
+    assert.equal(route("standard").reasoning(), "medium");
+    assert.equal(route("deep").reasoning(), "xhigh");
+    assert.equal(route("cheap").reasoning(), "none");
+    assert.equal(route("compactor").reasoning(), "none");
+  });
+
+  test("deep pins the provider-only OpenAI effort the generic value cannot express", () => {
+    assert.deepEqual(route("deep").providerOptions(), {
+      openai: { reasoningEffort: "max" },
+    });
+    assert.deepEqual(route("standard").providerOptions(), {});
+  });
+
+  test("apply the route reasoning default to the serving leg", async () => {
+    const inner = mockModel("anthropic", "claude-sonnet-4-6");
+    const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
+      reasoning: "medium",
+    });
+
+    await generateText({ model, prompt: "hello" });
+
+    assert.equal(inner.doGenerateCalls[0]?.reasoning, "medium");
+  });
+
+  test("let a caller override the route reasoning default", async () => {
+    const inner = mockModel("anthropic", "claude-sonnet-4-6");
+    const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
+      reasoning: "medium",
+    });
+
+    await generateText({ model, prompt: "hello", reasoning: "high" });
+
+    assert.equal(inner.doGenerateCalls[0]?.reasoning, "high");
   });
 });
