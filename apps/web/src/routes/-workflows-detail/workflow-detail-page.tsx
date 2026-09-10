@@ -21,7 +21,9 @@ const TABS = [
 ];
 
 const SHARE_LEADING = <Share2 size={14} />;
+
 const PAUSE_LEADING = <Pause size={14} />;
+
 const PLAY_LEADING = <Play size={14} />;
 
 export function WorkflowDetailPage() {
@@ -51,6 +53,7 @@ export function WorkflowDetailPage() {
 
   const view = syncedWorkflowToView(workflow);
   const active = workflow.status === "active";
+
   const hasUnpublishedChanges =
     workflow.currentRevisionId !== null &&
     workflow.currentRevisionId !== workflow.publishedRevisionId;

@@ -18,16 +18,20 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 250;
+
 const POLL_TIMEOUT_MS = 30_000;
 
 async function findOrCreateSmokeUser(): Promise<string> {
   const email = "smoke-agent@alfred.local";
   const existing = await db().select().from(userTable).where(eq(userTable.email, email));
+
   if (existing[0]) return existing[0].id;
+
   const inserted = await db()
     .insert(userTable)
     .values({ name: "Smoke Tester", email, emailVerified: true })
     .returning({ id: userTable.id });
+
   return inserted[0]!.id;
 }
 
@@ -37,15 +41,20 @@ async function pollUntil(
   label: string,
 ): Promise<{ status: string; output: unknown; wakeCondition: unknown }> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     const rows = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
     const row = rows[0];
+
     if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
+
     if (predicate(row.status)) {
       return { status: row.status, output: row.output, wakeCondition: row.wakeCondition };
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
@@ -66,14 +75,17 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke] created runId=${runId}`);
 
   console.log("[smoke] enqueued; waiting for HIL interrupt…");
 
   const parked = await pollUntil(runId, (s) => s === "waiting" || isTerminal(s), "waiting");
+
   if (parked.status !== "waiting") {
     throw new Error(`expected waiting, got ${parked.status}`);
   }
+
   // SAFETY: agent_runs.wakeCondition is jsonb written by the park path with
   // this envelope.
   const wake = parked.wakeCondition as { kind: string; approvalId: string };
@@ -85,18 +97,23 @@ async function main() {
     runId,
     match: { kind: "hil", approvalId: wake.approvalId },
   });
+
   if (!woken) throw new Error("signal failed to wake the run");
   await redeliverRun(runId);
   console.log("[smoke] approval signaled; waiting for completion…");
 
   const done = await pollUntil(runId, isTerminal, "completion");
+
   if (done.status !== "completed") {
     throw new Error(`expected completed, got ${done.status}`);
   }
+
   const output = done.output;
+
   if (getStringPath(output, "echoed") !== "HELLO DURABLE RUNTIME") {
     throw new Error(`unexpected output: ${JSON.stringify(output)}`);
   }
+
   console.log(`[smoke] completed; output=${JSON.stringify(output)}`);
 
   // Sanity: every step row landed and idempotency keys are unique.
@@ -105,7 +122,9 @@ async function main() {
     .from(agentSteps)
     .where(eq(agentSteps.runId, runId))
     .orderBy(agentSteps.id);
+
   console.log(`[smoke] step rows for ${runId}:`);
+
   for (const s of stepRows) {
     console.log(`   - ${s.stepId} attempt=${s.attempt} status=${s.status}`);
   }

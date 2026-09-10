@@ -31,7 +31,9 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 250;
+
 const POLL_TIMEOUT_MS = 180_000;
+
 const options = z
   .object({
     document: z.string().min(1).optional(),
@@ -73,14 +75,18 @@ async function pickReplyExpectedTriageRow() {
     )
     .orderBy(desc(emailTriage.updatedAt))
     .limit(1);
+
   return rows[0] ?? null;
 }
 
 async function pollRun(runId: string) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+
     if (!row) throw new Error(`run ${runId} not found`);
+
     if (
       row.status === "waiting" ||
       row.status === "completed" ||
@@ -89,8 +95,10 @@ async function pollRun(runId: string) {
     ) {
       return row;
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for run ${runId}`);
 }
 
@@ -99,12 +107,14 @@ async function main() {
   registerBuiltinWorkflows();
 
   const row = await pickReplyExpectedTriageRow();
+
   if (!row || row.documentId === null) {
     console.log(
       `[smoke-reply-drafting] no email_triage row with category in ${REPLY_EXPECTED_TRIAGE_CATEGORIES.join("|")}; triage an inbox first`,
     );
     throw new Error("No matching triaged Gmail document; smoke was not run.");
   }
+
   console.log(
     `[smoke-reply-drafting] target thread=${row.sourceThreadId} doc=${row.documentId} ` +
       `category=${row.category} confidence=${row.confidence.toFixed(2)} model=${row.model}`,
@@ -115,6 +125,7 @@ async function main() {
     sourceThreadId: row.sourceThreadId,
     invocation: options.invocation,
   };
+
   const { runId } = await startRun({
     userId: row.userId,
     workflowSlug: REPLY_DRAFTING_WORKFLOW_SLUG,
@@ -123,20 +134,25 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-reply-drafting] run enqueued: ${runId}`);
 
   const run = await pollRun(runId);
   assert(run.status === "completed" || run.status === "waiting", `run status=${run.status}`);
+
   const result =
     run.status === "waiting"
       ? z.object({ result: replyDraftResultSchema }).parse(run.state).result
       : replyDraftResultSchema.parse(run.output);
+
   console.log(`[smoke-reply-drafting] outcome=${result.outcome}`);
+
   if (result.outcome === "no_draft") {
     console.log(`[smoke-reply-drafting] reason=${result.reason} note=${result.note ?? "-"}`);
   } else if (result.outcome === "no_access" || result.outcome === "withheld") {
     console.log(`[smoke-reply-drafting] reason=${result.reason}`);
   }
+
   console.log(
     `[smoke-reply-drafting] provenance: invocation=${result.provenance.invocation} ` +
       `flag=${result.provenance.featureFlagEnabled} sender=${result.provenance.sender ?? "-"} ` +
@@ -146,9 +162,11 @@ async function main() {
     result.provenance.invocation === options.invocation,
     "provenance must record the invocation",
   );
+
   if (options.expect)
     assert(result.outcome === options.expect, `expected ${options.expect}, got ${result.outcome}`);
   const staged = await db().select().from(actionStagings).where(eq(actionStagings.runId, runId));
+
   if (result.outcome === "staged") {
     assert(run.status === "waiting", "staged run must wait for approval");
     assert(staged.length === 1, "exactly one approval row must exist");

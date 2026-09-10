@@ -39,8 +39,11 @@ import {
  */
 
 const REALTIME_EMIT_CONCURRENCY = 10;
+
 const REALTIME_EMBED_CONCURRENCY = 4;
+
 export const FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT = 25;
+
 const REPLY_REEVAL_QUERY_CHUNK_SIZE = 1000;
 
 type GmailInsertJobKind = GmailDocumentsIngestedPayload["jobKind"];
@@ -52,6 +55,7 @@ interface ReplyReevalRequest {
 }
 
 type ReplyReevalRequestTarget = GmailPostInsertTriageResult["replyReevalTargets"][number];
+
 type ReplyReevalTarget = ReplyReevalRequestTarget & { eventId: string };
 
 export function pairReplyReevalTargets(
@@ -59,9 +63,11 @@ export function pairReplyReevalTargets(
   targets: readonly ReplyReevalRequestTarget[],
 ): ReplyReevalTarget[] {
   const eventIdByThread = new Map(requests.map((request) => [request.threadId, request.eventId]));
+
   return targets
     .map((target): ReplyReevalTarget | null => {
       const eventId = eventIdByThread.get(target.threadId);
+
       return eventId ? { ...target, eventId } : null;
     })
     .filter((target): target is ReplyReevalTarget => target !== null);
@@ -100,8 +106,10 @@ export function planGmailPostInsertSideEffects(args: {
     (args.jobKind === "gmail.ingest_recent" && args.triageInsertedDocs === true);
 
   const allowFullResyncReplyReeval = args.jobKind === "gmail.poll_history" && args.fullResync;
+
   const replyReevalSentDocumentIds =
     allowReplyReeval || allowFullResyncReplyReeval ? [...args.sentDocumentIds] : [];
+
   const protectedDocumentIds = Array.from(
     new Set([...args.triageDocumentIds, ...args.sentDocumentIds]),
   );
@@ -133,6 +141,7 @@ async function emitGmailMessageEvents(
   reason: GmailMessageEventReason,
 ): Promise<void> {
   let accountByDocumentId: Map<string, string>;
+
   try {
     accountByDocumentId = await gmailAccountRefsForDocuments(userId, documentIds);
   } catch (err) {
@@ -140,8 +149,10 @@ async function emitGmailMessageEvents(
       `[ingestion:consumer] failed to resolve Gmail event accounts user=${userId}:`,
       toMessage(err),
     );
+
     return;
   }
+
   await mapConcurrent(documentIds, REALTIME_EMIT_CONCURRENCY, async (documentId) => {
     try {
       const accountRef = accountByDocumentId.get(documentId);
@@ -172,10 +183,12 @@ async function runGmailRepairSideEffects(
     userId,
     plan.replyReevalSentDocumentIds,
   );
+
   const replyReevalRequests =
     plan.replyReevalThreadLimit == null
       ? allReplyReevalRequests
       : allReplyReevalRequests.slice(0, plan.replyReevalThreadLimit);
+
   const { replyReevalTargets } = await runGmailPostInsertTriage({
     credentialId,
     userId,
@@ -183,17 +196,21 @@ async function runGmailRepairSideEffects(
     protectedDocumentIds: plan.protectedDocumentIds,
     replyReevalThreadIds: replyReevalRequests.map((request) => request.threadId),
   });
+
   await reEvaluateRepliedThreads(
     userId,
     pairReplyReevalTargets(replyReevalRequests, replyReevalTargets),
   );
+
   if (plan.skippedReplyReevalSentDocs > 0) {
     console.warn(
       `[ingestion:consumer] reply re-eval skipped sentDocs=${plan.skippedReplyReevalSentDocs} ` +
         `credential=${credentialId}`,
     );
   }
+
   const skippedReplyReevalThreads = allReplyReevalRequests.length - replyReevalRequests.length;
+
   if (skippedReplyReevalThreads > 0) {
     console.warn(
       `[ingestion:consumer] reply re-eval skipped threads=${skippedReplyReevalThreads} ` +
@@ -219,12 +236,14 @@ async function resolveReplyReevalRequests(
   sentDocumentIds: string[],
 ): Promise<ReplyReevalRequest[]> {
   if (!sentDocumentIds.length) return [];
+
   try {
     const sentDocs: Array<{
       id: string;
       threadId: string | null;
       authoredAt: Date | null;
     }> = [];
+
     for (const documentIdChunk of chunkArray(sentDocumentIds, REPLY_REEVAL_QUERY_CHUNK_SIZE)) {
       sentDocs.push(
         ...(await db()
@@ -243,15 +262,19 @@ async function resolveReplyReevalRequests(
           )),
       );
     }
+
     const byThread = new Map<string, ReplyReevalRequest>();
+
     for (const doc of sentDocs) {
       if (!doc.threadId) continue;
       const existing = byThread.get(doc.threadId);
+
       const docIsNewer =
         !existing ||
         compareNullableDatesDesc(doc.authoredAt, existing.sentAuthoredAt) < 0 ||
         (compareNullableDatesDesc(doc.authoredAt, existing.sentAuthoredAt) === 0 &&
           doc.id.localeCompare(existing.eventId) > 0);
+
       if (docIsNewer) {
         byThread.set(doc.threadId, {
           threadId: doc.threadId,
@@ -260,13 +283,16 @@ async function resolveReplyReevalRequests(
         });
       }
     }
+
     const threadIds = Array.from(byThread.keys());
+
     if (!threadIds.length) return [];
 
     // Only threads we already triage. A brand-new outbound-first thread has no
     // triage row to refresh and no inbound doc to key the received-only
     // classify on.
     const triagedThreadIds = new Set<string>();
+
     for (const threadIdChunk of chunkArray(threadIds, REPLY_REEVAL_QUERY_CHUNK_SIZE)) {
       const triaged = await db()
         .select({ threadId: emailTriage.sourceThreadId })
@@ -274,10 +300,12 @@ async function resolveReplyReevalRequests(
         .where(
           and(eq(emailTriage.userId, userId), inArray(emailTriage.sourceThreadId, threadIdChunk)),
         );
+
       for (const row of triaged) {
         triagedThreadIds.add(row.threadId);
       }
     }
+
     return Array.from(byThread.values())
       .filter((request) => triagedThreadIds.has(request.threadId))
       .sort(
@@ -290,6 +318,7 @@ async function resolveReplyReevalRequests(
       `[ingestion:consumer] resolveReplyReevalRequests failed user=${userId}:`,
       toMessage(err),
     );
+
     return [];
   }
 }
@@ -299,11 +328,13 @@ async function reEvaluateRepliedThreads(
   targets: ReplyReevalTarget[],
 ): Promise<void> {
   if (!targets.length) return;
+
   try {
     const accountByDocumentId = await gmailAccountRefsForDocuments(
       userId,
       targets.map((target) => target.documentId),
     );
+
     await mapConcurrent(
       targets,
       REALTIME_EMIT_CONCURRENCY,
@@ -341,6 +372,7 @@ async function gmailAccountRefsForDocuments(
   documentIds: readonly string[],
 ): Promise<Map<string, string>> {
   const accountByDocumentId = new Map<string, string>();
+
   for (const ids of chunkArray(documentIds, REPLY_REEVAL_QUERY_CHUNK_SIZE)) {
     const rows = await db()
       .select({ id: documents.id, accountId: documents.accountId })
@@ -352,25 +384,31 @@ async function gmailAccountRefsForDocuments(
           inArray(documents.id, ids),
         ),
       );
+
     for (const row of rows) {
       if (row.accountId) accountByDocumentId.set(row.id, row.accountId);
     }
   }
+
   return accountByDocumentId;
 }
 
 function compareNullableDatesDesc(a: Date | null, b: Date | null): number {
   const timeDiff =
     (b?.getTime() ?? Number.NEGATIVE_INFINITY) - (a?.getTime() ?? Number.NEGATIVE_INFINITY);
+
   if (timeDiff !== 0) return timeDiff;
+
   return 0;
 }
 
 function chunkArray<T>(values: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
+
   for (let i = 0; i < values.length; i += size) {
     chunks.push(values.slice(i, i + size));
   }
+
   return chunks;
 }
 
@@ -413,6 +451,7 @@ function parseDocumentsIngested(
   event: DomainEvent,
 ): { userId: string; payload: GmailDocumentsIngestedPayload } | null {
   if (event.source !== "gmail" || event.type !== "documents_ingested") return null;
+
   return {
     userId: event.userId,
     payload: gmailDocumentsIngestedPayloadSchema.parse(event.payload ?? {}),
@@ -434,6 +473,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       mode: "best-effort",
       accept: async (event) => {
         const parsed = parseDocumentsIngested(event);
+
         if (!parsed || !parsed.payload.unembeddedDocumentIds.length) return;
         await embedDocuments(parsed.payload.unembeddedDocumentIds);
       },
@@ -443,6 +483,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       mode: "best-effort",
       accept: async (event) => {
         const parsed = parseDocumentsIngested(event);
+
         if (!parsed || !parsed.payload.insertedDocumentIds.length) return;
         await captureGmailObservations({
           userId: parsed.userId,
@@ -455,6 +496,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       mode: "best-effort",
       accept: async (event) => {
         const parsed = parseDocumentsIngested(event);
+
         if (!parsed || !parsed.payload.insertedDocumentIds.length) return;
         await publishInboxUpdate(parsed.userId, parsed.payload.insertedDocumentIds.length);
       },
@@ -464,8 +506,10 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       mode: "best-effort",
       accept: async (event) => {
         const parsed = parseDocumentsIngested(event);
+
         if (!parsed) return;
         const { userId, payload } = parsed;
+
         const plan = planGmailPostInsertSideEffects({
           jobKind: payload.jobKind,
           triageInsertedDocs: payload.triageInsertedDocs,
@@ -474,6 +518,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
           sentDocumentIds: payload.sentDocumentIds,
           touchedThreadIds: payload.touchedThreadIds,
         });
+
         // The two triage reactions target different tables, so run them
         // concurrently under one abort scope — the same shape the old queue.ts
         // fan-out used. A non-boot failure in either propagates to the seam,

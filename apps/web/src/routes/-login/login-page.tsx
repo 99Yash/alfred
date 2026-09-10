@@ -19,6 +19,7 @@ export function LoginPage() {
 
   // Confirmed authed -> redirect is in flight, render nothing.
   if (isAuthed) return null;
+
   // Session not yet resolved: defer to the synchronous hint to avoid flashing
   // the sign-in screen at a returning signed-in user before redirect fires.
   if (isPending && getLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED)) return null;

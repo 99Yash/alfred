@@ -28,24 +28,29 @@ import type { TriageCategory } from "./triage";
 // the resolver may later import these to dedupe its local copy.
 
 export const SIGNIFICANCE_BANDS = ["strong", "moderate", "weak"] as const;
+
 export type SignificanceBand = (typeof SIGNIFICANCE_BANDS)[number];
 
 /** Zod enum over {@link SIGNIFICANCE_BANDS} — the synced-tag field reuses this. */
 export const significanceBandSchema = z.enum(SIGNIFICANCE_BANDS);
 
 export const SIGNIFICANCE_STRONG_AT = 0.66;
+
 export const SIGNIFICANCE_MODERATE_AT = 0.33;
 
 /** Significance scalar `[0,1]` → band. */
 export function bucketSignificance(score: number): SignificanceBand {
   if (score >= SIGNIFICANCE_STRONG_AT) return "strong";
+
   if (score >= SIGNIFICANCE_MODERATE_AT) return "moderate";
+
   return "weak";
 }
 
 // ─── Attention bands ─────────────────────────────────────────────────────────
 
 export const ATTENTION_BANDS = ["demanding", "normal", "muted"] as const;
+
 export type AttentionBand = (typeof ATTENTION_BANDS)[number];
 
 /** Zod enum over {@link ATTENTION_BANDS} — reused by persisted contracts (day-shape). */
@@ -94,12 +99,15 @@ const RECURRENCE_DECAY = 0.35;
 
 /** Band cutoffs — the only display knobs (mirrors ADR-0059 word-bucketing). */
 export const DEMANDING_AT = 0.6;
+
 export const MUTED_BELOW = 0.3;
 
 /** Project a continuous score to its display band. */
 export function attentionBand(score: number): AttentionBand {
   if (score >= DEMANDING_AT) return "demanding";
+
   if (score < MUTED_BELOW) return "muted";
+
   return "normal";
 }
 
@@ -151,6 +159,7 @@ export interface AttentionResult {
 export function attentionScore(input: AttentionInput): AttentionResult {
   const base = CATEGORY_BASE_DEMAND[input.category];
   const sigMult = input.significanceBand ? SIGNIFICANCE_MULTIPLIER[input.significanceBand] : 1;
+
   const recurrenceMult =
     input.isBulkSender && input.recurrenceIndex && input.recurrenceIndex > 0
       ? 1 / (1 + RECURRENCE_DECAY * input.recurrenceIndex)
@@ -161,6 +170,7 @@ export function attentionScore(input: AttentionInput): AttentionResult {
   if (input.pinnedDemanding) {
     return { score: Math.max(score, DEMANDING_AT), band: "demanding" };
   }
+
   return { score, band: attentionBand(score) };
 }
 
@@ -174,12 +184,15 @@ export function attentionScore(input: AttentionInput): AttentionResult {
  */
 export function normalizeSubjectForRecurrence(subject: string): string {
   let s = subject.toLowerCase().trim();
+
   // Strip repeated reply/forward markers and bracketed prefixes from the front.
   for (;;) {
     const next = s.replace(/^\s*(?:re|fwd|fw|aw)\s*:\s*/i, "").replace(/^\s*\[[^\]]*\]\s*/, "");
+
     if (next === s) break;
     s = next;
   }
+
   // Drop digit runs so numeric drift between repeats collapses to one key, then
   // reduce everything non-alphanumeric to single spaces.
   return s
@@ -208,9 +221,11 @@ const BULK_LOCALPART_RE =
 function senderAddress(from: string | null | undefined): string | null {
   if (!from) return null;
   const trimmed = from.trim();
+
   if (!trimmed) return null;
   const angle = trimmed.match(/<([^>]+)>/);
   const addr = (angle?.[1] ?? trimmed).trim().toLowerCase();
+
   return addr || null;
 }
 
@@ -221,9 +236,11 @@ function senderAddress(from: string | null | undefined): string | null {
  */
 export function isLikelyBulkSender(from: string | null | undefined): boolean {
   const addr = senderAddress(from);
+
   if (!addr) return false;
   const at = addr.indexOf("@");
   const local = at >= 0 ? addr.slice(0, at) : addr;
+
   return BULK_LOCALPART_RE.test(local);
 }
 
@@ -289,9 +306,11 @@ export function scoreAttentionForItems(items: readonly AttentionItemInput[]): At
   // holds the same entry objects, so writing `recurrenceIndex` here lands on the
   // original-order entries returned below.
   const seen = new Map<string, number>();
+
   const chronological = [...entries].sort(
     (a, b) => (a.item.occurredAtMs ?? 0) - (b.item.occurredAtMs ?? 0) || a.index - b.index,
   );
+
   for (const entry of chronological) {
     if (!entry.bulk) continue;
     const key = `${senderAddress(entry.item.sender) ?? ""}${RECURRENCE_KEY_SEP}${normalizeSubjectForRecurrence(entry.item.subject ?? "")}`;

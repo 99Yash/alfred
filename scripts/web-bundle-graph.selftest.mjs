@@ -40,6 +40,7 @@ function write(root, relative, content) {
 
 function withFixture(body) {
   const fixture = mkdtempSync(join(tmpdir(), "web-bundle-graph-"));
+
   try {
     return body(fixture);
   } finally {
@@ -56,12 +57,14 @@ function withFixture(body) {
  */
 function graphOf(root, importers, recorded = {}) {
   const { entries = [], warnings = [], completed = true } = recorded;
+
   return { root, importers: new Map(importers), entries, warnings, completed };
 }
 
 function expect(actual, expected, label, failures) {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
+
   if (left !== right) failures.push(`${label}: expected ${right}, received ${left}`);
 }
 
@@ -94,6 +97,7 @@ function classifyFailures() {
     symlinkSync(join(root, "packages/contracts"), join(root, "node_modules/@alfred/contracts"));
 
     const abs = (relative) => join(root, relative);
+
     const cases = [
       [
         `${NUL}${abs("node_modules/react/jsx-runtime.js")}?commonjs-es-import`,
@@ -206,7 +210,9 @@ function initWorkspaceRepo(fixture, { nodeDependencies }) {
 /** Every declared exception, so the stale-exception rule is quiet unless it is tested. */
 function everyException() {
   const dependencies = {};
+
   for (const pkg of BROWSER_SAFE_NPM_PACKAGES.keys()) dependencies[pkg] = "1.0.0";
+
   return dependencies;
 }
 
@@ -230,6 +236,7 @@ function forbidSetFailures() {
       "nodeOnlyPackages — a Node-only workspace's dependency is forbidden",
       failures,
     );
+
     for (const pkg of BROWSER_SAFE_NPM_PACKAGES.keys()) {
       expect(
         packages.has(pkg),
@@ -238,6 +245,7 @@ function forbidSetFailures() {
         failures,
       );
     }
+
     expect(
       packages.has("@alfred/http"),
       true,
@@ -250,6 +258,7 @@ function forbidSetFailures() {
       "nodeOnlyPackages — @alfred/http is forbidden BY the union term, not by accident",
       failures,
     );
+
     for (const pkg of FORBIDDEN_RUNTIME_PACKAGES) {
       expect(
         packages.has(pkg),
@@ -258,6 +267,7 @@ function forbidSetFailures() {
         failures,
       );
     }
+
     expect(
       packages.has("@alfred/contracts"),
       false,
@@ -320,6 +330,7 @@ function violationFailures() {
     // back to the browser file is the part that makes it a diagnosis.
     const deep = abs("node_modules/@alfred/db/src/index.ts");
     const pg = abs("node_modules/pg/lib/index.js");
+
     const leak = graphOf(
       root,
       [
@@ -330,6 +341,7 @@ function violationFailures() {
       ],
       { entries: [entry] },
     );
+
     const leaked = bundleViolations(leak, { forbidden, surface });
     expect(rulesOf(leaked), ["forbidden-package"], "bundleViolations — a pg module", failures);
     expect(subjectsOf(leaked), ["pg"], "bundleViolations — names the package", failures);
@@ -344,6 +356,7 @@ function violationFailures() {
     // R1 over the real graph is what found this: `zod` contributes dozens of modules
     // and each one produced an identical paragraph.
     const pgSecond = abs("node_modules/pg/lib/client.js");
+
     const twice = graphOf(
       root,
       [
@@ -355,6 +368,7 @@ function violationFailures() {
       ],
       { entries: [entry] },
     );
+
     const once = bundleViolations(twice, { forbidden, surface });
     expect(
       rulesOf(once),
@@ -378,6 +392,7 @@ function violationFailures() {
       ],
       { entries: [entry], warnings: [EXTERNALIZED("node:fs", entry)] },
     );
+
     const externalized = bundleViolations(builtin, { forbidden, surface });
     expect(rulesOf(externalized), ["node-builtin"], "bundleViolations — the stub id", failures);
     expect(
@@ -402,6 +417,7 @@ function violationFailures() {
       ],
       { entries: [entry], warnings: ["some future vite rewords this entirely"] },
     );
+
     expect(
       rulesOf(bundleViolations(reworded, { forbidden, surface })),
       ["node-builtin"],
@@ -411,6 +427,7 @@ function violationFailures() {
 
     // R3: a workspace module the bundle reaches and the fence does not scan.
     const preview = abs("apps/web/src/routes/-preview/panel.tsx");
+
     const hole = graphOf(
       root,
       [
@@ -419,6 +436,7 @@ function violationFailures() {
       ],
       { entries: [entry] },
     );
+
     const holes = bundleViolations(hole, { forbidden, surface });
     expect(
       rulesOf(holes),
@@ -443,6 +461,7 @@ function violationFailures() {
       ],
       { entries: [entry] },
     );
+
     expect(
       rulesOf(bundleViolations(document, { forbidden, surface })),
       [],
@@ -459,6 +478,7 @@ function violationFailures() {
       ],
       { entries: [entry] },
     );
+
     expect(
       rulesOf(bundleViolations(stranger, { forbidden, surface })),
       ["unclassified-module"],
@@ -502,6 +522,7 @@ function violationFailures() {
       ],
       { entries: [entry] },
     );
+
     expect(
       bundleViolations(clean, { forbidden, surface }),
       [],
@@ -528,6 +549,7 @@ function chainFailures() {
     ],
     { entries: ["entry"] },
   );
+
   expect(
     importerChain(four, "leaf"),
     ["entry", "a", "b", "leaf"],
@@ -539,6 +561,7 @@ function chainFailures() {
     ["a", ["b"]],
     ["b", ["a"]],
   ]);
+
   const chain = importerChain(cyclic, "a");
   expect(
     chain.length <= 2 && chain[chain.length - 1] === "a",
@@ -580,14 +603,17 @@ function recorderDelegationFailures() {
   const source = readFileSync(new URL("./web-bundle-graph.mjs", import.meta.url), "utf8");
 
   const declaration = /onwarn\((\w+), (\w+)\) \{([\s\S]*?)\n {12}\},/.exec(source);
+
   if (declaration === null) {
     failures.push(
       "recordBundleGraph's onwarn must be declared as onwarn(warning, defaultHandler) — a one-argument collector replaces vite's own handler and stops an unresolved import from failing the build.",
     );
+
     return failures;
   }
 
   const [, warning, defaultHandler, body] = declaration;
+
   if (!body?.includes(`${defaultHandler}(${warning})`)) {
     failures.push(
       `recordBundleGraph's onwarn takes ${defaultHandler} and never calls ${defaultHandler}(${warning}), so vite's own handler never runs and an unresolved import stops failing the build.`,

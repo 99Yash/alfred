@@ -26,6 +26,7 @@ function dispatchParse(toolName: InputSchemaToolName, input: unknown) {
   const schema = TOOL_INPUT_SCHEMAS[toolName];
   assert.ok(schema, `no schema registered for ${toolName}`);
   const normalized = normalizeToolInputKeys(input, schema);
+
   return schema.safeParse(normalized.input);
 }
 
@@ -230,6 +231,7 @@ describe("param-ergonomics: measured fumbles validate first-try through dispatch
         true,
         parsed.success ? "" : `bounced: ${JSON.stringify(parsed.error?.issues)}`,
       );
+
       if (parsed.success && c.expect) c.expect(parsed.data as Record<string, unknown>);
     });
   }
@@ -246,6 +248,7 @@ describe("param-ergonomics: the github number-synonym fold stays a closed allowl
       repo: "alfred",
       comment_number: 5,
     });
+
     assert.equal(parsed.success, false);
   });
 });
@@ -261,6 +264,7 @@ describe("param-ergonomics: the send_draft scalar recipient wrap is not a blanke
       subject: "Hi",
       bodyText: "Body.",
     });
+
     assert.equal(parsed.success, false);
   });
 
@@ -273,6 +277,7 @@ describe("param-ergonomics: the send_draft scalar recipient wrap is not a blanke
       subject: "Hi",
       bodyText: "Body.",
     });
+
     assert.equal(parsed.success, false);
   });
 });

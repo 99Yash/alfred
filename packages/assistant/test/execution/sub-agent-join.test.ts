@@ -6,6 +6,7 @@ import { AWAIT_SUB_AGENT_CEILING_MS } from "@alfred/assistant/execution/sub-agen
 import type { ChildRunOutcome } from "@alfred/assistant/execution/sub-agents";
 
 const args = { parentRunId: "run_parent", userId: "user_1", childRunId: "run_child" };
+
 const running = { ok: true, done: false, status: "running", runningMs: 1_000 };
 
 function dependencies(input: {
@@ -16,10 +17,12 @@ function dependencies(input: {
   return {
     readOutcome: (request) => {
       input.calls.push(`read:${request.childRunId}`);
+
       return Promise.resolve(input.outcome ?? running);
     },
     scheduleWake: (request) => {
       input.calls.push(`schedule:${request.childRunId}:${request.delayMs}`);
+
       return Promise.resolve(input.scheduleResult);
     },
   };
@@ -39,18 +42,21 @@ describe("sub-agent join park safety", () => {
     const result = await joinChildRun(args, dependencies({ scheduleResult: "failed", calls }));
 
     assert.equal(result.kind, "resolved");
+
     if (result.kind !== "resolved") assert.fail("join must resolve after schedule failure");
     assert.equal(result.outcome.reason, "join_timer_unavailable");
   });
 
   test("returns a terminal child without scheduling a wake", async () => {
     const calls: string[] = [];
+
     const outcome = {
       ok: true,
       done: true,
       status: "completed",
       output: { answer: 42 },
     } satisfies ChildRunOutcome;
+
     const result = await joinChildRun(
       args,
       dependencies({ scheduleResult: "scheduled", outcome, calls }),

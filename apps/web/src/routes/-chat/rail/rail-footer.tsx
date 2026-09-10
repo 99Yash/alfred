@@ -110,19 +110,25 @@ export function RailFooter({
 function formatBriefingSubtitle(b: RailBriefingSummary): string {
   const slot = capitalize(b.slot);
   const ran = new Date(b.runAt);
+
   if (Number.isNaN(ran.getTime())) return slot;
   const today = new Date();
+
   const sameDay =
     ran.getFullYear() === today.getFullYear() &&
     ran.getMonth() === today.getMonth() &&
     ran.getDate() === today.getDate();
+
   if (sameDay) {
     const time = ran.toLocaleTimeString(undefined, {
       hour: "numeric",
       minute: "2-digit",
     });
+
     return `${slot} · ${time}`;
   }
+
   const date = ran.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
   return `${slot} · ${date}`;
 }

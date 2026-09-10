@@ -86,11 +86,14 @@ export function afterMcpRecoveryOrderKey(key: McpRecoveryOrderKey) {
 
 function decodeRecoveryCursor(cursor: string | undefined): McpRecoveryOrderKey | undefined {
   if (!cursor) return undefined;
+
   const key = parseJsonWith(
     Buffer.from(cursor, "base64url").toString("utf8"),
     mcpRecoveryOrderKeySchema,
   );
+
   if (!key) throw Errors.BadRequestError("Invalid MCP recovery cursor");
+
   return key;
 }
 
@@ -121,6 +124,7 @@ async function countAwaitingRepair(userId: string, runner: DbRunner): Promise<nu
         inArray(actionStagings.status, ["executed", "failed"]),
       ),
     );
+
   return row?.value ?? 0;
 }
 
@@ -130,6 +134,7 @@ export async function listMcpRecoveryOperations(
 ): Promise<McpRecoveryOperationsPage> {
   const ownedInput = mcpRecoveryOperationsPageInputSchema.parse(input);
   const after = decodeRecoveryCursor(ownedInput.cursor);
+
   const [rows, awaitingRepair] = await Promise.all([
     runner
       .select({
@@ -183,6 +188,7 @@ export async function listMcpRecoveryOperations(
 
   const pageRows = rows.slice(0, MCP_RECOVERY_PAGE_SIZE);
   const last = pageRows.at(-1);
+
   return mcpRecoveryOperationsPageSchema.parse({
     operations: pageRows.map(({ effectiveAt: _effectiveAt, ...row }) =>
       mcpRecoveryOperationSchema.parse(row),
@@ -205,19 +211,23 @@ export async function resolveMcpRecoveryOperation(
       .from(mcpInvocation)
       .where(and(eq(mcpInvocation.id, input.invocationId), eq(mcpInvocation.userId, input.userId)))
       .for("update");
+
     if (!invocation) throw Errors.NotFoundError("MCP recovery operation not found");
 
     const expectedReason = RESOLUTION_REASONS[input.decision];
+
     if (invocation.resolvedAt) {
       if (invocation.resolutionReason !== expectedReason) {
         throw Errors.ConflictError("MCP recovery operation was already resolved differently");
       }
+
       return {
         status: "resolved",
         invocationId: invocation.id,
         successorInvocationId: null,
       };
     }
+
     if (invocation.effectOutcome !== "unknown" || invocation.retryDisposition !== "blocked") {
       throw Errors.ConflictError("MCP recovery operation is not awaiting a decision");
     }
@@ -229,7 +239,9 @@ export async function resolveMcpRecoveryOperation(
         and(eq(actionStagings.id, invocation.stagingId), eq(actionStagings.userId, input.userId)),
       )
       .for("update");
+
     if (!staging) throw Errors.NotFoundError("MCP recovery operation not found");
+
     if (staging.outcome !== "unknown") {
       throw Errors.ConflictError("MCP recovery barriers are not aligned");
     }
@@ -279,6 +291,7 @@ export async function resolveMcpRecoveryOperation(
 function nextAttemptKey(staging: { effectKey: string; attemptKey: string }): string {
   const suffix = /:(\d+)$/.exec(staging.attemptKey);
   const prior = suffix?.[1] ? Number.parseInt(suffix[1], 10) : 1;
+
   return `${staging.effectKey}:${prior + 1}`;
 }
 
@@ -297,6 +310,7 @@ async function reserveMcpRecoverySuccessor(
       .from(mcpInvocation)
       .where(and(eq(mcpInvocation.id, input.invocationId), eq(mcpInvocation.userId, input.userId)))
       .limit(1);
+
     if (!requestedRef) throw Errors.NotFoundError("MCP recovery operation not found");
 
     const [lockedConnection] = await tx
@@ -312,6 +326,7 @@ async function reserveMcpRecoverySuccessor(
         ),
       )
       .for("update");
+
     if (!lockedConnection) throw Errors.NotFoundError("MCP recovery operation not found");
 
     const [prior] = await tx
@@ -319,6 +334,7 @@ async function reserveMcpRecoverySuccessor(
       .from(mcpInvocation)
       .where(and(eq(mcpInvocation.id, input.invocationId), eq(mcpInvocation.userId, input.userId)))
       .for("update");
+
     if (!prior || prior.connectionId !== lockedConnection.id) {
       throw Errors.NotFoundError("MCP recovery operation not found");
     }
@@ -341,10 +357,13 @@ async function reserveMcpRecoverySuccessor(
       .from(mcpInvocation)
       .where(and(eq(mcpInvocation.successorOf, prior.id), eq(mcpInvocation.userId, input.userId)))
       .limit(1);
+
     if (existing) return { priorId: prior.id, successor: existing };
+
     if (prior.resolvedAt) {
       throw Errors.ConflictError("MCP recovery operation was already resolved");
     }
+
     if (prior.effectOutcome !== "unknown" || prior.retryDisposition !== "blocked") {
       throw Errors.ConflictError("MCP recovery operation is not retryable");
     }
@@ -354,13 +373,17 @@ async function reserveMcpRecoverySuccessor(
       .from(actionStagings)
       .where(and(eq(actionStagings.id, prior.stagingId), eq(actionStagings.userId, input.userId)))
       .for("update");
+
     if (!staging) throw Errors.NotFoundError("MCP recovery operation not found");
+
     if (staging.outcome !== "unknown") {
       throw Errors.ConflictError("MCP recovery barriers are not aligned");
     }
 
     const call = mcpCallInput.safeParse(staging.decidedInput ?? staging.proposedInput);
+
     if (!call.success) throw Errors.ConflictError("Stored MCP recovery input is invalid");
+
     if (
       call.data.connectionId !== prior.connectionId ||
       call.data.remoteName !== prior.remoteName ||
@@ -378,10 +401,13 @@ async function reserveMcpRecoverySuccessor(
       },
       tx,
     );
+
     if (identity.status !== "resolved" || !identity.connection.currentCatalogRevisionId) {
       throw Errors.ConflictError("The MCP tool changed; review it before trying again");
     }
+
     const liveEffectClass = identity.policy?.effectClass ?? "unknown";
+
     if (
       identity.connection.currentCatalogRevisionId !== prior.catalogRevisionId ||
       identity.descriptorHash !== prior.descriptorHash ||
@@ -405,6 +431,7 @@ async function reserveMcpRecoverySuccessor(
         updatedAt: now,
       })
       .where(eq(actionStagings.id, staging.id));
+
     const [successorStaging] = await tx
       .insert(actionStagings)
       .values({
@@ -431,12 +458,14 @@ async function reserveMcpRecoverySuccessor(
         decidedAt: now,
       })
       .returning();
+
     const successorStagingRow = requireRow(successorStaging, "reserveMcpRecoverySuccessor staging");
 
     await tx
       .update(mcpInvocation)
       .set({ resolvedAt: now, resolutionReason: "superseded_by_user_successor" })
       .where(eq(mcpInvocation.id, prior.id));
+
     const [successor] = await tx
       .insert(mcpInvocation)
       .values({
@@ -456,6 +485,7 @@ async function reserveMcpRecoverySuccessor(
         toolCallId: successorStagingRow.toolCallId,
       })
       .returning();
+
     return {
       priorId: prior.id,
       successor: requireRow(successor, "reserveMcpRecoverySuccessor invocation"),
@@ -473,10 +503,12 @@ export async function retryMcpRecoveryOperation(input: {
   invocationId: string;
 }): Promise<McpRecoveryMutationResult> {
   const reserved = await reserveMcpRecoverySuccessor(input);
+
   const outcome: McpBrokerOutcome = await getMcpExecutionBroker().resumeReservedSuccessor({
     userId: input.userId,
     invocationId: reserved.successor.id,
   });
+
   return {
     status: outcome.status,
     invocationId: reserved.priorId,

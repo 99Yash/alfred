@@ -11,6 +11,7 @@ import {
 import type { PdfExtractionLimits } from "../src/constants";
 
 const CHILD_ENTRY = new URL("./support/extract-pdf-process-child.ts", import.meta.url);
+
 const BASE_LIMITS: PdfExtractionLimits = {
   maxBytes: 1_000,
   maxCharacters: 10,
@@ -54,6 +55,7 @@ test("the parse deadline stays within Node's timer range", () => {
 
 test("an input-byte breach returns before a child starts", async () => {
   let spawnCount = 0;
+
   const extractPdf = testExtractor("hang", { ...BASE_LIMITS, maxBytes: 1 }, () => {
     spawnCount += 1;
   });
@@ -72,6 +74,7 @@ test("an input-byte breach returns before a child starts", async () => {
 
 test("a parse deadline kills the child after unrelated parent work completes", async () => {
   let childPid: number | undefined;
+
   const extractPdf = testExtractor("hang", { ...BASE_LIMITS, maxParseMilliseconds: 500 }, (pid) => {
     childPid = pid;
   });
@@ -84,6 +87,7 @@ test("a parse deadline kills the child after unrelated parent work completes", a
   const result = await extraction;
 
   assert.equal(result.kind, "limit_exceeded");
+
   if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "parse_milliseconds");
   assert.equal(result.maximum, 500);
@@ -98,6 +102,7 @@ test("a parse deadline kills the child after unrelated parent work completes", a
 test("the parse deadline includes synchronous process startup", async () => {
   const startupDelayMilliseconds = 300;
   const maxParseMilliseconds = 500;
+
   const extractPdf = createPdfExtractorWithChild(
     { ...BASE_LIMITS, maxParseMilliseconds },
     {
@@ -105,6 +110,7 @@ test("the parse deadline includes synchronous process startup", async () => {
       env: { PDF_EXTRACTION_TEST_BEHAVIOR: "hang" },
       spawnChild: (spawnDefault) => {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, startupDelayMilliseconds);
+
         return spawnDefault();
       },
     },
@@ -113,6 +119,7 @@ test("the parse deadline includes synchronous process startup", async () => {
   const result = await extractPdf(new Uint8Array([1]));
 
   assert.equal(result.kind, "limit_exceeded");
+
   if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "parse_milliseconds");
   assert.equal(result.maximum, maxParseMilliseconds);
@@ -124,6 +131,7 @@ test("a synchronous spawn failure is a PDF extraction failure", async () => {
   const failure = Object.assign(new Error("synthetic spawn failure"), {
     code: "E_SYNTHETIC_SPAWN",
   });
+
   const extractPdf = createPdfExtractorWithChild(BASE_LIMITS, {
     childEntry: CHILD_ENTRY,
     spawnChild: () => {
@@ -157,6 +165,7 @@ test("a remote extraction failure keeps the canonical diagnostic message", async
 
 test("a process failure remains the terminal cause when close crosses the deadline", async () => {
   const failure = new Error("synthetic near-deadline process failure");
+
   const extractPdf = createPdfExtractorWithChild(
     { ...BASE_LIMITS, maxParseMilliseconds: 500 },
     {
@@ -165,6 +174,7 @@ test("a process failure remains the terminal cause when close crosses the deadli
       spawnChild: (spawnDefault) => {
         const child = spawnDefault();
         setTimeout(() => child.emit("error", failure), 450);
+
         return child;
       },
       killChild: (child) => {
@@ -214,6 +224,7 @@ test("a deadline settles after a code-zero child leaves inherited pipes open", a
   const result = await extractPdf(new Uint8Array([1]));
 
   assert.equal(result.kind, "limit_exceeded");
+
   if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "parse_milliseconds");
   assert.ok(performance.now() - startedAt < 800);
@@ -233,11 +244,13 @@ test("malformed output wins when a code-zero child's inherited pipes cross the d
 test("a backward wall-clock adjustment does not extend the parse deadline", async () => {
   const originalDateNow = Date.now;
   const startedAt = performance.now();
+
   const extractPdf = createPdfExtractorWithChild(BASE_LIMITS, {
     childEntry: CHILD_ENTRY,
     env: { PDF_EXTRACTION_TEST_BEHAVIOR: "hang" },
     spawnChild: (spawnDefault) => {
       Date.now = () => originalDateNow() - 1_000;
+
       return spawnDefault();
     },
   });
@@ -246,6 +259,7 @@ test("a backward wall-clock adjustment does not extend the parse deadline", asyn
     const result = await extractPdf(new Uint8Array([1]));
 
     assert.equal(result.kind, "limit_exceeded");
+
     if (result.kind !== "limit_exceeded") return;
     assert.equal(result.limit, "parse_milliseconds");
     assert.ok(performance.now() - startedAt < 800);

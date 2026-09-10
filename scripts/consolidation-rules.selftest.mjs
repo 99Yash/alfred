@@ -36,6 +36,7 @@ const REGISTRY_SLUGS_FILE = resolve(
  */
 function registryUnionFailures() {
   let source;
+
   try {
     source = readFileSync(REGISTRY_SLUGS_FILE, "utf8");
   } catch {
@@ -43,13 +44,17 @@ function registryUnionFailures() {
       `registry unions: cannot read ${REGISTRY_SLUGS_FILE}; repoint REGISTRY_SLUGS_FILE or delete the rule`,
     ];
   }
+
   const names = [...source.matchAll(/^export type (\w+(?:Slug|Provider))\b/gm)].map((m) => m[1]);
+
   if (names.length === 0) {
     return [
       `registry unions: no \`export type …Slug\` in ${REGISTRY_SLUGS_FILE}; the drive has nothing to prove`,
     ];
   }
+
   const union = new RegExp(`^${REGISTRY_UNION}$`);
+
   return names
     .filter((name) => !union.test(name))
     .map(
@@ -449,8 +454,10 @@ const LINE_CASES = [
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
 export function selfTestFailures() {
   const failures = registryUnionFailures();
+
   for (const { name, caught, code, file } of CASES) {
     const hits = matchChains(code, file ?? FILE, "gate");
+
     if (hits.length > 0 !== caught) {
       failures.push(
         caught
@@ -459,8 +466,10 @@ export function selfTestFailures() {
       );
     }
   }
+
   for (const { name, caught, code, file } of LINE_CASES) {
     const hits = code.split("\n").flatMap((line) => matchLine(line, file ?? LINE_FILE, "gate"));
+
     if (hits.length > 0 !== caught) {
       failures.push(
         caught
@@ -469,5 +478,6 @@ export function selfTestFailures() {
       );
     }
   }
+
   return failures;
 }

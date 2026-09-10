@@ -83,8 +83,10 @@ export function mcpConsentAsk(
       ...connection.requiredScopes,
     ]),
   ];
+
   const exceedsGrant = scopes.some((scope) => !connection.grantedScopes.includes(scope));
   const forceReauthorization = options.forced || exceedsGrant;
+
   return {
     scopes,
     scope: scopes.join(" "),

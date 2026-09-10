@@ -21,7 +21,9 @@ export const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SE
 
 export function matches(haystack: string, query: string): boolean {
   const q = query.trim().toLowerCase();
+
   if (!q) return true;
+
   return haystack.toLowerCase().includes(q);
 }
 
@@ -33,6 +35,7 @@ export function filterSections(
     const matched = providers.filter(
       (provider) => provider.category === category && matchesIntegration(provider, query),
     );
+
     return matched.length > 0 ? [{ title: category, providers: matched }] : [];
   });
 }
@@ -50,7 +53,9 @@ export function buildConnectedSection(
   const connected = resolved.filter(
     (p) => p.status === "connected" && matchesIntegration(p, query),
   );
+
   if (connected.length === 0) return null;
+
   return { title: "Connected", providers: connected };
 }
 

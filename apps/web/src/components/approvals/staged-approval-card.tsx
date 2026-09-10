@@ -26,6 +26,7 @@ export function StagedApprovalCard({
   // A staged input that does not parse falls back to the write card rather
   // than to nothing — the same rule the chat tray applies.
   const question = asQuestionStaging(staging);
+
   return question ? (
     <QuestionApprovalCard question={question} onDecide={onDecide} />
   ) : (

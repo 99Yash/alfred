@@ -20,10 +20,12 @@ import { closeConnections } from "@alfred/db";
 async function main(): Promise<void> {
   const userId = process.argv[2] ?? "f3lTMg2DZzoR7KgGFtjUFNQvqwpUP0y4";
   const credentials = await listActiveBearerCredentials(userId, "railway");
+
   if (credentials.length === 0) {
     console.error(`No active Railway credential for user ${userId}.`);
     process.exit(1);
   }
+
   console.log(`Railway credentials: ${credentials.map((c) => c.accountLabel ?? c.id).join(", ")}`);
 
   const rows: Array<{
@@ -42,13 +44,16 @@ async function main(): Promise<void> {
         .map((p) => p.name)
         .join(", ")}`,
     );
+
     for (const project of projects) {
       const serviceNameById = new Map(project.services.map((s) => [s.id, s.name]));
+
       const { deployments } = await railwayListDeployments({
         token: credential.accessToken,
         projectId: project.id,
         limit: 5,
       });
+
       for (const d of deployments) {
         rows.push({
           project: project.name,
@@ -65,10 +70,12 @@ async function main(): Promise<void> {
   rows.sort((a, b) => {
     const at = a.createdAt ? Date.parse(a.createdAt) : NaN;
     const bt = b.createdAt ? Date.parse(b.createdAt) : NaN;
+
     return (Number.isNaN(bt) ? -Infinity : bt) - (Number.isNaN(at) ? -Infinity : at);
   });
 
   console.log(`\n=== recent deployments, newest first (${rows.length} total) ===`);
+
   for (const r of rows.slice(0, 15)) {
     console.log(
       `${r.createdAt ?? "(no time)"}  ${r.status.padEnd(10)}  ${r.project}/${r.service ?? "?"}  ${r.id}`,

@@ -40,17 +40,22 @@ async function withMockedRailwayFetch<T>(
   const originalFetch = globalThis.fetch;
   const calls: RecordedGraphqlRequest[] = [];
   const queue = [...responses];
+
   const mockedFetch: typeof fetch = async (_input, init) => {
     const next = queue.shift();
+
     if (!next) throw new Error("unexpected Railway fetch");
     const request: RecordedGraphqlRequest = JSON.parse(String(init?.body));
     calls.push(request);
+
     return new Response(typeof next.body === "string" ? next.body : JSON.stringify(next.body), {
       status: next.status ?? 200,
       headers: { "Content-Type": "application/json" },
     });
   };
+
   globalThis.fetch = mockedFetch;
+
   try {
     return await run(calls);
   } finally {
@@ -209,6 +214,7 @@ describe("Railway token validation", () => {
         ],
         async () => (await railwayValidateToken(token)).id,
       );
+
     const first = await idFor("tok_teamless_one");
     const second = await idFor("tok_teamless_two");
     assert.notEqual(first, second);
@@ -346,6 +352,7 @@ function isRailwayUnavailable(error: unknown): boolean {
   assert.ok(error instanceof AppError, `expected an AppError, got ${String(error)}`);
   assert.equal(error.code, "integration_unavailable");
   assert.deepEqual(error.public.fix, { kind: "reconnect", integration: "railway" });
+
   return true;
 }
 
@@ -374,10 +381,12 @@ describe("Railway credential fan-out", () => {
       ["a", [proj("p1", "from-a")]],
       ["b", [proj("p1", "from-b"), proj("p2")]],
     ]);
+
     const { projects, failures } = await listProjectsForCredentials(
       [cred("a", "A"), cred("b", "B")],
       async (credentialId) => ({ projects: byCredential.get(credentialId) ?? [] }),
     );
+
     assert.deepEqual(
       projects.map((p) => p.id),
       ["p1", "p2"],
@@ -393,9 +402,11 @@ describe("Railway credential fan-out", () => {
       [cred("dead", "Dead"), cred("ok", "Ok")],
       async (credentialId) => {
         if (credentialId === "dead") throw authz();
+
         return { projects: [proj("p1")] };
       },
     );
+
     assert.deepEqual(
       projects.map((p) => p.id),
       ["p1"],
@@ -414,9 +425,11 @@ describe("Railway credential fan-out", () => {
       [cred("dead", "Dead"), cred("empty", "Empty")],
       async (credentialId) => {
         if (credentialId === "dead") throw authz();
+
         return { projects: [] };
       },
     );
+
     assert.deepEqual(projects, []);
     assert.equal(failures.length, 1);
     assert.equal(failures[0]?.credentialId, "dead");
@@ -457,9 +470,11 @@ describe("Railway credential fan-out", () => {
       [cred("flaky", "Flaky"), cred("ok", "Ok")],
       async (credentialId) => {
         if (credentialId === "flaky") throw new Error("network down");
+
         return { projects: [proj("p1")] };
       },
     );
+
     assert.deepEqual(
       projects.map((p) => p.id),
       ["p1"],
@@ -496,6 +511,7 @@ describe("Railway recent-deployment fan-out", () => {
       ["a", [projSvc("p1", "alfred", [{ id: "svc1", name: "server" }])]],
       ["b", [projSvc("p2", "milkpod", [{ id: "svc2", name: "web" }])]],
     ]);
+
     const depsByProject = new Map<string, RailwayDeployment[]>([
       ["p1", [dep("d_a1", "2026-07-14T03:00:00Z", "svc1")]],
       [
@@ -503,11 +519,13 @@ describe("Railway recent-deployment fan-out", () => {
         [dep("d_b1", "2026-07-14T05:00:00Z", "svc2"), dep("d_b2", "2026-07-14T01:00:00Z", "svc2")],
       ],
     ]);
+
     const { deployments, failures } = await listRecentDeploymentsForCredentials(
       [cred("a", "A"), cred("b", "B")],
       async (credentialId) => ({ projects: projectsByCredential.get(credentialId) ?? [] }),
       async ({ projectId }) => ({ deployments: depsByProject.get(projectId) ?? [] }),
     );
+
     assert.deepEqual(
       deployments.map((d) => d.id),
       ["d_b1", "d_a1", "d_b2"],
@@ -532,6 +550,7 @@ describe("Railway recent-deployment fan-out", () => {
         ],
       }),
     );
+
     const serviceById = new Map(deployments.map((d) => [d.id, d.serviceName]));
     assert.equal(serviceById.get("known"), "server");
     assert.equal(serviceById.get("unknown"), null);
@@ -551,6 +570,7 @@ describe("Railway recent-deployment fan-out", () => {
       }),
       { overallLimit: 2 },
     );
+
     assert.deepEqual(
       deployments.map((d) => d.id),
       ["new", "mid"],
@@ -565,6 +585,7 @@ describe("Railway recent-deployment fan-out", () => {
         deployments: [dep("nulltime", null), dep("real", "2026-07-14T03:00:00Z")],
       }),
     );
+
     assert.deepEqual(
       deployments.map((d) => d.id),
       ["real", "nulltime"],
@@ -577,9 +598,11 @@ describe("Railway recent-deployment fan-out", () => {
       async () => ({ projects: [projSvc("good", "good-proj"), projSvc("bad", "bad-proj")] }),
       async ({ projectId }) => {
         if (projectId === "bad") throw authz();
+
         return { deployments: [dep("d1", "2026-07-14T03:00:00Z")] };
       },
     );
+
     assert.deepEqual(
       deployments.map((d) => d.id),
       ["d1"],
@@ -597,10 +620,12 @@ describe("Railway recent-deployment fan-out", () => {
       [cred("dead", "Dead"), cred("ok", "Ok")],
       async (credentialId) => {
         if (credentialId === "dead") throw authz();
+
         return { projects: [projSvc("p1", "alfred")] };
       },
       async () => ({ deployments: [dep("d1", "2026-07-14T03:00:00Z")] }),
     );
+
     assert.deepEqual(
       deployments.map((d) => d.id),
       ["d1"],

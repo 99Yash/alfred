@@ -52,6 +52,7 @@ export interface ReplayStateStore {
  */
 export function replaySince(state: ReplayState): number {
   const barriers = Object.values(state.activeRuns);
+
   return barriers.length > 0 ? Math.min(state.cursor, ...barriers) : state.cursor;
 }
 
@@ -75,6 +76,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
   const completedRuns = { ...state.completedRuns };
 
   const released = releasedRunId(frame);
+
   if (released) {
     // The run terminated: release its barrier and record it as completed, so a
     // later frame that merely names it cannot re-arm one. The record holds
@@ -86,6 +88,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
     completedRuns[released] = frame.id;
   } else {
     const runId = barrierRunId(frame);
+
     if (runId && completedRuns[runId] === undefined) {
       const barrier = Math.max(0, frame.id - 1);
       activeRuns[runId] = Math.min(activeRuns[runId] ?? barrier, barrier);
@@ -97,6 +100,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
   // never produce a stray. This bounds the map — it drains to empty whenever the
   // runs go idle (`replaySince === cursor` prunes every completion below cursor).
   const floor = replaySince({ cursor, activeRuns, completedRuns });
+
   for (const [completedRunId, completedId] of Object.entries(completedRuns)) {
     if (completedId < floor) delete completedRuns[completedRunId];
   }
@@ -108,6 +112,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
   ) {
     return state;
   }
+
   return { cursor, activeRuns, completedRuns };
 }
 
@@ -121,6 +126,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
  */
 export function createReplayStateController(store: ReplayStateStore) {
   let maxSeenId = 0;
+
   return {
     since: () => replaySince(store.read()),
     noteFrame: (frame: EventStreamFrame) => {
@@ -130,6 +136,7 @@ export function createReplayStateController(store: ReplayStateStore) {
       const next = advanceReplayState(base, frame);
       const barriersChanged = !sameBarriers(current.activeRuns, next.activeRuns);
       const completedRunsChanged = !sameBarriers(current.completedRuns, next.completedRuns);
+
       // While a run is active its persisted barrier already supplies the
       // correct reload cursor, so keep high-frequency deltas in memory. Persist
       // lifecycle changes — a barrier arming or clearing, or a run recorded as
@@ -149,7 +156,9 @@ export function createReplayStateController(store: ReplayStateStore) {
 
 function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activeRuns"]): boolean {
   const leftEntries = Object.entries(left);
+
   if (leftEntries.length !== Object.keys(right).length) return false;
+
   return leftEntries.every(([runId, barrier]) => right[runId] === barrier);
 }
 

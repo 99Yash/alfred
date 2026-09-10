@@ -20,6 +20,7 @@ export async function triageTagOverride(
   ctx: ServerMutatorCtx,
 ): Promise<{ applied: boolean }> {
   const now = new Date();
+
   const rows = await tx
     .update(emailTriage)
     .set({
@@ -32,5 +33,6 @@ export async function triageTagOverride(
     })
     .where(and(eq(emailTriage.userId, ctx.userId), eq(emailTriage.sourceThreadId, args.threadId)))
     .returning({ sourceThreadId: emailTriage.sourceThreadId });
+
   return { applied: rows.length > 0 };
 }

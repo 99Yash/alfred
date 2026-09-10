@@ -15,23 +15,41 @@ import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 // and config. `tsx` covers the whole JS/TS family; everything else is the long
 // tail Alfred actually pastes (shell snippets, SQL, JSON/YAML config, diffs).
 PrismAsyncLight.registerLanguage("javascript", tsx);
+
 PrismAsyncLight.registerLanguage("js", tsx);
+
 PrismAsyncLight.registerLanguage("jsx", tsx);
+
 PrismAsyncLight.registerLanguage("typescript", tsx);
+
 PrismAsyncLight.registerLanguage("ts", tsx);
+
 PrismAsyncLight.registerLanguage("tsx", tsx);
+
 PrismAsyncLight.registerLanguage("python", python);
+
 PrismAsyncLight.registerLanguage("py", python);
+
 PrismAsyncLight.registerLanguage("sql", sql);
+
 PrismAsyncLight.registerLanguage("json", json);
+
 PrismAsyncLight.registerLanguage("bash", bash);
+
 PrismAsyncLight.registerLanguage("sh", bash);
+
 PrismAsyncLight.registerLanguage("shell", bash);
+
 PrismAsyncLight.registerLanguage("yaml", yaml);
+
 PrismAsyncLight.registerLanguage("yml", yaml);
+
 PrismAsyncLight.registerLanguage("css", css);
+
 PrismAsyncLight.registerLanguage("diff", diff);
+
 PrismAsyncLight.registerLanguage("html", markup);
+
 PrismAsyncLight.registerLanguage("xml", markup);
 
 interface SyntaxHighlighterProps {

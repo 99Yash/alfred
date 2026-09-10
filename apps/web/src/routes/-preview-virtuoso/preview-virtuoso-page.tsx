@@ -13,6 +13,7 @@ import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
  * Gated to `import.meta.env.DEV` by the route. Never imported by production.
  */
 const THREAD_ID = "preview-virtuoso-thread";
+
 const EPOCH = Date.UTC(2026, 0, 1, 12, 0, 0);
 
 const ASSISTANT_BODIES = [
@@ -26,10 +27,12 @@ const ASSISTANT_BODIES = [
 function makeMessage(i: number): SyncedChatMessage {
   const role = i % 2 === 0 ? "user" : "assistant";
   const createdAt = new Date(EPOCH + i * 30_000).toISOString();
+
   const content =
     role === "user"
       ? `User message #${i}: ${i % 5 === 0 ? "can you take a longer look at this one and walk me through the reasoning step by step so I can follow along" : "quick question " + i}`
       : `${ASSISTANT_BODIES[i % ASSISTANT_BODIES.length]}\n\n_(reply #${i})_`;
+
   return {
     id: `preview-msg-${i}`,
     userId: "preview-user",
@@ -69,10 +72,12 @@ export function PreviewVirtuosoPage() {
     const seq = base.length + appended.length;
     const messageId = `preview-stream-${seq}`;
     const runId = `preview-stream-run-${seq}`;
+
     const full =
       "Streaming this reply in now. I'll keep adding sentences so the footer grows continuously and the feed should ride the bottom the entire time without you touching the scrollbar. " +
       "Here is a second paragraph to push the content taller than the detach threshold in a single burst. " +
       "And a third, with a short list:\n\n- alpha\n- beta\n- gamma\n\nThat should be enough to tell whether stick-to-bottom holds during a fast stream.";
+
     let shown = 0;
     setStream({
       messageId,
@@ -103,6 +108,7 @@ export function PreviewVirtuosoPage() {
             }
           : prev,
       );
+
       if (done && timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;

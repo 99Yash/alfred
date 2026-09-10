@@ -61,6 +61,7 @@ function assistantRuntime(): AssistantRuntime {
       ]);
     },
   });
+
   return runtime;
 }
 

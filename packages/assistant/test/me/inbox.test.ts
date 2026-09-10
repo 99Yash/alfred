@@ -18,6 +18,7 @@ describe("isSentGmailMetadata", () => {
     ["missing metadata", null, false],
     ["undefined metadata", undefined, false],
   ];
+
   for (const [name, metadata, expected] of cases) {
     test(name, () => {
       assert.equal(isSentGmailMetadata(metadata), expected);

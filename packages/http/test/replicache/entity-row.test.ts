@@ -55,6 +55,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
         serialized: syncedNoteSchema.parse(z.object({ id: z.string() }).parse({})),
       }),
     });
+
     assert.deepEqual(result, []);
   });
 
@@ -65,6 +66,7 @@ describe("toEntityRow recoverable-serialization skip", () => {
         throw new SerializationError("notes.createdAt must not be null");
       },
     });
+
     assert.deepEqual(result, []);
   });
 

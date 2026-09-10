@@ -76,6 +76,7 @@ export async function transcribeViaCloudflareRun(
   audio: Uint8Array,
 ): Promise<TranscribeAudioResult> {
   const url = `https://api.cloudflare.com/client/v4/accounts/${gateway.accountId}/ai/run`;
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -86,11 +87,14 @@ export async function transcribeViaCloudflareRun(
     body: JSON.stringify({ model: CLOUDFLARE_MODEL, input: { file: audioDataUri(audio) } }),
     signal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
   });
+
   if (!res.ok) throw await httpErrorFromResponse("cloudflare-ai-run", res, { url, method: "POST" });
 
   const payload: unknown = await res.json();
   const text = getStringPath(payload, "result", "result", "text");
+
   if (text === undefined) throw new Error("Cloudflare /ai/run returned no transcript");
+
   // The model's output schema is `{ text }` alone — no duration on this path.
   return { text, durationInSeconds: undefined };
 }
@@ -105,6 +109,7 @@ export async function transcribeWithOpenAi(
     audio,
     abortSignal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
   });
+
   return { text: result.text, durationInSeconds: result.durationInSeconds };
 }
 
@@ -154,13 +159,19 @@ function sniffAudioContainer(audio: Uint8Array): AudioContainer {
     [...text].every((char, i) => audio[offset + i] === char.charCodeAt(0));
 
   if (at(0, "RIFF") && at(8, "WAVE")) return "wav";
+
   if (at(0, "OggS")) return "ogg";
+
   if (at(0, "fLaC")) return "flac";
+
   if (at(4, "ftyp")) return "mp4";
+
   if (at(0, "ID3")) return "mp3";
+
   if (audio[0] === 0x1a && audio[1] === 0x45 && audio[2] === 0xdf && audio[3] === 0xa3) {
     return "webm"; // EBML — WebM/Matroska, what Chrome records
   }
+
   // MPEG audio frame sync (a bare MP3 with no ID3 tag).
   if (audio[0] === 0xff && ((audio[1] ?? 0) & 0xe0) === 0xe0) return "mp3";
 
@@ -170,5 +181,6 @@ function sniffAudioContainer(audio: Uint8Array): AudioContainer {
 
 function audioDataUri(audio: Uint8Array): string {
   const mime = CONTAINER_DATA_URI_MIME[sniffAudioContainer(audio)];
+
   return `data:${mime};base64,${Buffer.from(audio).toString("base64")}`;
 }

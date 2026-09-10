@@ -82,7 +82,9 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
     name: opts.name,
     scorer: async ({ input, output, expected }) => {
       const skipReason = opts.skipWhen?.({ input, output, expected });
+
       if (skipReason) return { score: 0, metadata: skipReason };
+
       try {
         const result = await generateObject({
           model: opts.model ?? route("standard").model(),
@@ -92,6 +94,7 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
           temperature: 0,
           abortSignal: AbortSignal.timeout(60_000),
         });
+
         return {
           score: GRADE_TO_SCORE[result.object.grade],
           metadata: `${result.object.grade} — ${result.object.feedback}`,
@@ -103,6 +106,7 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
         // so score 0 and surface why.
         const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
         console.warn(`[llm-judge] "${opts.name}" judge error: ${reason}`);
+
         return { score: 0, metadata: `judge error: ${reason}` };
       }
     },

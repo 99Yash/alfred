@@ -99,6 +99,7 @@ export function toolCategory(toolName: string): ToolCategory {
  */
 export function presentTool(tool: ToolCallView): ToolPresentation {
   const args = parseJsonRecord(tool.argsPreview);
+
   const slug = tool.toolName.includes(".")
     ? tool.toolName.slice(0, tool.toolName.indexOf("."))
     : "";
@@ -106,6 +107,7 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   if (tool.toolName === SPAWN_SUB_AGENT_TOOL) {
     const allowed = toStringArray(args?.allowedIntegrations);
     const provider = allowed[0] ? getIntegrationPage(allowed[0]) : undefined;
+
     return {
       brand: provider?.brand,
       fallbackIcon: Sparkles,
@@ -124,12 +126,14 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   if (slug === "system" || slug === "") {
     if (label) return { fallbackIcon: Wrench, running: label.running, done: label.done, failed };
     const verb = humanizeTool(tool.toolName);
+
     return { fallbackIcon: Wrench, running: verb, done: verb, failed: `Couldn't ${verb}` };
   }
 
   // Integration-scoped tool, e.g. `github.search`.
   const provider = getIntegrationPage(slug);
   const brand = provider?.brand ?? (slug === "web" ? "web" : undefined);
+
   if (label) {
     return {
       brand,
@@ -140,7 +144,9 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
       detail: provider?.name,
     };
   }
+
   const verb = humanizeTool(tool.toolName);
+
   return {
     brand,
     fallbackIcon: Wrench,

@@ -30,6 +30,7 @@ describe("auditedMetadataEqual", () => {
         reasoningOptions: [{ type: "effort", values: ["low", "medium", "high"] }],
       },
     };
+
     const incoming = {
       pricing: { cacheWrite1hPerMtok: 20, tiers: [] },
       capabilities: {
@@ -39,6 +40,7 @@ describe("auditedMetadataEqual", () => {
         temperature: false,
       },
     };
+
     assert.equal(auditedMetadataEqual(stored, incoming), true);
   });
 
@@ -49,12 +51,14 @@ describe("auditedMetadataEqual", () => {
         cacheWrite1hPerMtok: null,
       },
     };
+
     const incoming = {
       pricing: {
         cacheWrite1hPerMtok: null,
         tiers: [{ minInputTokens: 272_000, inputPerMtok: 8, outputPerMtok: 30 }],
       },
     };
+
     assert.equal(auditedMetadataEqual(stored, incoming), true);
   });
 
@@ -70,9 +74,11 @@ describe("auditedMetadataEqual", () => {
     const stored = {
       capabilities: { reasoningOptions: [{ type: "effort", values: ["low", "high"] }] },
     };
+
     const incoming = {
       capabilities: { reasoningOptions: [{ type: "effort", values: ["low", "high", "max"] }] },
     };
+
     assert.equal(auditedMetadataEqual(stored, incoming), false);
   });
 

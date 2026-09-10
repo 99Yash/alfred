@@ -32,6 +32,7 @@ import {
 } from "./type-fixture-programs.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
 const TSC = defaultTscPath(ROOT);
 
 /** A self-contained project: no `extends`, no lib beyond the compiler's own. */
@@ -74,9 +75,11 @@ function write(root, relative, content) {
 /** A workspace whose files git lists. Nothing is committed: discovery asks for `--others --exclude-standard`. */
 function withWorkspace(prefix, body) {
   const fixture = mkdtempSync(join(tmpdir(), prefix));
+
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: fixture });
     write(fixture, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+
     return body(fixture);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -100,6 +103,7 @@ function withWorkspace(prefix, body) {
  */
 function withAliasedWorkspace(prefix, body) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+
   try {
     const tree = join(home, "tree");
     const link = join(home, "link");
@@ -109,9 +113,11 @@ function withAliasedWorkspace(prefix, body) {
     symlinkSync(tree, link);
 
     const real = realpathSync(tree);
+
     if (real !== tree) {
       return [`${prefix}: the real half must be its own realpath, received ${real}`];
     }
+
     if (realpathSync(link) === link) {
       return [`${prefix}: the aliased half must resolve elsewhere, received ${link}`];
     }
@@ -139,11 +145,13 @@ function withAliasedWorkspace(prefix, body) {
 function agree(label, run, tree, link, failures) {
   const real = run(tree);
   const alias = run(link);
+
   if (JSON.stringify(real) !== JSON.stringify(alias)) {
     failures.push(
       `${label}: a symlinked root changed the answer (real ${JSON.stringify(real)}, alias ${JSON.stringify(alias)})`,
     );
   }
+
   return real;
 }
 
@@ -155,6 +163,7 @@ function packageWith(fixture, name, checkTypes, { withFixture = true } = {}) {
     `${JSON.stringify({ name: `@alfred/${name}`, scripts: { "check-types": checkTypes } }, null, 2)}\n`,
   );
   write(fixture, `packages/${name}/src/index.ts`, `export const ${name} = 1;\n`);
+
   if (withFixture) {
     write(
       fixture,
@@ -170,18 +179,23 @@ function run(fixture) {
 
 function expectClean(label, fixture, failures) {
   const result = run(fixture);
+
   if (result.failures.length > 0) {
     failures.push(`${label}: expected no failures, received ${JSON.stringify(result.failures)}`);
   }
+
   return result;
 }
 
 function expectFailure(label, fixture, needles, failures) {
   const result = run(fixture);
+
   if (result.failures.length === 0) {
     failures.push(`${label}: expected a reported failure, received none`);
+
     return result;
   }
+
   for (const needle of needles) {
     if (!result.failures.some((failure) => failure.includes(needle))) {
       failures.push(
@@ -189,6 +203,7 @@ function expectFailure(label, fixture, needles, failures) {
       );
     }
   }
+
   return result;
 }
 
@@ -207,11 +222,13 @@ function includeNarrowingFailures() {
     write(fixture, "packages/one/tsconfig.test.json", project(["src", "test"]));
 
     const clean = expectClean("fixture inside the second pass", fixture, failures);
+
     if (clean.checked !== 1) {
       failures.push(
         `fixture inside the second pass: expected checked 1, received ${clean.checked}`,
       );
     }
+
     if (clean.projectsProbed !== 2) {
       failures.push(
         `fixture inside the second pass: expected projectsProbed 2, received ${clean.projectsProbed}`,
@@ -285,6 +302,7 @@ function unrunProjectFailures() {
       ["packages/three/test/surface.type-test.ts", "in no program"],
       failures,
     );
+
     if (result.projectsProbed !== 1) {
       failures.push(
         `a project on disk that check-types never runs: only the project the script names may be probed, received projectsProbed ${result.projectsProbed}`,
@@ -338,6 +356,7 @@ function zeroFixtureFailures() {
     write(fixture, "packages/seven/tsconfig.json", project(["src"]));
 
     const result = expectClean("no fixture anywhere", fixture, failures);
+
     if (result.checked !== 0 || result.projectsProbed !== 0) {
       failures.push(
         `no fixture anywhere: expected checked 0 and projectsProbed 0, received ${result.checked} and ${result.projectsProbed}`,
@@ -379,21 +398,27 @@ function scriptProgramCoverageFailures() {
 
   const expect = (label, fixture, expected) => {
     const result = scriptProgramFailures(fixture, TSC);
+
     if (result.checked !== expected.checked) {
       failures.push(`${label}: expected checked ${expected.checked}, received ${result.checked}`);
     }
+
     if (expected.needles === null) {
       if (result.failures.length > 0) {
         failures.push(
           `${label}: expected no failures, received ${JSON.stringify(result.failures)}`,
         );
       }
+
       return;
     }
+
     if (result.failures.length === 0) {
       failures.push(`${label}: expected a reported failure, received none`);
+
       return;
     }
+
     for (const needle of expected.needles) {
       if (!result.failures.some((failure) => failure.includes(needle))) {
         failures.push(
@@ -461,6 +486,7 @@ function aliasedRootFailures() {
     write(tree, "packages/one/tsconfig.test.json", project(["src", "test"]));
 
     const green = agree("an aliased root keeps the green verdict", run, tree, link, failures);
+
     if (green.failures.length > 0 || green.checked !== 1 || green.projectsProbed !== 2) {
       failures.push(
         `an aliased root keeps the green verdict: expected 1 fixture, 2 probed projects and no failure, received ${JSON.stringify(green)}`,
@@ -469,6 +495,7 @@ function aliasedRootFailures() {
 
     write(tree, "packages/one/tsconfig.test.json", project(["src", "test/type"]));
     const fired = agree("an aliased root keeps the reported failure", run, tree, link, failures);
+
     if (
       !fired.failures.some(
         (failure) =>
@@ -499,6 +526,7 @@ function aliasedRootFailures() {
       link,
       failures,
     );
+
     if (green.failures.length > 0 || green.checked !== 2) {
       failures.push(
         `an aliased root keeps every script in the program: expected 2 checked and no failure, received ${JSON.stringify(green)}`,
@@ -506,6 +534,7 @@ function aliasedRootFailures() {
     }
 
     write(tree, SCRIPTS_PROJECT, scriptsProject(["*.mjs"]));
+
     const fired = agree(
       "an aliased root keeps the unread script reported",
       run,
@@ -513,6 +542,7 @@ function aliasedRootFailures() {
       link,
       failures,
     );
+
     if (!fired.failures.some((failure) => failure.includes("scripts/nested/two.mjs"))) {
       failures.push(
         `an aliased root keeps the unread script reported: expected the nested script to be named, received ${JSON.stringify(fired.failures)}`,
@@ -548,11 +578,13 @@ function projectParseFailures() {
 
   for (const [script, expected] of cases) {
     const { projects, problems } = tscProjectsFor(script);
+
     if (problems.length > 0) {
       failures.push(
         `tscProjectsFor(${JSON.stringify(script)}) reported ${JSON.stringify(problems)}`,
       );
     }
+
     if (JSON.stringify(projects) !== JSON.stringify(expected)) {
       failures.push(
         `tscProjectsFor(${JSON.stringify(script)}) must yield ${JSON.stringify(expected)}, received ${JSON.stringify(projects)}`,
@@ -579,9 +611,11 @@ export function typeFixtureProgramsSelfTestFailures() {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const failures = typeFixtureProgramsSelfTestFailures();
+
   if (failures.length > 0) {
     for (const failure of failures) console.error(failure);
     process.exit(1);
   }
+
   console.log("type-fixture-programs self-test passed.");
 }

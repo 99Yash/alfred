@@ -136,14 +136,17 @@ export interface IndexDocumentResult {
 export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocumentResult> {
   const docRows = await db().select().from(documents).where(eq(documents.id, args.documentId));
   const doc = docRows[0];
+
   if (!doc) throw new Error(`[embed-document] not found: ${args.documentId}`);
 
   const pageInputs = extractPageInputs(doc);
   const splits = pageInputs ? chunkPages(pageInputs) : chunkText(doc.content);
+
   if (splits.length === 0) {
     // No embeddable content, and documents are immutable — this row would
     // otherwise be re-selected by the sweep on every tick. Dead-letter it.
     await markDocumentEmbedTerminal(doc.id, "no embeddable content (0 chunks)");
+
     return {
       documentId: doc.id,
       chunksWritten: 0,
@@ -167,6 +170,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     })
     .from(chunks)
     .where(eq(chunks.documentId, doc.id));
+
   const existingByPosition = new Map(
     existingChunks.map((c) => [
       c.position,
@@ -176,13 +180,16 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
 
   const toEmbed: Chunk[] = [];
   const toEmbedHashes: string[] = [];
+
   for (const chunk of splits) {
     const hash = sha256(chunk.content);
     const existing = existingByPosition.get(chunk.position);
+
     if (existing && existing.hash === hash && existing.page === (chunk.page ?? null)) continue;
     toEmbed.push(chunk);
     toEmbedHashes.push(hash);
   }
+
   const skipped = splits.length - toEmbed.length;
 
   if (toEmbed.length === 0) {
@@ -190,8 +197,10 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     // state so a re-encode that shortens without changing retained hashes does
     // not leave stale searchable chunks.
     const needsOrphanDelete = existingChunks.length > splits.length;
+
     const needsReset =
       doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null;
+
     if (needsOrphanDelete || needsReset) {
       await db().transaction(async (tx) => {
         if (needsOrphanDelete) {
@@ -199,11 +208,13 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
             .delete(chunks)
             .where(and(eq(chunks.documentId, doc.id), sql`${chunks.position} >= ${splits.length}`));
         }
+
         if (needsReset) {
           await tx.update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
         }
       });
     }
+
     return {
       documentId: doc.id,
       chunksWritten: 0,
@@ -225,6 +236,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   const capped = capChunksForBudget(toEmbed, toEmbedHashes, maxTokens);
   const cappedChunks = capped.chunks;
   const cappedHashes = capped.hashes;
+
   if (capped.truncated) {
     // The caller-side observable for the pure cap: one warn with the counts,
     // plus the durable marker written on every truncation path below.
@@ -232,6 +244,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
       `[embed-document] cost cap hit for doc=${doc.id}: ${capped.total} tokens exceed the ${maxTokens}-token budget (cap $${EMBED_COST_CAP_USD}/call), embedding first ${capped.kept}/${toEmbed.length} new chunks`,
     );
   }
+
   if (cappedChunks.length === 0) {
     // Budget truncated everything (first chunk over cap). No vectors to embed
     // and no chunk rows would be written — without a marker the sweep would
@@ -240,6 +253,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
       doc.id,
       costCapTruncationError(capped, toEmbed.length, maxTokens),
     );
+
     return {
       documentId: doc.id,
       chunksWritten: 0,
@@ -256,6 +270,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   // or dead-letter a perfectly embeddable doc. It propagates untouched and the
   // sweep retries (no chunks written → still a candidate).
   let vectors: number[][];
+
   try {
     vectors = await embedMany(
       cappedChunks.map((c) => c.content),
@@ -265,6 +280,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
         idempotencyKey: args.idempotencyKey ?? `embed-doc:${doc.id}`,
       },
     );
+
     if (vectors.length !== cappedChunks.length) {
       throw new Error(
         `[embed-document] vector count mismatch: got ${vectors.length} for ${cappedChunks.length} chunks`,
@@ -278,6 +294,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     } catch {
       // Best-effort bookkeeping — never mask the original embed error.
     }
+
     throw err;
   }
 
@@ -368,23 +385,29 @@ export async function findUnembeddedDocumentIds(opts: {
   limit?: number;
 }): Promise<string[]> {
   const limit = opts.limit ?? 100;
+
   const noChunksFilter = notExists(
     db()
       .select({ one: sql`1` })
       .from(chunks)
       .where(eq(chunks.documentId, documents.id)),
   );
+
   // Skip dead-lettered docs (permanent failure, attempt cap, or no embeddable
   // content) so a poison pill doesn't get re-selected on every sweep forever.
   const filters = [noChunksFilter, isNull(documents.embedFailedAt)];
+
   if (opts.userId) filters.push(eq(documents.userId, opts.userId));
+
   if (opts.source) filters.push(eq(documents.source, opts.source));
+
   const rows = await db()
     .select({ id: documents.id })
     .from(documents)
     .where(and(...filters))
     .orderBy(desc(documents.ingestedAt))
     .limit(limit);
+
   return rows.map((r) => r.id);
 }
 
@@ -400,22 +423,28 @@ export async function findUnembeddedDocumentIds(opts: {
 function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
   if (!isRecord(doc.metadata)) return null;
   const rawPages = doc.metadata.pages;
+
   if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
 
   // Try offset-encoded pages first — the canonical writer path.
   const offsetPages = parseDocumentPages(rawPages);
+
   if (offsetPages) {
     const out: PageInput[] = [];
+
     for (const entry of offsetPages) {
       out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
     }
+
     return out.length > 0 ? out : null;
   }
 
   // Legacy fallback: mixed union of {page, text} and {page, start, end}
   const mixedPages = parseDocumentPagesMixed(rawPages);
+
   if (!mixedPages) return null;
   const out: PageInput[] = [];
+
   for (const entry of mixedPages) {
     if ("text" in entry) {
       out.push({ page: entry.page, text: entry.text });
@@ -423,5 +452,6 @@ function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInp
       out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
     }
   }
+
   return out.length > 0 ? out : null;
 }

@@ -134,14 +134,18 @@ export function Conversation({
   // assistant message that authored each one — that message renders a trigger
   // card. A run can produce more than one artifact, so the value is a list.
   const threadArtifacts = useThreadArtifacts(threadId);
+
   const artifactsByMessage = useMemo(() => {
     const map = new Map<string, SyncedArtifact[]>();
+
     for (const artifact of threadArtifacts) {
       if (!artifact.messageId) continue;
       const list = map.get(artifact.messageId);
+
       if (list) list.push(artifact);
       else map.set(artifact.messageId, [artifact]);
     }
+
     return map;
   }, [threadArtifacts]);
 
@@ -171,10 +175,13 @@ export function Conversation({
   const lastUserId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
+
       if (m && m.role === "user") return m.id;
     }
+
     return null;
   }, [messages]);
+
   // Re-engage stick-to-bottom when the user sends a new message (the last
   // user-message id changes) — even if they had scrolled up to read history.
   // `followOutput`/`autoscrollToBottom` only pin when already near the bottom,
@@ -188,15 +195,20 @@ export function Conversation({
   // stale button up for a frame. The effect below only does the imperative jump.
   const firstUserTurn = useRef(true);
   const [prevLastUserId, setPrevLastUserId] = useState(lastUserId);
+
   if (lastUserId !== prevLastUserId) {
     setPrevLastUserId(lastUserId);
+
     if (!firstUserTurn.current) setShowJump(false);
   }
+
   useEffect(() => {
     if (firstUserTurn.current) {
       firstUserTurn.current = false;
+
       return;
     }
+
     stickRef.current = true;
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [lastUserId]);
@@ -227,6 +239,7 @@ export function Conversation({
     stickRef.current = false;
     setShowJump(true);
   }, []);
+
   const onWheel = useCallback(
     (e: WheelEvent) => {
       if (e.deltaY < 0) releasePin();
@@ -239,12 +252,15 @@ export function Conversation({
   const attachScroller = useCallback(
     (ref: HTMLElement | Window | null) => {
       const prev = scrollerElRef.current;
+
       if (prev) {
         prev.removeEventListener("wheel", onWheel);
         prev.removeEventListener("touchmove", releasePin);
       }
+
       const el = ref instanceof HTMLElement ? ref : null;
       scrollerElRef.current = el;
+
       if (el) {
         el.addEventListener("wheel", onWheel, { passive: true });
         el.addEventListener("touchmove", releasePin, { passive: true });
@@ -278,17 +294,22 @@ export function Conversation({
   // rAF always reads the *live* `scrollHeight`, so a burst still lands at the
   // true bottom.
   const pinRafRef = useRef<number | null>(null);
+
   const schedulePin = useCallback(() => {
     if (!stickRef.current) return;
+
     if (pinRafRef.current != null) return; // one pin per frame — coalesce the burst
     pinRafRef.current = requestAnimationFrame(() => {
       pinRafRef.current = null;
+
       if (!stickRef.current) return; // user scrolled up before the frame ran
       const el = scrollerElRef.current;
+
       if (el) el.scrollTop = el.scrollHeight;
       virtuosoRef.current?.autoscrollToBottom();
     });
   }, []);
+
   useEffect(() => {
     schedulePin();
   }, [messages, stream, schedulePin]);
@@ -310,25 +331,34 @@ export function Conversation({
   // live by `setFooterEl` as the footer mounts/unmounts across turns.
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
+
     const ro = new ResizeObserver(() => {
       if (!stickRef.current) return;
       const el = scrollerElRef.current;
+
       if (el) el.scrollTop = el.scrollHeight;
     });
+
     footerResizeRef.current = ro;
+
     if (footerElRef.current) ro.observe(footerElRef.current);
+
     return () => {
       ro.disconnect();
       footerResizeRef.current = null;
     };
   }, []);
+
   const setFooterEl = useCallback((el: HTMLElement | null) => {
     const ro = footerResizeRef.current;
     const prev = footerElRef.current;
+
     if (ro && prev) ro.unobserve(prev);
     footerElRef.current = el;
+
     if (ro && el) ro.observe(el);
   }, []);
+
   // Cancel any pending pin on unmount (the coalescing guard means the effect
   // above never returns a per-run cleanup — that would cancel the burst's pin
   // before it fires).
@@ -365,6 +395,7 @@ export function Conversation({
   useEffect(() => {
     const handler = () => onScrollRequest();
     window.addEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
+
     return () => window.removeEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
   }, []);
 
@@ -374,10 +405,12 @@ export function Conversation({
   // above, the jump-button reset is a state-on-prop-change done inline during
   // render (a prev-id compare); the effect just performs the imperative jump.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
+
   if (threadId !== prevThreadId) {
     setPrevThreadId(threadId);
     setShowJump(false);
   }
+
   useEffect(() => {
     if (!threadId) return;
     stickRef.current = true;
@@ -489,11 +522,14 @@ const FeedRow = memo(function FeedRow({
   context: FeedItemContext;
 }) {
   const { onOpenArtifact, openArtifactId } = context;
+
   const retry =
     context.onRetry && message.role === "assistant" && message.status === "failed"
       ? prevUserTurn(context.messages, index, context.attachmentsByMessage, context.onRetry)
       : undefined;
+
   const messageArtifacts = onOpenArtifact ? context.artifactsByMessage.get(message.id) : undefined;
+
   return (
     <div className="flex flex-col gap-5 pb-5">
       <MessageBubble
@@ -555,7 +591,9 @@ function FeedHeader() {
 
 function FeedFooter() {
   const ctx = useContext(FeedFooterContext);
+
   if (!ctx) return <div className="h-6" />;
+
   const {
     showStream,
     stream,
@@ -566,11 +604,13 @@ function FeedFooter() {
     approvals,
     setFooterEl,
   } = ctx;
+
   // Order the pending approvals to match the tool trail above, so each card sits
   // under the call it gates. Approvals whose tool card isn't in the live stream
   // (e.g. a cold reload that missed the transient `started` event) fall to the
   // end in `createdAt` order.
   const orderedApprovals = orderApprovalsByTool(approvals, stream);
+
   return (
     // Match FeedList's column: Virtuoso renders the Footer as a *sibling* of the
     // List (not a child), so without this the streaming bubble spans the full
@@ -680,18 +720,24 @@ function prevUserTurn(
 ): { same: () => void; withoutAttachments?: () => void } | undefined {
   for (let i = failedIndex - 1; i >= 0; i--) {
     const m = messages[i];
+
     if (!m || m.role !== "user") continue;
+
     const readyIds = (attachmentsByMessage[m.id] ?? []).reduce<string[]>((ids, a) => {
       if (a.status === "ready") ids.push(a.id);
+
       return ids;
     }, []);
+
     if (m.content.trim().length === 0 && readyIds.length === 0) continue;
     const text = m.content;
+
     return {
       same: () => onRetry(text, readyIds.length > 0 ? readyIds : undefined, m.id),
       ...(text.trim().length > 0 ? { withoutAttachments: () => onRetry(text, undefined) } : {}),
     };
   }
+
   return undefined;
 }
 
@@ -757,6 +803,7 @@ function ActivityPill({
 }
 
 const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
+
 const EMPTY_APPROVALS: readonly SyncedActionStaging[] = [];
 
 /**
@@ -772,10 +819,13 @@ function orderApprovalsByTool(
   if (approvals.length <= 1) return approvals;
   const toolOrder = new Map<string, number>();
   stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
+
   return approvals.toSorted((a, b) => {
     const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
     const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
+
     if (ia !== ib) return ia - ib;
+
     return a.createdAt.localeCompare(b.createdAt);
   });
 }
@@ -794,13 +844,16 @@ function usePrefersReducedMotion(): boolean {
 
 function subscribeReducedMotion(onChange: () => void): () => void {
   if (typeof window === "undefined" || !window.matchMedia) return () => {};
+
   const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
   mql.addEventListener("change", onChange);
+
   return () => mql.removeEventListener("change", onChange);
 }
 
 function getReducedMotionSnapshot(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return false;
+
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
@@ -819,6 +872,7 @@ function useStreamRenderTiming(stream: StreamingMessage | null): StreamRenderTim
       runId: stream.runId,
     });
   });
+
   const reasoning = useRefCallback((el: HTMLDivElement | null) => {
     if (!el || !stream || stream.reasoning.length === 0) return;
     markChatTimingByAssistant(
@@ -828,6 +882,7 @@ function useStreamRenderTiming(stream: StreamingMessage | null): StreamRenderTim
       { requireExisting: true, runId: stream.runId },
     );
   });
+
   const text = useRefCallback((el: HTMLDivElement | null) => {
     if (!el || !stream || stream.text.length === 0) return;
     markChatTimingByAssistant(
@@ -837,6 +892,7 @@ function useStreamRenderTiming(stream: StreamingMessage | null): StreamRenderTim
       { requireExisting: true, runId: stream.runId },
     );
   });
+
   const done = useRefCallback((el: HTMLSpanElement | null) => {
     if (!el || !stream || !stream.done) return;
     markChatTimingByAssistant(
@@ -849,6 +905,7 @@ function useStreamRenderTiming(stream: StreamingMessage | null): StreamRenderTim
       { requireExisting: true, runId: stream.runId, summarize: true },
     );
   });
+
   return { thinking, reasoning, text, done };
 }
 
@@ -862,6 +919,7 @@ function useRefCallback<T extends Element>(
   useEffect(() => {
     callbackRef.current = callback;
   });
+
   return useMemo(() => (el: T | null) => callbackRef.current(el), []);
 }
 
@@ -883,13 +941,17 @@ function FollowUpSuggestions({
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const match = /^Digit([1-9])$/.exec(e.code);
+
       if (!match) return;
       const pick = suggestions[Number(match[1]) - 1];
+
       if (!pick) return;
       e.preventDefault();
       onPickEvent(pick.text);
     };
+
     window.addEventListener("keydown", handler);
+
     return () => window.removeEventListener("keydown", handler);
   }, [suggestions]);
 

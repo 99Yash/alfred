@@ -73,10 +73,13 @@ function bindingFor(
 
 function canonicalSet(addresses: readonly string[]): Set<string> {
   const out = new Set<string>();
+
   for (const raw of addresses) {
     const parsed = parseEmailAddress(raw);
+
     if (parsed) out.add(parsed);
   }
+
   return out;
 }
 
@@ -89,6 +92,7 @@ export function verifyReplyCandidate(
   ctx: ReplyVerifierContext,
 ): ReplyDraftVerifierDecision {
   const boundTo = bindingFor(candidate, ctx);
+
   const block = (reason: ReplyWithheldReason, detail?: string): ReplyDraftVerifierDecision => ({
     decision: "block",
     reason,
@@ -99,20 +103,26 @@ export function verifyReplyCandidate(
   if (!candidate.sourceThreadId) return block("missing_thread_id");
 
   const recipients = [...candidate.recipients.to, ...candidate.recipients.cc];
+
   if (candidate.recipients.to.length === 0) return block("missing_recipient");
+
   for (const raw of recipients) {
     if (!parseEmailAddress(raw)) return block("missing_recipient", raw);
   }
 
   const self = parseEmailAddress(ctx.mailboxAddress);
+
   if (!self) return block("context_mismatch", "The inbound mailbox address is unknown.");
+
   for (const raw of recipients) {
     if (parseEmailAddress(raw) === self) return block("recipient_is_self", raw);
   }
 
   const participants = canonicalSet(ctx.threadParticipants);
+
   for (const raw of recipients) {
     const canonical = parseEmailAddress(raw);
+
     if (canonical && !participants.has(canonical)) return block("recipient_not_in_thread", raw);
   }
 
@@ -137,9 +147,11 @@ export function prepareReplyStaging(
   ctx: ReplyVerifierContext,
 ): ReplyStagingPlan {
   const verifier = verifyReplyCandidate(candidate, ctx);
+
   if (verifier.decision === "block") {
     return { kind: "withheld", reason: verifier.reason, detail: verifier.detail ?? null, verifier };
   }
+
   const parsed = gmailSendDraftInput.safeParse({
     to: candidate.recipients.to,
     ...(candidate.recipients.cc.length > 0 ? { cc: candidate.recipients.cc } : {}),
@@ -148,13 +160,16 @@ export function prepareReplyStaging(
     // Verified non-null above; the parse keeps the thread anchor on the approval card.
     threadId: candidate.sourceThreadId ?? undefined,
   });
+
   if (!parsed.success) {
     const blocked: ReplyDraftVerifierDecision = {
       decision: "block",
       reason: "invalid_candidate",
       boundTo: verifier.boundTo,
     };
+
     return { kind: "withheld", reason: "invalid_candidate", detail: null, verifier: blocked };
   }
+
   return { kind: "stage", input: parsed.data, verifier };
 }

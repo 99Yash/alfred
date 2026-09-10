@@ -11,13 +11,16 @@ export function describeInboundJson(
   const leaves = flattenJson(payload).filter(
     (leaf) => !leaf.truncated || !/^https?:\/\//i.test(leaf.value),
   );
+
   const title = `${INTEGRATION_DISPLAY_NAMES[source]}: ${kind}`;
   const text = leaves.map((leaf) => `${leaf.path.join(".")}: ${leaf.value}`).join("\n");
   // Prefer browser links over API URLs; ignore avatar and other asset fields.
   const links = leaves.filter((leaf) => /^https?:\/\//i.test(leaf.value));
+
   const url = ["html_url", "permalink", "web_url", "url"].flatMap((key) =>
     links.filter((leaf) => leaf.path.at(-1) === key),
   )[0]?.value;
+
   return {
     title,
     summary: `${title}${text ? `: ${text}` : ""}`.replace(/\s+/g, " ").slice(0, 400),

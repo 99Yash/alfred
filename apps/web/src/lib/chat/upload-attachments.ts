@@ -30,15 +30,21 @@ const ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
  */
 export function validateFile(file: File): string | null {
   const policy = classifyUpload(file.type);
+
   if (!policy) return `${file.name}: unsupported file type`;
+
   if (!isChatUploadAllowed(file.type)) {
     return `${file.name}: only images and PDFs are supported right now`;
   }
+
   if (file.size <= 0) return `${file.name}: file is empty`;
+
   if (file.size > policy.maxBytes) {
     const mb = Math.round(policy.maxBytes / (1024 * 1024));
+
     return `${file.name}: too large (limit ${mb} MB)`;
   }
+
   return null;
 }
 
@@ -78,6 +84,7 @@ export async function uploadAttachment(opts: {
     body: form,
     signal: AbortSignal.timeout(ATTACHMENT_UPLOAD_TIMEOUT_MS),
   });
+
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`upload failed (${res.status}): ${body}`);

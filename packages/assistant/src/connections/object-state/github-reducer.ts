@@ -25,16 +25,20 @@ export function reduceGithubEvent(
   payload: unknown,
 ): ObjectStateDelta | null {
   if (eventType !== "pull_request") return null;
+
   if (!isRecord(payload)) return null;
 
   const pr = isRecord(payload.pull_request) ? payload.pull_request : null;
+
   if (!pr) return null;
 
   const githubId = typeof pr.id === "number" ? pr.id : null;
+
   if (githubId === null) return null;
   const number = typeof pr.number === "number" ? pr.number : null;
 
   const nativeState = pullRequestNativeState(action, pr);
+
   if (nativeState === null) return null;
 
   const head = isRecord(pr.head) ? pr.head : null;
@@ -45,6 +49,7 @@ export function reduceGithubEvent(
   const repoFullName = repo && typeof repo.full_name === "string" ? repo.full_name : null;
 
   const keys: ObjectStateDelta["keys"] = [];
+
   if (headSha) keys.push({ keyKind: "head_sha", keyValue: headSha });
 
   return {

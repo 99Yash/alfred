@@ -15,6 +15,7 @@ import { liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 
 beforeEach(resetToolFixtures);
+
 afterEach(resetToolFixtures);
 
 function registerSurfaceFixtures(): void {
@@ -79,10 +80,12 @@ test("projects the exact caller-visible schemas and matching metrics", () => {
 
 test("resets cached projections with the shared tool fixture lifecycle", () => {
   registerSurfaceFixtures();
+
   const first = resolveToolSurface({
     activeNames: ["gmail.search"],
     context: { caller: "boss", interaction: "live_chat" },
   });
+
   assert.equal(first.tools["gmail.search"]?.description, "Search Gmail.");
 
   resetToolFixtures();
@@ -96,10 +99,12 @@ test("resets cached projections with the shared tool fixture lifecycle", () => {
       execute: async () => ({}),
     }),
   ]);
+
   const second = resolveToolSurface({
     activeNames: ["gmail.search"],
     context: { caller: "boss", interaction: "live_chat" },
   });
+
   assert.equal(second.tools["gmail.search"]?.description, "Search a different fixture.");
 });
 
@@ -146,6 +151,7 @@ test("groups available tool names by integration, sorted, honoring the allowlist
       execute: async () => ({}),
     }),
   ]);
+
   const availability: IntegrationAvailabilitySnapshot = {
     integrations: new Map([
       ["gmail", { health: "active" as const, accountLabel: null }],
@@ -155,6 +161,7 @@ test("groups available tool names by integration, sorted, honoring the allowlist
     providers: new Map(),
     passthroughEnabled: new Map(),
   };
+
   const context = { caller: "boss" as const, interaction: "live_chat" as const };
 
   const grouped = availableToolNamesByIntegration({
@@ -162,6 +169,7 @@ test("groups available tool names by integration, sorted, honoring the allowlist
     allowedIntegrations: ["gmail", "github"],
     context,
   });
+
   assert.deepEqual(grouped.get("gmail"), ["gmail.read_message", "gmail.search"]);
   assert.deepEqual(grouped.get("github"), ["github.get_issue"]);
 
@@ -171,17 +179,20 @@ test("groups available tool names by integration, sorted, honoring the allowlist
     allowedIntegrations: ["gmail"],
     context,
   });
+
   assert.deepEqual(gmailOnly.get("gmail"), ["gmail.read_message", "gmail.search"]);
   assert.equal(gmailOnly.has("github"), false);
 });
 
 test("selects an exact available preload through the workflow allowlist", async () => {
   registerSurfaceFixtures();
+
   const availability: IntegrationAvailabilitySnapshot = {
     integrations: new Map([["gmail", { health: "active" as const, accountLabel: null }]]),
     providers: new Map(),
     passthroughEnabled: new Map(),
   };
+
   const transcript = [{ role: "user", content: "gmail.search" }];
 
   const allowed = await selectToolPreload({
@@ -192,6 +203,7 @@ test("selects an exact available preload through the workflow allowlist", async 
     context: { caller: "boss", interaction: "live_chat" },
     availability,
   });
+
   assert.equal(allowed.promptChars, transcript[0]?.content.length);
   assert.deepEqual(allowed.selectedNames, ["gmail.search"]);
 
@@ -203,5 +215,6 @@ test("selects an exact available preload through the workflow allowlist", async 
     context: { caller: "boss", interaction: "live_chat" },
     availability,
   });
+
   assert.deepEqual(disallowed.selectedNames, []);
 });

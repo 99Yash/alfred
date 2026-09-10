@@ -23,14 +23,17 @@ export function liveObservationHeadJoin(): SQL {
     eq(observationFamilyHeads.familyKey, observations.familyKey),
     eq(observationFamilyHeads.headObservationId, observations.id),
   );
+
   if (!predicate) {
     // Unreachable: three defined `eq()` predicates never fold to undefined.
     throw new Error("[user-model] liveObservationHeadJoin produced an empty predicate");
   }
+
   return predicate;
 }
 
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
+
 const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
   "observations_no_fork_idx",
   "observations_single_root_idx",
@@ -53,6 +56,7 @@ export interface AppendObservationFamilyMemberResult extends InsertObservationRe
 export function isObservationAppendConflict(err: unknown): boolean {
   let sawUniqueViolation = false;
   let sawChainConstraint = false;
+
   for (const e of pgErrorChain(err)) {
     const message = e.message ?? "";
     sawUniqueViolation ||= e.code === PG_UNIQUE_VIOLATION || message.includes(PG_UNIQUE_VIOLATION);
@@ -60,8 +64,10 @@ export function isObservationAppendConflict(err: unknown): boolean {
       (e.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(e.constraint)) ||
       [...OBSERVATION_CHAIN_CONSTRAINTS].some((constraint) => message.includes(constraint)),
     );
+
     if (sawUniqueViolation && sawChainConstraint) return true;
   }
+
   return false;
 }
 
@@ -145,6 +151,7 @@ export async function insertObservation(
           ),
         )
         .limit(1);
+
       if (!existing) {
         // The insert reported a conflict but the row isn't found — only possible
         // if it was deleted between the two statements (no concurrent deleter
@@ -155,6 +162,7 @@ export async function insertObservation(
             `(user=${parsed.userId}, family=${parsed.familyKey})`,
         );
       }
+
       return { observation: existing, deduped: true };
     }
 

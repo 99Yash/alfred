@@ -62,6 +62,7 @@ describe("chat-stop signal on a cold process", { skip }, () => {
     // observations. A cold rejection fails both, so this cannot pass by luck.
     const observer = createRedisConnection("command");
     observer.on("error", () => {});
+
     try {
       assert.equal(
         recorded,
@@ -85,6 +86,7 @@ describe("chat-stop signal on a cold process", { skip }, () => {
     // already present before the poll connection exists.
     const seeder = createRedisConnection("command");
     seeder.on("error", () => {});
+
     try {
       await seeder.set(stopKey(runId), "1", "EX", 60);
 
@@ -100,10 +102,12 @@ describe("chat-stop signal on a cold process", { skip }, () => {
       // same read sees the flag that was there the whole time.
       const deadline = Date.now() + 5_000;
       let observed = false;
+
       while (!observed && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 25));
         observed = await pollChatStopFlag(runId);
       }
+
       assert.equal(observed, true, "the poll half never recovered after its cold window");
     } finally {
       await seeder.del(stopKey(runId));

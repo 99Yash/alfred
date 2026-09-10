@@ -28,9 +28,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcprisk-";
+
 const createdUserIds: string[] = [];
 
 const REVISION = "sha256:catrev1";
+
 const REMOTE = "search_issues";
 
 /**
@@ -43,6 +45,7 @@ const DESCRIPTOR: Tool = {
   name: REMOTE,
   inputSchema: { type: "object", additionalProperties: true },
 };
+
 /** Derived, not written down: publication projects the hash from the descriptor. */
 const DESC_HASH = descriptorHash(DESCRIPTOR);
 
@@ -52,6 +55,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -63,6 +67,7 @@ async function seedConnection(userId: string): Promise<string> {
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://example.test/mcp"),
   });
+
   return conn.id;
 }
 
@@ -86,6 +91,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -109,6 +115,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: REMOTE,
       catalogRevision: REVISION,
     });
+
     assert.equal(tier, "low");
   });
 
@@ -123,6 +130,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: REMOTE,
       catalogRevision: REVISION,
     });
+
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 
@@ -139,6 +147,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: REMOTE,
       catalogRevision: REVISION,
     });
+
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 
@@ -163,6 +172,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: REMOTE,
       catalogRevision: "sha256:some_old_revision",
     });
+
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 
@@ -190,6 +200,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: REMOTE,
       catalogRevision: REVISION,
     });
+
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 
@@ -214,6 +225,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: REMOTE,
       catalogRevision: REVISION,
     });
+
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 
@@ -242,6 +254,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: REMOTE,
       catalogRevision: REVISION,
     });
+
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 
@@ -256,6 +269,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       remoteName: "not_in_catalog",
       catalogRevision: REVISION,
     });
+
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 });

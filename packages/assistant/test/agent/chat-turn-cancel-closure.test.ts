@@ -56,8 +56,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-chat-cancel-";
+
 const createdUserIds: string[] = [];
+
 const STEP = "chat-turn";
+
 const CANCEL_REASON = "cancelled_by_user";
 
 /**
@@ -98,12 +101,15 @@ async function seedThread(): Promise<{ userId: string; threadId: string }> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test", email: `${userId}@example.test` });
+
   const rows = await db()
     .insert(chatThreads)
     .values({ userId, title: "Placeholder title" })
     .returning({ id: chatThreads.id });
+
   const threadId = rows[0]?.id;
   assert.ok(threadId, "seeded a chat thread");
+
   return { userId, threadId };
 }
 
@@ -130,6 +136,7 @@ async function seedWaitingChatRun(args: {
       lastCheckpointAt: new Date(),
       state: committedState({ threadId, messageId, ...args }),
     });
+
   return { userId, threadId, runId, messageId };
 }
 
@@ -145,6 +152,7 @@ async function readAssistantMessage(messageId: string) {
     })
     .from(chatMessages)
     .where(eq(chatMessages.id, messageId));
+
   return rows[0];
 }
 
@@ -155,6 +163,7 @@ async function readChatMessageEvents(userId: string): Promise<unknown[]> {
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "chat.message")))
     .orderBy(eventsOutbox.id);
+
   return rows.map((r) => r.payload);
 }
 
@@ -164,6 +173,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
+
     // The production workflow, not a stand-in: closure resolves the hook off the
     // run's `workflow_slug` through the registry, and the whole point here is
     // that chat-turn's own `onTerminal` cancel branch does the work.
@@ -173,6 +183,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     resetToolFixtures();
     await closeConnections();
@@ -239,6 +250,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     const { userId, threadId, runId, messageId } = await seedWaitingChatRun({
       assistantText: "Drafting the deck.",
     });
+
     const artifactRows = await db()
       .insert(artifacts)
       .values({
@@ -251,6 +263,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
         content: { kind: "document", markdown: "First section only." },
       })
       .returning({ id: artifacts.id });
+
     const artifactId = artifactRows[0]?.id;
     assert.ok(artifactId, "seeded a still-generating artifact");
 
@@ -260,6 +273,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
       .select({ status: artifacts.status, messageId: artifacts.messageId })
       .from(artifacts)
       .where(eq(artifacts.id, artifactId));
+
     assert.equal(
       rows[0]?.status,
       "complete",
@@ -272,6 +286,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     const { userId, threadId, runId, messageId } = await seedWaitingChatRun({
       assistantText: "The committed draft.",
     });
+
     await db().insert(chatMessages).values({
       id: messageId,
       userId,
@@ -282,6 +297,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
       errorKind: "generic",
       runId,
     });
+
     const artifactRows = await db()
       .insert(artifacts)
       .values({
@@ -295,6 +311,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
         content: { kind: "document", markdown: "Still useful." },
       })
       .returning({ id: artifacts.id });
+
     const artifactId = artifactRows[0]?.id;
     assert.ok(artifactId);
 
@@ -307,10 +324,12 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
       null,
       "failed → complete clears the stale retry classification",
     );
+
     const artifact = await db()
       .select({ status: artifacts.status })
       .from(artifacts)
       .where(eq(artifacts.id, artifactId));
+
     assert.equal(
       artifact[0]?.status,
       "complete",
@@ -322,6 +341,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     const { userId, runId, messageId } = await seedWaitingChatRun({
       assistantText: "First and only.",
     });
+
     assert.equal(await cancelRun({ runId, reason: CANCEL_REASON }), "cancelled");
 
     assert.equal(

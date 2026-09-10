@@ -24,6 +24,7 @@ export function getAgentQueue(): Queue<AgentJobData> {
       removeOnFail: { count: 200, age: 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 

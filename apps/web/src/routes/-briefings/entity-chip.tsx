@@ -33,6 +33,7 @@ const BASE =
 function ChipIcon({ kind }: { kind: BriefingReferenceKind }) {
   if (kind === "email")
     return <IntegrationGlyph brand="gmail" size={12} className="translate-y-[1px] self-center" />;
+
   if (kind === "meeting")
     return (
       <IntegrationGlyph
@@ -41,11 +42,13 @@ function ChipIcon({ kind }: { kind: BriefingReferenceKind }) {
         className="translate-y-[1px] self-center"
       />
     );
+
   return <Activity size={12} aria-hidden className="shrink-0 translate-y-[1px] self-center" />;
 }
 
 export function EntityChip({ kind, label, href }: EntityChipProps) {
   const tone = TONE[kind];
+
   const inner = (
     <>
       <ChipIcon kind={kind} />

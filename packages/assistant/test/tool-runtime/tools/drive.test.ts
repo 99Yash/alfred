@@ -17,6 +17,7 @@ describe("driveExportFileInput mimeType normalization (ADR-0071)", () => {
       fileId: "abc123",
       mimeType: "application/pdf",
     });
+
     assert.equal(result.success, false);
   });
 

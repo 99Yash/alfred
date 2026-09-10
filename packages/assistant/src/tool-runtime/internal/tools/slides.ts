@@ -30,6 +30,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     inputSchema: slidesCreateInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.slides.credential()).id;
+
       return ctx.integrations.google.slides.createPresentation({
         credentialId,
         title: input.title,
@@ -44,6 +45,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     inputSchema: slidesGetInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.slides.credential()).id;
+
       return ctx.integrations.google.slides.getPresentation({
         credentialId,
         presentationId: input.presentationId,
@@ -59,6 +61,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     inputSchema: slidesBatchUpdateInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.slides.credential()).id;
+
       return ctx.integrations.google.slides.batchUpdatePresentation({
         credentialId,
         presentationId: input.presentationId,
@@ -74,6 +77,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     inputSchema: slidesAddSlideInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.slides.credential()).id;
+
       return ctx.integrations.google.slides.addSlide({
         credentialId,
         presentationId: input.presentationId,
@@ -98,6 +102,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.slides.credential()).id;
+
       return runRestPassthrough(ctx.integrations.google.slides.passthrough(credentialId), input);
     },
   }),

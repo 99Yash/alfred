@@ -41,24 +41,29 @@ export function classifyMentionValue(
   statusBySlug: ReadonlyMap<string, IntegrationStatus>,
 ): MentionConnection {
   if (!isCatalogSlug(value)) return "internal";
+
   // A planned provider has no credential store → no way to connect from
   // anywhere, so an always-"not connected" nudge would be dishonest. Matches
   // how `ConnectToolsBar` scopes its nudges to live providers.
   if (isPlannedSlug(value)) return "unavailable";
+
   return statusBySlug.get(value) === "connected" ? "connected" : "connectable";
 }
 
 /** Connection state for every mention option, plus whether state is settled. */
 export function useMentionConnections(): MentionConnectionLookup {
   const { integrations, ready } = useResolvedIntegrationsWithReady();
+
   return useMemo(() => {
     const statusBySlug = new Map(integrations.map((p) => [p.slug, p.status]));
+
     const map = new Map<string, MentionConnection>(
       MENTION_OPTIONS.map((option) => [
         option.value,
         ready ? classifyMentionValue(option.value, statusBySlug) : "loading",
       ]),
     );
+
     // The lookup owns the unknown-value rule ("an unknown id is internal, not
     // a phantom nudge") so no call site re-defaults with its own fallback.
     return (value: string) => map.get(value) ?? "internal";

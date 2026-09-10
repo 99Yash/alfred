@@ -49,6 +49,7 @@ export const rememberSenderSuppressionArgsSchema = z.object({
   phrasing: z.string().nullish(),
   source: memorySourceSchema.optional(),
 });
+
 export type RememberSenderSuppressionArgs = z.infer<typeof rememberSenderSuppressionArgsSchema>;
 
 export type RememberSenderSuppressionResult =
@@ -70,14 +71,18 @@ export async function rememberSenderSuppression(
 ): Promise<RememberSenderSuppressionResult> {
   const parsed = rememberSenderSuppressionArgsSchema.parse(args);
   const email = normalizeSenderEmail(parsed.senderEmail);
+
   if (!email) return senderClarification();
 
   const label = normalizeOptionalLabel(parsed.senderLabel);
   const accountId = normalizeOptionalLabel(parsed.accountId);
+
   const directive =
     normalizeOptionalLabel(parsed.directive) ??
     `Stop surfacing reminders and briefing items from ${label ?? email}.`;
+
   const source: MemorySource = parsed.source ?? { kind: "user" };
+
   const candidate = standingInstructionValueSchema.safeParse({
     schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION,
     action: "suppress",
@@ -101,6 +106,7 @@ export async function rememberSenderSuppression(
     accountId: instruction.target.accountId,
     effect: "block_todo_suggestion",
   });
+
   if (
     existing &&
     SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))
@@ -126,6 +132,7 @@ export async function rememberSenderSuppression(
         validUntil: null,
       })
       .returning({ id: userFacts.id });
+
     if (!inserted) return null;
 
     await appendStandingInstructionObservation(
@@ -138,6 +145,7 @@ export async function rememberSenderSuppression(
       },
       tx,
     );
+
     return inserted;
   });
 
@@ -161,11 +169,14 @@ export async function listActiveSuppressionInstructions(
     .from(userFacts)
     .where(activeStandingInstructionsWhere(userId))
     .orderBy(desc(userFacts.validFrom));
+
   return facts
     .map(instructionFromFact)
     .filter((instruction): instruction is ActiveSuppressionInstruction => {
       if (!instruction) return false;
+
       if (instruction.value.action !== "suppress") return false;
+
       return effect ? hasSuppressionEffect(instruction.value, effect) : true;
     });
 }
@@ -175,6 +186,7 @@ export async function findActiveSenderSuppression(
   lookup: SenderSuppressionLookup,
 ): Promise<SenderSuppressionMatch | null> {
   const instructions = await listActiveSuppressionInstructions(userId, lookup.effect);
+
   return findSenderSuppression(instructions, lookup);
 }
 
@@ -230,6 +242,7 @@ export const editStandingInstructionArgsSchema = z.object({
   senderLabel: z.string().nullish(),
   source: memorySourceSchema.optional(),
 });
+
 export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema>;
 
 /** Currently-active standing instructions for model management, newest first and capped. */
@@ -238,6 +251,7 @@ export async function listStandingInstructions(
 ): Promise<StandingInstructionListResult> {
   const instructions = await listActiveSuppressionInstructions(userId);
   const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
+
   return {
     instructions: capped.map(summarizeStandingInstruction),
     totalActive: instructions.length,
@@ -274,8 +288,10 @@ async function loadOwnedStandingInstruction(
     .from(userFacts)
     .where(activeStandingInstructionWhere(userId, factId))
     .limit(1);
+
   if (!row) return null;
   const parsed = standingInstructionValueSchema.safeParse(row.value);
+
   return parsed.success ? { value: parsed.data } : null;
 }
 
@@ -292,9 +308,11 @@ export async function forgetStandingInstruction(args: {
       .from(userFacts)
       .where(activeStandingInstructionWhere(args.userId, args.factId))
       .limit(1);
+
     if (!old) return null;
 
     const parsed = standingInstructionValueSchema.safeParse(old.value);
+
     if (!parsed.success) return null;
 
     const [row] = await tx
@@ -306,6 +324,7 @@ export async function forgetStandingInstruction(args: {
       })
       .where(activeStandingInstructionWhere(args.userId, args.factId))
       .returning({ id: userFacts.id });
+
     if (!row) return null;
 
     await tx
@@ -333,9 +352,11 @@ export async function forgetStandingInstruction(args: {
 
     return parsed.data;
   });
+
   if (!forgotten) return { ok: false, status: "not_found" };
 
   emitReplicachePokes([args.userId]);
+
   return { ok: true, status: "forgotten", factId: args.factId, instruction: forgotten };
 }
 
@@ -345,9 +366,11 @@ export async function editStandingInstruction(
 ): Promise<EditStandingInstructionResult> {
   const parsed = editStandingInstructionArgsSchema.parse(args);
   const existing = await loadOwnedStandingInstruction(parsed.userId, parsed.factId);
+
   if (!existing) return { ok: false, status: "not_found" };
 
   const nextDirective = normalizeOptionalLabel(parsed.directive);
+
   // `phrasing` is verbatim user provenance — a reframe of the directive never
   // rewrites it. The label is editable, including clearing it (null).
   const nextLabel =
@@ -383,6 +406,7 @@ export async function editStandingInstruction(
       })
       .where(activeStandingInstructionWhere(parsed.userId, parsed.factId))
       .returning({ id: userFacts.id });
+
     if (!row) return null;
 
     const [inserted] = await tx
@@ -399,6 +423,7 @@ export async function editStandingInstruction(
         supersedesId: parsed.factId,
       })
       .returning({ id: userFacts.id });
+
     if (!inserted) return null;
 
     await appendStandingInstructionObservation(
@@ -413,11 +438,14 @@ export async function editStandingInstruction(
       },
       tx,
     );
+
     return inserted;
   });
+
   if (!edited) return { ok: false, status: "not_found" };
 
   emitReplicachePokes([parsed.userId]);
+
   return {
     ok: true,
     status: "edited",
@@ -432,15 +460,22 @@ export function findSenderSuppression(
   lookup: SenderSuppressionLookup,
 ): SenderSuppressionMatch | null {
   const email = normalizeSenderEmail(lookup.senderEmail);
+
   if (!email) return null;
 
   const accountId = lookup.accountId ?? null;
+
   for (const instruction of instructions) {
     const { value } = instruction;
+
     if (!hasSuppressionEffect(value, lookup.effect)) continue;
+
     if (value.target.kind !== "sender_email") continue;
+
     if (value.target.email !== email) continue;
+
     if (value.target.accountId !== null && value.target.accountId !== accountId) continue;
+
     return { ...instruction, matchedEmail: email, effect: lookup.effect };
   }
 
@@ -467,7 +502,9 @@ function instructionFromFact(fact: {
   validFrom: Date;
 }): ActiveSuppressionInstruction | null {
   const parsed = standingInstructionValueSchema.safeParse(fact.value);
+
   if (!parsed.success) return null;
+
   return {
     factId: fact.id,
     value: parsed.data,
@@ -491,6 +528,7 @@ async function appendStandingInstructionObservation(
   tx: Parameters<typeof insertObservation>[1],
 ): Promise<void> {
   const source = args.source ?? { kind: "user" as const };
+
   const payload = {
     operation: args.operation,
     factId: args.factId,
@@ -500,6 +538,7 @@ async function appendStandingInstructionObservation(
     reason: args.reason ?? null,
     source,
   };
+
   const evidenceHash = sha256Canonical(payload);
 
   await insertObservation(
@@ -525,6 +564,7 @@ function observationSourceForMemorySource(source: MemorySource): ObservationSour
 
 function normalizeOptionalLabel(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
+
   return trimmed ? trimmed : null;
 }
 

@@ -14,8 +14,11 @@ import { rememberSenderSuppressionAndDismissTodos } from "../../../src/runtime/a
 import { dbBackedSkip } from "../../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-remember-suppression-";
+
 const SENDER = "billing@example.com";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -24,6 +27,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Remember Suppression Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -50,6 +54,7 @@ async function seedGmailTodoFromSender(userId: string): Promise<{ todoId: string
   await db()
     .insert(todos)
     .values({ id: todoId, userId, name: "Pay the invoice", status: "open", sources });
+
   return { todoId };
 }
 
@@ -59,6 +64,7 @@ async function todoStatus(todoId: string): Promise<string | undefined> {
     .from(todos)
     .where(eq(todos.id, todoId))
     .limit(1);
+
   return row?.status;
 }
 
@@ -85,6 +91,7 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();
@@ -107,9 +114,11 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
 
     const result = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(result.ok, true);
+
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "remembered");
     assert.equal(result.resolvedTodos.ok, true);
+
     if (!result.resolvedTodos.ok) throw new Error("unreachable");
     assert.equal(result.resolvedTodos.status, "dismissed");
     assert.equal(result.resolvedTodos.dismissedCount, 1);
@@ -123,6 +132,7 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     // First call mints the suppression (remembered) and dismisses the first todo.
     const remembered = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(remembered.ok, true);
+
     if (!remembered.ok) throw new Error("unreachable");
     assert.equal(remembered.status, "remembered");
     assert.equal(await todoStatus(first.todoId), "dismissed");
@@ -133,6 +143,7 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     // Second call hits the `already_exists` branch and must still dismiss.
     const again = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(again.ok, true);
+
     if (!again.ok) throw new Error("unreachable");
     assert.equal(again.status, "already_exists");
     assert.equal(again.resolvedTodos.status, "dismissed");

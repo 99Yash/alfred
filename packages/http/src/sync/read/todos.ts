@@ -14,6 +14,7 @@ const TODO_DONE_WINDOW_DAYS = 2;
 export const fetchTodos = syncEntity(SYNC_MODEL.todo, {
   query: (tx, userId) => {
     const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
     return tx
       .select()
       .from(todos)
@@ -30,6 +31,7 @@ export const fetchTodos = syncEntity(SYNC_MODEL.todo, {
     if (t.status === "dismissed") {
       throw new SerializationError("cannot sync a dismissed todo");
     }
+
     return t;
   },
 });

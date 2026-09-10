@@ -23,6 +23,7 @@ import { classifyStreamFinish, isRetryableEmptyCompletion } from "../src/agent";
 // A single fake tool call — the classifier only reads `.length`, so the shape
 // past that is irrelevant.
 const ONE_TOOL_CALL = [{}];
+
 const NO_TOOL_CALLS: unknown[] = [];
 
 describe("isRetryableEmptyCompletion", () => {
@@ -147,6 +148,7 @@ describe("classifyStreamFinish finish-reason coverage", () => {
     "error",
     "other",
   ];
+
   test("no-text, no-tool-calls turns split cleanly into empty vs stopped", () => {
     for (const finishReason of reasons) {
       const outcome = classifyStreamFinish({
@@ -154,6 +156,7 @@ describe("classifyStreamFinish finish-reason coverage", () => {
         finishReason,
         textLength: 0,
       });
+
       if (finishReason === "content-filter" || finishReason === "length") {
         assert.equal(outcome.kind, "stopped", `${finishReason} should surface`);
       } else {

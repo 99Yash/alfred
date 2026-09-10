@@ -16,6 +16,7 @@ const groupKind = {
   entityId: "ent_1",
   displayName: "Some List",
 };
+
 const serviceKind = {
   ...groupKind,
   kind: "service" as const,
@@ -30,6 +31,7 @@ function classification(over: Partial<TriageClassification> = {}): TriageClassif
 
 function context(over: Partial<FloorContext> = {}): FloorContext {
   const signalText = over.signalText ?? "";
+
   return {
     signalText,
     collabVetoText: signalText,
@@ -86,6 +88,7 @@ describe("applyFloors — sequence order", () => {
       }),
       context({ signalText: SECRET_TEXT, senderKind: groupKind }),
     );
+
     assert.equal(outcome.classification.category, "urgent");
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
     assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
@@ -100,6 +103,7 @@ describe("applyFloors — sequence order", () => {
       classification({ category: "meeting" }),
       context({ signalText: SECRET_TEXT, subject: "Meeting notes: Eng standup" }),
     );
+
     assert.equal(outcome.classification.category, "urgent");
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
     assert.equal(outcome.audits.meeting.verdict.kind, "keep");
@@ -118,6 +122,7 @@ describe("applyFloors — sequence order", () => {
         subject: "Meeting notes: Weekly sync",
       }),
     );
+
     assert.equal(outcome.classification.category, "fyi");
     assert.equal(outcome.audits.senderKind.verdict.kind, "demote");
     assert.equal(outcome.audits.senderKind.reason, "collab_passive_activity");
@@ -130,6 +135,7 @@ describe("applyFloors — sequence order", () => {
       classification({ category: "meeting" }),
       context({ subject: "Meeting notes: Eng standup", effectiveAuthor: "person" }),
     );
+
     assert.equal(outcome.classification.category, "fyi");
     assert.equal(outcome.audits.meeting.verdict.kind, "demote");
     assert.equal(outcome.audits.meeting.reason, "meeting_recap");
@@ -159,6 +165,7 @@ describe("applyFloors — threading", () => {
       "we detected a new sign-in to your account from a new device. " +
       "if this was you, no action is needed. " +
       "if you don't recognize this, your api key was leaked — rotate it now.";
+
     const outcome = applyFloors(
       classification({ category: "fyi" }),
       context({
@@ -167,6 +174,7 @@ describe("applyFloors — threading", () => {
         senderKind: groupKind,
       }),
     );
+
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
     assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
     assert.equal(outcome.audits.senderKind.reason, null);
@@ -181,6 +189,7 @@ describe("applyFloors — threading", () => {
       category: "meeting",
       todoSuggestion: { name: "Attend the standup" },
     });
+
     const before = structuredClone(input);
     const outcome = applyFloors(input, context({ subject: "Meeting notes: Eng standup" }));
     assert.deepEqual(input, before);
@@ -237,6 +246,7 @@ describe("applyFloors — model id tags", () => {
         senderKind: groupKind,
       }),
     );
+
     assert.deepEqual(outcome.modelIdTags, ["+floor"]);
   });
 });

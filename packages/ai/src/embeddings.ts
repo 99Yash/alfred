@@ -15,6 +15,7 @@ export {
   VOYAGE_MAX_BATCH_INPUTS,
   VOYAGE_MAX_BATCH_TOKENS,
 } from "./constants";
+
 import type { CallAttribution } from "./metering/types";
 
 /**
@@ -38,6 +39,7 @@ export function voyageInputPricePerMtokUsd(): number {
 }
 
 const VOYAGE_API_BASE = "https://api.voyageai.com/v1/embeddings";
+
 const VOYAGE_DEFAULT_MODEL = "voyage-3.5";
 
 /**
@@ -85,11 +87,13 @@ const voyageEmbeddingResponseSchema = z.object({
 
 async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEmbeddingResponse> {
   const env = serverEnv();
+
   if (!env.VOYAGE_API_KEY) {
     throw new Error("[embeddings] VOYAGE_API_KEY missing — set it to use the embeddings module");
   }
 
   const model = opts.model ?? VOYAGE_DEFAULT_MODEL;
+
   const meta = {
     kind: "embedding" as const,
     provider: "voyage",
@@ -124,13 +128,17 @@ async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEm
           output_dimension: opts.dimensions ?? EMBEDDING_DIMENSIONS,
         }),
       });
+
       if (!res.ok) {
         throw await httpErrorFromResponse("embeddings", res, { url: "voyage/embeddings" });
       }
+
       const parsed = voyageEmbeddingResponseSchema.safeParse(await res.json());
+
       if (!parsed.success) {
         throw new Error("[embeddings] Voyage returned an unexpected payload shape");
       }
+
       return parsed.data;
     },
     (result) => ({
@@ -145,9 +153,12 @@ export async function embed(text: string, opts: EmbedOptions = {}): Promise<numb
   if (text.length === 0) {
     throw new Error("[embeddings] cannot embed empty string");
   }
+
   const response = await callVoyage([text], opts);
   const first = response.data[0];
+
   if (!first) throw new Error("[embeddings] Voyage returned no vectors");
+
   return first.embedding;
 }
 
@@ -162,20 +173,26 @@ export function batchForVoyage(texts: readonly string[]): string[][] {
   const batches: string[][] = [];
   let current: string[] = [];
   let tokens = 0;
+
   for (const text of texts) {
     const estimated = Math.ceil(text.length / BATCH_CHARS_PER_TOKEN);
+
     const currentFull =
       current.length >= VOYAGE_MAX_BATCH_INPUTS ||
       (current.length > 0 && tokens + estimated > VOYAGE_MAX_BATCH_TOKENS);
+
     if (currentFull) {
       batches.push(current);
       current = [];
       tokens = 0;
     }
+
     current.push(text);
     tokens += estimated;
   }
+
   if (current.length > 0) batches.push(current);
+
   return batches;
 }
 
@@ -189,6 +206,7 @@ export async function embedMany(texts: string[], opts: EmbedOptions = {}): Promi
   if (texts.length === 0) return [];
   const filtered = texts.map((t) => (t.length === 0 ? " " : t));
   const out: number[][] = [];
+
   for (const batch of batchForVoyage(filtered)) {
     const response = await callVoyage(batch, opts);
     // Voyage promises ordered output within a request, but we sort
@@ -196,5 +214,6 @@ export async function embedMany(texts: string[], opts: EmbedOptions = {}): Promi
     const sorted = [...response.data].sort((a, b) => a.index - b.index);
     out.push(...sorted.map((d) => d.embedding));
   }
+
   return out;
 }

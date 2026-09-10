@@ -22,12 +22,16 @@
  * for a write-capable internal here is a red `pnpm lint`, not a silent bypass.
  */
 export { backfillTeamGraph } from "./team-graph";
+
 export {
   gateDocumentFact,
   isServiceSender,
   isUninformativeRelationshipValue,
   type SelfIdentity,
 } from "./fact-policy";
+
 export { loadSelfIdentity } from "./self-identity";
+
 export { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
+
 export { isRejected } from "./rejected";

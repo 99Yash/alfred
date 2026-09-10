@@ -46,6 +46,7 @@ export function sharedKey(
 ): `alfred:scratch:${string}:shared.${string}` {
   assertScratchKeyPart("runId", runId);
   assertScratchKeyPart("path", path);
+
   return `${scratchKeyPrefix(runId)}shared.${path}`;
 }
 
@@ -57,6 +58,7 @@ export function subAgentKey(
   assertScratchKeyPart("runId", runId);
   assertScratchKeyPart("subId", subId);
   assertScratchKeyPart("path", path);
+
   return `${scratchKeyPrefix(runId)}scratch.${subId}.${path}`;
 }
 
@@ -73,6 +75,7 @@ export function logicalScratchKey(runId: string, fullKey: string): string {
 
 /** The two scratchpad zones: boss-owned `shared.*` and per-sub-agent `scratch.*`. */
 export const SCRATCH_ZONES = ["shared", "scratch"] as const;
+
 export type ScratchZone = (typeof SCRATCH_ZONES)[number];
 
 export interface ScratchEntry<T = unknown> {

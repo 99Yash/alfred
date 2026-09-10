@@ -25,6 +25,7 @@ export async function verifyMeteringModels(): Promise<void> {
   ];
 
   const failures: string[] = [];
+
   for (const { label, model } of checks) {
     try {
       await resolveModelContextWindow(model);

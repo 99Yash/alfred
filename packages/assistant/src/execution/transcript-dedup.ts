@@ -21,9 +21,12 @@ export function isSynthesizedToolDup(
   stepCallIds: ReadonlySet<string>,
 ): boolean {
   if (message.role !== "tool") return false;
+
   if (!Array.isArray(message.content) || message.content.length === 0) return false;
+
   return message.content.every((part) => {
     const id = isRecord(part) ? part.toolCallId : undefined;
+
     return typeof id === "string" && stepCallIds.has(id);
   });
 }

@@ -50,12 +50,19 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-cancel-race-";
+
 const createdUserIds: string[] = [];
+
 const STEP = "chat-turn";
+
 const CANCEL_ADVANCE_SLUG = "__test-cancel-race-advance";
+
 const CANCEL_THROW_SLUG = "__test-cancel-race-throw";
+
 const CANCEL_CLOSURE_SLUG = "__test-cancel-race-closure";
+
 const TERMINAL_SKIP_REASON = "run_already_terminal";
+
 const RECLAIM_SKIP_REASON = "superseded_by_reclaim";
 
 /** Which `onTerminal` branch fired. Mirrors the runtime's `TerminalOutcome` discriminant. */
@@ -82,6 +89,7 @@ const cancelThenAdvanceWorkflow: Workflow<Record<string, never>> = {
       id: STEP,
       run: async (ctx): Promise<StepResult<Record<string, never>>> => {
         await cancelRun({ runId: ctx.runId, reason: "user_stopped" });
+
         return { kind: "next", state: {}, nextStep: "dispatch-tools" };
       },
     },
@@ -125,6 +133,7 @@ const cancelClosureWorkflow: Workflow<Record<string, never>> = {
       id: STEP,
       run: async (ctx): Promise<StepResult<Record<string, never>>> => {
         await cancelRun({ runId: ctx.runId, reason: "user_stopped" });
+
         return { kind: "next", state: {}, nextStep: "dispatch-tools" };
       },
     },
@@ -147,6 +156,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -167,11 +177,13 @@ async function seedRun(args: {
     attempt: args.attempt,
     lastCheckpointAt: new Date(),
   });
+
   if (args.withStepRow) {
     await db()
       .insert(agentSteps)
       .values({ runId, stepId: STEP, attempt: args.attempt, status: "running" });
   }
+
   return { userId, runId };
 }
 
@@ -208,6 +220,7 @@ async function seedChildRun(args: {
         },
       },
     });
+
   return runId;
 }
 
@@ -232,8 +245,10 @@ async function seedPendingStaging(userId: string, runId: string): Promise<string
       requestHash: "req:test-cancel-race",
     })
     .returning({ id: actionStagings.id });
+
   const id = rows[0]?.id;
   assert.ok(id, "seeded a staging row");
+
   return id;
 }
 
@@ -265,6 +280,7 @@ async function readRun(runId: string) {
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
+
   return rows[0];
 }
 
@@ -273,6 +289,7 @@ async function countApprovalRequests(userId: string): Promise<number> {
     .select({ id: eventsOutbox.id })
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "approval.requested")));
+
   return rows.length;
 }
 
@@ -287,6 +304,7 @@ async function readFailedRunFrames(userId: string, runId: string): Promise<unkno
     .select({ payload: eventsOutbox.payload })
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "agent.run")));
+
   return rows
     .map((r) => r.payload)
     .filter((p) => getStringPath(p, "runId") === runId && getStringPath(p, "phase") === "failed");
@@ -303,9 +321,11 @@ async function readCancelledFrameError(userId: string, runId: string): Promise<s
     .select({ payload: eventsOutbox.payload })
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "agent.run")));
+
   const frame = rows
     .map((r) => r.payload)
     .find((p) => getStringPath(p, "runId") === runId && getStringPath(p, "phase") === "cancelled");
+
   return frame === undefined ? undefined : getStringPath(frame, "error");
 }
 
@@ -314,6 +334,7 @@ async function readStagingStatuses(runId: string): Promise<string[]> {
     .select({ status: actionStagings.status })
     .from(actionStagings)
     .where(eq(actionStagings.runId, runId));
+
   return rows.map((r) => r.status);
 }
 
@@ -322,8 +343,11 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
+
     if (!getWorkflow(CANCEL_ADVANCE_SLUG)) registerRecipe(cancelThenAdvanceWorkflow);
+
     if (!getWorkflow(CANCEL_THROW_SLUG)) registerRecipe(cancelThenThrowWorkflow);
+
     if (!getWorkflow(CANCEL_CLOSURE_SLUG)) registerRecipe(cancelClosureWorkflow);
   });
   beforeEach(() => {
@@ -333,6 +357,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     await closeConnections();
     await closeRedis();
@@ -381,6 +406,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       attempt: 3,
       withStepRow: true,
     });
+
     await cancelRun({ runId, reason: "user_stopped" });
 
     const outcome = await commitStepSuccess(
@@ -411,6 +437,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     // A pending approval the cancel must reject…
     await seedPendingStaging(userId, runId);
+
     // …and two committed effects the cancel must NOT touch: one `succeeded`
     // and one stuck at the sticky `unknown` outcome. The ambiguity barrier
     // keys on the unknown row, so a cancel rewriting it would erase the
@@ -460,6 +487,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     const pendingRow = rows.find(
       (r) => r.toolCallId !== "call_done" && r.toolCallId !== "call_unknown",
     );
+
     const doneRow = rows.find((r) => r.toolCallId === "call_done");
     const unknownRow = rows.find((r) => r.toolCallId === "call_unknown");
 
@@ -481,6 +509,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       attempt: 4,
       withStepRow: true,
     });
+
     await seedPendingStaging(userId, runId);
     await cancelRun({ runId, reason: "user_stopped" });
     assert.deepEqual(
@@ -522,6 +551,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       attempt: 6,
       withStepRow: true,
     });
+
     await cancelRun({ runId, reason: "user_stopped" });
 
     // This is the D1 ordering: the cancel transaction already committed and
@@ -595,6 +625,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       status: "running",
       attempt: 3,
     });
+
     const longReason = "x".repeat(AGENT_RUN_ERROR_MAX + 500);
 
     // Would reject (throw) on the over-cap payload without the publisher clamp.
@@ -616,24 +647,28 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       status: "running",
       attempt: 1,
     });
+
     const running = await seedChildRun({
       userId,
       parentRunId: runId,
       status: "running",
       subId: "a",
     });
+
     const parked = await seedChildRun({
       userId,
       parentRunId: runId,
       status: "waiting",
       subId: "b",
     });
+
     const finished = await seedChildRun({
       userId,
       parentRunId: runId,
       status: "completed",
       subId: "c",
     });
+
     // A child of a DIFFERENT parent. The cascade selects on the metadata
     // pointer, so a predicate that fell back to "every sub-agent run of this
     // user" would kill this one too.
@@ -642,6 +677,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       status: "running",
       attempt: 1,
     });
+
     const stranger = await seedChildRun({
       userId,
       parentRunId: other.runId,
@@ -687,12 +723,14 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       status: "running",
       attempt: 1,
     });
+
     const childRunId = await seedChildRun({
       userId,
       parentRunId: runId,
       status: "running",
       subId: "closes",
     });
+
     // A pending approval on the CHILD. The parent's bulk reject is scoped to
     // its own run id, so only the cascade can decide this row.
     await seedPendingStaging(userId, childRunId);
@@ -716,10 +754,12 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       ["rejected"],
       "the child's pending approval is rejected by the cascade's staging sweep",
     );
+
     const [rejected] = await db()
       .select({ reason: actionStagings.rejectReason })
       .from(actionStagings)
       .where(eq(actionStagings.runId, childRunId));
+
     assert.equal(
       rejected?.reason,
       "You stopped this run.",
@@ -736,6 +776,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       status: "running",
       attempt: 1,
     });
+
     await cancelRun({ runId, reason: "user_stopped" });
 
     await assert.rejects(
@@ -752,6 +793,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
         assert.ok(error instanceof Error, `spawn rejected with ${String(error)}`);
         assert.ok(error instanceof AppError, "the refusal is a typed app error, not a bare Error");
         assert.equal((error as AppError).code, "run_cancelled");
+
         return true;
       },
       "a terminal parent must not gain a child",
@@ -761,6 +803,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       .select({ id: agentRuns.id })
       .from(agentRuns)
       .where(sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${runId}`);
+
     assert.deepEqual(children, [], "no child row was written");
   });
 
@@ -770,6 +813,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       status: "waiting",
       attempt: 0,
     });
+
     await cancelRun({ runId, reason: "first" });
     terminalCalls.length = 0;
 
@@ -786,6 +830,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       status: "running",
       attempt: 7,
     });
+
     await cancelRun({ runId, reason: "cancelled_by_user" });
     const cancelled = await readRun(runId);
     terminalCalls.length = 0;
@@ -895,6 +940,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       attempt: 3,
       withStepRow: true,
     });
+
     await db()
       .update(agentRuns)
       .set({ attempt: 4, status: "completed" })

@@ -35,8 +35,10 @@ export function triggerLabel(trigger: {
             rawKind: trigger.rawKind,
           })
         : "an event";
+
       return `Triggered by ${phrase}`;
     }
+
     default:
       return humanizeSlug(trigger.kind);
   }
@@ -56,7 +58,9 @@ export function formatJson(value: unknown): string {
 
 export function stringValue(value: unknown): string {
   if (typeof value === "string") return value;
+
   if (typeof value === "number" || typeof value === "boolean") return String(value);
+
   return "";
 }
 
@@ -72,15 +76,19 @@ export function shortId(value: string): string {
 
 export function formatTimestamp(iso: string): string {
   const d = new Date(iso);
+
   if (Number.isNaN(d.getTime())) return iso;
   const now = new Date();
+
   const sameDay =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
+
   if (sameDay) {
     return `today at ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
   }
+
   return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",

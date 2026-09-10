@@ -39,6 +39,7 @@ interface StreamSnapshot {
 const WATCHDOG_MS = 45_000;
 
 const STREAM_ERROR_MESSAGE = "Live updates disconnected — reply may be incomplete.";
+
 const WATCHDOG_ERROR_MESSAGE =
   "Connection stalled — no updates received. The reply may be incomplete.";
 
@@ -79,6 +80,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     let lastSnapshot: StreamingMessage | null = null;
 
     let watchdogId: number | null = null;
+
     const clearWatchdog = () => {
       if (watchdogId !== null) {
         // `window.setTimeout` returns `number` in lib.dom; `clearTimeout` is global.
@@ -86,10 +88,13 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         watchdogId = null;
       }
     };
+
     const armWatchdog = () => {
       clearWatchdog();
       const cur = cell.current;
+
       if (!cur || cur.done) return;
+
       // A run parked on an approval sends no frames until the user decides, so
       // silence proves nothing about the bus. Arming here painted "Connection
       // stalled" over a healthy question card 45 seconds after it appeared
@@ -99,6 +104,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       if (cur.awaitingApproval) return;
       watchdogId = window.setTimeout(() => {
         watchdogId = null;
+
         if (applyStreamError(cell, WATCHDOG_ERROR_MESSAGE)) {
           ensureRaf();
           toast.error("Connection stalled — live updates stopped. Please retry.");
@@ -108,34 +114,44 @@ export function useChatStream(threadId: string | undefined): ChatStream {
 
     const ensureRaf = () => {
       if (rafRef.current !== null) return;
+
       const tick = () => {
         const projected = tickDrip(cell);
+
         if (!projected) {
           rafRef.current = null;
+
           return;
         }
+
         const { snapshot: next, caughtUp } = projected;
+
         if (!streamSnapshotsEqual(lastSnapshot, next)) {
           lastSnapshot = next;
           setSnapshot({ threadId, message: next });
         }
+
         // Keep ticking only while the eased buffers are catching up. Future
         // SSE frames call `ensureRaf()` again, including approval/completed
         // state changes.
         rafRef.current = caughtUp ? null : requestAnimationFrame(tick);
       };
+
       rafRef.current = requestAnimationFrame(tick);
     };
 
     stopFnRef.current = () => {
       clearWatchdog();
+
       if (applyOptimisticStop(cell)) ensureRaf();
     };
 
     const close = openEventStream({
       onFrame: (frame) => {
         const didChange = applyChatFrame(cell, frame, Date.now());
+
         if (didChange) ensureRaf();
+
         // Connection is alive — re-arm watchdog for any in-flight turn, not only
         // when the frame mutated the snapshot. A dup seq or a foreign-thread
         // frame (didChange=false) still proves the bus is healthy; only a done
@@ -145,16 +161,19 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       },
       onError: () => {
         clearWatchdog();
+
         if (applyStreamError(cell, STREAM_ERROR_MESSAGE)) {
           ensureRaf();
           toast.error(`${STREAM_ERROR_MESSAGE} Please retry.`);
         }
       },
     });
+
     return () => {
       close();
       clearWatchdog();
       stopFnRef.current = null;
+
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -163,5 +182,6 @@ export function useChatStream(threadId: string | undefined): ChatStream {
   }, [threadId]);
 
   const stream = snapshot && snapshot.threadId === threadId ? snapshot.message : null;
+
   return { stream, stopStream };
 }

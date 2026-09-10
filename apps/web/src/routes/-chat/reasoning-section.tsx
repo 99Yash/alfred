@@ -12,6 +12,7 @@ const ITEM = "reasoning";
 // thresholds it renders as a useless "Thought for 0.0s" stub (the model emitted
 // a token or two with no measurable pause), so we drop it entirely.
 const MIN_COMPLETE_MS = 400;
+
 const MIN_COMPLETE_CHARS = 160;
 
 /**
@@ -35,8 +36,10 @@ export function ReasoningSection({
   // for a frame). The user can still toggle freely between transitions.
   const [value, setValue] = useState(active ? ITEM : "");
   const [prevActive, setPrevActive] = useState(active);
+
   if (prevActive !== active) {
     setPrevActive(active);
+
     if (!active) setValue("");
   }
 
@@ -47,6 +50,7 @@ export function ReasoningSection({
   useEffect(() => {
     if (!active) return;
     const el = contentRef.current;
+
     if (el) el.scrollTop = el.scrollHeight;
   }, [reasoning, active]);
 
@@ -54,6 +58,7 @@ export function ReasoningSection({
     const substantive =
       reasoning.trim().length >= MIN_COMPLETE_CHARS ||
       (durationMs != null && durationMs >= MIN_COMPLETE_MS);
+
     if (!substantive) return null;
   }
 

@@ -57,30 +57,43 @@ import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-st
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 
 const USER_ID = "usr_staging_machine";
+
 const RUN_ID = "run_staging_machine";
+
 /** The gate reads the `"timezone"` pref when this is absent — the one DB trap left. */
 const TIMEZONE = parseIanaTimezone("UTC");
 
 let store: MemoryStagingStore;
+
 let restoreStore: (() => void) | null = null;
+
 let restoreTraceSinks: (() => void) | null = null;
+
 let restoreAvailabilityReader: (() => void) | null = null;
+
 let unregisterPokeAdapter: (() => void) | null = null;
+
 let executeCount = 0;
+
 let lastExecutedInput: unknown;
 
 function requireCalendarCreateEventTool() {
   const tool = calendarTools.find((candidate) => candidate.name === "calendar.create_event");
+
   if (!tool) throw new Error("production Calendar registration must include create_event");
+
   return tool;
 }
 
 const calendarCreateEventTool = requireCalendarCreateEventTool();
+
 const calendarCredentialRequirement = (() => {
   const requirement = calendarCreateEventTool.availability?.credential;
+
   if (!requirement) {
     throw new Error("production Calendar create_event must declare its credential requirement");
   }
+
   return requirement;
 })();
 
@@ -118,11 +131,14 @@ function registerDoubles(): void {
       execute: async (input) => {
         executeCount += 1;
         lastExecutedInput = input;
+
         if (input.slug === "boom") throw new Error("tool blew up");
+
         // The `poison` sentinel returns a NUL the dispatch-boundary sanitizer
         // must strip (ADR-0070 §1.1). Written as the `\x00` ESCAPE, never a
         // literal NUL byte (a literal one turns this file binary to rg/git).
         if (input.slug === "poison") return { ok: true, note: "tail\x00end", call: executeCount };
+
         if (input.slug === "json-normalization") {
           return {
             at: new Date("2026-08-10T00:00:00.000Z"),
@@ -130,6 +146,7 @@ function registerDoubles(): void {
             items: [undefined, "kept"],
           };
         }
+
         return { ok: true, slug: input.slug, call: executeCount };
       },
     }),
@@ -161,6 +178,7 @@ function registerDoubles(): void {
       execute: async (input) => {
         executeCount += 1;
         lastExecutedInput = input;
+
         return { ok: true, url: input.url };
       },
       redactInput: (input) => ({
@@ -174,6 +192,7 @@ function registerDoubles(): void {
     execute: async (input) => {
       executeCount += 1;
       lastExecutedInput = input;
+
       return { ok: true };
     },
   });
@@ -191,6 +210,7 @@ function installMachineFixture(): void {
     rejectionRecorder: () => {},
     toolSpanStarter: () => ({ success: () => {}, error: () => {} }),
   });
+
   const availability: IntegrationAvailabilitySnapshot = {
     integrations: new Map([["calendar", { health: "active", accountLabel: null }]]),
     providers: new Map([
@@ -211,6 +231,7 @@ function installMachineFixture(): void {
     ]),
     passthroughEnabled: new Map(),
   };
+
   restoreAvailabilityReader = _setIntegrationAvailabilityReaderForTests(() =>
     Promise.resolve(availability),
   );
@@ -266,6 +287,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const result = await dispatchToolCall(
       baseArgs({ toolCallId: "tc_json", input: { slug: "json-normalization" } }),
     );
+
     const expected = {
       at: "2026-08-10T00:00:00.000Z",
       items: [null, "kept"],
@@ -373,6 +395,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const result = await dispatchToolCall(
       baseArgs({ toolCallId: "tc_b", input: { slug: "calendar" } }),
     );
+
     assert.equal(result.kind, "executed", "a different proposal is a different decision");
   });
 
@@ -432,6 +455,7 @@ describe("dispatch staging machine (DB-free)", () => {
     store.upsertStaging = async (values) => {
       const result = await upsert(values);
       store.seedRun(RUN_ID, "running", { generation: 1 });
+
       return result;
     };
 
@@ -519,6 +543,7 @@ describe("dispatch staging machine (DB-free)", () => {
       end: "2026-08-12T11:00:00+05:30",
       attendees: [],
     };
+
     const result = await dispatchToolCall(
       baseArgs({
         toolCallId: "tc_calendar_no_attendees",
@@ -541,12 +566,14 @@ describe("dispatch staging machine (DB-free)", () => {
 
   test("a Calendar invite becomes high, stages, and resumes with every attendee", async () => {
     const attendees = ["ada@example.com", "grace@example.com"];
+
     const input = {
       summary: "Planning",
       start: "2026-08-12T10:00:00+05:30",
       end: "2026-08-12T11:00:00+05:30",
       attendees,
     };
+
     const args = baseArgs({
       toolCallId: "tc_calendar_invite",
       toolName: "calendar.create_event",
@@ -576,12 +603,14 @@ describe("dispatch staging machine (DB-free)", () => {
 
   test("a pending pre-floor Calendar invite is promoted to approval before resume", async () => {
     const toolCallId = "tc_calendar_invite_before_floor";
+
     const input = calendarCreateEventTool.inputSchema.parse({
       summary: "Legacy planning",
       start: "2026-08-12T10:00:00+05:30",
       end: "2026-08-12T11:00:00+05:30",
       attendees: ["ada@example.com"],
     });
+
     await store.upsertStaging({
       userId: USER_ID,
       runId: RUN_ID,
@@ -615,12 +644,14 @@ describe("dispatch staging machine (DB-free)", () => {
 
   test("a policy change does not promote a pending medium-risk autonomous row", async () => {
     const toolCallId = "tc_calendar_policy_change";
+
     const input = calendarCreateEventTool.inputSchema.parse({
       summary: "Focus block",
       start: "2026-08-12T10:00:00+05:30",
       end: "2026-08-12T11:00:00+05:30",
       attendees: [],
     });
+
     await store.upsertStaging({
       userId: USER_ID,
       runId: RUN_ID,
@@ -665,6 +696,7 @@ describe("dispatch staging machine (DB-free)", () => {
       toolName: "system.fetch_url",
       input: { url: "https://example.test" },
     });
+
     await dispatchToolCall(args);
     const second = await dispatchToolCall(args);
 
@@ -777,6 +809,7 @@ describe("dispatch staging machine (DB-free)", () => {
     // the (runId, toolCallId) conflict key. The seeded row stands in for a
     // committed `unknown` from the MCP broker's ambiguous attempt.
     const args = baseArgs({ toolCallId: "tc_seed_unknown" });
+
     const { row } = await store.upsertStaging({
       userId: USER_ID,
       runId: RUN_ID,
@@ -792,6 +825,7 @@ describe("dispatch staging machine (DB-free)", () => {
       requiresApproval: false,
       status: "pending",
     });
+
     await store.commitStaging(row.id, row, {
       status: "executed",
       outcome: "unknown",
@@ -807,6 +841,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_identical_replay" }));
 
     assert.equal(result.kind, "blocked", "an unresolved identical effect is blocked");
+
     if (result.kind !== "blocked") return;
     assert.equal(result.stagingId, null, "the barrier fires before any row exists");
     assert.equal(
@@ -833,6 +868,7 @@ describe("dispatch staging machine (DB-free)", () => {
         inputSchema: z.object({ slug: z.string() }),
         execute: async () => {
           executeCount += 1;
+
           return unknownEffectEnvelopeSchema.parse({
             status: "unknown",
             retry: "blocked",
@@ -866,16 +902,19 @@ describe("dispatch staging machine (DB-free)", () => {
  * verification worse rather than better.
  */
 const contractStore = memoryStagingStore();
+
 let contractRunSeq = 0;
 
 runStagingStoreContract("memory", (): StagingStoreHarness => {
   const active = contractStore;
+
   return {
     store: active,
     async seedRun(status, fenceGeneration) {
       contractRunSeq += 1;
       const runId = `run_contract_${contractRunSeq}`;
       active.seedRun(runId, status, { generation: fenceGeneration ?? 0 });
+
       return { userId: `usr_contract_${contractRunSeq}`, runId };
     },
     async decide(stagingId, decision) {
@@ -883,6 +922,7 @@ runStagingStoreContract("memory", (): StagingStoreHarness => {
     },
     async readBack(stagingId) {
       const row = active.readBack(stagingId);
+
       return row
         ? {
             status: row.status,

@@ -14,12 +14,14 @@ describe("chat compaction continuation", () => {
       role: "user",
       content: "<conversation_summary />",
     } satisfies AgentTranscriptMessage;
+
     const storedTail = [
       {
         role: "user",
         content: [{ type: "chat_attachment_image", storageKey: "private/thread/image.png" }],
       } as AgentTranscriptMessage,
     ];
+
     const hydratedTail = [
       {
         role: "user",
@@ -36,6 +38,7 @@ describe("chat compaction continuation", () => {
 
   test("preserves the whole in-flight tail after replacing only the compacted prefix", () => {
     const summary = { role: "system", content: "<run_summary />" } satisfies AgentTranscriptMessage;
+
     const tail = [
       { role: "assistant", content: "Checking." },
       { role: "tool", content: "large result" },
@@ -55,6 +58,7 @@ describe("chat compaction continuation", () => {
       } as AgentTranscriptMessage,
       { role: "assistant", content: "I inspected the image." } as AgentTranscriptMessage,
     ];
+
     const hydrated = [
       {
         role: "user",
@@ -75,6 +79,7 @@ describe("chat compaction continuation", () => {
       "msg_original",
       "<run_summary><current_goal>Ship it</current_goal></run_summary>",
     );
+
     const content = String(message.content);
 
     assert.equal(message.role, "user");

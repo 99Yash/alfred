@@ -56,6 +56,7 @@ export function RailContent({
   useLayoutEffect(() => {
     if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
   }, [tab]);
+
   return (
     <>
       {/* Full-bleed condition-aware video behind the rail content. */}
@@ -184,5 +185,6 @@ export function RailContent({
 function formatRailDate(date: Date): string {
   const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
   const month = date.toLocaleDateString(undefined, { month: "short" });
+
   return `${weekday}, ${month} ${date.getDate()}`;
 }

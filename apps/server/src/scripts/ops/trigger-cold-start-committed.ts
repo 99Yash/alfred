@@ -54,6 +54,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     .where(
       and(eq(agentRuns.userId, u.userId), eq(agentRuns.workflowSlug, COLD_START_WORKFLOW_SLUG)),
     );
+
   const active = prior.filter((r) => r.status !== "failed" && r.status !== "cancelled");
   console.log(
     `  prior cold-start runs: ${prior.length} (active=${active.length}: ${
@@ -63,6 +64,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   if (!COMMIT) {
     console.log("  [dry] no writes. Pass --commit to cancel-prior + enqueue.");
+
     return;
   }
 
@@ -80,6 +82,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         ),
       )
       .returning({ id: agentRuns.id });
+
     console.log(`  cancelled ${stomped.length} active prior run(s)`);
   }
 
@@ -91,6 +94,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`  enqueued cold-start run ${runId} (worker executes it)`);
 }
 
@@ -109,6 +113,7 @@ async function main() {
     .where(inArray(userTable.email, TARGET_EMAILS));
 
   const found = new Set(users.map((u) => u.email));
+
   for (const email of TARGET_EMAILS) {
     if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
   }

@@ -14,6 +14,7 @@
 
 /** Provider-agnostic lifecycle bucket. Generic consumers (briefing reconciliation) read this. */
 export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
+
 export type StateCategory = (typeof OBJECT_STATE_CATEGORIES)[number];
 
 /**
@@ -22,6 +23,7 @@ export type StateCategory = (typeof OBJECT_STATE_CATEGORIES)[number];
  * never closes). `active` is the sole non-terminal bucket.
  */
 export const TERMINAL_STATE_CATEGORIES = ["resolved", "failed", "abandoned"] as const;
+
 export type TerminalStateCategory = (typeof TERMINAL_STATE_CATEGORIES)[number];
 
 export function isTerminalCategory(category: StateCategory): category is TerminalStateCategory {
@@ -37,6 +39,7 @@ export function isTerminalCategory(category: StateCategory): category is Termina
  * loop, not evidence that the loop is fixed.
  */
 export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;
+
 export type LoopClosingStateCategory = (typeof LOOP_CLOSING_STATE_CATEGORIES)[number];
 
 export function isLoopClosingCategory(
@@ -69,6 +72,7 @@ export interface IntegrationObjectDef {
 }
 
 export const OBJECT_STATE_PROVIDERS = ["github"] as const;
+
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
 /**

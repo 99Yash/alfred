@@ -25,6 +25,9 @@ export type {
   InboundSyntheticKey,
   UnattributedReference,
 } from "./descriptor";
+
 export { inboundDeliveryKey, projectionKind } from "./descriptor";
+
 export { INBOUND_SOURCES, inboundSource } from "./registry";
+
 export { readInboundTriggerHealth } from "./health";

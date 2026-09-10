@@ -73,7 +73,9 @@ export async function stopApprovalNotificationWorker(): Promise<void> {
  */
 async function processNotificationJob(job: Job<NotificationJobData>): Promise<unknown> {
   const blocked = workflowBlockedNotificationJobDataSchema.safeParse(job.data);
+
   if (blocked.success) return processWorkflowBlockedNotification(blocked.data);
+
   return processApprovalNotificationJob(approvalNotificationJobDataSchema.parse(job.data));
 }
 
@@ -107,8 +109,11 @@ async function processApprovalNotificationJob({
     .limit(1);
 
   const row = rows[0];
+
   if (!row) return { status: "missing", stagingId };
+
   if (row.status !== "pending") return { status: "skipped", reason: row.status, stagingId };
+
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
 
   // #374: render the email and persist the payload from the redacted display
@@ -117,6 +122,7 @@ async function processApprovalNotificationJob({
   // The fallback covers only pre-column legacy rows (removed by 0107 backfill).
   const displayInput = jsonValueSchema.parse(row.displayInput ?? row.proposedInput);
   const approvalUrl = approvalDeepLink(stagingId);
+
   const rendered = await renderApprovalNotification({
     stagingId,
     runId: row.runId,
@@ -161,6 +167,7 @@ async function processApprovalNotificationJob({
   }
 
   const now = new Date();
+
   const updated = await db()
     .update(actionStagings)
     .set({
@@ -177,6 +184,7 @@ async function processApprovalNotificationJob({
     .returning({ id: actionStagings.id });
 
   if (updated[0]) emitReplicachePokes([row.userId], stagingId);
+
   return { status: result.status, stagingId, emailSendId: result.emailSendId };
 }
 
@@ -205,6 +213,7 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
   const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
   const inputFields = summarizeInput(args.displayInput);
+
   // Workflow / Tool / Risk lead the table, then the summarized input fields.
   const fields: ApprovalEmailField[] = [
     { label: "Workflow", value: args.workflowSlug },
@@ -212,6 +221,7 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
     { label: "Risk", value: args.riskTier },
     ...inputFields,
   ];
+
   const textLines = [
     subject,
     "",
@@ -243,8 +253,11 @@ function summarizeInput(input: unknown): Array<{ label: string; value: string }>
   if (!isRecord(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
   }
+
   const entries = Object.entries(input).slice(0, 8);
+
   if (entries.length === 0) return [{ label: "Input", value: "{}" }];
+
   return entries.map(([key, value]) => ({
     label: humanizeSlug(key),
     value: truncate(formatValue(value), 500),
@@ -253,8 +266,11 @@ function summarizeInput(input: unknown): Array<{ label: string; value: string }>
 
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
+
   if (typeof value === "number" || typeof value === "boolean") return String(value);
+
   if (value == null) return "None";
+
   return JSON.stringify(value);
 }
 

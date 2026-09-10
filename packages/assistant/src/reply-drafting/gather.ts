@@ -34,6 +34,7 @@ export const replyGatherSchema = z.object({
   styleInstructions: z.string().nullable(),
   sources: z.array(replyDraftGatheredObjectSchema),
 });
+
 export type ReplyGather = z.infer<typeof replyGatherSchema>;
 
 /** Unlike triage's loader, a missing credential is a normal drafting outcome. */
@@ -43,7 +44,9 @@ export async function loadReplyDocument(userId: string, documentId: string) {
     .from(documents)
     .where(and(eq(documents.userId, userId), eq(documents.id, documentId)))
     .limit(1);
+
   if (!document || document.source !== "gmail") return null;
+
   return { ...document, metadata: parseGmailDocumentMetadata(document.metadata) };
 }
 
@@ -55,9 +58,11 @@ export async function gatherReplyContext(args: {
   relationship: string;
 }): Promise<ReplyGather> {
   const { document } = args;
+
   if (!document.sourceThreadId || !document.accountId) {
     throw new Error("[reply-drafting] gather requires a mailbox and Gmail thread");
   }
+
   const [userContext, profile, timezone, thread] = await Promise.all([
     readUserContext(args.userId, {
       subjectEmail: args.sender ?? undefined,
@@ -74,13 +79,16 @@ export async function gatherReplyContext(args: {
       excludeDocumentId: document.id,
     }),
   ]);
+
   const now = new Date();
+
   const body = extractGmailDocumentBody(document.content, {
     from: document.metadata.from,
     to: document.metadata.to,
     cc: document.metadata.cc,
     subject: document.title,
   });
+
   // Both model calls cite this same context. Keep style instructions outside
   // the evidence: examples may guide voice but cannot establish facts.
   const context = {
@@ -97,6 +105,7 @@ export async function gatherReplyContext(args: {
     timezone,
     localDate: inZone(timezone).day(now),
   } satisfies Omit<ReplyGather, "style" | "styleInstructions" | "sources">;
+
   return replyGatherSchema.parse({
     ...context,
     style: profile ? { kind: "profile", styleProfileId: profile.id } : { kind: "style_missing" },

@@ -35,14 +35,18 @@ describe("redis connection kinds against a socket that accepts and never replies
     // Accept the connection and do nothing else — no reply, no FIN, no RST.
     const zombie = createServer((socket) => accepted.push(socket));
     server = zombie;
+
     const port = await new Promise<number>((resolve, reject) => {
       zombie.once("error", reject);
       zombie.listen(0, "127.0.0.1", () => {
         const address = zombie.address();
+
         if (address === null || typeof address === "string") {
           reject(new Error(`unexpected server address: ${String(address)}`));
+
           return;
         }
+
         resolve(address.port);
       });
     });
@@ -60,9 +64,11 @@ describe("redis connection kinds against a socket that accepts and never replies
 
   after(async () => {
     await redis.closeRedis();
+
     for (const socket of accepted) socket.destroy();
     accepted.length = 0;
     const listening = server;
+
     if (listening) await new Promise<void>((resolve) => listening.close(() => resolve()));
   });
 

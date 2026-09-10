@@ -49,6 +49,7 @@ export interface ResolvedPolicy {
 }
 
 const POLICY_BUST_CHANNEL_PREFIX = "policy-bust:u:";
+
 const POLICY_BUST_PATTERN = `${POLICY_BUST_CHANNEL_PREFIX}*`;
 
 function bustChannel(userId: string): string {
@@ -70,6 +71,7 @@ async function loadPolicy(userId: string): Promise<ResolvedPolicy> {
     .limit(1);
 
   const row = rows[0];
+
   if (row) {
     return {
       userId: row.userId,
@@ -95,6 +97,7 @@ async function loadPolicy(userId: string): Promise<ResolvedPolicy> {
 
 export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy> {
   const cached = cache.get(userId);
+
   if (cached) return cached;
 
   const pending = loadPolicy(userId).catch((err) => {
@@ -103,7 +106,9 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
     cache.delete(userId);
     throw err;
   });
+
   cache.set(userId, pending);
+
   return pending;
 }
 
@@ -133,18 +138,23 @@ function pickRule(rules: IntegrationRules, slug: IntegrationSlug): IntegrationRu
  */
 export async function resolvePolicyMode(userId: string, toolName: ToolName): Promise<PolicyMode> {
   const integration = integrationFromToolName(toolName);
+
   if (integration === "system") return "autonomy";
 
   const policy = await getResolvedPolicy(userId);
   const rule = pickRule(policy.integrationRules, integration);
   const override = rule?.toolOverrides?.[toolName];
+
   if (override) return override;
+
   if (rule?.mode) return rule.mode;
+
   return policy.defaultMode;
 }
 
 export async function resolveApprovalNotifyDelayMs(userId: string): Promise<number> {
   const policy = await getResolvedPolicy(userId);
+
   return policy.approvalNotifyDelayMs;
 }
 
@@ -173,6 +183,7 @@ let publisher: BoundedRedis | undefined;
 
 function getPublisher(): BoundedRedis {
   if (!publisher) publisher = createRedisConnection("command");
+
   return publisher;
 }
 
@@ -208,6 +219,7 @@ export async function publishPolicyBust(userId: string): Promise<void> {
 }
 
 let subscriber: IORedis | undefined;
+
 let subscriberStarted = false;
 
 /**
@@ -224,6 +236,7 @@ export async function startPolicyBustSubscriber(): Promise<void> {
   conn.on("pmessage", (_pattern, channel, _message) => {
     if (!channel.startsWith(POLICY_BUST_CHANNEL_PREFIX)) return;
     const userId = channel.slice(POLICY_BUST_CHANNEL_PREFIX.length);
+
     if (userId.length === 0) return;
     bustPolicyCache(userId);
   });
@@ -246,6 +259,7 @@ export async function startPolicyBustSubscriber(): Promise<void> {
     } catch {
       conn.disconnect();
     }
+
     throw err;
   }
 
@@ -286,15 +300,18 @@ export async function startPolicyBustSubscriber(): Promise<void> {
 export async function stopPolicyBustSubscriber(): Promise<void> {
   if (subscriberStarted) {
     subscriberStarted = false;
+
     if (subscriber) {
       try {
         await subscriber.punsubscribe(POLICY_BUST_PATTERN);
       } catch {
         // ignore — connection may already be closing
       }
+
       subscriber = undefined;
     }
   }
+
   // Drop the shared publisher ref too. `closeRedis()` (called next in
   // shutdown) closes the underlying socket; we just clear the cached
   // handle so any re-init after shutdown opens a fresh connection

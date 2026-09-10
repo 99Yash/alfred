@@ -34,6 +34,7 @@ export function githubActivityTriggerConsumer(): TriggerConsumer {
     async accept(event) {
       if (event.source !== "github" || isRawEventType(event.type)) return;
       const { receiptId } = inboundDeliveryPayloadSchema.parse(event.payload ?? {});
+
       const [receipt] = await db()
         .select({
           payload: typedEventReceipts.payload,
@@ -44,10 +45,12 @@ export function githubActivityTriggerConsumer(): TriggerConsumer {
           and(eq(typedEventReceipts.id, receiptId), eq(typedEventReceipts.userId, event.userId)),
         )
         .limit(1);
+
       if (!receipt) return;
       // The receive path stored a parsed JSON object; a NULL or foreign shape
       // here is a receipt this consumer cannot fold, not an error to retry.
       const stored = jsonObjectSchema.safeParse(receipt.payload);
+
       if (!stored.success) return;
       const payload = stored.data;
 

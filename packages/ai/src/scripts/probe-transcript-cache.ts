@@ -27,6 +27,7 @@ import { generateText, type ModelMessage } from "ai";
 import { attachProviderTurnPolicy, adaptProviderModel } from "../provider-adapter";
 
 const TTL = "5m" as const;
+
 const GENERATE_TIMEOUT_MS = 60_000;
 
 // A stable, sizable first message so the prefix clears Anthropic's ~1024-token
@@ -41,12 +42,14 @@ const systemBlock =
   "You are a terse test assistant. Reply with a single short sentence. " +
   "Here is durable context you must keep in mind: " +
   FILLER;
+
 const model = adaptProviderModel("anthropic", anthropic("claude-sonnet-4-6"));
 
 function cacheStats(meta: unknown) {
   // Anthropic reports cache accounting under providerMetadata.anthropic.usage
   // (snake_case). Standardized cache usage lives on `res.usage.inputTokenDetails`.
   const usage = toRecord(getPath(meta, "anthropic", "usage"));
+
   return {
     read: Number(usage.cache_read_input_tokens ?? 0),
     created: Number(usage.cache_creation_input_tokens ?? 0),
@@ -63,6 +66,7 @@ async function turn(label: string, transcript: ModelMessage[]): Promise<void> {
     temperature: 0,
     timeout: GENERATE_TIMEOUT_MS,
   });
+
   const { read, created } = cacheStats(res.finalStep.providerMetadata);
   console.log(
     `${label}: input=${res.usage.inputTokens} usage.cached=${res.usage.inputTokenDetails?.cacheReadTokens ?? "?"} cached_read=${read} cache_created=${created} → "${res.text.slice(0, 50)}"`,
@@ -88,6 +92,7 @@ async function main(): Promise<void> {
     { role: "assistant", content: "A fox is mentioned." },
     { role: "user", content: "And what does it jump over?" },
   ];
+
   await turn("turn 2 (warm)", grown);
 
   console.log(

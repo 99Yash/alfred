@@ -175,4 +175,5 @@ export interface ChunkMetadata {
 }
 
 export type Document = typeof documents.$inferSelect;
+
 export type DocumentChunk = typeof chunks.$inferSelect;

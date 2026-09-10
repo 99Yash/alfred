@@ -53,10 +53,13 @@ const COMMIT = process.argv.includes("--commit");
 
 function parseTargetEmails(): string[] {
   const flag = process.argv.find((arg) => arg.startsWith("--emails="));
+
   if (COMMIT && !flag) {
     throw new Error("--emails=a@x.com must be set explicitly when using --commit");
   }
+
   const raw = flag ? flag.slice("--emails=".length) : "yashgouravkar@gmail.com";
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -81,6 +84,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   if (rows.length === 0) {
     console.log("  nothing to migrate — every user-authored row already has a revision");
+
     return;
   }
 
@@ -100,6 +104,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       allowedTools: [],
       requiredCapabilities: [],
     });
+
     if (!parsed.success) {
       const reason = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
       skipped.push({ slug: row.slug, reason });
@@ -113,6 +118,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       `  ${row.slug} [${row.status}] → v1 ${contentHash.slice(0, 19)}…` +
         `${publishes ? " (published)" : ""}`,
     );
+
     if (!COMMIT) continue;
 
     const revisionId = createId("wfr");
@@ -148,6 +154,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   if (skipped.length > 0) {
     console.log(`\n  SKIPPED (${skipped.length}) — no revision can be minted:`);
+
     for (const s of skipped) console.log(`    ${s.slug}: ${s.reason}`);
   }
 
@@ -172,8 +179,10 @@ async function main() {
 
   const found = new Set(users.map((u) => u.email));
   const missing = TARGET_EMAILS.filter((e) => !found.has(e));
+
   if (missing.length > 0) {
     const message = `no user row for target email(s): ${missing.join(", ")}`;
+
     if (COMMIT) throw new Error(message);
     console.log(`! ${message} — skipping`);
   }

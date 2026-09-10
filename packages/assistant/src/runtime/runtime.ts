@@ -114,9 +114,11 @@ export interface AssistantRuntime {
 export async function runShutdownStep(label: string, step: () => Promise<void>): Promise<boolean> {
   try {
     await step();
+
     return true;
   } catch (err) {
     console.error(`Error during shutdown step ${label}:`, toMessage(err));
+
     return false;
   }
 }
@@ -141,6 +143,7 @@ export async function runShutdownStep(label: string, step: () => Promise<void>):
 async function clearPersistedJobSchedulers(): Promise<number> {
   const queues = [getIngestionQueue(), getMemoryQueue(), getBriefingQueue(), getWorkflowsQueue()];
   let removed = 0;
+
   for (const queue of queues) {
     // Never let cleanup of a dev convenience take down boot.
     try {
@@ -152,6 +155,7 @@ async function clearPersistedJobSchedulers(): Promise<number> {
       console.error(`[runtime] could not clear schedulers on ${queue.name}:`, toMessage(err));
     }
   }
+
   return removed;
 }
 
@@ -277,9 +281,11 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       if (!agentWorkerStopped) {
         console.warn("System-tool adapters retained because the agent worker did not stop");
       }
+
       if (!ingestionWorkerStopped) {
         console.warn("Ingestion adapters retained because the ingestion worker did not stop");
       }
+
       unregisterRuntimeAdapters({ agentWorkerStopped, ingestionWorkerStopped });
 
       try {

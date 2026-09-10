@@ -25,6 +25,7 @@ export function useMicRecording() {
 
   // Live audio data — shared with the waveform renderer through this ref.
   const levelsRef = useRef<Float32Array | null>(null);
+
   if (levelsRef.current === null) levelsRef.current = new Float32Array(SAMPLE_COUNT);
   // SAFETY: the branch above guaranteed current is a Float32Array.
   const initializedLevelsRef = levelsRef as React.RefObject<Float32Array>;
@@ -43,10 +44,12 @@ export function useMicRecording() {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
+
     if (timerRef.current != null) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     analyserRef.current?.disconnect();
@@ -63,10 +66,12 @@ export function useMicRecording() {
   /** Stop and discard the audio (the X button / unmount path). */
   const cancel = () => {
     const recorder = recorderRef.current;
+
     if (recorder && recorder.state !== "inactive") {
       recorder.onstop = null;
       recorder.stop();
     }
+
     teardown();
   };
 
@@ -77,10 +82,13 @@ export function useMicRecording() {
    */
   const finish = (): Promise<Blob | null> => {
     const recorder = recorderRef.current;
+
     if (!recorder || recorder.state === "inactive") {
       teardown();
+
       return Promise.resolve(null);
     }
+
     return new Promise((resolve) => {
       recorder.onstop = () => {
         const type = recorder.mimeType || "audio/webm";
@@ -89,30 +97,36 @@ export function useMicRecording() {
         teardown();
         resolve(blob);
       };
+
       recorder.stop();
     });
   };
 
   const start = async () => {
     setError(null);
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         // Speech-tuned capture — same constraints dimension uses; both are
         // no-ops where unsupported.
         audio: { echoCancellation: true, noiseSuppression: true },
       });
+
       streamRef.current = stream;
 
       // Capture for transcription. Prefer opus-in-webm (Chrome/Firefox);
       // Safari falls back to its default (mp4/AAC) when given no mimeType.
       chunksRef.current = [];
+
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : undefined;
+
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
+
       recorderRef.current = recorder;
       recorder.start();
       const AudioCtor: typeof AudioContext = window.AudioContext;
@@ -126,8 +140,10 @@ export function useMicRecording() {
       analyserRef.current = analyser;
 
       const raw = new Float32Array(analyser.fftSize);
+
       const tick = () => {
         const a = analyserRef.current;
+
         if (!a) return;
         a.getFloatTimeDomainData(raw);
         // Downsample to SAMPLE_COUNT buckets — each bucket is the RMS of its
@@ -135,17 +151,22 @@ export function useMicRecording() {
         // raw waveform. RMS keeps relative loudness intact.
         const bucketSize = Math.floor(raw.length / SAMPLE_COUNT);
         const next = new Float32Array(SAMPLE_COUNT);
+
         for (let i = 0; i < SAMPLE_COUNT; i++) {
           let sum = 0;
+
           for (let j = 0; j < bucketSize; j++) {
             const v = raw[i * bucketSize + j] ?? 0;
             sum += v * v;
           }
+
           next[i] = Math.sqrt(sum / bucketSize);
         }
+
         levelsRef.current = next;
         rafRef.current = requestAnimationFrame(tick);
       };
+
       rafRef.current = requestAnimationFrame(tick);
 
       startedAtRef.current = performance.now();
@@ -156,10 +177,12 @@ export function useMicRecording() {
       setRecording(true);
     } catch (err) {
       cancel();
+
       const message =
         err instanceof DOMException && err.name === "NotAllowedError"
           ? "Microphone access denied"
           : "Could not start the microphone";
+
       setError(message);
     }
   };
@@ -192,18 +215,23 @@ export function MicWaveform({
   useEffect(() => {
     if (!active) return;
     let raf = 0;
+
     const render = () => {
       const path = pathRef.current;
       const echo = echoRef.current;
       const levels = levelsRef.current;
+
       if (path && echo && levels) {
         const d = buildWavePath(levels);
         path.setAttribute("d", d);
         echo.setAttribute("d", d);
       }
+
       raf = requestAnimationFrame(render);
     };
+
     raf = requestAnimationFrame(render);
+
     return () => cancelAnimationFrame(raf);
   }, [active, levelsRef]);
 
@@ -240,6 +268,7 @@ export function MicWaveform({
 }
 
 const VIEW_W = 1000;
+
 const VIEW_H = 80;
 
 /**
@@ -255,6 +284,7 @@ function buildWavePath(levels: Float32Array): string {
   const mid = VIEW_H / 2;
   const xStep = VIEW_W / (n - 1);
   const points: { x: number; y: number }[] = [];
+
   for (let i = 0; i < n; i++) {
     const v = (levels[i] ?? 0) * 4; // amplify; quiet rooms sit near 0
     const clamped = Math.max(-1, Math.min(1, v));
@@ -263,9 +293,11 @@ function buildWavePath(levels: Float32Array): string {
       y: mid + clamped * (VIEW_H / 2 - 4),
     });
   }
+
   if (points.length === 0) return "";
   const first = points[0]!;
   let d = `M ${first.x} ${first.y}`;
+
   for (let i = 1; i < points.length; i++) {
     const p = points[i]!;
     const prev = points[i - 1]!;
@@ -273,7 +305,9 @@ function buildWavePath(levels: Float32Array): string {
     const cy = (prev.y + p.y) / 2;
     d += ` Q ${prev.x} ${prev.y} ${cx} ${cy}`;
   }
+
   const last = points[points.length - 1]!;
   d += ` T ${last.x} ${last.y}`;
+
   return d;
 }

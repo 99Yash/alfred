@@ -25,6 +25,7 @@ import {
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 
 beforeEach(resetToolFixtures);
+
 afterEach(resetToolFixtures);
 
 const gmailSearch = liveTool({
@@ -132,6 +133,7 @@ function access(
   const availableSet = new Set(available);
   const allowed = new Set(allowedIntegrations);
   const availability = new Map<ToolName, ToolAvailabilityResult>();
+
   for (const tool of [gmailSearch, gmailRead, gmailSend, calendarCreate, calendarList]) {
     // Mirror evaluateToolCatalog's precedence: the allowlist is decided first
     // and surfaces as a `not_allowed` result, so the map is the single source
@@ -153,6 +155,7 @@ function access(
             },
     );
   }
+
   return { allowedIntegrations, availability };
 }
 
@@ -163,6 +166,7 @@ describe("tool discovery", () => {
       tools,
       access: access(["gmail", "calendar"]),
     });
+
     assert.equal(found[0]?.name, "gmail.search");
     assert.equal(found[0]?.reason, "exact tool name");
     assert.equal("inputSchema" in (found[0] ?? {}), false, "search must not expose schemas");
@@ -174,6 +178,7 @@ describe("tool discovery", () => {
       tools,
       access: access(["gmail"]),
     });
+
     assert.equal(found[0]?.name, "gmail.search");
     assert.match(found[0]?.reason ?? "", /alias/);
   });
@@ -205,11 +210,13 @@ describe("tool discovery", () => {
       tools,
       access: access(["gmail", "calendar"], ["calendar"]),
     });
+
     assert.deepEqual(found, []);
   });
 
   test("discovers and exactly loads a non-kernel system capability", async () => {
     registerTool(systemFetch);
+
     const found = searchToolCatalog({
       query: "read webpage",
       tools: [systemFetch],
@@ -220,6 +227,7 @@ describe("tool discovery", () => {
         ]),
       },
     });
+
     assert.equal(found[0]?.name, "system.fetch_url");
 
     assert.deepEqual(
@@ -304,6 +312,7 @@ describe("tool discovery", () => {
       tools,
       access: access(["gmail", "calendar"]),
     } as const;
+
     assert.deepEqual(preloadToolCatalog({ ...args, activeTools: [] }), ["calendar.create_event"]);
     assert.deepEqual(preloadToolCatalog({ ...args, activeTools: ["calendar.create_event"] }), []);
   });
@@ -314,6 +323,7 @@ describe("tool discovery", () => {
       access: access(["calendar"]),
       activeTools: [],
     } as const;
+
     assert.deepEqual(preloadToolCatalog({ ...args, prompt: "What's on my calendar Friday?" }), [
       "calendar.list_events",
     ]);
@@ -343,6 +353,7 @@ describe("tool discovery", () => {
 
 test("exact availability respects tool scopes and caller context", () => {
   const readonlyScope = "gmail.readonly";
+
   const read = liveTool({
     integration: "gmail",
     action: "search",
@@ -352,6 +363,7 @@ test("exact availability respects tool scopes and caller context", () => {
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
+
   const send = liveTool({
     integration: "gmail",
     action: "send_draft",
@@ -361,6 +373,7 @@ test("exact availability respects tool scopes and caller context", () => {
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
+
   const spawn = liveTool({
     integration: "system",
     action: "spawn_sub_agent",
@@ -370,6 +383,7 @@ test("exact availability respects tool scopes and caller context", () => {
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
+
   const snapshot: IntegrationAvailabilitySnapshot = {
     integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
     providers: new Map([["google", [provider("active", [readonlyScope])]]]),
@@ -389,6 +403,7 @@ test("exact availability respects tool scopes and caller context", () => {
 
 describe("evaluateToolAvailability reason codes (#413)", () => {
   const scoped = "gmail.readonly";
+
   const search = liveTool({
     integration: "gmail",
     action: "search",
@@ -398,6 +413,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
+
   const chatOnly = liveTool({
     integration: "system",
     action: "read_chat_history",
@@ -407,6 +423,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
+
   const bossOnly = liveTool({
     integration: "system",
     action: "spawn_sub_agent",
@@ -416,12 +433,15 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
+
   const ctx = { caller: "boss", interaction: "live_chat" } as const;
+
   const active = (scopes: string[]): IntegrationAvailabilitySnapshot => ({
     integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
     providers: new Map([["google", [provider("active", scopes)]]]),
     passthroughEnabled: new Map(),
   });
+
   const empty: IntegrationAvailabilitySnapshot = {
     integrations: new Map(),
     providers: new Map(),
@@ -446,6 +466,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
       providers: new Map([["google", [provider("expired", [scoped])]]]),
       passthroughEnabled: new Map(),
     };
+
     const result = evaluateToolAvailability(snapshot, search, new Set(), ctx);
     assert.equal(result.available === false && result.code, "needs_reauth");
   });
@@ -465,12 +486,14 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
       caller: "sub_agent",
       interaction: "live_chat",
     });
+
     assert.equal(wrongCaller.available === false && wrongCaller.code, "wrong_caller");
 
     const requiresThread = evaluateToolAvailability(empty, chatOnly, new Set(), {
       caller: "boss",
       interaction: "background",
     });
+
     assert.equal(requiresThread.available === false && requiresThread.code, "requires_thread");
   });
 });
@@ -493,6 +516,7 @@ const notionCreate = liveTool({
   inputSchema: z.object({ title: z.string(), content: z.string() }).strict(),
   execute: async () => ({ ok: true }),
 });
+
 const notionGet = liveTool({
   integration: "notion",
   action: "get_page",
@@ -514,6 +538,7 @@ describe("derived-metadata discovery (#413)", () => {
         ]),
       },
     } as const;
+
     assert.equal(
       searchToolCatalog({ query: "create page", ...catalog })[0]?.name,
       "notion.create_page",
@@ -543,12 +568,14 @@ describe("derived-metadata discovery (#413)", () => {
         ],
       ]),
     };
+
     const found = searchToolCatalog({
       query: "page",
       tools: [notionCreate, notionGet],
       access,
       includeUnavailable: true,
     });
+
     const create = found.find((c) => c.name === "notion.create_page");
     assert.equal(create?.availability, "unavailable");
     assert.equal(create?.unavailableReason, "Notion is not connected.");
@@ -570,6 +597,7 @@ describe("derived-metadata discovery (#413)", () => {
         ],
       ]),
     };
+
     assert.deepEqual(
       searchToolCatalog({ query: "create page", tools: [notionCreate], access }),
       [],
@@ -594,6 +622,7 @@ describe("derived-metadata discovery (#413)", () => {
       },
       includeUnavailable: true,
     });
+
     assert.deepEqual(found, []);
   });
 
@@ -619,6 +648,7 @@ describe("derived-metadata discovery (#413)", () => {
       },
       includeUnavailable: true,
     });
+
     assert.deepEqual(found, []);
   });
 });
@@ -637,6 +667,7 @@ describe("preload recall for natural phrasing (#414)", () => {
     inputSchema: z.object({ query: z.string() }).strict(),
     execute: async () => ({ ok: true }),
   });
+
   const mailSend = liveTool({
     integration: "gmail",
     action: "send_draft",
@@ -646,6 +677,7 @@ describe("preload recall for natural phrasing (#414)", () => {
     inputSchema: z.object({ to: z.string() }).strict(),
     execute: async () => ({ ok: true }),
   });
+
   const catalog = {
     tools: [mailSearch, mailSend],
     access: {

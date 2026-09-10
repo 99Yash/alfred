@@ -20,10 +20,12 @@ import { envFieldValue } from "@alfred/env/server";
  * bare test run without the variable gets `null` instead of a throw.
  */
 let _selfSenderEmail: string | null | undefined;
+
 export function selfSenderEmail(): string | null {
   if (_selfSenderEmail === undefined) {
     _selfSenderEmail = parseEmailAddress(envFieldValue("RESEND_FROM_EMAIL"));
   }
+
   return _selfSenderEmail;
 }
 
@@ -38,5 +40,6 @@ export function selfSenderEmail(): string | null {
  */
 export function isSelfAuthored(from: string | null): boolean {
   const self = selfSenderEmail();
+
   return self !== null && parseEmailAddress(from) === self;
 }

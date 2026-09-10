@@ -48,12 +48,14 @@ class MemoryStore implements McpOAuthCredentialStore {
       createdAt: this.row?.createdAt ?? now,
       updatedAt: now,
     };
+
     return this.row;
   }
 
   async update(id: string, userId: string, patch: Partial<McpOauthCredential>): Promise<void> {
     assert.equal(id, this.row?.id);
     assert.equal(userId, this.row?.userId);
+
     if (!this.row) throw new Error("missing memory credential");
     Object.assign(this.row, patch, { updatedAt: new Date() });
   }
@@ -64,6 +66,7 @@ class MemoryStore implements McpOAuthCredentialStore {
     stateHash: string;
   }): Promise<McpOauthAuthorizationAttempt> {
     const now = new Date();
+
     const attempt: McpOauthAuthorizationAttempt = {
       id: `attempt_${this.attempts.size + 1}`,
       ...input,
@@ -72,7 +75,9 @@ class MemoryStore implements McpOAuthCredentialStore {
       createdAt: now,
       updatedAt: now,
     };
+
     this.attempts.set(input.stateHash, attempt);
+
     return attempt;
   }
 
@@ -82,6 +87,7 @@ class MemoryStore implements McpOAuthCredentialStore {
     stateHash: string;
   }): Promise<McpOauthAuthorizationAttempt | undefined> {
     const attempt = this.attempts.get(input.stateHash);
+
     return attempt?.connectionId === input.connectionId &&
       attempt.userId === input.userId &&
       attempt.expiresAt.getTime() > Date.now()
@@ -96,6 +102,7 @@ class MemoryStore implements McpOAuthCredentialStore {
   }): Promise<void> {
     const attempt = this.attempts.get(input.stateHash);
     assert.equal(attempt?.userId, input.userId);
+
     if (!attempt) throw new Error("missing attempt");
     attempt.codeVerifier = input.codeVerifier;
   }
@@ -260,6 +267,7 @@ describe("MCP OAuth provider", () => {
     const first = provider(store);
     const second = provider(store);
     await first.saveDiscoveryState(DISCOVERY);
+
     for (const state of ["state-one", "state-two"]) {
       await store.createAttempt({
         connectionId: "conn_test",
@@ -293,11 +301,13 @@ describe("MCP OAuth provider", () => {
   test("rejects an expired authorization attempt", async () => {
     const store = new MemoryStore();
     const oauth = provider(store);
+
     const attempt = await store.createAttempt({
       connectionId: "conn_test",
       userId: "user_test",
       stateHash: hashState("expired-state"),
     });
+
     attempt.expiresAt = new Date(Date.now() - 1);
 
     assert.equal(await oauth.matchesState("expired-state"), false);
@@ -325,9 +335,11 @@ describe("MCP OAuth provider", () => {
   test("refreshes a known-expired token before MCP dispatch", async () => {
     const store = new MemoryStore();
     let tokenRequests = 0;
+
     const endpointAuthorization = authorization(async (input) => {
       assert.equal(String(input), "https://auth.example.test/token");
       tokenRequests += 1;
+
       return new Response(
         JSON.stringify({
           access_token: "fresh-access",
@@ -338,6 +350,7 @@ describe("MCP OAuth provider", () => {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     });
+
     const oauth = provider(store, undefined, endpointAuthorization);
     await oauth.saveDiscoveryState(DISCOVERY);
     await oauth.saveClientInformation(
@@ -364,15 +377,18 @@ describe("MCP OAuth provider", () => {
 
   test("blocks an installed-SDK refresh before a hostile token endpoint receives secrets", async () => {
     const requests: string[] = [];
+
     const authorized = await new HostedMcpEndpointAuthorizer({
       requester: async (input) => {
         requests.push(String(input));
+
         return new Response(null, { status: 500 });
       },
     }).authorize(
       { endpointUrl: RESOURCE.href, endpointOrigin: RESOURCE.origin },
       { requestTimeoutMs: 5_000 },
     );
+
     try {
       const store = new MemoryStore();
       const oauth = provider(store, undefined, authorized.oauth);
@@ -418,6 +434,7 @@ describe("MCP OAuth provider", () => {
       { endpointUrl: RESOURCE.href, endpointOrigin: RESOURCE.origin },
       { requestTimeoutMs: 5_000 },
     );
+
     try {
       const store = new MemoryStore();
       const oauth = provider(store, undefined, authorized.oauth);
@@ -442,12 +459,14 @@ describe("MCP OAuth provider", () => {
 
   test("aborts OAuth discovery at the configured deadline", async () => {
     const store = new MemoryStore();
+
     const hangingFetch: typeof fetch = async (_input, init) =>
       new Promise((_resolve, reject) => {
         const fuse = setTimeout(
           () => reject(new Error("OAuth timeout signal was not propagated")),
           100,
         );
+
         init?.signal?.addEventListener(
           "abort",
           () => {
@@ -502,6 +521,7 @@ describe("MCP OAuth credentials are sealed at rest", () => {
 
     assert.ok(store.row);
     const row = store.row;
+
     for (const [column, plaintext] of [
       ["accessToken", "access-plain"],
       ["refreshToken", "refresh-plain"],
@@ -512,6 +532,7 @@ describe("MCP OAuth credentials are sealed at rest", () => {
       assert.notEqual(stored, plaintext);
       assert.equal(vault.open(stored), plaintext);
     }
+
     // Non-secret metadata is stored raw, unchanged.
     assert.equal(row.tokenType, "Bearer");
     assert.equal(row.expiresIn, 3600);
@@ -648,6 +669,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
 
     let body: URLSearchParams | undefined;
     let authorizationHeader: string | null = null;
+
     const tokens = await exchangeAuthorization(GITHUB_MCP_ISSUER, {
       metadata: {
         issuer: GITHUB_MCP_ISSUER,
@@ -662,6 +684,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
       fetchFn: async (_url, init) => {
         body = new URLSearchParams(String(init?.body));
         authorizationHeader = new Headers(init?.headers).get("Authorization");
+
         return new Response(JSON.stringify({ access_token: "gh-token", token_type: "Bearer" }), {
           headers: { "content-type": "application/json" },
         });

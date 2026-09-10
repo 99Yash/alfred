@@ -41,6 +41,7 @@ import { classifyStreamFinish } from "../src/agent";
 // than importing `@ai-sdk/provider`, which is only a transitive dependency —
 // the same approach with-fallback.test.ts uses for its generate-result shape.
 type StreamResult = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>;
+
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer P> ? P : never;
 
 // V4 usage shape, copied verbatim from with-fallback.test.ts's proven fixture.
@@ -58,6 +59,7 @@ function finishPart(unified: FinishReason): StreamPart {
 }
 
 const START = streamPart({ type: "stream-start", warnings: [] });
+
 const RESPONSE_META = streamPart({
   type: "response-metadata",
   id: "resp-0",
@@ -129,16 +131,19 @@ async function driveStream(parts: StreamPart[]) {
   // Accumulate assistant text off the live stream the way the executor builds
   // `state.assistantText` — the value it passes to `classifyStreamFinish`.
   let assistantText = "";
+
   for await (const part of stream.stream) {
     if (part.type === "text-delta") assistantText += part.text;
   }
 
   const [toolCalls, finishReason] = await Promise.all([stream.toolCalls, stream.finishReason]);
+
   const outcome = classifyStreamFinish({
     toolCalls,
     finishReason,
     textLength: assistantText.trim().length,
   });
+
   return { outcome, toolCalls, finishReason, assistantText };
 }
 
@@ -151,6 +156,7 @@ describe("classifyStreamFinish over a real streamText drain", () => {
       RESPONSE_META,
       finishPart("stop"),
     ]);
+
     assert.equal(finishReason, "stop", "the SDK surfaces the empty candidate as a clean stop");
     assert.equal(toolCalls.length, 0);
     assert.equal(assistantText, "");
@@ -169,6 +175,7 @@ describe("classifyStreamFinish over a real streamText drain", () => {
       ...textParts("Here is your answer."),
       finishPart("stop"),
     ]);
+
     assert.equal(finishReason, "stop");
     assert.equal(assistantText, "Here is your answer.");
     assert.equal(outcome.kind, "final");
@@ -195,6 +202,7 @@ describe("classifyStreamFinish over a real streamText drain", () => {
       ...toolCallParts(),
       finishPart("tool-calls"),
     ]);
+
     assert.equal(assistantText, "", "a tool-call turn carries no prose");
     assert.equal(toolCalls.length, 1);
     assert.equal(toolCalls[0]?.toolName, "ping");

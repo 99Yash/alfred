@@ -59,10 +59,13 @@ function applyArtifactDelta(
   p: EventPayload<"artifact.delta">,
 ): boolean {
   const existing = streams.get(p.toolCallId);
+
   // A completed stream ignores late frames (post-execute replay).
   if (existing?.done) return false;
+
   // Replay/out-of-order guard: only apply strictly newer seqs.
   if (existing && p.seq <= existing.seq) return false;
+
   const next: LiveArtifactStream = existing
     ? {
         ...existing,
@@ -82,7 +85,9 @@ function applyArtifactDelta(
         seq: p.seq,
         done: false,
       };
+
   streams.set(p.toolCallId, next);
+
   return true;
 }
 
@@ -96,13 +101,16 @@ function applyArtifactToolResolution(
   p: EventPayload<"chat.tool">,
 ): boolean {
   const existing = streams.get(p.toolCallId);
+
   if (!existing) return false;
+
   if (p.status !== "succeeded" && p.status !== "failed") return false;
   streams.set(p.toolCallId, {
     ...existing,
     artifactId: p.artifactId ?? existing.artifactId,
     done: true,
   });
+
   return true;
 }
 
@@ -130,10 +138,13 @@ export function applyArtifactFrame(
   threadId: string,
 ): boolean {
   const named = frameThreadId(frame);
+
   if (named !== null && named !== threadId) return false;
 
   if (frame.kind === "artifact.delta") return applyArtifactDelta(streams, frame.payload);
+
   if (frame.kind === "chat.tool") return applyArtifactToolResolution(streams, frame.payload);
+
   return false;
 }
 
@@ -158,11 +169,14 @@ export function selectByArtifactId(
 ): LiveArtifactStream | null {
   let active: LiveArtifactStream | null = null;
   let latest: LiveArtifactStream | null = null;
+
   for (const stream of streams.values()) {
     if (stream.artifactId !== artifactId) continue;
     latest = stream;
+
     if (!stream.done) active = stream;
   }
+
   return active ?? latest;
 }
 
@@ -175,12 +189,16 @@ export function selectLatestPendingForRun(
   runId: string,
 ): LiveArtifactStream | null {
   let latest: LiveArtifactStream | null = null;
+
   for (const stream of streams.values()) {
     if (stream.runId !== runId) continue;
+
     if (stream.artifactId !== null) continue;
+
     if (stream.done) continue;
     latest = stream;
   }
+
   return latest;
 }
 
@@ -205,26 +223,31 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
   useEffect(() => {
     streamsRef.current = new Map();
     setVersion((v) => v + 1);
+
     if (!threadId) return;
 
     const onFrame = (frame: EventStreamFrame) => {
       if (applyArtifactFrame(streamsRef.current, frame, threadId)) setVersion((v) => v + 1);
     };
+
     const onError = () => {
       // Fatal SSE disconnect while artifacts are still authoring — freeze any
       // in-flight streams so the sidebar does not hang on a spinner. The
       // durable `artifacts` row will reconcile once the worker finishes.
       let changed = false;
+
       for (const [id, stream] of streamsRef.current) {
         if (!stream.done) {
           streamsRef.current.set(id, { ...stream, done: true });
           changed = true;
         }
       }
+
       if (changed) setVersion((v) => v + 1);
     };
 
     const close = openEventStream({ onFrame, onError });
+
     return close;
   }, [threadId]);
 
@@ -232,6 +255,7 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
     // `version` participates in the deps so accessors read the latest ref state
     // and consumers recompute their derived live stream when a delta lands.
     void version;
+
     return {
       byToolCallId: (toolCallId) => selectByToolCallId(streamsRef.current, toolCallId),
       byArtifactId: (artifactId) => selectByArtifactId(streamsRef.current, artifactId),

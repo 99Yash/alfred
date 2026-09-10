@@ -76,6 +76,7 @@ async function seedUser(prefix: string): Promise<string> {
     .insert(user)
     .values({ id: userId, name: "Vault Test", email: `${userId}@example.test` });
   seededUserIds.push(userId);
+
   return userId;
 }
 
@@ -88,8 +89,10 @@ async function rawIntegrationTokens(credentialId: string) {
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const row = rows[0];
   assert.ok(row, "expected the credential row to exist");
+
   return row;
 }
 
@@ -122,9 +125,11 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
     const databaseUrl = process.env.DATABASE_URL; // drift-ok: asserts which database the suite reached; dbBackedSkip already gated it
     assert.ok(databaseUrl, "DATABASE_URL must be set for the DB-backed suite");
     const configured = new URL(databaseUrl).pathname.replace(/^\//, "");
+
     const rows = rowsFromExecute<{ current_database: string }>(
       await db().execute(sql`select current_database()`),
     );
+
     assert.equal(rows[0]?.current_database, configured);
   });
 
@@ -184,11 +189,13 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
+
     try {
       assert.equal(await getFreshAccessToken(id), "ya29.refreshed");
     } finally {
       globalThis.fetch = originalFetch;
     }
+
     raw = await rawIntegrationTokens(id);
     assert.ok(vault.isSealed(raw.accessToken), "the refresh write-back bypassed the vault");
     assert.notEqual(
@@ -202,6 +209,7 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
   test("google: listCredentials reports connectedness without moving ciphertext", async () => {
     ensureCredentialTestEnv();
     const userId = await seedUser("test-vault-google-list");
+
     const { id } = await upsertCredential({
       userId,
       provider: "google",
@@ -227,6 +235,7 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
     ensureCredentialTestEnv();
     const vault = credentialVault();
     const userId = await seedUser("test-vault-github");
+
     const { id } = await upsertGithubCredential({
       userId,
       accountId: randomUUID(),
@@ -248,6 +257,7 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
     ensureCredentialTestEnv();
     const vault = credentialVault();
     const userId = await seedUser("test-vault-bearer");
+
     const { id } = await upsertBearerCredential({
       userId,
       provider: "railway",
@@ -287,7 +297,9 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         idToken: "plain-account-id",
       })
       .returning({ id: account.id });
+
     assert.ok(seededAccount);
+
     const [seededIntegration] = await db()
       .insert(integrationCredentials)
       .values({
@@ -304,6 +316,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         scopes: [],
       })
       .returning({ id: integrationCredentials.id });
+
     assert.ok(seededIntegration);
 
     // A row with a NULL refresh token proves nullable columns are left alone
@@ -320,6 +333,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         scopes: [],
       })
       .returning({ id: integrationCredentials.id });
+
     assert.ok(nullableIntegration);
 
     // Check-only must report the plaintext without writing anything.
@@ -327,10 +341,12 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     assert.ok(reported.plaintextRemaining >= 6, "the report undercounted the seeded plaintext");
     assert.equal(reported.accountsUpdated, 0, "check-only must not write");
     assert.equal(reported.integrationsUpdated, 0, "check-only must not write");
+
     const stillPlain = await db()
       .select({ accessToken: account.accessToken })
       .from(account)
       .where(eq(account.id, seededAccount.id));
+
     assert.equal(stillPlain[0]?.accessToken, "plain-account-access");
 
     // The boot gate must refuse a half-converted table.
@@ -351,6 +367,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         .from(account)
         .where(eq(account.id, seededAccount.id))
     )[0];
+
     assert.ok(accountRow);
     assert.equal(vault.open(accountRow.accessToken), "plain-account-access");
     assert.equal(vault.open(accountRow.refreshToken), "plain-account-refresh");
@@ -395,6 +412,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     const foreign = createCredentialVault(Buffer.from("fedcba9876543210fedcba9876543210", "utf8"));
     const userId = await seedUser("test-vault-foreign-key");
     const foreignEnvelope = foreign.seal("token-from-a-rotated-key");
+
     const [seeded] = await db()
       .insert(integrationCredentials)
       .values({
@@ -406,6 +424,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         scopes: [],
       })
       .returning({ id: integrationCredentials.id });
+
     assert.ok(seeded);
     // The premise: the configured vault agrees this LOOKS sealed. Without this
     // the test could pass against a shape check that simply rejected the row.
@@ -428,6 +447,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     await assert.rejects(assertPersistedCredentialsSealed, (err: unknown) => {
       assert.ok(err instanceof CredentialVaultError);
       assert.equal(err.failure, "unopenable_remaining");
+
       return true;
     });
 
@@ -439,6 +459,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
       (err: unknown) => {
         assert.ok(err instanceof CredentialVaultError);
         assert.equal(err.failure, "unopenable_remaining");
+
         return true;
       },
     );
@@ -452,6 +473,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser("test-vault-future-version");
     const current = credentialVault().seal("token-from-a-future-version");
     const unsupported = `acv0.${current.split(".").slice(1).join(".")}`;
+
     const [seeded] = await db()
       .insert(integrationCredentials)
       .values({
@@ -464,6 +486,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         scopes: [],
       })
       .returning({ id: integrationCredentials.id });
+
     assert.ok(seeded);
 
     t.after(async () => {

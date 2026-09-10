@@ -15,7 +15,9 @@ export function useRawReceiptKinds(slug: InboundEventSource | null) {
     queryFn: async () => {
       if (slug === null) throw new Error("raw receipt inventory needs a source");
       const res = await client.api.integrations["raw-kinds"]({ slug }).get();
+
       if (res.error) throw new Error(`raw receipt inventory failed (${res.error.status})`);
+
       return parseEdenBody(rawReceiptInventorySchema, res.data);
     },
     staleTime: 60_000,

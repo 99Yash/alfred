@@ -52,6 +52,7 @@ async function loadPreviousCredential(
       ),
     )
     .limit(1);
+
   return row ?? null;
 }
 
@@ -75,6 +76,7 @@ async function deleteCredential(
       accountEmail: integrationCredentials.accountLabel,
       metadata: integrationCredentials.metadata,
     });
+
   return row ?? null;
 }
 
@@ -104,6 +106,7 @@ export function createGoogleCredentialLifecycleHandler(
             { userId: request.userId, accountId: request.accountId },
             tx,
           );
+
           const credential = await deps.upsertCredential(
             {
               userId: request.userId,
@@ -122,6 +125,7 @@ export function createGoogleCredentialLifecycleHandler(
             },
             tx,
           );
+
           await deps.recordUpsert(
             {
               credentialId: credential.id,
@@ -130,6 +134,7 @@ export function createGoogleCredentialLifecycleHandler(
             },
             tx,
           );
+
           return { credentialId: credential.id };
         }),
       );
@@ -141,9 +146,11 @@ export function createGoogleCredentialLifecycleHandler(
         // not a Drizzle handle; it owns its own db().transaction inside.
         deps.transaction(async (tx) => {
           const deleted = await deps.deleteCredential(request, tx);
+
           if (!deleted) return { status: "already_absent" as const };
 
           await deps.recordDisconnect(deleted, request.disconnectedAt, tx);
+
           return { status: "deleted" as const };
         }),
       );

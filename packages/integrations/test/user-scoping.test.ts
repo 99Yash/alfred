@@ -53,6 +53,7 @@ async function seedUser(prefix: string): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Scoping Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -74,9 +75,11 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     const databaseUrl = process.env.DATABASE_URL; // drift-ok: asserts which database the suite reached; dbBackedSkip already gated it
     assert.ok(databaseUrl, "DATABASE_URL must be set for the DB-backed suite");
     const configured = new URL(databaseUrl).pathname.replace(/^\//, "");
+
     const rows = rowsFromExecute<{ current_database: string }>(
       await db().execute(sql`select current_database()`),
     );
+
     assert.equal(rows[0]?.current_database, configured);
   });
 
@@ -87,6 +90,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     ensureCredentialTestEnv();
     const userA = await seedUser("test-scope-bearer-a");
     const userB = await seedUser("test-scope-bearer-b");
+
     try {
       const a = await upsertBearerCredential({
         userId: userA,
@@ -94,6 +98,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         accountId: `a-${randomUUID()}`,
         accessToken: "notion-token-a",
       });
+
       const b = await upsertBearerCredential({
         userId: userB,
         provider: "notion",
@@ -123,6 +128,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     ensureCredentialTestEnv();
     const userA = await seedUser("test-scope-google-a");
     const userB = await seedUser("test-scope-google-b");
+
     try {
       const a = await upsertCredential({
         userId: userA,
@@ -133,6 +139,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         expiresAt: new Date(Date.now() + 60 * 60_000),
         scopes: [GOOGLE_SCOPE.gmail.readonly],
       });
+
       const b = await upsertCredential({
         userId: userB,
         provider: "google",
@@ -169,6 +176,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
       fetchCalls++;
       throw new Error("provider must not be called: the gate rejects a foreign id pre-fetch");
     };
+
     try {
       // A owns its own credential; B owns the one A will illegitimately name.
       await upsertCredential({
@@ -180,6 +188,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         expiresAt: new Date(Date.now() + 60 * 60_000),
         scopes: [GOOGLE_SCOPE.gmail.readonly],
       });
+
       const b = await upsertCredential({
         userId: userB,
         provider: "google",
@@ -211,6 +220,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     ensureCredentialTestEnv();
     const userA = await seedUser("test-scope-github-a");
     const userB = await seedUser("test-scope-github-b");
+
     try {
       const a = await upsertGithubCredential({
         userId: userA,
@@ -219,6 +229,7 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         scopes: ["repo"],
         expiresAt: new Date(Date.now() + 60 * 60_000),
       });
+
       const b = await upsertGithubCredential({
         userId: userB,
         accountId: `b-${randomUUID()}`,

@@ -13,6 +13,7 @@ import type { ToolCallView } from "./tool-call-presentation";
  * here instead of leaving these literals silently wrong.
  */
 const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
+
 const FETCH_URL_TOOL = "system.fetch_url" satisfies ToolName;
 
 export interface FetchUrlView {
@@ -53,8 +54,10 @@ export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
     const finalUrl = asString(result?.finalUrl);
     const requested = asString(result?.url) ?? asString(args?.url);
     const href = finalUrl ?? requested;
+
     if (!href) return null;
     const text = asString(result?.text);
+
     return {
       kind: "fetch_url",
       domain: domainOf(href),
@@ -67,12 +70,15 @@ export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
   if (tool.toolName === WEB_SEARCH_TOOL) {
     const citations = Array.isArray(result?.citations) ? result.citations : [];
     const byDomain = new Map<string, Source>();
+
     for (const citation of citations) {
       const source = toSource(citation);
+
       if (source && !byDomain.has(source.faviconDomain)) {
         byDomain.set(source.faviconDomain, source);
       }
     }
+
     return {
       kind: "web_search",
       // `argsPreview` is dropped from the persisted call, so the query only
@@ -161,6 +167,7 @@ function asNumber(value: unknown): number | undefined {
  */
 function ago(value: unknown): string | undefined {
   const iso = asString(value);
+
   return iso ? formatRelative(iso) : undefined;
 }
 
@@ -175,9 +182,11 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  */
 function formatEventWindow(startIso: string, endIso?: string): string {
   const start = parseWallClock(startIso);
+
   if (!start) return startIso;
   const day = `${MONTHS[start.month - 1]} ${start.day}`;
   const end = endIso ? parseWallClock(endIso) : null;
+
   return end ? `${day}, ${clock12(start)} – ${clock12(end)}` : `${day}, ${clock12(start)}`;
 }
 
@@ -190,13 +199,16 @@ interface WallClock {
 
 function parseWallClock(iso: string): WallClock | null {
   const m = /^\d{4}-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
+
   if (!m) return null;
+
   return { month: Number(m[1]), day: Number(m[2]), hour: Number(m[3]), minute: Number(m[4]) };
 }
 
 function clock12({ hour, minute }: WallClock): string {
   const period = hour < 12 ? "AM" : "PM";
   const h = hour % 12 === 0 ? 12 : hour % 12;
+
   return minute === 0 ? `${h} ${period}` : `${h}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
@@ -204,9 +216,13 @@ function clock12({ hour, minute }: WallClock): string {
 function githubStateBadge(item: JsonRecord): EvidenceBadge | undefined {
   if (item.draft === true) return { label: "Draft", tone: "neutral" };
   const state = asString(item.state);
+
   if (state === "open") return { label: "Open", tone: "green" };
+
   if (item.merged === true) return { label: "Merged", tone: "purple" };
+
   if (state === "closed") return { label: "Closed", tone: "red" };
+
   return undefined;
 }
 
@@ -223,17 +239,24 @@ const RAILWAY_TONES = new Map<string, EvidenceBadge["tone"]>([
 /** Turn a Drive MIME type into a short human kind ("PDF", "Doc", "Folder"). */
 function driveKind(mimeType: string | undefined): string | undefined {
   if (!mimeType) return undefined;
+
   if (mimeType === "application/vnd.google-apps.folder") return "Folder";
+
   if (mimeType === "application/vnd.google-apps.document") return "Doc";
+
   if (mimeType === "application/vnd.google-apps.spreadsheet") return "Sheet";
+
   if (mimeType === "application/vnd.google-apps.presentation") return "Slides";
+
   if (mimeType === "application/pdf") return "PDF";
   const sub = mimeType.split("/")[1];
+
   return sub ? sub.toUpperCase() : undefined;
 }
 
 function joinMeta(...parts: (string | undefined)[]): string | undefined {
   const kept = parts.filter((p): p is string => Boolean(p));
+
   return kept.length > 0 ? kept.join(" · ") : undefined;
 }
 
@@ -241,6 +264,7 @@ function joinMeta(...parts: (string | undefined)[]): string | undefined {
 function snippetOf(text: string | undefined, max = 300): string | undefined {
   if (!text) return undefined;
   const collapsed = text.replace(/\s+/g, " ").trim();
+
   return collapsed ? collapsed.slice(0, max) : undefined;
 }
 
@@ -253,6 +277,7 @@ function snippetOf(text: string | undefined, max = 300): string | undefined {
 function emailBody(content: string | undefined): string | undefined {
   if (!content) return undefined;
   const blank = content.indexOf("\n\n");
+
   return snippetOf(blank >= 0 ? content.slice(blank + 2) : content);
 }
 
@@ -280,7 +305,9 @@ const RAILWAY_DEPLOYMENTS: ListSpec = {
   row: (item) => {
     const status = asString(item.status);
     const url = asString(item.url);
+
     if (!status && !url) return null;
+
     return {
       key: asString(item.id) ?? url ?? status ?? "deployment",
       title: url ?? "Deployment",
@@ -301,13 +328,16 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       query: (result) => asString(result.query),
       remaining: (result, shown) => {
         const total = asNumber(result.totalCount);
+
         return total && total > shown ? total - shown : undefined;
       },
       row: (item) => {
         const title = asString(item.title);
+
         if (!title) return null;
         const number = asNumber(item.number);
         const url = asString(item.url);
+
         return {
           key: url ?? String(number ?? title),
           title: number ? `#${number} ${title}` : title,
@@ -325,15 +355,18 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       faviconDomain: INTEGRATIONS.github.domain,
       row: (item) => {
         const title = asString(item.title);
+
         if (!title) return null;
         const number = asNumber(item.number);
         const url = asString(item.url);
         const additions = asNumber(item.additions);
         const deletions = asNumber(item.deletions);
+
         const diff =
           additions !== undefined || deletions !== undefined
             ? `+${additions ?? 0} −${deletions ?? 0}`
             : undefined;
+
         return {
           key: url ?? String(number ?? title),
           title: number ? `#${number} ${title}` : title,
@@ -351,10 +384,12 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       faviconDomain: INTEGRATIONS.calendar.domain,
       row: (item) => {
         const title = asString(item.title);
+
         if (!title) return null;
         const start = asString(item.start);
         // Google serializes an absent location as the literal string "null".
         const location = asString(item.location);
+
         return {
           key: asString(item.id) ?? title,
           title,
@@ -376,7 +411,9 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       hasMore: (result) => result.hasMore === true,
       row: (item) => {
         const title = asString(item.title);
+
         if (!title) return null;
+
         return {
           key: asString(item.id) ?? title,
           title,
@@ -394,7 +431,9 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       query: (_result, args) => asString(args?.query),
       row: (item) => {
         const name = asString(item.name);
+
         if (!name) return null;
+
         return {
           key: asString(item.id) ?? name,
           title: name,
@@ -413,8 +452,10 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       faviconDomain: INTEGRATIONS.railway.domain,
       row: (item) => {
         const name = asString(item.name);
+
         if (!name) return null;
         const services = Array.isArray(item.services) ? item.services.length : undefined;
+
         return {
           key: asString(item.id) ?? name,
           title: name,
@@ -429,25 +470,34 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
 /** GitHub PR/issue reads share a shape: title + state pill + a few facts. */
 function githubEntity(result: JsonRecord): EntityView | null {
   const title = asString(result.title);
+
   if (!title) return null;
   const number = asNumber(result.number);
   const facts: EntityFact[] = [];
   const repo = asString(result.repository);
+
   if (repo) facts.push({ label: "Repo", value: repo });
   const author = asString(result.author);
+
   if (author) facts.push({ label: "Author", value: author });
   const additions = asNumber(result.additions);
   const deletions = asNumber(result.deletions);
+
   if (additions !== undefined || deletions !== undefined) {
     facts.push({ label: "Diff", value: `+${additions ?? 0} −${deletions ?? 0}` });
   }
+
   const commits = asNumber(result.commits);
+
   if (commits !== undefined) facts.push({ label: "Commits", value: String(commits) });
   const changedFiles = asNumber(result.changedFiles);
+
   if (changedFiles !== undefined) facts.push({ label: "Files", value: String(changedFiles) });
   // Issues carry a comment count + a body; PRs carry neither in the preview.
   const comments = asNumber(result.comments);
+
   if (comments !== undefined) facts.push({ label: "Comments", value: String(comments) });
+
   return {
     kind: "entity",
     faviconDomain: INTEGRATIONS.github.domain,
@@ -471,13 +521,18 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonRecord) => EntityView | n
       const metadata = asRecord(result.metadata);
       const from = asString(result.from) ?? (metadata ? asString(metadata.from) : undefined);
       const to = asString(result.to) ?? (metadata ? asString(metadata.to) : undefined);
+
       if (!subject && !from) return null;
       const facts: EntityFact[] = [];
+
       if (from) facts.push({ label: "From", value: from });
+
       if (to) facts.push({ label: "To", value: to });
       const date = ago(result.authoredAt);
+
       if (date) facts.push({ label: "Date", value: date });
       const snippet = metadata ? asString(metadata.snippet) : undefined;
+
       return {
         kind: "entity",
         faviconDomain: INTEGRATIONS.gmail.domain,
@@ -501,21 +556,29 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonRecord) => EntityView | n
  */
 export function presentEvidence(tool: ToolCallView): RecordListView | EntityView | null {
   const result = parseJsonRecord(tool.resultPreview);
+
   if (!result || !isToolName(tool.toolName)) return null;
 
   const listSpec = LIST_SPECS.get(tool.toolName);
+
   if (listSpec) {
     const raw = result[listSpec.arrayKey];
+
     if (!Array.isArray(raw) || raw.length === 0) return null;
     const rows: EvidenceRow[] = [];
+
     for (const entry of raw) {
       const record = asRecord(entry);
+
       if (!record) continue;
       const row = listSpec.row(record);
+
       if (row) rows.push(row);
     }
+
     if (rows.length === 0) return null;
     const args = parseJsonRecord(tool.argsPreview);
+
     return {
       kind: "record-list",
       faviconDomain: listSpec.faviconDomain,
@@ -527,6 +590,7 @@ export function presentEvidence(tool: ToolCallView): RecordListView | EntityView
   }
 
   const entityBuilder = ENTITY_BUILDERS.get(tool.toolName);
+
   if (entityBuilder) return entityBuilder(result);
 
   return null;

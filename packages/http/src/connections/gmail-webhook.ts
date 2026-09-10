@@ -44,6 +44,7 @@ import {
  */
 
 const GOOGLE_OIDC_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+
 const GOOGLE_OIDC_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 interface OidcClaims extends JWTPayload {
@@ -52,9 +53,11 @@ interface OidcClaims extends JWTPayload {
 }
 
 type VerifyJwt = (token: string, audience: string) => Promise<OidcClaims>;
+
 type GmailWebhookCredentialLookup = (
   emailAddress: string,
 ) => Promise<{ id: string; userId: string } | null>;
+
 type GmailWebhookQueue = {
   add: (
     name: "gmail.poll_recent",
@@ -82,6 +85,7 @@ async function verifyGoogleOidcJwt(token: string, audience: string): Promise<Oid
     issuer: GOOGLE_OIDC_ISSUERS,
     audience,
   });
+
   return payload;
 }
 
@@ -94,25 +98,33 @@ export async function verifyPubSubOidcForGmailWebhook(
 ): Promise<OidcClaims> {
   const config = options.config ?? pubSubOidcConfigFromEnv();
   const audience = config.audience;
+
   if (!audience) {
     assertGmailPushOidcConfigured(config);
+
     // OIDC verification is disabled only for local/test webhook exercises
     // where setting up a signed Pub/Sub push token is unnecessary friction.
     return {};
   }
+
   assertGmailPushOidcConfigured(config);
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     throw new Error("missing Authorization bearer token");
   }
+
   const token = authHeader.slice("Bearer ".length);
   const payload = await (options.verifyJwt ?? verifyGoogleOidcJwt)(token, audience);
   const expectedSa = config.expectedServiceAccount;
+
   if (expectedSa && payload.email !== expectedSa) {
     throw new Error(`unexpected OIDC email: ${payload.email}`);
   }
+
   if (expectedSa && payload.email_verified !== true) {
     throw new Error("OIDC email claim is not verified");
   }
+
   return payload;
 }
 
@@ -159,11 +171,13 @@ export function parseGmailPushEnvelope(body: unknown): GmailPushEnvelope {
   // `publishTime`, `attributes`, `subscription` — cannot invent a rejection.
   const messageId = getStringPath(body, "message", "messageId");
   const data = getStringPath(body, "message", "data");
+
   if (data === undefined) return { messageId, notification: null };
 
   // `Buffer.from(x, "base64")` never throws; it drops any character outside the
   // alphabet. `parseJsonWith` owns the malformed-JSON and failed-schema arms.
   const json = Buffer.from(data, "base64").toString("utf8");
+
   return { messageId, notification: parseJsonWith(json, gmailPushNotificationSchema) };
 }
 
@@ -223,6 +237,7 @@ export function makeGmailWebhookRoutes(
     "/gmail",
     async ({ body, headers }) => {
       let verificationResult: "oidc_skipped" | "oidc_valid" = "oidc_skipped";
+
       try {
         await verifyOidc(headers["authorization"] ?? null);
         verificationResult = "oidc_valid";
@@ -235,18 +250,22 @@ export function makeGmailWebhookRoutes(
       }
 
       const { messageId, notification } = parseGmailPushEnvelope(body);
+
       if (!notification) {
         // Malformed payload → 200 to stop retries; nothing we can do with it.
         console.warn("[gmail-webhook] could not decode payload; messageId=", messageId);
+
         return { ok: true, ignored: "bad-payload" };
       }
 
       const cred = await findCredential(notification.emailAddress);
+
       if (!cred) {
         // The user may have disconnected; we shouldn't keep retrying. 200.
         console.warn(
           `[gmail-webhook] no credential for ${notification.emailAddress}; messageId=${messageId}`,
         );
+
         return { ok: true, ignored: "no-credential" };
       }
 
@@ -260,6 +279,7 @@ export function makeGmailWebhookRoutes(
       // drift-ok: audit-only receipt digest, never compared against another hash; dedup is the (provider, provider_delivery_id) index
       const payloadHash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
       const historyId = String(notification.historyId);
+
       const receipt = messageId
         ? await persistReceipt({
             providerDeliveryId: messageId,

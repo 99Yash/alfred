@@ -102,6 +102,7 @@ test("gmail history full-resync skips normal triage but runs bounded reply re-ev
     { length: FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT + 2 },
     (_, i) => `doc_sent_${i}`,
   );
+
   const plan = planGmailPostInsertSideEffects({
     jobKind: "gmail.poll_history",
     fullResync: true,
@@ -136,6 +137,7 @@ test("gmail normal history catch-up emits ingest triage and unbounded reply re-e
 
 test("gmail thread reconcile repoints dead triage pointer to newest live inbound, not sent", () => {
   const fetchedAt = new Date("2026-06-26T10:00:00Z");
+
   const plan = planGmailThreadReconcile({
     storedDocs: [
       doc("doc_dead_pointed", "msg_dead", "2026-06-26T09:59:00Z", false),
@@ -153,6 +155,7 @@ test("gmail thread reconcile repoints dead triage pointer to newest live inbound
 
 test("gmail thread reconcile keeps pointed dead doc when only live candidate is sent", () => {
   const fetchedAt = new Date("2026-06-26T10:00:00Z");
+
   const plan = planGmailThreadReconcile({
     storedDocs: [
       doc("doc_dead_pointed", "msg_dead_1", "2026-06-26T09:59:00Z", false),
@@ -170,6 +173,7 @@ test("gmail thread reconcile keeps pointed dead doc when only live candidate is 
 
 test("gmail thread reconcile repoints a live sent triage pointer to newest live inbound", () => {
   const fetchedAt = new Date("2026-06-26T10:00:00Z");
+
   const plan = planGmailThreadReconcile({
     storedDocs: [
       doc("doc_live_sent_pointed", "msg_live_sent", "2026-06-26T09:59:00Z", true),
@@ -186,6 +190,7 @@ test("gmail thread reconcile repoints a live sent triage pointer to newest live 
 
 test("gmail thread reconcile does not delete rows inserted after live fetch started", () => {
   const fetchedAt = new Date("2026-06-26T10:00:00Z");
+
   const plan = planGmailThreadReconcile({
     storedDocs: [
       doc("doc_old_dead", "msg_old_dead", "2026-06-26T09:55:00Z", false),
@@ -205,6 +210,7 @@ test("gmail thread reconcile does not delete rows inserted after live fetch star
 
 test("gmail thread reconcile does not delete protected current-job rows", () => {
   const fetchedAt = new Date("2026-06-26T10:00:00Z");
+
   const plan = planGmailThreadReconcile({
     storedDocs: [doc("doc_protected_dead", "msg_dead", "2026-06-26T09:59:00Z", false)],
     liveSourceIds: new Set(),

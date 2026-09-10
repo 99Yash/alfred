@@ -13,6 +13,7 @@
  */
 
 const SITE_NAME = "Alfred";
+
 const SITE_TAGLINE = "The Co-worker that never sleeps.";
 
 const SITE_DESCRIPTION =
@@ -60,6 +61,7 @@ export function formatPageTitle(title?: string): string {
 
 function absoluteUrl(path: string): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
+
   return normalized === "/" ? SITE_URL : `${SITE_URL}${normalized}`;
 }
 
@@ -81,6 +83,7 @@ export function pageMeta({ title, description, path }: PageMetaInput = {}): Page
   const fullTitle = formatPageTitle(title);
   const desc = description ?? SITE_DESCRIPTION;
   const url = path ? absoluteUrl(path) : null;
+
   return {
     meta: [
       { title: fullTitle },
@@ -101,6 +104,7 @@ export function pageMeta({ title, description, path }: PageMetaInput = {}): Page
  */
 export function siteMeta(): PageMeta {
   const base = pageMeta();
+
   return {
     meta: [
       ...base.meta,

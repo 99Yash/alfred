@@ -16,38 +16,51 @@ import { lexSource, parseImports } from "./ts-imports.mjs";
 import { listWorkspaces } from "./workspaces.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
 const BASELINE_PATH = join(ROOT, "scripts/module-architecture-baseline.json");
+
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
+
 const ASSISTANT_SOURCE_ROOT = join(ROOT, "packages/assistant/src");
+
 // The runtime adapters moved out of `packages/api/src/composition` with the runtime
 // itself (campaign item 09). `walkSourceFiles` returns `[]` for a directory that does
 // not exist, so a stale root would leave this rule scanning zero files and reporting
 // success; the `SCANNED_PATHS` row below is what makes that absence loud.
 const RUNTIME_ADAPTER_ROOT = join(ROOT, "packages/assistant/src/runtime/adapters");
+
 const RUNTIME_ADAPTER_MANIFEST = join(RUNTIME_ADAPTER_ROOT, "runtime-adapters.ts");
+
 // The boot seams live in `@alfred/assistant`, not in the legacy api modules tree.
 // They moved there before this constant did, and because `walkSourceFiles` returns
 // `[]` for a directory that does not exist, the header rule below scanned zero files
 // and reported success from the move until this repoint. `SCANNED_PATHS` is what stops
 // the next move doing the same thing.
 const TOOL_RUNTIME_ROOT = join(ASSISTANT_SOURCE_ROOT, "tool-runtime");
+
 const BOOT_PORT_DEFINER = join(TOOL_RUNTIME_ROOT, "boot-port.ts");
+
 // A boot-seam call is `bootPort` followed by a generic or an argument list. The
 // character class covers both the `bootPort<Type>(` form and the bare `bootPort(`
 // form, so a seam whose generic sits on the variable (const p: BootPort<T> =
 // bootPort("x")) is still detected. No generic parse is needed: the check asks
 // only whether a call exists and on which line, never where the generic ends.
 const BOOT_PORT_CALL = /\bbootPort\s*[<(]/g;
+
 // Reads the seam type name from a call-site generic (bootPort<Name>) or, for the
 // bare form, from the variable annotation (: BootPort<Name>). The name only lets a
 // header sit on the seam interface instead of the call line; a null name is fine.
 const BOOT_PORT_GENERIC_NAME = /\bbootPort\s*<\s*([A-Za-z_$][\w$]*)/;
+
 const BOOT_PORT_VARIABLE_TYPE = /:\s*BootPort\s*<\s*([A-Za-z_$][\w$]*)/;
+
 // The evasion-proof backstop trigger. A seam cannot exist without importing the
 // factory, so a file that imports bootPort but exposes no detectable call (an alias
 // or other indirection) must still carry the four labels.
 const BOOT_PORT_IMPORT = /\bimport\b[^;\n]*\bbootPort\b[^;\n]*\bfrom\b/;
+
 const BOOT_SEAM_HEADER_LABELS = ["Surface:", "Owns/hides:", "Why the seam:", "Wiring:"];
+
 const TARGET_ASSISTANT_MODULES = new Set([
   "action-policies",
   "artifacts",
@@ -70,6 +83,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "triage",
   "reply-drafting",
 ]);
+
 // The root that decides which module owns a file, as one parameter so a self-test can
 // point the module derivation at a fixture tree. Its member is the existing constant,
 // so this adds no path literal and no `SCANNED_PATHS` row: the `ASSISTANT_SOURCE_ROOT`
@@ -79,7 +93,9 @@ const TARGET_ASSISTANT_MODULES = new Set([
 const MODULE_ROOTS = {
   assistantSource: ASSISTANT_SOURCE_ROOT,
 };
+
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
+
 // The connections barrel and the heavy leaves it must never reach, transitively. Two subtrees
 // under `connections/` carry their own `exports` key precisely so this barrel does not evaluate
 // them, and each one contributes the leaves that make it heavy.
@@ -114,12 +130,14 @@ const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
 // Absolute, and checked against the live walk rather than the baseline: a ratchet row would let a
 // future PR regenerate the baseline and walk the invariant back.
 const CONNECTIONS_BARREL = join(ASSISTANT_SOURCE_ROOT, "connections/index.ts");
+
 const CONNECTIONS_BARREL_FORBIDDEN_REACH = [
   join(ASSISTANT_SOURCE_ROOT, "connections/ingestion/queue.ts"),
   join(ASSISTANT_SOURCE_ROOT, "connections/ingestion/gmail-ingest.ts"),
   join(ASSISTANT_SOURCE_ROOT, "connections/mcp/client.ts"),
   join(ASSISTANT_SOURCE_ROOT, "connections/mcp/oauth.ts"),
 ];
+
 // Every hardcoded repository path a rule in this file reads. Each one is the SOLE
 // input of its rule, so a path that stops resolving does not make its rule lenient —
 // it makes it enforce nothing, silently for a directory (`walkSourceFiles` returns
@@ -140,8 +158,11 @@ const SCANNED_PATHS = [
   { constant: "BOOT_PORT_DEFINER", path: BOOT_PORT_DEFINER, kind: "file" },
   { constant: "CONNECTIONS_BARREL", path: CONNECTIONS_BARREL, kind: "file" },
 ];
+
 const GRAPH_FLAG = "--print-graph";
+
 const BASELINE_FLAG = "--write-baseline";
+
 // `--print-baseline` was the previous name, and its documented invocation redirected
 // stdout into the baseline file. The shell truncates that file BEFORE this process
 // starts, so the redirect destroyed the ratchet it was supposed to regenerate. The
@@ -151,6 +172,7 @@ const REMOVED_BASELINE_FLAG = "--print-baseline";
 // The durable-execution module. Its directory is now named `execution` (Phase 6-12).
 // The graph node is the raw directory name — see `moduleForPath`.
 const EXECUTION_MODULE = "execution";
+
 // Product modules the durable-execution core must not import (ADR-0089). This is
 // an ABSOLUTE forbidden set: it is checked against the live module graph, not
 // the grandfathered baseline SCC, so a re-introduced product import fails even
@@ -181,6 +203,7 @@ function relativeToRoot(path) {
 
 function listDirectories(parent) {
   if (!existsSync(parent)) return [];
+
   return readdirSync(parent, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
     .map((entry) => join(parent, entry.name));
@@ -190,14 +213,19 @@ function walkSourceFiles(parent) {
   if (!existsSync(parent)) return [];
   const files = [];
   const pending = [parent];
+
   while (pending.length > 0) {
     const directory = pending.pop();
+
     if (!directory) continue;
+
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (entry.name.startsWith(".") || entry.name === "dist" || entry.name === "node_modules") {
         continue;
       }
+
       const path = join(directory, entry.name);
+
       if (entry.isDirectory()) {
         pending.push(path);
       } else if (SOURCE_EXTENSIONS.includes(extname(entry.name))) {
@@ -205,12 +233,14 @@ function walkSourceFiles(parent) {
       }
     }
   }
+
   return files.sort((a, b) => a.localeCompare(b));
 }
 
 function exportedRuntimeLifecycleSymbols(source) {
   const tokens = lexSource(source);
   const symbols = [];
+
   const addSymbol = (token) => {
     if (
       token?.kind === "identifier" &&
@@ -219,22 +249,28 @@ function exportedRuntimeLifecycleSymbols(source) {
       symbols.push(token.value);
     }
   };
+
   for (let index = 0; index < tokens.length; index += 1) {
     if (tokens[index]?.value !== "export") continue;
     let cursor = index + 1;
+
     if (tokens[cursor]?.value === "async") cursor += 1;
+
     if (tokens[cursor]?.value === "function") {
       addSymbol(tokens[cursor + 1]);
     } else if (["const", "let", "var"].includes(tokens[cursor]?.value)) {
       addSymbol(tokens[cursor + 1]);
     } else if (tokens[cursor]?.value === "{") {
       cursor += 1;
+
       while (cursor < tokens.length && tokens[cursor]?.value !== "}") {
         const local = tokens[cursor];
+
         if (local?.kind !== "identifier" || local.value === "type") {
           cursor += 1;
           continue;
         }
+
         if (tokens[cursor + 1]?.value === "as") {
           addSymbol(tokens[cursor + 2]);
           cursor += 3;
@@ -245,28 +281,37 @@ function exportedRuntimeLifecycleSymbols(source) {
       }
     }
   }
+
   return uniqueSorted(symbols);
 }
 
 function namedImports(source) {
   const tokens = lexSource(source);
   const imports = [];
+
   for (let index = 0; index < tokens.length; index += 1) {
     if (tokens[index]?.value !== "import" || tokens[index + 1]?.value !== "{") continue;
     let cursor = index + 2;
     const names = [];
+
     while (cursor < tokens.length && tokens[cursor]?.value !== "}") {
       const token = tokens[cursor];
+
       if (token?.kind === "identifier" && token.value !== "type" && token.value !== "as") {
         names.push(token.value);
       }
+
       cursor += 1;
     }
+
     while (cursor < tokens.length && tokens[cursor]?.value !== "from") cursor += 1;
     const specifier = tokens[cursor + 1];
+
     if (specifier?.kind !== "string") continue;
+
     for (const name of names) imports.push({ name, specifier: specifier.value });
   }
+
   return imports;
 }
 
@@ -274,6 +319,7 @@ function runtimeAdapterManifestRows(source) {
   const tokens = lexSource(source);
   const manifestName = tokens.findIndex((token) => token.value === "RUNTIME_ADAPTERS");
   const start = tokens.findIndex((token, index) => index > manifestName && token.value === "[");
+
   if (manifestName < 0 || start < 0) return [];
 
   const rows = [];
@@ -281,12 +327,15 @@ function runtimeAdapterManifestRows(source) {
   let braceDepth = 0;
   let register;
   let unregister;
+
   for (let index = start + 1; index < tokens.length && bracketDepth > 0; index += 1) {
     const token = tokens[index];
+
     if (token.value === "[") bracketDepth += 1;
     else if (token.value === "]") bracketDepth -= 1;
     else if (token.value === "{") {
       braceDepth += 1;
+
       if (braceDepth === 1) {
         register = undefined;
         unregister = undefined;
@@ -304,33 +353,40 @@ function runtimeAdapterManifestRows(source) {
       else unregister = tokens[index + 2].value;
     }
   }
+
   return rows;
 }
 
 function runtimeAdapterViolations(compositionSources, manifestSource) {
   const violations = [];
   const expectedPairs = [];
+
   for (const { file, source } of compositionSources) {
     const symbols = exportedRuntimeLifecycleSymbols(source);
     const registers = symbols.filter((symbol) => symbol.startsWith("register"));
     const unregisters = symbols.filter((symbol) => symbol.startsWith("unregister"));
+
     const suffixes = uniqueSorted([
       ...registers.map((symbol) => symbol.slice("register".length)),
       ...unregisters.map((symbol) => symbol.slice("unregister".length)),
     ]);
+
     for (const suffix of suffixes) {
       const register = `register${suffix}`;
       const unregister = `unregister${suffix}`;
+
       if (!registers.includes(register) || !unregisters.includes(unregister)) {
         violations.push(
           `unpaired runtime adapter lifecycle in ${relativeToRoot(file)}: expected ${register} and ${unregister}`,
         );
         continue;
       }
+
       const relativeModule = normalizePath(relative(RUNTIME_ADAPTER_ROOT, file)).replace(
         /\.[^.]+$/,
         "",
       );
+
       expectedPairs.push({
         register,
         specifier: relativeModule.startsWith(".") ? relativeModule : `./${relativeModule}`,
@@ -341,6 +397,7 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
 
   const imports = namedImports(manifestSource);
   const rows = runtimeAdapterManifestRows(manifestSource);
+
   for (const expected of expectedPairs) {
     for (const symbol of [expected.register, expected.unregister]) {
       if (
@@ -353,9 +410,11 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
         );
       }
     }
+
     const matches = rows.filter(
       (row) => row.register === expected.register && row.unregister === expected.unregister,
     );
+
     if (matches.length !== 1) {
       violations.push(
         `runtime adapter manifest must list ${expected.register}/${expected.unregister} exactly once (found ${matches.length})`,
@@ -366,12 +425,15 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
   const expectedRowKeys = new Set(
     expectedPairs.map(({ register, unregister }) => `${register}/${unregister}`),
   );
+
   for (const row of rows) {
     const key = `${row.register}/${row.unregister}`;
+
     if (!expectedRowKeys.has(key)) {
       violations.push(`runtime adapter manifest lists unknown lifecycle pair ${key}`);
     }
   }
+
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
@@ -385,6 +447,7 @@ function findBootPortCalls(source) {
   const lines = source.split("\n");
   BOOT_PORT_CALL.lastIndex = 0;
   let match;
+
   while ((match = BOOT_PORT_CALL.exec(source)) !== null) {
     const lineIndex = source.slice(0, match.index).split("\n").length - 1;
     const line = lines[lineIndex];
@@ -393,6 +456,7 @@ function findBootPortCalls(source) {
     const seamTypeName = fromCall ? fromCall[1] : fromVariable ? fromVariable[1] : null;
     calls.push({ seamTypeName, lineIndex });
   }
+
   return calls;
 }
 
@@ -402,13 +466,18 @@ function findBootPortCalls(source) {
 // prose cannot stand in for a real header.
 function adjacentJsDocBlock(lines, anchorLineIndex) {
   let k = anchorLineIndex - 1;
+
   while (k >= 0 && lines[k].trim() === "") k--;
+
   if (k < 0 || !lines[k].includes("*/")) return null;
   const blockLines = [];
+
   for (; k >= 0; k--) {
     blockLines.unshift(lines[k]);
+
     if (lines[k].includes("/**")) return blockLines.join("\n");
   }
+
   return null;
 }
 
@@ -420,8 +489,10 @@ function adjacentJsDocBlock(lines, anchorLineIndex) {
 // labels fails the check.
 function bootSeamHeaderViolations(sources) {
   const violations = [];
+
   for (const { file, source } of sources) {
     const calls = findBootPortCalls(source);
+
     if (calls.length === 0) {
       // Import-anchor backstop. A seam cannot exist without importing the factory, so
       // a file that imports bootPort yet exposes no detectable call (an alias or other
@@ -429,35 +500,47 @@ function bootSeamHeaderViolations(sources) {
       // call-site scan cannot enumerate, at no parsing cost.
       if (BOOT_PORT_IMPORT.test(source)) {
         const missing = BOOT_SEAM_HEADER_LABELS.filter((label) => !source.includes(label));
+
         for (const label of missing) {
           violations.push(`boot-seam header missing "${label}" in ${relativeToRoot(file)}`);
         }
       }
+
       continue;
     }
+
     const lines = source.split("\n");
+
     for (const call of calls) {
       const anchorLines = [call.lineIndex];
+
       if (call.seamTypeName) {
         // A validated identifier holds no regex metacharacters, so it is safe here.
         const interfacePattern = new RegExp(
           `^\\s*(export\\s+)?interface\\s+${call.seamTypeName}\\b`,
         );
+
         for (let i = 0; i < lines.length; i++) {
           if (interfacePattern.test(lines[i])) anchorLines.push(i);
         }
       }
+
       // One block must carry all four labels. The union of two partial blocks does
       // not count, so pick the single adjacent block with the most labels and report
       // what it still misses.
       let bestLabels = [];
+
       for (const anchorLine of anchorLines) {
         const block = adjacentJsDocBlock(lines, anchorLine);
+
         if (block === null) continue;
         const present = BOOT_SEAM_HEADER_LABELS.filter((label) => block.includes(label));
+
         if (present.length > bestLabels.length) bestLabels = present;
       }
+
       const seam = call.seamTypeName ?? "anonymous seam";
+
       for (const label of BOOT_SEAM_HEADER_LABELS) {
         if (!bestLabels.includes(label)) {
           violations.push(
@@ -467,32 +550,41 @@ function bootSeamHeaderViolations(sources) {
       }
     }
   }
+
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
 function resolveSourceImport(importer, specifier) {
   let candidate;
+
   if (specifier.startsWith(".")) {
     candidate = resolve(dirname(importer), specifier);
   } else if (specifier.startsWith("~/")) {
     const appSourceMatch = importer.match(/^(.*\/apps\/[^/]+\/src)\//);
+
     if (!appSourceMatch?.[1]) return null;
     candidate = join(appSourceMatch[1], specifier.slice(2));
   } else {
     return null;
   }
+
   const extension = extname(candidate);
+
   const bases =
     extension === ".js" || extension === ".jsx"
       ? [candidate, candidate.slice(0, -extension.length)]
       : [candidate];
+
   const candidates = [...bases];
+
   for (const base of bases) {
     for (const sourceExtension of SOURCE_EXTENSIONS) candidates.push(`${base}${sourceExtension}`);
+
     for (const sourceExtension of SOURCE_EXTENSIONS) {
       candidates.push(join(base, `index${sourceExtension}`));
     }
   }
+
   return candidates.find((path) => existsSync(path) && statSync(path).isFile()) ?? candidate;
 }
 
@@ -507,6 +599,7 @@ function resolveSourceImport(importer, specifier) {
  */
 function workspaceEntries() {
   const { workspaces, failures } = listWorkspaces(ROOT);
+
   const entries = workspaces
     .filter((workspace) => workspace.name !== null)
     .map((workspace) => ({
@@ -515,11 +608,13 @@ function workspaceEntries() {
       source: join(ROOT, workspace.source),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+
   if (entries.length === 0) {
     failures.push(
       "no workspace declares a `name`, so this check has no package to walk and no edge it could report.",
     );
   }
+
   return { entries, failures };
 }
 
@@ -541,10 +636,12 @@ function packageFromSpecifier(entries, specifier) {
 function moduleForPath(path, roots = MODULE_ROOTS) {
   if (path.startsWith(`${roots.assistantSource}${sep}`)) {
     const [name] = relative(roots.assistantSource, path).split(sep);
+
     return name && TARGET_ASSISTANT_MODULES.has(name)
       ? { index: join(roots.assistantSource, name, "index.ts"), name }
       : null;
   }
+
   return null;
 }
 
@@ -554,6 +651,7 @@ function moduleForPath(path, roots = MODULE_ROOTS) {
 function webFeatureForPath(path, routesRoot = WEB_ROUTES_ROOT) {
   if (!path.startsWith(`${routesRoot}${sep}`)) return null;
   const [first] = relative(routesRoot, path).split(sep);
+
   return first?.startsWith("-") ? first.slice(1) : null;
 }
 
@@ -571,11 +669,14 @@ function uniqueSorted(values) {
 
 function stronglyConnectedComponents(nodes, edges) {
   const adjacency = new Map(nodes.map((node) => [node, []]));
+
   for (const edge of edges) {
     if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
+
     if (!adjacency.has(edge.to)) adjacency.set(edge.to, []);
     adjacency.get(edge.from)?.push(edge.to);
   }
+
   for (const targets of adjacency.values()) targets.sort((a, b) => a.localeCompare(b));
 
   let nextIndex = 0;
@@ -603,31 +704,39 @@ function stronglyConnectedComponents(nodes, edges) {
 
     if (lowLinks.get(node) !== indexes.get(node)) return;
     const component = [];
+
     while (stack.length > 0) {
       const member = stack.pop();
+
       if (!member) break;
       onStack.delete(member);
       component.push(member);
+
       if (member === node) break;
     }
+
     components.push(component.sort((a, b) => a.localeCompare(b)));
   }
 
   for (const node of [...adjacency.keys()].sort((a, b) => a.localeCompare(b))) {
     if (!indexes.has(node)) connect(node);
   }
+
   return components.sort((a, b) => a.join("\0").localeCompare(b.join("\0")));
 }
 
 function cyclicEdgeKeys(edges, components) {
   const componentByNode = new Map();
+
   for (const component of components) {
     for (const node of component) componentByNode.set(node, component);
   }
+
   return uniqueSorted(
     edges
       .filter((edge) => {
         const component = componentByNode.get(edge.from);
+
         return (
           component &&
           component.includes(edge.to) &&
@@ -646,6 +755,7 @@ function cyclicEdgeKeys(edges, components) {
 function edgesFromKeys(keys) {
   return keys.map((key) => {
     const [from, to] = key.split(" -> ");
+
     return { from, to };
   });
 }
@@ -729,10 +839,12 @@ const RECORDED_GRAPHS = BASELINE_RATCHETS.filter(
  */
 function ratchetList(root, path) {
   let value = root;
+
   for (const key of path.split(".")) {
     if (value === null || typeof value !== "object") return undefined;
     value = value[key];
   }
+
   return value;
 }
 
@@ -751,6 +863,7 @@ function ratchetList(root, path) {
  */
 function cyclicEdgeKeysOf(keys) {
   const edges = edgesFromKeys(keys);
+
   return cyclicEdgeKeys(
     edges,
     stronglyConnectedComponents(uniqueSorted(edges.flatMap((edge) => [edge.from, edge.to])), edges),
@@ -760,6 +873,7 @@ function cyclicEdgeKeysOf(keys) {
 function listDelta(before, after) {
   const beforeEntries = new Set(before);
   const afterEntries = new Set(after);
+
   return {
     added: uniqueSorted(after.filter((entry) => !beforeEntries.has(entry))),
     removed: uniqueSorted(before.filter((entry) => !afterEntries.has(entry))),
@@ -768,12 +882,16 @@ function listDelta(before, after) {
 
 function graphFromEdges(nodes, rawEdges) {
   const keys = uniqueSorted(rawEdges.map((edge) => edgeKey(edge.from, edge.to)));
+
   const edges = keys.map((key) => {
     const [from, to] = key.split(" -> ");
+
     return { from, to };
   });
+
   const allNodes = uniqueSorted([...nodes, ...edges.flatMap((edge) => [edge.from, edge.to])]);
   const components = stronglyConnectedComponents(allNodes, edges);
+
   return {
     edges: keys,
     sccs: components.filter((component) => component.length > 1),
@@ -799,7 +917,9 @@ function collectRuntimeAdapterScan(
   const compositionSources = walkSourceFiles(root)
     .filter((file) => file !== manifest)
     .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+
   const manifestPresent = existsSync(manifest) && statSync(manifest).isFile();
+
   return {
     compositionSources,
     manifestSource: manifestPresent ? readFileSync(manifest, "utf8") : null,
@@ -858,9 +978,11 @@ function collectConnectionsBarrelReach(
   const label = (file) => normalizePath(relative(base, file));
   const isFile = (path) => existsSync(path) && statSync(path).isFile();
   const reached = [];
+
   if (isFile(barrel)) {
     const seen = new Set([barrel]);
     reached.push({ chain: label(barrel), file: barrel });
+
     // `reached` IS the queue: an array iterator re-reads `length` on every step, so a file
     // appended here is visited later in the same loop, in insertion order. That is the
     // breadth-first order, without a second array and without a `shift()` whose result the
@@ -868,12 +990,14 @@ function collectConnectionsBarrelReach(
     for (const current of reached) {
       for (const imported of parseImports(readFileSync(current.file, "utf8"))) {
         const target = resolveSourceImport(current.file, imported.specifier);
+
         if (target === null || seen.has(target) || !isFile(target)) continue;
         seen.add(target);
         reached.push({ chain: `${current.chain} -> ${label(target)}`, file: target });
       }
     }
   }
+
   return {
     reached,
     forbidden: forbidden.map((path) => ({ path, present: isFile(path) })),
@@ -913,19 +1037,24 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
   for (const entry of entries) {
     for (const file of walkSourceFiles(entry.source)) {
       const source = readFileSync(file, "utf8");
+
       for (const imported of parseImports(source)) {
         const targetFile = resolveSourceImport(file, imported.specifier);
+
         const targetEntry = targetFile
           ? entryForFile(entries, targetFile)
           : packageFromSpecifier(entries, imported.specifier);
+
         if (targetEntry && targetEntry.name !== entry.name) {
           packageEdges.push({ from: entry.name, to: targetEntry.name });
         }
 
         const fromModule = moduleForPath(file, moduleRoots);
         let toModule = targetFile ? moduleForPath(targetFile, moduleRoots) : null;
+
         if (!toModule && imported.specifier.startsWith("@alfred/assistant/")) {
           const name = imported.specifier.split("/")[2];
+
           if (name && TARGET_ASSISTANT_MODULES.has(name)) {
             toModule = {
               index: join(moduleRoots.assistantSource, name, "index.ts"),
@@ -933,11 +1062,13 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
             };
           }
         }
+
         // A module EDGE needs two module endpoints: it names the modules at both
         // ends, so an importer outside every module contributes no edge.
         if (fromModule && toModule && fromModule.name !== toModule.name) {
           moduleEdges.push({ from: fromModule.name, to: toModule.name });
         }
+
         // A private REACH needs only one module endpoint — the target's. Any file
         // that resolves an import to another module's non-index file has reached
         // past that module's public interface, whether or not the importer itself
@@ -981,6 +1112,7 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
         if (entry.name === "web" && targetFile) {
           const fromFeature = webFeatureForPath(file, routesRoot);
           const toFeature = webFeatureForPath(targetFile, routesRoot);
+
           if (fromFeature && toFeature && fromFeature !== toFeature) {
             webFeatureImports.push({
               from: fromFeature,
@@ -989,11 +1121,14 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
               to: toFeature,
             });
           }
+
           const targetIsPreview = toFeature === "debug" || toFeature?.startsWith("preview-");
+
           const sourceIsPreview =
             fromFeature === "debug" ||
             fromFeature?.startsWith("preview-") ||
             /^(debug|preview)\./.test(relative(routesRoot, file));
+
           if (targetIsPreview && !sourceIsPreview) {
             productionPreviewImports.push({
               key: importKey(file, imported.specifier),
@@ -1019,6 +1154,7 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
 
 function collectArchitecture() {
   const { entries, failures: workspaceFailures } = workspaceEntries();
+
   const {
     exceptions,
     forbiddenBackendImports,
@@ -1030,6 +1166,7 @@ function collectArchitecture() {
   const moduleNodes = listDirectories(ASSISTANT_SOURCE_ROOT)
     .map((path) => path.split(sep).at(-1))
     .filter((name) => name && TARGET_ASSISTANT_MODULES.has(name));
+
   return {
     // Every tree read a rule needs is collected here, so `checkArchitecture` decides
     // over its arguments alone (item 38). Before this the boot-seam and runtime-adapter
@@ -1112,7 +1249,9 @@ function loadBaseline(path = BASELINE_PATH) {
   if (!existsSync(path)) {
     return { ok: false, error: `missing ${relativeToRoot(path)}` };
   }
+
   let parsed;
+
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
@@ -1121,20 +1260,25 @@ function loadBaseline(path = BASELINE_PATH) {
       error: `${relativeToRoot(path)} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+
   const faults = baselineRatchetFaults(parsed);
+
   if (faults.length > 0) {
     return {
       ok: false,
       error: `${relativeToRoot(path)} has unusable ratchet lists: ${faults.join(", ")}`,
     };
   }
+
   const selfPermissions = baselineSelfPermissionFaults(parsed);
+
   if (selfPermissions.length > 0) {
     return {
       ok: false,
       error: `${relativeToRoot(path)} permits a cycle it does not declare: ${selfPermissions.join(", ")}. A recorded graph must declare its own cycles. A file in this state is what merging two independently regenerated baselines produces, and it grants a cycle neither side granted. Restore the file, then regenerate it from this tree with ${BASELINE_FLAG}, which refuses while the tree still has that cycle.`,
     };
   }
+
   return { ok: true, baseline: parsed };
 }
 
@@ -1171,44 +1315,57 @@ function loadBaseline(path = BASELINE_PATH) {
  */
 function baselineRatchetFaults(parsed) {
   const faults = [];
+
   for (const graph of RECORDED_GRAPHS) {
     const declared = ratchetList(parsed, graph.declaredCyclesPath);
+
     if (!Array.isArray(declared)) {
       faults.push(`${graph.declaredCyclesPath} is missing or not an array`);
       continue;
     }
+
     const index = declared.findIndex(
       (component) =>
         !Array.isArray(component) || component.some((node) => typeof node !== "string"),
     );
+
     if (index !== -1) {
       faults.push(
         `${graph.declaredCyclesPath}[${index}] is not a list of node names: ${JSON.stringify(declared[index])}`,
       );
     }
   }
+
   for (const ratchet of BASELINE_RATCHETS) {
     const value = ratchetList(parsed, ratchet.path);
+
     if (!Array.isArray(value)) {
       faults.push(`${ratchet.path} is missing or not an array`);
       continue;
     }
+
     const index = value.findIndex((entry) => typeof entry !== "string");
+
     if (index !== -1) {
       faults.push(`${ratchet.path}[${index}] is ${typeof value[index]}, not a string`);
       continue;
     }
+
     if (ratchet.memberKind !== "edgeKey") continue;
+
     const malformed = value.findIndex((entry) => {
       const sides = entry.split(" -> ");
+
       return sides.length !== 2 || sides[0].length === 0 || sides[1].length === 0;
     });
+
     if (malformed !== -1) {
       faults.push(
         `${ratchet.path}[${malformed}] is not an edge key: ${JSON.stringify(value[malformed])}`,
       );
     }
   }
+
   return faults;
 }
 
@@ -1241,26 +1398,32 @@ function baselineRatchetFaults(parsed) {
  */
 function baselineSelfPermissionFaults(parsed) {
   const faults = [];
+
   for (const graph of RECORDED_GRAPHS) {
     const edges = ratchetList(parsed, graph.path);
     const declared = ratchetList(parsed, graph.declaredCyclesPath);
     const derived = graphFromEdges([], edgesFromKeys(edges)).sccs;
+
     if (JSON.stringify(derived) !== JSON.stringify(declared)) {
       faults.push(
         `${graph.path} forms ${JSON.stringify(derived)}, but ${graph.declaredCyclesPath} declares ${JSON.stringify(declared)}`,
       );
       continue;
     }
+
     const declaredNodes = new Set(declared.flat());
+
     const undeclared = cyclicEdgeKeysOf(edges).filter(
       (key) => !declaredNodes.has(key.split(" -> ")[0]),
     );
+
     if (undeclared.length > 0) {
       faults.push(
         `${graph.path} permits ${JSON.stringify(undeclared)}, which lies in no component ${graph.declaredCyclesPath} declares`,
       );
     }
   }
+
   return faults;
 }
 
@@ -1329,13 +1492,16 @@ function baselineDelta(baseline, document) {
  */
 function baselineEmission(architecture, baseline) {
   const violations = checkArchitecture(architecture, baseline);
+
   if (violations.length > 0) return { ok: false, violations };
   const document = baselineDocument(architecture);
+
   return { ok: true, violations, document, delta: baselineDelta(baseline, document) };
 }
 
 function selfTestFailures() {
   const failures = [];
+
   const parsed = parseImports(`
 // import "ignored-comment";
 import type { A } from "../a";
@@ -1346,8 +1512,10 @@ const e = require("../e");
 const dynamic = import(variable);
 const text = 'import "ignored-string"';
 `);
+
   const actualSpecifiers = parsed.map((entry) => entry.specifier);
   const expectedSpecifiers = ["../a", "../b", "../c", "../d", "../e"];
+
   if (JSON.stringify(actualSpecifiers) !== JSON.stringify(expectedSpecifiers)) {
     failures.push(
       `parser fixture mismatch: expected ${JSON.stringify(expectedSpecifiers)}, received ${JSON.stringify(actualSpecifiers)}`,
@@ -1363,6 +1531,7 @@ const text = 'import "ignored-string"';
       { from: "c", to: "d" },
     ],
   );
+
   if (JSON.stringify(components) !== JSON.stringify([["a", "b"], ["c"], ["d"]])) {
     failures.push(`SCC fixture mismatch: received ${JSON.stringify(components)}`);
   }
@@ -1371,17 +1540,20 @@ const text = 'import "ignored-string"';
   // `execution -> triage` edge and stay SILENT on a non-product edge like
   // `execution -> integrations`, independent of any baseline.
   const forbiddenFired = executionForbiddenImportViolations([{ from: "execution", to: "triage" }]);
+
   if (!forbiddenFired.some((violation) => violation.includes("execution -> triage"))) {
     failures.push(
       `execution forbidden-import fixture mismatch: expected an execution -> triage violation, received ${JSON.stringify(forbiddenFired)}`,
     );
   }
+
   // Each locked module carries its own live fixture (item 11): `automation` is
   // the last product edge the execution core shed (item 10), so prove the gate
   // fires for `execution -> automation` too, not just `execution -> triage`.
   const forbiddenFiredAutomation = executionForbiddenImportViolations([
     { from: "execution", to: "automation" },
   ]);
+
   if (
     !forbiddenFiredAutomation.some((violation) => violation.includes("execution -> automation"))
   ) {
@@ -1389,9 +1561,11 @@ const text = 'import "ignored-string"';
       `execution forbidden-import fixture mismatch: expected an execution -> automation violation, received ${JSON.stringify(forbiddenFiredAutomation)}`,
     );
   }
+
   const forbiddenSilent = executionForbiddenImportViolations([
     { from: "execution", to: "integrations" },
   ]);
+
   if (forbiddenSilent.length > 0) {
     failures.push(
       `execution forbidden-import fixture mismatch: expected no violation for execution -> integrations, received ${JSON.stringify(forbiddenSilent)}`,
@@ -1418,6 +1592,7 @@ const text = 'import "ignored-string"';
     },
     ...overrides,
   });
+
   // The four tree-derived fields default INERT — an empty presence list, no composition
   // sources, a null manifest, an empty barrel walk with an empty forbidden list, no boot-seam
   // sources. That is what makes every drive below a decision over its own plant and nothing
@@ -1438,6 +1613,7 @@ const text = 'import "ignored-string"';
     workspaceFailures: [],
     ...overrides,
   });
+
   // (0) A refused workspace enumeration must reach the violation list. The live
   // enumeration is clean, so nothing else here would notice the wiring going away —
   // and a checker that walked a partial workspace list would report every absence
@@ -1446,11 +1622,13 @@ const text = 'import "ignored-string"';
     syntheticArchitecture({ workspaceFailures: ["pnpm-workspace.yaml does not exist"] }),
     syntheticBaseline(),
   );
+
   if (!workspaceWiringDrive.some((violation) => violation.includes("workspace enumeration:"))) {
     failures.push(
       `workspace-enumeration wiring self-test mismatch: expected checkArchitecture to report a refused enumeration, received ${JSON.stringify(workspaceWiringDrive)}`,
     );
   }
+
   // (0-b) A collected assistant -> transport import must reach the violation list.
   // This is ADR-0089's fence — `@alfred/assistant` must never import `@alfred/http`,
   // legacy `@alfred/api` or `apps/server` — and this loop is its only enforcement.
@@ -1465,6 +1643,7 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+
   if (
     !assistantBackendFenceWiringDrive.some(
       (violation) =>
@@ -1477,6 +1656,7 @@ const text = 'import "ignored-string"';
       `assistant-backend-fence wiring self-test mismatch: expected checkArchitecture to report the planted assistant -> transport import with its key and line, received ${JSON.stringify(assistantBackendFenceWiringDrive)}`,
     );
   }
+
   // (0-c) The production -> preview fence, same shape one list over. Also zero
   // members in the live tree, also deletable green before this drive existed.
   const productionPreviewWiringDrive = checkArchitecture(
@@ -1487,6 +1667,7 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+
   if (
     !productionPreviewWiringDrive.some(
       (violation) =>
@@ -1499,6 +1680,7 @@ const text = 'import "ignored-string"';
       `production-preview-fence wiring self-test mismatch: expected checkArchitecture to report the planted production -> preview import with its key and line, received ${JSON.stringify(productionPreviewWiringDrive)}`,
     );
   }
+
   // (0-d)/(0-e) The COLLECTION half of the same two fences. `(0-b)`/`(0-c)` above drive
   // the REPORT half over a synthetic architecture, so they never run the walk that
   // decides membership. The live tree holds zero members of either list, which means a
@@ -1529,7 +1711,9 @@ const text = 'import "ignored-string"';
         : `import { leaf } from "${specifier}";\n\nexport const reexported = leaf;\n`,
     );
   };
+
   const importFactsDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+
   try {
     const assistantRoot = join(importFactsDirectory, "assistant");
     const serverRoot = join(importFactsDirectory, "server");
@@ -1557,6 +1741,7 @@ const text = 'import "ignored-string"';
     plant(join(fixtureRoutesRoot, "-debug", "panel.tsx"), null);
     plant(join(fixtureRoutesRoot, "-preview-panel", "panel.tsx"), null);
     plant(join(fixtureRoutesRoot, "-settings", "panel.tsx"), null);
+
     // Three synthetic entries, so the fence's `entry.name === "@alfred/assistant"` gate
     // and the preview predicate's `entry.name === "web"` gate cannot cross-contaminate.
     // This call takes `moduleRoots`' default, i.e. the real repository roots, and the
@@ -1570,6 +1755,7 @@ const text = 'import "ignored-string"';
       ],
       fixtureRoutesRoot,
     );
+
     // (0-d) One arm of the assistant -> transport specifier test per row, so a narrowed
     // fence fails by the arm it dropped rather than as "some list is empty".
     for (const [importerBasename, arm] of [
@@ -1589,6 +1775,7 @@ const text = 'import "ignored-string"';
         );
       }
     }
+
     if (
       importFacts.forbiddenBackendImports.some((imported) =>
         imported.key.includes("server-imports-transport"),
@@ -1598,6 +1785,7 @@ const text = 'import "ignored-string"';
         `assistant-backend-fence collection self-test mismatch: expected the import walk to leave server-imports-transport uncollected, because the fence applies to the \`@alfred/assistant\` entry alone, received ${JSON.stringify(importFacts.forbiddenBackendImports)}`,
       );
     }
+
     // (0-e) The production -> preview predicate, both directions. The two positives cover
     // `targetIsPreview`'s `debug` and `preview-` arms; the three negatives cover
     // `targetIsPreview` refusing a production target and `!sourceIsPreview` refusing each
@@ -1616,6 +1804,7 @@ const text = 'import "ignored-string"';
         );
       }
     }
+
     for (const [importerBasename, reason] of [
       ["production-to-production", "its target is not preview or debug code"],
       ["debug-to-preview", "its source is the `-debug` feature"],
@@ -1635,6 +1824,7 @@ const text = 'import "ignored-string"';
   } finally {
     rmSync(importFactsDirectory, { force: true, recursive: true });
   }
+
   // (0-f) The COLLECTION half of ADR-0089's private cross-module import fence. `(0-b)`
   // and the report loop drive the message, over a synthetic architecture that already
   // holds the record — so nothing there runs the predicate that decides which imports
@@ -1650,6 +1840,7 @@ const text = 'import "ignored-string"';
   // its own `mkdtemp` root, the same way `(0-d)`/`(0-e)` plant a route tree, so the
   // walk under test is the production `collectImportFacts` and not a copy of it.
   const moduleReachDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+
   try {
     const assistantRoot = join(moduleReachDirectory, "assistant");
     const serverRoot = join(moduleReachDirectory, "server");
@@ -1689,6 +1880,7 @@ const text = 'import "ignored-string"';
     plant(join(serverSourceRoot, "wire-barrel.ts"), "../../assistant/src/triage/index.ts");
     plant(join(assistantSourceRoot, "triage", "intra-flat.ts"), "./internal.ts");
     plant(join(assistantSourceRoot, "triage", "nested", "intra-deep.ts"), "../internal.ts");
+
     const moduleReachFacts = collectImportFacts(
       [
         { directory: assistantRoot, name: "@alfred/assistant", source: assistantSourceRoot },
@@ -1697,7 +1889,9 @@ const text = 'import "ignored-string"';
       WEB_ROUTES_ROOT,
       fixtureModuleRoots,
     );
+
     const privateReaches = moduleReachFacts.exceptions.privateModuleImports;
+
     for (const [importerBasename, position] of [
       ["runtime-reach", "a top-level non-module file reaching into a module of its own package"],
       ["wire-reach", "a non-module file in another package reaching around into a module"],
@@ -1710,6 +1904,7 @@ const text = 'import "ignored-string"';
         );
       }
     }
+
     for (const [importerBasename, reason] of [
       ["runtime-barrel", "it addresses the module through its own `index.ts`"],
       ["wire-barrel", "a barrel import is public from another package too"],
@@ -1722,6 +1917,7 @@ const text = 'import "ignored-string"';
         );
       }
     }
+
     // Every reported field on one row per `from` arm, because a deletion-only matrix
     // leaves a stubbed field green. `from` is the importer's owning scope: its module
     // when it has one, otherwise its package name.
@@ -1730,6 +1926,7 @@ const text = 'import "ignored-string"';
       { from: "triage", importer: "module-reach.ts", line: 1, to: "knowledge" },
     ]) {
       const reach = privateReaches.find((imported) => imported.key.includes(expected.importer));
+
       if (
         reach &&
         (reach.from !== expected.from || reach.to !== expected.to || reach.line !== expected.line)
@@ -1742,6 +1939,7 @@ const text = 'import "ignored-string"';
   } finally {
     rmSync(moduleReachDirectory, { force: true, recursive: true });
   }
+
   // (0-g) The connections-barrel forbidden-reach rule, red case (item 52). A walk that reached
   // a forbidden target must reach the violation list, and must carry the CHAIN — "the barrel
   // reaches queue.ts" names nothing to delete. The reached file is built from the real
@@ -1761,6 +1959,7 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+
   if (
     !barrelReachRedDrive.some(
       (violation) =>
@@ -1772,6 +1971,7 @@ const text = 'import "ignored-string"';
       `connections-barrel reach self-test mismatch: expected checkArchitecture to report the planted reach with its importer chain, received ${JSON.stringify(barrelReachRedDrive)}`,
     );
   }
+
   // (0-h) The liveness half, and the drive whose expected outcome DIFFERS from (0-g)'s: a
   // forbidden target that is not a file forbids nothing, so it is reported by constant name
   // rather than ignored. Swapping this drive's expected message with (0-g)'s must redden both;
@@ -1785,6 +1985,7 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+
   if (
     !barrelReachLivenessDrive.some(
       (violation) =>
@@ -1796,6 +1997,7 @@ const text = 'import "ignored-string"';
       `connections-barrel reach self-test mismatch: expected checkArchitecture to report an absent forbidden target by constant name, received ${JSON.stringify(barrelReachLivenessDrive)}`,
     );
   }
+
   // (0-i) The green case. Without it (0-g) also passes for a rule that reports every reached
   // file, which would redden the ten files the barrel legitimately reaches — including
   // `ingestion/workflow-recovery`, the leaf `oauth-state` imports on purpose.
@@ -1808,11 +2010,13 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+
   if (barrelReachGreenDrive.some((violation) => violation.includes("connections barrel"))) {
     failures.push(
       `connections-barrel reach self-test mismatch: expected no violation for a walk that reached no forbidden target, received ${JSON.stringify(barrelReachGreenDrive)}`,
     );
   }
+
   // (i) A live `agent -> triage` edge with a self-consistent node set must make
   // `checkArchitecture` report the forbidden product import — guards the wiring
   // of the forbidden-import push.
@@ -1823,6 +2027,7 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+
   if (
     !forbiddenWiringDrive.some((violation) =>
       violation.includes("execution imports forbidden product module"),
@@ -1832,6 +2037,7 @@ const text = 'import "ignored-string"';
       `execution forbidden-import wiring self-test mismatch: expected checkArchitecture to report a forbidden product import for agent -> triage, received ${JSON.stringify(forbiddenWiringDrive)}`,
     );
   }
+
   // (ii) A node set that omits EXECUTION_MODULE and the forbidden entry must make
   // `checkArchitecture` report the "unknown module" liveness violation — guards
   // the wiring of the liveness push (the Phase-6 rename / typo defense).
@@ -1839,6 +2045,7 @@ const text = 'import "ignored-string"';
     syntheticArchitecture({ moduleNodes: ["chat"] }),
     syntheticBaseline(),
   );
+
   if (
     !livenessWiringDrive.some((violation) =>
       violation.includes("execution gate references unknown module"),
@@ -1848,6 +2055,7 @@ const text = 'import "ignored-string"';
       `execution gate liveness wiring self-test mismatch: expected checkArchitecture to report an unknown-module violation when the live graph omits "${EXECUTION_MODULE}", received ${JSON.stringify(livenessWiringDrive)}`,
     );
   }
+
   // (iii) A node set that lists EXECUTION_MODULE but omits the forbidden entry
   // isolates the forbidden-set liveness branch: branch A stays silent (the module
   // is live), so only branch B can produce the "forbidden set references unknown
@@ -1858,6 +2066,7 @@ const text = 'import "ignored-string"';
     syntheticArchitecture({ moduleNodes: [EXECUTION_MODULE] }),
     syntheticBaseline(),
   );
+
   if (
     !forbiddenSetLivenessDrive.some((violation) =>
       violation.includes("execution gate forbidden set references unknown module"),
@@ -1882,6 +2091,7 @@ const text = 'import "ignored-string"';
     syntheticArchitecture({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
     syntheticBaseline({ packageGraph: { edges: ["a -> b"] } }),
   );
+
   for (const edge of ["a -> b", "b -> a"]) {
     if (!partialCyclePackageDrive.includes(`new cyclic package edge: ${edge}`)) {
       failures.push(
@@ -1889,12 +2099,14 @@ const text = 'import "ignored-string"';
       );
     }
   }
+
   // (v) The same shape on the assistant-module graph — the two comparisons are
   // separate `Set`s, so each needs its own drive.
   const partialCycleModuleDrive = checkArchitecture(
     syntheticArchitecture({ moduleGraph: { edges: ["a -> b", "b -> a"] } }),
     syntheticBaseline({ assistantModuleGraph: { edges: ["a -> b"] } }),
   );
+
   for (const edge of ["a -> b", "b -> a"]) {
     if (!partialCycleModuleDrive.includes(`new cyclic assistant-module edge: ${edge}`)) {
       failures.push(
@@ -1902,12 +2114,14 @@ const text = 'import "ignored-string"';
       );
     }
   }
+
   // (vi) The tightening must not over-fire: a cycle the baseline records in BOTH
   // directions is still permitted, so no `new cyclic package edge` may appear.
   const permittedCycleDrive = checkArchitecture(
     syntheticArchitecture({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
     syntheticBaseline({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
   );
+
   if (permittedCycleDrive.some((violation) => violation.includes("new cyclic package edge"))) {
     failures.push(
       `baseline cycle-allowlist self-test mismatch: expected no new-cyclic-package-edge violation when the baseline records the whole cycle, received ${JSON.stringify(permittedCycleDrive)}`,
@@ -1919,6 +2133,7 @@ const text = 'import "ignored-string"';
   // refuse-vs-emit decision is pinned, and `baselineDocument`/`baselineDelta` are
   // where its payload is.
   const liveModuleNodes = [EXECUTION_MODULE, ...EXECUTION_FORBIDDEN_PRODUCT_MODULES];
+
   // (vii) A tree with a cycle the baseline does not permit must REFUSE, and a refusal
   // must carry no writable payload, so a regeneration cannot write that cycle into
   // the allowlist.
@@ -1929,6 +2144,7 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+
   // `Object.hasOwn` rather than a `!== undefined` read: the return type now declares
   // both fields ABSENT from a refusal, so reading either one off this value no longer
   // compiles. This holds the runtime object to the same claim the type makes — a
@@ -1936,6 +2152,7 @@ const text = 'import "ignored-string"';
   const refusedPayloadKeys = ["document", "delta"].filter((key) =>
     Object.hasOwn(refusedEmission, key),
   );
+
   if (
     refusedEmission.ok ||
     refusedPayloadKeys.length > 0 ||
@@ -1947,6 +2164,7 @@ const text = 'import "ignored-string"';
       `baseline emission self-test mismatch: expected a payload-free refusal naming the new cyclic edge, received ok=${refusedEmission.ok} payloadKeys=${JSON.stringify(refusedPayloadKeys)} violations=${JSON.stringify(refusedEmission.violations)}`,
     );
   }
+
   // (viii) A graph the check accepts must not be refused FOR A CYCLE, and it must be
   // ACCEPTED — `ok` true over an empty violation list, not merely consistent with a
   // non-empty one. The exact assertion is valid only because `checkArchitecture` is pure
@@ -1962,22 +2180,26 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline({ packageGraph: { edges: ["a -> b"] } }),
   );
+
   if (!acceptedEmission.ok || acceptedEmission.violations.length !== 0) {
     failures.push(
       `baseline emission self-test mismatch: expected an accepted emission over an empty violation list, received ok=${acceptedEmission.ok} violations=${JSON.stringify(acceptedEmission.violations)}`,
     );
   }
+
   // (viii-b) The emitted document is the CURRENT graph. Driven through
   // `baselineDocument` directly, which reads only its argument, so this pin does not
   // depend on the state of the real tree the way `ok` does.
   const emittedDocument = baselineDocument(
     syntheticArchitecture({ packageGraph: { edges: ["a -> b"], sccs: [] } }),
   );
+
   if (JSON.stringify(emittedDocument.packageGraph.edges) !== JSON.stringify(["a -> b"])) {
     failures.push(
       `baseline document self-test mismatch: expected the emitted document to carry the current package graph, received ${JSON.stringify(emittedDocument.packageGraph.edges)}`,
     );
   }
+
   if (
     acceptedEmission.ok &&
     JSON.stringify(acceptedEmission.document) !== JSON.stringify(emittedDocument)
@@ -1986,11 +2208,13 @@ const text = 'import "ignored-string"';
       "baseline emission self-test mismatch: an accepted emission must carry exactly the document `baselineDocument` derives from the same architecture",
     );
   }
+
   // (viii-c) An accepted emission must carry the delta, keyed by every ratchet — the
   // mirror of (vii)'s payload-free refusal. `--write-baseline` reads
   // `Object.entries(emission.delta)` before it writes, so without this drive dropping
   // the field leaves every gate green and kills the command with an uncaught TypeError.
   const deltaRatchetKeys = BASELINE_RATCHETS.map((ratchet) => ratchet.channel);
+
   if (
     acceptedEmission.ok &&
     deltaRatchetKeys.some((key) => acceptedEmission.delta?.[key] === undefined)
@@ -1999,11 +2223,13 @@ const text = 'import "ignored-string"';
       `baseline emission self-test mismatch: an accepted emission must carry a delta keyed by ${JSON.stringify(deltaRatchetKeys)}, received ${JSON.stringify(acceptedEmission.delta)}`,
     );
   }
+
   // (ix) The delta must name what regeneration would change, in both directions.
   const packageEdgeDelta = baselineDelta(
     syntheticBaseline({ packageGraph: { edges: ["a -> b", "c -> d"] } }),
     baselineDocument(syntheticArchitecture({ packageGraph: { edges: ["a -> b", "e -> f"] } })),
   ).packageEdges;
+
   if (
     JSON.stringify(packageEdgeDelta) !== JSON.stringify({ added: ["e -> f"], removed: ["c -> d"] })
   ) {
@@ -2011,19 +2237,23 @@ const text = 'import "ignored-string"';
       `baseline delta self-test mismatch: expected added ["e -> f"] and removed ["c -> d"], received ${JSON.stringify(packageEdgeDelta)}`,
     );
   }
+
   // (x) The persisted-shape boundary. `loadBaseline` reads a real path, so the pure
   // half is driven here instead: one drive per fault branch, each asserting a substring
   // no other drive produces.
   const wellFormedFaults = baselineRatchetFaults(syntheticBaseline());
+
   if (wellFormedFaults.length > 0) {
     failures.push(
       `baseline shape self-test mismatch: expected no fault for a well-formed baseline, received ${JSON.stringify(wellFormedFaults)}`,
     );
   }
+
   // (x-b) A ratchet list that is absent or of the wrong TYPE.
   const missingListFaults = baselineRatchetFaults(
     syntheticBaseline({ assistantModuleGraph: { edges: "a -> b" } }),
   );
+
   if (
     !missingListFaults.some(
       (fault) => fault === "assistantModuleGraph.edges is missing or not an array",
@@ -2033,6 +2263,7 @@ const text = 'import "ignored-string"';
       `baseline shape self-test mismatch: expected a fault naming the non-array ratchet list, received ${JSON.stringify(missingListFaults)}`,
     );
   }
+
   // (x-c) A ratchet list whose MEMBER is not a key. Uncaught before this drive existed:
   // `checkArchitecture` splits every recorded key, so a hand-edited `42` threw a bare
   // `TypeError` out of the middle of the check and of the write flag.
@@ -2044,6 +2275,7 @@ const text = 'import "ignored-string"';
       },
     }),
   );
+
   if (
     !memberFaults.some(
       (fault) =>
@@ -2074,11 +2306,14 @@ const text = 'import "ignored-string"';
   // produces, so one row's drive cannot pass on another row's violation.
   const documentArrayPaths = (value, prefix = "") => {
     if (Array.isArray(value)) return [prefix];
+
     if (value === null || typeof value !== "object") return [];
+
     return Object.entries(value).flatMap(([key, child]) =>
       documentArrayPaths(child, prefix === "" ? key : `${prefix}.${key}`),
     );
   };
+
   // The arrays the emitted document carries that are NOT ratchets: each recorded graph's
   // declared cycle list. It permits nothing — it is derived from `edges` by the same SCC
   // pass the check runs — but it IS read back, by `baselineSelfPermissionFaults`, which
@@ -2087,6 +2322,7 @@ const text = 'import "ignored-string"';
   // leaving an emitted array accounted for by nothing. Every other array the document
   // grows must earn a row.
   const derivedDocumentArrays = RECORDED_GRAPHS.map((graph) => graph.declaredCyclesPath);
+
   // One entry per ratchet channel. `member` is planted in the architecture and must reach
   // the violation, the document and the delta's `added`; `removedMember` is planted in
   // the baseline at the same path and must reach the delta's `removed`, which is what
@@ -2161,6 +2397,7 @@ const text = 'import "ignored-string"';
       malformedFault: "legacyExceptions.webFeatureImports.imports[0] is number, not a string",
     },
   };
+
   // Plant a member list at a table row's own dotted path in an otherwise well-formed
   // synthetic baseline. Derived from the row's `path`, so a renamed ratchet cannot leave
   // a drive pointing at the old spelling. `base` lets a caller plant a second list — a
@@ -2168,10 +2405,13 @@ const text = 'import "ignored-string"';
   const baselineWithList = (path, members, base = syntheticBaseline()) => {
     const keys = path.split(".");
     let container = base;
+
     for (const key of keys.slice(0, -1)) container = container[key];
     container[keys[keys.length - 1]] = members;
+
     return base;
   };
+
   const baselineWithGraph = (graph, edges, sccs) =>
     baselineWithList(graph.declaredCyclesPath, sccs, baselineWithList(graph.path, edges));
 
@@ -2181,6 +2421,7 @@ const text = 'import "ignored-string"';
     ...BASELINE_RATCHETS.map((ratchet) => ratchet.path),
     ...derivedDocumentArrays,
   ]);
+
   // The two graphs go into the document exactly as `graphFromEdges` built them, so the
   // walk uses that constructor rather than a hand-written mirror of its shape: a
   // synthetic `{ edges: [] }` carries no `sccs`, and the walk would then never see the
@@ -2193,12 +2434,14 @@ const text = 'import "ignored-string"';
       }),
     ),
   );
+
   for (const path of emittedArrayPaths) {
     if (declaredArrayPaths.has(path)) continue;
     failures.push(
       `baseline document walk mismatch: the emitted document carries an array at ${path}, which is neither a BASELINE_RATCHETS row nor a declared derived array — nothing validates its shape, compares it against the tree, or names it in the regeneration delta`,
     );
   }
+
   for (const ratchet of BASELINE_RATCHETS) {
     if (emittedArrayPaths.includes(ratchet.path)) continue;
     failures.push(
@@ -2210,33 +2453,41 @@ const text = 'import "ignored-string"';
   // produces.
   for (const ratchet of BASELINE_RATCHETS) {
     const drive = ratchetDrives[ratchet.channel];
+
     if (drive === undefined) {
       failures.push(
         `ratchet drive coverage mismatch: ${ratchet.channel} (${ratchet.path}) has no entry in ratchetDrives, so its comparison in checkArchitecture, its delta channel and its member-shape check are all deletable with every gate green`,
       );
       continue;
     }
+
     const driveArchitecture = syntheticArchitecture({
       ...drive.plant,
       moduleNodes: liveModuleNodes,
     });
+
     const reported = checkArchitecture(driveArchitecture, syntheticBaseline());
+
     if (!reported.some((violation) => violation.includes(drive.reports))) {
       failures.push(
         `ratchet drive mismatch: expected checkArchitecture to report "${drive.reports}" for a ${ratchet.path} member the baseline does not hold, received ${JSON.stringify(reported)}`,
       );
     }
+
     const driveDocument = baselineDocument(driveArchitecture);
     const emitted = ratchetList(driveDocument, ratchet.path);
+
     if (!Array.isArray(emitted) || !emitted.includes(drive.member)) {
       failures.push(
         `ratchet drive mismatch: expected the emitted document to carry ${JSON.stringify(drive.member)} at ${ratchet.path}, received ${JSON.stringify(emitted)}`,
       );
     }
+
     const channelDelta = baselineDelta(
       baselineWithList(ratchet.path, [drive.removedMember]),
       driveDocument,
     )[ratchet.channel];
+
     if (
       !channelDelta?.added.includes(drive.member) ||
       !channelDelta?.removed.includes(drive.removedMember)
@@ -2245,15 +2496,18 @@ const text = 'import "ignored-string"';
         `ratchet drive mismatch: expected the ${ratchet.channel} delta channel to read ${ratchet.path} on both sides and report ${JSON.stringify(drive.member)} added and ${JSON.stringify(drive.removedMember)} removed, received ${JSON.stringify(channelDelta)}`,
       );
     }
+
     const memberShapeFaults = baselineRatchetFaults(
       baselineWithList(ratchet.path, [drive.malformedMember]),
     );
+
     if (!memberShapeFaults.some((fault) => fault === drive.malformedFault)) {
       failures.push(
         `ratchet drive mismatch: expected baselineRatchetFaults to report "${drive.malformedFault}", received ${JSON.stringify(memberShapeFaults)}`,
       );
     }
   }
+
   for (const channel of Object.keys(ratchetDrives)) {
     if (deltaRatchetKeys.includes(channel)) continue;
     failures.push(
@@ -2272,36 +2526,45 @@ const text = 'import "ignored-string"';
     // baselines merge into edges that form a component neither declared. Red before the
     // cross-check existed — the merged file passed every gate and granted the cycle.
     const unionFault = `${graph.path} forms [["union-a","union-b"]], but ${graph.declaredCyclesPath} declares []`;
+
     const unionFaults = baselineSelfPermissionFaults(
       baselineWithGraph(graph, ["union-a -> union-b", "union-b -> union-a"], []),
     );
+
     if (!unionFaults.some((fault) => fault === unionFault)) {
       failures.push(
         `baseline self-permission self-test mismatch: expected "${unionFault}" for a ${graph.path} that records both directions of a cycle ${graph.declaredCyclesPath} does not declare, received ${JSON.stringify(unionFaults)}`,
       );
     }
+
     // (xiii-b) The opposite drift: a declaration the edges do not form. Pins clause (a)
     // as an equality rather than a subset.
     const staleFault = `${graph.path} forms [], but ${graph.declaredCyclesPath} declares [["stale-a","stale-b"]]`;
+
     const staleFaults = baselineSelfPermissionFaults(
       baselineWithGraph(graph, ["stale-a -> stale-b"], [["stale-a", "stale-b"]]),
     );
+
     if (!staleFaults.some((fault) => fault === staleFault)) {
       failures.push(
         `baseline self-permission self-test mismatch: expected "${staleFault}" for a ${graph.declaredCyclesPath} declaring a component ${graph.path} does not form, received ${JSON.stringify(staleFaults)}`,
       );
     }
+
     // (xiii-c) A hand-written self-loop. Pins clause (b) on its own: the SCC pass filters
     // length-1 components out, so clause (a) is green here and only (b) can report it.
     const selfLoopFault = `${graph.path} permits ["loop-a -> loop-a"], which lies in no component ${graph.declaredCyclesPath} declares`;
+
     const selfLoopFaults = baselineSelfPermissionFaults(
       baselineWithGraph(graph, ["loop-a -> loop-a"], []),
     );
+
     if (!selfLoopFaults.some((fault) => fault === selfLoopFault)) {
       failures.push(
         `baseline self-permission self-test mismatch: expected "${selfLoopFault}" for a hand-written self-edge, received ${JSON.stringify(selfLoopFaults)}`,
       );
     }
+
     // (xiii-d) The declared list's own shape, in the boundary that owns it. Without these
     // the comparison one hop down meets a number where a node name belongs.
     for (const [declared, expected] of [
@@ -2313,6 +2576,7 @@ const text = 'import "ignored-string"';
       [{}, `${graph.declaredCyclesPath} is missing or not an array`],
     ]) {
       const shapeFaults = baselineRatchetFaults(baselineWithGraph(graph, [], declared));
+
       if (!shapeFaults.some((fault) => fault === expected)) {
         failures.push(
           `baseline declared-cycle shape self-test mismatch: expected "${expected}", received ${JSON.stringify(shapeFaults)}`,
@@ -2320,6 +2584,7 @@ const text = 'import "ignored-string"';
       }
     }
   }
+
   // (xiii-e) The cross-check is WIRED INTO `loadBaseline`, which is the only reason it is
   // tier 1: every path that reads the baseline goes through that function. The drives
   // above call the predicate directly, so without this one the call site is deletable
@@ -2327,6 +2592,7 @@ const text = 'import "ignored-string"';
   // reads a path, so the drive needs a file: it is written under the system temp
   // directory, never in the repository, and removed again.
   const wiringDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+
   try {
     const wiringPath = join(wiringDirectory, "baseline.json");
     writeFileSync(
@@ -2336,6 +2602,7 @@ const text = 'import "ignored-string"';
       ),
     );
     const wiringLoad = loadBaseline(wiringPath);
+
     if (wiringLoad.ok || !wiringLoad.error?.includes("permits a cycle it does not declare")) {
       failures.push(
         `baseline load self-test mismatch: expected loadBaseline to refuse a baseline whose recorded edges form a component its declared cycles omit, received ${JSON.stringify(wiringLoad)}`,
@@ -2361,12 +2628,15 @@ const text = 'import "ignored-string"';
   const missingBaselineLoad = loadBaseline(
     join(ROOT, "scripts/.baseline-that-does-not-exist.json"), // path-ok: the drive's subject is that this path is absent
   );
+
   if (missingBaselineLoad.ok || !missingBaselineLoad.error?.startsWith("missing ")) {
     failures.push(
       `baseline load self-test mismatch: expected an absent baseline to report itself as missing, received ${JSON.stringify(missingBaselineLoad)}`,
     );
   }
+
   const unparsableBaselineLoad = loadBaseline(fileURLToPath(import.meta.url));
+
   if (unparsableBaselineLoad.ok || !unparsableBaselineLoad.error?.includes("is not valid JSON")) {
     failures.push(
       `baseline load self-test mismatch: expected a non-JSON baseline to report itself as unparseable, received ${JSON.stringify(unparsableBaselineLoad)}`,
@@ -2377,21 +2647,26 @@ const text = 'import "ignored-string"';
 export function registerExample(): void {}
 export function unregisterExample(): void {}
 `;
+
   const validManifestSource = `
 import { registerExample, unregisterExample } from "./example";
 export const RUNTIME_ADAPTERS = [
   { register: registerExample, unregister: unregisterExample },
 ];
 `;
+
   const lifecycleFixture = [
     { file: join(RUNTIME_ADAPTER_ROOT, "example.ts"), source: lifecycleSource },
   ];
+
   const validLifecycleViolations = runtimeAdapterViolations(lifecycleFixture, validManifestSource);
+
   if (validLifecycleViolations.length > 0) {
     failures.push(
       `runtime adapter fixture mismatch: expected no violations, received ${JSON.stringify(validLifecycleViolations)}`,
     );
   }
+
   const omittedLifecycleViolations = runtimeAdapterViolations(
     lifecycleFixture,
     validManifestSource.replace(
@@ -2399,6 +2674,7 @@ export const RUNTIME_ADAPTERS = [
       "",
     ),
   );
+
   if (
     !omittedLifecycleViolations.some((violation) =>
       violation.includes("must list registerExample/unregisterExample exactly once"),
@@ -2418,9 +2694,11 @@ export const RUNTIME_ADAPTERS = [
  */
 const examplePort = bootPort<Example>("example");
 `;
+
   const bootSeamFixtureViolations = bootSeamHeaderViolations([
     { file: join(TOOL_RUNTIME_ROOT, "self-test-fixture.ts"), source: bootSeamFixtureSource },
   ]);
+
   if (!bootSeamFixtureViolations.some((violation) => violation.includes('missing "Wiring:"'))) {
     failures.push(
       `boot-seam header fixture mismatch: received ${JSON.stringify(bootSeamFixtureViolations)}`,
@@ -2441,12 +2719,14 @@ const firstPort = bootPort<First>("first");
 
 const secondPort = bootPort<Second>("second");
 `;
+
   const twoSeamFixtureViolations = bootSeamHeaderViolations([
     {
       file: join(TOOL_RUNTIME_ROOT, "self-test-two-seam-fixture.ts"),
       source: twoSeamFixtureSource,
     },
   ]);
+
   if (
     !BOOT_SEAM_HEADER_LABELS.every((label) =>
       twoSeamFixtureViolations.some((violation) => violation.includes(`missing "${label}"`)),
@@ -2473,12 +2753,14 @@ const firstPort = bootPort<First>("first");
 // Surface: Owns/hides: Why the seam: Wiring: appear again here in prose only.
 const secondPort = bootPort<Second>("second");
 `;
+
   const repeatedLabelFixtureViolations = bootSeamHeaderViolations([
     {
       file: join(TOOL_RUNTIME_ROOT, "self-test-repeated-label-fixture.ts"),
       source: repeatedLabelFixtureSource,
     },
   ]);
+
   if (!repeatedLabelFixtureViolations.some((violation) => violation.includes("for Second"))) {
     failures.push(
       `boot-seam header repeated-label fixture mismatch: received ${JSON.stringify(repeatedLabelFixtureViolations)}`,
@@ -2492,12 +2774,14 @@ const secondPort = bootPort<Second>("second");
   const variableGenericFixtureSource = `
 const evasivePort: BootPort<Evasive> = bootPort("evasive");
 `;
+
   const variableGenericFixtureViolations = bootSeamHeaderViolations([
     {
       file: join(TOOL_RUNTIME_ROOT, "self-test-variable-generic-fixture.ts"),
       source: variableGenericFixtureSource,
     },
   ]);
+
   if (variableGenericFixtureViolations.length === 0) {
     failures.push(
       `boot-seam header variable-generic fixture mismatch: received ${JSON.stringify(variableGenericFixtureViolations)}`,
@@ -2512,12 +2796,14 @@ import { bootPort } from "./boot-port";
 const make = bootPort;
 const aliasedPort = make("aliased");
 `;
+
   const aliasImportFixtureViolations = bootSeamHeaderViolations([
     {
       file: join(TOOL_RUNTIME_ROOT, "self-test-alias-import-fixture.ts"),
       source: aliasImportFixtureSource,
     },
   ]);
+
   if (
     !BOOT_SEAM_HEADER_LABELS.every((label) =>
       aliasImportFixtureViolations.some((violation) => violation.includes(`missing "${label}"`)),
@@ -2539,11 +2825,13 @@ const aliasedPort = make("aliased");
       present: false,
     },
   ]);
+
   if (!absentPathViolations.some((violation) => violation.includes("SELF_TEST_ABSENT_ROOT"))) {
     failures.push(
       `scanned-path liveness fixture mismatch: expected an absent row to be reported by constant name, received ${JSON.stringify(absentPathViolations)}`,
     );
   }
+
   // (b) Scanned-path liveness, green case. Without it, (a) also passes for a closure
   // that fires on every row.
   const presentPathViolations = scannedPathLivenessViolations([
@@ -2560,11 +2848,13 @@ const aliasedPort = make("aliased");
       present: true,
     },
   ]);
+
   if (presentPathViolations.length > 0) {
     failures.push(
       `scanned-path liveness fixture mismatch: expected no violation for an all-present list, received ${JSON.stringify(presentPathViolations)}`,
     );
   }
+
   // (c) Discovery, over the REAL tool-runtime tree — the drive whose absence let this
   // rule scan zero files. The five fixtures above all pass over an empty file set,
   // because a fixture drives the matcher and not the walk. This asserts the SUBJECT
@@ -2575,15 +2865,18 @@ const aliasedPort = make("aliased");
   // NOT `collectArchitecture()` — the self-test runs before collection, and a full
   // workspace walk inside it is not the trade.
   const discoveredSeamSources = collectBootSeamSources();
+
   const discoveredSeamCalls = discoveredSeamSources.reduce(
     (total, { source }) => total + findBootPortCalls(source).length,
     0,
   );
+
   if (discoveredSeamSources.length === 0 || discoveredSeamCalls === 0) {
     failures.push(
       `boot-seam discovery self-test mismatch: ${relativeToRoot(TOOL_RUNTIME_ROOT)} yielded ${discoveredSeamSources.length} scanned files and ${discoveredSeamCalls} bootPort calls, so the header rule enforces nothing — update TOOL_RUNTIME_ROOT or delete the rule that reads it`,
     );
   }
+
   // (d) The wiring, and the shape of the guard. An absent row must reach
   // `checkArchitecture`'s violation list, and the guard it drives must be PER BLOCK: the
   // cycle rules must still report on the same tree, or a missing path has turned a
@@ -2602,11 +2895,13 @@ const aliasedPort = make("aliased");
     }),
     syntheticBaseline(),
   );
+
   if (!absentPathWiringDrive.some((violation) => violation.includes("update TOOL_RUNTIME_ROOT"))) {
     failures.push(
       `scanned-path liveness wiring self-test mismatch: expected checkArchitecture to report an absent scanned path, received ${JSON.stringify(absentPathWiringDrive)}`,
     );
   }
+
   if (
     !absentPathWiringDrive.some((violation) =>
       violation.includes("new cyclic package edge: a -> b"),
@@ -2616,36 +2911,43 @@ const aliasedPort = make("aliased");
       `scanned-path guard self-test mismatch: expected the cycle rules to still report while a scanned path is absent, received ${JSON.stringify(absentPathWiringDrive)}`,
     );
   }
+
   // (e) Collector defensiveness (item 38). The two collectors are the only places a
   // hardcoded path is read, so absence must become a value here, not an exception:
   // before the reads moved, an absent `runtime-adapters.ts` killed this self-test, the
   // plain check AND `--write-baseline` with an uncaught `node:fs` stack. Both paths are
   // parameters so this drive needs no real file moved aside.
   const absentScanRoot = join(ROOT, "scripts/.self-test-absent-scan-root"); // path-ok: the drive's subject is that this scan root is absent
+
   const absentScan = collectRuntimeAdapterScan(
     absentScanRoot,
     join(absentScanRoot, "runtime-adapters.ts"),
   );
+
   if (absentScan.compositionSources.length > 0 || absentScan.manifestSource !== null) {
     failures.push(
       `runtime-adapter collector self-test mismatch: expected an absent root to yield no sources and a null manifest, received ${absentScan.compositionSources.length} sources and manifestSource=${typeof absentScan.manifestSource}`,
     );
   }
+
   const absentSeamSources = collectBootSeamSources(
     absentScanRoot,
     join(absentScanRoot, "boot-port.ts"),
   );
+
   if (absentSeamSources.length > 0) {
     failures.push(
       `boot-seam collector self-test mismatch: expected an absent root to yield no sources, received ${JSON.stringify(absentSeamSources.map(({ file }) => relativeToRoot(file)))}`,
     );
   }
+
   // (f) Discovery, over the REAL composition tree — the mirror of (c), and the price of
   // moving these reads into one collector. `SCANNED_PATHS` proves the root RESOLVES and
   // the five fixtures above prove the MATCHER; neither notices a walk that resolves and
   // collects nothing, because a fixture supplies its own source text. Same accepted trade
   // as (c): emptying the directory turns this red, and the fix is then to delete the rule.
   const discoveredCompositionScan = collectRuntimeAdapterScan();
+
   if (
     discoveredCompositionScan.compositionSources.length === 0 ||
     discoveredCompositionScan.manifestSource === null
@@ -2654,6 +2956,7 @@ const aliasedPort = make("aliased");
       `runtime-adapter discovery self-test mismatch: ${relativeToRoot(RUNTIME_ADAPTER_ROOT)} yielded ${discoveredCompositionScan.compositionSources.length} scanned files and manifestSource=${typeof discoveredCompositionScan.manifestSource}, so the runtime-adapter rule enforces nothing — update RUNTIME_ADAPTER_ROOT/RUNTIME_ADAPTER_MANIFEST or delete the rule that reads them`,
     );
   }
+
   // (f-b) Discovery, over the REAL connections barrel — the third mirror of (c), and the one
   // that keeps `connectionsBarrelReachViolations` honest about a subject it cannot see. A walk
   // that visits only the barrel, or none of it, is a rule wearing a green badge: `(0-g)` still
@@ -2663,11 +2966,13 @@ const aliasedPort = make("aliased");
   // and (f): flattening the connections module turns this red, and the fix is then to delete
   // the rule, deliberately.
   const discoveredBarrelReach = collectConnectionsBarrelReach();
+
   if (discoveredBarrelReach.reached.length <= 1 || discoveredBarrelReach.forbidden.length === 0) {
     failures.push(
       `connections-barrel discovery self-test mismatch: ${relativeToRoot(CONNECTIONS_BARREL)} yielded ${discoveredBarrelReach.reached.length} reached file(s) against ${discoveredBarrelReach.forbidden.length} forbidden target(s), so the barrel-reach rule enforces nothing — update CONNECTIONS_BARREL/CONNECTIONS_BARREL_FORBIDDEN_REACH or delete the rule that reads them`,
     );
   }
+
   // (f-c) The WALK itself, over a fixture tree, because every drive above supplies its own
   // reach and none of them runs the breadth-first search. Four things the walk has to get
   // right and no other drive can see:
@@ -2682,6 +2987,7 @@ const aliasedPort = make("aliased");
   // "repoint it at the real constant" mutant would otherwise write fixtures into
   // `packages/assistant/src` while the `finally` cleans only the temp directory.
   const barrelWalkDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+
   try {
     const walkRoot = join(barrelWalkDirectory, "connections");
     const fixtureBarrel = join(walkRoot, "index.ts");
@@ -2705,8 +3011,10 @@ const aliasedPort = make("aliased");
     plant(join(walkRoot, "ingestion", "workflow-recovery.ts"), null);
     plant(fixtureQueue, null);
     const fixtureWalk = collectConnectionsBarrelReach(fixtureBarrel, [fixtureQueue]);
+
     const chainFor = (basename) =>
       fixtureWalk.reached.find((entry) => entry.file.endsWith(basename))?.chain ?? null;
+
     for (const [basename, expectedChain, position] of [
       ["index.ts", "index.ts", "the barrel is the root of its own walk"],
       ["availability.ts", "index.ts -> availability.ts", "a one-hop relative export"],
@@ -2727,6 +3035,7 @@ const aliasedPort = make("aliased");
         );
       }
     }
+
     // The commented specifier resolves to a real fixture directory, so a regex walk WOULD
     // follow it. `ingestion/index.ts` is deliberately never planted: if the walk ever reports
     // reaching it, the lexer stopped consuming comments.
@@ -2735,11 +3044,13 @@ const aliasedPort = make("aliased");
         `connections-barrel walk self-test mismatch: the walk followed a specifier that exists only inside a comment, so it is not lexing its input, received ${JSON.stringify(fixtureWalk.reached)}`,
       );
     }
+
     if (fixtureWalk.reached.length !== 5) {
       failures.push(
         `connections-barrel walk self-test mismatch: expected exactly the 5 planted files to be reached, so that a bare package specifier and a relative specifier resolving to nothing are both non-hops, received ${JSON.stringify(fixtureWalk.reached)}`,
       );
     }
+
     if (!fixtureWalk.forbidden.every((entry) => entry.present)) {
       failures.push(
         `connections-barrel walk self-test mismatch: expected the planted forbidden target to be collected as present, received ${JSON.stringify(fixtureWalk.forbidden)}`,
@@ -2748,6 +3059,7 @@ const aliasedPort = make("aliased");
   } finally {
     rmSync(barrelWalkDirectory, { force: true, recursive: true });
   }
+
   // (g) Runtime-adapter wiring. The fixtures above drive `runtimeAdapterViolations`, not
   // its push: deleting that push left every gate green, because the real tree is clean.
   // Reuses the omission fixture's own source text, so this pins the wiring and not the
@@ -2764,6 +3076,7 @@ const aliasedPort = make("aliased");
     }),
     syntheticBaseline(),
   );
+
   if (
     !runtimeAdapterWiringDrive.some((violation) =>
       violation.includes("must list registerExample/unregisterExample exactly once"),
@@ -2773,6 +3086,7 @@ const aliasedPort = make("aliased");
       `runtime-adapter wiring self-test mismatch: expected checkArchitecture to report the unlisted lifecycle pair, received ${JSON.stringify(runtimeAdapterWiringDrive)}`,
     );
   }
+
   // (h) Boot-seam wiring, the same shape one rule over. Also deletable-green before this
   // drive existed.
   const bootSeamWiringDrive = checkArchitecture(
@@ -2783,11 +3097,13 @@ const aliasedPort = make("aliased");
     }),
     syntheticBaseline(),
   );
+
   if (!bootSeamWiringDrive.some((violation) => violation.includes('missing "Wiring:"'))) {
     failures.push(
       `boot-seam wiring self-test mismatch: expected checkArchitecture to report the headerless seam, received ${JSON.stringify(bootSeamWiringDrive)}`,
     );
   }
+
   return failures;
 }
 
@@ -2812,11 +3128,13 @@ function formatGraph(architecture) {
  */
 function executionForbiddenImportViolations(moduleEdges) {
   const violations = [];
+
   for (const edge of moduleEdges) {
     if (edge.from === EXECUTION_MODULE && EXECUTION_FORBIDDEN_PRODUCT_MODULES.has(edge.to)) {
       violations.push(`execution imports forbidden product module: ${edge.from} -> ${edge.to}`);
     }
   }
+
   return violations;
 }
 
@@ -2834,11 +3152,13 @@ function executionForbiddenImportViolations(moduleEdges) {
 function executionGateLivenessViolations(moduleNodes) {
   const liveModules = new Set(moduleNodes);
   const violations = [];
+
   if (!liveModules.has(EXECUTION_MODULE)) {
     violations.push(
       `execution gate references unknown module "${EXECUTION_MODULE}" — was the module renamed? update EXECUTION_MODULE`,
     );
   }
+
   for (const forbidden of EXECUTION_FORBIDDEN_PRODUCT_MODULES) {
     if (!liveModules.has(forbidden)) {
       violations.push(
@@ -2846,6 +3166,7 @@ function executionGateLivenessViolations(moduleNodes) {
       );
     }
   }
+
   return violations;
 }
 
@@ -2875,17 +3196,21 @@ function executionGateLivenessViolations(moduleNodes) {
  */
 function connectionsBarrelReachViolations(reach) {
   const violations = [];
+
   for (const entry of reach.forbidden) {
     if (entry.present) continue;
     violations.push(
       `connections barrel forbidden-reach target is not a file: ${relativeToRoot(entry.path)} — the rule that names it forbids nothing; update CONNECTIONS_BARREL_FORBIDDEN_REACH or delete the rule that reads it`,
     );
   }
+
   const forbiddenPaths = new Set(reach.forbidden.map((entry) => entry.path));
+
   for (const entry of reach.reached) {
     if (!forbiddenPaths.has(entry.file)) continue;
     violations.push(`connections barrel reaches forbidden heavy module: ${entry.chain}`);
   }
+
   return violations;
 }
 
@@ -2902,12 +3227,14 @@ function connectionsBarrelReachViolations(reach) {
  */
 function scannedPathLivenessViolations(entries) {
   const violations = [];
+
   for (const entry of entries) {
     if (entry.present) continue;
     violations.push(
       `scanned ${entry.kind} does not exist: ${entry.path} — the rule that reads it enforces nothing; update ${entry.constant} or delete the rule that reads it`,
     );
   }
+
   return violations;
 }
 
@@ -2919,10 +3246,12 @@ function scannedPathLivenessViolations(entries) {
 function scannedPathPresence() {
   return SCANNED_PATHS.map((entry) => {
     let present = false;
+
     if (existsSync(entry.path)) {
       const stats = statSync(entry.path);
       present = entry.kind === "directory" ? stats.isDirectory() : stats.isFile();
     }
+
     return { ...entry, present };
   });
 }
@@ -2936,6 +3265,7 @@ function scannedPathPresence() {
  */
 function checkArchitecture(architecture, baseline) {
   const violations = [];
+
   // The graph is only as trustworthy as the list of workspaces it was walked over.
   // A refusal here means the walk read fewer trees than the repository has, which
   // makes every absence below meaningless — so it is a violation, not a warning,
@@ -2944,6 +3274,7 @@ function checkArchitecture(architecture, baseline) {
   for (const failure of architecture.workspaceFailures) {
     violations.push(`workspace enumeration: ${failure}`);
   }
+
   // The baseline records the whole graph but is consulted ONLY as a cycle
   // allowlist, so it goes through the same SCC pass the live graph does — see
   // `cyclicEdgeKeysOf`. A recorded acyclic edge permits nothing.
@@ -2959,6 +3290,7 @@ function checkArchitecture(architecture, baseline) {
   for (const edge of packageCycles) {
     if (!permittedCyclicPackageEdges.has(edge)) violations.push(`new cyclic package edge: ${edge}`);
   }
+
   for (const edge of moduleCycles) {
     if (!permittedCyclicModuleEdges.has(edge)) {
       violations.push(`new cyclic assistant-module edge: ${edge}`);
@@ -2966,6 +3298,7 @@ function checkArchitecture(architecture, baseline) {
   }
 
   const allowedPrivateImports = new Set(baseline.legacyExceptions.privateModuleImports.imports);
+
   for (const imported of architecture.exceptions.privateModuleImports) {
     if (!allowedPrivateImports.has(imported.key)) {
       violations.push(
@@ -2975,6 +3308,7 @@ function checkArchitecture(architecture, baseline) {
   }
 
   const allowedWebImports = new Set(baseline.legacyExceptions.webFeatureImports.imports);
+
   for (const imported of architecture.exceptions.webFeatureImports) {
     if (!allowedWebImports.has(imported.key)) {
       violations.push(
@@ -2982,16 +3316,19 @@ function checkArchitecture(architecture, baseline) {
       );
     }
   }
+
   for (const imported of architecture.forbiddenBackendImports) {
     violations.push(
       `assistant imports transport or app code: ${imported.key} (line ${imported.line})`,
     );
   }
+
   for (const imported of architecture.productionPreviewImports) {
     violations.push(
       `production imports preview/debug code: ${imported.key} (line ${imported.line})`,
     );
   }
+
   // The two rules below run over collected tree reads, so their inputs can be absent.
   // Every absent hardcoded path is reported first, and each rule is then guarded on the
   // SHAPE of its own collected data — never on one early return: a missing tool-runtime
@@ -3000,6 +3337,7 @@ function checkArchitecture(architecture, baseline) {
   // guard also cannot be paired with the wrong row, which a `SCANNED_PATHS` lookup here
   // could be, invisibly, on a clean tree.
   violations.push(...scannedPathLivenessViolations(architecture.scannedPaths));
+
   if (architecture.runtimeAdapterScan.manifestSource !== null) {
     violations.push(
       ...runtimeAdapterViolations(
@@ -3008,13 +3346,17 @@ function checkArchitecture(architecture, baseline) {
       ),
     );
   }
+
   violations.push(...bootSeamHeaderViolations(architecture.bootSeamSources));
+
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
 const selfTestErrors = selfTestFailures();
+
 if (selfTestErrors.length > 0) {
   console.error("check-module-architecture: parser self-test failed");
+
   for (const failure of selfTestErrors) console.error(`- ${failure}`);
   process.exit(1);
 }
@@ -3029,6 +3371,7 @@ if (selfTestErrors.length > 0) {
  */
 function baselineRedirectHint() {
   const path = relativeToRoot(BASELINE_PATH);
+
   return `${BASELINE_FLAG} rewrites ${path} itself: never redirect its output into that file, because the shell truncates the target before this process starts. If ${path} is already damaged, restore it with \`git checkout ${path}\`.`;
 }
 
@@ -3044,46 +3387,59 @@ if (process.argv.includes(REMOVED_BASELINE_FLAG)) {
 }
 
 const architecture = collectArchitecture();
+
 if (process.argv.includes(BASELINE_FLAG)) {
   // Regeneration may never widen a ratchet: rewrite the file only from a tree this
   // check already accepts. The command owns the write, so no shell redirect can
   // truncate the ratchet it is reading; the delta goes to stderr and nothing goes to
   // stdout.
   const loaded = loadBaseline();
+
   if (!loaded.ok) {
     reportBaselineLoadFailure(loaded.error);
     process.exit(1);
   }
+
   const emission = baselineEmission(architecture, loaded.baseline);
+
   if (!emission.ok) {
     console.error("check-module-architecture: refusing to regenerate the baseline");
+
     for (const violation of emission.violations) console.error(`- ${violation}`);
     console.error(
       `\nThe tree does not pass check:architecture; regenerating would write these violations into the baseline as permissions. Fix the tree, or hand-edit ${relativeToRoot(BASELINE_PATH)}. A hand edit is legitimate in exactly two cases: an accepted ADR changes the target structure, or a path rename preserves an existing exception. Only the first needs an ADR.`,
     );
     process.exit(1);
   }
+
   for (const [name, change] of Object.entries(emission.delta)) {
     for (const entry of change.removed) console.error(`- ${name}: ${entry}`);
+
     for (const entry of change.added) console.error(`+ ${name}: ${entry}`);
   }
+
   writeFileSync(BASELINE_PATH, `${JSON.stringify(emission.document, null, 2)}\n`);
   console.error(`check-module-architecture: wrote ${relativeToRoot(BASELINE_PATH)}`);
   process.exit(0);
 }
+
 if (process.argv.includes(GRAPH_FLAG)) {
   console.log(formatGraph(architecture));
   process.exit(0);
 }
 
 const loadedBaseline = loadBaseline();
+
 if (!loadedBaseline.ok) {
   reportBaselineLoadFailure(loadedBaseline.error);
   process.exit(1);
 }
+
 const violations = checkArchitecture(architecture, loadedBaseline.baseline);
+
 if (violations.length > 0) {
   console.error("check-module-architecture: violations found");
+
   for (const violation of violations) console.error(`- ${violation}`);
   console.error("\nCurrent stable graph:");
   console.error(formatGraph(architecture));

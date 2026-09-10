@@ -203,6 +203,7 @@ export async function incrementExpiringCounter(
   ttlSeconds: number,
 ): Promise<number> {
   const result = await redis.eval(INCR_WITH_TTL_SCRIPT, 1, key, amount, ttlSeconds);
+
   return Number(result);
 }
 
@@ -236,6 +237,7 @@ export function createRedisConnection(kind: RedisConnectionKind): IORedis {
   const url = serverEnv().REDIS_URL;
   const conn = new IORedis(url, { ...CONNECTION_PROFILES[kind] });
   connections.push(conn);
+
   return conn;
 }
 
@@ -255,7 +257,9 @@ async function closeConnection(conn: IORedis): Promise<void> {
     () => true,
     () => false,
   );
+
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     const quitFinished = await Promise.race([
       quit,
@@ -263,6 +267,7 @@ async function closeConnection(conn: IORedis): Promise<void> {
         timer = setTimeout(() => resolve(false), QUIT_TIMEOUT_MS);
       }),
     ]);
+
     // `disconnect()` tears the socket down. It does NOT reliably settle the
     // command the `QUIT` was stuck behind: the queues are flushed from the
     // socket's `close` event, and a connection sitting in `reconnecting` has no

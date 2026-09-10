@@ -19,7 +19,9 @@ export function writeOnboardingHint(userId: string, complete: boolean): void {
 /** `true` only when the stored hint says complete AND belongs to `userId`. */
 export function readOnboardingHint(userId: string | undefined): boolean {
   const storedId = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID);
+
   if (userId && storedId !== userId) return false;
+
   return getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE);
 }
 

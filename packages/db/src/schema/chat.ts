@@ -32,6 +32,7 @@ import { user } from "./auth";
  * row is always a finished turn — partial streamed text is never persisted.
  */
 export type ChatMessageRole = "user" | "assistant";
+
 export type ChatMessageStatus = "complete" | "failed";
 
 /**
@@ -307,10 +308,17 @@ export const chatAttachmentRepresentations = pgTable(
 );
 
 export type ChatThread = typeof chatThreads.$inferSelect;
+
 export type ChatMessage = typeof chatMessages.$inferSelect;
+
 export type ChatThreadContext = typeof chatThreadContext.$inferSelect;
+
 export type NewChatThreadContext = typeof chatThreadContext.$inferInsert;
+
 export type ChatAttachment = typeof chatAttachments.$inferSelect;
+
 export type NewChatAttachment = typeof chatAttachments.$inferInsert;
+
 export type ChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferSelect;
+
 export type NewChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferInsert;

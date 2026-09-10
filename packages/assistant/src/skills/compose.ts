@@ -48,6 +48,7 @@ function buildUserPrompt(ctx: SkillDocumentationContext): string {
   lines.push(ctx.skill.currentBody);
   lines.push("");
   lines.push(`## Confirmed user facts`);
+
   if (ctx.facts.length === 0) {
     lines.push(`(none)`);
   } else {
@@ -56,8 +57,10 @@ function buildUserPrompt(ctx: SkillDocumentationContext): string {
       lines.push(`- ${f.key}: ${v}`);
     }
   }
+
   lines.push("");
   lines.push(`## Retrieved chunks from documents (${ctx.documentHits.length})`);
+
   if (ctx.documentHits.length === 0) {
     lines.push(`(no matches)`);
   } else {
@@ -72,8 +75,10 @@ function buildUserPrompt(ctx: SkillDocumentationContext): string {
       lines.push(`  ${h.preview}`);
     });
   }
+
   lines.push("");
   lines.push(`## Retrieved memory chunks (${ctx.memoryHits.length})`);
+
   if (ctx.memoryHits.length === 0) {
     lines.push(`(no matches)`);
   } else {
@@ -82,6 +87,7 @@ function buildUserPrompt(ctx: SkillDocumentationContext): string {
       lines.push(`  ${h.preview}`);
     });
   }
+
   return lines.join("\n");
 }
 

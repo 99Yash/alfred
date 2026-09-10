@@ -70,6 +70,7 @@ export {
   effectReceiptColumns,
   toEffectReceipt,
 } from "./index.domain";
+
 export type {
   EffectReceiptSource,
   RunStatus,
@@ -104,4 +105,5 @@ export {
   promoteScratch,
   snapshotScratchToPostgres,
 } from "./scratchpad/index";
+
 export type { WriteScratchArgs, ReadScratchArgs, PromoteScratchArgs } from "./scratchpad/index";

@@ -7,6 +7,7 @@ import {
 } from "@alfred/assistant/chat/compaction/index";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
+
 const args = {
   userId: "user_1",
   threadId: "thread:1",
@@ -37,13 +38,16 @@ describe("conversation compaction queue", () => {
 
   test("does no queue or database work when queues are disabled", async () => {
     let touched = false;
+
     const result = await enqueueConversationCompaction(args, {
       enabled: () => false,
       getExisting: async () => {
         touched = true;
+
         return undefined;
       },
     });
+
     assert.equal(result, "disabled");
     assert.equal(touched, false);
   });
@@ -51,14 +55,17 @@ describe("conversation compaction queue", () => {
   for (const state of ["active", "waiting", "delayed"] as const) {
     test(`deduplicates an ${state} job without advancing the generation`, async () => {
       let marked = false;
+
       const result = await enqueueConversationCompaction(args, {
         enabled: () => true,
         getExisting: async () => ({ state, remove: async () => undefined }),
         markRequested: async () => {
           marked = true;
+
           return { requestedAt: at, generation: 1 };
         },
       });
+
       assert.equal(result, "deduplicated");
       assert.equal(marked, false);
     });
@@ -67,6 +74,7 @@ describe("conversation compaction queue", () => {
   test("replaces a terminal job and enqueues the complete bounded request", async () => {
     let removed = false;
     let added: { jobId: string; data: unknown } | undefined;
+
     const result = await enqueueConversationCompaction(args, {
       enabled: () => true,
       getExisting: async () => ({
@@ -80,6 +88,7 @@ describe("conversation compaction queue", () => {
         added = { jobId, data };
       },
     });
+
     assert.equal(result, "scheduled");
     assert.equal(removed, true);
     assert.equal(added?.jobId, "conversation-compact.thread.1");
@@ -109,6 +118,7 @@ describe("conversation compaction queue", () => {
         },
         recordFailure: async (value) => {
           failure = value;
+
           return true;
         },
       }),

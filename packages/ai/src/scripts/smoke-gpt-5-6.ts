@@ -31,6 +31,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     },
     attribution,
   );
+
   if (!text.text.toLowerCase().includes("text-ok")) {
     throw new Error(`${modelId} non-streaming text mismatch: ${text.text}`);
   }
@@ -44,10 +45,13 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     },
     attribution,
   );
+
   for await (const _part of stream.stream) {
     // Draining the real stream triggers final usage + metering.
   }
+
   const streamedText = await stream.text;
+
   if (!streamedText.toLowerCase().includes("stream-ok")) {
     throw new Error(`${modelId} streaming text mismatch: ${streamedText}`);
   }
@@ -69,6 +73,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     },
     attribution,
   );
+
   if (toolResult.toolCalls[0]?.toolName !== "smoke.lookup") {
     throw new Error(`${modelId} dotted tool did not round-trip`);
   }
@@ -84,6 +89,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     },
     attribution,
   );
+
   if (objectResult.output.status !== "ok" || objectResult.output.model !== modelId) {
     throw new Error(`${modelId} structured output mismatch`);
   }
@@ -97,6 +103,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     },
     attribution,
   );
+
   const replay = await meteredGenerateText(
     {
       model,
@@ -110,6 +117,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     },
     attribution,
   );
+
   if (!replay.text.toLowerCase().includes("cedar-47")) {
     throw new Error(`${modelId} multi-turn transcript replay mismatch: ${replay.text}`);
   }
@@ -120,10 +128,12 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
 async function main(): Promise<void> {
   if (!serverEnv().OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
   const startedAt = new Date();
+
   for (const modelId of MODEL_IDS) await smokeModel(modelId);
 
   // Metering stays fire-and-forget on request paths; scripts can drain it deterministically.
   await flushMeteringWrites();
+
   const rows = await db()
     .select({ model: apiCallLog.model, costUsd: apiCallLog.costUsd })
     .from(apiCallLog)
@@ -135,12 +145,15 @@ async function main(): Promise<void> {
       ),
     )
     .orderBy(desc(apiCallLog.id));
+
   for (const modelId of MODEL_IDS) {
     const modelRows = rows.filter((row) => row.model === modelId);
+
     if (modelRows.length < 6 || !modelRows.every((row) => Number(row.costUsd) > 0)) {
       throw new Error(`${modelId} metering rows missing or unpriced`);
     }
   }
+
   console.log(`[smoke-gpt-5.6] metering OK (${rows.length} priced rows)`);
 }
 

@@ -74,10 +74,12 @@ export async function runDeliveryAlertSweep(
 ): Promise<DeliveryAlertSweepResult> {
   const availability = await readIntegrationAvailability(userId);
   const alerts = await readDeliveryAlerts(userId, availability.providers, now);
+
   if (alerts.length === 0) return { userId, alerts: 0, sent: 0 };
 
   const recentKeys = await listRecentAlertKeys(userId, new Date(now.getTime() - ALERT_REPEAT_MS));
   const due = alerts.filter((alert) => !wasAlerted(recentKeys, userId, alert.source));
+
   if (due.length === 0) return { userId, alerts: alerts.length, sent: 0 };
 
   const day = inZone(await resolveTimezone(userId)).day(now);
@@ -87,6 +89,7 @@ export async function runDeliveryAlertSweep(
   for (const alert of due) {
     try {
       const result = await sendDeliveryAlert(userId, alert, day);
+
       if (result === "sent") sent++;
     } catch (err) {
       failures.push(`${alert.source}: ${toMessage(err)}`);
@@ -96,9 +99,11 @@ export async function runDeliveryAlertSweep(
   console.log(
     `[delivery-alert] user=${userId} broken=${alerts.length} due=${due.length} sent=${sent}`,
   );
+
   if (failures.length > 0) {
     throw new Error(`[delivery-alert] send failed for user=${userId}: ${failures.join("; ")}`);
   }
+
   return { userId, alerts: alerts.length, sent };
 }
 
@@ -110,12 +115,14 @@ async function sendDeliveryAlert(
   const integrationName = INTEGRATIONS[alert.integration].displayName;
   const integrationUrl = `${webOrigin()}/integrations/${alert.integration}`;
   const subject = `Alfred stopped receiving ${integrationName} activity`;
+
   const html = await renderDeliveryAlertEmail({
     integrationName,
     reason: alert.reason,
     integrationUrl,
     logoUrl: emailLogoUrl(),
   });
+
   const text = [
     subject,
     "",
@@ -133,7 +140,9 @@ async function sendDeliveryAlert(
     text,
     payload: { source: alert.source, integration: alert.integration, reason: alert.reason },
   });
+
   if (result.status === "failed") throw new Error(result.error);
+
   return result.status;
 }
 
@@ -153,6 +162,7 @@ function alertKeyPrefix(userId: string, source: EventSource): string {
  */
 function wasAlerted(keys: readonly string[], userId: string, source: EventSource): boolean {
   const prefix = alertKeyPrefix(userId, source);
+
   return keys.some((key) => key.startsWith(prefix));
 }
 
@@ -179,6 +189,7 @@ async function listRecentAlertKeys(userId: string, since: Date): Promise<string[
     )
     .orderBy(desc(emailSends.createdAt))
     .limit(ALERT_LOOKBACK_LIMIT);
+
   return rows.map((row) => row.idempotencyKey);
 }
 
@@ -207,6 +218,7 @@ export async function runDeliveryAlertSweepForAllUsers(): Promise<DeliveryAlertS
   const failures: string[] = [];
   let broken = 0;
   let sent = 0;
+
   for (const row of users) {
     try {
       const result = await runDeliveryAlertSweep(row.id);
@@ -218,8 +230,10 @@ export async function runDeliveryAlertSweepForAllUsers(): Promise<DeliveryAlertS
       console.error(`[delivery-alert] sweep failed user=${row.id}:`, message);
     }
   }
+
   if (failures.length > 0) {
     throw new Error(`[delivery-alert] sweep failed: ${failures.join("; ")}`);
   }
+
   return { users: users.length, broken, sent };
 }

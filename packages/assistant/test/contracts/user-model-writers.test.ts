@@ -53,8 +53,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-umwriters-";
+
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
+
 const SEED_FIRST_SEEN_AT = new Date("2026-06-23T00:00:00.000Z");
+
 const createdUserIds: string[] = [];
 
 const SERVER_ENV_FIXTURES = {
@@ -87,6 +90,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -97,7 +101,9 @@ async function seedNode(userId: string, value: string): Promise<string> {
     { kind: "email", value },
     SEED_FIRST_SEEN_AT,
   );
+
   await db().insert(entityNodes).values(row).onConflictDoNothing({ target: entityNodes.id });
+
   return row.id;
 }
 
@@ -145,6 +151,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -165,6 +172,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
           eq(observationFamilyHeads.familyKey, familyKey),
         ),
       );
+
     assert.ok(head);
     assert.equal(head.headObservationId, first.observation.id);
 
@@ -177,6 +185,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       .select()
       .from(observations)
       .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)));
+
     assert.equal(rows.length, 1, "dedup must not append a second row");
   });
 
@@ -185,10 +194,12 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const familyKey = `gmail:${randomUUID()}`;
 
     const root = await insertObservation(gmailObs(userId, familyKey, "hash-root"));
+
     const successor = await insertObservation({
       ...gmailObs(userId, familyKey, "hash-successor"),
       supersedesObservationId: root.observation.id,
     });
+
     assert.equal(successor.deduped, false);
 
     const [head] = await db()
@@ -200,6 +211,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
           eq(observationFamilyHeads.familyKey, familyKey),
         ),
       );
+
     assert.equal(head?.headObservationId, successor.observation.id);
   });
 
@@ -214,12 +226,14 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const successor = await appendObservationFamilyMember(
       gmailObs(userId, familyKey, "hash-successor"),
     );
+
     assert.equal(successor.status, "inserted");
     assert.equal(successor.observation.supersedesObservationId, root.observation.id);
 
     const again = await appendObservationFamilyMember(
       gmailObs(userId, familyKey, "hash-successor"),
     );
+
     assert.equal(again.status, "deduped");
     assert.equal(again.observation.id, successor.observation.id);
 
@@ -232,6 +246,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
           eq(observationFamilyHeads.familyKey, familyKey),
         ),
       );
+
     assert.equal(head?.headObservationId, successor.observation.id);
   });
 
@@ -244,6 +259,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
         appendObservationFamilyMember(gmailObs(userId, familyKey, `hash-concurrent-${index}`)),
       ),
     );
+
     assert.deepEqual(
       results.map((result) => result.status),
       ["inserted", "inserted", "inserted", "inserted", "inserted"],
@@ -256,6 +272,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       })
       .from(observations)
       .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)));
+
     assert.equal(rows.length, 5);
     assert.equal(
       rows.filter((row) => row.supersedesObservationId === null).length,
@@ -266,6 +283,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const predecessorIds = rows
       .map((row) => row.supersedesObservationId)
       .filter((id): id is string => id !== null);
+
     assert.equal(
       new Set(predecessorIds).size,
       predecessorIds.length,
@@ -298,6 +316,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       (err: unknown) => {
         const parts: string[] = [];
         let cur: unknown = err;
+
         for (let i = 0; i < 5 && cur && typeof cur === "object"; i++) {
           const e = cur as {
             message?: string;
@@ -305,9 +324,11 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
             constraint?: string;
             cause?: unknown;
           };
+
           parts.push(e.message ?? "", e.code ?? "", e.constraint ?? "");
           cur = e.cause;
         }
+
         const haystack = parts.join(" ");
         assert.match(haystack, /23505/, "expected a unique violation (23505)");
         assert.match(
@@ -315,6 +336,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
           /observations_single_root_idx/,
           "expected the single-root index to reject the second root",
         );
+
         return true;
       },
     );
@@ -331,6 +353,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       source: "gmail",
       validFrom: SEED_FIRST_SEEN_AT,
     });
+
     const b = await recordEntityIdentity({
       userId,
       entityId,
@@ -338,6 +361,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       source: "gmail",
       validFrom: SEED_FIRST_SEEN_AT,
     });
+
     assert.equal(a.id, b.id, "a repeat link returns the same live identity row");
   });
 
@@ -373,6 +397,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
         assert.equal(err.liveEntityId, entityA);
         assert.equal(err.requestedEntityId, entityB);
         assert.equal(err.value, "shared@example.com");
+
         return true;
       },
     );
@@ -388,6 +413,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       identity,
       firstSeenAt: new Date("2026-06-23T12:00:00.000Z"),
     });
+
     const older = await ensureEntityNode({
       userId,
       identity,
@@ -404,11 +430,13 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
 
   test("projection run is single-attempt and completion requires a checksum", async () => {
     const userId = await seedUser();
+
     const started = await startProjectionRun({
       userId,
       projectionName: USER_MODEL_PROJECTION_NAME,
       projectionVersion: 1,
     });
+
     assert.equal(started.reused, false);
 
     const again = await startProjectionRun({
@@ -416,6 +444,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       projectionName: USER_MODEL_PROJECTION_NAME,
       projectionVersion: 1,
     });
+
     assert.equal(again.reused, true);
     assert.equal(again.run.id, started.run.id);
 
@@ -433,6 +462,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
 
   test("activateProjectionVersion refuses a running run and accepts a completed one", async () => {
     const userId = await seedUser();
+
     const { run } = await startProjectionRun({
       userId,
       projectionName: USER_MODEL_PROJECTION_NAME,
@@ -455,22 +485,26 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       checksum: "checksum-v1",
       completedAt: new Date("2026-06-23T01:00:00.000Z"),
     });
+
     const pointer = await activateProjectionVersion({
       userId,
       projectionName: USER_MODEL_PROJECTION_NAME,
       runId: run.id,
     });
+
     assert.equal(pointer.activeRunId, run.id);
     assert.equal(pointer.activeVersion, 1);
   });
 
   test("a completed run is terminal: re-completing and failing-after-complete are both rejected", async () => {
     const userId = await seedUser();
+
     const { run } = await startProjectionRun({
       userId,
       projectionName: USER_MODEL_PROJECTION_NAME,
       projectionVersion: 1,
     });
+
     await completeProjectionRun({
       runId: run.id,
       userId,
@@ -504,6 +538,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
 
   test("writeProjectionCursor writes while running and is rejected once completed", async () => {
     const userId = await seedUser();
+
     const { run } = await startProjectionRun({
       userId,
       projectionName: USER_MODEL_PROJECTION_NAME,
@@ -519,6 +554,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       source: "gmail",
       cursor: { lastObservationId: "obs_1" },
     });
+
     const [cursor] = await db()
       .select()
       .from(projectionCursors)
@@ -529,6 +565,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
           eq(projectionCursors.source, "gmail"),
         ),
       );
+
     assert.equal(cursor?.cursor.lastObservationId, "obs_1");
 
     await completeProjectionRun({
@@ -569,6 +606,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
         projectionName: USER_MODEL_PROJECTION_NAME,
         projectionVersion: version,
       });
+
       await db()
         .insert(entityProfiles)
         .values({
@@ -586,8 +624,10 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
         checksum: `checksum-v${version}`,
         completedAt: new Date("2026-06-23T01:00:00.000Z"),
       });
+
       return run.id;
     };
+
     const runV1 = await seedProfileVersion(1);
     await seedProfileVersion(2);
 
@@ -616,6 +656,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
           eq(projectionRuns.projectionVersion, 2),
         ),
       );
+
     assert.ok(v2run);
     await activateProjectionVersion({
       userId,
@@ -629,6 +670,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       .select()
       .from(activeProjectionVersions)
       .where(eq(activeProjectionVersions.userId, userId));
+
     assert.equal(pointer.length, 1, "active pointer is one row per (user, projection)");
   });
 });

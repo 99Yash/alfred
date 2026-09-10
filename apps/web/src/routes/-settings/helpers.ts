@@ -27,6 +27,7 @@ export const SECTIONS = [
 
 /** A settings sidebar section, inferred from the `SECTIONS` registry. */
 export type SectionDef = (typeof SECTIONS)[number];
+
 export type SectionId = SectionDef["id"];
 
 export interface BackgroundAgentDef {

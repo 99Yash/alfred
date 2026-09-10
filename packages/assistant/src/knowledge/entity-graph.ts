@@ -25,6 +25,7 @@ export const upsertEntityArgsSchema = entityInsertSchema
   }) satisfies z.ZodType<
   Pick<NewEntity, "userId" | "kind" | "canonicalName" | "aliases" | "metadata">
 >;
+
 export type UpsertEntityArgs = z.infer<typeof upsertEntityArgsSchema>;
 
 export const linkEntitiesArgsSchema = entityRelationInsertSchema
@@ -39,6 +40,7 @@ export const linkEntitiesArgsSchema = entityRelationInsertSchema
   }) satisfies z.ZodType<
   Pick<NewEntityRelation, "userId" | "fromEntityId" | "toEntityId" | "relation" | "metadata">
 >;
+
 export type LinkEntitiesArgs = z.infer<typeof linkEntitiesArgsSchema>;
 
 /**
@@ -118,14 +120,18 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
           metadata,
         })
         .returning();
+
       if (!row) throw new Error("[memory.entities] upsertEntity insert returned no row");
+
       return rowToEntity(row);
     }
 
     const mergedAliases = Array.from(
       new Set([...aliasesSchema.parse(existing.aliases), ...aliases]),
     );
+
     const mergedMetadata = { ...jsonRecordSchema.parse(existing.metadata), ...metadata };
+
     const [row] = await ex
       .update(entities)
       .set({
@@ -135,7 +141,9 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
       })
       .where(eq(entities.id, existing.id))
       .returning();
+
     if (!row) throw new Error("[memory.entities] upsertEntity update returned no row");
+
     return rowToEntity(row);
   };
 
@@ -174,6 +182,7 @@ export async function upsertPersonByAlias(
   tx?: DbTransaction,
 ): Promise<EntityRow> {
   const address = args.address.trim().toLowerCase();
+
   if (!address) {
     throw new Error("[memory.entities] upsertPersonByAlias requires a non-empty address");
   }
@@ -205,15 +214,20 @@ export async function upsertPersonByAlias(
           metadata: args.buildMetadata({}),
         })
         .returning();
+
       if (!row) throw new Error("[memory.entities] upsertPersonByAlias insert returned no row");
+
       return rowToEntity(row);
     }
 
     const priorMeta = jsonRecordSchema.parse(existing.metadata);
+
     const mergedAliases = Array.from(
       new Set([...aliasesSchema.parse(existing.aliases), ...args.aliases]),
     );
+
     const mergedMetadata = { ...priorMeta, ...args.buildMetadata(priorMeta) };
+
     const [row] = await ex
       .update(entities)
       .set({
@@ -223,7 +237,9 @@ export async function upsertPersonByAlias(
       })
       .where(eq(entities.id, existing.id))
       .returning();
+
     if (!row) throw new Error("[memory.entities] upsertPersonByAlias update returned no row");
+
     return rowToEntity(row);
   };
 
@@ -262,6 +278,7 @@ export async function findEntity(
       ),
     )
     .limit(1);
+
   return row ? rowToEntity(row) : null;
 }
 

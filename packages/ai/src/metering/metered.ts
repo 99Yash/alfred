@@ -12,6 +12,7 @@ function enqueueMeteringWrite(write: Promise<void>): void {
   const tracked = write
     .catch((err) => console.warn("[metered] background settlement failed:", toMessage(err)))
     .finally(() => pendingMeteringWrites.delete(tracked));
+
   pendingMeteringWrites.add(tracked);
 }
 
@@ -35,9 +36,11 @@ export async function flushMeteringWrites(): Promise<void> {
  */
 function reconcileServed(meta: MeteredMeta, extracted: MeteredResult) {
   const served = extracted.served;
+
   if (!served || (served.provider === meta.provider && served.model === meta.model)) {
     return { provider: meta.provider, model: meta.model, responseMeta: extracted.responseMeta };
   }
+
   // `requestedModelId` is the pre-call attribution — the route's primary when a
   // `withFallback` cascade fired — so a usage rollup can name the model that
   // errored beside the one that answered. Only written on divergence, like
@@ -47,6 +50,7 @@ function reconcileServed(meta: MeteredMeta, extracted: MeteredResult) {
     servedModelId: served.model,
     requestedModelId: meta.model,
   };
+
   return { provider: served.provider, model: served.model, responseMeta };
 }
 
@@ -79,6 +83,7 @@ export async function metered<T>(
 ): Promise<T> {
   const startedAt = new Date();
   const span = startLangfuseSpan({ meta, startedAt });
+
   try {
     const result = await fn();
     const extracted: MeteredResult = extract ? extract(result) : {};
@@ -103,9 +108,11 @@ export async function metered<T>(
       responseMeta: served.responseMeta,
       servedModel: served.model,
     });
+
     return result;
   } catch (err) {
     const latencyMs = Date.now() - startedAt.getTime();
+
     if (isCallerAbort(err)) {
       // A cancelled generate carries no usage — the SDK throws instead of
       // returning a result, and the provider reports nothing for a request we
@@ -130,6 +137,7 @@ export async function metered<T>(
       span.success({ costUsd: 0, responseMeta: { aborted: true }, servedModel: meta.model });
       throw err;
     }
+
     const message = toMessage(err);
     enqueueMeteringWrite(
       writeLogRow({
@@ -173,6 +181,7 @@ export function meteredStream<T>(
   const startedAt = new Date();
   const span = startLangfuseSpan({ meta, startedAt });
   let settled = false;
+
   const settleWithUsage = (extracted: MeteredResult, aborted: boolean): void => {
     if (settled) return;
     settled = true;
@@ -201,12 +210,15 @@ export function meteredStream<T>(
       })(),
     );
   };
+
   const finish = (extracted: MeteredResult): void => {
     settleWithUsage(extracted, false);
   };
+
   const abort = (extracted: MeteredResult): void => {
     settleWithUsage(extracted, true);
   };
+
   const fail = (message: string): void => {
     if (settled) return;
     settled = true;
@@ -223,6 +235,7 @@ export function meteredStream<T>(
     );
     span.error(message);
   };
+
   return start({ finish, fail, abort });
 }
 
@@ -237,6 +250,7 @@ interface WriteArgs {
 
 async function writeLogRow(args: WriteArgs): Promise<void> {
   const { meta, latencyMs, usage, costUsd, responseMeta, error } = args;
+
   try {
     await db()
       .insert(apiCallLog)

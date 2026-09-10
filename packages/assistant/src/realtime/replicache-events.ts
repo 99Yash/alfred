@@ -33,18 +33,23 @@ function isReplicachePoke(value: unknown): value is ReplicachePoke {
 const eventFor = (userId: string) => `poke:${userId}`;
 
 const CHANNEL_PREFIX = "replicache-pokes:u:";
+
 const channelFor = (userId: string) => `${CHANNEL_PREFIX}${userId}`;
+
 const userIdFromChannel = (channel: string): string | null =>
   channel.startsWith(CHANNEL_PREFIX) ? channel.slice(CHANNEL_PREFIX.length) : null;
 
 const emitter = new EventEmitter();
+
 emitter.setMaxListeners(0);
 
 let publisher: BoundedRedis | undefined;
+
 let subscriber: IORedis | undefined;
 
 /** Refcount of active SSE listeners per user on this replica. */
 const userRefCounts = new Map<string, number>();
+
 /**
  * Which users this replica actually holds a Redis subscription for, tracked
  * apart from the listener refcount.
@@ -60,6 +65,7 @@ const userRefCounts = new Map<string, number>();
  * is in flight, and `resubscribeAll` below rebuilds both after a reconnect.
  */
 const subscribed = new Set<string>();
+
 const subscribing = new Set<string>();
 
 /**
@@ -69,12 +75,15 @@ const subscribing = new Set<string>();
  */
 function ensureSubscribed(userId: string): void {
   const conn = subscriber;
+
   if (!conn) return;
+
   if (subscribed.has(userId) || subscribing.has(userId)) return;
   subscribing.add(userId);
   conn.subscribe(channelFor(userId)).then(
     () => {
       subscribing.delete(userId);
+
       // The last listener may have gone while the subscribe was in flight; its
       // teardown could not unsubscribe a channel this replica did not yet hold.
       if ((userRefCounts.get(userId) ?? 0) > 0) subscribed.add(userId);
@@ -111,6 +120,7 @@ function ensureSubscribed(userId: string): void {
 function resubscribeAll(): void {
   subscribed.clear();
   subscribing.clear();
+
   for (const [userId, count] of userRefCounts) {
     if (count > 0) ensureSubscribed(userId);
   }
@@ -131,10 +141,14 @@ export async function initReplicachePokeBridge(): Promise<void> {
 
     subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);
+
       if (userId === null) return;
+
       try {
         const parsed: unknown = JSON.parse(raw);
+
         if (!isReplicachePoke(parsed)) return;
+
         if (parsed.userId !== userId) return;
         emitter.emit(eventFor(userId), parsed);
       } catch {
@@ -155,10 +169,12 @@ export async function closeReplicachePokeBridge(): Promise<void> {
     // Only channels this replica actually holds: unsubscribing one it never
     // subscribed to is a wasted round trip on a connection that may be down.
     const channels = Array.from(subscribed).map(channelFor);
+
     if (channels.length > 0) {
       await subscriber.unsubscribe(...channels).catch(() => {});
     }
   }
+
   userRefCounts.clear();
   subscribed.clear();
   subscribing.clear();
@@ -168,6 +184,7 @@ export async function closeReplicachePokeBridge(): Promise<void> {
 
 function publish(event: ReplicachePoke): void {
   const channel = channelFor(event.userId);
+
   // Lazy-init the Redis publisher so processes that didn't call
   // `initReplicachePokeBridge()` (smoke scripts, ad-hoc CLI work,
   // BullMQ workers in alternative entry points) still deliver pokes
@@ -180,12 +197,15 @@ function publish(event: ReplicachePoke): void {
       publisher = undefined;
     }
   }
+
   if (publisher) {
     publisher.publish(channel, JSON.stringify(event)).catch(() => {
       emitter.emit(eventFor(event.userId), event);
     });
+
     return;
   }
+
   emitter.emit(eventFor(event.userId), event);
 }
 
@@ -211,8 +231,10 @@ export function subscribeUserPokes(userId: string, listener: PokeListener): () =
   return () => {
     emitter.off(eventName, listener);
     const remaining = (userRefCounts.get(userId) ?? 1) - 1;
+
     if (remaining <= 0) {
       userRefCounts.delete(userId);
+
       if (subscribed.delete(userId) && subscriber) {
         subscriber.unsubscribe(channelFor(userId)).catch(() => {});
       }

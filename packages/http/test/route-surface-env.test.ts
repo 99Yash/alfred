@@ -46,10 +46,12 @@ import {
 const execFileAsync = promisify(execFile);
 
 const PACKAGE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 const CHILD_PROGRAM = path.join(PACKAGE_DIR, "test/support/print-route-surface.ts");
 
 /** A cold `tsx` load of the whole HTTP graph measures about 2 s; the margin is for CI. */
 const CHILD_TIMEOUT_MS = 60_000;
+
 const CHILD_OUTPUT_LIMIT_BYTES = 1_000_000;
 
 /**
@@ -74,6 +76,7 @@ function parseRouteSurfaceReport(raw: unknown): readonly string[] {
   }
 
   let json: unknown;
+
   try {
     json = JSON.parse(raw);
   } catch (error) {
@@ -83,6 +86,7 @@ function parseRouteSurfaceReport(raw: unknown): readonly string[] {
   }
 
   const result = routeSurfaceReportSchema.safeParse(json);
+
   if (!result.success) {
     throw new Error(
       `route surface child wrote a report of the wrong shape (${result.error.issues
@@ -90,19 +94,24 @@ function parseRouteSurfaceReport(raw: unknown): readonly string[] {
         .join("; ")}): ${summarizeBody(raw, RAW_EXCERPT_LIMIT)}`,
     );
   }
+
   return result.data;
 }
 
 /** Spawns one child under `testCase`'s environment and returns the surface it mounted. */
 async function routeSurfaceUnder(testCase: RouteSurfaceCase): Promise<readonly string[]> {
   const childEnv: Record<string, string> = {};
+
   for (const key of ["PATH", "HOME", "TMPDIR"]) {
     const value = process.env[key];
+
     if (value !== undefined) childEnv[key] = value;
   }
+
   if (testCase.nodeEnv !== undefined) childEnv.NODE_ENV = testCase.nodeEnv;
 
   let stdout: string;
+
   try {
     ({ stdout } = await execFileAsync(process.execPath, ["--import", "tsx", CHILD_PROGRAM], {
       cwd: PACKAGE_DIR,
@@ -116,6 +125,7 @@ async function routeSurfaceUnder(testCase: RouteSurfaceCase): Promise<readonly s
       `route surface child failed for NODE_ENV ${testCase.label}: ${toMessage(error)}`,
     );
   }
+
   return parseRouteSurfaceReport(stdout);
 }
 

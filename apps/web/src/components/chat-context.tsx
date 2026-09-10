@@ -20,8 +20,10 @@ export const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function useChatContext(): ChatContextValue {
   const ctx = use(ChatContext);
+
   if (!ctx) {
     throw new Error("useChatContext must be used inside AppShell");
   }
+
   return ctx;
 }

@@ -29,6 +29,7 @@ export function useActionStagings(): ActionStagingsState {
   useEffect(() => {
     if (!rep) {
       setRows(null);
+
       return;
     }
 

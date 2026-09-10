@@ -68,6 +68,7 @@ export async function upsertBearerCredential(
   // Sealed once and reused by both the insert and the on-conflict update.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
+
   const result = await db()
     .insert(integrationCredentials)
     .values({
@@ -101,8 +102,11 @@ export async function upsertBearerCredential(
       },
     })
     .returning({ id: integrationCredentials.id });
+
   const row = result[0];
+
   if (!row) throw new Error(`[${args.provider}.credentials] upsert returned no row`);
+
   return { id: row.id };
 }
 
@@ -131,6 +135,7 @@ export async function deleteIntegrationCredential(args: {
       ),
     )
     .returning({ id: integrationCredentials.id });
+
   return deleted[0] ?? null;
 }
 
@@ -178,7 +183,9 @@ export async function listActiveBearerCredentials(
     )
     .orderBy(desc(integrationCredentials.updatedAt))
     .limit(limit);
+
   const vault = credentialVault();
+
   return rows.map((row) => ({ ...row, accessToken: vault.open(row.accessToken) }));
 }
 
@@ -243,6 +250,7 @@ export async function findActiveCredentialByInstallationId(args: {
     )
     .orderBy(desc(integrationCredentials.updatedAt))
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -273,9 +281,13 @@ export async function findSoleActiveCredential(args: {
       ),
     )
     .limit(2);
+
   const [first] = rows;
+
   if (!first) return { kind: "none" };
+
   if (rows.length > 1) return { kind: "many" };
+
   return { kind: "one", credential: first };
 }
 
@@ -297,11 +309,13 @@ export async function getActiveBearerCredential(
 ): Promise<ActiveBearerCredential> {
   const rows = await listActiveBearerCredentials(userId, provider, 1, accountRef);
   const row = rows[0];
+
   if (!row) {
     throw new Error(
       `[${provider}.credentials] no active ${provider} credential — connect ${provider} in settings`,
     );
   }
+
   // `row` is already an ActiveBearerCredential (the list query selects exactly
   // these columns), so no re-map is needed.
   return row;

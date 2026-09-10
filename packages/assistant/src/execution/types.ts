@@ -27,6 +27,7 @@ type MaybePromise<T> = T | Promise<T>;
  *   cancelled  user-initiated stop
  */
 export { isTerminalStatus };
+
 export type { ApprovalKind, RunStatus, WakeCondition };
 
 /** Outbound effect staged inside a step's commit — fired by the dispatcher worker (m7+). */

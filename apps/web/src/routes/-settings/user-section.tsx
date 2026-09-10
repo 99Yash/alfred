@@ -85,10 +85,14 @@ export function UserSection() {
   useEffect(() => {
     if (bioDraft === null) return; // untouched — nothing to persist
     const next = bioDraft.trim();
+
     if (next === bio.trim()) return; // matches synced truth (incl. post-save)
+
     if (next === "") return; // don't let a transient empty wipe the bio
+
     const timer = setTimeout(async () => {
       setBioSaving(true);
+
       try {
         await saveBio(next);
         toast.success("Background saved");
@@ -98,11 +102,13 @@ export function UserSection() {
         setBioSaving(false);
       }
     }, BIO_SAVE_DEBOUNCE_MS);
+
     return () => clearTimeout(timer);
   }, [bioDraft, bio, saveBio]);
 
   const onSignOut = async () => {
     setSigningOut(true);
+
     try {
       await authClient.signOut();
       await navigate({ to: "/login" });
@@ -116,8 +122,10 @@ export function UserSection() {
   // unavailable for some valid sessions. See `docs/reference/auth.md`.
   const onRevokeOtherSessions = async () => {
     setRevokingOthers(true);
+
     try {
       const { error } = await authClient.revokeOtherSessions();
+
       if (error) throw new Error(error.message ?? "revoke failed");
       toast.success("Signed out on every other device");
     } catch {

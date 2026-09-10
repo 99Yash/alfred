@@ -133,7 +133,9 @@ function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
     headline: sanitizeVoice(fb.headline),
     sections: fb.sections.map((s) => {
       const next = { ...s, label: sanitizeVoice(s.label), body: sanitizeVoice(s.body) };
+
       if (s.why !== undefined) next.why = sanitizeVoice(s.why);
+
       return next;
     }),
   });
@@ -141,6 +143,7 @@ function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
 
 export async function composeBriefing(args: ComposeBriefingArgs): Promise<ComposedBriefing> {
   const model = route("boss").model();
+
   try {
     const result = await meteredGenerateObject<BriefingComposerOutput>(
       {
@@ -175,6 +178,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
     );
 
     const fullBriefing = attachSourcePanels(result.output.fullBriefing, args.gather);
+
     return {
       breakingSummary: briefingComposerSchema.shape.breakingSummary.parse(
         sanitizeVoice(result.output.breakingSummary.trim()),
@@ -225,6 +229,7 @@ function attachSourcePanels(
   gather: BriefingGather,
 ): FullBriefing {
   const references = referencesFromSections(fullBriefing.sections);
+
   return fullBriefingSchema.parse({
     ...fullBriefing,
     sourcePanels: buildBriefingSourcePanels(gather, references),
@@ -235,6 +240,7 @@ function deterministicFallback(args: ComposeBriefingArgs, err: unknown): Compose
   const emailCount = countEmailItems(args.gather);
   const activityCount = args.gather.integration_activity.items.length;
   const meetingCount = args.gather.calendar?.events.length ?? 0;
+
   const lead =
     emailCount === 0 && activityCount === 0 && meetingCount === 0
       ? "No priority email, meetings, or integration activity stood out for today."
@@ -249,6 +255,7 @@ function deterministicFallback(args: ComposeBriefingArgs, err: unknown): Compose
           .join(", ");
 
   const sections = fallbackSections(args.gather);
+
   const fullBriefing = fullBriefingSchema.parse({
     headline: "Daily briefing",
     sections,
@@ -267,11 +274,13 @@ function deterministicFallback(args: ComposeBriefingArgs, err: unknown): Compose
 function fallbackSections(gather: BriefingGather): FullBriefing["sections"] {
   const sections: FullBriefing["sections"] = [];
   const emailCount = countEmailItems(gather);
+
   if (emailCount > 0) {
     const references = Object.values(gather.email.categories)
       .flatMap((items) => items ?? [])
       .slice(0, 8)
       .map((item) => `email:${item.documentId}`);
+
     sections.push({
       source: "email",
       label: "Priority email",
@@ -284,6 +293,7 @@ function fallbackSections(gather: BriefingGather): FullBriefing["sections"] {
   }
 
   const activity = gather.integration_activity.items;
+
   if (activity.length > 0) {
     sections.push({
       source: "integration_activity",
@@ -345,6 +355,7 @@ export function composeInboxBriefing(args: ComposeInboxBriefingArgs): ComposedEm
   const subject = subjectLine(args.digest, args.dateLabel);
   const text = renderText(args, greeting);
   const html = renderHtml(args, greeting);
+
   return { subject, html, text };
 }
 
@@ -352,7 +363,9 @@ function subjectLine(digest: BriefingDigest, dateLabel: string): string {
   if (digest.totalPriority === 0) {
     return `Alfred · ${dateLabel} · inbox is clear`;
   }
+
   const noun = digest.totalPriority === 1 ? "item" : "items";
+
   return `Alfred · ${dateLabel} · ${digest.totalPriority} priority ${noun}`;
 }
 
@@ -368,23 +381,29 @@ function renderText(args: ComposeInboxBriefingArgs, greeting: string): string {
   } else {
     for (const cat of CATEGORY_ORDER) {
       const bucket = args.digest.buckets[cat];
+
       if (!bucket.length) continue;
       lines.push(`== ${CATEGORY_LABEL[cat]} (${bucket.length}) ==`);
+
       for (const item of bucket) {
         lines.push(formatItemText(item));
       }
+
       lines.push("");
     }
   }
 
   if (args.digest.totalSuppressed > 0) {
     const parts: string[] = [];
+
     if (args.digest.suppressedCounts.newsletter > 0) {
       parts.push(`${args.digest.suppressedCounts.newsletter} newsletter(s)`);
     }
+
     if (args.digest.suppressedCounts.fyi > 0) {
       parts.push(`${args.digest.suppressedCounts.fyi} FYI`);
     }
+
     lines.push(`Also seen in the last 24h: ${parts.join(", ")}.`);
   }
 
@@ -402,11 +421,13 @@ function formatItemText(item: BriefingItem): string {
   const head = fromShort ? `• ${subject} — ${fromShort}` : `• ${subject}`;
   const rationale = item.rationale ? `\n    ${item.rationale}` : "";
   const link = item.threadUrl ? `\n    ${item.threadUrl}` : "";
+
   return `${head}${rationale}${link}`;
 }
 
 function renderHtml(args: ComposeInboxBriefingArgs, greeting: string): string {
   const sections: string[] = [];
+
   if (args.digest.totalPriority === 0) {
     sections.push(
       `<p style="${P_STYLE}">Nothing in the priority buckets — your inbox is clear.</p>`,
@@ -414,20 +435,25 @@ function renderHtml(args: ComposeInboxBriefingArgs, greeting: string): string {
   } else {
     for (const cat of CATEGORY_ORDER) {
       const bucket = args.digest.buckets[cat];
+
       if (!bucket.length) continue;
       sections.push(renderBucketHtml(cat, bucket));
     }
   }
 
   const tail: string[] = [];
+
   if (args.digest.totalSuppressed > 0) {
     const parts: string[] = [];
+
     if (args.digest.suppressedCounts.newsletter > 0) {
       parts.push(`${args.digest.suppressedCounts.newsletter} newsletter(s)`);
     }
+
     if (args.digest.suppressedCounts.fyi > 0) {
       parts.push(`${args.digest.suppressedCounts.fyi} FYI`);
     }
+
     tail.push(`<p style="${MUTED_P_STYLE}">Also seen in the last 24h: ${parts.join(", ")}.</p>`);
   }
 
@@ -449,6 +475,7 @@ function renderHtml(args: ComposeInboxBriefingArgs, greeting: string): string {
 
 function renderBucketHtml(category: PriorityCategory, bucket: BriefingItem[]): string {
   const itemsHtml = bucket.map(renderItemHtml).join("\n");
+
   return [
     `  <h2 style="${H2_STYLE}">${escapeHtml(CATEGORY_LABEL[category])} <span style="${COUNT_STYLE}">(${bucket.length})</span></h2>`,
     `  <ul style="${UL_STYLE}">`,
@@ -460,15 +487,19 @@ function renderBucketHtml(category: PriorityCategory, bucket: BriefingItem[]): s
 function renderItemHtml(item: BriefingItem): string {
   const subject = escapeHtml(item.subject?.trim() || "(no subject)");
   const fromShort = shortenFrom(item.from);
+
   const fromHtml = fromShort
     ? `<span style="${MUTED_INLINE_STYLE}"> — ${escapeHtml(fromShort)}</span>`
     : "";
+
   const titleHtml = item.threadUrl
     ? `<a href="${escapeHtml(item.threadUrl)}" style="${LINK_STYLE}">${subject}</a>`
     : subject;
+
   const rationale = item.rationale
     ? `<div style="${RATIONALE_STYLE}">${escapeHtml(item.rationale)}</div>`
     : "";
+
   return [
     `    <li style="${LI_STYLE}">`,
     `      <div><strong>${titleHtml}</strong>${fromHtml}</div>`,
@@ -482,9 +513,15 @@ function renderItemHtml(item: BriefingItem): string {
 // The shared brand shell (WRAPPER/P/LINK) is owned by ./references; the
 // briefing-specific tokens below stay local.
 const MUTED_P_STYLE = "margin: 24px 0 0 0; font-size: 13px; color: #6b6b6b;";
+
 const H2_STYLE = "font-size: 14px; font-weight: 600; margin: 24px 0 8px 0; color: #1a1a1a;";
+
 const COUNT_STYLE = "color: #6b6b6b; font-weight: 400;";
+
 const UL_STYLE = "margin: 0; padding-left: 20px;";
+
 const LI_STYLE = "margin-bottom: 12px; font-size: 14px;";
+
 const MUTED_INLINE_STYLE = "color: #6b6b6b; font-weight: 400;";
+
 const RATIONALE_STYLE = "color: #6b6b6b; font-size: 13px; margin-top: 2px;";

@@ -79,6 +79,7 @@ describe("@alfred/http root app", () => {
 
   test("keeps session caching, sign-out invalidation, and auth delegation failures", async (t) => {
     const authInstance = auth();
+
     const session = {
       session: {
         id: "session-1",
@@ -100,18 +101,22 @@ describe("@alfred/http root app", () => {
         image: null,
       },
     };
+
     let currentSession: typeof session | null = session;
     const getSession = t.mock.method(authInstance.api, "getSession", async () => currentSession);
+
     const handler = t.mock.method(
       authInstance,
       "handler",
       async () => new Response("delegated", { status: 202 }),
     );
+
     const headers = { cookie: "better-auth.session_token=token-1" };
 
     const first = await app.handle(
       new Request("http://localhost/api/auth/get-session", { headers }),
     );
+
     assert.equal(first.headers.get("cache-control"), "private, no-store");
     assert.equal(getSession.mock.callCount(), 1);
 
@@ -122,6 +127,7 @@ describe("@alfred/http root app", () => {
     const signOut = await app.handle(
       new Request("http://localhost/api/auth/sign-out", { method: "POST", headers }),
     );
+
     assert.equal(signOut.status, 202);
     assert.equal(await signOut.text(), "delegated");
     assert.equal(handler.mock.callCount(), 1);
@@ -141,6 +147,7 @@ describe("@alfred/http root app", () => {
     const afterSignOut = await app.handle(
       new Request("http://localhost/api/auth/get-session", { headers }),
     );
+
     assert.equal(afterSignOut.status, 200);
     assert.equal(await afterSignOut.text(), "");
     assert.equal(

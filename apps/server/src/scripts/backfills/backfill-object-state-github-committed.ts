@@ -61,7 +61,9 @@ async function main() {
   // would read nothing off it, so it is left out of the count as well.
   const deliveries = rows.flatMap((row) => {
     const stored = jsonObjectSchema.safeParse(row.payload);
+
     if (!stored.success) return [];
+
     return [
       {
         userId: row.userId,
@@ -76,15 +78,19 @@ async function main() {
 
   if (!COMMIT) {
     const byAction = new Map<string, number>();
+
     for (const r of deliveries)
       byAction.set(r.action ?? "(none)", (byAction.get(r.action ?? "(none)") ?? 0) + 1);
     console.log("  DRY — action breakdown:");
+
     for (const [action, count] of byAction) console.log(`    ${action}: ${count}`);
     console.log("  (pass --commit to project these into integration_objects)");
+
     return;
   }
 
   let applied = 0;
+
   for (const r of deliveries) {
     await objectStateStore.applyEvent({
       userId: r.userId,
@@ -101,10 +107,13 @@ async function main() {
     .select({ stateCategory: integrationObjects.stateCategory })
     .from(integrationObjects)
     .where(eq(integrationObjects.provider, "github"));
+
   const byState = new Map<string, number>();
+
   for (const o of objects) byState.set(o.stateCategory, (byState.get(o.stateCategory) ?? 0) + 1);
 
   console.log(`  PERSISTED — replayed ${applied} deliveries → ${objects.length} objects projected`);
+
   for (const [state, count] of byState) console.log(`    ${state}: ${count}`);
 }
 

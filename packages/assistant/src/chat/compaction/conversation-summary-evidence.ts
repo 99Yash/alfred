@@ -24,6 +24,7 @@ type EvidenceMessageRow = Pick<
   ChatMessage,
   "id" | "role" | "content" | "status" | "errorKind" | "toolCalls" | "createdAt"
 >;
+
 type EvidenceAttachmentRow = Pick<
   ChatAttachment,
   "id" | "messageId" | "name" | "mime" | "status" | "degradedText" | "failureReason"
@@ -53,11 +54,13 @@ export async function loadConversationSummaryEvidence({
   const lowerBound = afterWatermark
     ? afterChatMessageWatermark(chatMessages.createdAt, chatMessages.id, afterWatermark)
     : undefined;
+
   const upperBound = throughChatMessageWatermark(
     chatMessages.createdAt,
     chatMessages.id,
     throughWatermark,
   );
+
   const messages = await ex
     .select({
       id: chatMessages.id,
@@ -78,8 +81,10 @@ export async function loadConversationSummaryEvidence({
       ),
     )
     .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+
   if (messages.length === 0) throw new Error("conversation_summary_no_new_messages");
   const lastMessage = messages[messages.length - 1]!;
+
   if (
     lastMessage.id !== throughWatermark.messageId ||
     lastMessage.createdAt.getTime() !== throughWatermark.createdAt.getTime()
@@ -88,6 +93,7 @@ export async function loadConversationSummaryEvidence({
   }
 
   const messageIds = messages.map((message) => message.id);
+
   const attachments = await ex
     .select({
       id: chatAttachments.id,
@@ -146,6 +152,7 @@ export function buildConversationSummaryEvidence({
       },
     })),
   );
+
   return {
     priorSummary,
     messages: messages.map((message) => ({
@@ -163,6 +170,7 @@ export function buildConversationSummaryEvidence({
       const representation = chatAttachmentRepresentationSchema.safeParse(
         attachment.representation,
       );
+
       return {
         id: attachment.id,
         content: {
@@ -181,6 +189,8 @@ export function buildConversationSummaryEvidence({
 
 function boundText(value: string | null | undefined): string | null {
   if (value == null) return null;
+
   if (value.length <= CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS) return value;
+
   return `${value.slice(0, CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS)}\n[truncated]`;
 }

@@ -33,9 +33,11 @@ interface CapturedPublish {
 
 function capture(): CapturedPublish {
   const events: CapturedEvent[] = [];
+
   const publish = (async (args: { kind: string; payload: Record<string, unknown> }) => {
     events.push({ kind: args.kind, payload: args.payload });
   }) as typeof publishEvent;
+
   return { events, publish };
 }
 
@@ -74,6 +76,7 @@ function makeState(over?: Partial<StreamTurnState>): StreamTurnState {
 function stubStop(opts?: { stopAfter?: number }): TurnStopController {
   let count = 0;
   let stopped = false;
+
   return {
     signal: new AbortController().signal,
     get stopped() {
@@ -81,7 +84,9 @@ function stubStop(opts?: { stopAfter?: number }): TurnStopController {
     },
     checkStop: async () => {
       count += 1;
+
       if (opts?.stopAfter !== undefined && count > opts.stopAfter) stopped = true;
+
       return stopped;
     },
     startPolling: () => () => {},
@@ -235,9 +240,11 @@ describe("streamModelTurn", () => {
 
     const artifactDeltas = events.filter((e) => e.kind === "artifact.delta");
     assert.ok(artifactDeltas.length >= 2, "an over-cap body must split into multiple deltas");
+
     for (const delta of artifactDeltas) {
       assert.ok((delta.payload.text as string).length <= CHAT_DELTA_MAX);
     }
+
     assert.equal(artifactDeltas.map((e) => e.payload.text as string).join(""), bigBody);
   });
 
@@ -256,6 +263,7 @@ describe("streamModelTurn", () => {
       .filter((e) => e.kind === "chat.delta")
       .map((e) => e.payload.text as string)
       .join("");
+
     assert.ok(!streamed.includes("—"), "no em-dash reaches the live stream");
     assert.equal(streamed, sanitizeVoice(input), "streamed text matches the reconciled bubble");
   });
@@ -263,6 +271,7 @@ describe("streamModelTurn", () => {
   test("withholds the reply while a reissue is pending, then releases it in one call", async () => {
     const { events, publish } = capture();
     const state = makeState({ reissuePending: true });
+
     const { releaseWithheldReply } = await streamModelTurn({
       stream: makeStream([{ type: "text-delta", text: "reissue lead-in" }]),
       state,
@@ -300,10 +309,12 @@ describe("streamModelTurn", () => {
     });
 
     assert.equal(state.assistantText, "before", "the post-stop part is never processed");
+
     const streamed = events
       .filter((e) => e.kind === "chat.delta")
       .map((e) => e.payload.text as string)
       .join("");
+
     assert.ok(!streamed.includes("after"));
   });
 });

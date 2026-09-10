@@ -38,6 +38,7 @@ import { computeStableEntityId, makeEntityNodeInsert } from "@alfred/db/helpers"
 
 describe("computeStableEntityId", () => {
   const secret = "stable namespace secret for tests";
+
   const input = {
     userId: "usr_test",
     identityKind: "email" as const,
@@ -257,6 +258,7 @@ describe("entity kind classifier contracts", () => {
     assert.ok(ENTITY_NODE_KINDS.includes("unknown"));
     assert.ok(NON_PERSON_ENTITY_KINDS.includes("unknown"));
     assert.equal(isPersonScorable("person"), true);
+
     for (const kind of NON_PERSON_ENTITY_KINDS) {
       assert.equal(isPersonScorable(kind), false);
     }
@@ -270,6 +272,7 @@ describe("entity kind classifier contracts", () => {
       evidenceCodes: ["gmail.low_confidence_mailbox"],
       researchStatus: "not_started",
     });
+
     assert.equal(parsed.kind, "unknown");
     assert.equal(parsed.bestGuess, "person");
     assert.equal(parsed.researchStatus, "not_started");
@@ -323,6 +326,7 @@ describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
     for (const key of ["employer", "job_title", "location", "full_name", "personal_site"]) {
       assert.deepEqual(canonicalizeFactKey(key), { ok: true, key, wasAlias: false });
     }
+
     // CANONICAL_FACT_KEYS is derived from the one registry — every entry round-trips.
     for (const key of CANONICAL_FACT_KEYS) {
       const r = canonicalizeFactKey(key);
@@ -343,6 +347,7 @@ describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
       ["name", "full_name"],
       ["personal_website", "personal_site"],
     ];
+
     for (const [raw, canonical] of cases) {
       assert.deepEqual(canonicalizeFactKey(raw), {
         ok: true,
@@ -351,6 +356,7 @@ describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
         originalKey: raw,
       });
     }
+
     // The alias map is exactly this set — no fuzzy guessing crept in.
     assert.deepEqual(new Set(Object.keys(FACT_KEY_ALIASES)), new Set(cases.map(([raw]) => raw)));
   });
@@ -381,6 +387,7 @@ describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
       wasAlias: true,
       originalKey: "relationship:Alice@Oliv.AI",
     });
+
     // A non-email suffix (domain, bot label, display name, bare) is rejected.
     for (const bad of [
       "relationship:github.com",
@@ -484,6 +491,7 @@ describe("user-model observation contracts", () => {
       identity: { kind: "github_login" as const, value: `reviewer-${i}` },
       role: "reviewer" as const,
     }));
+
     assert.throws(() =>
       observationParticipantsSchema.parse({ items: reviewers, recipientCount: 0 }),
     );
@@ -510,6 +518,7 @@ describe("user-model observation contracts", () => {
       identity: { kind: "github_login" as const, value: `committer-${i}` },
       role: "committer" as const,
     }));
+
     assert.equal(
       observationParticipantsSchema.parse({ items: committers, recipientCount: 0 }).recipientCount,
       0,
@@ -658,6 +667,7 @@ describe("user-model observation contracts", () => {
     assert.equal(canonicalizeIdentityValue("slack_id", "U07ABC123"), "U07ABC123");
     assert.equal(canonicalizeIdentityValue("github_user_id", "583231"), "583231");
     assert.equal(canonicalizeIdentityValue("google_directory_id", "AbC123"), "AbC123");
+
     // Idempotent — the property the contract refine + mint assertion rely on.
     for (const [kind, raw] of [
       ["email", "MixedCase@X.com"],
@@ -711,6 +721,7 @@ describe("user-model observation contracts", () => {
       ["integration_object_key", "clickup:task:abc123"],
       ["integration_object_key", "notion:page:8a1f-1234-uuid"],
     ];
+
     for (const [kind, value] of valid) {
       assert.equal(identityValueMatchesKind(kind, value), true, `${kind}=${value} should be valid`);
     }
@@ -741,6 +752,7 @@ describe("user-model observation contracts", () => {
       ["integration_object_key", "barekey"], // not provider:kind:id
       ["integration_object_key", "clickup:task"], // missing externalId
     ];
+
     for (const [kind, value] of invalid) {
       assert.equal(
         identityValueMatchesKind(kind, value),
@@ -888,6 +900,7 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
       assert.throws(() => observationInsertSchema.parse({ ...minimal, familyKey: bad }));
       assert.throws(() => observationInsertSchema.parse({ ...minimal, evidenceHash: bad }));
     }
+
     assert.throws(() =>
       observationInsertSchema.parse({
         ...minimal,
@@ -936,6 +949,7 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
       evidenceHash: "sha256:cafe",
       subjectIdentity: { kind: "user" },
     });
+
     assert.deepEqual(parsed.subjectIdentity, { kind: "user" });
   });
 

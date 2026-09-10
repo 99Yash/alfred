@@ -11,6 +11,7 @@ import {
 } from "@alfred/assistant/chat/compaction/index";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
+
 const summary: ConversationSummary = {
   schemaVersion: 1,
   overview: { text: "Summary", sourceMessageRange: { fromMessageId: "m1", toMessageId: "m2" } },
@@ -42,6 +43,7 @@ function context(overrides: Partial<LoadedChatThreadContext> = {}): LoadedChatTh
     createdAt: at,
     updatedAt: at,
   };
+
   return { ...row, invalidSummary: false, ...overrides };
 }
 
@@ -56,11 +58,13 @@ describe("foreground background-compaction reuse", () => {
   test("returns a newer valid generation without starting foreground work", async () => {
     let clock = 0;
     let reads = 0;
+
     const winner = context({
       summary,
       compactionGeneration: 2,
       compactionCompletedAt: new Date(at.getTime() + 1),
     });
+
     const result = await waitForActiveConversationCompaction("user_1", "thread_1", {
       now: () => clock,
       sleep: async (ms) => {
@@ -68,12 +72,14 @@ describe("foreground background-compaction reuse", () => {
       },
       loadContext: async () => (++reads === 1 ? context() : winner),
     });
+
     assert.equal(result, winner);
     assert.equal(clock, 50);
   });
 
   test("times out after 500 ms when the active generation does not advance", async () => {
     let clock = 0;
+
     const result = await waitForActiveConversationCompaction("user_1", "thread_1", {
       now: () => clock,
       sleep: async (ms) => {
@@ -81,6 +87,7 @@ describe("foreground background-compaction reuse", () => {
       },
       loadContext: async () => context(),
     });
+
     assert.equal(result, null);
     assert.equal(clock, 500);
   });

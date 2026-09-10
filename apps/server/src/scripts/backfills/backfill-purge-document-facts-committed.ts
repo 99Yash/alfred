@@ -61,14 +61,18 @@ import { documents, user as userTable, userFacts } from "@alfred/db/schemas";
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+
 const VERBOSE_VALUES = process.argv.includes("--verbose-values");
 
 function parseTargetEmails(): string[] {
   const flag = process.argv.find((arg) => arg.startsWith("--emails="));
+
   if (COMMIT && !flag) {
     throw new Error("--emails=a@x.com must be set explicitly when using --commit");
   }
+
   const raw = flag ? flag.slice("--emails=".length) : "yashgouravkar@gmail.com";
+
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -94,6 +98,7 @@ function sourcePriority(source: unknown): number {
   // SAFETY: documents.source is the jsonb { kind, id } envelope written at
   // ingest; every read below tolerates absence.
   const kind = (source as { kind?: string } | null)?.kind;
+
   switch (kind) {
     case "user":
       return 0;
@@ -118,29 +123,37 @@ function ts(value: Date | null): number {
 function pickWinner(rows: ActiveFactRow[]): ActiveFactRow {
   return [...rows].sort((a, b) => {
     const p = sourcePriority(a.source) - sourcePriority(b.source);
+
     if (p !== 0) return p;
+
     if (a.confidence !== b.confidence) return b.confidence - a.confidence;
     const u = ts(b.updatedAt) - ts(a.updatedAt);
+
     if (u !== 0) return u;
+
     return ts(b.createdAt) - ts(a.createdAt);
   })[0]!;
 }
 
 function preview(value: unknown): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
+
   const masked = s
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
     .replace(/\+?\d[\d\s().-]{7,}\d/g, "[phone]");
+
   return masked.length > 48 ? `${masked.slice(0, 47)}…` : masked;
 }
 
 async function reject(row: ActiveFactRow, userId: string, reason: string): Promise<boolean> {
   if (!COMMIT) return true;
+
   const res = await rejectFact({
     factId: row.id,
     userId,
     reason: { via: "backfill-purge-document-facts", issue: 330, key: row.key, reason },
   });
+
   return Boolean(res);
 }
 
@@ -181,6 +194,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         .filter((id): id is string => typeof id === "string" && id.length > 0),
     ),
   );
+
   const docRows = docIds.length
     ? await db()
         .select({
@@ -192,21 +206,26 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         .from(documents)
         .where(and(eq(documents.userId, u.userId), inArray(documents.id, docIds)))
     : [];
+
   const docById = new Map(docRows.map((d) => [d.id, d]));
 
   // ── Pass 1: document purge via the shared gate ──────────────────────────
   const purge: Array<{ row: ActiveFactRow; reason: string }> = [];
   const surviving: ActiveFactRow[] = [];
+
   for (const r of rows) {
     // SAFETY: same source envelope as sourcePriority above.
     const kind = (r.source as { kind?: string } | null)?.kind;
+
     if (kind !== "document") {
       surviving.push(r);
       continue;
     }
+
     // SAFETY: same source envelope as above.
     const sourceId = (r.source as { id?: string } | null)?.id;
     const doc = sourceId ? docById.get(sourceId) : undefined;
+
     // A missing source document can't attribute a Tier-B identity claim — feed
     // the gate an `unknown` source so relationships (Tier A) survive but
     // identity claims fail authorship.
@@ -220,19 +239,23 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
           sender: doc.source === "gmail" ? gmailSenderAdapter.authorship(doc.metadata) : null,
         }
       : { source: "unknown" as const, metadata: {}, accountId: null, sender: null };
+
     const gate = gateDocumentFact({
       proposal: { key: r.key, value: r.value },
       document: gateDoc,
       selfIdentity,
     });
+
     if (gate.ok) surviving.push(r);
     else purge.push({ row: r, reason: doc ? gate.reason : `${gate.reason}(doc_missing)` });
   }
 
   // ── Pass 2: alias-key convergence (all surviving sources) ───────────────
   const rekeys: Array<{ row: ActiveFactRow; canonicalKey: string }> = [];
+
   for (const r of surviving) {
     const canon = canonicalizeFactKey(r.key);
+
     if (canon.ok && canon.wasAlias) {
       rekeys.push({ row: r, canonicalKey: canon.key });
       r.key = canon.key; // reflect locally so pass 3 groups correctly
@@ -241,22 +264,28 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   // ── Pass 3: single-valued collapse over survivors ───────────────────────
   const byKey = new Map<string, ActiveFactRow[]>();
+
   for (const r of surviving) {
     if (!isSingleValuedKey(r.key)) continue;
     const group = byKey.get(r.key) ?? [];
     group.push(r);
     byKey.set(r.key, group);
   }
+
   const collapse: Array<{ row: ActiveFactRow; winnerValue: unknown }> = [];
+
   for (const [, group] of byKey) {
     const distinctSigs = new Set(group.map((r) => valueSignature(r.value)));
+
     if (group.length <= 1 || distinctSigs.size <= 1) {
       // One value (possibly duplicated rows with identical signature stay — the
       // active-dup guard already prevents new dups; collapsing identical-value
       // dup rows is out of scope, the read side dedups by value anyway).
       continue;
     }
+
     const winner = pickWinner(group);
+
     for (const r of group) {
       if (r.id !== winner.id) collapse.push({ row: r, winnerValue: winner.value });
     }
@@ -270,31 +299,42 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   if (purge.length) {
     const byReason = new Map<string, number>();
+
     for (const p of purge) byReason.set(p.reason, (byReason.get(p.reason) ?? 0) + 1);
     console.log(`\n  PURGE by reason:`);
+
     for (const [reason, n] of [...byReason.entries()].sort()) {
       console.log(`    ${reason}: ${n}`);
     }
+
     const keyCounts = new Map<string, number>();
+
     for (const p of purge) keyCounts.set(p.row.key, (keyCounts.get(p.row.key) ?? 0) + 1);
     console.log(`  PURGE distinct keys (${keyCounts.size}):`);
+
     for (const key of [...keyCounts.keys()].sort()) {
       const sample = VERBOSE_VALUES ? purge.find((p) => p.row.key === key)?.row : undefined;
       console.log(`    ${key}×${keyCounts.get(key)}${sample ? ` = ${preview(sample.value)}` : ""}`);
     }
   }
+
   if (rekeys.length) {
     console.log(`\n  RE-KEY (alias → canonical):`);
     const pairs = new Map<string, number>();
+
     for (const rk of rekeys) {
       pairs.set(`→ ${rk.canonicalKey}`, (pairs.get(`→ ${rk.canonicalKey}`) ?? 0) + 1);
     }
+
     for (const [k, n] of [...pairs.entries()].sort()) console.log(`    ${k}: ${n}`);
   }
+
   if (collapse.length) {
     console.log(`\n  COLLAPSE (single-valued losers rejected): ${collapse.length}`);
     const keyCounts = new Map<string, number>();
+
     for (const c of collapse) keyCounts.set(c.row.key, (keyCounts.get(c.row.key) ?? 0) + 1);
+
     for (const key of [...keyCounts.keys()].sort()) {
       console.log(`    ${key}×${keyCounts.get(key)}`);
     }
@@ -302,19 +342,23 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   if (!COMMIT) {
     console.log(`\n  DRY — nothing written. Re-run with --commit to apply.`);
+
     return;
   }
 
   // ── Apply (commit) ────────────────────────────────────────────────────────
   let rejected = 0;
+
   for (const p of purge) if (await reject(p.row, u.userId, p.reason)) rejected++;
 
   // Re-key: only rows that SURVIVED the purge (purge rejects are already
   // inactive). A rejected loser in pass 3 below is handled after.
   let rekeyed = 0;
+
   for (const rk of rekeys) {
     // Skip rows that became collapse losers (they'll be rejected, not re-keyed).
     const isLoser = collapse.some((c) => c.row.id === rk.row.id);
+
     if (isLoser) continue;
     await db()
       .update(userFacts)
@@ -324,6 +368,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
   }
 
   let collapsed = 0;
+
   for (const c of collapse)
     if (await reject(c.row, u.userId, "single_valued_conflict")) collapsed++;
 
@@ -347,8 +392,10 @@ async function main() {
 
   const found = new Set(users.map((u) => u.email));
   const missing = TARGET_EMAILS.filter((e) => !found.has(e));
+
   if (missing.length > 0) {
     const message = `no user row for target email(s): ${missing.join(", ")}`;
+
     if (COMMIT) throw new Error(message);
     console.log(`! ${message} — skipping`);
   }

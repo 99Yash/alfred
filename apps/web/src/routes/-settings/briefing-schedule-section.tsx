@@ -26,6 +26,7 @@ export function BriefingScheduleSection() {
   } = useBriefingSchedule();
 
   const timezoneOptions = useTimezoneOptions();
+
   const hourOptions = useMemo(
     () => HOURS.map((h) => ({ value: String(h), label: hourLabel(h) })),
     [],
@@ -41,6 +42,7 @@ export function BriefingScheduleSection() {
       return null;
     }
   }, []);
+
   const showDeviceHint = deviceTimezone !== null && deviceTimezone !== timezone;
 
   return (
@@ -190,6 +192,7 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
 // Static icons passed as props — hoisted so they aren't reallocated each render.
 const retryIcon = <RefreshCw size={13} aria-hidden />;
+
 const clockIcon = <Clock size={14} aria-hidden />;
 
 const HOUR_FORMAT = new Intl.DateTimeFormat("en-US", {
@@ -202,6 +205,7 @@ const HOUR_FORMAT = new Intl.DateTimeFormat("en-US", {
 /** "7:00 AM", "6:00 PM" — a stable label for an hour-of-day 0–23. */
 function hourLabel(hour: number): string {
   const d = new Date(Date.UTC(2000, 0, 1, hour, 0, 0));
+
   return HOUR_FORMAT.format(d);
 }
 
@@ -209,6 +213,7 @@ function hourLabel(hour: number): string {
 function labelForZone(zone: string): string {
   const pretty = zone.replace(/_/g, " ");
   const offset = shortOffset(zone);
+
   return offset ? `${pretty} · ${offset}` : pretty;
 }
 
@@ -223,6 +228,7 @@ function shortOffset(zone: string): string | null {
       timeZone: zone,
       timeZoneName: "shortOffset",
     }).formatToParts(new Date(Date.UTC(2000, 0, 1, 12)));
+
     return parts.find((p) => p.type === "timeZoneName")?.value ?? null;
   } catch {
     return null;
@@ -236,11 +242,13 @@ function shortOffset(zone: string): string | null {
 function useTimezoneOptions(): ReadonlyArray<AppSelectOption> {
   return useMemo(() => {
     let zones: string[];
+
     try {
       zones = Intl.supportedValuesOf("timeZone");
     } catch {
       zones = [];
     }
+
     return ["UTC", ...zones].map((zone) => ({ value: zone, label: labelForZone(zone) }));
   }, []);
 }

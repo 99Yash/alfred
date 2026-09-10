@@ -41,8 +41,10 @@ async function main() {
         : "  → conversion did not reach zero. Do NOT start the application.",
     );
     process.exitCode = 1;
+
     return;
   }
+
   if (result.unopenableRemaining > 0) {
     // Reported separately because the fix is different: these rows ARE sealed,
     // just not under OAUTH_CREDENTIAL_KEK as configured. Folding them into the
@@ -52,8 +54,10 @@ async function main() {
       "  → sealed under a different key. Restore the key that wrote them, or rewrap; see the runbook's rotation section.",
     );
     process.exitCode = 1;
+
     return;
   }
+
   console.log("  → every persisted OAuth token is sealed and opens with the configured key.");
 }
 

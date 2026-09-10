@@ -34,9 +34,11 @@ import {
 
 async function credentialsFor(ctx: ToolExecuteContext): Promise<RailwayCredentialClient[]> {
   const credentials = await ctx.integrations.railway.credentials();
+
   if (credentials.length === 0) {
     throw new AppError("connection_required", { integration: "railway" });
   }
+
   return credentials;
 }
 
@@ -57,14 +59,18 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayListProjectsInput,
     execute: async (_input, ctx) => {
       const credentials = await credentialsFor(ctx);
+
       const { projects, failures } = await listProjectsForCredentials(
         credentials,
         (credentialId) => {
           const credential = credentials.find((candidate) => candidate.id === credentialId);
+
           if (!credential) throw new AppError("railway_credential_required");
+
           return credential.listProjects();
         },
       );
+
       // Surface partial failures (e.g. a stale credential) so the boss can tell
       // the user, but keep the happy-path output lean when nothing failed.
       return failures.length > 0 ? { projects, failures } : { projects };
@@ -79,12 +85,14 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayListDeploymentsInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx, input.credentialId);
+
       const result = await credential.listDeployments({
         projectId: input.projectId,
         serviceId: input.serviceId,
         environmentId: input.environmentId,
         limit: input.limit,
       });
+
       return {
         deployments: result.deployments.map(
           (deployment): RailwayDeploymentWithCredential => withCredential(deployment, credential),
@@ -101,20 +109,26 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayRecentDeploymentsInput,
     execute: async (input, ctx) => {
       const credentials = await credentialsFor(ctx);
+
       const { deployments, failures } = await listRecentDeploymentsForCredentials(
         credentials,
         (credentialId) => {
           const credential = credentials.find((candidate) => candidate.id === credentialId);
+
           if (!credential) throw new AppError("railway_credential_required");
+
           return credential.listProjects();
         },
         ({ credentialId, ...args }) => {
           const credential = credentials.find((candidate) => candidate.id === credentialId);
+
           if (!credential) throw new AppError("railway_credential_required");
+
           return credential.listDeployments(args);
         },
         { overallLimit: input.limit },
       );
+
       // Surface partial failures (a stale credential, a project that wouldn't
       // answer) so the boss can tell the user its view is incomplete, but keep
       // the happy-path output lean when nothing failed.
@@ -130,10 +144,12 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayGetLogsInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx, input.credentialId);
+
       const result = await credential.getLogs({
         deploymentId: input.deploymentId,
         limit: input.limit,
       });
+
       return { ...credentialRef(credential), ...result };
     },
   }),
@@ -153,6 +169,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayGraphqlInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx);
+
       return runRailwayPassthrough((request) => credential.graphqlRaw(request), input);
     },
   }),
@@ -165,9 +182,11 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayRedeployInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx, input.credentialId);
+
       const result = await credential.redeploy({
         deploymentId: input.deploymentId,
       });
+
       return { ...credentialRef(credential), ...result };
     },
   }),

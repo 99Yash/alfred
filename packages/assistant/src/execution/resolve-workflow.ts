@@ -45,16 +45,19 @@ export async function resolveWorkflowForRun(args: {
   tx?: AgentDbExecutor;
 }): Promise<ResolvedWorkflowForRun> {
   const registered = getWorkflow(args.workflowSlug);
+
   if (registered) {
     if (args.workflowRevisionId) {
       throw new Error(
         `[agent] builtin workflow slug=${args.workflowSlug} cannot pin a database revision`,
       );
     }
+
     return { workflow: registered, workflowSlug: registered.slug };
   }
 
   const ex = args.tx ?? db();
+
   const rows = await ex
     .select({
       workflowId: workflows.id,
@@ -80,17 +83,22 @@ export async function resolveWorkflowForRun(args: {
     )
     .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))
     .limit(1);
+
   const row = rows[0];
+
   if (!row) {
     throw new Error(`[agent] no workflow registered or authored for slug=${args.workflowSlug}`);
   }
+
   if (row.isBuiltin) {
     throw new Error(
       `[agent] builtin workflow slug=${args.workflowSlug} exists in DB but is not registered in code`,
     );
   }
+
   const revisionId =
     args.workflowRevisionId ?? (args.requireSelectedRevision ? null : row.publishedRevisionId);
+
   if (
     !revisionId ||
     row.brief === null ||

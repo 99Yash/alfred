@@ -50,12 +50,14 @@ import { closeNarrationSegment, interruptChatRun, type ChatRunState } from "./ch
 export function awaitedChildRunId(input: unknown): string | null {
   if (!isRecord(input)) return null;
   const id = input.childRunId;
+
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 /** Truncated, model-readable rendering of a folded child's output/error. */
 function renderChildOutcome(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+
   return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text;
 }
 
@@ -72,17 +74,20 @@ function syntheticChildResultNote(childRunId: string, outcome: ChildRunOutcome):
     // outran the wait-ceiling. Tell the boss to answer honestly with what it has
     // rather than inventing a result it never received.
     const why = outcome.reason ? ` (${outcome.reason})` : ` (still ${outcome.status})`;
+
     return (
       `A sub-agent you spawned (childRunId ${childRunId}) could not be awaited${why}. ` +
       "Answer now with what you already have. Tell the user that part of the work is still in progress; do not fabricate its result."
     );
   }
+
   const detail =
     outcome.status === "completed"
       ? `completed with result:\n${renderChildOutcome(outcome.output)}`
       : outcome.status === "failed"
         ? `failed: ${renderChildOutcome(outcome.error)}`
         : outcome.status; // cancelled / other terminal
+
   return (
     `A sub-agent you spawned (childRunId ${childRunId}) finished without you awaiting it — it ${detail}. ` +
     "Incorporate this into your answer now. Do not say you will follow up when it finishes; it already has."
@@ -121,6 +126,7 @@ async function closePrematureAnswerSegment(
     keepText: true,
     advanceWhenNothingKept: false,
   });
+
   if (!closed) return false;
   state.deltaSeq += 1;
   await publish({
@@ -136,6 +142,7 @@ async function closePrematureAnswerSegment(
       segmentIndex: state.segmentIndex,
     },
   });
+
   return true;
 }
 
@@ -190,10 +197,12 @@ export async function guardSpawnedChildren(
   const spawnedThisTurn = state.toolCallsLog.some(
     (t) => t.toolName === SPAWN_SUB_AGENT_TOOL && t.status === "succeeded",
   );
+
   if (!spawnedThisTurn) return null;
 
   const children = await deps.listChildren(ctx.runId);
   const unfolded = children.filter((c) => !state.foldedChildRunIds.includes(c.id));
+
   if (unfolded.length === 0) return null;
 
   const foldNotes: string[] = [];
@@ -207,10 +216,12 @@ export async function guardSpawnedChildren(
       { parentRunId: ctx.runId, userId: ctx.userId, childRunId: child.id },
       deps,
     );
+
     if (join.kind === "park") {
       parkSignals.push(join.signalName);
       continue;
     }
+
     // Resolved: a real result, or an honest still-running note (ceiling expiry /
     // `join_timer_unavailable`). Either way stop tracking the child — that is
     // what keeps a stuck child from re-parking forever.
@@ -245,6 +256,7 @@ export async function guardSpawnedChildren(
     closedPrematureAnswer && transcript.at(-1)?.role === "assistant"
       ? transcript.slice(0, -1)
       : transcript;
+
   const nextTranscript = foldNotes.reduce<AgentTranscriptMessage[]>(
     (acc, note) => appendSystemNote(acc, note),
     [...baseTranscript],
@@ -253,6 +265,7 @@ export async function guardSpawnedChildren(
   if (parkSignals.length > 0) {
     return interruptChatRun(state, nextTranscript, { kind: "signal", name: parkSignals[0]! });
   }
+
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
 }
 
@@ -271,7 +284,9 @@ function nonExecutionRecoveredByLaterSuccess(
   index: number,
 ): boolean {
   const entry = log[index];
+
   if (!entry?.nonExecution) return false;
+
   return log
     .slice(index + 1)
     .some((later) => later.toolName === entry.toolName && later.status === "succeeded");
@@ -311,6 +326,7 @@ export async function guardUnreportedToolFailures(
   deps: Partial<GuardUnreportedToolFailuresDeps> = {},
 ): Promise<StepResult<ChatRunState> | null> {
   const guardDeps = withDefaults(defaultGuardUnreportedToolFailuresDeps, deps);
+
   const unreported = state.toolCallsLog.filter(
     (t, index) =>
       t.status === "failed" &&
@@ -322,6 +338,7 @@ export async function guardUnreportedToolFailures(
       !state.notedFailureToolCallIds.includes(t.toolCallId) &&
       guardDeps.isMutating(t.toolName),
   );
+
   if (unreported.length === 0) return null;
 
   state.notedFailureToolCallIds = [
@@ -337,6 +354,7 @@ export async function guardUnreportedToolFailures(
   await closePrematureAnswerSegment(ctx, state, guardDeps.publish);
 
   const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
+
   const note =
     `These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
     "Do NOT tell the user a failed attempt succeeded. If a later successful tool result in the transcript completed the user's goal another way, say what succeeded and mention any meaningful limitation. " +
@@ -436,11 +454,14 @@ export async function crossFinalizeBoundary(
     state.reissuePending = false;
     await deps.releaseWithheldReply();
   }
+
   resetChatTurnRetryBudgets(state);
 
   for (const guard of FINALIZE_GUARD_SEQUENCE) {
     const result = await guard.run(ctx, state, transcript);
+
     if (result) return result;
   }
+
   return null;
 }

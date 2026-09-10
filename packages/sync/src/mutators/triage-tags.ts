@@ -19,6 +19,7 @@ export const triageTagOverrideArgsSchema = z.object({
   threadId: z.string().min(1).max(200),
   category: triageCategorySchema,
 });
+
 export type TriageTagOverrideArgs = z.infer<typeof triageTagOverrideArgsSchema>;
 
 async function readTag(tx: WriteTransaction, threadId: string): Promise<SyncedTriageTag | null> {
@@ -40,6 +41,7 @@ export async function triageTagOverrideClient(
   args: TriageTagOverrideArgs,
 ): Promise<void> {
   const tag = await readTag(tx, args.threadId);
+
   if (!tag) return;
   const now = new Date().toISOString();
   await writeTag(tx, {

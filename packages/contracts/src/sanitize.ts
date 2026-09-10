@@ -34,10 +34,13 @@ const POISON_RE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF]
 /** Strip poison code units from a single string, reporting how many were removed. */
 function stripString(s: string) {
   let removed = 0;
+
   const value = s.replace(POISON_RE, () => {
     removed += 1;
+
     return "";
   });
+
   return { value, removed };
 }
 
@@ -84,19 +87,25 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
   if (typeof value === "string") {
     return { ...stripString(value), collisions: 0 };
   }
+
   if (Array.isArray(value)) {
     let removed = 0;
     let collisions = 0;
     let changed = false;
+
     const out = value.map((item) => {
       const r = sanitizeToolResult(item);
       removed += r.removed;
       collisions += r.collisions;
+
       if (r.value !== item) changed = true;
+
       return r.value;
     });
+
     return { value: changed ? out : value, removed, collisions };
   }
+
   if (isRecord(value)) {
     // Skip exotic objects we shouldn't (and can't safely) rebuild — Date,
     // Map/Set, class instances, etc. jsonb persistence only ever sees plain
@@ -106,12 +115,14 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
     let collisions = 0;
     let changed = false;
     const out: Record<string, unknown> = {};
+
     for (const [key, v] of Object.entries(value)) {
       const keyResult = stripString(key);
       removed += keyResult.removed;
       const valResult = sanitizeToolResult(v);
       removed += valResult.removed;
       collisions += valResult.collisions;
+
       if (keyResult.removed > 0 || valResult.value !== v) changed = true;
 
       // Stripping the key can collide with a key already written (or a clean
@@ -119,21 +130,27 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
       // keep the existing entry and write this one under a unique disambiguated
       // key. (Reachable only with NUL-byte keys, i.e. binary-ish garbage.)
       let outKey = keyResult.value;
+
       if (Object.prototype.hasOwnProperty.call(out, outKey)) {
         collisions += 1;
         changed = true;
         let suffix = 1;
         let candidate = `${keyResult.value}�${suffix}`;
+
         while (Object.prototype.hasOwnProperty.call(out, candidate)) {
           suffix += 1;
           candidate = `${keyResult.value}�${suffix}`;
         }
+
         outKey = candidate;
       }
+
       out[outKey] = valResult.value;
     }
+
     return { value: changed ? out : value, removed, collisions };
   }
+
   return { value, removed: 0, collisions: 0 };
 }
 
@@ -156,6 +173,8 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
  */
 export function sanitizeErrorMessage(message: string, max?: number): string {
   const stripped = stripString(message).value;
+
   if (max === undefined || stripped.length <= max) return stripped;
+
   return stripString(stripped.slice(0, max)).value;
 }

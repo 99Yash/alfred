@@ -97,4 +97,5 @@ export const modelPrices = pgTable(
 );
 
 export type ApiCallLog = typeof apiCallLog.$inferSelect;
+
 export type ModelPrice = typeof modelPrices.$inferSelect;

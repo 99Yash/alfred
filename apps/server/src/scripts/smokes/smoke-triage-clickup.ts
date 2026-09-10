@@ -160,6 +160,7 @@ const CASES: Case[] = [
 ];
 
 const EMPTY_OUTPUT_ATTEMPTS = 3;
+
 const liveModel = route("cheap").model();
 
 const runLivePass: RunPass = async ({ system, prompt }) => {
@@ -172,10 +173,13 @@ const runLivePass: RunPass = async ({ system, prompt }) => {
     maxOutputTokens: 400,
     timeout: { totalMs: 30_000 },
   });
+
   const object = result.output;
+
   if (!Object.hasOwn(object, "collabActivity")) {
     throw new Error("[triage-smoke] cheap classifier omitted required collabActivity field");
   }
+
   return {
     ...object,
     confidence: clamp01(object.confidence),
@@ -193,27 +197,33 @@ async function classifyWithRetry(
   args: Parameters<typeof classifyEmail>[0],
 ): Promise<Awaited<ReturnType<typeof classifyEmail>>> {
   let lastErr: unknown;
+
   for (let attempt = 1; attempt <= EMPTY_OUTPUT_ATTEMPTS; attempt++) {
     try {
       return await classifyEmail(args);
     } catch (err) {
       lastErr = err;
+
       if (!isEmptyOutput(err) || attempt === EMPTY_OUTPUT_ATTEMPTS) throw err;
       await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
     }
   }
+
   throw lastErr;
 }
 
 async function main() {
   let failures = 0;
+
   for (const c of CASES) {
     const { context: senderContext } = extractSenderContext({
       fromHeader: c.from,
       subject: c.subject,
       body: c.body,
     });
+
     let result: Awaited<ReturnType<typeof classifyEmail>>;
+
     try {
       result = await classifyWithRetry({
         identity: { name: "Yash", email: "yash.k@oliv.ai" },
@@ -250,15 +260,19 @@ async function main() {
       console.log(`   classify error: ${toMessage(err)}`);
       continue;
     }
+
     const { classification, model } = result;
     const gotTodo = classification.todoDecision?.outcome === "proposed";
     const catOk = c.expectCategory.includes(classification.category);
     const todoOk = gotTodo === c.expectTodo;
+
     const collabOk =
       c.expectCollabActivity === undefined ||
       collabActivityPartition(classification.collabActivity) ===
         collabActivityPartition(c.expectCollabActivity);
+
     const ok = catOk && todoOk && collabOk;
+
     if (!ok) failures++;
     console.log(`\n${ok ? "✅" : "❌"} ${c.name}`);
     console.log(
@@ -267,14 +281,17 @@ async function main() {
     console.log(
       `   todo: ${gotTodo ? `proposed "${classification.todoSuggestion?.name}"` : `none (${classification.todoDecision?.outcome})`} (want ${c.expectTodo ? "todo" : "none"}) ${todoOk ? "ok" : "WRONG"}`,
     );
+
     if (c.expectCollabActivity !== undefined) {
       console.log(
         `   collabActivity: ${classification.collabActivity ?? "null"} (${collabActivityPartition(classification.collabActivity)}) ` +
           `(want ${c.expectCollabActivity ?? "null"} / ${collabActivityPartition(c.expectCollabActivity)}) ${collabOk ? "ok" : "WRONG"}`,
       );
     }
+
     console.log(`   rationale: ${classification.rationale}`);
   }
+
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);
   process.exit(failures === 0 ? 0 : 1);
 }

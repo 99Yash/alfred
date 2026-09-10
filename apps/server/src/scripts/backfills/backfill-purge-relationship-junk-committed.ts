@@ -46,17 +46,22 @@ import { user as userTable, userFacts } from "@alfred/db/schemas";
 import { and, eq, gt, inArray, isNull, like, or } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+
 const VERBOSE_VALUES = process.argv.includes("--verbose-values");
+
 /** Cap on how many per-row samples to print in the dry report (count is exact). */
 const SAMPLE_LIMIT = 50;
 
 function parseTargetEmails(): string[] | null {
   const flag = process.argv.find((arg) => arg.startsWith("--emails="));
+
   if (COMMIT && !flag) {
     throw new Error("--emails=a@x.com must be set explicitly when using --commit");
   }
+
   // No flag in DRY mode → survey ALL users (read-only).
   if (!flag) return null;
+
   return flag
     .slice("--emails=".length)
     .split(",")
@@ -75,11 +80,15 @@ type ProposedRelRow = {
 /** Which junk shape a matched row is — `service_sender`, `empty_value`, or both. */
 function junkReason(key: string, value: unknown): string {
   const reasons: string[] = [];
+
   const email = key.startsWith(RELATIONSHIP_FACT_PREFIX)
     ? key.slice(RELATIONSHIP_FACT_PREFIX.length).trim()
     : "";
+
   if (email && isServiceSender(email)) reasons.push("service_sender");
+
   if (isUninformativeRelationshipValue(value)) reasons.push("empty_value");
+
   return reasons.join("+") || "relationship_junk";
 }
 
@@ -88,16 +97,20 @@ function maskRelKey(key: string): string {
   if (VERBOSE_VALUES) return key;
   const email = key.slice(RELATIONSHIP_FACT_PREFIX.length);
   const at = email.indexOf("@");
+
   if (at <= 0) return `${RELATIONSHIP_FACT_PREFIX}[redacted]`;
   const head = email.slice(0, 1);
+
   return `${RELATIONSHIP_FACT_PREFIX}${head}…@${email.slice(at + 1)}`;
 }
 
 function preview(value: unknown): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
+
   const masked = VERBOSE_VALUES
     ? s
     : s.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]");
+
   return masked.length > 48 ? `${masked.slice(0, 47)}…` : masked;
 }
 
@@ -130,26 +143,33 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   if (junk.length) {
     const byReason = new Map<string, number>();
+
     for (const r of junk) {
       const reason = junkReason(r.key, r.value);
       byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
     }
+
     console.log(`  PURGE by reason:`);
+
     for (const [reason, n] of [...byReason.entries()].sort()) console.log(`    ${reason}: ${n}`);
 
     console.log(`  samples (${Math.min(junk.length, SAMPLE_LIMIT)} of ${junk.length}):`);
+
     for (const r of junk.slice(0, SAMPLE_LIMIT)) {
       console.log(`    ${maskRelKey(r.key)} = ${preview(r.value)} [${junkReason(r.key, r.value)}]`);
     }
+
     if (junk.length > SAMPLE_LIMIT) console.log(`    …and ${junk.length - SAMPLE_LIMIT} more`);
   }
 
   if (!COMMIT) {
     console.log(`\n  DRY — nothing written. Re-run with --emails=… --commit to apply.`);
+
     return;
   }
 
   let rejected = 0;
+
   for (const r of junk) {
     const res = await rejectFact({
       factId: r.id,
@@ -161,8 +181,10 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         reason: junkReason(r.key, r.value),
       },
     });
+
     if (res) rejected++;
   }
+
   console.log(`\n  COMMITTED — purged ${rejected}/${junk.length}.`);
 }
 
@@ -184,8 +206,10 @@ async function main() {
   if (TARGET_EMAILS) {
     const found = new Set(users.map((u) => u.email));
     const missing = TARGET_EMAILS.filter((e) => !found.has(e));
+
     if (missing.length > 0) {
       const message = `no user row for target email(s): ${missing.join(", ")}`;
+
       if (COMMIT) throw new Error(message);
       console.log(`! ${message} — skipping`);
     }

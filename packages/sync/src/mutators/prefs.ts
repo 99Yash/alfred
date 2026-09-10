@@ -19,11 +19,13 @@ export const prefSetArgsSchema = z.object({
   /** Optional provenance override; defaults to `{ kind: 'user' }` server-side. */
   source: memorySourceSchema.optional(),
 });
+
 export type PrefSetArgs = z.infer<typeof prefSetArgsSchema>;
 
 export const prefDeleteArgsSchema = z.object({
   key: z.string().min(1).max(200),
 });
+
 export type PrefDeleteArgs = z.infer<typeof prefDeleteArgsSchema>;
 
 /**
@@ -34,6 +36,7 @@ export type PrefDeleteArgs = z.infer<typeof prefDeleteArgsSchema>;
  */
 export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Promise<void> {
   const prev = await SYNC_MODEL.pref.get(tx, { key: args.key });
+
   const replacement: SyncedPreference = {
     key: args.key,
     userId: prev?.userId ?? "",
@@ -41,6 +44,7 @@ export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Pr
     source: args.source ?? prev?.source ?? { kind: "user" },
     rowVersion: (prev?.rowVersion ?? -1) + 1,
   };
+
   await SYNC_MODEL.pref.put(tx, replacement);
 }
 

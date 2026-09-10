@@ -28,9 +28,11 @@ import { buildAttachmentKey, headObject } from "./storage";
 export type AttachmentDegradation = { kind: "image" } | { kind: "pdf"; text: string | null };
 
 const MIN_MODEL_IMAGE_EDGE_PX = 64;
+
 // Anthropic rejects images whose longest edge exceeds 8000px; stay at that
 // ceiling so an accepted upload never depends on the Gemini fallback to render.
 const MAX_MODEL_IMAGE_EDGE_PX = 8_000;
+
 const MAX_MODEL_IMAGE_PIXELS = 40_000_000;
 
 function normalizedMime(mime: string): string {
@@ -56,9 +58,11 @@ export function sniffPassThroughImageMime(bytes: Uint8Array): string | null {
   ) {
     return "image/png";
   }
+
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return "image/jpeg";
   }
+
   if (
     bytes.length >= 12 &&
     bytes[0] === 0x52 &&
@@ -72,6 +76,7 @@ export function sniffPassThroughImageMime(bytes: Uint8Array): string | null {
   ) {
     return "image/webp";
   }
+
   return null;
 }
 
@@ -93,30 +98,40 @@ export async function assertPassThroughImageBytes(
   declaredMime: string,
 ): Promise<void> {
   const actualMime = sniffPassThroughImageMime(bytes);
+
   if (!actualMime) {
     throw Errors.BadRequestError("File contents are not a supported image");
   }
+
   if (actualMime !== normalizedMime(declaredMime)) {
     throw Errors.BadRequestError("File contents don't match the declared image type");
   }
+
   try {
     const input = Buffer.from(bytes);
+
     const metadata = await sharp(input, {
       failOn: "error",
       limitInputPixels: MAX_MODEL_IMAGE_PIXELS,
     }).metadata();
+
     const decodedMime = sharpFormatToMime(metadata.format);
+
     if (!decodedMime) {
       throw Errors.BadRequestError("File contents are not a supported image");
     }
+
     if (decodedMime !== normalizedMime(declaredMime)) {
       throw Errors.BadRequestError("File contents don't match the declared image type");
     }
+
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
+
     if (width < MIN_MODEL_IMAGE_EDGE_PX || height < MIN_MODEL_IMAGE_EDGE_PX) {
       throw Errors.BadRequestError("Image is too small to attach");
     }
+
     if (width > MAX_MODEL_IMAGE_EDGE_PX || height > MAX_MODEL_IMAGE_EDGE_PX) {
       throw Errors.BadRequestError("Image dimensions are too large");
     }
@@ -143,19 +158,24 @@ export async function assertPassThroughImageBytes(
  */
 export function assertUploadAllowed(mime: string, size: number): IngestPolicyEntry {
   const policy = classifyUpload(mime);
+
   if (!policy) {
     throw Errors.BadRequestError(`Unsupported file type: ${mime || "unknown"}`);
   }
+
   if (!isChatUploadAllowed(mime)) {
     throw Errors.BadRequestError(
       "Only images and PDFs are supported right now — other file types are coming soon.",
     );
   }
+
   if (size <= 0) throw Errors.BadRequestError("File must not be empty");
+
   if (size > policy.maxBytes) {
     const mb = Math.round(policy.maxBytes / (1024 * 1024));
     throw Errors.BadRequestError(`File is too large — the limit is ${mb} MB`);
   }
+
   return policy;
 }
 
@@ -165,7 +185,9 @@ export function assertAttachmentBatchAllowed(
   if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
     throw Errors.BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
   }
+
   const totalBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+
   if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
     const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
     throw Errors.BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
@@ -187,9 +209,11 @@ export function toAttachmentRow(opts: {
 }): NewChatAttachment {
   const { userId, threadId, messageId, attachment, degradation } = opts;
   assertUploadAllowed(attachment.mime, attachment.size);
+
   if (isPdfContentType(attachment.mime) !== (degradation.kind === "pdf")) {
     throw Errors.BadRequestError("Attachment content state doesn't match its file type");
   }
+
   return {
     id: attachment.id,
     userId,
@@ -238,8 +262,10 @@ export function validateStoredMeta(opts: {
   if (opts.stored.size !== opts.declared.size) {
     throw Errors.BadRequestError("Attachment upload size doesn't match the sent message");
   }
+
   const storedMime = normalizedMime(opts.stored.contentType);
   const declaredMime = normalizedMime(opts.declared.mime);
+
   if (storedMime && storedMime !== declaredMime) {
     throw Errors.BadRequestError("Stored attachment type doesn't match the sent message");
   }
@@ -264,10 +290,12 @@ export async function assertStoredAttachmentReady(opts: {
   size: number;
 }): Promise<void> {
   let meta: { size: number; contentType: string };
+
   try {
     meta = await headObject(opts.storageKey);
   } catch {
     throw Errors.BadRequestError("Attachment upload is missing or incomplete");
   }
+
   validateStoredMeta({ stored: meta, declared: { mime: opts.mime, size: opts.size } });
 }

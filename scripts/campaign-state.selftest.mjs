@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const SCRIPT = join(import.meta.dirname, "campaign-state.mjs");
+
 const failures = [];
 
 function check(label, condition, detail) {
@@ -27,11 +28,14 @@ function freshState(itemCount) {
   const dir = mkdtempSync(join(tmpdir(), "campaign-state-selftest-"));
   const statePath = join(dir, "state.json");
   const items = [];
+
   for (let i = 1; i <= itemCount; i += 1) {
     const id = String(i).padStart(2, "0");
     items.push({ id, slug: `item-${id}`, phase: "design", round: 0, pr: null, note: null });
   }
+
   writeFileSync(statePath, `${JSON.stringify({ slug: "selftest", items }, null, 2)}\n`);
+
   return { dir, statePath };
 }
 
@@ -45,6 +49,7 @@ function run(args, options = {}) {
     // `execFileSync` throws an Error carrying the child's captured streams. The
     // assertion names the two fields this reads; the `??` still handles their absence.
     const failed = /** @type {{stdout?: string, stderr?: string}} */ (error);
+
     return { ok: false, stdout: failed.stdout ?? "", stderr: failed.stderr ?? "" };
   }
 }
@@ -164,6 +169,7 @@ function run(args, options = {}) {
 
 {
   const { dir, statePath } = freshState(8);
+
   // Each writer holds the lock across a deliberate read→write gap, so an unlocked
   // implementation is guaranteed to lose updates rather than merely likely to.
   const writers = JSON.parse(readFileSync(statePath, "utf8")).items.map(
@@ -174,9 +180,11 @@ function run(args, options = {}) {
           [SCRIPT, "set", "--state", statePath, "--id", item.id, "phase=landed"],
           { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "80" }, stdio: "ignore" },
         );
+
         child.on("exit", (code) => resolveWriter(code));
       }),
   );
+
   const codes = await Promise.all(writers);
   check(
     "concurrent set: every writer succeeded",
@@ -197,6 +205,7 @@ function run(args, options = {}) {
 
 {
   const { dir, statePath } = freshState(9);
+
   const result = run([
     "add",
     "--state",
@@ -208,6 +217,7 @@ function run(args, options = {}) {
     "--prereqs",
     "03",
   ]);
+
   check("add succeeds", result.ok, "add exited non-zero");
   check("add prints the id", result.stdout.includes("added item 10"), `stdout: ${result.stdout}`);
   const state = JSON.parse(readFileSync(statePath, "utf8"));
@@ -249,6 +259,7 @@ function run(args, options = {}) {
   const { dir, statePath } = freshState(4);
   const adders = [];
   const adderCount = 8;
+
   for (let i = 0; i < adderCount; i += 1) {
     adders.push(
       /** @type {Promise<void>} */ (
@@ -267,11 +278,13 @@ function run(args, options = {}) {
             ],
             { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "80" }, stdio: "ignore" },
           );
+
           child.on("exit", () => resolveAdder());
         })
       ),
     );
   }
+
   await Promise.all(adders);
   const items = JSON.parse(readFileSync(statePath, "utf8")).items;
   const ids = items.map((item) => item.id);
@@ -294,6 +307,7 @@ function run(args, options = {}) {
   const { dir, statePath } = freshState(1);
   const lineCount = 8;
   const appends = [];
+
   for (let i = 0; i < lineCount; i += 1) {
     appends.push(
       /** @type {Promise<void>} */ (
@@ -303,15 +317,19 @@ function run(args, options = {}) {
             [SCRIPT, "note", "--state", statePath, `- [selftest] line ${i}`],
             { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "60" }, stdio: "ignore" },
           );
+
           child.on("exit", () => resolveAppend());
         })
       ),
     );
   }
+
   await Promise.all(appends);
+
   const notes = readFileSync(join(dir, "NOTES.md"), "utf8")
     .split("\n")
     .filter((line) => line.startsWith("- [selftest]"));
+
   check(
     "concurrent note: every line survived",
     notes.length === lineCount,
@@ -324,7 +342,9 @@ function run(args, options = {}) {
 
 if (failures.length > 0) {
   process.stderr.write("campaign-state self-test FAILED\n");
+
   for (const failure of failures) process.stderr.write(`- ${failure}\n`);
   process.exit(1);
 }
+
 process.stdout.write("campaign-state self-test: clean (8 drives)\n");

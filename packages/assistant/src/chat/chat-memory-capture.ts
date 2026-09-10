@@ -55,6 +55,7 @@ const stateSchema = z.object({
   /** ISO timestamp captured at run-create. */
   startedAt: z.string(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 const inputSchema = z.object({
@@ -77,15 +78,20 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
 
   initialState(input) {
     const metadata = input.metadata ?? {};
+
     if (!isNonEmptyString(metadata.threadId)) {
       throw new Error("chat-memory-capture workflow requires metadata.threadId");
     }
+
     const threadId = metadata.threadId;
+
     if (!isNonEmptyString(metadata.captureAfterMessageId)) {
       throw new Error("chat-memory-capture workflow requires metadata.captureAfterMessageId");
     }
+
     const captureAfterMessageId = metadata.captureAfterMessageId;
     const parsed = inputSchema.parse(input.input ?? {});
+
     return {
       mode: parsed.mode,
       threadId,
@@ -106,6 +112,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
   dedupKey(input) {
     const threadId = input.metadata?.threadId;
     const captureAfterMessageId = input.metadata?.captureAfterMessageId;
+
     return isNonEmptyString(threadId) && isNonEmptyString(captureAfterMessageId)
       ? `chat-memory:${threadId}:${captureAfterMessageId}`
       : null;
@@ -120,6 +127,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           const transcript = ctx.state.manualTranscript;
           const transcriptText = buildThreadTranscript(transcript);
           await ctx.log(`load-transcript (manual): ${transcript.length} turn(s)`);
+
           return {
             kind: "next",
             state: { ...ctx.state, transcriptText, turnCount: transcript.length },
@@ -134,8 +142,10 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           .from(chatThreads)
           .where(and(eq(chatThreads.id, ctx.state.threadId), eq(chatThreads.userId, ctx.userId)))
           .limit(1);
+
         if (!thread) {
           await ctx.log(`load-transcript: thread ${ctx.state.threadId} not found for user`);
+
           return {
             kind: "next",
             state: { ...ctx.state, transcriptText: "", turnCount: 0 },
@@ -155,10 +165,12 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
             ),
           )
           .limit(1);
+
         if (!anchor) {
           await ctx.log(
             `load-transcript: capture anchor ${ctx.state.captureAfterMessageId} not found for thread=${ctx.state.threadId}`,
           );
+
           return {
             kind: "next",
             state: { ...ctx.state, transcriptText: "", turnCount: 0 },
@@ -184,10 +196,12 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
             ),
           )
           .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+
         const transcript: ThreadTurn[] = rows.map((r) => ({ role: r.role, content: r.content }));
         const transcriptText = buildThreadTranscript(transcript);
 
         await ctx.log(`load-transcript: ${transcript.length} turn(s)`);
+
         return {
           kind: "next",
           state: { ...ctx.state, transcriptText, turnCount: transcript.length },
@@ -224,6 +238,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
             stepId: "extract",
             idempotencyKey: `${ctx.idempotencyKey}:${ctx.state.threadId}`,
           });
+
           return {
             kind: "next",
             state: { ...ctx.state, propositions },
@@ -234,6 +249,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           // zero propositions and finish cleanly (the thread stays eligible for
           // a later capture once new turns re-arm the debounce).
           await ctx.log(`extract failed for thread=${ctx.state.threadId}: ${toMessage(err)}`);
+
           return { kind: "next", state: { ...ctx.state, propositions: [] }, nextStep: "finalize" };
         }
       },

@@ -30,11 +30,13 @@ export function appendSystemNote(
   text: string,
 ): AgentTranscriptMessage[] {
   const last = transcript.at(-1);
+
   if (last && isSystemNote(last) && typeof last.content === "string") {
     return [
       ...transcript.slice(0, -1),
       { ...last, content: `${last.content}\n\n${SYSTEM_NOTE_PREFIX}${text}` },
     ];
   }
+
   return [...transcript, { role: "user", content: `${SYSTEM_NOTE_PREFIX}${text}` }];
 }

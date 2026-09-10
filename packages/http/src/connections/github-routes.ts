@@ -55,6 +55,7 @@ export const githubIntegrationRoutes = new Elysia({
       const state = signOAuthState({ userId: user.id, nonce });
       set.status = 302;
       set.headers["Location"] = buildInstallUrl(state);
+
       return null;
     }),
   )
@@ -70,7 +71,9 @@ export const githubIntegrationRoutes = new Elysia({
           provider: PROVIDER,
           id: params.id,
         });
+
         if (!deleted) throw Errors.NotFoundError("Credential not found");
+
         return { id: deleted.id, ok: true };
       },
       { params: t.Object({ id: t.String() }) },
@@ -88,16 +91,20 @@ export const githubIntegrationRoutes = new Elysia({
       if (!query.state) {
         set.status = 302;
         set.headers["Location"] = `${origin}/integrations`;
+
         return null;
       }
 
       const decoded = verifyOAuthState(query.state);
+
       if (!decoded) throw Errors.BadRequestError("Invalid state");
 
       const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
+
       if (!storedUserId || storedUserId !== decoded.userId) {
         throw Errors.BadRequestError("Invalid or expired state");
       }
+
       if (!query.installation_id) throw Errors.BadRequestError("Missing installation_id");
       const installationId = query.installation_id;
 
@@ -122,13 +129,16 @@ export const githubIntegrationRoutes = new Elysia({
 
       if (query.code) {
         const tokens = await exchangeUserCode(query.code);
+
         const installationMatchesUser = await canUserAccessInstallation({
           accessToken: tokens.accessToken,
           installationId,
         });
+
         if (!installationMatchesUser) {
           throw Errors.BadRequestError("GitHub installation is not accessible to this user");
         }
+
         accountId = tokens.accountId;
         accountLogin = tokens.accountLogin;
         accountEmail = tokens.accountEmail;
@@ -146,6 +156,7 @@ export const githubIntegrationRoutes = new Elysia({
         // and empty scopes since the App permissions live on the
         // installation, not on OAuth scopes.
         const inst = await getInstallation(installationId);
+
         if (!inst) throw Errors.BadRequestError("GitHub installation not found");
         accountId = inst.accountId;
         accountLogin = inst.accountLogin;
@@ -186,11 +197,14 @@ export const githubIntegrationRoutes = new Elysia({
 
       const stillOnboarding = userRow[0]?.onboardedAt === null;
       const connectedParam = `github_connected=${encodeURIComponent(accountLogin)}`;
+
       const target = stillOnboarding
         ? `/onboarding?step=2&${connectedParam}`
         : `/integrations?${connectedParam}`;
+
       set.status = 302;
       set.headers["Location"] = `${origin}${target}`;
+
       // Returning the credential id is only useful in tests; the browser
       // follows the Location redirect immediately.
       return { id: credential.id };

@@ -155,19 +155,23 @@ export async function reapOutboxOnce(
 ): Promise<number> {
   if (passInFlight) return 0;
   passInFlight = true;
+
   try {
     const { signal, batchSize = REAP_BATCH_SIZE } = options;
     const maxBatches = options.maxBatches ?? MAX_BATCHES_PER_PASS;
     const cutoff = new Date(now.getTime() - OUTBOX_RETENTION_MS);
     let total = 0;
+
     for (let batch = 0; batch < maxBatches; batch += 1) {
       // Between batches, never inside one: a half-deleted page is fine (the
       // next pass finds the rest) but an abandoned open DELETE is not.
       if (signal?.aborted) break;
       const deleted = await reapBatch(cutoff, batchSize);
       total += deleted;
+
       if (deleted < batchSize) break;
     }
+
     return total;
   } finally {
     passInFlight = false;
@@ -182,6 +186,7 @@ const reaper = new PeriodicTask({
   runOnStart: true,
   pass: async (signal) => {
     const deleted = await reapOutboxOnce(new Date(), { signal });
+
     if (deleted > 0) console.info("[outbox-reaper] deleted", deleted, "expired rows");
   },
 });

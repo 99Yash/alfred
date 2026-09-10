@@ -16,12 +16,15 @@ describe("enrichInvalidInputMessage", () => {
     // the value here is deliberately not one.)
     const parsed = calendarListEventsInput.safeParse({ gibberish: "nonsense" });
     assert.equal(parsed.success, false);
+
     if (parsed.success) return;
+
     const enriched = enrichInvalidInputMessage(
       parsed.error.message,
       calendarListEventsInput,
       parsed.error.issues,
     );
+
     assert.match(enriched, /This tool accepts only these parameters:/);
     // The field the model SHOULD have used is now surfaced for self-correction.
     assert.match(enriched, /window/);
@@ -32,12 +35,15 @@ describe("enrichInvalidInputMessage", () => {
     // A malformed value (not an unknown key) should pass through verbatim.
     const parsed = calendarListEventsInput.safeParse({ timeMin: "not-a-datetime" });
     assert.equal(parsed.success, false);
+
     if (parsed.success) return;
+
     const enriched = enrichInvalidInputMessage(
       parsed.error.message,
       calendarListEventsInput,
       parsed.error.issues,
     );
+
     assert.equal(enriched, parsed.error.message);
     assert.doesNotMatch(enriched, /This tool accepts only/);
   });

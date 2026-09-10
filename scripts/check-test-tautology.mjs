@@ -23,6 +23,7 @@ for (const file of files) {
       violations.push({ file, line: i + 1, text: line.trim(), fix: rule.fix, id: rule.id });
     }
   });
+
   for (const hit of matchChains(source, file, "gate")) {
     violations.push({ file, line: hit.line, text: hit.text, fix: hit.rule.fix, id: hit.rule.id });
   }
@@ -30,11 +31,13 @@ for (const file of files) {
 
 if (violations.length > 0) {
   console.error("Tautological tests — a test restates implementation:\n");
+
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line} [${v.id}]`);
     console.error(`    ${v.text}`);
     console.error(`    → ${v.fix}\n`);
   }
+
   console.error(
     `${violations.length} violation(s). Fix the test to assert a product/state/contract property, or append \`// tautology-ok: <reason>\` if the tautology is load-bearing (cross-check + literal anchor, policy pin).`,
   );

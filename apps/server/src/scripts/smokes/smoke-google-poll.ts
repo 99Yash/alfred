@@ -47,6 +47,7 @@ async function main() {
   if (!cred) {
     console.log("[smoke-google-poll] no Google credential found.");
     console.log("Run smoke-google.ts first to connect an account + bulk ingest.");
+
     return;
   }
 
@@ -80,9 +81,11 @@ async function main() {
   // The credential we just polled should NOT appear in a 5-minute-old window.
   const cutoff = new Date(Date.now() - 5 * 60 * 1000);
   const stale = await findCredentialsNeedingPoll(cutoff);
+
   if (stale.find((s) => s.credentialId === cred.id)) {
     throw new Error(`findCredentialsNeedingPoll returned just-polled credential ${cred.id}`);
   }
+
   console.log(
     `[smoke-google-poll] sweep query excludes fresh credential ✓ (${stale.length} other stale)`,
   );
@@ -102,9 +105,11 @@ async function loadCursor(credentialId: string): Promise<string | null> {
     .where(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
+
   // SAFETY: ingestion_state.state is jsonb written by these cursors with the
   // historyId envelope.
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
+
   return state?.historyId ?? null;
 }
 
@@ -112,6 +117,7 @@ function compareHistoryIds(a: string, b: string): number {
   try {
     const ba = BigInt(a);
     const bb = BigInt(b);
+
     return ba < bb ? -1 : ba > bb ? 1 : 0;
   } catch {
     return a.localeCompare(b);

@@ -119,8 +119,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // has switched BOTH off there's nothing to produce — skip before the
   // document load + cheap-model call so a disabled inbox costs nothing.
   const flags = await resolveFeatureFlags(ctx.userId);
+
   if (!flags.emailTagging && !flags.actionItems) {
     await ctx.log(`classify: skipped reason=triage-disabled (tagging + action-items off)`);
+
     return {
       kind: "done",
       state: ctx.state,
@@ -129,11 +131,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   }
 
   const ctxData = await loadTriageContext(ctx.state.documentId, ctx.userId);
+
   if (!ctxData) {
     // Document was deleted between enqueue and run — unrecoverable
     // but not an error. Mark done; upstream callers can detect via
     // `output.skipped`.
     await ctx.log(`document gone: ${ctx.state.documentId}`);
+
     return {
       kind: "done",
       state: ctx.state,
@@ -142,10 +146,12 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   }
 
   const sourceThreadId = ctxData.document.sourceThreadId;
+
   if (!sourceThreadId) {
     // Gmail messages always carry a threadId — but be defensive so
     // a malformed ingest doesn't crash the worker.
     await ctx.log(`document missing sourceThreadId: ${ctx.state.documentId}`);
+
     return {
       kind: "done",
       state: ctx.state,
@@ -159,16 +165,19 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // the stored row is still ambiguous, verify the live minimal Gmail
   // message before allowing classify.
   const sentStatus = await sentDocumentStatusAtClassifyTime(ctxData);
+
   if (sentStatus.kind === "missing") {
     await ctx.log(
       `classify: doc=${ctx.state.documentId} source message missing in Gmail — skipping`,
     );
+
     return {
       kind: "done",
       state: ctx.state,
       output: { skipped: true, reason: "source-message-not-found" },
     };
   }
+
   if (sentStatus.kind === "sent") {
     if (sentStatus.source === "live") {
       await markGmailDocumentSent({
@@ -177,9 +186,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         liveLabelIds: sentStatus.labelIds,
       });
     }
+
     await ctx.log(
       `classify: doc=${ctx.state.documentId} is the user's own sent mail (${sentStatus.source}) — skipping (ADR-0051 #7)`,
     );
+
     return {
       kind: "done",
       state: ctx.state,
@@ -192,6 +203,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     subject: ctxData.document.title,
     body: ctxData.document.content,
   });
+
   const senderContext = senderContextResult.context;
 
   // Idempotency: if the thread's row was written by THIS run already,
@@ -215,9 +227,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // A retry within the SAME run is handled below (reuse, never skip).
   if (existing && existing.runId !== ctx.runId && existing.appliedLabelId && !ctx.state.force) {
     const incomingAuthoredAt = ctxData.document.authoredAt;
+
     const priorAuthoredAt = existing.documentId
       ? await getDocumentAuthoredAt(ctx.userId, existing.documentId)
       : null;
+
     // Equal timestamps are NOT proof of duplication: Gmail Date headers
     // are second-granular and distinct messages can share an authoredAt.
     // A strictly-older message is provably not newer; an equal-timestamp
@@ -226,6 +240,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // genuine reply in the same second is a different documentId and must
     // re-classify.
     const isSameStoredDocument = existing.documentId === ctx.state.documentId;
+
     const provablyNotNewer =
       // The same stored document is by definition not newer than itself, so
       // a re-delivered push / second ingestion source skips regardless of
@@ -235,11 +250,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       (incomingAuthoredAt != null &&
         priorAuthoredAt != null &&
         incomingAuthoredAt.getTime() < priorAuthoredAt.getTime());
+
     if (provablyNotNewer) {
       await ctx.log(
         `classify: thread=${sourceThreadId} already tagged (${existing.category}); ` +
           `doc=${ctx.state.documentId} not newer than prior message — skipping re-process`,
       );
+
       return {
         kind: "done",
         state: ctx.state,
@@ -270,6 +287,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
   let standingSuppressionReadFailed = false;
   let standingSuppressionReadError: string | null = null;
+
   const resolveTodoAndStandingSuppression = async () => {
     // A rail todo's absolute date needs BOTH halves: the send instant and the
     // zone it should be read in. Reading the instant in UTC — which is what this
@@ -286,10 +304,12 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       authoredAt && classification.todoSuggestion
         ? { sentAt: authoredAt, timezone: await resolveTimezone(ctx.userId) }
         : null;
+
     const nextTodoSuggestion = resolveTodoSuggestion(classification, assistDateAnchor);
     let nextStandingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
     let nextStandingSuppressionReadFailed = false;
     let nextStandingSuppressionReadError: string | null = null;
+
     if (nextTodoSuggestion) {
       try {
         nextStandingSuppression = await findActiveSenderSuppression(ctx.userId, {
@@ -302,6 +322,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         nextStandingSuppressionReadError = toMessage(err);
       }
     }
+
     return {
       todoSuggestion: nextTodoSuggestion,
       standingSuppression: nextStandingSuppression,
@@ -309,7 +330,9 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       standingSuppressionReadError: nextStandingSuppressionReadError,
     };
   };
+
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
+
   if (reusedExistingRow && existing) {
     classification = {
       category: existing.category,
@@ -373,6 +396,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         stepId: "classify",
         idempotencyKey: ctx.idempotencyKey,
       });
+
       classification = result.classification;
       model = result.model;
       audit = result.audit;
@@ -401,6 +425,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       ctx.userId,
       senderContextResult.senderAddress,
     ).catch(() => null);
+
     senderSignificanceBand = senderSignificance?.band ?? null;
 
     // Resolve the todo/suppression fields before the row write so the
@@ -464,7 +489,9 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         : undefined,
       authoredAt: ctxData.document.authoredAt,
     });
+
     written = upserted.written;
+
     if (written && decisionTrace) {
       ctx.trace("triage.classification", decisionTrace);
     }
@@ -508,6 +535,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // The literal below normalizes it to `string | null`, and `satisfies` keeps
     // that narrower inferred type while still proving the schema shape.
     const todoDecision = classification.todoDecision;
+
     const payload = {
       triage: {
         documentId: ctx.state.documentId,
@@ -539,6 +567,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         newestDirection: observations?.thread.newestDirection ?? null,
       },
     } satisfies EmailTriageClassifiedPayload;
+
     try {
       await publishDomainEvent({
         userId: ctx.userId,
@@ -573,12 +602,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // observation, so it must not re-bump the sender prior either.
   if (!reusedExistingRow && written && ctx.state.reason !== "reply") {
     const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
+
     const baseSenderKey = senderPriorWriteKeyFor({
       senderContext,
       senderAddress: senderContextResult.senderAddress,
       isSent: docIsSent,
       model,
     });
+
     const senderKey =
       baseSenderKey ??
       (!docIsSent &&
@@ -587,6 +618,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       senderContextResult.senderAddress
         ? senderContextResult.senderAddress.toLowerCase()
         : null);
+
     if (senderKey) {
       try {
         await incrementSenderPrior({
@@ -647,6 +679,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
       })
     : null;
+
   // `written` gate: only the run that owns the canonical row proposes a
   // todo, so a superseded older message can't mint a stray suggestion.
   // `flags.actionItems` gate: the user can switch off action-item
@@ -678,6 +711,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           sender: ctxData.document.metadata.from ?? null,
         }),
       });
+
       await ctx.log(
         `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}`,
       );
@@ -711,6 +745,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
 ): Promise<StepResult<State>> {
   const category = ctx.state.category;
   const sourceThreadId = ctx.state.sourceThreadId;
+
   if (!category || !sourceThreadId) {
     throw new Error(
       "[email-triage] apply-label entered without category/sourceThreadId; classify step did not commit",
@@ -721,8 +756,10 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   // the in-app triage row (drives the inbox chips + any action-item it
   // already minted) but does not touch the user's Gmail labels.
   const flags = await resolveFeatureFlags(ctx.userId);
+
   if (!flags.emailTagging) {
     await ctx.log(`apply-label: skipped reason=tagging-disabled`);
+
     return {
       kind: "done",
       state: ctx.state,
@@ -738,6 +775,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
 
   if (!outcome.applied) {
     await ctx.log(`apply-label: skipped reason=${outcome.reason}`);
+
     return {
       kind: "done",
       state: ctx.state,
@@ -797,6 +835,7 @@ async function sentDocumentStatusAtClassifyTime(
   ctxData: TriageDocumentContext,
 ): Promise<SentDocumentStatus> {
   if (isSentGmailMetadata(ctxData.document.metadata)) return { kind: "sent", source: "stored" };
+
   // Only pay the Gmail round trip when the stored "not sent" could actually be
   // wrong (#439) — see `mayBeUnflaggedSentMail` for the disproof.
   const ambiguous = mayBeUnflaggedSentMail({
@@ -807,16 +846,20 @@ async function sentDocumentStatusAtClassifyTime(
     // account.
     mailboxAddress: ctxData.identity.mailboxAddress,
   });
+
   if (!ambiguous) return { kind: "not-sent" };
 
   try {
     const accessToken = await getFreshAccessToken(ctxData.credentialId);
+
     const message = await getMessage({
       accessToken,
       id: ctxData.document.sourceId,
       format: "minimal",
     });
+
     const labelIds = message.labelIds ?? [];
+
     return isSentGmailMetadata({ labelIds })
       ? { kind: "sent", source: "live", labelIds }
       : { kind: "not-sent" };
@@ -849,6 +892,7 @@ async function gatherObservations(args: {
   // sent/fallback guard: reads are harmless and the classify step only runs on
   // received mail anyway.
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
+
   const [thread, senderKindEnabled] = await Promise.all([
     getThreadState({
       userId: args.userId,
@@ -862,17 +906,23 @@ async function gatherObservations(args: {
     })),
     triageSenderKindProjectionEnabled(args.userId).catch(() => false),
   ]);
+
   const senderKind =
     senderKindEnabled && args.senderAddress
       ? await resolveSenderKind(args.userId, args.senderAddress)
       : null;
+
   const baseSenderKey = senderKeyFor(args.senderContext, args.senderAddress);
+
   const senderKey =
     baseSenderKey ?? (senderKind && args.senderAddress ? args.senderAddress.toLowerCase() : null);
+
   const senderPrior = senderKey
     ? await getSenderPrior(args.userId, senderKey).catch(() => null)
     : null;
+
   const usePersonTreatment = isHumanSender && senderKind == null;
+
   const [knownContact, relationship] = await Promise.all([
     usePersonTreatment && args.senderAddress
       ? isKnownContact(args.userId, args.senderAddress).catch(() => false)

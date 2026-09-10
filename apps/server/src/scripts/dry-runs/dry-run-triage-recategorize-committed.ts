@@ -39,6 +39,7 @@ import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
 /** Mailboxes to sample. */
 const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
+
 const RECAT_LIMIT = Number(process.env.RECAT_LIMIT) || 60;
 
 interface TargetUser {
@@ -77,7 +78,9 @@ async function processUser(u: TargetUser): Promise<void> {
       skipped++;
       continue;
     }
+
     const ctxData = await loadTriageContext(row.documentId, u.userId);
+
     if (!ctxData) {
       skipped++;
       continue;
@@ -88,6 +91,7 @@ async function processUser(u: TargetUser): Promise<void> {
       subject: ctxData.document.title,
       body: ctxData.document.content,
     });
+
     const senderContext = scResult.context;
     const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
     const meta = ctxData.document.metadata;
@@ -115,7 +119,9 @@ async function processUser(u: TargetUser): Promise<void> {
           }),
       resolveSenderKind(u.userId, scResult.senderAddress),
     ]);
+
     const usePersonTreatment = isHumanSender && senderKind == null;
+
     const [knownContact, relationship] = await Promise.all([
       usePersonTreatment && scResult.senderAddress
         ? isKnownContact(u.userId, scResult.senderAddress).catch(() => false)
@@ -153,6 +159,7 @@ async function processUser(u: TargetUser): Promise<void> {
     });
 
     let newCategory: string;
+
     try {
       const { classification } = await classifyEmail({
         userId: u.userId,
@@ -167,6 +174,7 @@ async function processUser(u: TargetUser): Promise<void> {
         observations,
         identity: ctxData.identity,
       });
+
       newCategory = classification.category;
     } catch (err) {
       console.log(`  ! classify error (skipped): ${toMessage(err)}`);
@@ -178,6 +186,7 @@ async function processUser(u: TargetUser): Promise<void> {
     const oldCategory = row.oldCategory;
     const key = `${oldCategory} → ${newCategory}`;
     transitions.set(key, (transitions.get(key) ?? 0) + 1);
+
     if (oldCategory !== newCategory) {
       const from = meta.from ?? "?";
       changed.push(`  ${key} | ${from} | ${(ctxData.document.title ?? "").slice(0, 60)}`);
@@ -186,12 +195,15 @@ async function processUser(u: TargetUser): Promise<void> {
 
   console.log(`  scored ${scored}, skipped ${skipped} (no local doc / classify error)`);
   console.log(`\n  -- category transitions (old → new) --`);
+
   for (const [k, n] of [...transitions.entries()].sort((a, b) => b[1] - a[1])) {
     const mark = k.split(" → ")[0] === k.split(" → ")[1] ? "   " : " * ";
     console.log(`  ${mark}${n}\t${k}`);
   }
+
   if (changed.length) {
     console.log(`\n  -- changed rows (${changed.length}) --`);
+
     for (const line of changed) console.log(line);
   }
 }
@@ -208,6 +220,7 @@ async function main() {
     .where(inArray(userTable.email, TARGET_EMAILS));
 
   const found = new Set(users.map((x) => x.email));
+
   for (const email of TARGET_EMAILS) {
     if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
   }

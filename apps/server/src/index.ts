@@ -25,10 +25,12 @@ import { OBSERVABILITY_FLUSH_TIMEOUT_MS, startRuntime, stopRuntime } from "./run
 // a DSN there are no Sentry handlers at all, and Sentry's own unhandledRejection
 // integration defaults to 'warn' (logs without exiting) even when configured.
 let crashing = false;
+
 async function handleFatal(kind: string, err: unknown): Promise<void> {
   if (crashing) return;
   crashing = true;
   console.error(`Fatal ${kind}:`, err instanceof Error ? (err.stack ?? err.message) : String(err));
+
   try {
     Sentry.captureException(err);
     // Flush Sentry AND Langfuse before exit — both batch events in memory, so a
@@ -45,9 +47,12 @@ async function handleFatal(kind: string, err: unknown): Promise<void> {
   } catch {
     // Never let the crash handler itself throw.
   }
+
   process.exit(1);
 }
+
 process.on("unhandledRejection", (reason) => void handleFatal("unhandledRejection", reason));
+
 process.on("uncaughtException", (err) => void handleFatal("uncaughtException", err));
 
 await startRuntime();
@@ -87,6 +92,7 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n${signal} received, shutting down...`);
+
   try {
     await server.stop();
   } catch (err) {
@@ -95,6 +101,7 @@ async function shutdown(signal: string) {
     // not abort the rest of teardown below.
     console.error("Error stopping server:", toMessage(err));
   }
+
   await stopRuntime();
   await Sentry.flush(2000).catch(() => {});
   process.exit(0);
@@ -103,6 +110,7 @@ async function shutdown(signal: string) {
 process.on("SIGTERM", () => {
   void shutdown("SIGTERM");
 });
+
 process.on("SIGINT", () => {
   void shutdown("SIGINT");
 });

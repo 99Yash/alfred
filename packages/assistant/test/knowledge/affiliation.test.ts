@@ -29,7 +29,9 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const T0 = new Date("2026-06-01T12:00:00.000Z");
+
 const ID_PREFIX = "test-affiliation-";
+
 const createdUserIds: string[] = [];
 
 const SKIP_DB = dbBackedSkip("database");
@@ -38,6 +40,7 @@ after(async () => {
   if (createdUserIds.length > 0) {
     await db().delete(user).where(inArray(user.id, createdUserIds));
   }
+
   await closeConnections();
 });
 
@@ -57,6 +60,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Affiliation Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -69,6 +73,7 @@ async function seedGoogleCredential(args: {
 }): Promise<string> {
   const accountEmail = args.accountEmail ?? "yash.k@oliv.ai";
   const hostedDomain = args.hostedDomain === undefined ? "oliv.ai" : args.hostedDomain;
+
   const [row] = await db()
     .insert(integrationCredentials)
     .values({
@@ -89,7 +94,9 @@ async function seedGoogleCredential(args: {
       createdAt: args.createdAt,
     })
     .returning({ id: integrationCredentials.id });
+
   assert.ok(row);
+
   return row.id;
 }
 
@@ -99,7 +106,9 @@ describe("buildOrgAffiliationObservationInput", () => {
       status: "connected",
       occurredAt: T0,
     });
+
     assert.equal(res.ok, true);
+
     if (!res.ok) return;
     assert.equal(res.domainClass, "corporate_domain");
     assert.deepEqual(res.input.payload, {
@@ -122,6 +131,7 @@ describe("buildOrgAffiliationObservationInput", () => {
     for (const status of ["connected", "disconnected"] as const) {
       const res = buildOrgAffiliationObservationInput(cred({}), { status, occurredAt: T0 });
       assert.equal(res.ok, true);
+
       if (!res.ok) return;
       // The boundary re-derives domainClass and re-checks verifiedHostedDomain ===
       // orgDomain; a throw here means the builder produced a self-inconsistent row.
@@ -134,7 +144,9 @@ describe("buildOrgAffiliationObservationInput", () => {
       cred({ accountEmail: "yash@gmail.com", metadata: {} }),
       { status: "connected", occurredAt: T0 },
     );
+
     assert.equal(res.ok, true);
+
     if (!res.ok) return;
     assert.equal(res.domainClass, "consumer_email");
     assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
@@ -147,7 +159,9 @@ describe("buildOrgAffiliationObservationInput", () => {
       cred({ accountEmail: "z@yourelasticdash.co", metadata: {} }),
       { status: "connected", occurredAt: T0 },
     );
+
     assert.equal(res.ok, true);
+
     if (!res.ok) return;
     assert.equal(res.domainClass, "ambiguous_domain");
     assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
@@ -161,7 +175,9 @@ describe("buildOrgAffiliationObservationInput", () => {
       cred({ accountEmail: "contractor@vendor.com", metadata: { googleHostedDomain: "oliv.ai" } }),
       { status: "connected", occurredAt: T0 },
     );
+
     assert.equal(res.ok, true);
+
     if (!res.ok) return;
     assert.equal(res.domainClass, "corporate_domain");
     assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), "oliv.ai");
@@ -175,7 +191,9 @@ describe("buildOrgAffiliationObservationInput", () => {
       status: "connected",
       occurredAt: T0,
     });
+
     assert.equal(res.ok, true);
+
     if (!res.ok) return;
     assert.equal(res.domainClass, "service_or_role_account");
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
@@ -186,7 +204,9 @@ describe("buildOrgAffiliationObservationInput", () => {
       status: "connected",
       occurredAt: T0,
     });
+
     assert.equal(res.ok, true);
+
     if (!res.ok) return;
     assert.equal(getStringPath(res.input.payload, "accountEmail"), "yash.k@oliv.ai");
     assert.equal(getStringPath(res.input.payload, "orgDomain"), "oliv.ai");
@@ -207,7 +227,9 @@ describe("buildOrgAffiliationObservationInput", () => {
         status: "connected",
         occurredAt: T0,
       });
+
       assert.equal(res.ok, false);
+
       if (res.ok) return;
       assert.equal(res.reason, reason);
     });
@@ -219,11 +241,14 @@ describe("buildOrgAffiliationObservationInput", () => {
         status: "connected",
         occurredAt: T0,
       });
+
       const b = buildOrgAffiliationObservationInput(cred({}), {
         status: "connected",
         occurredAt: T0,
       });
+
       assert.equal(a.ok && b.ok, true);
+
       if (!a.ok || !b.ok) return;
       assert.equal(a.input.evidenceHash, b.input.evidenceHash);
     });
@@ -233,11 +258,14 @@ describe("buildOrgAffiliationObservationInput", () => {
         status: "connected",
         occurredAt: T0,
       });
+
       const b = buildOrgAffiliationObservationInput(cred({}), {
         status: "connected",
         occurredAt: new Date(T0.getTime() + 1000),
       });
+
       assert.equal(a.ok && b.ok, true);
+
       if (!a.ok || !b.ok) return;
       assert.notEqual(a.input.evidenceHash, b.input.evidenceHash);
     });
@@ -247,11 +275,14 @@ describe("buildOrgAffiliationObservationInput", () => {
         status: "connected",
         occurredAt: T0,
       });
+
       const d = buildOrgAffiliationObservationInput(cred({}), {
         status: "disconnected",
         occurredAt: T0,
       });
+
       assert.equal(c.ok && d.ok, true);
+
       if (!c.ok || !d.ok) return;
       assert.notEqual(c.input.evidenceHash, d.input.evidenceHash);
       assert.equal(c.input.familyKey, d.input.familyKey);
@@ -272,6 +303,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       accountId,
       createdAt: connectAt,
     });
+
     const connected = await recordOrgAffiliationOnConnect(firstCredentialId);
     assert.equal(connected.status, "emitted");
 
@@ -287,6 +319,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       },
       disconnectAt,
     );
+
     assert.equal(disconnected.status, "emitted");
 
     await db()
@@ -298,10 +331,12 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       accountId,
       createdAt: reconnectAt,
     });
+
     const reconnected = await recordOrgAffiliationOnConnect(secondCredentialId);
     assert.equal(reconnected.status, "emitted");
 
     const familyKey = `org_affiliation:${accountId}:oliv.ai`;
+
     const rows = await db()
       .select({
         id: observations.id,
@@ -330,6 +365,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
           eq(observationFamilyHeads.familyKey, familyKey),
         ),
       );
+
     assert.equal(head?.headObservationId, rows[2]?.id);
   });
 
@@ -346,6 +382,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       hostedDomain: "oldco.ai",
       createdAt: connectAt,
     });
+
     const connected = await recordOrgAffiliationOnConnect(credentialId);
     assert.equal(connected.status, "emitted");
 
@@ -355,6 +392,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       accountEmail: "owner@oldco.ai",
       metadata: { googleHostedDomain: "oldco.ai" },
     };
+
     await db()
       .update(integrationCredentials)
       .set({
@@ -368,6 +406,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       previousCredential,
       changedAt,
     });
+
     assert.equal(changed.disconnectedPrevious?.status, "emitted");
     assert.equal(changed.connectedCurrent.status, "emitted");
 
@@ -422,6 +461,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       hostedDomain: null,
       createdAt: connectAt,
     });
+
     const connected = await recordOrgAffiliationOnConnect(credentialId);
     assert.equal(connected.status, "emitted");
 
@@ -431,6 +471,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       accountEmail: "owner@oliv.ai",
       metadata: {},
     };
+
     await db()
       .update(integrationCredentials)
       .set({ metadata: { googleHostedDomain: "oliv.ai" } })
@@ -441,6 +482,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       previousCredential,
       changedAt,
     });
+
     assert.equal(changed.disconnectedPrevious, undefined);
     assert.equal(changed.connectedCurrent.status, "emitted");
 

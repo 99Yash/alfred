@@ -48,15 +48,18 @@ export async function authorWorkflowDraft(args: {
   const context = await readWorkflowReadinessContext(args.userId);
   const { availability } = context;
   const toolCatalog = workflowToolCatalog();
+
   const resolution = resolveWorkflowCapabilities({
     definition: definitionFromProposal(args.input),
     requested: args.input.capabilities,
     context,
     toolCatalog,
   });
+
   const definition = resolution.definition;
   const authoringProposal = authoringProposalFromInput(args.input, definition);
   const readiness = resolution.missing;
+
   const slug = args.input.workflowId
     ? undefined
     : await workflowSlugForName(args.userId, args.input.name);
@@ -64,6 +67,7 @@ export async function authorWorkflowDraft(args: {
   return db().transaction(async (tx) => {
     let saved: WorkflowRevisionOutcome;
     let created: boolean;
+
     if (args.input.workflowId) {
       const revised = await reviseWorkflow({
         userId: args.userId,
@@ -74,11 +78,13 @@ export async function authorWorkflowDraft(args: {
         expectedRowVersion: args.input.expectedRowVersion,
         tx,
       });
+
       if (!revised.ok) return revised;
       saved = revised;
       created = revised.created;
     } else {
       if (!slug) throw new Error("new workflow authoring requires a resolved slug");
+
       const drafted = await createWorkflowDraft({
         userId: args.userId,
         slug,
@@ -87,6 +93,7 @@ export async function authorWorkflowDraft(args: {
         createdByRunId: args.runId,
         tx,
       });
+
       if (!drafted.ok) return drafted;
       saved = drafted;
       created = true;
@@ -100,6 +107,7 @@ export async function authorWorkflowDraft(args: {
       target: "draft",
       tx,
     });
+
     if (!reconciled.ok) return reconciled;
     saved = { ...saved, workflow: reconciled.workflow };
 
@@ -133,14 +141,19 @@ export function definitionFromProposal(input: AuthorWorkflowInput): AuthorableWo
       isToolName(capability.tool) ? [{ ...capability, tool: capability.tool }] : [],
     ),
   );
+
   const allowedTools = [...new Set(requiredCapabilities.map((capability) => capability.tool))];
+
   const integrations = new Set<IntegrationSlug>(
     allowedTools.map((tool) => integrationFromToolName(tool)),
   );
+
   for (const capability of input.capabilities) {
     const prefix = capability.tool.slice(0, capability.tool.indexOf("."));
+
     if (isIntegrationSlug(prefix)) integrations.add(prefix);
   }
+
   if (input.trigger.kind === "event") integrations.add(input.trigger.source);
 
   return {
@@ -183,6 +196,7 @@ function activationProposalFor(args: {
     args.definition.trigger.kind === "cron"
       ? (args.definition.trigger.timezone ?? args.timezone)
       : args.timezone;
+
   return buildWorkflowActivationProposal({
     workflowId: args.workflow.id,
     baseRevisionId: args.revision.id,
@@ -200,17 +214,21 @@ function uniqueCapabilities(
   capabilities: readonly WorkflowRequiredCapability[],
 ): WorkflowRequiredCapability[] {
   const unique = new Map<string, WorkflowRequiredCapability>();
+
   for (const capability of capabilities) {
     unique.set(canonicalJson(capability), capability);
   }
+
   return [...unique.values()];
 }
 
 async function workflowSlugForName(userId: string, name: string): Promise<string> {
   const base = slugBase(name, "workflow");
+
   const rows = await db()
     .select({ slug: workflows.slug })
     .from(workflows)
     .where(and(eq(workflows.userId, userId), like(workflows.slug, `${base}%`)));
+
   return availableSlug(base, new Set(rows.map((row) => row.slug)));
 }

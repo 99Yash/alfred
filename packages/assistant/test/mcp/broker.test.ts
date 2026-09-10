@@ -50,6 +50,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcpbrk-";
+
 const createdUserIds: string[] = [];
 
 /** A revision no catalog can mint, for the stale-selection cases. */
@@ -79,6 +80,7 @@ class FakeProtocol implements McpProtocolClient {
 
   async connect(): Promise<McpNegotiatedServer> {
     if (this.connectError) throw this.connectError;
+
     return this.negotiated;
   }
   async close(): Promise<void> {}
@@ -88,10 +90,13 @@ class FakeProtocol implements McpProtocolClient {
   async callTool(): Promise<McpProtocolCallResult> {
     this.calls += 1;
     await this.beforeReturn?.();
+
     if (this.behavior.kind === "throw") throw this.behavior.error;
+
     if (this.behavior.kind === "tool_error") {
       return { content: [{ type: "text", text: "nope" }], isError: true };
     }
+
     return { content: [{ type: "text", text: "ok" }] };
   }
   onToolsChanged(): void {}
@@ -121,6 +126,7 @@ async function seedUser(): Promise<string> {
       workflowSlug: "chat",
       currentStep: "dispatch-tools",
     });
+
   return userId;
 }
 
@@ -146,6 +152,7 @@ async function seedStaging(
     .from(agentRuns)
     .where(eq(agentRuns.userId, userId))
     .limit(1);
+
   assert.ok(run, "seed run missing");
   const stagingId = `stg_${randomUUID().slice(0, 12)}`;
   const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
@@ -171,6 +178,7 @@ async function seedStaging(
       status: "approved",
       outcome: "dispatching",
     });
+
   return stagingId;
 }
 
@@ -182,6 +190,7 @@ async function seedConnection(userId: string): Promise<string> {
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
+
   return conn.id;
 }
 
@@ -195,6 +204,7 @@ function brokerWith(protocol: FakeProtocol): McpExecutionBroker {
         protocolFactory: () => protocol,
       }),
   });
+
   return new McpExecutionBroker(manager);
 }
 
@@ -209,9 +219,11 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
         protocolFactory: () => protocol,
       }),
   });
+
   const client = await manager.getReadyClient(connectionId);
   const revision = client.catalog?.revision;
   assert.ok(revision);
+
   return revision;
 }
 
@@ -226,28 +238,34 @@ async function seedRecoverableWrite(protocol: FakeProtocol) {
   assert.ok(servedTool, "seed recovery tool missing");
   const remoteName = servedTool.name;
   const revision = await liveRevision(protocol, connId);
+
   const ref: ExternalToolRef = {
     kind: "mcp",
     connectionId: connId,
     remoteName,
     catalogRevision: revision,
   };
+
   const argumentsValue = { amount: 4200 };
   const exactInput = stagedCallInput(ref, argumentsValue);
   protocol.behavior = { kind: "throw", error: new Error("connection reset mid-send") };
   const stagingId = await seedStaging(userId, exactInput);
+
   const first = await brokerWith(protocol).callTool({
     userId,
     stagingId,
     ref,
     arguments: argumentsValue,
   });
+
   assert.equal(first.status, "ambiguous");
+
   if (first.status !== "ambiguous") throw new Error("unreachable");
   await db()
     .update(actionStagings)
     .set({ status: "executed", outcome: "unknown" })
     .where(eq(actionStagings.id, stagingId));
+
   return {
     userId,
     connId,
@@ -266,14 +284,17 @@ async function assertPriorRecoveryBarriersUnchanged(input: {
     .select()
     .from(mcpInvocation)
     .where(eq(mcpInvocation.id, input.invocationId));
+
   const [staging] = await db()
     .select()
     .from(actionStagings)
     .where(eq(actionStagings.id, input.stagingId));
+
   const successors = await db()
     .select({ id: mcpInvocation.id })
     .from(mcpInvocation)
     .where(eq(mcpInvocation.successorOf, input.invocationId));
+
   assert.equal(prior?.resolvedAt, null);
   assert.equal(prior?.effectOutcome, "unknown");
   assert.equal(staging?.outcome, "unknown");
@@ -291,6 +312,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -313,12 +335,14 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     const broker = brokerWith(protocol);
     const stagingId = await seedStaging(userId);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "search",
       catalogRevision: revision,
     };
+
     const outcome = await broker.callTool({ userId, stagingId, ref, arguments: {} });
 
     assert.equal(outcome.status, "completed");
@@ -358,6 +382,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       ...liveDescriptor,
       description: "What the reviewer approved, before the server changed it",
     } satisfies Tool;
+
     // Without this the case would silently degrade into the matching-hash test
     // above, which asserts the OPPOSITE outcome and would still pass.
     assert.notEqual(
@@ -376,6 +401,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     });
 
     const stagingId = await seedStaging(userId);
+
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
@@ -404,12 +430,14 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     const broker = brokerWith(protocol);
     const stagingId = await seedStaging(userId);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "create_issue",
       catalogRevision: revision,
     };
+
     const outcome = await broker.callTool({ userId, stagingId, ref, arguments: { title: "x" } });
 
     assert.equal(outcome.status, "completed");
@@ -429,10 +457,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     protocol.beforeReturn = async () => {
       appliedEffects += 1;
     };
+
     const revision = await liveRevision(protocol, connId);
 
     const broker = brokerWith(protocol);
     const stagingId = await seedStaging(userId);
+
     const outcome = await broker.callTool({
       userId,
       stagingId,
@@ -463,6 +493,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { title: "x" },
     });
+
     assert.equal(repeated.status, "blocked");
     assert.equal(appliedEffects, 1, "an ordinary model repeat cannot apply the effect again");
   });
@@ -475,12 +506,14 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const revision = await liveRevision(protocol, connId);
 
     const broker = brokerWith(protocol);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "charge_card",
       catalogRevision: revision,
     };
+
     const args = { amount: 4200 };
 
     const first = await broker.callTool({
@@ -489,7 +522,9 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       ref,
       arguments: args,
     });
+
     assert.equal(first.status, "ambiguous");
+
     if (first.status !== "ambiguous") throw new Error("unreachable");
     assert.ok(first.invocationId);
 
@@ -498,6 +533,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       .select()
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, first.invocationId));
+
     assert.equal(row?.effectOutcome, "unknown");
     assert.equal(row?.retryDisposition, "blocked");
     assert.equal(row?.resolvedAt, null);
@@ -505,13 +541,16 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     // An identical proposal (fresh staging row) is refused by the barrier and
     // never reaches the transport again.
     const callsBefore = protocol.calls;
+
     const second = await broker.callTool({
       userId,
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
     });
+
     assert.equal(second.status, "blocked");
+
     if (second.status !== "blocked") throw new Error("unreachable");
     assert.equal(second.reason, "ambiguity_barrier");
     assert.equal(second.priorInvocationId, first.invocationId);
@@ -623,9 +662,11 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       remoteName: "charge_card",
       catalogRevision: revision,
     };
+
     const args = { amount: 4200 };
 
     const firstBroker = brokerWith(protocol);
+
     const firstOutcome = await firstBroker.callTool({
       userId,
       stagingId: await seedStaging(userId),
@@ -634,6 +675,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     });
 
     assert.equal(firstOutcome.status, "ambiguous");
+
     if (firstOutcome.status !== "ambiguous") throw new Error("unreachable");
     assert.equal(protocol.calls, 1, "exactly one outbound tools/call");
 
@@ -641,6 +683,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       .select()
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, firstOutcome.invocationId));
+
     // The lifecycle never advanced past the delivery boundary, and the row stays
     // unresolved so the barrier keeps rejecting an identical repeat.
     assert.equal(row?.attemptLifecycle, "delivery_possible");
@@ -653,13 +696,16 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     // proving the block is the durable barrier, not a broken transport.
     protocol.behavior = { kind: "ok" };
     const reconnectedBroker = brokerWith(protocol);
+
     const second = await reconnectedBroker.callTool({
       userId,
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
     });
+
     assert.equal(second.status, "blocked");
+
     if (second.status !== "blocked") throw new Error("unreachable");
     assert.equal(second.reason, "ambiguity_barrier");
     assert.equal(second.priorInvocationId, firstOutcome.invocationId);
@@ -672,6 +718,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       ref,
       arguments: args,
     });
+
     assert.equal(stillBlocked.status, "blocked");
     assert.equal(protocol.calls, 1, "a model proposal can never self-authorize a successor");
   });
@@ -681,12 +728,14 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("charge_card")]);
     const revision = await liveRevision(protocol, connId);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "charge_card",
       catalogRevision: revision,
     };
+
     const args = { amount: 4200 };
     const exactInput = stagedCallInput(ref, args);
     protocol.behavior = {
@@ -701,6 +750,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const stagingId = await seedStaging(userId, exactInput);
     const first = await firstBroker.callTool({ userId, stagingId, ref, arguments: args });
     assert.equal(first.status, "ambiguous");
+
     if (first.status !== "ambiguous") throw new Error("unreachable");
     await db()
       .update(actionStagings)
@@ -710,11 +760,13 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     protocol.behavior = { kind: "ok" };
     const recoveryBroker = brokerWith(protocol);
     _setMcpExecutionBrokerForTests(recoveryBroker);
+
     try {
       const recovered = await retryMcpRecoveryOperation({
         userId,
         invocationId: first.invocationId,
       });
+
       assert.equal(recovered.status, "completed");
       assert.ok(recovered.successorInvocationId);
       assert.equal(protocol.calls, 2, "the user-authorized successor sends once");
@@ -723,6 +775,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         userId,
         invocationId: first.invocationId,
       });
+
       assert.equal(repeated.status, "blocked");
       assert.equal(repeated.successorInvocationId, recovered.successorInvocationId);
       assert.equal(protocol.calls, 2, "a repeated HTTP post cannot send the successor again");
@@ -731,14 +784,17 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .select()
         .from(mcpInvocation)
         .where(eq(mcpInvocation.id, first.invocationId));
+
       const [successor] = await db()
         .select()
         .from(mcpInvocation)
         .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
+
       const [successorStaging] = await db()
         .select()
         .from(actionStagings)
         .where(eq(actionStagings.id, successor?.stagingId ?? "missing"));
+
       assert.equal(prior?.resolutionReason, "superseded_by_user_successor");
       assert.equal(successor?.successorOf, prior?.id);
       assert.equal(successor?.effectOutcome, "succeeded");
@@ -756,18 +812,23 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     protocol.beforeReturn = async () => {
       appliedEffects += 1;
     };
+
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
+
     try {
       const recovered = await retryMcpRecoveryOperation({
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(recovered.status, "ambiguous");
       assert.equal(appliedEffects, 1);
+
       const [successor] = await db()
         .select()
         .from(mcpInvocation)
         .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
+
       assert.equal(successor?.attemptLifecycle, "response_received");
       assert.equal(successor?.effectOutcome, "unknown");
       assert.equal(successor?.retryDisposition, "blocked");
@@ -777,6 +838,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(repeated.status, "blocked");
       assert.equal(appliedEffects, 1, "the ambiguous successor cannot be sent again");
     } finally {
@@ -792,6 +854,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     protocol.behavior = { kind: "ok" };
     protocol.connectError = new Error("recovery connect failed before claim");
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
+
     try {
       await assert.rejects(
         retryMcpRecoveryOperation({
@@ -809,8 +872,10 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       callsAfterAmbiguousAttempt,
       "a failure before the prepared claim cannot send",
     );
+
     const operationsAfterFailure = (await listMcpRecoveryOperations({ userId: seeded.userId }))
       .operations;
+
     assert.equal(operationsAfterFailure.length, 1);
     const prepared = operationsAfterFailure[0];
     assert.ok(prepared);
@@ -842,17 +907,20 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       "constructing a reconnected broker does not deliver",
     );
     _setMcpExecutionBrokerForTests(reconnectedBroker);
+
     try {
       const resumed = await retryMcpRecoveryOperation({
         userId: seeded.userId,
         invocationId: prepared.invocationId,
       });
+
       assert.equal(resumed.status, "completed");
       assert.equal(resumed.invocationId, seeded.invocationId);
       assert.equal(resumed.successorInvocationId, prepared.invocationId);
     } finally {
       _setMcpExecutionBrokerForTests(undefined);
     }
+
     assert.equal(protocol.calls, callsAfterAmbiguousAttempt + 1, "the fresh post sends once");
     assert.equal((await listMcpRecoveryOperations({ userId: seeded.userId })).operations.length, 0);
   });
@@ -863,6 +931,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     protocol.behavior = { kind: "ok" };
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
     let retryPromise: ReturnType<typeof retryMcpRecoveryOperation> | undefined;
+
     try {
       await db().transaction(async (tx) => {
         await tx
@@ -889,6 +958,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     } finally {
       _setMcpExecutionBrokerForTests(undefined);
     }
+
     await assertPriorRecoveryBarriersUnchanged(seeded);
     assert.equal(protocol.calls, 1, "catalog drift is rejected before a successor send");
   });
@@ -900,6 +970,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     protocol.behavior = { kind: "ok" };
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
     let retryPromise: ReturnType<typeof retryMcpRecoveryOperation> | undefined;
+
     try {
       await db().transaction(async (tx) => {
         await tx
@@ -930,6 +1001,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     } finally {
       _setMcpExecutionBrokerForTests(undefined);
     }
+
     await assertPriorRecoveryBarriersUnchanged(seeded);
     assert.equal(protocol.calls, 1, "policy drift is rejected before a successor send");
   });
@@ -938,6 +1010,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const protocol = new FakeProtocol([tool("charge_card")]);
     const seeded = await seedRecoverableWrite(protocol);
     const attackerId = await seedUser();
+
     const attackerConnection = await ensureConnection({
       userId: attackerId,
       label: "Attacker MCP",
@@ -945,9 +1018,11 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       canonicalResource: `mcp://attacker/${randomUUID()}`,
       endpoint: new URL("https://attacker.example.test/mcp"),
     });
+
     protocol.behavior = { kind: "ok" };
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
     let retryPromise: ReturnType<typeof retryMcpRecoveryOperation> | undefined;
+
     try {
       await db().transaction(async (tx) => {
         await tx
@@ -976,6 +1051,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     } finally {
       _setMcpExecutionBrokerForTests(undefined);
     }
+
     await assertPriorRecoveryBarriersUnchanged(seeded);
     assert.equal(protocol.calls, 1, "ownership drift is rejected before a successor send");
   });
@@ -989,6 +1065,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .select()
         .from(mcpInvocation)
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+
       assert.ok(successor);
       const now = new Date();
       await db().transaction(async (tx) => {
@@ -1008,12 +1085,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
           .where(eq(actionStagings.id, successor.stagingId));
       });
     };
+
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
+
     try {
       const result = await retryMcpRecoveryOperation({
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(result.status, "ambiguous");
     } finally {
       _setMcpExecutionBrokerForTests(undefined);
@@ -1023,6 +1103,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       .select()
       .from(mcpInvocation)
       .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+
     assert.equal(successor?.effectOutcome, "succeeded");
     assert.equal(successor?.resolutionReason, "concurrent_settlement");
     assert.equal(protocol.calls, 2, "the guarded failure cannot cause a second send");
@@ -1037,6 +1118,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .select({ stagingId: mcpInvocation.stagingId })
         .from(mcpInvocation)
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+
       assert.ok(successor);
       // Force the first settlement transaction's staging guard to fail after
       // the provider has returned. The broker's local fallback must align this
@@ -1046,12 +1128,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .set({ outcome: "planned" })
         .where(eq(actionStagings.id, successor.stagingId));
     };
+
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
+
     try {
       const result = await retryMcpRecoveryOperation({
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(result.status, "ambiguous");
       assert.equal(protocol.calls, 2, "the authorized successor was sent exactly once");
 
@@ -1067,6 +1152,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(repeated.status, "blocked");
       assert.equal(protocol.calls, 2, "recovery visibility does not create a resend");
     } finally {
@@ -1079,12 +1165,14 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("create_issue")]);
     const revision = await liveRevision(protocol, connId);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "create_issue",
       catalogRevision: revision,
     };
+
     const stagingId = await seedStaging(userId, stagedCallInput(ref, { title: "one" }));
     let appliedEffects = 0;
     protocol.beforeReturn = async () => {
@@ -1094,13 +1182,16 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .set({ outcome: "planned" })
         .where(eq(actionStagings.id, stagingId));
     };
+
     const broker = brokerWith(protocol);
+
     const outcome = await broker.callTool({
       userId,
       stagingId,
       ref,
       arguments: { title: "one" },
     });
+
     assert.equal(outcome.status, "ambiguous");
     assert.equal(appliedEffects, 1);
 
@@ -1116,11 +1207,13 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const boot = await reconcileInflightInvocations(userId);
     assert.equal(boot.markedUnknown, 0);
     assert.equal(boot.alignedStagingBarriers, 0);
+
     const resolved = await resolveMcpRecoveryOperation({
       userId,
       invocationId: outcome.invocationId!,
       decision: "confirmed_not_applied",
     });
+
     assert.equal(resolved.status, "resolved");
     assert.equal(protocol.calls, 1, "repair, list, boot, and resolution never resend");
   });
@@ -1134,26 +1227,32 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .select({ stagingId: mcpInvocation.stagingId })
         .from(mcpInvocation)
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+
       assert.ok(successor);
       await db()
         .update(actionStagings)
         .set({ outcome: "planned" })
         .where(eq(actionStagings.id, successor.stagingId));
     };
+
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
+
     try {
       const result = await retryMcpRecoveryOperation({
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(result.status, "ambiguous");
       const operations = (await listMcpRecoveryOperations({ userId: seeded.userId })).operations;
       assert.equal(operations.length, 1);
       assert.equal(operations[0]?.invocationId, result.successorInvocationId);
+
       const repeated = await retryMcpRecoveryOperation({
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(repeated.status, "blocked");
       assert.equal(protocol.calls, 2, "the possibly-delivered successor is not resent");
     } finally {
@@ -1171,6 +1270,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .select({ stagingId: mcpInvocation.stagingId })
         .from(mcpInvocation)
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+
       assert.ok(successor);
       successorStagingId = successor.stagingId;
       // `refused` is not a value the aggregate settle or the incomplete mark
@@ -1180,13 +1280,16 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .set({ status: "failed", outcome: "refused" })
         .where(eq(actionStagings.id, successor.stagingId));
     };
+
     const broker = brokerWith(protocol);
     _setMcpExecutionBrokerForTests(broker);
+
     try {
       const result = await retryMcpRecoveryOperation({
         userId: seeded.userId,
         invocationId: seeded.invocationId,
       });
+
       assert.equal(result.status, "ambiguous");
       assert.ok(successorStagingId);
 
@@ -1218,22 +1321,27 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("charge_card")]);
     const revision = await liveRevision(protocol, connId);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "charge_card",
       catalogRevision: revision,
     };
+
     const exactInput = stagedCallInput(ref, { amount: 4200 });
     protocol.behavior = { kind: "throw", error: new Error("connection reset mid-send") };
     const stagingId = await seedStaging(userId, exactInput);
+
     const first = await brokerWith(protocol).callTool({
       userId,
       stagingId,
       ref,
       arguments: exactInput.arguments,
     });
+
     assert.equal(first.status, "ambiguous");
+
     if (first.status !== "ambiguous") throw new Error("unreachable");
     await db()
       .update(actionStagings)
@@ -1246,6 +1354,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     protocol.behavior = { kind: "ok" };
     _setMcpExecutionBrokerForTests(brokerWith(protocol));
+
     try {
       await assert.rejects(
         retryMcpRecoveryOperation({ userId, invocationId: first.invocationId }),
@@ -1259,14 +1368,17 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       .select()
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, first.invocationId));
+
     const [staging] = await db()
       .select()
       .from(actionStagings)
       .where(eq(actionStagings.id, stagingId));
+
     const successors = await db()
       .select({ id: mcpInvocation.id })
       .from(mcpInvocation)
       .where(eq(mcpInvocation.successorOf, first.invocationId));
+
     assert.equal(prior?.resolvedAt, null);
     assert.equal(staging?.outcome, "unknown");
     assert.equal(successors.length, 0);
@@ -1279,6 +1391,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
   test("invalid output after possible delivery is ambiguous for an effectful call", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
+
     const declaredOutput = {
       name: "create_issue",
       inputSchema: { type: "object", additionalProperties: true },
@@ -1289,6 +1402,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         additionalProperties: false,
       },
     } satisfies Tool;
+
     const protocol = new FakeProtocol([declaredOutput]);
     // A structured result that violates the declared output schema → the raw
     // client throws `invalid_output` AFTER the call was delivered.
@@ -1298,12 +1412,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     };
     protocol.callTool = async () => {
       protocol.calls += 1;
+
       return { content: [{ type: "text", text: "ok" }], structuredContent: { wrong: true } };
     };
+
     const revision = await liveRevision(protocol, connId);
 
     const broker2 = brokerWith(protocol);
     const stagingId = await seedStaging(userId);
+
     const outcome = await broker2.callTool({
       userId,
       stagingId,
@@ -1357,12 +1474,14 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     protocol.behavior = { kind: "throw", error: new Error("reset before ack") };
     const broker3 = brokerWith(protocol);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "send_message",
       catalogRevision: revision,
     };
+
     const args = { text: "hi" };
 
     const outcome = await broker3.callTool({
@@ -1371,15 +1490,18 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       ref,
       arguments: args,
     });
+
     assert.equal(outcome.status, "ambiguous");
 
     const callsBefore = protocol.calls;
+
     const repeat = await broker3.callTool({
       userId,
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
     });
+
     assert.equal(repeat.status, "blocked");
     assert.equal(protocol.calls, callsBefore, "a low-risk write repeat is still barred");
   });
@@ -1394,6 +1516,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const okProtocol = new FakeProtocol([tool("create_issue")]);
     const okRevision = await liveRevision(okProtocol, connId);
     const okStaging = await seedStaging(userId);
+
     const okOutcome = await brokerWith(okProtocol).callTool({
       userId,
       stagingId: okStaging,
@@ -1405,6 +1528,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { title: "x" },
     });
+
     assert.equal(okOutcome.status, "completed");
     const [okRow] = await invocationsForStaging(okStaging);
     assert.deepEqual(okRow?.resultProvenance, {
@@ -1420,6 +1544,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     errProtocol.behavior = { kind: "tool_error" };
     const errRevision = await liveRevision(errProtocol, connId);
     const errStaging = await seedStaging(userId);
+
     const errOutcome = await brokerWith(errProtocol).callTool({
       userId,
       stagingId: errStaging,
@@ -1431,6 +1556,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { title: "y" },
     });
+
     assert.equal(errOutcome.status, "ambiguous");
     const [errRow] = await invocationsForStaging(errStaging);
     assert.equal(errRow?.resultProvenance?.isError, true);
@@ -1450,6 +1576,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const revision = await liveRevision(protocol, connId);
 
     const stagingId = await seedStaging(userId);
+
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
@@ -1461,6 +1588,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { amount: 1 },
     });
+
     assert.equal(outcome.status, "ambiguous");
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.effectOutcome, "unknown");
@@ -1481,12 +1609,14 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const attacker = await seedUser();
     const broker = brokerWith(protocol);
     const stagingId = await seedStaging(attacker);
+
     const ref: ExternalToolRef = {
       kind: "mcp",
       connectionId: connId,
       remoteName: "create_issue",
       catalogRevision: revision,
     };
+
     const callsBefore = protocol.calls;
 
     await assert.rejects(
@@ -1511,6 +1641,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const revision = await liveRevision(protocol, connId);
 
     const stagingId = await seedStaging(userId);
+
     const [staging] = await db()
       .select({
         runId: actionStagings.runId,
@@ -1519,6 +1650,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       })
       .from(actionStagings)
       .where(eq(actionStagings.id, stagingId));
+
     assert.ok(staging, "seeded staging row");
 
     const outcome = await brokerWith(protocol).callTool({
@@ -1532,6 +1664,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { title: "x" },
     });
+
     assert.equal(outcome.status, "completed");
 
     const [row] = await invocationsForStaging(stagingId);
@@ -1557,6 +1690,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const revision = await liveRevision(protocol, connId);
 
     const stagingId = await seedStaging(userId);
+
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
@@ -1568,6 +1702,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { amount: 1 },
     });
+
     assert.equal(outcome.status, "ambiguous");
     const [row] = await invocationsForStaging(stagingId);
     assert.ok(row?.deliveryPossibleAt, "the delivery boundary was still crossed");
@@ -1597,6 +1732,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     const secretArg = "topsecretargvalue-should-never-persist";
     const stagingId = await seedStaging(userId);
+
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
@@ -1608,6 +1744,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       },
       arguments: { title: secretArg, amount: 4200 },
     });
+
     assert.equal(outcome.status, "ambiguous");
 
     const [row] = await invocationsForStaging(stagingId);

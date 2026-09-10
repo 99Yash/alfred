@@ -58,17 +58,22 @@ export async function compactWithRetry(
 ): Promise<CompactTranscriptResult> {
   const aborted = (): boolean => options.abortSignal !== "none" && options.abortSignal.aborted;
   let lastError: unknown;
+
   for (let attempt = 1; attempt <= COMPACTOR_RETRY_ATTEMPTS; attempt += 1) {
     if (attempt > 1 && aborted()) throw lastError;
+
     try {
       return await compact(attempt);
     } catch (error) {
       lastError = error;
+
       if (isCompactorInputTooLarge(error) || aborted()) throw error;
       const delayMs = options.delayBeforeRetryMs?.(attempt) ?? 0;
+
       if (attempt < COMPACTOR_RETRY_ATTEMPTS && delayMs > 0) await sleepMs(delayMs);
     }
   }
+
   throw new Error(`compactor_failed: ${toMessage(lastError)}`);
 }
 

@@ -21,7 +21,9 @@ const authorArgs = {
   timezone: "America/New_York",
   input: { name: "Inbox summary" },
 } as unknown as Parameters<typeof authorWorkflow>[0];
+
 const recoverArgs = { userId: "user_1", workflowId: "wf_1", revisionId: "rev_1" };
+
 /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
 const activateArgs = {
   userId: "user_1",
@@ -53,24 +55,30 @@ describe("system-tool workflow seam with a registered adapter", () => {
       recover?: typeof recoverArgs;
       activate?: typeof activateArgs;
     }
+
     const seen: SeenOps = {};
     const authorResult = { ok: true, status: "ready_to_activate" };
     const recoverResult = { ok: true, status: "blocked" };
     const activateResult = { ok: true, status: "activated" };
+
     const adapter: SystemToolWorkflowAdapter = {
       authorWorkflow: (args) => {
         seen.author = args;
+
         return Promise.resolve(authorResult);
       },
       recoverWorkflow: (args) => {
         seen.recover = args;
+
         return Promise.resolve(recoverResult);
       },
       activateWorkflow: (args) => {
         seen.activate = args;
+
         return Promise.resolve(activateResult);
       },
     };
+
     unregister = registerSystemToolWorkflowAdapter(adapter);
 
     // Same object identity out as the adapter returned — the seam adds nothing.
@@ -90,6 +98,7 @@ describe("system-tool workflow seam with a registered adapter", () => {
       recoverWorkflow: () => Promise.resolve(null),
       activateWorkflow: () => Promise.resolve(null),
     };
+
     unregister = registerSystemToolWorkflowAdapter(first);
     assert.throws(() => registerSystemToolWorkflowAdapter({ ...first }), {
       message: "A system-tool workflow adapter is already registered",

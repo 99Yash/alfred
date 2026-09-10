@@ -13,7 +13,9 @@ import {
 import { estimateTranscriptTokens } from "@alfred/assistant/execution/run-compaction/index";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
+
 const watermark = { createdAt: at, messageId: "msg_2" };
+
 const summary: ConversationSummary = {
   schemaVersion: 1,
   overview: {
@@ -58,6 +60,7 @@ function context(overrides: Partial<LoadedChatThreadContext> = {}): LoadedChatTh
     createdAt: at,
     updatedAt: at,
   };
+
   return { ...row, invalidSummary: false, ...overrides };
 }
 
@@ -65,6 +68,7 @@ describe("synchronous conversation compaction", () => {
   test("generates a replacement and persists the exact replay estimate", async () => {
     let persistedArgs: PersistConversationSummaryArgs | null = null;
     const replayTail = [{ role: "user" as const, content: "latest question" }];
+
     const result = await compactConversationSynchronously(
       {
         userId: "user_1",
@@ -80,14 +84,17 @@ describe("synchronous conversation compaction", () => {
         generateSummary: async () => summary,
         persistSummary: async (args) => {
           persistedArgs = args;
+
           return true;
         },
       },
     );
+
     const expectedTokens = estimateTranscriptTokens([
       conversationSummaryMessage(summary),
       ...replayTail,
     ]);
+
     assert.equal(result.kind, "persisted");
     assert.equal(result.kind === "persisted" ? result.estimatedReplayTokens : -1, expectedTokens);
     assert.equal(persistedArgs?.estimatedReplayTokens, expectedTokens);
@@ -119,11 +126,13 @@ describe("synchronous conversation compaction", () => {
         loadEvidence: async (args) => {
           loadedAfter = args.afterWatermark;
           assert.equal(args.priorSummary, null);
+
           return { evidence, watermark };
         },
         generateSummary: async () => summary,
         persistSummary: async (args) => {
           persistedArgs = args;
+
           return true;
         },
       },
@@ -150,11 +159,13 @@ describe("synchronous conversation compaction", () => {
         persistSummary: async () => false,
       },
     );
+
     assert.deepEqual(result, { kind: "superseded" });
   });
 
   test("returns a no-op when the persisted summary already covers the requested cutoff", async () => {
     let loadedEvidence = false;
+
     const result = await compactConversationSynchronously(
       {
         userId: "user_1",
@@ -203,6 +214,7 @@ describe("synchronous conversation compaction", () => {
         generateSummary: async (args) => {
           receivedSignal = args.abortSignal;
           receivedTimeout = args.timeoutMs;
+
           return summary;
         },
         persistSummary: async () => true,

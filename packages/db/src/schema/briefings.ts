@@ -111,4 +111,5 @@ export const briefings = pgTable(
 );
 
 export type Briefing = typeof briefings.$inferSelect;
+
 export type NewBriefing = typeof briefings.$inferInsert;

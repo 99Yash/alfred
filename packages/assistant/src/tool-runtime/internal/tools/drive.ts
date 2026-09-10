@@ -57,6 +57,7 @@ async function maybeSurfaceUnreadableDriveFile(
   // real access, so a genuine permission 403 on the read stays a 403). Its
   // mimeType tells us whether text extraction was ever possible.
   let file;
+
   try {
     file = await ctx.integrations.google.drive.getFile(args);
   } catch {
@@ -68,6 +69,7 @@ async function maybeSurfaceUnreadableDriveFile(
   if (isGoogleNativeMimeType(file.mimeType) || !file.mimeType) return null;
 
   const fileName = file.name ?? "file";
+
   const { artifactId } = await surfaceExternalFileArtifact(
     { userId: ctx.userId, threadId: ctx.threadId, runId: ctx.runId },
     {
@@ -99,6 +101,7 @@ export const driveTools: readonly RegisteredTool[] = [
     inputSchema: driveSearchInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.drive.credential()).id;
+
       return ctx.integrations.google.drive.listFiles({
         credentialId,
         q: input.q,
@@ -116,6 +119,7 @@ export const driveTools: readonly RegisteredTool[] = [
     inputSchema: driveGetFileInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.drive.credential()).id;
+
       return ctx.integrations.google.drive.getFile({ credentialId, fileId: input.fileId });
     },
   }),
@@ -128,6 +132,7 @@ export const driveTools: readonly RegisteredTool[] = [
     inputSchema: driveExportFileInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.drive.credential()).id;
+
       try {
         return await ctx.integrations.google.drive.exportFile({
           credentialId,
@@ -139,6 +144,7 @@ export const driveTools: readonly RegisteredTool[] = [
           credentialId,
           fileId: input.fileId,
         });
+
         if (surfaced) return surfaced;
         throw err;
       }
@@ -153,6 +159,7 @@ export const driveTools: readonly RegisteredTool[] = [
     inputSchema: driveDownloadFileInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.drive.credential()).id;
+
       try {
         return await ctx.integrations.google.drive.downloadFile({
           credentialId,
@@ -163,6 +170,7 @@ export const driveTools: readonly RegisteredTool[] = [
           credentialId,
           fileId: input.fileId,
         });
+
         if (surfaced) return surfaced;
         throw err;
       }
@@ -185,6 +193,7 @@ export const driveTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.drive.credential()).id;
+
       return runRestPassthrough(ctx.integrations.google.drive.passthrough(credentialId), input);
     },
   }),

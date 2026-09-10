@@ -34,18 +34,23 @@ export async function prepareWorkflowApprovalEdit(args: {
     })
     .from(actionStagings)
     .where(and(eq(actionStagings.id, args.stagingId), eq(actionStagings.userId, args.userId)));
+
   if (candidate?.toolName !== "system.activate_workflow") return { kind: "not_workflow" };
+
   if (candidate.rowVersion !== args.expectedRowVersion) {
     return { kind: "invalid", message: "The approval changed. Review the latest contract." };
   }
 
   const staged = activateWorkflowInputSchema.safeParse(candidate.proposedInput);
+
   const edited = activateWorkflowInputSchema.safeParse(
     args.editedInput === undefined ? candidate.proposedInput : args.editedInput,
   );
+
   if (!staged.success || !edited.success) {
     return { kind: "invalid", message: "The workflow activation contract is invalid." };
   }
+
   if (
     staged.data.workflowId !== edited.data.workflowId ||
     staged.data.baseRevisionId !== edited.data.baseRevisionId ||
@@ -59,9 +64,11 @@ export async function prepareWorkflowApprovalEdit(args: {
     userId: args.userId,
     input: edited.data,
   });
+
   if (!refreshed.ok) {
     return { kind: "invalid", message: workflowRefreshFailureMessage(refreshed.failure) };
   }
+
   return {
     kind: "prepared",
     input: refreshed.input,
@@ -94,6 +101,7 @@ export async function restageWorkflowApproval(
       rowVersion: sql`${actionStagings.rowVersion} + 1`,
     })
     .where(eq(actionStagings.id, stagingId));
+
   return expiresAt;
 }
 
@@ -107,6 +115,7 @@ function reviewedDerivedContract(input: ReturnType<typeof activateWorkflowInputS
     schedule,
     ...derived
   } = input;
+
   return {
     ...derived,
     schedule: {
@@ -121,11 +130,14 @@ function workflowRefreshFailureMessage(failure: WorkflowServiceFailure): string 
   if (failure.kind === "validation_failed") {
     return failure.problems.map((problem) => problem.message).join(" ");
   }
+
   if (failure.kind === "readiness_blocked") {
     return failure.blockers.map((blocker) => blocker.message).join(" ");
   }
+
   if (failure.kind === "stale_revision" || failure.kind === "row_version_conflict") {
     return "The workflow changed. Refresh it before you approve it.";
   }
+
   return "The workflow activation contract cannot be refreshed.";
 }

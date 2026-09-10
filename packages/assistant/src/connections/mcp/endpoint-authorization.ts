@@ -80,6 +80,7 @@ export async function withMcpEndpointAuthorization<T>(
   operation: (authorization: McpAuthorizedEndpoint) => Promise<T>,
 ): Promise<T> {
   const authorization = await authorizer.authorize(connection, network);
+
   try {
     return await operation(authorization);
   } finally {
@@ -94,6 +95,7 @@ export interface HostedMcpEndpointAuthorizerDependencies {
 
 function validatePublicHttpsEndpoint(input: unknown): URL {
   const publicUrl = validatePublicWebUrl(input);
+
   return validatePinnedHttpsEndpoint(publicUrl, publicUrl.origin);
 }
 
@@ -104,6 +106,7 @@ function withRequestDeadline(
 ): Parameters<FetchLike>[1] {
   const deadline = AbortSignal.timeout(requestTimeoutMs);
   const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
+
   return { ...init, signal };
 }
 
@@ -114,16 +117,20 @@ function createAuthorizedOAuth(
 ): McpAuthorizedOAuth {
   let serverIssuer: string | null = null;
   let serverOrigin: string | null = null;
+
   const authorizeServer = (input: unknown): McpAuthorizedOAuthServer => {
     const server = validatePublicHttpsEndpoint(input);
+
     if (serverIssuer !== null && serverIssuer !== server.href) {
       throw new HostedEndpointError(
         "origin_mismatch",
         `OAuth authorization server changed from ${serverIssuer} to ${server.href}.`,
       );
     }
+
     serverIssuer = server.href;
     serverOrigin = server.origin;
+
     return Object.freeze({
       issuer: server.href,
       origin: server.origin,
@@ -131,24 +138,29 @@ function createAuthorizedOAuth(
         validatePinnedHttpsEndpoint(candidate, server.origin),
     });
   };
+
   const fetch: FetchLike = async (input, init) => {
     const request = requestFacts(input, init);
     const url = validatePublicHttpsEndpoint(request.url);
+
     const credentialFreeDiscovery =
       (request.method === "GET" || request.method === "HEAD") &&
       request.body == null &&
       [...request.headers.keys()].every((name) => !isHostedEndpointSensitiveHeader(name));
+
     if (url.origin !== resource.origin && url.origin !== serverOrigin && !credentialFreeDiscovery) {
       throw new HostedEndpointError(
         "origin_mismatch",
         `OAuth request origin ${url.origin} is not authorized.`,
       );
     }
+
     // The SDK's OAuth flow has no deadline of its own and the shared dispatcher
     // no longer bounds body time (the protocol stream needs it off), so the
     // request budget is applied here, where the request is one-shot.
     return guardedFetch(input, withRequestDeadline(init, network.requestTimeoutMs));
   };
+
   return Object.freeze({
     resource: new URL(resource.href),
     fetch,
@@ -168,6 +180,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     network: McpEndpointNetworkPolicy,
   ): Promise<McpAuthorizedEndpoint> {
     const endpoint = validatePinnedHttpsEndpoint(connection.endpointUrl, connection.endpointOrigin);
+
     // Headers and connect are bounded by the connection's own request budget.
     // Body time is deliberately unbounded: the SDK holds a long-lived
     // list-change stream on this dispatcher, and undici's body timeout measures
@@ -181,8 +194,10 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
         bodyMs: 0,
       },
     });
+
     const requester = this.dependencies.requester ?? dispatcherRequester(dispatcher);
     let closeFlight: Promise<void> | null = null;
+
     return Object.freeze({
       oauth: createAuthorizedOAuth(endpoint, createGuardedFetch({ requester }), network),
       protocol: Object.freeze({

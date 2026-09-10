@@ -49,6 +49,7 @@ export const coldStartProposalSchema = z.object({
   /** Quote or paraphrase the citation that grounds the fact. */
   rationale: z.string().min(1).max(2_000),
 });
+
 export type ColdStartProposal = z.infer<typeof coldStartProposalSchema>;
 
 export const extractColdStartResultSchema = z.object({
@@ -94,14 +95,17 @@ function buildUserPrompt(args: ExtractColdStartFactsArgs): string {
   const lines: string[] = [];
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
+
   // Domain only — the local-part is a contact detail the rules already forbid
   // proposing, and there's no reason to put it in front of the extractor.
   if (args.signals.emailDomain) {
     lines.push(`- Email domain: ${args.signals.emailDomain}`);
   }
+
   lines.push("");
   lines.push(`=== Research output ===`);
   lines.push(args.research.content);
+
   if (args.research.citations.length > 0) {
     lines.push("");
     lines.push(`=== Citations ===`);
@@ -109,6 +113,7 @@ function buildUserPrompt(args: ExtractColdStartFactsArgs): string {
       lines.push(`[${i + 1}] ${url}`);
     });
   }
+
   return lines.join("\n");
 }
 
@@ -137,5 +142,6 @@ export async function extractColdStartFacts(
       name: "cold-start.extract",
     },
   );
+
   return result.output.proposals;
 }

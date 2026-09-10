@@ -45,11 +45,14 @@ export async function retryPending(args: RetryPendingArgs = {}): Promise<RetryPe
     ...(args.source ? { source: args.source } : {}),
     limit: args.limit ?? 50,
   });
+
   let succeeded = 0;
   let failed = 0;
+
   for (const id of ids) {
     try {
       const r = await indexDocument({ documentId: id });
+
       if (!r.empty) succeeded++;
     } catch {
       // Failure is durably recorded inside indexDocument (poison-pill guard)
@@ -57,5 +60,6 @@ export async function retryPending(args: RetryPendingArgs = {}): Promise<RetryPe
       failed++;
     }
   }
+
   return { candidates: ids.length, succeeded, failed };
 }

@@ -88,6 +88,7 @@ export function integrations(options: ProviderBindOptions): Integrations {
   // ProviderRegistry key in the loop below, so it ends up shaped by the mapped
   // type; Object.keys' string[] is the only thing erased.
   const bound = {} as { [K in keyof ProviderRegistry]: ReturnType<ProviderRegistry[K]> };
+
   // SAFETY: the registry is keyed by its own factory names, so its keys are
   // exactly keyof ProviderRegistry.
   for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {
@@ -99,5 +100,6 @@ export function integrations(options: ProviderBindOptions): Integrations {
     const build = once(() => (providerRegistry[key] as ProviderFactory)(options));
     Object.defineProperty(bound, key, { enumerable: true, get: build });
   }
+
   return bound;
 }

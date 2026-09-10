@@ -141,6 +141,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
 
   const refs: { id: string; threadId: string }[] = [];
   let pageToken: string | undefined;
+
   while (refs.length < cap) {
     const page = await listMessages({
       accessToken,
@@ -148,7 +149,9 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       maxResults: Math.min(pageSize, cap - refs.length),
       pageToken,
     });
+
     refs.push(...page.messages);
+
     if (!page.nextPageToken) break;
     pageToken = page.nextPageToken;
   }
@@ -169,12 +172,16 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     try {
       const message = await getMessage({ accessToken, id: ref.id, format: "full" });
       const result = await persistMessage(cred, message, accessToken);
+
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
+
         if (result.isSent) sentDocumentIds.push(result.documentId);
         else triageDocumentIds.push(result.documentId);
+
         if (message.threadId) touchedThreadIds.add(message.threadId);
+
         // Embed inline. Failures don't bubble — the doc row is still
         // useful for SQL search; m7c's poll will retry the embed via
         // findUnembeddedDocumentIds.
@@ -193,6 +200,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       } else {
         skipped++;
       }
+
       await scheduleMediaAttachmentsAfterPersist({
         cred,
         message,
@@ -200,6 +208,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
         schedule: args.scheduleMediaIngest,
         logId: ref.id,
       });
+
       if (message.historyId) {
         if (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0) {
           highWaterHistoryId = message.historyId;
@@ -248,6 +257,7 @@ interface CredentialContext {
 
 async function loadCredentialOrThrow(credentialId: string): Promise<CredentialContext> {
   const { integrationCredentials } = await import("@alfred/db/schemas");
+
   const rows = await db()
     .select({
       id: integrationCredentials.id,
@@ -257,11 +267,15 @@ async function loadCredentialOrThrow(credentialId: string): Promise<CredentialCo
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const row = rows[0];
+
   if (!row) throw new Error(`[gmail.ingestor] credential not found: ${credentialId}`);
+
   if (row.provider !== "google") {
     throw new Error(`[gmail.ingestor] credential provider must be google, got ${row.provider}`);
   }
+
   return { credentialId: row.id, userId: row.userId, accountId: row.accountId };
 }
 
@@ -292,7 +306,9 @@ type PersistMessageResult =
 function internalDateToDate(internalDate: string | undefined): Date | null {
   if (!internalDate) return null;
   const ms = Number(internalDate);
+
   if (!Number.isFinite(ms)) return null;
+
   return new Date(ms);
 }
 
@@ -303,6 +319,7 @@ async function persistMessage(
 ): Promise<PersistMessageResult> {
   const { userId, accountId } = cred;
   const extracted = extractMessageContent(message);
+
   // Drop Alfred's own outbound mail before it becomes a document — see
   // `isSelfAuthored` (issue #211). Nothing downstream should ever see it.
   if (isSelfAuthored(extracted.from)) {
@@ -326,8 +343,10 @@ async function persistMessage(
         );
       }
     }
+
     return { outcome: "ignored" };
   }
+
   const content = buildGmailDocumentContent({
     from: extracted.from,
     to: extracted.to,
@@ -336,6 +355,7 @@ async function persistMessage(
     date: extracted.date,
     body: extracted.body,
   });
+
   const contentHash = sha256(content);
   const labelIds = message.labelIds ?? [];
   const isSent = labelIds.includes("SENT");
@@ -377,9 +397,11 @@ async function persistMessage(
       target: [documents.userId, documents.source, documents.sourceId],
     })
     .returning({ id: documents.id });
+
   if (inserted[0]) {
     return { outcome: "inserted", documentId: inserted[0].id, isSent };
   }
+
   // Conflict: look up the existing row's id so callers can still
   // address it (handy for re-embedding a doc that exists but lost its
   // chunks). If the row has vanished between the conflict and this
@@ -396,13 +418,16 @@ async function persistMessage(
         eq(documents.sourceId, message.id),
       ),
     );
+
   const existingId = existing[0]?.id;
+
   if (!existingId) {
     throw new Error(
       `[gmail.ingestor] insert hit conflict but no existing document found for ` +
         `user=${userId} sourceId=${message.id}`,
     );
   }
+
   return { outcome: "skipped", documentId: existingId, isSent };
 }
 
@@ -421,6 +446,7 @@ async function scheduleMediaAttachmentsAfterPersist(args: {
   logId: string;
 }): Promise<void> {
   if (args.persistResult.outcome !== "inserted") return;
+
   if (!hasIngestableAttachments(args.message)) return;
   await scheduleGmailMediaIngestBestEffort({
     credentialId: args.cred.credentialId,
@@ -450,8 +476,10 @@ async function scheduleGmailMediaIngestBestEffort(args: {
     console.warn(
       `[gmail.ingestor] no media scheduler wired; attachment ingest deferred for message=${args.logId}`,
     );
+
     return;
   }
+
   try {
     await setMediaPending(args.documentId, true);
     await args.schedule({
@@ -489,7 +517,9 @@ export async function runGmailMediaIngest(args: {
   const accessToken = await getFreshAccessTokenFn(args.credentialId);
   const message = await getMessageFn({ accessToken, id: args.messageId, format: "full" });
   const extracted = extractMessageContent(message);
+
   if (isSelfAuthored(extracted.from)) return { ...ZERO_MEDIA_TALLY, documentIds: [] };
+
   const result = await ingestGmailMediaAttachments({
     userId: cred.userId,
     accountId: cred.accountId,
@@ -498,13 +528,16 @@ export async function runGmailMediaIngest(args: {
     authoredAt: internalDateToDate(message.internalDate),
     ...(args.deps?.media ? { deps: args.deps.media } : {}),
   });
+
   if (result.errors > 0 || result.embedFailures > 0) {
     console.warn(
       `[gmail.media] job mediaErrors=${result.errors} mediaEmbedFailures=${result.embedFailures} ` +
         `for message=${args.messageId}`,
     );
   }
+
   await setMediaPending(args.documentId, result.errors > 0);
+
   return result;
 }
 
@@ -520,6 +553,7 @@ function compareHistoryIds(a: string, b: string): number {
   try {
     const ba = BigInt(a);
     const bb = BigInt(b);
+
     return ba < bb ? -1 : ba > bb ? 1 : 0;
   } catch {
     return a.localeCompare(b);
@@ -644,6 +678,7 @@ export async function seedGmailHistoryCursorIfAbsent(args: {
         eq(ingestionState.stream, "messages"),
       ),
     );
+
   if (existing[0]) return;
 
   // No prior cursor → seed one. Look up userId from the credential row;
@@ -654,9 +689,11 @@ export async function seedGmailHistoryCursorIfAbsent(args: {
       .from(integrationCredentials)
       .where(eq(integrationCredentials.id, args.credentialId))
   )[0];
+
   if (!credRow) {
     throw new Error(`[gmail.ingest] credential vanished mid-install: ${args.credentialId}`);
   }
+
   await db()
     .insert(ingestionState)
     .values({
@@ -689,12 +726,14 @@ export async function installGmailWatchAndSeedCursor(args: {
   labelIds?: string[] | undefined;
 }): Promise<GmailWatchState | null> {
   const state = await installGmailWatch(args);
+
   if (state) {
     await seedGmailHistoryCursorIfAbsent({
       credentialId: args.credentialId,
       historyId: state.baselineHistoryId,
     });
   }
+
   return state;
 }
 
@@ -798,6 +837,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       maxMessages: 200,
       scheduleMediaIngest: args.scheduleMediaIngest,
     });
+
     return {
       pagesFetched: 0,
       inserted: recent.inserted,
@@ -832,6 +872,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         startHistoryId: cursorBefore,
         pageToken,
       });
+
       pagesFetched++;
 
       for (const entry of page.entries) {
@@ -840,8 +881,10 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
           // a later revision from a label change on the same message.
           if (!messageIds.has(id)) messageIds.set(id, entry.id);
         }
+
         if (compareHistoryIds(entry.id, latestHistoryId) > 0) latestHistoryId = entry.id;
       }
+
       // Quiet-period safety: if no entries came back, the response's
       // top-level `historyId` reflects Gmail's current mailbox revision.
       // Adopt it so the next call doesn't re-request the same window.
@@ -859,12 +902,14 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       console.warn(
         `[gmail.ingestor] history cursor stale for ${args.credentialId}; full re-ingest`,
       );
+
       const recent = await ingestRecentGmail({
         credentialId: args.credentialId,
         maxMessages: 500,
         coverageGap: true,
         scheduleMediaIngest: args.scheduleMediaIngest,
       });
+
       // #560b: clear coverageGap after the full re-sync repair. The
       // ingestRecentGmail call above set it to true (which is correct for
       // the audit trail), but the gap is now closed and triggerReady must
@@ -876,6 +921,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         fullSync: true,
         coverageGap: false,
       });
+
       return {
         pagesFetched,
         inserted: recent.inserted,
@@ -896,6 +942,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         userId: cred.userId,
       };
     }
+
     throw err;
   }
 
@@ -911,19 +958,26 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   const touchedThreadIds = new Set<string>();
 
   let insertedHistoryId: string | null = null;
+
   for (const [id, addedHistoryId] of messageIds) {
     try {
       const message = await getMessage({ accessToken, id, format: "full" });
       const result = await persistMessage(cred, message, accessToken);
+
       if (result.outcome === "inserted") {
         inserted++;
+
         if (!insertedHistoryId || compareHistoryIds(addedHistoryId, insertedHistoryId) > 0) {
           insertedHistoryId = addedHistoryId;
         }
+
         insertedDocumentIds.push(result.documentId);
+
         if (result.isSent) sentDocumentIds.push(result.documentId);
         else triageDocumentIds.push(result.documentId);
+
         if (message.threadId) touchedThreadIds.add(message.threadId);
+
         try {
           const embed = await indexDocument({ documentId: result.documentId });
           chunksWritten += embed.chunksWritten;
@@ -938,11 +992,14 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         ignored++;
       } else {
         skipped++;
+
         if (result.isSent) {
           sentDocumentIds.push(result.documentId);
+
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
+
       await scheduleMediaAttachmentsAfterPersist({
         cred,
         message,
@@ -962,6 +1019,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     args.reason === "poll-fallback" && insertedHistoryId
       ? await loadHighestReceiptHistoryId(args.credentialId)
       : null;
+
   const unannouncedInsert =
     insertedHistoryId !== null &&
     (!pushedHistoryId || compareHistoryIds(insertedHistoryId, pushedHistoryId) > 0);
@@ -1090,6 +1148,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   const getMessageFn = args.deps?.getMessage ?? getMessage;
   const getFreshAccessTokenFn = args.deps?.getFreshAccessToken ?? getFreshAccessToken;
   const scheduleMediaIngest = args.deps?.scheduleMediaIngest;
+
   // Header loads are independent (cred row, token refresh, cursor row).
   // Running them serially added ~40-60ms to every webhook for no reason;
   // any contention is harmless — both cred reads are SELECTs on the same
@@ -1099,6 +1158,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     getFreshAccessTokenFn(args.credentialId),
     loadIngestionState(args.credentialId),
   ]);
+
   const cursorBefore = state.historyId;
 
   // #560b: read the latest push-delivered historyId from event_receipts.
@@ -1113,6 +1173,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
 
   const refs: { id: string; threadId: string }[] = [];
   let pageToken: string | undefined;
+
   while (refs.length < cap) {
     const page = await listMessagesFn({
       accessToken,
@@ -1120,7 +1181,9 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       maxResults: Math.min(100, cap - refs.length),
       pageToken,
     });
+
     refs.push(...page.messages);
+
     if (!page.nextPageToken) break;
     pageToken = page.nextPageToken;
   }
@@ -1132,6 +1195,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   const { unknownRefs, knownRefs, knownSentDocs } = refs.length
     ? await partitionKnownGmailRefs(cred.userId, refs)
     : { unknownRefs: [], knownRefs: [], knownSentDocs: [] };
+
   let skipped = refs.length - unknownRefs.length;
   let inserted = 0;
   let ignored = 0;
@@ -1140,6 +1204,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
   const sentDocumentIds: string[] = knownSentDocs.map((doc) => doc.documentId);
+
   const touchedThreadIds = new Set(
     knownSentDocs.map((doc) => doc.threadId).filter((threadId) => threadId !== null),
   );
@@ -1148,11 +1213,14 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     try {
       const message = await getMessageFn({ accessToken, id: ref.id, format: "full" });
       const result = await persistMessage(cred, message, accessToken);
+
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
+
         if (result.isSent) sentDocumentIds.push(result.documentId);
         else triageDocumentIds.push(result.documentId);
+
         if (message.threadId) touchedThreadIds.add(message.threadId);
       } else if (result.outcome === "ignored") {
         // Self-authored mail (issue #211) — dropped, never a document.
@@ -1160,11 +1228,14 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       } else {
         // A race against pollGmailHistory or a duplicate webhook. Rare but fine.
         skipped++;
+
         if (result.isSent) {
           sentDocumentIds.push(result.documentId);
+
           if (message.threadId) touchedThreadIds.add(message.threadId);
         }
       }
+
       await scheduleMediaAttachmentsAfterPersist({
         cred,
         message,
@@ -1172,6 +1243,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
         schedule: scheduleMediaIngest,
         logId: ref.id,
       });
+
       if (
         message.historyId &&
         (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
@@ -1213,9 +1285,11 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   // detection works regardless of whether BullMQ dropped a duplicate push.
   const COVERAGE_GAP_THRESHOLD = 1000;
   let coverageGap = false;
+
   if (cursorBefore && latestReceiptHistoryId) {
     try {
       const jump = BigInt(latestReceiptHistoryId) - BigInt(cursorBefore);
+
       if (jump > BigInt(COVERAGE_GAP_THRESHOLD)) {
         coverageGap = true;
         console.warn(
@@ -1232,6 +1306,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   // search. Partial failures can still advance the cursor or record a gap,
   // but must not update the successful webhook timestamp.
   const cursorAdvanced = Boolean(highWaterHistoryId && highWaterHistoryId !== cursorBefore);
+
   if (cursorAdvanced || coverageGap || errors === 0) {
     await upsertIngestionState({
       credentialId: cred.credentialId,
@@ -1276,6 +1351,7 @@ async function partitionKnownGmailRefs(
   knownSentDocs: KnownSentGmailDoc[];
 }> {
   const ids = refs.map((r) => r.id);
+
   const existing = await db()
     .select({
       id: documents.id,
@@ -1291,20 +1367,26 @@ async function partitionKnownGmailRefs(
         inArray(documents.sourceId, ids),
       ),
     );
+
   const known = new Map(existing.map((row) => [row.sourceId, row]));
   const unknownRefs = refs.filter((r) => !known.has(r.id));
+
   const knownRefs = refs.flatMap((r) => {
     const row = known.get(r.id);
+
     return row !== undefined && isMediaPending(row.metadata)
       ? [{ id: r.id, threadId: r.threadId, documentId: row.id }]
       : [];
   });
+
   const knownSentDocs: KnownSentGmailDoc[] = [];
+
   for (const row of existing) {
     if (isStoredGmailSentMetadata(row.metadata)) {
       knownSentDocs.push({ documentId: row.id, threadId: row.sourceThreadId });
     }
   }
+
   return { unknownRefs, knownRefs, knownSentDocs };
 }
 
@@ -1319,17 +1401,21 @@ function isMediaPending(metadata: unknown): boolean {
 
 function isStoredGmailSentMetadata(metadata: unknown): boolean {
   const parsed = parseGmailDocumentMetadata(metadata);
+
   return parsed.isSent === true || parsed.labelIds?.includes("SENT") === true;
 }
 
 /** Return added message ids from a history entry. We dedupe upstream via Set. */
 function collectAddedMessageIds(entry: GmailHistoryEntry): string[] {
   const out: string[] = [];
+
   for (const m of entry.messagesAdded ?? []) out.push(m.message.id);
+
   // `messages` (without -Added/-Deleted) is the union per Gmail docs;
   // include it as a safety net in case we ever drop the historyTypes
   // filter in the call. Duplicates collapse in the caller's map.
   for (const m of entry.messages ?? []) out.push(m.id);
+
   return out;
 }
 
@@ -1340,10 +1426,12 @@ async function loadHistoryCursor(credentialId: string): Promise<string | null> {
     .where(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
+
   // SAFETY: ingestion_state.state is jsonb written by these very cursors with
   // the historyId envelope; this read views that stored shape.
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
   const id = state?.historyId;
+
   return id ?? null;
 }
 
@@ -1360,8 +1448,10 @@ async function loadIngestionState(
     .where(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
+
   // SAFETY: same stored envelope as above, plus the optional coverageGap flag.
   const state = rows[0]?.state as { historyId?: string | null; coverageGap?: boolean } | undefined;
+
   return {
     historyId: state?.historyId ?? null,
     coverageGap: state?.coverageGap === true,
@@ -1376,6 +1466,7 @@ async function loadIngestionState(
  */
 async function loadHighestReceiptHistoryId(credentialId: string): Promise<string | null> {
   const { typedEventReceipts } = await import("@alfred/db/schemas");
+
   const rows = await db()
     .select({
       // Delivery order is not revision order. Validate persisted text before
@@ -1387,6 +1478,7 @@ async function loadHighestReceiptHistoryId(credentialId: string): Promise<string
     })
     .from(typedEventReceipts)
     .where(eq(typedEventReceipts.credentialId, credentialId));
+
   return rows[0]?.historyId ?? null;
 }
 
@@ -1412,6 +1504,7 @@ export async function findCredentialsNeedingPoll(
     .from(ingestionState)
     .innerJoin(integrationCredentials, eq(integrationCredentials.id, ingestionState.credentialId))
     .where(and(eq(ingestionState.provider, "google"), eq(ingestionState.stream, "messages")));
+
   return rows
     .filter((r) => r.status === "active")
     .filter((r) => !before || !r.lastSyncAt || r.lastSyncAt < before)

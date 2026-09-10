@@ -12,6 +12,7 @@ describe("gmailSendDraftInput body alias (param-ergonomics)", () => {
       subject: "Hello",
       body: "This is the message body.",
     });
+
     assert.equal((parsed as { bodyText?: string }).bodyText, "This is the message body.");
     assert.ok(!("body" in (parsed as object)));
   });
@@ -23,6 +24,7 @@ describe("gmailSendDraftInput body alias (param-ergonomics)", () => {
       bodyText: "canonical",
       body: "ignored",
     });
+
     assert.equal((parsed as { bodyText?: string }).bodyText, "canonical");
   });
 
@@ -30,6 +32,7 @@ describe("gmailSendDraftInput body alias (param-ergonomics)", () => {
     const json = z.toJSONSchema(gmailSendDraftInput, { io: "input" }) as {
       properties?: Record<string, unknown>;
     };
+
     const keys = Object.keys(json.properties ?? {});
     assert.ok(keys.includes("bodyText"));
     assert.ok(!keys.includes("body"));
@@ -48,6 +51,7 @@ describe("gmail.send_draft recipient policy", () => {
       { userId: "user-1", activeMailbox: "Me <ME@example.com>", input },
       async (userId) => {
         assert.equal(userId, "user-1");
+
         return [
           {
             aliases: ["alice@example.com", "Alice Example"],

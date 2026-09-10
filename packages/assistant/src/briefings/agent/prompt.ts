@@ -143,7 +143,9 @@ export function buildSystemPrompt(args: {
   const namePart = args.recipientFirstName
     ? `\n\nThe user's first name is "${args.recipientFirstName}". Use it in sign-offs.`
     : "";
+
   const delta = args.slot === "morning" ? MORNING_DELTA : EVENING_DELTA;
+
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: BASE_PROMPT,

@@ -173,6 +173,7 @@ test("senderExtractionEvent carries each floor's real outcome", () => {
       signalText: "an api key was leaked in the public repo",
     }),
   );
+
   assert.equal(escalated.floorMatched, true);
   assert.equal(escalated.floorForced, true);
   assert.equal(escalated.finalCategory, "urgent");
@@ -185,6 +186,7 @@ test("senderExtractionEvent carries each floor's real outcome", () => {
   const gated = eventFor(
     applyFloors(classification({ category: "meeting" }), { ...floorContext(), ...recap }),
   );
+
   assert.equal(gated.meetingDemotedCategory, true);
   assert.equal(gated.meetingDemotionReason, "meeting_recap");
   assert.equal(gated.floorMatched, false);

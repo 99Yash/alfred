@@ -162,6 +162,7 @@ function QuestionPager({
   onGo: (next: number) => void;
 }) {
   const total = answers.length;
+
   return (
     <div className="flex shrink-0 items-center gap-1">
       <PagerButton
@@ -303,11 +304,14 @@ function OptionList({
   labelledBy: string;
 }) {
   const multi = question.multiSelect;
+
   const toggle = (label: string, checked: boolean) => {
     if (!multi) {
       onAnswer({ ...answer, selectedOptions: [label] });
+
       return;
     }
+
     onAnswer({
       ...answer,
       selectedOptions: checked
@@ -329,6 +333,7 @@ function OptionList({
     >
       {question.options.map((option) => {
         const checked = selected.has(option.label);
+
         return (
           <label
             key={option.label}

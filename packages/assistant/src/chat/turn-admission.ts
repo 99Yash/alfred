@@ -88,16 +88,22 @@ async function findExistingChatTurnRun(
       ),
     )
     .limit(1);
+
   const existing = active[0];
+
   if (!existing) return null;
   const storedArtifactTargetId = getPath(existing.metadata, "artifactTargetId");
+
   const normalizedStoredTarget = isNonEmptyString(storedArtifactTargetId)
     ? storedArtifactTargetId
     : undefined;
+
   if (normalizedStoredTarget !== artifactTargetId) {
     throw Errors.ConflictError("Message id already belongs to a different chat turn");
   }
+
   const existingAssistantId = getPath(existing.metadata, "assistantMessageId");
+
   return {
     runId: existing.id,
     assistantMessageId: isNonEmptyString(existingAssistantId)
@@ -139,12 +145,16 @@ async function findBlockingChatTurnRun(
       ),
     )
     .limit(1);
+
   const existing = active[0];
+
   if (!existing) return null;
   const runUserMessageId = getPath(existing.metadata, "userMessageId");
+
   // Same user message → this is a retry of the in-flight turn, not a busy
   // collision; the caller's idempotent existing-run path returns it as started.
   if (runUserMessageId === userMessageId) return null;
+
   return existing.id;
 }
 
@@ -172,6 +182,7 @@ async function loadAttachmentSummaries(
 
 async function enqueueChatTurnRunBestEffort(runId: string | null | undefined): Promise<void> {
   if (!runId) return;
+
   try {
     await redeliverRun(runId);
   } catch (err) {
@@ -189,19 +200,26 @@ async function enqueueChatTurnRunBestEffort(runId: string | null | undefined): P
  */
 export async function stopChatTurn(runId: string, userId: string): Promise<{ ok: true }> {
   const run = await getRun(runId, userId);
+
   if (!run) throw Errors.NotFoundError("Run not found");
+
   if (run.workflowSlug !== CHAT_TURN_WORKFLOW_SLUG) {
     throw Errors.BadRequestError("Not a chat run");
   }
+
   if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
     throw Errors.ConflictError("Run already finished");
   }
+
   if (run.status === "waiting") {
     throw Errors.ConflictError("Run is awaiting approval — resolve the approval instead");
   }
+
   const recorded = await requestChatStop(runId);
+
   if (!recorded)
     throw Errors.ServiceUnavailableError("Couldn't reach the stop channel — try again");
+
   return { ok: true };
 }
 
@@ -232,16 +250,20 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   const retryAttachmentIds = input.retryAttachmentIds ?? [];
   const retryAttachmentMessageId = input.retryAttachmentMessageId ?? null;
   assertAttachmentBatchAllowed(attachments);
+
   // A turn must carry text or at least one attachment — a fresh upload
   // or a re-attached one from a retry (image-only sends are valid: the
   // prompt is the image).
   if (content.length === 0 && attachments.length === 0 && retryAttachmentIds.length === 0) {
     throw Errors.BadRequestError("A message must have text or an attachment");
   }
+
   if (retryAttachmentIds.length > 0 && !retryAttachmentMessageId) {
     throw Errors.BadRequestError("Retry attachments must include their source message");
   }
+
   const storageConfigured = isStorageConfigured();
+
   if ((attachments.length > 0 || retryAttachmentIds.length > 0) && !storageConfigured) {
     throw Errors.ServiceUnavailableError("File storage isn't configured");
   }
@@ -252,10 +274,13 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     .from(chatThreads)
     .where(eq(chatThreads.id, threadId))
     .limit(1);
+
   const thread = existing[0];
+
   if (thread && thread.userId !== userId) {
     throw Errors.NotFoundError("thread not found");
   }
+
   if (artifactTargetId) {
     const ownedTargets = await db()
       .select({ id: artifacts.id })
@@ -268,6 +293,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         ),
       )
       .limit(1);
+
     if (!ownedTargets[0]) {
       throw Errors.BadRequestError("Artifact target doesn't belong to this chat");
     }
@@ -285,13 +311,16 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     .from(chatMessages)
     .where(eq(chatMessages.id, userMessageId))
     .limit(1);
+
   const existingMessage = existingMessages[0];
+
   if (
     existingMessage &&
     (existingMessage.userId !== userId || existingMessage.threadId !== threadId)
   ) {
     throw Errors.ConflictError("Message id already belongs to another chat message");
   }
+
   if (existingMessage && existingMessage.content !== content) {
     throw Errors.ConflictError("Message id already belongs to a different chat turn");
   }
@@ -306,11 +335,13 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   // exact duplicate submit (same user message) is NOT busy — it falls
   // through to the idempotent existing-run path.
   const blockingRunId = await findBlockingChatTurnRun(db(), userId, threadId, userMessageId);
+
   if (blockingRunId) {
     return { outcome: "busy", runId: blockingRunId } satisfies TurnStartResponse;
   }
 
   const retrySources: RetryAttachmentSource[] = [];
+
   if (retryAttachmentIds.length > 0) {
     const sources = await db()
       .select({
@@ -339,34 +370,45 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         asc(chatAttachments.createdAt),
         asc(chatAttachments.id),
       );
+
     const sourcesById = new Map(sources.map((source) => [source.id, source]));
     const orderedSources: RetryAttachmentSource[] = [];
+
     for (const id of retryAttachmentIds) {
       const source = sourcesById.get(id);
+
       if (source) orderedSources.push(source);
     }
+
     if (orderedSources.length !== new Set(retryAttachmentIds).size) {
       throw Errors.BadRequestError("Retry attachments don't belong to that chat turn");
     }
+
     const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
+
     if (orderedSources.length > room) {
       throw Errors.BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
     }
+
     let selectedBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+
     for (const source of orderedSources) {
       if (selectedBytes + source.size > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
         const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
         throw Errors.BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
       }
+
       retrySources.push(source);
       selectedBytes += source.size;
     }
   }
 
   let existingMessageAttachmentRows: ExistingAttachmentSummary[] = [];
+
   if (existingMessage) {
     const existingAttachments = await loadAttachmentSummaries(db(), userId, userMessageId);
     existingMessageAttachmentRows = existingAttachments;
+
     if (
       !attachmentRequestMatchesExistingRows({
         fresh: attachments,
@@ -376,6 +418,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     ) {
       throw Errors.ConflictError("Message id already belongs to a different chat turn");
     }
+
     const existingRun = await findExistingChatTurnRun(
       db(),
       userId,
@@ -383,8 +426,10 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       createId("msg"),
       artifactTargetId,
     );
+
     if (existingRun) {
       await enqueueChatTurnRunBestEffort(existingRun.runId);
+
       return { outcome: "started", ...existingRun } satisfies TurnStartResponse;
     }
   }
@@ -396,6 +441,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   // Storage verification runs inside the transaction after taking the
   // same per-key lock as orphan cleanup.
   const freshAttachmentRows: NewChatAttachment[] = [];
+
   if (!reuseExistingAttachmentRows) {
     for (const [position, attachment] of attachments.entries()) {
       const degradation = await resolveAttachmentDegradation({
@@ -408,6 +454,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         }),
         mime: attachment.mime,
       });
+
       freshAttachmentRows.push(
         toAttachmentRow({
           userId: userId,
@@ -427,10 +474,12 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   // Ownership-scoped to this user. Honors the combined per-message cap,
   // and rejects instead of silently dropping requested attachments.
   const retryAttachmentRows: NewChatAttachment[] = [];
+
   if (retrySources.length > 0 && !reuseExistingAttachmentRows) {
     for (const src of retrySources) {
       const newAttachmentId = createId("att");
       const position = freshAttachmentRows.length + retryAttachmentRows.length;
+
       const destKey = buildAttachmentKey({
         userId: userId,
         threadId,
@@ -438,6 +487,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         attachmentId: newAttachmentId,
         fileName: src.name,
       });
+
       try {
         await copyObject(src.storageKey, destKey);
         await schedulePendingUploadCleanup(userId, destKey);
@@ -445,6 +495,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         console.warn("[chat] retry attachment copy failed:", toMessage(err));
         throw Errors.BadGatewayError("Couldn't copy the retry attachments. Try again.");
       }
+
       retryAttachmentRows.push(
         toAttachmentRow({
           userId: userId,
@@ -464,6 +515,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       );
     }
   }
+
   if (
     content.length === 0 &&
     freshAttachmentRows.length === 0 &&
@@ -479,6 +531,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
 
   const assistantMessageId = createId("msg");
   let acceptedFreshAttachmentBytes = 0;
+
   const result = await db().transaction<TurnStartResponse>(async (tx) => {
     if (!thread) {
       await tx
@@ -510,7 +563,9 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       .where(eq(chatMessages.id, userMessageId))
       .for("update")
       .limit(1);
+
     const writtenMessage = writtenMessages[0];
+
     if (
       !writtenMessage ||
       writtenMessage.userId !== userId ||
@@ -518,11 +573,13 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     ) {
       throw Errors.ConflictError("Message id already belongs to another chat message");
     }
+
     if (writtenMessage.content !== content) {
       throw Errors.ConflictError("Message id already belongs to a different chat turn");
     }
 
     const currentAttachments = await loadAttachmentSummaries(tx, userId, userMessageId);
+
     if (
       currentAttachments.length > 0 &&
       !attachmentRequestMatchesExistingRows({
@@ -543,6 +600,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         tx,
         attachmentRows.map((row) => row.storageKey),
       );
+
       for (const row of attachmentRows) {
         await assertStoredAttachmentReady({
           storageKey: row.storageKey,
@@ -550,11 +608,14 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
           size: row.size,
         });
       }
+
       await tx.insert(chatAttachments).values(attachmentRows).onConflictDoNothing();
       const writtenAttachments = await loadAttachmentSummaries(tx, userId, userMessageId);
+
       if (!sameInsertedAttachmentRows(attachmentRows, writtenAttachments)) {
         throw Errors.ConflictError("Message id already belongs to a different chat turn");
       }
+
       acceptedFreshAttachmentBytes = freshAttachmentRows.reduce((sum, row) => sum + row.size, 0);
     }
 
@@ -565,6 +626,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       content.length > 0
         ? content.slice(0, TITLE_MAX_CHARS)
         : (attachmentRows[0]?.name ?? "").slice(0, TITLE_MAX_CHARS);
+
     await tx
       .update(chatThreads)
       .set({
@@ -603,13 +665,16 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
           artifactTargetId,
         },
       });
+
       return { outcome: "started", runId, assistantMessageId };
     } catch (err) {
       // A unique violation here means one of two invariants collided —
       // the savepoint rolled back only the failed insert, so the outer tx
       // is still alive to recover. Discriminate on WHICH index tripped.
       const constraint = uniqueViolationConstraint(err);
+
       if (constraint === null) throw err;
+
       // Per-thread guard (#488): a concurrent start with a DIFFERENT user
       // message already has a run in flight on this thread and won the
       // race. This is the race-safe backstop for two starts that both
@@ -618,8 +683,10 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       // still visible so the client can await it before retrying.
       if (constraint === CHAT_THREAD_ACTIVE_RUN_INDEX) {
         const blockingRunId = await findBlockingChatTurnRun(tx, userId, threadId, userMessageId);
+
         return { outcome: "busy", runId: blockingRunId };
       }
+
       // Otherwise this is a same-user-message double-submit that collided
       // on the dedup index. Treat it as success: a run for this exact
       // turn is already in flight, so return it instead of spawning a
@@ -631,11 +698,13 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         assistantMessageId,
         artifactTargetId,
       );
+
       return existingRun
         ? { outcome: "started", ...existingRun }
         : { outcome: "started", runId: null, assistantMessageId };
     }
   });
+
   if (attachmentRows.length > 0) {
     try {
       emitReplicachePokes([userId]);
@@ -643,12 +712,15 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       console.warn("[chat] attachment poke failed:", toMessage(err));
     }
   }
+
   await releasePendingUploadBudget(userId, acceptedFreshAttachmentBytes);
+
   // Only a started turn owns a run to enqueue. A busy outcome created no
   // run — the in-flight one it points at is already enqueued by its own
   // start — so don't re-enqueue another turn's work.
   if (result.outcome === "started") {
     await enqueueChatTurnRunBestEffort(result.runId);
   }
+
   return result;
 }

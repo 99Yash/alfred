@@ -69,6 +69,7 @@ const stateSchema = z.object({
     .optional(),
   result: replyDraftResultSchema.optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 const REPLY_TOOL_CALL_ID = "reply-draft";
@@ -117,19 +118,24 @@ function finish(
 ): StepResult<State> {
   const output = replyDraftResultSchema.parse(result);
   ctx.trace("reply_drafting.decision", output);
+
   return { kind: "done", state, output };
 }
 
 async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
   const flags = await resolveFeatureFlags(ctx.userId);
   const flagged = { ...ctx.state, featureFlagEnabled: flags.replyDrafting };
+
   if (flagged.invocation === "post_triage" && !flags.replyDrafting) {
     return finish(ctx, flagged, noDraftResult("feature_disabled", null, provenanceFor(flagged)));
   }
+
   const document = await loadReplyDocument(ctx.userId, ctx.state.documentId);
+
   if (!document) {
     return finish(ctx, flagged, noDraftResult("source_unavailable", null, provenanceFor(flagged)));
   }
+
   if (!document.sourceThreadId || document.sourceThreadId !== ctx.state.sourceThreadId) {
     return finish(ctx, flagged, {
       outcome: "withheld",
@@ -138,6 +144,7 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
       provenance: provenanceFor(flagged),
     });
   }
+
   if (!document.accountId) {
     return finish(ctx, flagged, {
       outcome: "no_access",
@@ -145,13 +152,16 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
       provenance: provenanceFor(flagged),
     });
   }
+
   const senderContextResult = extractSenderContext({
     fromHeader: document.metadata.from ?? null,
     subject: document.title,
     body: document.content,
   });
+
   const row = await getTriage(ctx.userId, ctx.state.sourceThreadId);
   const triage = row ? snapshotFromRow(row, ctx.state.documentId) : null;
+
   if (row && row.documentId !== ctx.state.documentId) {
     return finish(
       ctx,
@@ -163,6 +173,7 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
       ),
     );
   }
+
   const threadState = await getThreadState({
     userId: ctx.userId,
     sourceThreadId: ctx.state.sourceThreadId,
@@ -171,12 +182,14 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
   });
 
   let standingInstruction: ReplyStandingInstructionState = "none";
+
   try {
     const match = await findActiveSenderSuppression(ctx.userId, {
       senderEmail: senderContextResult.senderAddress,
       accountId: document.accountId,
       effect: "block_reply_draft",
     });
+
     if (match) standingInstruction = "suppress";
   } catch (err) {
     standingInstruction = "read_failed";
@@ -209,9 +222,11 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
     triageReason: null,
     standingInstruction,
   };
+
   if (state.invocation === "post_triage" && !triage) {
     return finish(ctx, state, noDraftResult("triage_unavailable", null, provenanceFor(state)));
   }
+
   const decision =
     state.invocation === "post_triage" && triage
       ? decideReplyWorthiness({ ...shared, invocation: "post_triage", triage })
@@ -219,19 +234,25 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
 
   if (!decision.worthy) {
     await ctx.log(`gate: no_draft reason=${decision.reason}`);
+
     return finish(ctx, state, noDraftResult(decision.reason, decision.note, provenanceFor(state)));
   }
+
   await ctx.log(`gate: worthy invocation=${state.invocation} sender=${state.sender ?? "?"}`);
+
   return { kind: "next", state, nextStep: "gather" };
 }
 
 async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
   const mailbox = ctx.state.mailbox;
+
   if (!mailbox) throw new Error("[reply-drafting] gather entered without mailbox state");
 
   const access = await checkGmailSendAccess({ userId: ctx.userId, accountId: mailbox.accountId });
+
   if (!access.ok) {
     await ctx.log(`gather: no_access reason=${access.reason}`);
+
     return finish(ctx, ctx.state, {
       outcome: "no_access",
       reason: access.reason,
@@ -240,6 +261,7 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
   }
 
   const document = await loadReplyDocument(ctx.userId, ctx.state.documentId);
+
   if (!document) {
     return finish(
       ctx,
@@ -247,6 +269,7 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
       noDraftResult("source_unavailable", null, provenanceFor(ctx.state)),
     );
   }
+
   if (
     document.sourceThreadId !== ctx.state.sourceThreadId ||
     document.accountId !== mailbox.accountId
@@ -258,6 +281,7 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
       provenance: provenanceFor(ctx.state),
     });
   }
+
   if (
     extractSenderContext({
       fromHeader: document.metadata.from ?? null,
@@ -272,6 +296,7 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
       provenance: provenanceFor(ctx.state),
     });
   }
+
   const gather = await gatherReplyContext({
     userId: ctx.userId,
     document,
@@ -280,6 +305,7 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
     relationship:
       ctx.state.triage?.senderRelationshipIsCold === false ? "established_contact" : "unknown",
   });
+
   const state: State = {
     ...ctx.state,
     mailbox: { ...mailbox, address: access.mailboxAddress },
@@ -287,18 +313,22 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
     style: gather.style,
     recipients: gather.replyRecipients,
   };
+
   return { kind: "next", state, nextStep: "compose" };
 }
 
 async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
   const { gather, mailbox, recipients } = ctx.state;
+
   if (!gather || !mailbox || !recipients) throw new Error("[reply-drafting] missing gather state");
+
   const composed = await composeReply({
     gather,
     userId: ctx.userId,
     runId: ctx.runId,
     idempotencyKey: ctx.idempotencyKey,
   });
+
   const plan = prepareReplyStaging(
     {
       ...composed,
@@ -313,7 +343,9 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
       featureFlagEnabled: ctx.state.featureFlagEnabled ?? false,
     },
   );
+
   const provenance = { ...provenanceFor(ctx.state), verifier: plan.verifier };
+
   if (plan.kind === "withheld") {
     return finish(ctx, ctx.state, {
       outcome: "withheld",
@@ -322,6 +354,7 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
       provenance,
     });
   }
+
   // Commit the exact candidate before dispatch so retries and approval resumes
   // use one body, one tool-call identity, and the original inbound mailbox.
   return {
@@ -333,6 +366,7 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
 
 async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
   const result = await dispatchReply(ctx);
+
   if (result.kind === "done") {
     // The action insert and workflow checkpoint are separate commits. Close
     // any pending row even when this attempt exits before reaching dispatch.
@@ -345,25 +379,31 @@ async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
       reason: "Reply drafting completed without a pending approval.",
     });
   }
+
   return result;
 }
 
 async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>> {
   const { prepared, mailbox } = ctx.state;
+
   if (!prepared || !mailbox)
     throw new Error("[reply-drafting] stage entered without verified input");
+
   if (!ctx.state.result) {
     // Compose can take time. Recheck the live gate and access before creating
     // the first approval; approved resumes remain owned by the dispatcher.
     const gate = await runGate(ctx);
+
     if (gate.kind !== "next") return gate;
     const access = await checkGmailSendAccess({ userId: ctx.userId, accountId: mailbox.accountId });
+
     if (!access.ok)
       return finish(ctx, ctx.state, {
         outcome: "no_access",
         reason: access.reason,
         provenance: prepared.provenance,
       });
+
     if (
       gate.state.mailbox?.accountId !== mailbox.accountId ||
       gate.state.sender !== ctx.state.sender ||
@@ -377,6 +417,7 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
       });
     }
   }
+
   const round = await executeToolCallRound({
     calls: [
       { toolCallId: REPLY_TOOL_CALL_ID, toolName: "gmail.send_draft", input: prepared.input },
@@ -395,19 +436,24 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
       requiredCapabilities: [{ tool: "gmail.send_draft", accountRef: mailbox.accountId }],
     },
   });
+
   if (round.kind === "waiting") {
     if (round.wake.kind !== "hil" || round.wake.approvalKind !== "action_staging") {
       throw new Error("[reply-drafting] expected an action-staging approval");
     }
+
     const result: ReplyDraftResult = {
       outcome: "staged",
       actionKind: "approval_staged_send",
       stagingId: round.wake.approvalId,
       provenance: prepared.provenance,
     };
+
     ctx.trace("reply_drafting.decision", result);
+
     return { kind: "interrupt", state: { ...ctx.state, result }, wake: round.wake };
   }
+
   // A resumed run uses the dispatcher's stored approved/edited input. Its
   // transcript and action row record send/rejection/failure independently of
   // the drafting decision, which remains the historical staging result.
@@ -419,6 +465,7 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
       detail: "The dispatcher did not offer an approval.",
       provenance: prepared.provenance,
     } satisfies ReplyDraftResult);
+
   return { ...finish(ctx, ctx.state, result), transcript: round.transcript };
 }
 
@@ -433,6 +480,7 @@ export const replyDraftingWorkflow: Workflow<State> = {
   closure: { kind: "none" },
   initialState(input) {
     const parsed = replyDraftingWorkflowInputSchema.parse(input.input ?? {});
+
     return {
       documentId: parsed.documentId,
       sourceThreadId: parsed.sourceThreadId,

@@ -112,6 +112,7 @@ import { emitTurnPhaseThermometer, type TurnPhaseOutcome } from "./turn-thermome
  *                              `await_sub_agent` tool.
  */
 export { CHAT_TURN_WORKFLOW_SLUG };
+
 const CHAT_TOOL_RUN_CONTEXT = {
   caller: "boss",
   interaction: "live_chat",
@@ -119,12 +120,14 @@ const CHAT_TOOL_RUN_CONTEXT = {
 
 /** Shared with the future pre-call context guard; never reserve a different output shape. */
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
+
 const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.create_artifact",
   "system.append_artifact_page",
   "system.append_artifact_section",
   "system.update_artifact",
 ] as const satisfies readonly ToolName[];
+
 const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
 
 // ADR-0077: charter, not a rulebook. Keep mission + capabilities + judgment
@@ -210,6 +213,7 @@ export function buildChatSystemPrompt(
   // A non-chat caller (or an eval) may still supply a date for a single-turn,
   // non-parking context.
   const dateLine = grounding ? `The current date is ${grounding}.` : "";
+
   // The artifact edit rules and the design-system block
   // (`@alfred/artifacts-design`) are identical every turn, so they sit right
   // after the constant base — the largest possible cache-stable prefix (#223) —
@@ -290,11 +294,13 @@ const chatTurnStep: Step<ChatRunState> = {
     let generationStartMs: number | null = null;
     let generationFolded = false;
     let stepWallFolded = false;
+
     const foldGeneration = (): void => {
       if (generationFolded || generationStartMs === null) return;
       generationFolded = true;
       state.generationMs += Math.max(0, Date.now() - generationStartMs);
     };
+
     // Close both brackets exactly once, on every exit. Anything that *reads*
     // the accumulators before leaving — a thermometer emission or a bounded
     // retry (whose planner snapshots the state) — must call this first, since
@@ -305,6 +311,7 @@ const chatTurnStep: Step<ChatRunState> = {
       foldGeneration();
       state.stepWallMs += Math.max(0, Date.now() - stepStartedMs);
     };
+
     const emitPhases = (outcome: TurnPhaseOutcome): void => {
       emitTurnPhaseThermometer({
         runId: ctx.runId,
@@ -314,6 +321,7 @@ const chatTurnStep: Step<ChatRunState> = {
         reading: state,
       });
     };
+
     try {
       // The tool-loop cap lands the turn instead of failing it: at the cap the
       // model runs once more with no tools and a note to report what got done,
@@ -323,6 +331,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // has completed (`ctx.state.turnCount`), which is what the log reports.
       const capVerdict = chatTurnCapVerdict(state.tier, ctx.state.turnCount);
       const landing = capVerdict !== "loop";
+
       if (capVerdict === "land") {
         logger.warn(
           {
@@ -336,6 +345,7 @@ const chatTurnStep: Step<ChatRunState> = {
           "Chat turn reached its tool-loop cap; landing with a tool-less final turn",
         );
       }
+
       // The note enters the durable transcript exactly once, on the `land`
       // turn; a step retry of that turn re-runs from the checkpoint without the
       // note, and every later turn continues from a transcript that carries it.
@@ -366,10 +376,12 @@ const chatTurnStep: Step<ChatRunState> = {
       if (state.timezone === undefined) {
         state.timezone = await resolveTimezone(ctx.userId);
       }
+
       // Persisted state carries the zone as a plain string, so re-establish it as
       // a zone once per step rather than at each reading below.
       const timezone = parseIanaTimezone(state.timezone);
       const availability = await readIntegrationAvailability(ctx.userId);
+
       const tools = toolRuntimeForRun({
         userId: ctx.userId,
         runId: ctx.runId,
@@ -379,6 +391,7 @@ const chatTurnStep: Step<ChatRunState> = {
         allowedIntegrations: state.allowedIntegrations,
         availability,
       });
+
       if (state.connectedSummary === undefined) {
         state.connectedSummary = buildConnectedSummaryFromAvailability(
           availability,
@@ -386,23 +399,28 @@ const chatTurnStep: Step<ChatRunState> = {
           tools.context,
         );
       }
+
       if (state.selfIdentity === undefined) {
         // A pre-identity checkpoint can already have a pinned system prompt.
         // Keep its original prompt for the rest of the run; adding a block
         // would fail the hash check on resume. New runs snapshot the live block.
         state.selfIdentity = state.systemPromptHash === undefined ? selfIdentityGrounding() : "";
       }
+
       if (state.artifactThreadFacts === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
           state.threadId,
           state.artifactTargetId,
         );
+
         state.artifactThreadFacts = artifactContext.threadFacts;
         state.artifactReference = artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
       }
+
       const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
+
       // First model step of the run: inherit the tools the thread's previous
       // turn loaded before the prompt-ranked preload adds its own. Gated on the
       // same flag the preload uses, so a step retry repeats it harmlessly. A
@@ -417,11 +435,13 @@ const chatTurnStep: Step<ChatRunState> = {
           availability,
           context: tools.context,
         });
+
         state.activeTools = carryover.activeTools;
         // Carried names entered the surface without a model step, which is what
         // `preloadedTools` records, so #414 accounting measures whether the
         // carry-over paid off the same way it measures the prompt preload.
         state.preloadedTools = uniqueToolNames([...state.preloadedTools, ...carryover.carried]);
+
         if (carryover.carried.length > 0) {
           logger.info(
             {
@@ -434,6 +454,7 @@ const chatTurnStep: Step<ChatRunState> = {
           );
         }
       }
+
       if (!landing) await tools.preload(state, hydratedTranscript);
       // Budget the guide before compaction, then admit it to both transcripts
       // after the guard so it cannot replace the real user's replay boundary.
@@ -447,10 +468,13 @@ const chatTurnStep: Step<ChatRunState> = {
       // the per-thread facts ride the ephemeral block below.
       const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, state.selfIdentity);
       assertStableChatSystem(state, systemPrompt);
+
       const runtimeGroundingAnchor = resolveRuntimeGroundingAnchor(
         state.runtimeGroundingAnchor ? new Date(state.runtimeGroundingAnchor) : undefined,
       );
+
       state.runtimeGroundingAnchor = runtimeGroundingAnchor.toISOString();
+
       const ephemeralReference = [
         formatRuntimeTimeGrounding(timezone, runtimeGroundingAnchor),
         state.artifactThreadFacts,
@@ -458,6 +482,7 @@ const chatTurnStep: Step<ChatRunState> = {
       ]
         .filter((value) => value.length > 0)
         .join("\n\n");
+
       // A landing turn offers no tools at all: the model must answer, and the
       // dispatcher never sees another round from this run.
       const sdkTools = landing ? {} : tools.forModel(state.activeTools);
@@ -477,6 +502,7 @@ const chatTurnStep: Step<ChatRunState> = {
       let continuationTranscript: AgentTranscriptMessage[] = transcript;
       let guardedModelTranscript: AgentTranscriptMessage[] = hydratedTranscript;
       const disposeStopPoll = stop.startPolling();
+
       try {
         const guarded = await guardTurnContext({
           turnCount: state.turnCount,
@@ -505,14 +531,17 @@ const chatTurnStep: Step<ChatRunState> = {
               compactionScope,
             }),
         });
+
         continuationTranscript = guarded.continuationTranscript;
         guardedModelTranscript = guarded.modelTranscript;
+
         if (guarded.compacted) state.inFlightTailStart = 0;
       } catch (error) {
         if (!stop.stopped) throw error;
         await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
         closeBrackets();
         emitPhases("stopped");
+
         return {
           kind: "done",
           state,
@@ -522,12 +551,14 @@ const chatTurnStep: Step<ChatRunState> = {
       } finally {
         disposeStopPoll();
       }
+
       // Bind the turn's retries to the transcript as it stands right now —
       // before the model call, so `nextTranscript` (which appends the response,
       // and whose empty assistant message Anthropic 400s on) does not exist yet
       // and cannot be handed to a retry. The planners below take state only.
       const retries = openChatTurnRetries(continuationTranscript);
       const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
+
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
         tools: sdkTools,
@@ -536,6 +567,7 @@ const chatTurnStep: Step<ChatRunState> = {
         transcript: modelTranscript as ModelMessage[],
         outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
       });
+
       const agent = new AlfredAgent({
         id: "chat",
         system: systemPrompt,
@@ -560,6 +592,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // draining the stream; on stop we abort the provider call, keep whatever
       // streamed, and finalize through the normal completion path.
       generationStartMs = Date.now();
+
       const stream = await agent.streamTurn({
         ctx,
         // SAFETY: same persisted-superset view as the generateTurn call above.
@@ -601,6 +634,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // The transcript's assistant turn should reflect everything the model
         // said this turn — earlier narration segments plus the current one.
         const stoppedText = fullAssistantText(state);
+
         const stoppedTranscript =
           stoppedText.length > 0
             ? [
@@ -611,6 +645,7 @@ const chatTurnStep: Step<ChatRunState> = {
                 } satisfies AgentTranscriptMessage,
               ]
             : continuationTranscript;
+
         return {
           kind: "done",
           state,
@@ -620,6 +655,7 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       let finalStep: Awaited<typeof stream.finalStep>;
+
       try {
         finalStep = await stream.finalStep;
       } catch (err) {
@@ -637,6 +673,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // here; the throw falls through to the terminal-failure path below.
         if (isStreamTimeoutAbort(err) && !stop.stopped && state.assistantText.trim().length === 0) {
           const retry = retries.afterStreamTimeout(state);
+
           if (retry) {
             // Close the brackets before the planner snapshots the state, so
             // this aborted attempt's partial wall-clock rides the retry (#902).
@@ -645,18 +682,23 @@ const chatTurnStep: Step<ChatRunState> = {
               `[chat-turn] stream timeout abort; retry ` +
                 `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
             );
+
             return retry.step;
           }
         }
+
         throw err;
       }
+
       // The stream settled: everything from the `streamTurn` call to here is
       // generation wall-clock (#902) — token streaming and the drain overlap.
       foldGeneration();
       const { toolCalls, finishReason, response, warnings, usage } = finalStep;
       const billedInputTokens = usage.inputTokens;
+
       if (typeof billedInputTokens === "number" && billedInputTokens > 0) {
         const errorRatio = (requestEstimate.inputTokens - billedInputTokens) / billedInputTokens;
+
         const observation = {
           event: "chat_input_estimator_observation",
           runId: ctx.runId,
@@ -667,12 +709,14 @@ const chatTurnStep: Step<ChatRunState> = {
           billedInputTokens,
           errorRatio,
         };
+
         if (errorRatio < -CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO) {
           logger.warn(observation, "Chat input estimator materially under-counted billed input");
         } else {
           logger.info(observation, "Chat input estimator observation");
         }
       }
+
       // Surface provider warnings — most importantly the Anthropic
       // "cacheControl breakpoint limit" warning, which signals that the
       // 4-breakpoint cap was exceeded and a cache block (the tool definitions)
@@ -684,6 +728,7 @@ const chatTurnStep: Step<ChatRunState> = {
           warnings.map((w) => ("message" in w && w.message ? w.message : w.type)).join("; "),
         );
       }
+
       // Our tools are execute-less: the `dispatch-tools` step is the SOLE author
       // of tool results (see `toolResultMessage`). The SDK normally emits only
       // `tool-call` parts here — but when the model hands a tool schema-invalid
@@ -699,6 +744,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // rather than silently dropping it (today there are none, but a future
       // provider-side tool shouldn't lose its result to this filter).
       const stepCallIds = new Set(toolCalls.map((c) => c.toolCallId));
+
       // Continue from the storage-safe transcript underlying the model request
       // (the ephemeral artifact reference and hydrated image bytes stay out of
       // the checkpoint). On the first turn the foreground guard may have
@@ -712,6 +758,7 @@ const chatTurnStep: Step<ChatRunState> = {
         response.messages as AgentTranscriptMessage[],
         stepCallIds,
       );
+
       const outcome = classifyStreamFinish({
         toolCalls,
         finishReason,
@@ -726,14 +773,17 @@ const chatTurnStep: Step<ChatRunState> = {
         // bounded budget, then fail loudly. The client keeps showing "Thinking…"
         // across the retry (no `started` re-poke, no committed delta).
         const retry = retries.afterEmptyCompletion(state);
+
         if (retry) {
           closeBrackets();
           console.warn(
             `[chat-turn] empty completion (finishReason:${finishReason}); retry ` +
               `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
           );
+
           return retry.step;
         }
+
         throw new Error("Assistant finished without producing a response.");
       }
 
@@ -741,9 +791,11 @@ const chatTurnStep: Step<ChatRunState> = {
         // Productive turn — refresh the retry budgets so they count retries of a
         // single stuck turn, not one per tool-loop step.
         resetChatTurnRetryBudgets(state);
+
         if (state.inFlightTailStart === 0) {
           state.inFlightTailStart = continuationTranscript.length;
         }
+
         state.pendingToolCalls = toolCalls.map((call) => ({
           toolCallId: call.toolCallId,
           toolName: call.toolName,
@@ -759,6 +811,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // is machinery ("tools warming up, retrying") and is dropped instead —
         // its live deltas were already withheld by the `flush` gate below.
         closeLeadInNarration(state);
+
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
       }
 
@@ -781,12 +834,14 @@ const chatTurnStep: Step<ChatRunState> = {
       const takeover = await crossFinalizeBoundary(ctx, state, nextTranscript, {
         releaseWithheldReply,
       });
+
       if (takeover) return takeover;
 
       // final → persist the assistant message and complete.
       await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
       closeBrackets();
       emitPhases("completed");
+
       return {
         kind: "done",
         state,
@@ -822,6 +877,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
       // the round about to run, never a stale value carried across turns.
       reissuePending: false,
     };
+
     let transcript = [...ctx.transcript];
 
     // Phase thermometer (#902). A resumed run re-enters this step after a
@@ -830,6 +886,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
     foldResumedPark(state, Date.now());
     const stepStartedMs = Date.now();
     let stepWallFolded = false;
+
     // Close the step's wall-clock bracket exactly once; anything reading the
     // accumulators before leaving (the stop-path emission) calls it first.
     const closeBrackets = (): void => {
@@ -837,6 +894,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
       stepWallFolded = true;
       state.stepWallMs += Math.max(0, Date.now() - stepStartedMs);
     };
+
     const emitPhases = (outcome: TurnPhaseOutcome): void => {
       emitTurnPhaseThermometer({
         runId: ctx.runId,
@@ -849,6 +907,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
     try {
       const calls = state.pendingToolCalls;
+
       if (calls.length > 0) {
         // User hit stop before the batch went out: drop the pending calls and
         // finalize with whatever streamed so far. Checked once up front — the
@@ -858,6 +917,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
           closeBrackets();
           emitPhases("stopped");
+
           return {
             kind: "done",
             state,
@@ -867,6 +927,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
         }
 
         const roundStartedMs = Date.now();
+
         const round = await executeToolCallRound<PendingToolCall>({
           calls,
           transcript,
@@ -886,6 +947,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             allowedIntegrations: state.allowedIntegrations,
           },
         });
+
         state.dispatchMs += Math.max(0, Date.now() - roundStartedMs);
         state.activeTools = round.activeNames;
 
@@ -895,6 +957,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
         for (const completion of round.calls) {
           const { call } = completion;
+
           if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && completion.execution === "completed") {
             // The next model step must not see a stale pre-edit body/hash. Re-read
             // the per-thread facts and reference after create/update commits.
@@ -913,8 +976,10 @@ const dispatchToolsStep: Step<ChatRunState> = {
           // failed side effect. Both are derived by the shared helper, which a
           // spawned sub-agent's nested cards also publish through.
           const outcome = toolEventOutcome(completion);
+
           const { status, resultPreview, resultTruncated, sanitized, nonExecution, connectNudge } =
             outcome;
+
           // Bind an executed artifact tool's toolCallId to its row id, so a live
           // artifact stream (keyed by toolCallId — all create_artifact has before
           // it runs) can adopt the durable synced row once it lands.
@@ -925,9 +990,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ) {
               return undefined;
             }
+
             const id = getPath(completion.result, "artifactId");
+
             return typeof id === "string" && id.length > 0 ? id : undefined;
           })();
+
           state.toolCallsLog.push({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
@@ -951,10 +1019,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
           // and never reaches this commit pass, so only resolved awaits land here.)
           if (call.toolName === AWAIT_SUB_AGENT_TOOL && completion.execution === "completed") {
             const childRunId = awaitedChildRunId(call.input);
+
             if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
               state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
             }
           }
+
           await publishEvent({
             untransacted: true,
             userId: ctx.userId,
@@ -1000,21 +1070,28 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   initialState(input) {
     const metadata = input.metadata ?? {};
     const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
+
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
+
     const messageId =
       typeof metadata.assistantMessageId === "string"
         ? metadata.assistantMessageId
         : // `kickId` is the legacy alias for `startId`; keep it as fallback for
           // runs persisted before the rename so the hash stays stable.
           `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${typeof metadata.startId === "string" ? metadata.startId : typeof metadata.kickId === "string" ? metadata.kickId : ""}`))}`;
+
     const tier: ChatModelTier = metadata.tier === "deep" ? "deep" : "standard";
+
     const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
       : [];
+
     const userMessageId =
       typeof metadata.userMessageId === "string" ? metadata.userMessageId : undefined;
+
     const artifactTargetId =
       typeof metadata.artifactTargetId === "string" ? metadata.artifactTargetId : undefined;
+
     return {
       threadId,
       messageId,
@@ -1053,8 +1130,10 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   async initialTranscript(input, context) {
     const metadata = input.metadata ?? {};
     const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
+
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
     const ex = context?.db ?? db();
+
     const rows = await ex
       .select({
         id: chatMessages.id,
@@ -1075,6 +1154,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const assembled = assembleChatContext({ messages: rows, context: threadContext });
     const verbatimMessageIds = new Set(assembled.verbatimMessageIds);
     const verbatimRows = rows.filter((row) => verbatimMessageIds.has(row.id));
+
     const attachmentsByMessage = await loadReadyAttachments(
       input.userId,
       verbatimRows.map((r) => r.id),
@@ -1084,9 +1164,11 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const out: AgentTranscriptMessage[] = assembled.summaryMessage
       ? [assembled.summaryMessage]
       : [];
+
     for (const r of verbatimRows) {
       const atts = attachmentsByMessage.get(r.id) ?? [];
       const content = atts.length > 0 ? buildStoredContentParts(r.content, atts) : r.content;
+
       // Drop turns that produced nothing renderable. Guarding on the *produced*
       // content (not `atts.length`) also covers the Phase-2 case where an
       // attachment degrades to no parts — `content.length === 0` works for both
@@ -1094,6 +1176,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       if (content.length === 0) continue;
       out.push({ role: r.role, content } satisfies AgentTranscriptMessage);
     }
+
     return out;
   },
   // Singleton on the client-minted user message id: a double-submit / retry /
@@ -1103,6 +1186,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   // turn stays retryable.
   dedupKey(input) {
     const id = input.metadata?.userMessageId;
+
     return typeof id === "string" && id.length > 0 ? `chat:${id}` : null;
   },
   steps: {
@@ -1140,6 +1224,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
             reading: ctx.state,
           });
           await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
+
           return;
         // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so
         // it persists a normal complete row rather than an error one: rendering
@@ -1164,6 +1249,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
             reading: ctx.state,
           });
           await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
+
           return;
         default: {
           const unhandled: never = ctx;
@@ -1177,8 +1263,10 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
 /** Deterministic 31-bit hash for a fallback assistant message id. */
 function hashString(s: string): number {
   let h = 0;
+
   for (let i = 0; i < s.length; i++) {
     h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
   }
+
   return h;
 }

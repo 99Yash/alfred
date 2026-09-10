@@ -8,6 +8,7 @@ import { liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 
 beforeEach(resetToolFixtures);
+
 afterEach(resetToolFixtures);
 
 test("the join contract accepts a child id and rejects an empty one", () => {

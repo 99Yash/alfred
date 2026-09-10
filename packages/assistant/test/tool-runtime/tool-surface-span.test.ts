@@ -16,18 +16,23 @@ interface CapturedSpans {
   opened: RuntimeSpanInput[];
   ended: RuntimeSpanEndArgs[];
 }
+
 function capture(run: () => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
+
   const restore = _setRuntimeSpanStarterForTests((input) => {
     opened.push(input);
+
     return { end: (args) => ended.push(args) };
   });
+
   try {
     run();
   } finally {
     restore();
   }
+
   return { opened, ended };
 }
 
@@ -63,6 +68,7 @@ describe("runtime.tool_surface", () => {
         schemaRebuildMs: 3,
       });
     });
+
     assert.equal(opened.length, 1);
     assert.deepEqual(ended, [
       {
@@ -93,6 +99,7 @@ describe("runtime.tool_surface", () => {
         schemaRebuildMs: 1,
       }),
     );
+
     assert.equal(ended[0]?.metadata?.loadedCount, 0);
     assert.equal(ended[0]?.metadata?.loadedTools, null);
   });
@@ -109,6 +116,7 @@ describe("runtime.tool_surface", () => {
         schemaRebuildMs: 250,
       }),
     );
+
     assert.equal(ended[0]?.metadata?.schemaRebuildHealth, "red");
   });
 
@@ -126,12 +134,14 @@ describe("runtime.tool_surface", () => {
         schemaRebuildMs: 0,
       });
     });
+
     assert.deepEqual(ended, [{ status: "error", level: "ERROR" }]);
   });
 
   test("a real turn surface reports the actual projected registry tools", () => {
     const activeTools = [...systemToolKernel(), "calendar.list_events" as const];
     let returnedToolNames: string[] = [];
+
     const { opened, ended } = capture(() => {
       returnedToolNames = Object.keys(
         toolRuntimeForRun({

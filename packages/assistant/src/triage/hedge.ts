@@ -103,10 +103,12 @@ export interface HedgeBudget {
 export function createHedgeBudget(maxInFlight: number): HedgeBudget {
   const ceiling = Math.max(0, Math.floor(maxInFlight));
   let inFlight = 0;
+
   return {
     tryAcquire() {
       if (inFlight >= ceiling) return false;
       inFlight += 1;
+
       return true;
     },
     release() {
@@ -167,11 +169,13 @@ export async function runHedged<T>(opts: RunHedgedOptions<T>): Promise<T> {
 
   const HEDGE = Symbol("hedge");
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   const elapsed = new Promise<typeof HEDGE>((resolve) => {
     timer = setTimeout(() => resolve(HEDGE), delayMs);
   });
 
   let raced: Settled<T> | typeof HEDGE;
+
   try {
     raced = await Promise.race([primary, elapsed]);
   } finally {
@@ -194,14 +198,17 @@ export async function runHedged<T>(opts: RunHedgedOptions<T>): Promise<T> {
   void hedge.then(() => budget?.release());
 
   const first = await Promise.race([primary, hedge]);
+
   if (first.ok) {
     (first.attempt === 0 ? hedgeController : primaryController).abort();
+
     return first.value;
   }
 
   // The first *settled* attempt failed; the other one is still the live answer.
   // Nothing to abort on this path — the loser already ended on its own.
   const second = await (first.attempt === 0 ? hedge : primary);
+
   if (second.ok) return second.value;
 
   throw (first.attempt === 0 ? first : second).error;

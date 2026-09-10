@@ -9,8 +9,11 @@ import {
 import type { Observation } from "@alfred/db/schemas";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
+
 const STRONG_CONFIDENCE = 0.92;
+
 const PERSON_CONFIDENCE = 0.82;
+
 const WEAK_CONFIDENCE = 0.58;
 
 const BULK_PRECEDENCE_VALUES = new Set(["bulk", "list"]);
@@ -85,12 +88,17 @@ const SERVICE_DOMAIN_SUFFIXES = [
 
 const SERVICE_LOCAL_PREFIX_RE =
   /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|alerts?|billing[-_.]|security[-_.]|account[-_.]|calendar[-_.]|bounce[-_.])/i;
+
 const GROUP_LOCAL_RE =
   /(^|[-_.+])(all|team|engineering|eng|developers?|dev|product|design|sales|ops|people|hr|finance)([-_.+]|$)/i;
+
 const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
+
 const PERSON_DISPLAY_RE = /^[\p{L}][\p{L}'-]+(?:\s+[\p{L}][\p{L}'-]+)+$/u;
+
 const NON_PERSON_DISPLAY_RE =
   /\b(team|engineering|notifications?|alerts?|billing|support|newsletter|security|updates|digest|no[-\s]?reply|noreply|service|admin|marketing|sales|careers?|jobs)\b/i;
+
 const LIST_DISPLAY_RE =
   /\b(team|engineering|developers?|all hands|newsletter|digest|mailing list|distribution list)\b/i;
 
@@ -113,20 +121,25 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     ...(input.payloadSignals ?? []),
     ...signalsFromObservations(input.observations ?? []),
   ];
+
   const evidenceCodes: string[] = [];
 
   const listEvidence = listEvidenceCodes(signals);
+
   if (listEvidence.length > 0) {
     return classification("group", AUTHORITATIVE_CONFIDENCE, listEvidence);
   }
 
   const identity = input.identity;
+
   if (identity.kind === "domain") {
     return classification("organization", STRONG_CONFIDENCE, ["identity:domain"]);
   }
+
   if (identity.kind === "github_repository_id" || identity.kind === "github_repository_full_name") {
     return classification("repository", STRONG_CONFIDENCE, [`identity:${identity.kind}`]);
   }
+
   if (identity.kind === "integration_object_key") {
     // TWO node kinds anchor on this identity kind — an ADR-0062 provider object
     // (`project`) and an ADR-0092 `referent` — so the kind alone decides
@@ -134,11 +147,13 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     // The registered kind SEGMENT of the value decides, from the one table both
     // this classifier and every minter share.
     const segment = integrationObjectKeySegment(identity.value);
+
     if (segment) {
       return classification(INTEGRATION_OBJECT_KIND_SEGMENTS[segment], STRONG_CONFIDENCE, [
         `identity:integration_object_key:${segment}`,
       ]);
     }
+
     // An unregistered segment is a minter that skipped the table. Say `unknown`
     // and keep `project` as the guess: `kind` is versioned, so a replay fixes it
     // once the segment is registered, and a wrong hard claim never lands.
@@ -149,11 +164,13 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
       "project",
     );
   }
+
   if (identity.kind !== "email") {
     return classification("unknown", WEAK_CONFIDENCE, [`identity:${identity.kind}`]);
   }
 
   const parsed = parseEmail(identity.value);
+
   if (!parsed) {
     return classification("unknown", WEAK_CONFIDENCE, ["email:unparseable"]);
   }
@@ -161,12 +178,14 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
   if (isStrongServiceLocal(parsed.localPart)) {
     return classification("service", STRONG_CONFIDENCE, ["email:local:service_strong"]);
   }
+
   if (signals.some((signal) => hasAutoSubmittedServiceSignal(signal.autoSubmitted))) {
     return classification("service", STRONG_CONFIDENCE, ["gmail:auto_submitted"]);
   }
 
   const displayNames = normalizedDisplayNames(input.displayNames ?? [], input.observations ?? []);
   const personDisplay = displayNames.find(isLikelyPersonDisplayName);
+
   if (personDisplay && !isServiceLocal(parsed.localPart)) {
     return classification("person", PERSON_CONFIDENCE, ["display:person_like"]);
   }
@@ -174,6 +193,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
   if (isGroupLocal(parsed.localPart)) {
     return classification("unknown", WEAK_CONFIDENCE, ["email:local:group_weak"], "group");
   }
+
   if (displayNames.some(isLikelyGroupDisplayName)) {
     return classification("unknown", WEAK_CONFIDENCE, ["display:group_weak"], "group");
   }
@@ -185,19 +205,23 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
   if (isServiceLocal(parsed.localPart)) {
     return classification("service", STRONG_CONFIDENCE, ["email:local:service"]);
   }
+
   if (isServiceDomain(parsed.domain)) {
     return classification("unknown", WEAK_CONFIDENCE, ["email:domain:service_weak"], "service");
   }
 
   evidenceCodes.push("email:mailbox:individual");
+
   return classification("person", PERSON_CONFIDENCE, evidenceCodes);
 }
 
 function signalsFromObservations(observations: readonly Observation[]): GmailPayloadSignals[] {
   const signals: GmailPayloadSignals[] = [];
+
   for (const observation of observations) {
     if (observation.kind !== "email_message") continue;
     const payload = gmailEmailMessagePayloadSchema.safeParse(observation.payload);
+
     if (!payload.success) continue;
     signals.push({
       listId: payload.data.headers.listId,
@@ -206,19 +230,24 @@ function signalsFromObservations(observations: readonly Observation[]): GmailPay
       autoSubmitted: payload.data.headers.autoSubmitted,
     });
   }
+
   return signals;
 }
 
 function listEvidenceCodes(signals: readonly GmailPayloadSignals[]): string[] {
   const evidenceCodes = new Set<string>();
+
   for (const signal of signals) {
     if (isNonEmpty(signal.listId)) evidenceCodes.add("gmail:list_id");
+
     if (isNonEmpty(signal.listUnsubscribe)) evidenceCodes.add("gmail:list_unsubscribe");
     const precedence = signal.precedence?.trim().toLowerCase();
+
     if (precedence && BULK_PRECEDENCE_VALUES.has(precedence)) {
       evidenceCodes.add(`gmail:precedence:${precedence}`);
     }
   }
+
   return [...evidenceCodes].sort();
 }
 
@@ -227,16 +256,21 @@ function normalizedDisplayNames(
   observations: readonly Observation[],
 ): string[] {
   const names = new Set<string>();
+
   for (const name of directDisplayNames) {
     const normalized = normalizeDisplayName(name);
+
     if (normalized) names.add(normalized);
   }
+
   for (const observation of observations) {
     for (const participant of observation.participants.items) {
       const normalized = normalizeDisplayName(participant.displayName);
+
       if (normalized) names.add(normalized);
     }
   }
+
   return [...names];
 }
 
@@ -245,12 +279,15 @@ function normalizeDisplayName(value: string | undefined): string | null {
     ?.replace(/^"+|"+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+
   return trimmed ? trimmed : null;
 }
 
 function parseEmail(value: string): { localPart: string; domain: string } | null {
   const at = value.lastIndexOf("@");
+
   if (at < 1 || at === value.length - 1) return null;
+
   return {
     localPart: value.slice(0, at).toLowerCase(),
     domain: value.slice(at + 1).toLowerCase(),
@@ -277,11 +314,13 @@ function isServiceDomain(domain: string): boolean {
 
 function hasAutoSubmittedServiceSignal(value: string | null | undefined): boolean {
   if (!value) return false;
+
   return value.trim().toLowerCase() !== "no";
 }
 
 function isLikelyPersonDisplayName(displayName: string): boolean {
   if (NON_PERSON_DISPLAY_RE.test(displayName)) return false;
+
   return PERSON_DISPLAY_RE.test(displayName);
 }
 

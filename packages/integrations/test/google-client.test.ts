@@ -9,6 +9,7 @@ describe("Google configured client", () => {
     const authorization: string[] = [];
     globalThis.fetch = (async (_input, init) => {
       authorization.push(new Headers(init?.headers).get("Authorization") ?? "");
+
       return new Response(JSON.stringify({ messages: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -16,10 +17,13 @@ describe("Google configured client", () => {
     }) as typeof fetch;
 
     const resolvedCredentialIds: string[] = [];
+
     const client = createGoogleClient(async (credentialId) => {
       resolvedCredentialIds.push(credentialId);
+
       return `token-${resolvedCredentialIds.length}`;
     });
+
     try {
       await client.gmail.listMessages({ credentialId: "personal" });
       await client.gmail.listMessages({ credentialId: "work" });
@@ -39,10 +43,13 @@ describe("Google configured client", () => {
         headers: { "Content-Type": "application/json" },
       })) as typeof fetch;
     const authorities: string[] = [];
+
     const client = createGoogleClient(async (_credentialId, authority) => {
       authorities.push(authority);
+
       return "token";
     });
+
     try {
       await client.gmail.listMessages({ credentialId: "account" });
       await client.gmail.sendMessage({
@@ -54,6 +61,7 @@ describe("Google configured client", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+
     assert.deepEqual(authorities, ["gmail_read", "gmail_send"]);
   });
 
@@ -62,21 +70,25 @@ describe("Google configured client", () => {
     let attempts = 0;
     globalThis.fetch = (async () => {
       attempts += 1;
+
       return new Response(JSON.stringify({ messages: [] }), {
         status: attempts === 1 ? 503 : 200,
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch;
+
     const client = createGoogleClient(async () => "token", {
       maxAttempts: 2,
       baseDelayMs: 0,
       maxDelayMs: 0,
     });
+
     try {
       await client.gmail.listMessages({ credentialId: "account" });
     } finally {
       globalThis.fetch = originalFetch;
     }
+
     assert.equal(attempts, 2);
   });
 });

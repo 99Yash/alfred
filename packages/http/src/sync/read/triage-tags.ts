@@ -22,6 +22,7 @@ const TRIAGE_TAG_WINDOW_DAYS = 30;
 export const fetchTriageTags = syncEntity(SYNC_MODEL.triagetag, {
   query: (tx, userId) => {
     const cutoff = new Date(Date.now() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
     return tx
       .select()
       .from(emailTriage)
@@ -51,16 +52,19 @@ export const fetchTriageTags = syncEntity(SYNC_MODEL.triagetag, {
       rowVersion: t.rowVersion,
       updatedAt: t.updatedAt,
     };
+
     if (t.source === "user") {
       if (!t.overriddenAt) {
         throw new SerializationError("emailTriage.overriddenAt must not be null");
       }
+
       return {
         source: "user" as const,
         overriddenAt: t.overriddenAt,
         ...shared,
       };
     }
+
     return {
       source: "auto" as const,
       confidence: t.confidence,

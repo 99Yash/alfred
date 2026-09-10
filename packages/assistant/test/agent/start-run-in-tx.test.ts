@@ -59,8 +59,11 @@ const SERVER_ENV_FIXTURES = {
 } satisfies Record<string, string>;
 
 const SLUG = "__test-start-run-in-tx";
+
 const ID_PREFIX = "test-start-run-in-tx-";
+
 const createdUserIds: string[] = [];
+
 const createdJobIds: string[] = [];
 
 function seedServerEnvForQueueTests(): void {
@@ -90,6 +93,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -105,6 +109,7 @@ function runArgsFor(userId: string): CreateRunArgs {
 async function queueHasJobId(jobId: string): Promise<boolean> {
   const queue = getAgentQueue();
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
+
   return jobs.some((job) => job.id === jobId);
 }
 
@@ -113,6 +118,7 @@ async function runRowCountForUser(userId: string): Promise<number> {
     .select({ id: agentRuns.id })
     .from(agentRuns)
     .where(eq(agentRuns.userId, userId));
+
   return rows.length;
 }
 
@@ -121,6 +127,7 @@ async function removeCreatedJobs(): Promise<void> {
   await Promise.all(
     createdJobIds.map(async (jobId) => {
       const job = await queue.getJob(jobId);
+
       if (job) await job.remove();
     }),
   );
@@ -129,6 +136,7 @@ async function removeCreatedJobs(): Promise<void> {
 describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { skip: SKIP }, () => {
   before(async () => {
     seedServerEnvForQueueTests();
+
     if (!getWorkflow(SLUG)) registerRecipe(testRecipe);
     await db()
       .delete(user)
@@ -141,9 +149,11 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
 
   after(async () => {
     _resetRegistryForTests();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeAgentQueue();
     await closeRedis();
     await closeConnections();
@@ -172,11 +182,13 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
     createdJobIds.push(jobId);
 
     let enqueuedWhileClaimRan: boolean | undefined;
+
     const result = await startRunInTx({
       claim: async () => {
         // The enqueue must fire AFTER the transaction commits, so while `claim`
         // still runs the job cannot yet be on the queue.
         enqueuedWhileClaimRan = await queueHasJobId(jobId);
+
         return runArgsFor(userId);
       },
       enqueue: { jobId },
@@ -190,6 +202,7 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
       .select({ status: agentRuns.status })
       .from(agentRuns)
       .where(eq(agentRuns.id, result.runId));
+
     assert.equal(rows.length, 1, "expected exactly one agent_runs row");
     assert.equal(rows[0]?.status, "pending", "run row should be pending after commit");
     assert.equal(await queueHasJobId(jobId), true, "expected the passed jobId on the queue");

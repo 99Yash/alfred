@@ -25,17 +25,23 @@ import { actionStagings, agentRuns, user as userTable, workflows } from "@alfred
 import { and, eq, sql } from "drizzle-orm";
 
 const SMOKE_USER_EMAIL = "smoke-sub-agents@alfred.local";
+
 const WORKFLOW_SLUG = "smoke-sub-agents";
+
 const SUB_AGENT_BRIEF = "Find the important recent Gmail threads and summarize them.";
 
 async function findOrCreateSmokeUser(): Promise<string> {
   const existing = await db().select().from(userTable).where(eq(userTable.email, SMOKE_USER_EMAIL));
+
   if (existing[0]) return existing[0].id;
+
   const inserted = await db()
     .insert(userTable)
     .values({ name: "Sub-agent Smoke", email: SMOKE_USER_EMAIL, emailVerified: true })
     .returning({ id: userTable.id });
+
   if (!inserted[0]) throw new Error("failed to insert smoke user");
+
   return inserted[0].id;
 }
 
@@ -97,6 +103,7 @@ async function main(): Promise<void> {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-sub-agents] user=${userId} parent=${parent.runId}`);
 
   const spawned = await dispatchToolCall({
@@ -116,23 +123,31 @@ async function main(): Promise<void> {
     fence: { generation: 0 },
     allowedIntegrations: ["gmail"],
   });
+
   if (spawned.kind !== "executed") {
     throw new Error(`[smoke-sub-agents] spawn expected executed, got ${spawned.kind}`);
   }
+
   assertObject(spawned.toolResult, "spawn result");
+
   if (spawned.toolResult.ok !== true || typeof spawned.toolResult.childRunId !== "string") {
     throw new Error("[smoke-sub-agents] spawn result missing childRunId");
   }
+
   const childRunId = spawned.toolResult.childRunId;
 
   const childRows = await db().select().from(agentRuns).where(eq(agentRuns.id, childRunId));
   const child = childRows[0];
+
   if (!child) throw new Error("[smoke-sub-agents] child run row not found");
+
   if (child.workflowSlug !== WORKFLOW_SLUG || child.brief !== SUB_AGENT_BRIEF) {
     throw new Error("[smoke-sub-agents] child run did not preserve workflow slug + brief");
   }
+
   assertObject(child.metadata, "child metadata");
   assertObject(child.metadata.subAgent, "child subAgent metadata");
+
   if (
     child.metadata.subAgent.parentRunId !== parent.runId ||
     child.metadata.subAgent.subId !== "subA" ||
@@ -140,9 +155,11 @@ async function main(): Promise<void> {
   ) {
     throw new Error("[smoke-sub-agents] child metadata does not link back to parent call");
   }
+
   if (child.transcript[0]?.role !== "user" || child.transcript[0].content !== child.brief) {
     throw new Error("[smoke-sub-agents] child transcript was not seeded from the sub-agent brief");
   }
+
   console.log(`[smoke-sub-agents] spawn created child=${childRunId}`);
 
   const redispatched = await dispatchToolCall({
@@ -162,9 +179,11 @@ async function main(): Promise<void> {
     fence: { generation: 0 },
     allowedIntegrations: ["gmail"],
   });
+
   if (redispatched.kind !== "executed") {
     throw new Error(`[smoke-sub-agents] redispatch expected executed, got ${redispatched.kind}`);
   }
+
   const countRows = await db()
     .select({ count: sql<number>`count(*)::int` })
     .from(agentRuns)
@@ -175,11 +194,13 @@ async function main(): Promise<void> {
         sql`${agentRuns.metadata}->'subAgent'->>'parentToolCallId' = 'tc_spawn_sub_a'`,
       ),
     );
+
   if (countRows[0]?.count !== 1) {
     throw new Error(
       `[smoke-sub-agents] expected one child after redispatch, got ${countRows[0]?.count}`,
     );
   }
+
   console.log("[smoke-sub-agents] spawn redispatch is idempotent");
 
   const nested = await dispatchToolCall({
@@ -196,9 +217,11 @@ async function main(): Promise<void> {
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });
+
   if (nested.kind !== "invalid_input") {
     throw new Error(`[smoke-sub-agents] nested spawn expected invalid_input, got ${nested.kind}`);
   }
+
   console.log("[smoke-sub-agents] nested spawn blocked");
 
   const childScratchWrite = await dispatchToolCall({
@@ -215,20 +238,24 @@ async function main(): Promise<void> {
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });
+
   if (childScratchWrite.kind !== "executed") {
     throw new Error(
       `[smoke-sub-agents] child scratch write expected executed, got ${childScratchWrite.kind}`,
     );
   }
+
   const parentScratch = await readScratch<{ threads: number }>({
     runId: parent.runId,
     zone: "scratch",
     subId: "subA",
     path: "findings",
   });
+
   if (parentScratch?.value.threads !== 3 || parentScratch.writtenBy !== "subA") {
     throw new Error("[smoke-sub-agents] child scratch write did not land on parent run");
   }
+
   console.log("[smoke-sub-agents] child scratch writes route to parent run");
 
   const stagedRows = await db()
@@ -240,6 +267,7 @@ async function main(): Promise<void> {
         eq(actionStagings.toolName, "system.spawn_sub_agent"),
       ),
     );
+
   if (stagedRows.length !== 1 || stagedRows[0]?.status !== "executed") {
     throw new Error(
       "[smoke-sub-agents] spawn should leave exactly one executed action_stagings row",

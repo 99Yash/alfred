@@ -37,9 +37,12 @@ import { sha256 } from "../src/hash";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-embedcap-";
+
 const SOURCE = "github" as const;
+
 /** 0.5 / 500_000 * 1e6 = 1 → any chunk of ≥2 tokens exceeds the budget. */
 const ABSURD_PRICE_PER_MTOK = 500_000;
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -48,6 +51,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -56,6 +60,7 @@ async function seedDocument(userId: string): Promise<string> {
     { length: 8 },
     (_, i) => `Paragraph ${i} with enough words to cost several tokens.`,
   ).join("\n\n");
+
   const [row] = await db()
     .insert(documents)
     .values({
@@ -66,7 +71,9 @@ async function seedDocument(userId: string): Promise<string> {
       contentHash: sha256(content),
     })
     .returning({ id: documents.id });
+
   assert.ok(row, "seed insert returned no row");
+
   return row.id;
 }
 
@@ -81,6 +88,7 @@ describe("corpus embed cost cap (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -104,6 +112,7 @@ describe("corpus embed cost cap (DB-backed)", { skip: SKIP }, () => {
       })
       .from(documents)
       .where(eq(documents.id, docId));
+
     assert.ok(row, "document row disappeared");
     assert.ok(row.embedFailedAt, "truncation stamps the terminal marker for the sweep");
     assert.match(row.lastEmbedError ?? "", /cost cap/, "lastEmbedError names the cost cap");
@@ -112,6 +121,7 @@ describe("corpus embed cost cap (DB-backed)", { skip: SKIP }, () => {
       .select({ one: chunks.position })
       .from(chunks)
       .where(and(eq(chunks.documentId, docId)));
+
     assert.equal(written.length, 0, "no chunk rows exist for a zero-kept truncation");
 
     const pending = await findUnembeddedDocumentIds({ userId, limit: 1000 });

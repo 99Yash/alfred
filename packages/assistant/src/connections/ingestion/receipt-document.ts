@@ -45,6 +45,7 @@ export async function readReceiptDocument(receipt: {
   provider: InboundEventSource;
 }): Promise<ReceiptDocument | null> {
   const key = receiptDocumentKey(receipt);
+
   const rows = await db()
     .select({
       title: documents.title,
@@ -62,6 +63,7 @@ export async function readReceiptDocument(receipt: {
       ),
     )
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -86,6 +88,7 @@ export async function writeReceiptDocument(
   );
   const admittedAt = new Date();
   const { start, end } = inZone(timezone).dayBounds(admittedAt);
+
   const [usage] = await tx
     .select({ count: count() })
     .from(documents)
@@ -97,6 +100,7 @@ export async function writeReceiptDocument(
         lt(documents.ingestedAt, end),
       ),
     );
+
   const capped = (usage?.count ?? 0) >= INBOUND_DAILY_EMBED_CAP;
   await tx
     .insert(documents)

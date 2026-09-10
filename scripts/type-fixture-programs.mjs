@@ -49,8 +49,11 @@ import { toRepoRelative } from "./repo-relative.mjs";
 import { listWorkspaces } from "./workspaces.mjs";
 
 const MANIFEST = "package.json";
+
 const FIXTURE_SUFFIX = ".type-test.ts";
+
 const CHECK_TYPES = "check-types";
+
 const TSC_BIN = "node_modules/.bin/tsc";
 
 /**
@@ -119,6 +122,7 @@ export function tscProjectsFor(script) {
   for (const segment of String(script).split(/&&|\|\||;/)) {
     const tokens = segment.trim().split(/\s+/).filter(Boolean);
     const start = tokens.findIndex((token) => token === "tsc" || token.endsWith("/tsc"));
+
     if (start === -1) continue; // A non-tsc step (`node scripts/clean-package-dist.mjs`, `pnpm …`).
 
     const found = [];
@@ -132,26 +136,32 @@ export function tscProjectsFor(script) {
 
       if (token === "-p" || token === "--project") {
         const value = tokens[index + 1];
+
         if (value === undefined || value.startsWith("-")) {
           dangling = token;
           break;
         }
+
         found.push(value);
         index += 1;
         continue;
       }
+
       if (token.startsWith("--project=")) {
         found.push(token.slice("--project=".length));
         continue;
       }
+
       if (token === "-b" || token === "--build") {
         build = true;
         continue;
       }
+
       if (VALUE_FLAGS.has(token)) {
         index += 1;
         continue;
       }
+
       if (token.startsWith("-")) continue;
 
       // A positional means a project reference under `-b`, and an input file
@@ -164,13 +174,16 @@ export function tscProjectsFor(script) {
       problems.push(`\`${dangling}\` names no project in \`${segment.trim()}\``);
       continue;
     }
+
     if (inputFiles) {
       problems.push(
         `\`${segment.trim()}\` names input files on the command line, so tsc reads no tsconfig for it`,
       );
       continue;
     }
+
     if (found.length === 0) found.push("tsconfig.json");
+
     for (const project of found) projects.push(normalizeProject(project));
   }
 
@@ -180,6 +193,7 @@ export function tscProjectsFor(script) {
 /** `tsc -p some/dir` reads `some/dir/tsconfig.json`; every project is stored as the file. */
 function normalizeProject(project) {
   const trimmed = project.replace(/^\.\//, "").replace(/\/+$/, "");
+
   return trimmed.endsWith(".json") ? trimmed : `${trimmed}/tsconfig.json`;
 }
 
@@ -212,6 +226,7 @@ function normalizeProject(project) {
  */
 export function programFiles(root, projectPath, { tsc = defaultTscPath(root), cache } = {}) {
   let realRoot;
+
   try {
     realRoot = realpathSync(root);
   } catch {
@@ -220,15 +235,18 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
 
   const absolute = resolve(realRoot, projectPath);
   const cached = cache?.get(absolute);
+
   if (cached !== undefined) return cached;
 
   let result;
+
   if (!existsSync(tsc)) {
     result = { files: new Set(), problem: `no tsc binary at ${tsc}` };
   } else if (!existsSync(absolute)) {
     result = { files: new Set(), problem: `${projectPath} does not exist` };
   } else {
     let stdout;
+
     try {
       stdout = execFileSync(tsc, ["-p", absolute, "--listFilesOnly"], {
         cwd: realRoot,
@@ -242,6 +260,7 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
       const partial = /** @type {{stdout?: unknown}} */ (error).stdout;
       stdout = typeof partial === "string" ? partial : "";
     }
+
     const files = new Set(
       stdout
         .split("\n")
@@ -249,6 +268,7 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
         .filter((line) => line.length > 0 && !line.startsWith("error TS"))
         .map((line) => toRepoRelative(realRoot, line)),
     );
+
     result =
       files.size === 0
         ? { files, problem: `tsc listed no file for ${projectPath}` }
@@ -256,6 +276,7 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
   }
 
   cache?.set(absolute, result);
+
   return result;
 }
 
@@ -276,6 +297,7 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
  */
 export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
   const { workspaces, globs, failures } = listWorkspaces(root);
+
   if (workspaces.length === 0) return { checked: 0, projectsProbed: 0, failures };
 
   const listed = listGitSourceFiles(globs, root);
@@ -289,13 +311,17 @@ export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
     .sort((left, right) => right.length - left.length);
 
   const byPackage = new Map();
+
   for (const fixture of fixtures) {
     const packageDir = packageDirs.find((dir) => fixture.startsWith(`${dir}/`));
+
     if (packageDir === undefined) {
       failures.push(`${fixture} · sits in no workspace, so no package's check-types can reach it.`);
       continue;
     }
+
     const held = byPackage.get(packageDir);
+
     if (held) held.push(fixture);
     else byPackage.set(packageDir, [fixture]);
   }
@@ -305,16 +331,19 @@ export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
 
   for (const [packageDir, held] of byPackage) {
     const script = checkTypesScript(root, packageDir);
+
     if (script === null) {
       for (const fixture of held) {
         failures.push(
           `${packageDir} · ${fixture} · its package declares no \`${CHECK_TYPES}\` script, so no tsc pass reads it.`,
         );
       }
+
       continue;
     }
 
     const { projects, problems } = tscProjectsFor(script);
+
     for (const problem of problems) failures.push(`${packageDir} · ${problem}.`);
 
     if (projects.length === 0) {
@@ -323,15 +352,19 @@ export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
           `${packageDir} · ${fixture} · its \`${CHECK_TYPES}\` script (\`${script}\`) runs no tsc project, so nothing here can be shown to read it.`,
         );
       }
+
       continue;
     }
 
     const members = new Set();
+
     for (const project of projects) {
       const projectPath = `${packageDir}/${project}`;
       const { files, problem } = programFiles(root, projectPath, { tsc, cache });
       projectsProbed += 1;
+
       if (problem !== null) failures.push(`${packageDir} · ${problem}.`);
+
       for (const file of files) members.add(file);
     }
 
@@ -369,15 +402,18 @@ export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
  */
 export function scriptProgramFailures(root, tsc = defaultTscPath(root), cache) {
   const failures = [];
+
   const tracked = listGitSourceFiles(["scripts"], root).filter(
     (file) => SCRIPT_FILE.test(file) && !file.startsWith(SCRIPTS_EXCLUDED_ROOT),
   );
 
   const { files, problem } = programFiles(root, SCRIPTS_PROJECT, cache ? { tsc, cache } : { tsc });
+
   if (problem !== null) {
     failures.push(
       `${SCRIPTS_PROJECT} · ${problem}, so no script in the tree can be shown to be type-checked.`,
     );
+
     return { checked: tracked.length, failures };
   }
 
@@ -393,11 +429,14 @@ export function scriptProgramFailures(root, tsc = defaultTscPath(root), cache) {
 
 function checkTypesScript(root, packageDir) {
   let parsed;
+
   try {
     parsed = JSON.parse(readFileSync(join(root, packageDir, MANIFEST), "utf8"));
   } catch {
     return null;
   }
+
   const script = parsed?.scripts?.[CHECK_TYPES];
+
   return typeof script === "string" && script.trim().length > 0 ? script : null;
 }

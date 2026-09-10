@@ -26,11 +26,14 @@ const [
   import("@alfred/http"),
   import("../src/middleware/session-cache"),
 ]);
+
 const { app, getSessionCached } = http;
+
 const { clearSessionTokenCache } = sessionCache;
 
 function sessionWithExpiry(token: string, expiresAt: Date) {
   const now = new Date();
+
   return {
     session: {
       id: "session-1",
@@ -67,9 +70,11 @@ describe("session cache (#454)", () => {
     t.mock.timers.enable({ apis: ["Date"], now });
 
     let resolveLookup: ((session: ReturnType<typeof sessionWithExpiry>) => void) | undefined;
+
     const lookup = new Promise<ReturnType<typeof sessionWithExpiry>>((resolve) => {
       resolveLookup = resolve;
     });
+
     const getSession = t.mock.method(auth().api, "getSession", async () => lookup);
 
     const first = getSessionCached(
@@ -77,7 +82,9 @@ describe("session cache (#454)", () => {
         headers: { cookie: `better-auth.session_token=${token}` },
       }),
     );
+
     t.mock.timers.setTime(expiresAt.getTime());
+
     const lateWaiter = getSessionCached(
       new Request("http://localhost/api/auth/get-session", {
         headers: { cookie: `better-auth.session_token=${token}` },
@@ -95,6 +102,7 @@ describe("session cache (#454)", () => {
   test("a positive cache entry never outlives the session's native expiry", async (t) => {
     clearSessionTokenCache();
     const token = "token-near-expiry";
+
     const getSession = t.mock.method(auth().api, "getSession", async () =>
       sessionWithExpiry(token, new Date(Date.now())),
     );
@@ -126,13 +134,16 @@ describe("session cache (#454)", () => {
       secret: "test-secret-that-is-at-least-thirty-two-characters",
       ...authSessionPolicy(),
     });
+
     const context = await owner.$context;
+
     const user = await context.internalAdapter.createUser({
       id: "legacy-cache-user",
       email: "legacy-cache@example.com",
       emailVerified: true,
       name: "Legacy Cache",
     });
+
     const session = await context.internalAdapter.createSession(user.id);
     await context.adapter.update({
       model: "session",
@@ -140,10 +151,12 @@ describe("session cache (#454)", () => {
       update: { expiresAt: new Date(legacyExpiryMs) },
     });
     const signedToken = `${session.token}.${await makeSignature(session.token, context.secret)}`;
+
     const request = () =>
       new Request("http://localhost/api/auth/get-session", {
         headers: { cookie: `${context.authCookies.sessionToken.name}=${signedToken}` },
       });
+
     const getSession = t.mock.method(
       auth().api,
       "getSession",
@@ -174,9 +187,11 @@ describe("session cache (#454)", () => {
 
   test("any successful auth POST drops every cached token without a route list", async (t) => {
     clearSessionTokenCache();
+
     const victim = new Request("http://localhost/api/auth/get-session", {
       headers: { cookie: "better-auth.session_token=token-other-device" },
     });
+
     const getSession = t.mock.method(auth().api, "getSession", async () =>
       sessionWithExpiry("token-other-device", new Date(Date.now() + 60_000)),
     );
@@ -192,12 +207,14 @@ describe("session cache (#454)", () => {
     assert.equal(getSession.mock.callCount(), 1, "the token must be cached before the revoke");
 
     t.mock.method(auth(), "handler", async () => new Response(null, { status: 200 }));
+
     const mutated = await app.handle(
       new Request("http://localhost/api/auth/future-mutation", {
         method: "POST",
         headers: { cookie: "better-auth.session_token=token-this-device" },
       }),
     );
+
     assert.equal(mutated.status, 200);
 
     await getSessionCached(
@@ -214,9 +231,11 @@ describe("session cache (#454)", () => {
 
   test("GETs, refused auth POSTs, and auth-prefix near-matches leave the cache alone", async (t) => {
     clearSessionTokenCache();
+
     const getSession = t.mock.method(auth().api, "getSession", async () =>
       sessionWithExpiry("token-other-device", new Date(Date.now() + 60_000)),
     );
+
     await getSessionCached(
       new Request("http://localhost/api/auth/get-session", {
         headers: { cookie: "better-auth.session_token=token-other-device" },
@@ -236,15 +255,18 @@ describe("session cache (#454)", () => {
     const nearMatch = await app.handle(
       new Request("http://localhost/api/authz/future-mutation", { method: "POST" }),
     );
+
     assert.equal(nearMatch.status, 200);
 
     handler.mock.mockImplementation(async () => new Response(null, { status: 401 }));
+
     const refused = await app.handle(
       new Request("http://localhost/api/auth/future-mutation", {
         method: "POST",
         headers: { cookie: "better-auth.session_token=token-this-device" },
       }),
     );
+
     assert.equal(refused.status, 401);
 
     await getSessionCached(
@@ -268,16 +290,22 @@ describe("session cache (#454)", () => {
 
     let resolveOld: ((session: ReturnType<typeof sessionWithExpiry>) => void) | undefined;
     let resolveFresh: ((session: ReturnType<typeof sessionWithExpiry>) => void) | undefined;
+
     const oldLookup = new Promise<ReturnType<typeof sessionWithExpiry>>((resolve) => {
       resolveOld = resolve;
     });
+
     const freshLookup = new Promise<ReturnType<typeof sessionWithExpiry>>((resolve) => {
       resolveFresh = resolve;
     });
+
     let lookupCount = 0;
+
     const getSession = t.mock.method(auth().api, "getSession", async () => {
       lookupCount += 1;
+
       if (lookupCount === 1) return oldLookup;
+
       return freshLookup;
     });
 
@@ -288,9 +316,11 @@ describe("session cache (#454)", () => {
 
     const beforeClear = getSessionCached(request());
     t.mock.method(auth(), "handler", async () => new Response(null, { status: 204 }));
+
     const mutation = await app.handle(
       new Request("http://localhost/api/auth/future-mutation", { method: "POST" }),
     );
+
     assert.equal(mutation.status, 204);
 
     const afterClear = getSessionCached(request());

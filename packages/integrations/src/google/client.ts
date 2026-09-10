@@ -95,6 +95,7 @@ export class GoogleCredentialSelectionError extends Error {
 
 function hasAuthority(credential: CredentialRow, authority: GoogleAuthority): boolean {
   const granted = new Set(credential.scopes);
+
   return AUTHORITY_SCOPES[authority].some((scope) => granted.has(scope));
 }
 
@@ -106,17 +107,21 @@ async function credentialsForAuthority(
   const active = (await listCredentials(userId, "google")).filter(
     (credential) => credential.status === "active",
   );
+
   if (active.length === 0) {
     throw new GoogleCredentialSelectionError(authority, "connection_required");
   }
+
   const scoped = active.filter(
     (credential) =>
       hasAuthority(credential, authority) &&
       (accountRef === undefined || credential.accountId === accountRef),
   );
+
   if (scoped.length === 0) {
     throw new GoogleCredentialSelectionError(authority, "scope_required");
   }
+
   return scoped.map(({ id, accountId, accountLabel }) => ({ id, accountId, accountLabel }));
 }
 
@@ -139,6 +144,7 @@ export function createGoogleClient(
     ) => Promise<TResult>,
   ): Promise<TResult> {
     const accessToken = await tokenFor(credentialId, authority);
+
     return call({ ...args, accessToken }, retry);
   }
 
@@ -208,6 +214,7 @@ export function createGoogleClient(
         withToken("sheets", credentialId, args, batchUpdateSpreadsheet),
       addSheet: (args: { credentialId: string; spreadsheetId: string; title: string }) => {
         const { credentialId, ...rest } = args;
+
         return tokenFor(credentialId, "sheets").then((accessToken) =>
           addSheet({ accessToken, ...rest }),
         );
@@ -230,6 +237,7 @@ export function createGoogleClient(
         layout?: string | undefined;
       }) => {
         const { credentialId, ...rest } = args;
+
         return tokenFor(credentialId, "slides").then((accessToken) =>
           addSlide({ accessToken, ...rest }),
         );
@@ -251,11 +259,15 @@ export function googleClientForUser(options: ProviderBindOptions) {
         credential.status === "active" &&
         hasAuthority(credential, authority),
     );
+
     if (!owned) throw new GoogleCredentialSelectionError(authority, "scope_required");
+
     return getFreshAccessToken(credentialId);
   }, options.retry);
+
   const first = async (authority: GoogleAuthority) =>
     (await credentialsForAuthority(options.userId, authority, options.accountRef))[0]!;
+
   return {
     ...client,
     gmail: {

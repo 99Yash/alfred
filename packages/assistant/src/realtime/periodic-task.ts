@@ -42,6 +42,7 @@ export interface PeriodicTaskOptions {
 }
 
 const DEFAULT_DRAIN_MS = 5_000;
+
 const DRAIN_POLL_MS = 50;
 
 export class PeriodicTask {
@@ -90,6 +91,7 @@ export class PeriodicTask {
       },
       this.#options.intervalMs,
     );
+
     // Never hold the process open for a maintenance loop.
     if (typeof this.#timer === "object" && "unref" in this.#timer) this.#timer.unref();
   }
@@ -103,18 +105,23 @@ export class PeriodicTask {
    */
   trigger(): void {
     if (this.#stopped) return;
+
     if (this.#inFlight) {
       this.#pending = true;
+
       return;
     }
+
     void this.#run();
   }
 
   async #run(): Promise<void> {
     this.#inFlight = true;
+
     try {
       do {
         this.#pending = false;
+
         try {
           await this.#options.pass(this.#controller.signal);
         } catch (err) {
@@ -150,13 +157,17 @@ export class PeriodicTask {
     this.#controller.abort();
 
     const deadline = Date.now() + (this.#options.drainMs ?? DEFAULT_DRAIN_MS);
+
     while (this.#inFlight && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, DRAIN_POLL_MS));
     }
+
     if (this.#inFlight) {
       console.warn(`[${this.#options.name}] pass still running at shutdown deadline`);
+
       return false;
     }
+
     return true;
   }
 }

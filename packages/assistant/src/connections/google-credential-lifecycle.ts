@@ -94,6 +94,7 @@ export function registerGoogleCredentialLifecycleHandler(
   if (googleCredentialLifecycleHandler) {
     throw new Error("[integrations] a Google credential lifecycle handler is already registered");
   }
+
   googleCredentialLifecycleHandler = handler;
 
   return () => {
@@ -107,6 +108,7 @@ function requireGoogleCredentialLifecycleHandler(): GoogleCredentialLifecycleHan
   if (!googleCredentialLifecycleHandler) {
     throw new NoGoogleCredentialLifecycleHandlerRegisteredError();
   }
+
   return googleCredentialLifecycleHandler;
 }
 
@@ -115,10 +117,12 @@ export async function upsertGoogleCredentialConnection(
   request: unknown,
 ): Promise<GoogleCredentialUpsertResult> {
   const parsed = googleCredentialUpsertRequestSchema.parse(request);
+
   const result = await requireGoogleCredentialLifecycleHandler().upsert({
     ...parsed,
     changedAt: new Date(),
   });
+
   return googleCredentialUpsertResultSchema.parse(result);
 }
 
@@ -147,6 +151,7 @@ const DEFAULT_DISCONNECT_DEPS: GoogleCredentialDisconnectDeps = {
         ),
       )
       .limit(1);
+
     return Boolean(row);
   },
   mailboxWritesEnabled: gmailMailboxWritesEnabled,
@@ -169,6 +174,7 @@ export async function disconnectGoogleCredentialConnectionWith(
   if (!(await deps.loadOwnedCredential(request))) throw new GoogleCredentialNotFoundError();
 
   let watchStopAccessToken: string | null = null;
+
   if (deps.mailboxWritesEnabled()) {
     try {
       watchStopAccessToken = await deps.getFreshAccessToken(request.credentialId);
@@ -181,6 +187,7 @@ export async function disconnectGoogleCredentialConnectionWith(
     ...request,
     disconnectedAt: deps.now(),
   });
+
   const result = googleCredentialDisconnectResultSchema.parse({
     credentialId: request.credentialId,
     status: handlerResult.status,

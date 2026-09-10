@@ -7,6 +7,7 @@ import {
 } from "../../../../src/tool-runtime/internal/tools/passthrough";
 
 const encoder = new TextEncoder();
+
 const bytes = (v: unknown) => encoder.encode(JSON.stringify(v) ?? "").length;
 
 describe("boundPassthroughBody — clean path", () => {
@@ -60,6 +61,7 @@ describe("boundPassthroughBody — total byte cap", () => {
       id: i,
       blob: "y".repeat(2000),
     }));
+
     const r = boundPassthroughBody({ rows });
     assert.ok(bytes({ rows }) > PASSTHROUGH_MAX_BODY_BYTES, "fixture must exceed the cap");
 
@@ -81,6 +83,7 @@ describe("boundPassthroughBody — simultaneous causes", () => {
       id: i,
       note: "z".repeat(8500),
     }));
+
     const r = boundPassthroughBody({ rows });
     assert.ok(r.truncation);
     const kinds = new Set(r.truncation?.causes.map((c) => c.kind));

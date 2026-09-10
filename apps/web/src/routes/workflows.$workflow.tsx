@@ -19,6 +19,7 @@ export const Route = createFileRoute("/workflows/$workflow")({
   validateSearch: (params: Record<string, unknown>) => {
     const workflowRecovery = getStringPath(params, "workflow_recovery");
     const revisionId = getStringPath(params, "revision_id");
+
     return {
       ...(workflowRecovery ? { workflow_recovery: workflowRecovery } : {}),
       ...(revisionId ? { revision_id: revisionId } : {}),

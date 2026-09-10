@@ -55,6 +55,7 @@ export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
  * provenance). The discriminant for `SyncedTriageTag` — see rfc-triage-tags.md.
  */
 export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
+
 export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
 
 // ─── Classifier todo proposal (ADR-0050 amendment 2026-06-06) ─────────────
@@ -72,6 +73,7 @@ export const TODO_DECISION_OUTCOMES = [
   "too_vague",
   "already_handled",
 ] as const;
+
 export type TodoDecisionOutcome = (typeof TODO_DECISION_OUTCOMES)[number];
 
 /**
@@ -88,6 +90,7 @@ export const triageTodoSuggestionSchema = z
     assist: z.string().max(280).nullish(),
   })
   .nullable();
+
 export type TriageTodoSuggestion = z.infer<typeof triageTodoSuggestionSchema>;
 
 /**
@@ -105,6 +108,7 @@ export const triageTodoDecisionSchema = z.object({
   outcome: z.enum(TODO_DECISION_OUTCOMES),
   note: z.string().max(200).nullish(),
 });
+
 export type TriageTodoDecision = z.infer<typeof triageTodoDecisionSchema>;
 
 // ─── Collaboration-tool activity kind (#218 / ADR-0066) ───────────────────
@@ -127,7 +131,9 @@ export const COLLAB_ACTIVITY_KINDS = [
   "other_activity",
   "digest",
 ] as const;
+
 export type CollabActivityKind = (typeof COLLAB_ACTIVITY_KINDS)[number];
+
 export const collabActivitySchema = z.enum(COLLAB_ACTIVITY_KINDS);
 
 /**
@@ -141,6 +147,7 @@ export const COLLAB_ACTIVITY_OWNERSHIP_KINDS = [
   "mentioned_user",
   "comment_to_user",
 ] as const satisfies readonly CollabActivityKind[];
+
 export type OwnershipCollabActivityKind = (typeof COLLAB_ACTIVITY_OWNERSHIP_KINDS)[number];
 
 export const COLLAB_ACTIVITY_PASSIVE_KINDS = [
@@ -148,6 +155,7 @@ export const COLLAB_ACTIVITY_PASSIVE_KINDS = [
   "other_activity",
   "digest",
 ] as const satisfies readonly CollabActivityKind[];
+
 export type PassiveCollabActivityKind = (typeof COLLAB_ACTIVITY_PASSIVE_KINDS)[number];
 
 // Compile-time partition guard: a newly-added kind must be explicitly classified
@@ -178,19 +186,24 @@ export function collabActivityPartition(
   kind: CollabActivityKind | null | undefined,
 ): CollabActivityPartition {
   if (kind == null) return "none";
+
   return isPassiveCollabActivity(kind) ? "passive" : "ownership";
 }
 
 export const ACCOUNT_PERSONAS = ["work", "personal"] as const;
+
 export type AccountPersona = (typeof ACCOUNT_PERSONAS)[number];
+
 export const accountPersonaSchema = z.enum(ACCOUNT_PERSONAS);
 
 // ─── ADR-0042: SenderContext ──────────────────────────────────────────────
 
 export const SENDER_KIND = ["person", "service", "unknown"] as const;
+
 export type SenderKind = (typeof SENDER_KIND)[number];
 
 export const EFFECTIVE_AUTHOR = ["bot", "person", "service", "unknown"] as const;
+
 export type EffectiveAuthor = (typeof EFFECTIVE_AUTHOR)[number];
 
 /**
@@ -211,6 +224,7 @@ export const BOT_SLUGS = [
   "google-security",
   "datadog",
 ] as const;
+
 export type BotSlug = (typeof BOT_SLUGS)[number];
 
 /**
@@ -233,6 +247,7 @@ export const SEVERITY_SUSPECT_BOTS: ReadonlySet<BotSlug> = new Set<BotSlug>([
  * (a bot relaying a human, etc.).
  */
 export const BODY_ACTOR_KINDS = ["bot", "person", "unknown"] as const;
+
 export type BodyActorKind = (typeof BODY_ACTOR_KINDS)[number];
 
 export const senderContextSchema = z.object({

@@ -49,6 +49,7 @@ export function HeroPanel({ provider }: { provider: IntegrationPage }) {
   // back to the house purple. Low-alpha mix keeps it ambient in both themes.
   const accent = brandAccent(provider.brand);
   const glow = accent ? `color-mix(in srgb, ${accent} 24%, transparent)` : "var(--app-purple-2)";
+
   return (
     <div
       aria-hidden

@@ -15,7 +15,9 @@ import { and, eq, sql } from "drizzle-orm";
  */
 export async function isKnownContact(userId: string, senderAddress: string): Promise<boolean> {
   const target = senderAddress.trim().toLowerCase();
+
   if (!target) return false;
+
   try {
     const rows = await db()
       .select({ id: entities.id })
@@ -37,6 +39,7 @@ export async function isKnownContact(userId: string, senderAddress: string): Pro
         ),
       )
       .limit(1);
+
     return rows.length > 0;
   } catch {
     return false;

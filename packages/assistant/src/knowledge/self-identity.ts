@@ -32,12 +32,14 @@ export async function loadSelfIdentity(userId: string): Promise<SelfIdentity> {
 
   const emails = new Set<string>();
   const selfEmail = (selfRow?.email ?? "").trim().toLowerCase();
+
   if (selfEmail) emails.add(selfEmail);
   const gmailAccountEmailById: Record<string, string> = {};
   let github: SelfIdentity["github"];
 
   for (const c of creds) {
     const label = c.accountLabel?.trim().toLowerCase() || null;
+
     if (c.provider === "google") {
       if (label) {
         gmailAccountEmailById[c.accountId] = label;

@@ -57,12 +57,15 @@ export function isColdContactFromSignals(args: {
   bucket: SenderSignificanceBucket;
 }): boolean {
   const twoWay = args.inbound > 0 && args.outbound > 0;
+
   return !twoWay && (args.outbound === 0 || args.bucket === "weak");
 }
 
 function reciprocityPhrase(stats: { inbound: number; outbound: number }): string {
   if (stats.inbound > 0 && stats.outbound > 0) return "two-way thread";
+
   if (stats.outbound > 0) return "you reached out (no reply yet)";
+
   return "one-way inbound (you never replied)";
 }
 
@@ -87,10 +90,13 @@ async function loadUserRole(userId: string): Promise<string | null> {
           inArray(userFacts.key, ["job_title", "employer", "company"]),
         ),
       );
+
     const byKey = new Map(rows.map((r) => [r.key, r.value]));
     const title = factString(byKey.get("job_title"));
     const company = factString(byKey.get("employer")) ?? factString(byKey.get("company"));
+
     if (title && company) return `${title}, ${company}`;
+
     return title ?? company ?? null;
   } catch {
     return null;
@@ -119,6 +125,7 @@ export const NON_HUMAN_RELATIONSHIP: SenderRelationshipSignal = {
   descriptor: null,
   isColdContact: false,
 };
+
 // A human sender whose graph read SUCCEEDED and found no row — genuinely no
 // history. Cold by construction: the person-waiting stake is uncorroborated,
 // exactly rule 16b's cold default.
@@ -126,6 +133,7 @@ const NO_PRIOR_CONTACT: SenderRelationshipSignal = {
   descriptor: "no prior contact on record",
   isColdContact: true,
 };
+
 // A human sender whose graph read FAILED — coldness is UNKNOWN, not confirmed
 // absent, so this must NOT feed the deterministic gate as cold: a transient DB
 // blip on a genuine two-way stakeholder would silently drop their real todo.
@@ -163,6 +171,7 @@ export async function resolveSenderRelationship(args: {
   // no-history (cold); a THROWN read failure degrades to unknown (not cold) —
   // distinct verdicts, neither fails classify.
   let meta: Awaited<ReturnType<typeof findPersonMetadataByAddress>>;
+
   try {
     meta = await findPersonMetadataByAddress(args.userId, args.senderAddress);
   } catch {
@@ -170,6 +179,7 @@ export async function resolveSenderRelationship(args: {
     // than the cold default that would over-suppress a real stakeholder on a blip.
     return RELATIONSHIP_READ_FAILED;
   }
+
   // A successful read that found no row is genuine no-history → correctly cold.
   if (!meta) return NO_PRIOR_CONTACT;
 
@@ -193,6 +203,7 @@ export async function resolveSenderRelationship(args: {
   });
 
   const parts: string[] = [bucket, reciprocityPhrase(stats)];
+
   // same-org is read straight from the stored significance components — no
   // separate domains query. Omit the clause when the row hasn't been scored yet.
   if (significance) {
@@ -200,6 +211,7 @@ export async function resolveSenderRelationship(args: {
   }
 
   const role = await loadUserRole(args.userId);
+
   if (role) parts.push(`you: "${role}"`);
 
   return { descriptor: parts.join(" · "), isColdContact };

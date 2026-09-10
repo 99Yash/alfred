@@ -31,10 +31,12 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const WORKFLOW_SLUG = `qa-gated-staging${process.argv[2] ? `-${process.argv[2]}` : ""}`;
+
 const BRIEF =
   "@gmail — Draft a short email to yashgouravkar@gmail.com with the subject 'Alfred approvals QA' and the body 'This is a test of the approvals flow.' Then send the draft to deliver it.";
 
 const POLL_INTERVAL_MS = 500;
+
 const POLL_TIMEOUT_MS = 5 * 60_000;
 
 async function pickGoogleUser(): Promise<{ id: string; email: string } | null> {
@@ -49,6 +51,7 @@ async function pickGoogleUser(): Promise<{ id: string; email: string } | null> {
       ),
     )
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -58,10 +61,13 @@ async function main(): Promise<void> {
   registerReplicachePokeAdapter(); // enqueued runs may emit pokes; adapter must be registered
 
   const target = await pickGoogleUser();
+
   if (!target) {
     console.log("[qa-gated-staging] no google-connected user — connect Gmail first.");
+
     return;
   }
+
   console.log(`[qa-gated-staging] target: ${target.email} (${target.id})`);
 
   await db()
@@ -96,17 +102,22 @@ async function main(): Promise<void> {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[qa-gated-staging] run enqueued: ${runId}`);
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStep: string | null = null;
+
   while (Date.now() < deadline) {
     const row = (await db().select().from(agentRuns).where(eq(agentRuns.id, runId)))[0];
+
     if (!row) throw new Error(`run ${runId} not found`);
+
     if (row.currentStep !== lastStep) {
       console.log(`[qa-gated-staging]   step → ${row.currentStep} (status=${row.status})`);
       lastStep = row.currentStep;
     }
+
     if (row.status === "waiting") {
       const pending = await db()
         .select({
@@ -116,23 +127,30 @@ async function main(): Promise<void> {
         })
         .from(actionStagings)
         .where(and(eq(actionStagings.runId, runId), eq(actionStagings.status, "pending")));
+
       if (pending.length > 0) {
         console.log("\n[qa-gated-staging] run is PARKED on a gated approval:");
+
         for (const p of pending) console.log(`   - ${p.toolName} [${p.riskTier}] staging=${p.id}`);
         console.log(`\n[qa-gated-staging] open http://localhost:3000/approvals to click through.`);
         console.log(`[qa-gated-staging] run id: ${runId}`);
+
         return;
       }
     }
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       console.log(
         `[qa-gated-staging] run reached terminal status=${row.status} WITHOUT a gated stop.`,
       );
       console.log(`[qa-gated-staging] output: ${JSON.stringify(row.output)}`);
+
       return;
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for run ${runId} to park`);
 }
 

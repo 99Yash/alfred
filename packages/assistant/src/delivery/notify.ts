@@ -87,6 +87,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
     .returning({ id: emailSends.id });
 
   let emailSendId: string;
+
   if (upserted[0]) {
     emailSendId = upserted[0].id;
   } else {
@@ -98,12 +99,15 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       .where(
         and(eq(emailSends.userId, args.userId), eq(emailSends.idempotencyKey, args.idempotencyKey)),
       );
+
     const row = existing[0];
+
     if (!row) {
       // Race: someone deleted the conflicting row between our upsert and select.
       // Caller should treat this as a transient and retry.
       throw new Error("[notify] idempotency-key conflict but no row found on lookup");
     }
+
     return { status: "duplicate", emailSendId: row.id };
   }
 
@@ -124,9 +128,11 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       },
       { idempotencyKey: args.idempotencyKey },
     );
+
     if (result.error) {
       throw new Error(`${result.error.name}: ${result.error.message}`);
     }
+
     const providerMessageId = result.data?.id ?? null;
     await db()
       .update(emailSends)
@@ -136,6 +142,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
         sentAt: new Date(),
       })
       .where(eq(emailSends.id, emailSendId));
+
     return { status: "sent", emailSendId, providerMessageId };
   } catch (err) {
     const message = toMessage(err);
@@ -146,6 +153,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
         error: message.slice(0, 1000),
       })
       .where(eq(emailSends.id, emailSendId));
+
     return { status: "failed", emailSendId, error: message };
   }
 }
@@ -153,6 +161,8 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
 async function resolveUserEmail(userId: string): Promise<string> {
   const rows = await db().select({ email: user.email }).from(user).where(eq(user.id, userId));
   const row = rows[0];
+
   if (!row) throw new Error(`[notify] user not found: ${userId}`);
+
   return row.email;
 }

@@ -7,8 +7,10 @@ import { createVoiceStreamSanitizer, sanitizeVoice } from "../../src/voice/voice
 function stream(chunks: string[]): string {
   const s = createVoiceStreamSanitizer();
   let out = "";
+
   for (const c of chunks) out += s.push(c);
   out += s.flush();
+
   return out;
 }
 
@@ -199,8 +201,10 @@ describe("createVoiceStreamSanitizer — straddling deltas", () => {
       "| Layer | How it works |\n| --- | --- |\n| retry | backs off — then throws |",
       "| a | b |\n|:--|--:|\n| 1 | 2 |",
     ];
+
     for (const sample of samples) {
       const expected = sanitizeVoice(sample);
+
       for (let split = 0; split <= sample.length; split += 1) {
         assert.equal(
           stream([sample.slice(0, split), sample.slice(split)]),

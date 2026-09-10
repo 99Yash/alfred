@@ -206,10 +206,13 @@ function discoverArrayFields(schema: z.ZodType): string[] {
   const json = z.toJSONSchema(schema, { io: "input" }) as {
     properties?: Record<string, { type?: unknown; anyOf?: { type?: unknown }[] }>;
   };
+
   const props = json.properties ?? {};
+
   return Object.entries(props)
     .filter(([, v]) => {
       const isArray = (t: unknown) => t === "array" || (Array.isArray(t) && t.includes("array"));
+
       return isArray(v?.type) || (v?.anyOf ?? []).some((b) => isArray(b?.type));
     })
     .map(([k]) => k);
@@ -221,14 +224,17 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
   // fixture and (the next test proves) wrapped in coerceJsonArrayFields.
   test("every array-typed tool field is covered by a fixture", () => {
     const uncovered: string[] = [];
+
     for (const [name, schema] of Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS)) {
       for (const field of discoverArrayFields(schema as z.ZodType)) {
         const fixture = Object.entries(FIXTURES).find(([k]) => k === name)?.[1];
+
         if (!fixture?.arrayFields.includes(field)) {
           uncovered.push(`${name}.${field}`);
         }
       }
     }
+
     assert.deepEqual(
       uncovered,
       [],
@@ -270,14 +276,18 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
 
       test(`${name}.${field}: model-facing schema still advertises an array`, () => {
         assert.ok(schema);
+
         const json = z.toJSONSchema(schema, { io: "input" }) as {
           properties?: Record<string, { type?: unknown; anyOf?: { type?: unknown }[] }>;
         };
+
         const prop = json.properties?.[field];
+
         const advertisesArray =
           prop?.type === "array" ||
           (Array.isArray(prop?.type) && prop.type.includes("array")) ||
           (prop?.anyOf ?? []).some((b) => b?.type === "array");
+
         assert.ok(advertisesArray, `${field} must still be an array in the model-facing schema`);
       });
     }
@@ -287,17 +297,21 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
   // narrow escape hatch, not a blanket "accept any string for an array").
   test("a non-array string still fails strict validation", () => {
     const schema = TOOL_INPUT_SCHEMAS["sheets.update_values"];
+
     const garbage = schema.safeParse({
       spreadsheetId: "sid",
       range: "Sheet1!A1",
       values: "not-json",
     });
+
     assert.equal(garbage.success, false);
+
     const jsonObject = schema.safeParse({
       spreadsheetId: "sid",
       range: "Sheet1!A1",
       values: '{"not":"an-array"}',
     });
+
     assert.equal(jsonObject.success, false);
   });
 });

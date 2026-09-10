@@ -23,8 +23,10 @@ const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
 
 export function isGithubNotificationSender(from: string | null | undefined): boolean {
   const address = parseEmailAddress(from);
+
   if (!address) return false;
   const domain = address.split("@")[1];
+
   return domain !== undefined && GITHUB_NOTIFICATION_DOMAINS.includes(domain);
 }
 
@@ -40,11 +42,14 @@ export function extractGithubKeys(input: {
   const haystack = `${input.subject ?? ""}\n${input.content ?? ""}`;
   const seen = new Set<string>();
   const keys: ExtractedKey[] = [];
+
   for (const match of haystack.matchAll(HEAD_SHA_RE)) {
     const sha = match[0].toLowerCase();
+
     if (seen.has(sha)) continue;
     seen.add(sha);
     keys.push({ keyKind: "head_sha", keyValue: sha });
   }
+
   return keys;
 }

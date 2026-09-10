@@ -23,6 +23,7 @@ export const workflowReadinessProblemSchema = z.object({
   /** Omitted when no user action can truthfully make the capability runnable. */
   recoveryAction: workflowRecoveryActionSchema.optional(),
 });
+
 export type PersistedWorkflowReadinessProblem = z.infer<typeof workflowReadinessProblemSchema>;
 
 /** The `output` shape the `check-readiness` step writes when a run blocks. */
@@ -45,6 +46,7 @@ export const effectReceiptSchema = z.object({
   /** ISO-8601 instant the effect executed, or null when it never did. */
   executedAt: z.string().nullable(),
 });
+
 export type EffectReceipt = z.infer<typeof effectReceiptSchema>;
 
 /**
@@ -59,28 +61,34 @@ const completedRunOutcomeSchema = z.object({
   summary: z.string(),
   effects: z.array(effectReceiptSchema).max(50),
 });
+
 /** The run finished with no successful external write. */
 const noChangeRunOutcomeSchema = z.object({ kind: z.literal("no_change"), summary: z.string() });
+
 const deferredRunOutcomeSchema = z.object({
   kind: z.literal("deferred"),
   code: z.string(),
   retryAt: z.string().optional(),
 });
+
 const blockedRunOutcomeSchema = z.object({
   kind: z.literal("blocked"),
   code: z.string(),
   recovery: z.array(workflowRecoveryActionSchema),
 });
+
 const failedRunOutcomeSchema = z.object({
   kind: z.literal("failed"),
   code: z.string(),
   safeMessage: z.string(),
 });
+
 const cancelledRunOutcomeSchema = z.object({
   kind: z.literal("cancelled"),
   completedEffects: z.array(effectReceiptSchema).max(50),
   unknownEffects: z.array(z.string()),
 });
+
 /**
  * At least one write reached the provider and its result was never
  * observed. A retry could duplicate the effect, so this kind never offers one.
@@ -100,6 +108,7 @@ export const workflowRunOutcomeSchema = z.discriminatedUnion("kind", [
   cancelledRunOutcomeSchema,
   unknownWriteRunOutcomeSchema,
 ]);
+
 export type WorkflowRunOutcome = z.infer<typeof workflowRunOutcomeSchema>;
 
 /**
@@ -118,6 +127,7 @@ export const workflowRunHistoryOutcomeSchema = z.discriminatedUnion("kind", [
   cancelledRunOutcomeSchema.omit({ completedEffects: true }),
   unknownWriteRunOutcomeSchema,
 ]);
+
 export type WorkflowRunHistoryOutcome = z.infer<typeof workflowRunHistoryOutcomeSchema>;
 
 /** The single recovery the history surface offers for one run. */
@@ -134,6 +144,7 @@ export const workflowRunRecoverySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("inspect") }),
   z.object({ kind: z.literal("none") }),
 ]);
+
 export type WorkflowRunRecovery = z.infer<typeof workflowRunRecoverySchema>;
 
 /**
@@ -148,6 +159,7 @@ export const workflowRunHistoryTriggerSchema = z.discriminatedUnion("kind", [
   manualRunTriggerIdentitySchema,
   signalRunTriggerIdentitySchema,
 ]);
+
 export type WorkflowRunHistoryTrigger = z.infer<typeof workflowRunHistoryTriggerSchema>;
 
 export const workflowRunHistoryRowSchema = z.object({
@@ -173,6 +185,7 @@ export const workflowRunHistoryRowSchema = z.object({
   coverageGaps: z.array(workflowReadinessProblemSchema),
   recovery: workflowRunRecoverySchema,
 });
+
 export type WorkflowRunHistoryRow = z.infer<typeof workflowRunHistoryRowSchema>;
 
 /** One keyset page of a workflow's runs, newest first. */
@@ -180,4 +193,5 @@ export const workflowRunHistorySchema = z.object({
   items: z.array(workflowRunHistoryRowSchema).max(50),
   nextCursor: z.string().nullable(),
 });
+
 export type WorkflowRunHistory = z.infer<typeof workflowRunHistorySchema>;

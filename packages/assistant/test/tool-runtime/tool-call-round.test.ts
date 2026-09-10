@@ -13,6 +13,7 @@ import {
 import { _setToolRuntimeSpanStarterForTests } from "../../src/tool-runtime/internal/runtime-spans";
 
 type ToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
+
 type ToolCallDispatchResult = Awaited<ReturnType<ToolCallRoundAdapter["dispatch"]>>;
 
 const backgroundRun: ToolCallRun = {
@@ -62,10 +63,12 @@ async function withAdapters<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const names = new Set(registeredNames);
+
   const surface: ToolRuntimeAdapter = {
     restore(source) {
       if (source.kind === "kernel") return [];
       const candidates = source.kind === "exact" ? source.names : source.pendingNames;
+
       return [
         ...new Set(
           candidates.filter((name): name is ToolName => isToolName(name) && names.has(name)),
@@ -84,9 +87,11 @@ async function withAdapters<T>(
     availableToolNamesByIntegration: () => new Map(),
     selectPreload: () => Promise.resolve({ promptChars: 0, selectedNames: [] }),
   };
+
   const unregisterSurface = registerToolRuntimeAdapter(surface);
   const unregisterRound = registerToolCallRoundAdapter(round);
   const restoreSpanStarter = _setToolRuntimeSpanStarterForTests(() => ({ end() {} }));
+
   try {
     return await fn();
   } finally {
@@ -112,6 +117,7 @@ describe("executeToolCallRound", () => {
           activeNames: [],
           run: backgroundRun,
         });
+
         assert.deepEqual(outcome, {
           kind: "completed",
           transcript: [],
@@ -129,6 +135,7 @@ describe("executeToolCallRound", () => {
       {
         dispatch: async (args) => {
           events.push(args.toolCallId);
+
           return executed({ id: args.toolCallId });
         },
         wouldWaitForApproval: () => Promise.resolve(false),
@@ -142,7 +149,9 @@ describe("executeToolCallRound", () => {
           activeNames: ["gmail.search"],
           run: backgroundRun,
         });
+
         assert.equal(outcome.kind, "completed");
+
         if (outcome.kind !== "completed") return;
         assert.deepEqual(events, ["a", "b"]);
         assert.deepEqual(
@@ -157,16 +166,20 @@ describe("executeToolCallRound", () => {
   test("live-chat shared lanes serialize while independent calls overlap", async () => {
     const events: string[] = [];
     let releaseLookup!: () => void;
+
     const lookupReleased = new Promise<void>((resolve) => {
       releaseLookup = resolve;
     });
+
     await withAdapters(
       {
         dispatch: async (args) => {
           events.push(`start:${args.toolCallId}`);
+
           if (args.toolCallId === "lookup") await lookupReleased;
           await Promise.resolve();
           events.push(`end:${args.toolCallId}`);
+
           return executed({ id: args.toolCallId });
         },
         wouldWaitForApproval: () => Promise.resolve(false),
@@ -184,9 +197,11 @@ describe("executeToolCallRound", () => {
           activeNames: ["system.web_search", "system.append_artifact_section"],
           run: liveRun,
         });
+
         for (let index = 0; index < 30 && events.length < 5; index += 1) {
           await Promise.resolve();
         }
+
         assert.deepEqual(events, [
           "start:lookup",
           "start:section-1",
@@ -207,7 +222,9 @@ describe("executeToolCallRound", () => {
       {
         dispatch: async (args) => {
           dispatched.push(args.toolCallId);
+
           if (args.toolCallId === "child") return parked("child-finished");
+
           return staged(`stage-${args.toolCallId}`);
         },
         wouldWaitForApproval: (_userId, name) => Promise.resolve(name.startsWith("gmail.")),
@@ -225,7 +242,9 @@ describe("executeToolCallRound", () => {
           activeNames: ["system.await_sub_agent", "gmail.send_draft", "gmail.search"],
           run: liveRun,
         });
+
         assert.equal(outcome.kind, "waiting");
+
         if (outcome.kind !== "waiting") return;
         assert.equal(outcome.wake.kind, "hil");
         assert.deepEqual(dispatched, ["child", "send"]);
@@ -249,6 +268,7 @@ describe("executeToolCallRound", () => {
       ],
       ["load", executed({ ok: true, name: "calendar.list_events" })],
     ]);
+
     await withAdapters(
       {
         dispatch: (args) => Promise.resolve(results.get(args.toolCallId)!),
@@ -263,7 +283,9 @@ describe("executeToolCallRound", () => {
           activeNames: ["system.load_tool"],
           run: backgroundRun,
         });
+
         assert.equal(outcome.kind, "completed");
+
         if (outcome.kind !== "completed") return;
         assert.deepEqual(outcome.activeNames, [
           "calendar.list_events",
@@ -296,7 +318,9 @@ describe("executeToolCallRound", () => {
           activeNames: ["system.update_artifact", "gmail.search"],
           run: backgroundRun,
         });
+
         assert.equal(outcome.kind, "completed");
+
         if (outcome.kind !== "completed") return;
         assert.equal(outcome.calls[0]?.status, "failed");
         assert.equal(outcome.calls[0]?.execution, "completed");

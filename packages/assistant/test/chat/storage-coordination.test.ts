@@ -10,6 +10,7 @@ import { sql } from "drizzle-orm";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const PG_LOCK_NOT_AVAILABLE = "55P03";
 
 describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
@@ -27,6 +28,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
       firstLocked.resolve();
       await releaseFirst.promise;
     });
+
     await firstLocked.promise;
 
     try {
@@ -40,6 +42,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
             [...pgErrorChain(error)].some((entry) => entry.code === PG_LOCK_NOT_AVAILABLE),
             true,
           );
+
           return true;
         },
       );
@@ -64,6 +67,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
       sessionLocked.resolve();
       await releaseSession.promise;
     });
+
     await sessionLocked.promise;
 
     try {
@@ -77,6 +81,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
             [...pgErrorChain(error)].some((entry) => entry.code === PG_LOCK_NOT_AVAILABLE),
             true,
           );
+
           return true;
         },
       );

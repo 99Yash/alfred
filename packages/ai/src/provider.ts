@@ -28,6 +28,7 @@ export type { ChatModelTier };
 export type ChatProviderOptions = SharedV4ProviderOptions;
 
 export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
+
 export type MediaInputModality = (typeof MEDIA_INPUT_MODALITIES)[number];
 
 /**
@@ -129,6 +130,7 @@ export interface ModelRouteHandle {
 function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
   const providerOptions: ChatProviderOptions = definition.providerOptions ?? {};
   let model: LanguageModelV4 | undefined;
+
   return {
     model: () =>
       (model ??= createProviderRouteModel(definition.legs, withFallback, {
@@ -156,13 +158,17 @@ export function route(
 ): ModelRouteHandle {
   if (typeof nameOrLeg === "string") {
     let handle = namedRouteHandles.get(nameOrLeg);
+
     if (!handle) {
       handle = createRouteHandle(MODEL_ROUTES[nameOrLeg]);
       namedRouteHandles.set(nameOrLeg, handle);
     }
+
     return handle;
   }
+
   if (!reasoning) throw new Error("a one-model probe route needs a reasoning policy");
+
   return createRouteHandle({ legs: [() => nameOrLeg], reasoning });
 }
 
@@ -178,6 +184,7 @@ interface MediaEnrichmentLeg {
  * registry — the provider package still owns how the model reads the bytes.
  */
 const GOOGLE_INLINE_MEDIA_BYTES = 50 * 1024 * 1024;
+
 const ANTHROPIC_INLINE_MEDIA_BYTES = 32 * 1024 * 1024;
 
 /**
@@ -227,10 +234,13 @@ export function getMediaEnrichmentModels(
   byteSize: number,
 ): LanguageModelV4[] {
   if (!Number.isInteger(byteSize) || byteSize < 0) throw new Error("byteSize must be non-negative");
+
   const models = MEDIA_ENRICHMENT_LEGS.filter(
     (leg) => leg.modalities.includes(modality) && byteSize <= leg.maxInlineBytes,
   ).map((leg) => leg.make());
+
   if (models.length === 0) throw new Error("media_enrichment_input_unsupported");
+
   return models;
 }
 
@@ -294,6 +304,7 @@ export function googleSearchGroundingTools(): ToolSet {
  */
 function isQuotaOrBillingError(e: APICallError): boolean {
   const haystack = `${e.message} ${e.responseBody ?? ""}`.toLowerCase();
+
   return (
     haystack.includes("usage limit") ||
     haystack.includes("credit balance") ||
@@ -313,9 +324,11 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     // is waiting for. Without this, the triage hedge (#436) would have made
     // every cancelled duplicate fan out to `gemini-2.5-flash`.
     if (isCallerAbort(e)) return false;
+
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
+
       // A spend-cap / workspace-usage-limit error is a *capacity* condition we
       // want to degrade through, but Anthropic returns it as a 4xx billing
       // error (not 408/429), so the generic client-bug guard would surface it
@@ -324,8 +337,10 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
       // still surface loudly.
       if (isClientBug && !isQuotaOrBillingError(e)) return false;
     }
+
     return true;
   });
+
   return createRetryableModel({
     model: primary,
     retries: [

@@ -93,6 +93,7 @@ type FloorTraceFields = UnionToIntersection<
  */
 function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
   const fields: Record<string, unknown> = {};
+
   // SAFETY: FLOOR_TRACE_PROJECTIONS is keyed by ProjectedFloorName, so its
   // keys enumerate exactly those names.
   for (const name of Object.keys(FLOOR_TRACE_PROJECTIONS) as ProjectedFloorName[]) {
@@ -105,6 +106,7 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
     const project = FLOOR_TRACE_PROJECTIONS[name] as FloorTraceProjection<ProjectedFloorName>;
     Object.assign(fields, project(floors?.[name] ?? null));
   }
+
   // SAFETY: the loop assigned one field-set per projected floor above.
   return fields as FloorTraceFields;
 }
@@ -190,6 +192,7 @@ export function senderExtractionEvent(args: {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;
+
   return {
     // sender
     fromKind: context.fromKind,

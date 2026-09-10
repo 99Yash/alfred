@@ -64,11 +64,13 @@ export default function AuthedAppShell({
    * bounces back to a fresh /chat. */
   const threadActions = useMemo<SidebarThreadActions | undefined>(() => {
     if (threadViewModel || !rep) return undefined;
+
     return {
       rename: (id, title) => void rep.mutate.chatThreadRename({ id, title }),
       setPinned: (id, pinned) => void rep.mutate.chatThreadSetPinned({ id, pinned }),
       remove: (id) => {
         void rep.mutate.chatThreadDelete({ id });
+
         if (activeThread === id) void navigate({ to: "/chat" });
       },
     };
@@ -129,12 +131,14 @@ export default function AuthedAppShell({
  */
 function groupChatThreads(threads: ReadonlyArray<SyncedChatThread>) {
   const newEntries = (): ThreadEntry[] => [];
+
   const groups = {
     pinned: newEntries(),
     today: newEntries(),
     yesterday: newEntries(),
     earlier: newEntries(),
   };
+
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const startOfYesterday = new Date(startOfToday);
@@ -146,16 +150,20 @@ function groupChatThreads(threads: ReadonlyArray<SyncedChatThread>) {
       title: thread.title?.trim() || "New chat",
       pinned: thread.pinned,
     };
+
     if (thread.pinned) {
       groups.pinned.push(entry);
       continue;
     }
+
     const when = thread.lastMessageAt ?? thread.createdAt;
     const ts = new Date(when).getTime();
+
     if (Number.isNaN(ts) || ts >= startOfToday.getTime()) groups.today.push(entry);
     else if (ts >= startOfYesterday.getTime()) groups.yesterday.push(entry);
     else groups.earlier.push(entry);
   }
+
   return groups;
 }
 
@@ -175,12 +183,14 @@ function recentThreadsForPalette(threads: ReadonlyArray<SyncedChatThread>): Rece
 
   return threads.slice(0, PALETTE_THREAD_LIMIT).map((thread) => {
     const ts = new Date(thread.lastMessageAt ?? thread.createdAt);
+
     const when =
       Number.isNaN(ts.getTime()) || ts >= startOfToday
         ? "Today"
         : ts >= startOfYesterday
           ? "Yesterday"
           : ts.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
     return { id: thread.id, title: thread.title?.trim() || "New chat", when };
   });
 }

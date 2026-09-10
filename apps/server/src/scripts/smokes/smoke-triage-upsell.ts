@@ -124,12 +124,14 @@ const CASES: Case[] = [
 
 async function main() {
   let failures = 0;
+
   for (const c of CASES) {
     const { context: senderContext } = extractSenderContext({
       fromHeader: c.from,
       subject: c.subject,
       body: c.body,
     });
+
     const { classification, model } = await classifyEmail({
       identity: { name: "Yash", email: c.to },
       document: {
@@ -153,10 +155,12 @@ async function main() {
         },
       }),
     });
+
     const gotTodo = classification.todoDecision?.outcome === "proposed";
     const catOk = c.expectCategory.includes(classification.category);
     const todoOk = gotTodo === c.expectTodo;
     const ok = catOk && todoOk;
+
     if (!ok) failures++;
     console.log(`\n${ok ? "✅" : "❌"} ${c.name}`);
     console.log(
@@ -167,6 +171,7 @@ async function main() {
     );
     console.log(`   rationale: ${classification.rationale}`);
   }
+
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);
   process.exit(failures === 0 ? 0 : 1);
 }

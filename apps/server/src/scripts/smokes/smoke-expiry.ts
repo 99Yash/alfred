@@ -58,12 +58,16 @@ function assert(condition: unknown, message: string): asserts condition {
 
 async function findOrCreateSmokeUser(): Promise<string> {
   const existing = await db().select().from(userTable).where(eq(userTable.email, SMOKE_USER_EMAIL));
+
   if (existing[0]) return existing[0].id;
+
   const inserted = await db()
     .insert(userTable)
     .values({ name: "Expiry Smoke", email: SMOKE_USER_EMAIL, emailVerified: true })
     .returning({ id: userTable.id });
+
   if (!inserted[0]) throw new Error("failed to insert smoke user");
+
   return inserted[0].id;
 }
 
@@ -78,7 +82,9 @@ async function createSmokeRun(userId: string, label: string): Promise<string> {
       trigger: { kind: "manual" },
     })
     .returning({ id: agentRuns.id });
+
   if (!inserted[0]) throw new Error("failed to insert smoke run");
+
   return inserted[0].id;
 }
 
@@ -129,7 +135,9 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
   });
+
   assert(staged.kind === "staged", `expected 'staged', got '${staged.kind}'`);
+
   // SAFETY: the assert above narrowed kind to "staged".
   return (staged as { stagingId: string }).stagingId;
 }
@@ -148,6 +156,7 @@ async function main(): Promise<void> {
       inputSchema: sendDraftInput,
       execute: async (input) => {
         draftExec += 1;
+
         return { sentTo: input.to[0], subject: input.subject };
       },
     }),
@@ -166,6 +175,7 @@ async function main(): Promise<void> {
   const stagedRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
   )[0];
+
   assert(
     stagedRow?.status === "pending",
     `staged row expected 'pending', got '${stagedRow?.status}'`,
@@ -190,6 +200,7 @@ async function main(): Promise<void> {
   const expiredRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
   )[0];
+
   assert(expiredRow?.status === "expired", `row expected 'expired', got '${expiredRow?.status}'`);
   assert(
     expiredRow.rejectReason === "auto-expired",
@@ -224,6 +235,7 @@ async function main(): Promise<void> {
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
   });
+
   assert(
     reDispatched.kind === "rejected",
     `re-dispatch of expired row expected 'rejected', got '${reDispatched.kind}'`,
@@ -256,9 +268,11 @@ async function main(): Promise<void> {
     skipped.status === "skipped" && skipped.reason === "approved",
     `expireStaging on approved row expected skipped/approved, got '${skipped.status}'/'${skipped.reason}'`,
   );
+
   const stillApproved = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, decidedId))
   )[0];
+
   assert(stillApproved?.status === "approved", "human-approved row must remain 'approved'");
   console.log("[smoke-expiry] 3. decided row: expiry no-ops, approval preserved ✓");
 
@@ -278,12 +292,14 @@ async function main(): Promise<void> {
   for (const id of [stagedId, decidedId, cancelId]) {
     await removeApprovalExpiryJob(id);
   }
+
   for (const runId of [runId1, runId2, runId3]) {
     await db().delete(actionStagings).where(eq(actionStagings.runId, runId));
     await db()
       .delete(agentRuns)
       .where(and(eq(agentRuns.id, runId), eq(agentRuns.userId, userId)));
   }
+
   console.log("[smoke-expiry] cleanup ok");
 }
 
