@@ -21,10 +21,10 @@ allowBuilds:
   protobufjs: false
 
 catalog:
-  "@ai-sdk/anthropic": ^4.0.11
-  "@ai-sdk/google": ^4.0.11
-  "@ai-sdk/openai": ^4.0.11
-  "@ai-sdk/provider": ^4.0.7
+  "@ai-sdk/anthropic": ^4.0.52
+  "@ai-sdk/google": ^4.0.67
+  "@ai-sdk/openai": ^4.0.65
+  "@ai-sdk/provider": ^4.0.13
   # Elysia + its sibling packages are pinned to exact versions, and
   # exact-mirror is pinned via the workspace `overrides` block above.
   # The workspace ships a `normalize: 'typebox'` workaround on every Elysia
@@ -57,11 +57,11 @@ catalog:
   # entry constrains this one. (Until then, code-mode's exact `ai` peer moved in
   # lockstep and chose this line for us.) Bump to the newest version that clears
   # pnpm's 24-hour release-age floor, never past it.
-  ai: 7.0.66
+  ai: 7.0.97
   # Provider-fallback cascade for the LanguageModel dispatchers (see
   # `withFallback` in packages/ai/src/provider.ts). Same version warden
   # runs on the identical ai@7 / @ai-sdk/provider@4 resolution.
-  ai-retry: ^2.0.0
+  ai-retry: ^2.4.0
   # Floor is 1.6.11, not the older ^1.3.28, because every release below it
   # carries CVE-2026-53516: the OAuth callback auto-linked an account when the
   # *provider* asserted `email_verified: true` without checking the *local*
@@ -94,12 +94,12 @@ catalog:
 # below is a version this workspace chose on purpose. Add the new version and
 # drop the version it replaced; never widen an entry to a range.
 minimumReleaseAgeExclude:
-  - "@ai-sdk/anthropic@4.0.11"
-  - "@ai-sdk/gateway@4.0.15"
-  - "@ai-sdk/google@4.0.11"
-  - "@ai-sdk/openai@4.0.11"
+  - "@ai-sdk/anthropic@4.0.52"
+  - "@ai-sdk/gateway@4.0.78"
+  - "@ai-sdk/google@4.0.67"
+  - "@ai-sdk/openai@4.0.65"
   - "@ai-sdk/perplexity@4.0.8"
-  - "@ai-sdk/provider-utils@5.0.7"
-  - "@ai-sdk/provider@4.0.7"
-  - ai@7.0.66
+  - "@ai-sdk/provider-utils@5.0.39"
+  - "@ai-sdk/provider@4.0.13"
+  - ai@7.0.97
   - zod@4.5.2

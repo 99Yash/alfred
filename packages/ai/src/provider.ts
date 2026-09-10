@@ -216,10 +216,10 @@ const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
 /**
  * Select the generic `none` ceiling. The provider package maps it to the
  * generation's closest-to-off value: Gemini 2.5 gets `thinkingBudget: 0`, while
- * Gemini 3 can only reach `thinkingLevel: "minimal"` — the package documents
- * that full disable is unavailable there. The retired policy's `thinkingBudget:
- * 0` for a Gemini 3 model was a shape that generation does not own; this is the
- * SDK-owned equivalent, not a new budget.
+ * Gemini 3 reaches its model-specific minimum `thinkingLevel` — the package
+ * documents that full disable is unavailable there. The retired policy's
+ * `thinkingBudget: 0` for a Gemini 3 model was a shape that generation does not
+ * own; this is the SDK-owned equivalent, not a new budget.
  */
 function withDisabledReasoning(leg: ProviderAdaptedLanguageModel): ProviderAdaptedLanguageModel {
   return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
