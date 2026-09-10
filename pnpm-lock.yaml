@@ -856,6 +856,9 @@ importers:
       '@alfred/env':
         specifier: workspace:*
         version: link:../env
+      '@sentry/node':
+        specifier: 'catalog:'
+        version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))
       pino:
         specifier: ^10.3.1
         version: 10.3.1
