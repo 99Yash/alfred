@@ -1,9 +1,11 @@
 import {
   contextSearchRequestSchema,
+  evidenceCardSchema,
   toMessage,
   type ContextSearchRequest,
+  type EvidenceCard,
 } from "@alfred/contracts";
-import { listContextSources, type ContextEvidence } from "./registry";
+import { listContextSources } from "./registry";
 
 /**
  * The read-side answer shapes (#422; ADR-0101).
@@ -11,13 +13,14 @@ import { listContextSources, type ContextEvidence } from "./registry";
  * These live here — not in a `types.ts` grab-bag — because `searchContext`
  * below is the only code that mints them: every `ContextSourceReport` status
  * (`ok` / `empty` / `error`) and every `ContextSearchResult` truncation to
- * `request.limit` happens in this file. The source-side element
- * (`ContextEvidence`) lives in `registry.ts` with the `ContextSource` contract
- * that returns it; this file imports it rather than restating it.
+ * `request.limit` happens in this file. The source-side element is the
+ * canonical `EvidenceCard` in `@alfred/contracts` (#423), imported rather than
+ * restated here; `registry.ts` owns the `ContextSource` contract that returns
+ * it.
  *
- * Module-internal placeholders, not contracts consumers may build on: #423
- * owns the canonical EvidenceCard and the packing rules, and may replace these
- * shapes outright.
+ * The card contract and the packing rules live in their own files: the shape in
+ * `@alfred/contracts` (browser/server agreement, manifest interoperability) and
+ * `pack.ts` here (model-facing rendering). This file only collects and bounds.
  */
 
 /**
@@ -46,7 +49,7 @@ export interface ContextSearchResult {
   /** The parsed request this result answers. */
   readonly request: ContextSearchRequest;
   /** Evidence, bounded by `request.limit`. */
-  readonly evidence: readonly ContextEvidence[];
+  readonly evidence: readonly EvidenceCard[];
   /** One report per registered source consulted. */
   readonly sources: readonly ContextSourceReport[];
 }
@@ -75,18 +78,23 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
   }
 
   const reports: ContextSourceReport[] = [];
-  const collected: ContextEvidence[] = [];
+  const collected: EvidenceCard[] = [];
 
   for (const source of sources) {
     try {
       const result = await source.search(parsed);
+      // A card is a contract, not a type-only promise: re-validate every card at
+      // the boundary so a source cannot smuggle in an unbounded snippet, a
+      // non-canonical entity value, or an empty card. A bad card fails its
+      // source, which is reported like any other source error.
+      const evidence = evidenceCardSchema.array().parse(result.evidence);
 
       reports.push({
         sourceId: source.id,
-        status: result.evidence.length > 0 ? "ok" : "empty",
-        evidenceCount: result.evidence.length,
+        status: evidence.length > 0 ? "ok" : "empty",
+        evidenceCount: evidence.length,
       });
-      collected.push(...result.evidence);
+      collected.push(...evidence);
     } catch (error) {
       reports.push({
         sourceId: source.id,

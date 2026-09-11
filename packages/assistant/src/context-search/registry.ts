@@ -1,4 +1,4 @@
-import type { ContextSearchRequest } from "@alfred/contracts";
+import type { ContextSearchRequest, EvidenceCard } from "@alfred/contracts";
 
 /**
  * The source-side shapes (#422; ADR-0101).
@@ -6,34 +6,20 @@ import type { ContextSearchRequest } from "@alfred/contracts";
  * These live here — not in a `types.ts` grab-bag — because the registry is
  * their narrowest stable owner: it stores `Map<string, ContextSource>` and is
  * the only reader of `source.id`. `search.ts` owns the read-side answer
- * (`ContextSearchResult` and its reports) and imports the element type from
- * here, so the evidence element has one home both sides agree on.
+ * (`ContextSearchResult` and its reports); both files import the shared element
+ * from `@alfred/contracts`, so the evidence element has one home both sides
+ * agree on.
  *
- * `ContextEvidence` is a module-internal placeholder, not a contract consumers
- * may build on: #423 owns the canonical EvidenceCard and the packing rules,
- * and may replace this shape outright.
+ * The element itself is the canonical `EvidenceCard` in `@alfred/contracts`
+ * (#423): a card carries its own `source.id`, which must equal the
+ * `ContextSource.id` that produced it, so the manifest (#466) and the boundary
+ * share one identity space.
  */
-
-/**
- * One piece of retrieved evidence, already bounded for model context.
- *
- * This is the minimum the empty result needs, not a promise. It carries no
- * score, citation, media kind, or expansion handle yet — those had no producer
- * in this slice and #423 decides their shape. Raw provider bodies and binary
- * bytes never ride here.
- */
-export interface ContextEvidence {
-  /** Stable id, unique within one result set. */
-  readonly id: string;
-  /** The `ContextSource.id` that produced this evidence. */
-  readonly sourceId: string;
-  /** A bounded text preview. Never raw bytes. */
-  readonly snippet: string;
-}
 
 /** What one registered source returns. Errors are reported, not thrown through. */
 export interface ContextSourceResult {
-  readonly evidence: readonly ContextEvidence[];
+  /** Canonical evidence cards, bounded by the source. */
+  readonly evidence: readonly EvidenceCard[];
 }
 
 /**
