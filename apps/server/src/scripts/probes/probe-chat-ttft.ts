@@ -129,9 +129,7 @@ async function once(
 
   for await (const part of res.stream) {
     const now = performance.now();
-    // SAFETY: stream parts are discriminated on `type`; this only types that
-    // field read for the part-kind test below.
-    const type = String((part as { type: string }).type);
+    const type: string = part.type;
 
     if (ttft === null && isContent(type)) ttft = now - t0;
 

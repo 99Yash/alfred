@@ -47,12 +47,11 @@ type DocRow = {
   authoredAt: Date | null;
   ingestedAt: Date;
   accountId: string | null;
-  metadata: Record<string, unknown>;
+  metadata: unknown;
 };
 
 async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[]> {
-  // SAFETY: the select projects exactly the columns DocRow declares.
-  return (await db()
+  return await db()
     .select({
       id: documents.id,
       sourceId: documents.sourceId,
@@ -69,7 +68,7 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
         eq(documents.sourceThreadId, threadId),
       ),
     )
-    .orderBy(desc(documents.authoredAt))) as DocRow[];
+    .orderBy(desc(documents.authoredAt));
 }
 
 function newestInbound(docs: DocRow[]): DocRow | null {
