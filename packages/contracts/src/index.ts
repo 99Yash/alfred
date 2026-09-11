@@ -78,6 +78,8 @@ export * from "./briefing-references";
 
 export * from "./briefing-signals";
 
+export * from "./context-search";
+
 export * from "./attachments";
 
 export * from "./weather";
