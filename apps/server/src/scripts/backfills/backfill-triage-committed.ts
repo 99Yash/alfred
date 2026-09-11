@@ -21,7 +21,7 @@
  * prod with plain `node dist/scripts/backfills/backfill-triage-committed.js` — the prod
  * image has no `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default. Pass `--commit` to actually delete + enqueue.
+ * Dry by default. Pass `--commit` to actually delete + enqueue.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-triage-committed.js

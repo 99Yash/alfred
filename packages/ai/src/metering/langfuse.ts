@@ -482,11 +482,11 @@ export function buildRuntimeSpanPayload(input: RuntimeSpanInput, captureIo: bool
 }
 
 /** Pure builder for the terminal `span.end()` payload. Exported for tests. */
+const DEFAULT_RUNTIME_SPAN_LEVEL: RuntimeSpanLevel = "DEFAULT";
+
 export function buildRuntimeSpanEndPayload(args: RuntimeSpanEndArgs, captureIo: boolean) {
   return {
-    // SAFETY: RuntimeSpanLevel includes "DEFAULT"; this is the documented
-    // fallback when the caller supplied no level.
-    level: args.level ?? ("DEFAULT" as RuntimeSpanLevel),
+    level: args.level ?? DEFAULT_RUNTIME_SPAN_LEVEL,
     output: captureIo ? args.output : undefined,
     metadata: { status: args.status, ...args.metadata },
   };

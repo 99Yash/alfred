@@ -17,7 +17,7 @@
  * `node dist/scripts/backfills/backfill-object-state-github-committed.js` — the prod
  * image has no `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default — counts + previews but writes nothing. Pass `--commit`
+ * Dry by default — counts + previews but writes nothing. Pass `--commit`
  * to project state into the new tables (additive only; never deletes).
  *
  *   # preview (writes nothing):

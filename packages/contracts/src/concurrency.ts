@@ -22,9 +22,12 @@ export async function runTaskGroup<T>(
 
   if (firstRejected?.status === "rejected") throw firstRejected.reason;
 
-  // SAFETY: the rejected head was thrown above, so every remaining result is
-  // the fulfilled arm of TaskGroupSettledResult.
-  return settled.map((result) => (result as { status: "fulfilled"; value: T }).value);
+  return settled.map((result) => {
+    if (result.status !== "fulfilled")
+      throw firstRejected?.reason ?? new Error("task group rejected");
+
+    return result.value;
+  });
 }
 
 export async function settleTaskGroup<T>(

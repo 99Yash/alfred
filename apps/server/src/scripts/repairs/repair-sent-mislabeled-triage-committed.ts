@@ -36,7 +36,7 @@
  * `node dist/scripts/repairs/repair-sent-mislabeled-triage-committed.js` — the prod
  * image has no `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default — lists the rows + planned action but touches nothing
+ * Dry by default — lists the rows + planned action but touches nothing
  * (no DB writes, no Gmail calls, no token refresh). Pass `--commit` to repair.
  *
  *   # preview (writes nothing):
