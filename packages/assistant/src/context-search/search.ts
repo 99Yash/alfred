@@ -3,7 +3,7 @@ import { listContextSources } from "./registry";
 import type { ContextEvidence, ContextSearchResult, ContextSourceReport } from "./types";
 
 /**
- * Read-only evidence search across every registered Context Fabric source.
+ * Read-only evidence search across every registered context search source.
  *
  * This is the boundary's one verb. With no source registered — the state at
  * this slice — it returns an empty, typed result rather than throwing, so a

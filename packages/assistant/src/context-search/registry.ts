@@ -4,7 +4,7 @@ const registeredSources = new Map<string, ContextSource>();
 
 /**
  * Register a read-only evidence source. A composition root calls this at boot
- * (#424+); the fabric itself never imports a concrete source.
+ * (#424+); the boundary itself never imports a concrete source.
  *
  * Installing the same instance again is a no-op, so a repeat boot call in one
  * process does not throw. Installing a different instance under a live id
@@ -17,7 +17,7 @@ export function registerContextSource(source: ContextSource): () => void {
   if (existing === source) return () => {};
 
   if (existing !== undefined) {
-    throw new Error(`A context fabric source is already registered for id "${source.id}"`);
+    throw new Error(`A context search source is already registered for id "${source.id}"`);
   }
 
   registeredSources.set(source.id, source);

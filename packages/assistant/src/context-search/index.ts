@@ -1,5 +1,5 @@
 /**
- * `context-fabric` — the canonical read boundary for cross-integration
+ * `context-search` — the canonical read boundary for cross-integration
  * evidence (#422; ADR-0101).
  *
  * One verb, `searchContext`, takes a bounded query/task envelope and returns a
@@ -11,7 +11,7 @@
  *
  * ## Where it sits
  *
- * The fabric is an aggregation seam over primitives that already exist, not a
+ * The boundary is an aggregation seam over primitives that already exist, not a
  * replacement for any of them. The epic's acceptance criteria name some of the
  * substrate by an older name; the mapping is explicit here so a reader can find
  * the code:
@@ -19,13 +19,13 @@
  * - **`semanticSearch`** — today the `search` verb in `@alfred/corpus`
  *   (`packages/corpus/src/search.ts`). It is the ingested document/chunk vector
  *   search. A document adapter (#424) wraps it and emits evidence cards; the
- *   fabric does not re-implement pgvector retrieval.
+ *   boundary does not re-implement pgvector retrieval.
  * - **`read_user_context`** — the `system.read_user_context` tool, backed by
  *   `readUserContext` and `recallMemory` in `@alfred/assistant/knowledge`. A
  *   memory adapter (#424) wraps `recallMemory`; `readUserContext` stays
  *   pull-on-demand for the boss and is not re-routed through here.
  * - **The active user-model projection** — `userModelReader`
- *   (`@alfred/assistant/knowledge`, ADR-0067). The fabric consumes it only as
+ *   (`@alfred/assistant/knowledge`, ADR-0067). The boundary consumes it only as
  *   an optional ranking / entity-resolution signal (#427, #431) and must
  *   degrade when no projection is active; it never writes observations and
  *   never mints a parallel identity graph.
@@ -35,11 +35,11 @@
  *   its rows as `object` evidence with provider/kind/native-state metadata, and
  *   missing state degrades honestly instead of inferring closure from absence.
  * - **Live integration tools** (`packages/assistant/src/tool-runtime`) remain
- *   the provider drill-down and action surface. The fabric's live adapters
+ *   the provider drill-down and action surface. The boundary's live adapters
  *   (#428) are bounded read-only expansions of thin or stale local hits; they
  *   never invoke a provider-specific action tool.
  * - **The source capability manifest** (#466) is the source-discovery contract.
- *   The fabric enumerates candidate sources from it rather than a hard-coded
+ *   The boundary enumerates candidate sources from it rather than a hard-coded
  *   switch over today's integrations. Until it lands, adapters register by id
  *   through `registerContextSource`.
  *
