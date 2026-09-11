@@ -13,7 +13,8 @@ import type { ContextSearchRequest, EvidenceCard } from "@alfred/contracts";
  * The element itself is the canonical `EvidenceCard` in `@alfred/contracts`
  * (#423): a card carries its own `source.id`, which must equal the
  * `ContextSource.id` that produced it, so the manifest (#466) and the boundary
- * share one identity space.
+ * share one identity space. `searchContext` enforces that equality per card at
+ * the boundary; a mismatch is rejected, never trusted from the adapter.
  */
 
 /** What one registered source returns. Errors are reported, not thrown through. */
