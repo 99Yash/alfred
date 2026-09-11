@@ -1,10 +1,10 @@
 /**
- * Context Fabric read envelope (epic #422; ADR-0101).
+ * Context Search read envelope (epic #422; ADR-0101).
  *
- * The Context Fabric boundary takes one bounded query/task envelope. The
+ * The Context Search boundary takes one bounded query/task envelope. The
  * envelope lives here, in the browser-safe contracts package, because it is a
  * cross-boundary shape, not an implementation detail of the
- * `@alfred/assistant/context-fabric` module: the model-facing
+ * `@alfred/assistant/context-search` module: the model-facing
  * `system.search_context` tool (#426) derives its bounded input from this same
  * schema and cap, and nothing else may grow a second envelope.
  */
@@ -21,7 +21,7 @@ export const CONTEXT_SEARCH_DEFAULT_LIMIT = 10;
 export const CONTEXT_SEARCH_MAX_LIMIT = 50;
 
 /**
- * The Context Fabric read request: a query/task envelope, not a tool schema.
+ * The Context Search read request: a query/task envelope, not a tool schema.
  * Every field is bounded here so `searchContext` rejects a malformed request
  * before any source runs.
  */
@@ -32,7 +32,7 @@ export const contextSearchRequestSchema = z.object({
   query: z.string().trim().min(1).max(4_000),
   /**
    * What the caller is trying to do, when it can say. An optional strategy hint
-   * for sources — never a switch the fabric branches on.
+   * for sources — never a switch the boundary branches on.
    */
   task: z.string().trim().min(1).max(500).optional(),
   /** Maximum evidence items returned across all sources. */

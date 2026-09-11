@@ -46,7 +46,7 @@ export interface ContextSourceReport {
   readonly status: ContextSourceStatus;
   /**
    * How many cards the source returned. This is the source's own count, before
-   * the fabric truncates the combined list to `request.limit`; it does not sum
+   * the boundary truncates the combined list to `request.limit`; it does not sum
    * to `ContextSearchResult.evidence.length` when the limit binds.
    */
   readonly evidenceCount: number;
@@ -65,7 +65,7 @@ export interface ContextSourceResult {
  *
  * `search` must be read-only: no provider writes, no action staging, and no
  * cost-bearing side effect beyond the read itself. Provider-specific action
- * tools stay separate and are never invoked by the fabric.
+ * tools stay separate and are never invoked by the boundary.
  */
 export interface ContextSource {
   /**

@@ -78,7 +78,7 @@ export * from "./briefing-references";
 
 export * from "./briefing-signals";
 
-export * from "./context-fabric";
+export * from "./context-search";
 
 export * from "./attachments";
 
