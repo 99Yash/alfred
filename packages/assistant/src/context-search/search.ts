@@ -1,6 +1,55 @@
-import { contextSearchRequestSchema, toMessage } from "@alfred/contracts";
-import { listContextSources } from "./registry";
-import type { ContextEvidence, ContextSearchResult, ContextSourceReport } from "./types";
+import {
+  contextSearchRequestSchema,
+  toMessage,
+  type ContextSearchRequest,
+} from "@alfred/contracts";
+import { listContextSources, type ContextEvidence } from "./registry";
+
+/**
+ * The read-side answer shapes (#422; ADR-0101).
+ *
+ * These live here — not in a `types.ts` grab-bag — because `searchContext`
+ * below is the only code that mints them: every `ContextSourceReport` status
+ * (`ok` / `empty` / `error`) and every `ContextSearchResult` truncation to
+ * `request.limit` happens in this file. The source-side element
+ * (`ContextEvidence`) lives in `registry.ts` with the `ContextSource` contract
+ * that returns it; this file imports it rather than restating it.
+ *
+ * Module-internal placeholders, not contracts consumers may build on: #423
+ * owns the canonical EvidenceCard and the packing rules, and may replace these
+ * shapes outright.
+ */
+
+/**
+ * Per-source outcome for one search. `empty` is distinct from `error` on
+ * purpose: "this source found nothing" and "this source could not answer" are
+ * different facts, and the honest-missing note (#423) depends on telling them
+ * apart.
+ */
+export type ContextSourceStatus = "ok" | "empty" | "error";
+
+export interface ContextSourceReport {
+  readonly sourceId: string;
+  readonly status: ContextSourceStatus;
+  /**
+   * How many cards the source returned. This is the source's own count, before
+   * the boundary truncates the combined list to `request.limit`; it does not sum
+   * to `ContextSearchResult.evidence.length` when the limit binds.
+   */
+  readonly evidenceCount: number;
+  /** Present only for `error`; the safe message from the failed source. */
+  readonly reason?: string | undefined;
+}
+
+/** The typed result of one read. `evidence` is empty until adapters land. */
+export interface ContextSearchResult {
+  /** The parsed request this result answers. */
+  readonly request: ContextSearchRequest;
+  /** Evidence, bounded by `request.limit`. */
+  readonly evidence: readonly ContextEvidence[];
+  /** One report per registered source consulted. */
+  readonly sources: readonly ContextSourceReport[];
+}
 
 /**
  * Read-only evidence search across every registered context search source.
