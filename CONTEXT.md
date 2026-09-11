@@ -224,6 +224,16 @@ These three bias every subsystem below. Read them first.
 
 **`IanaTimezone`.** Branded `string` type in `@alfred/contracts`, validated at the API boundary against `Intl.supportedValuesOf('timeZone')` (the live IANA list, ~400 zones). Persisted as `text` (no PG enum — IANA mutates per tzdata release). Used wherever the user's timezone has to round-trip through DB + API + Replicache safely, including `briefings.timezone`.
 
+## Context Search
+
+**Context Search.** The canonical read boundary for cross-integration evidence (epic #422). One verb, `searchContext`, takes a bounded `ContextSearchRequest` (query, optional task, limit) and returns a bounded, source-attributed `ContextSearchResult`. It is read-only by construction: it never stages an action, calls a write tool, or puts raw provider bodies or media bytes in its result.
+
+**Evidence source.** A `ContextSource` registered by stable id with `registerContextSource`; the fabric enumerates what is registered (`listContextSources`) and never branches on a source name, so a new native integration or MCP-backed source joins without editing chat, briefing, todos, or meeting-prep callers. Sources are expected to describe themselves through the source capability manifest (#466) once it lands; until then registration is the only contract.
+
+**Evidence card.** `ContextEvidence` is a module-internal placeholder at this slice: it is not exported from the barrel, and no consumer may build on it. The canonical EvidenceCard contract and context-packing rules land in #423. The boundary does not replace its substrate. Document/chunk `search` in `@alfred/corpus` (the epic's `semanticSearch`), memory recall (`recallMemory`) and durable user context (`readUserContext`, the `system.read_user_context` tool) in `@alfred/assistant/knowledge`, the active ADR-0067 projection (`userModelReader`), the object-state store, and the live provider drill-down tools all stay the owners; the fabric aggregates them.
+
+**Context Search (designed, not built).** At this slice no adapter is registered, so `searchContext` returns an empty result. The model-facing `system.search_context` tool (#426), the document/memory/object-state adapters (#424, #425), the deterministic ranker (#427), the live drill-down adapters (#428), the media card surface (#429), the retrieval evals (#430), the ADR-0067 identity upgrade (#431), and the source capability manifest (#466) are later slices.
+
 ## Todos
 
 **Todo.** One row in `todos`. A user-managed commitment — a checkbox item either captured by the user or proposed by Alfred. The **first persisted materialization of the open-loop model** (ADR-0048 keeps loops ephemeral at briefing compose-time; a todo is a loop the user has chosen to track). Single table, status-driven; Replicache-synced. v1 is **passive** — Alfred authors and assists but never executes (see _Agent-executable todo_). ADR-0050.
