@@ -90,7 +90,7 @@ A shape two packages must agree on gets **one owning schema** (browser-safe → 
 
 Enforcement is compile-time pins, not a lint script: a generic "did someone hand-copy this schema" checker cannot separate legitimate projections from drift. If a third unpinned copy of an owned shape appears, revisit.
 
-**Rejected:** per-package `schemas/` directories. Placement does not concentrate complexity — ownership-by-role does; moving files changes nothing a consumer can check (evidence and surveyed repos in [schema-and-const-homes](../research/schema-and-const-homes-2026-08-22.md)).
+**Rejected:** per-package `schemas/` directories and per-module `types.ts` / `schemas.ts` grab-bags. Placement does not concentrate complexity — ownership-by-role does; moving files changes nothing a consumer can check (evidence and surveyed repos in [schema-and-const-homes](../research/schema-and-const-homes-2026-08-22.md)). Within a module, each shape lives with the file that mints or stores it — the verb owns its result, the registry owns its registered contract — never in a shared `types.ts` that groups by syntax instead of by owner (the `context-search` boundary keeps `ContextSearchResult` / reports in `search.ts` and `ContextSource` / `ContextEvidence` in `registry.ts`). See [schemas.md](./schemas.md#colocate-the-schema-with-its-type-caps-and-minting-logic).
 
 ### When a literal IS correct
 
@@ -150,8 +150,8 @@ Name non-obvious constants. Inline literals are fine for transparent arithmetic 
 
 Put the constant at the narrowest stable owner:
 
-- **`@alfred/contracts`** only for cross-boundary semantics: API/schema limits, synced/wire enums, client-visible tool caps, output truncation guarantees, and values that both server and web/model contracts must agree on.
-- **Owning package/module** for implementation mechanics: provider HTTP timeouts, Redis TTLs, queue batch sizes, retry windows, cache keys, local prompt budgets, and private heuristics. If several files in the same domain need it, create a small local `constants.ts` / `config.ts` in that package instead of exporting it from contracts.
+- **`@alfred/contracts`** only for cross-boundary semantics: API/schema limits, synced/wire enums, client-visible tool caps, output truncation guarantees, and values that both server and web/model contracts must agree on. The cap lives in the same domain file as the schema that enforces it (`CONTEXT_SEARCH_MAX_LIMIT` next to `contextSearchRequestSchema`; `briefingHourSchema` next to its 0–23 constants) — never split across a `constants.ts` while the schema lives in `schemas.ts`.
+- **Owning package/module** for implementation mechanics: provider HTTP timeouts, Redis TTLs, queue batch sizes, retry windows, cache keys, local prompt budgets, and private heuristics. If several files in the same domain need it, create a small local `constants.ts` / `config.ts` in that package instead of exporting it from contracts. Within a module, prefer the file that enforces the value over even that local file: a limit only one verb reads lives next to that verb, and a status union only one function mints lives next to that function (the `context-search` boundary keeps its result/report types in `search.ts`, not `types.ts`).
 - **A dedicated constants file earns its place only when values couple** — several derived expressions depend on one knob, so the file encodes a relationship (the model is `packages/env/src/pool.ts`: `derivePoolMax()` from `AGENT_WORKER_CONCURRENCY_DEFAULT`). Proximity alone does not justify one; an uncoupled grab-bag file fails the deletion test — deleting it just moves the numbers.
 - **Environment** only for deploy-time operator knobs, secrets, endpoints, or values that should differ by environment. Do not use env vars just to avoid naming a constant.
 

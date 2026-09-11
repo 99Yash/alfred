@@ -69,4 +69,4 @@ export { listContextSources, registerContextSource } from "./registry";
 
 export { searchContext } from "./search";
 
-export type { ContextSource } from "./types";
+export type { ContextSource } from "./registry";
