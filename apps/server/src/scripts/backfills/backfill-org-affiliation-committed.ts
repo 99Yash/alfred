@@ -14,7 +14,7 @@
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/backfills/backfill-org-affiliation-committed.js`.
  *
- * SAFETY: dry by default — classifies and prints what it WOULD emit, writes
+ * Dry by default — classifies and prints what it WOULD emit, writes
  * nothing. `--commit` applies and REQUIRES `--emails=...` explicitly so a prod
  * shell typo cannot mutate the default account. Idempotent (the evidence hash
  * dedups re-runs).

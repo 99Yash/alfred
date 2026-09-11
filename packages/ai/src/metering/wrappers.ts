@@ -222,10 +222,7 @@ export async function meteredGenerateText(
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
-    // SAFETY: args is the full metered call arguments and captureInput reads
-    // only the prompt-bearing fields, so its parameter type is a view of these
-    // same args.
-    input: captureInput(args as Parameters<typeof captureInput>[0]),
+    input: captureInput(args),
   };
 
   const callArgs = withDefaultTimeout(args);
@@ -262,10 +259,7 @@ export async function meteredGenerateObject<O>(
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
-    // SAFETY: rest is the metered call arguments minus the structured-output
-    // fields; captureInput reads only the prompt-bearing fields of that same
-    // object.
-    input: captureInput(rest as Parameters<typeof captureInput>[0]),
+    input: captureInput(rest),
   };
 
   type Result = GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>;
@@ -326,10 +320,7 @@ export function meteredStreamText(
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
-    // SAFETY: args is the full metered call arguments and captureInput reads
-    // only the prompt-bearing fields, so its parameter type is a view of these
-    // same args.
-    input: captureInput(args as Parameters<typeof captureInput>[0]),
+    input: captureInput(args),
   };
 
   const callerOnEnd = args.onEnd;

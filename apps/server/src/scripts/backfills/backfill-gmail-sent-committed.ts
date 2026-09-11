@@ -29,7 +29,7 @@
  * `node dist/scripts/backfills/backfill-gmail-sent-committed.js` — the prod image has no
  * `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default — lists the candidate message ids per credential and
+ * Dry by default — lists the candidate message ids per credential and
  * writes NOTHING. `--commit` is required to actually ingest (which also calls
  * Gmail `get` per message + embeds, so it is not free).
  *
@@ -146,9 +146,7 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
       continue;
     }
 
-    // SAFETY: integration_credentials.scopes is a jsonb string array written by
-    // the connect flow.
-    const scopes = (r.scopes as string[] | null) ?? [];
+    const scopes = r.scopes;
 
     if (!hasGmailScope(scopes)) {
       console.log(`! skipping credential=${r.credentialId} (${r.email}) — no gmail scope`);

@@ -15,7 +15,7 @@
  * doesn't block this. We still cancel any *active* prior cold-start run first so
  * a re-invocation (or a stuck row) can't trip `23505`.
  *
- * SAFETY: dry by default. Pass `--commit` to actually cancel-prior + enqueue.
+ * Dry by default. Pass `--commit` to actually cancel-prior + enqueue.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/ops/trigger-cold-start-committed.js

@@ -150,9 +150,7 @@ export function isBriefingReferenceKind(value: string): value is BriefingReferen
 }
 
 export function briefingReference(kind: BriefingReferenceKind, id: string): BriefingReference {
-  // SAFETY: BriefingReference is the `${BriefingReferenceKind}:${string}`
-  // template-literal type, and the arguments are exactly those two parts.
-  return `${kind}:${id}` as BriefingReference;
+  return `${kind}:${id}`;
 }
 
 export function gmailThreadUrl(threadId: string): string {
