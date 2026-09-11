@@ -23,6 +23,8 @@
 
 import { cancelRun, signalRun } from "@alfred/assistant/execution";
 
+import { getStringPath } from "@alfred/contracts";
+
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { closeConnections, warmPool } from "@alfred/db";
@@ -184,13 +186,11 @@ async function main(): Promise<void> {
     `tool.execute should fire exactly once, got ${stubs.searchExecCount()}`,
   );
 
-  // SAFETY: auto is the dispatch verdict whose staged arm carries stagingId;
-  // the asserts below verify the row it points at.
+  // The asserts below verify the row it points at.
+  assert(auto.stagingId !== null, "autonomy execution must carry a stagingId");
+
   const autoRow = (
-    await db()
-      .select()
-      .from(actionStagings)
-      .where(eq(actionStagings.id, (auto as { stagingId: string }).stagingId))
+    await db().select().from(actionStagings).where(eq(actionStagings.id, auto.stagingId))
   )[0];
 
   assert(autoRow, "autonomy staging row missing");
@@ -268,18 +268,10 @@ async function main(): Promise<void> {
   });
 
   assert(staged.kind === "staged", `gated expected 'staged', got '${staged.kind}'`);
-  // SAFETY: the assert above narrowed kind to "staged", whose arm carries
-  // stagingId.
-  const stagedId = (staged as { stagingId: string }).stagingId;
+  const stagedId = staged.stagingId;
+  assert(staged.wake.approvalId === stagedId, "wake.approvalId must equal stagingId");
   assert(
-    // SAFETY: same staged-arm envelope; wake.approvalId mirrors stagingId by
-    // construction of the staging write.
-    (staged as { wake: { approvalId: string; approvalKind: string } }).wake.approvalId === stagedId,
-    "wake.approvalId must equal stagingId",
-  );
-  assert(
-    // SAFETY: same staged-arm envelope as above.
-    (staged as { wake: { approvalKind: string } }).wake.approvalKind === "action_staging",
+    staged.wake.approvalKind === "action_staging",
     "wake.approvalKind must be 'action_staging'",
   );
   assert(stubs.draftExecCount() === 0, "gated path must not execute tool before approval");
@@ -386,8 +378,7 @@ async function main(): Promise<void> {
 
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
   assert(
-    // SAFETY: resumed is this smoke's own send-tool result envelope.
-    (resumed as { toolResult: { sentTo: string } }).toolResult.sentTo === "yash@example.com",
+    getStringPath(resumed.toolResult, "sentTo") === "yash@example.com",
     "approved resume must execute the STAGED proposed_input, not the caller's new input",
   );
   assert(stubs.draftExecCount() === 1, "approved tool should execute exactly once on resume");
@@ -419,8 +410,7 @@ async function main(): Promise<void> {
   });
 
   assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
-  // SAFETY: the assert above proved firstAttempt.kind === "staged".
-  const firstAttemptId = (firstAttempt as { stagingId: string }).stagingId;
+  const firstAttemptId = firstAttempt.stagingId;
 
   // User rejects with a reason — Phase 5's decision API would do this.
   await db()
@@ -453,16 +443,9 @@ async function main(): Promise<void> {
     reproposed.kind === "rejected",
     `retry-suppression expected 'rejected', got '${reproposed.kind}'`,
   );
+  assert(reproposed.stagingId === null, "retry-suppression must NOT write a new staging row");
   assert(
-    // SAFETY: reproposed is a dispatch verdict; only the staged arm carries a
-    // non-null stagingId, which is what this assertion checks.
-    (reproposed as { stagingId: string | null }).stagingId === null,
-    "retry-suppression must NOT write a new staging row",
-  );
-  assert(
-    // SAFETY: retry-suppression rides the executed-result arm of the verdict.
-    (reproposed as { result: { retryPolicy: string } }).result.retryPolicy ===
-      "do_not_retry_identical",
+    reproposed.result.retryPolicy === "do_not_retry_identical",
     "retry-suppression result must carry retryPolicy='do_not_retry_identical'",
   );
   assert(stubs.draftExecCount() === draftExecBefore, "retry-suppression must not execute the tool");
