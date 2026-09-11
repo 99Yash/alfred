@@ -7,7 +7,7 @@
  * user-model observation append helper, which validates the reducer output and
  * owns family supersession / CAS retry.
  *
- * SAFETY: dry by default. `--commit` is required to write observations.
+ * Dry by default. `--commit` is required to write observations.
  *
  *   # preview personal mailbox:
  *   node dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=yashgouravkar@gmail.com

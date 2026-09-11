@@ -34,10 +34,9 @@ export function subscribeToEventStreamStatus(cb: () => void): () => void {
 }
 
 export function useEventStreamStatus(): EventStreamStatus {
-  // SAFETY: "disconnected" is a member of EventStreamStatus; the cast closes the generic.
   return useSyncExternalStore(
     subscribeToEventStreamStatus,
     getEventStreamStatus,
-    () => "disconnected" as EventStreamStatus,
+    () => "disconnected",
   );
 }

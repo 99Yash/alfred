@@ -36,7 +36,7 @@
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/backfills/backfill-retire-self-mail-aliases-committed.js`.
  *
- * SAFETY: dry by default — counts + lists but writes nothing. Pass `--commit`
+ * Dry by default — counts + lists but writes nothing. Pass `--commit`
  * to delete.
  *
  *   # preview (writes nothing):

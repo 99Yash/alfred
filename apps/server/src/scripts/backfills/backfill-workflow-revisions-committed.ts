@@ -31,7 +31,7 @@
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/backfills/backfill-workflow-revisions-committed.js`.
  *
- * SAFETY: dry by default — prints what it WOULD write. `--commit` applies and
+ * Dry by default — prints what it WOULD write. `--commit` applies and
  * REQUIRES `--emails=...` so a prod shell typo cannot mutate the default
  * account. Idempotent: a row that already has a revision is never matched.
  *

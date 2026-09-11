@@ -349,15 +349,14 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
   }
 
   if (!dumped) return EMPTY_OUTPUT;
-  // SAFETY: `dumped` is this eval's own rendered notification envelope.
-  const d = dumped as { subject: string; bodyText: string; bodyMarkdown: string };
+  const { subject, bodyText, bodyMarkdown } = dumped;
 
   return {
     ok: true,
-    subject: d.subject,
-    bodyText: d.bodyText,
-    bodyMarkdown: d.bodyMarkdown,
-    combined: `${d.subject}\n${d.bodyText}\n${d.bodyMarkdown}`,
+    subject,
+    bodyText,
+    bodyMarkdown,
+    combined: `${subject}\n${bodyText}\n${bodyMarkdown}`,
     note: "",
   };
 }

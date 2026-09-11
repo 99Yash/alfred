@@ -30,7 +30,7 @@
  * `node dist/scripts/backfills/backfill-retire-self-mail-committed.js` — the prod image
  * has no `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default — counts + lists but writes nothing. Pass `--commit`
+ * Dry by default — counts + lists but writes nothing. Pass `--commit`
  * to delete.
  *
  *   # preview (writes nothing):
