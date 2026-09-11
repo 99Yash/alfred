@@ -1,5 +1,4 @@
-import { toMessage } from "@alfred/contracts";
-import { contextSearchRequestSchema } from "./contracts";
+import { contextSearchRequestSchema, toMessage } from "@alfred/contracts";
 import { listContextSources } from "./registry";
 import type { ContextEvidence, ContextSearchResult, ContextSourceReport } from "./types";
 
@@ -12,9 +11,11 @@ import type { ContextEvidence, ContextSearchResult, ContextSourceReport } from "
  * becomes one `error` report; it never fails the whole search, and absence
  * never closes a loop.
  *
- * Ranking is deliberately absent here: cards come back in source-registration
- * order and are truncated to the request `limit`. The deterministic ranker
- * lands in #427.
+ * Ranking is deliberately absent here. Cards come back in source-registration
+ * order and the combined list is truncated to the request `limit`, so an earlier
+ * source can fill the budget and a later source's cards can be dropped even
+ * though their report still counts them. The deterministic ranker (#427) and a
+ * per-source budget replace that truncation without changing the shape.
  */
 export async function searchContext(request: unknown): Promise<ContextSearchResult> {
   const parsed = contextSearchRequestSchema.parse(request);
