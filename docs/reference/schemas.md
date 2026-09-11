@@ -36,15 +36,19 @@ lives there:
 - The result a verb mints lives with that verb. `searchContext` in
   `packages/assistant/src/context-search/search.ts` owns `ContextSearchResult`
   and the `ContextSourceReport` / `ContextSourceStatus` it constructs;
-  `registry.ts` owns the `ContextSource` contract (with the `ContextEvidence`
-  element its `search` returns) because it stores `Map<string,
-  ContextSource>`. A shared `types.ts` holding all six shapes groups by syntax
-  instead of by owner and hides which file may change which shape.
-- A provisional/internal shape stays with its owning module file until a
-  second boundary must agree on it. `ContextEvidence` is module-internal until
-  #423's canonical EvidenceCard lands; it does not move to `@alfred/contracts`
-  early just because it may one day cross. Promotion to contracts happens when
-  the second consumer (tool #426, web client) arrives, not before.
+  `registry.ts` owns the `ContextSource` contract (returning the shared
+  `EvidenceCard`) because it stores `Map<string, ContextSource>`. A shared
+  `types.ts` holding all of those shapes groups by syntax instead of by owner
+  and hides which file may change which shape.
+- The evidence element is a shared contract, not a module-internal shape:
+  `evidenceCardSchema` / `EvidenceCard` live in
+  `packages/contracts/src/evidence-card.ts` (#423) because source adapters, the
+  model-facing packer (`context-search/pack.ts`), the source capability manifest
+  (#466), and the later `system.search_context` tool (#426) must all agree on
+  it. A provisional/internal shape stays with its owning module file until a
+  second boundary must agree on it; `EvidenceCard` crossed to contracts at that
+  point rather than early, just as the provisional `ContextEvidence` it replaced
+  stayed in `registry.ts` until then.
 
 Deletion test: deleting the owner file must delete the shape. If the shape
 survives in `types.ts` / `schemas.ts` / `constants.ts` after its logic is

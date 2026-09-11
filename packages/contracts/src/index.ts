@@ -80,6 +80,8 @@ export * from "./briefing-signals";
 
 export * from "./context-search";
 
+export * from "./evidence-card";
+
 export * from "./attachments";
 
 export * from "./weather";

@@ -9,6 +9,18 @@
  * `system.search_context` tool is a later slice (#426); this boundary is
  * deliberately not wired to one yet.
  *
+ * ## The card and the packer (#423)
+ *
+ * The element a source returns is the canonical `EvidenceCard` in
+ * `@alfred/contracts` (`src/evidence-card.ts`): it is manifest-interoperable
+ * (`source.id` joins the source capability manifest, #466), open to new media
+ * and anchors without a schema change (#429), and honest about freshness and
+ * missing content. `packEvidenceCards` renders those cards as bounded,
+ * cited, model-facing text with per-source missing notes; the model never sees
+ * a card object or a raw provider body, only the packer's output. Provider
+ * adapters (#424/#425) return cards; the packer and the model-facing tool
+ * (#426) consume them.
+ *
  * ## Where it sits
  *
  * The boundary is an aggregation seam over primitives that already exist, not a
@@ -58,9 +70,9 @@
  * ## Degradation
  *
  * With no source registered — the state at this slice — `searchContext`
- * returns an empty result. A source that throws becomes one `error` report and
- * never fails the whole search. Absence is reported, never inferred as a
- * closed loop.
+ * returns an empty result. A source that throws, or that returns a card
+ * violating the `EvidenceCard` contract, becomes one `error` report and never
+ * fails the whole search. Absence is reported, never inferred as a closed loop.
  */
 
 export type { ContextSearchRequest } from "@alfred/contracts";
@@ -69,4 +81,15 @@ export { listContextSources, registerContextSource } from "./registry";
 
 export { searchContext } from "./search";
 
+export type { ContextSearchResult, ContextSourceReport } from "./search";
+
 export type { ContextSource } from "./registry";
+
+export {
+  EVIDENCE_PACK_DEFAULT_MAX_CHARS,
+  EVIDENCE_PACK_MAX_MAX_CHARS,
+  EVIDENCE_PACK_MIN_MAX_CHARS,
+  packEvidenceCards,
+} from "./pack";
+
+export type { PackedEvidence, PackEvidenceOptions } from "./pack";
