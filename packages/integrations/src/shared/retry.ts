@@ -20,7 +20,7 @@
  * passthrough capabilities may import it, but configured clients expose only the
  * policy knob and executable operations — never the retry machinery itself.
  *
- * SAFETY: only the caller decides *which requests* are eligible — this must be
+ * Only the caller decides *which requests* are eligible — this must be
  * used for idempotent reads (GET/HEAD) unless the write carries an idempotency
  * key, so a retried request can never double-apply a side effect. That rule is
  * enforceable, not just documented: a transport that dispatches by method gates

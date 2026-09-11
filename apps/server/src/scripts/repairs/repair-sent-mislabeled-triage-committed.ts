@@ -73,7 +73,7 @@ type DocRow = {
   sourceId: string;
   authoredAt: Date | null;
   accountId: string | null;
-  metadata: Record<string, unknown>;
+  metadata: unknown;
 };
 
 type GoogleCredentialRow = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
@@ -101,8 +101,7 @@ type RepairCaseBResult =
   | { kind: "stale"; reason: string };
 
 async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[]> {
-  // SAFETY: the select projects exactly the columns DocRow declares.
-  return (await db()
+  return await db()
     .select({
       id: documents.id,
       sourceId: documents.sourceId,
@@ -118,7 +117,7 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
         eq(documents.sourceThreadId, threadId),
       ),
     )
-    .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)) as DocRow[];
+    .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`);
 }
 
 /** Newest non-sent doc — mirrors the runtime live-inbound nulls-last/id tie-breaker. */
