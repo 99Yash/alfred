@@ -1,9 +1,12 @@
 import {
   contextSearchRequestSchema,
+  evidenceCardSchema,
+  sanitizeErrorMessage,
   toMessage,
   type ContextSearchRequest,
+  type EvidenceCard,
 } from "@alfred/contracts";
-import { listContextSources, type ContextEvidence } from "./registry";
+import { listContextSources, type ContextSourceResult } from "./registry";
 
 /**
  * The read-side answer shapes (#422; ADR-0101).
@@ -11,13 +14,14 @@ import { listContextSources, type ContextEvidence } from "./registry";
  * These live here — not in a `types.ts` grab-bag — because `searchContext`
  * below is the only code that mints them: every `ContextSourceReport` status
  * (`ok` / `empty` / `error`) and every `ContextSearchResult` truncation to
- * `request.limit` happens in this file. The source-side element
- * (`ContextEvidence`) lives in `registry.ts` with the `ContextSource` contract
- * that returns it; this file imports it rather than restating it.
+ * `request.limit` happens in this file. The source-side element is the
+ * canonical `EvidenceCard` in `@alfred/contracts` (#423), imported rather than
+ * restated here; `registry.ts` owns the `ContextSource` contract that returns
+ * it.
  *
- * Module-internal placeholders, not contracts consumers may build on: #423
- * owns the canonical EvidenceCard and the packing rules, and may replace these
- * shapes outright.
+ * The card contract and the packing rules live in their own files: the shape in
+ * `@alfred/contracts` (browser/server agreement, manifest interoperability) and
+ * `pack.ts` here (model-facing rendering). This file only collects and bounds.
  */
 
 /**
@@ -46,7 +50,7 @@ export interface ContextSearchResult {
   /** The parsed request this result answers. */
   readonly request: ContextSearchRequest;
   /** Evidence, bounded by `request.limit`. */
-  readonly evidence: readonly ContextEvidence[];
+  readonly evidence: readonly EvidenceCard[];
   /** One report per registered source consulted. */
   readonly sources: readonly ContextSourceReport[];
 }
@@ -75,26 +79,73 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
   }
 
   const reports: ContextSourceReport[] = [];
-  const collected: ContextEvidence[] = [];
+  const collected: EvidenceCard[] = [];
 
   for (const source of sources) {
-    try {
-      const result = await source.search(parsed);
+    let result: ContextSourceResult;
 
-      reports.push({
-        sourceId: source.id,
-        status: result.evidence.length > 0 ? "ok" : "empty",
-        evidenceCount: result.evidence.length,
-      });
-      collected.push(...result.evidence);
+    try {
+      result = await source.search(parsed);
     } catch (error) {
       reports.push({
         sourceId: source.id,
         status: "error",
         evidenceCount: 0,
-        reason: toMessage(error),
+        reason: sanitizeErrorMessage(toMessage(error)),
+      });
+      continue;
+    }
+
+    // A card is a contract, not a type-only promise: validate each card at the
+    // boundary so a source cannot smuggle in an unbounded snippet, a
+    // non-canonical entity value, an empty card, or a `source.id` that does not
+    // match the id it registered as (the manifest join key, #466). A rejected
+    // card is dropped without discarding its siblings: one bad card must not
+    // erase the good evidence a source returned. A source with any rejected
+    // card is reported `error`, and the accepted cards still ship.
+    const accepted: EvidenceCard[] = [];
+    let rejected = 0;
+
+    try {
+      for (const candidate of result.evidence) {
+        const parsedCard = evidenceCardSchema.safeParse(candidate);
+
+        if (!parsedCard.success || parsedCard.data.source.id !== source.id) {
+          rejected += 1;
+          continue;
+        }
+
+        accepted.push(parsedCard.data);
+      }
+    } catch (error) {
+      // A source that returned a non-array `evidence` is still one error report,
+      // never a rejected read; the cards already accepted still ship.
+      reports.push({
+        sourceId: source.id,
+        status: "error",
+        evidenceCount: accepted.length,
+        reason: sanitizeErrorMessage(toMessage(error)),
+      });
+      collected.push(...accepted);
+      continue;
+    }
+
+    if (rejected > 0) {
+      reports.push({
+        sourceId: source.id,
+        status: "error",
+        evidenceCount: accepted.length,
+        reason: `${rejected} evidence card(s) violated the contract`,
+      });
+    } else {
+      reports.push({
+        sourceId: source.id,
+        status: accepted.length > 0 ? "ok" : "empty",
+        evidenceCount: accepted.length,
       });
     }
+
+    collected.push(...accepted);
   }
 
   return {
