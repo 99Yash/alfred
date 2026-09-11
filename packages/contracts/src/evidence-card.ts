@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
-import { canonicalizeIdentityValue, IDENTITY_KINDS } from "./user-model";
+import { identityRefSchema } from "./user-model";
 
 /**
  * The canonical cross-integration evidence contract (#423; epic #422; ADR-0101).
@@ -115,25 +115,20 @@ export type EvidenceObjectRef = z.infer<typeof evidenceObjectRefSchema>;
 
 /**
  * One entity a piece of evidence is about (a person, org, or object handle).
- * `value` must already be canonical for its `kind`: the same
- * `canonicalizeIdentityValue` the stable-entity-id mint chokepoint uses, so a
- * card's entity anchor is deduplicable and never a second normalization of an
- * address (`Person@Example.com` cannot appear beside `person@example.com`).
- * The refine is the contract's half of that guarantee; producers still
- * canonicalize before minting.
+ *
+ * It is `identityRefSchema` extended with a display form, never a restated
+ * object: the owner already carries the byte-bounded `identityValueSchema`, the
+ * canonical-form refine, the `identityValueMatchesKind` format refine, and
+ * `.strict()`. Deriving here means a card's anchor passes exactly what the
+ * stable-entity-id mint chokepoint passes, so a card can never hold a
+ * contract-valid entity that then fails projection — the asymmetry
+ * `user-model.ts` warns about. Restating the object would silently drop the
+ * byte bound, the format check, and the unknown-key rejection.
  */
-export const evidenceEntityRefSchema = z
-  .object({
-    kind: z.enum(IDENTITY_KINDS),
-    /** Canonical identity value for `kind`. */
-    value: z.string().min(1).max(1_024),
-    /** Display form, when it differs from the canonical value. */
-    display: z.string().min(1).max(300).optional(),
-  })
-  .refine((entity) => entity.value === canonicalizeIdentityValue(entity.kind, entity.value), {
-    message: "entity identity value must be canonical for its kind",
-    path: ["value"],
-  });
+export const evidenceEntityRefSchema = identityRefSchema.extend({
+  /** Display form, when it differs from the canonical value. */
+  display: z.string().min(1).max(300).optional(),
+});
 
 export type EvidenceEntityRef = z.infer<typeof evidenceEntityRefSchema>;
 

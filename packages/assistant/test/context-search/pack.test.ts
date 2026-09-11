@@ -32,7 +32,7 @@ describe("packEvidenceCards — card kinds", () => {
       ],
     };
 
-    const packed = packEvidenceCards([card]);
+    const packed = packEvidenceCards({ evidence: [card], sources: [] });
 
     assert.deepEqual(packed.includedIds, ["gmail:msg-1"]);
     assert.equal(packed.omittedCount, 0);
@@ -65,7 +65,7 @@ describe("packEvidenceCards — card kinds", () => {
       authority: { level: "high", label: "GitHub App webhook" },
     };
 
-    const packed = packEvidenceCards([card]);
+    const packed = packEvidenceCards({ evidence: [card], sources: [] });
 
     assert.match(packed.text, /Object: github\/pull_request merged \(resolved\)/);
     assert.match(packed.text, /"Close the CI loop"/);
@@ -84,7 +84,7 @@ describe("packEvidenceCards — card kinds", () => {
       expansion: { sourceId: "mcp:linear", kind: "mcp_tool", ref: "linear.get_issue:LIN-1" },
     };
 
-    const packed = packEvidenceCards([card]);
+    const packed = packEvidenceCards({ evidence: [card], sources: [] });
 
     // No display name falls back to the stable id, cited once; the source kind is visible.
     assert.match(packed.text, /mcp:linear \(mcp, text\)/);
@@ -105,7 +105,7 @@ describe("packEvidenceCards — card kinds", () => {
       expansion: { sourceId: "attachments", kind: "attachment", ref: "att-9", hint: "download" },
     };
 
-    const packed = packEvidenceCards([card]);
+    const packed = packEvidenceCards({ evidence: [card], sources: [] });
 
     assert.equal(packed.text.includes("Content:"), false);
     assert.match(packed.text, /Note: OCR is not available for this image yet\./);
@@ -124,7 +124,7 @@ describe("packEvidenceCards — budget and honesty", () => {
       snippet: "x".repeat(500),
     }));
 
-    const packed = packEvidenceCards(cards, { maxChars: 1_200 });
+    const packed = packEvidenceCards({ evidence: cards, sources: [] }, { maxChars: 1_200 });
 
     assert.equal(packed.truncated, true);
     assert.ok(packed.omittedCount > 0);
@@ -134,7 +134,8 @@ describe("packEvidenceCards — budget and honesty", () => {
   });
 
   test("reports sources that returned nothing or failed", () => {
-    const packed = packEvidenceCards([], {
+    const packed = packEvidenceCards({
+      evidence: [],
       sources: [
         { sourceId: "gmail", status: "empty", evidenceCount: 0 },
         { sourceId: "docs", status: "error", evidenceCount: 0, reason: "token expired" },
@@ -148,7 +149,7 @@ describe("packEvidenceCards — budget and honesty", () => {
   });
 
   test("states plainly when no evidence matched", () => {
-    const packed = packEvidenceCards([]);
+    const packed = packEvidenceCards({ evidence: [], sources: [] });
 
     assert.match(packed.text, /No evidence matched the query\./);
     assert.equal(packed.omittedCount, 0);
@@ -163,7 +164,7 @@ describe("packEvidenceCards — budget and honesty", () => {
       snippet: "y".repeat(200),
     };
 
-    const packed = packEvidenceCards([card], { maxChars: 1 });
+    const packed = packEvidenceCards({ evidence: [card], sources: [] }, { maxChars: 1 });
 
     assert.ok(packed.text.length <= 500);
   });

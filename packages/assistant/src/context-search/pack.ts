@@ -1,11 +1,12 @@
 import {
   EVIDENCE_SNIPPET_MAX_CHARS,
+  sanitizeErrorMessage,
   type EvidenceAnchor,
   type EvidenceCard,
   type EvidenceCitation,
   type EvidenceObjectRef,
 } from "@alfred/contracts";
-import type { ContextSourceReport } from "./search";
+import type { ContextSearchResult, ContextSourceReport } from "./search";
 
 /**
  * The packer (#423; ADR-0101).
@@ -22,10 +23,18 @@ import type { ContextSourceReport } from "./search";
  * - **Cited.** Every card renders its source and any citations, anchors, and
  *   expansion handle it carries. A card with no citation still names its source
  *   in its header.
- * - **Honest.** A source that returned nothing or failed is reported by id;
- *   freshness is rendered per card and reads `unknown` when the source did not
- *   declare it, never inferred from a missing timestamp. A card's own `note`
- *   (degraded extraction, missing state) is preserved.
+ * - **Honest.** The packer takes the whole read result, reports, not a bare
+ *   card list, so failed and empty sources are structurally impossible to
+ *   forget. A source that returned nothing or failed is reported by id; cards
+ *   the read's own `limit` dropped are counted; freshness is rendered per card
+ *   and reads `unknown` when the source did not declare it, never inferred from
+ *   a missing timestamp. A card's own `note` (degraded extraction, missing
+ *   state) is preserved. `truncated` is true whenever any card, note, or source
+ *   line was left out of `text`, including a render-cap cut.
+ * - **Safe.** Every string that reaches the model goes through
+ *   `sanitizeErrorMessage`, the repo's surrogate-safe bounded truncator, so a
+ *   lone surrogate or NUL byte can never ride a snippet, a note, or a provider
+ *   reason into the prompt.
  *
  * It holds no adapters, calls no provider, and touches no database: pure
  * rendering over the contract, which is what makes it testable and keeps the
@@ -51,11 +60,6 @@ const EVIDENCE_PACK_REASON_MAX_CHARS = 160;
 const EVIDENCE_PACK_NOTE_MAX_CHARS = 500;
 
 export interface PackEvidenceOptions {
-  /**
-   * The per-source reports from the read. Absence or a report is reported as a
-   * missing note; a caller that omits reports packs only the cards.
-   */
-  readonly sources?: readonly ContextSourceReport[] | undefined;
   /** Hard character budget for the returned text. Clamped to the pack bounds. */
   readonly maxChars?: number | undefined;
 }
@@ -65,98 +69,158 @@ export interface PackedEvidence {
   readonly text: string;
   /** Ids of the cards that made it into `text`, in order. */
   readonly includedIds: readonly string[];
-  /** Cards dropped because the budget bound. */
+  /** Cards dropped by the budget or by the read's own `limit`. */
   readonly omittedCount: number;
   /** True when any card or note text was left out of `text`. */
   readonly truncated: boolean;
 }
 
 /**
- * Render cards as bounded, cited, honest model context.
+ * Render a read result as bounded, cited, honest model context.
  *
  * The notes section (failed/empty sources) is sized before the card loop, so
  * honesty never pushes the result past the budget: the loop reserves room for
  * the notes and stops early rather than letting them overflow. The final
- * `slice` is a backstop for a notes-only result, where no card is left to drop.
+ * `sanitizeErrorMessage` is a backstop for a notes-only result, where no card
+ * is left to drop.
  */
 export function packEvidenceCards(
-  cards: readonly EvidenceCard[],
+  result: Pick<ContextSearchResult, "evidence" | "sources">,
   options: PackEvidenceOptions = {},
 ): PackedEvidence {
   const maxChars = clampBudget(options.maxChars);
-  const notes = renderSourceNotes(options.sources ?? []);
+  const cards = result.evidence;
+  const notes = renderSourceNotes(result.sources);
   const separator = "\n\n";
-  const noteLength = notes.length > 0 ? notes.length + separator.length : 0;
+  const noteLength = notes.text.length > 0 ? notes.text.length + separator.length : 0;
 
   const blocks: string[] = [];
   let used = 0;
+  let cardTruncated = false;
 
   for (const [index, card] of cards.entries()) {
     const block = renderCard(card, index + 1);
-    const added = (blocks.length > 0 ? separator.length : 0) + block.length;
+    const added = (blocks.length > 0 ? separator.length : 0) + block.text.length;
 
     if (used + added + noteLength > maxChars) break;
 
-    blocks.push(block);
+    blocks.push(block.text);
     used += added;
+
+    if (block.truncated) cardTruncated = true;
   }
 
   const sections = [...blocks];
 
-  if (notes.length > 0) sections.push(notes);
+  if (notes.text.length > 0) sections.push(notes.text);
 
   const joined = sections.length > 0 ? sections.join(separator) : "No evidence matched the query.";
-  const text = joined.length > maxChars ? joined.slice(0, maxChars) : joined;
-  const omittedCount = cards.length - blocks.length;
+  const text = sanitizeErrorMessage(joined, maxChars);
+  const budgetOmitted = cards.length - blocks.length;
+  const reported = totalReportedEvidence(result.sources);
+  const limitOmitted = reported > cards.length ? reported - cards.length : 0;
 
   return {
     text,
     includedIds: cards.slice(0, blocks.length).map((card) => card.id),
-    omittedCount,
-    truncated: omittedCount > 0 || text.length < joined.length,
+    omittedCount: budgetOmitted + limitOmitted,
+    truncated:
+      budgetOmitted > 0 ||
+      limitOmitted > 0 ||
+      notes.hidden > 0 ||
+      cardTruncated ||
+      text.length < joined.length,
   };
 }
 
+/**
+ * The source's own pre-limit count. `evidenceCount` is what the source returned,
+ * not what survived `request.limit`, so the difference names the cards the read
+ * dropped before the packer ever saw them.
+ */
+function totalReportedEvidence(sources: readonly ContextSourceReport[]): number {
+  return sources.reduce((total, source) => total + source.evidenceCount, 0);
+}
+
 function clampBudget(requested: number | undefined): number {
-  if (requested === undefined) return EVIDENCE_PACK_DEFAULT_MAX_CHARS;
+  if (requested === undefined || !Number.isFinite(requested)) {
+    return EVIDENCE_PACK_DEFAULT_MAX_CHARS;
+  }
+
   const integer = Math.trunc(requested);
 
   return Math.min(Math.max(integer, EVIDENCE_PACK_MIN_MAX_CHARS), EVIDENCE_PACK_MAX_MAX_CHARS);
 }
 
+interface RenderedNotes {
+  readonly text: string;
+  readonly hidden: number;
+}
+
 /**
  * One line per source that could not contribute. `empty` and `error` are
  * distinct facts and render differently; a silently dropped source is the one
- * failure mode this exists to prevent.
+ * failure mode this exists to prevent. The status switch is exhaustive on
+ * purpose: a new status member becomes a compile error here rather than
+ * quietly rendering as an error.
  */
-function renderSourceNotes(sources: readonly ContextSourceReport[]): string {
-  const skipped = sources.filter((source) => source.status !== "ok");
-  const shown = skipped.slice(0, EVIDENCE_PACK_MAX_SOURCE_NOTES);
-  const hidden = skipped.length - shown.length;
-  const lines = shown.map((source) => {
-    if (source.status === "empty") return `${source.sourceId}: no evidence found`;
-    const reason = source.reason
-      ? ` (${truncate(source.reason, EVIDENCE_PACK_REASON_MAX_CHARS)})`
-      : "";
+function renderSourceNotes(sources: readonly ContextSourceReport[]): RenderedNotes {
+  const lines: string[] = [];
 
-    return `${source.sourceId}: unavailable${reason}`;
-  });
+  for (const source of sources) {
+    switch (source.status) {
+      case "ok":
+        continue;
+      case "empty":
+        lines.push(`${source.sourceId}: no evidence found`);
+        break;
+      case "error": {
+        const reason = source.reason
+          ? ` (${sanitizeErrorMessage(source.reason, EVIDENCE_PACK_REASON_MAX_CHARS)})`
+          : "";
 
-  if (hidden > 0) lines.push(`+ ${hidden} more source(s) reported no usable evidence`);
+        lines.push(`${source.sourceId}: unavailable${reason}`);
+        break;
+      }
+    }
+  }
 
-  return lines.length > 0 ? `Source notes:\n${lines.join("\n")}` : "";
+  const shown = lines.slice(0, EVIDENCE_PACK_MAX_SOURCE_NOTES);
+  const hidden = lines.length - shown.length;
+
+  if (hidden > 0) shown.push(`+ ${hidden} more source(s) reported no usable evidence`);
+
+  return { text: shown.length > 0 ? `Source notes:\n${shown.join("\n")}` : "", hidden };
 }
 
-function renderCard(card: EvidenceCard, position: number): string {
+interface RenderedCard {
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+function renderCard(card: EvidenceCard, position: number): RenderedCard {
+  let truncated = false;
+
+  const bound = (value: string, maxChars: number): string => {
+    const clean = sanitizeErrorMessage(value);
+
+    if (clean.length <= maxChars) return clean;
+
+    truncated = true;
+
+    return sanitizeErrorMessage(clean, maxChars);
+  };
+
   // An unnamed source (a bare MCP server) cites its stable id once, never twice.
   const source = card.source.displayName
     ? `${card.source.displayName} [${card.source.id}]`
     : card.source.id;
+
   const domain = card.source.domain ? ` — ${card.source.domain}` : "";
   const lines = [`[${position}] ${source} (${card.source.kind}, ${card.mediaKind})${domain}`];
 
   if (card.snippet !== undefined) {
-    lines.push(`Content: ${truncate(card.snippet, EVIDENCE_SNIPPET_MAX_CHARS)}`);
+    lines.push(`Content: ${bound(card.snippet, EVIDENCE_SNIPPET_MAX_CHARS)}`);
   }
 
   if (card.object !== undefined) lines.push(`Object: ${renderObject(card.object)}`);
@@ -192,10 +256,10 @@ function renderCard(card: EvidenceCard, position: number): string {
   }
 
   if (card.note !== undefined) {
-    lines.push(`Note: ${truncate(card.note, EVIDENCE_PACK_NOTE_MAX_CHARS)}`);
+    lines.push(`Note: ${bound(card.note, EVIDENCE_PACK_NOTE_MAX_CHARS)}`);
   }
 
-  return lines.join("\n");
+  return { text: lines.join("\n"), truncated };
 }
 
 function renderObject(object: EvidenceObjectRef): string {
@@ -216,8 +280,11 @@ function renderTime(card: EvidenceCard): string {
   const parts: string[] = [];
 
   if (card.time?.occurredAt !== undefined) parts.push(`occurred ${card.time.occurredAt}`);
+
   if (card.time?.observedAt !== undefined) parts.push(`observed ${card.time.observedAt}`);
+
   if (card.time?.indexedAt !== undefined) parts.push(`indexed ${card.time.indexedAt}`);
+
   parts.push(`freshness ${card.time?.freshness ?? "unknown"}`);
 
   return parts.join("; ");
@@ -234,6 +301,7 @@ function renderAnchor(anchor: EvidenceAnchor): string {
   const parts: string[] = [anchor.kind];
 
   if (anchor.page !== undefined) parts.push(`page ${anchor.page}`);
+
   if (anchor.region !== undefined) {
     parts.push(
       `region ${anchor.region.x},${anchor.region.y} ${anchor.region.width}x${anchor.region.height}`,
@@ -241,13 +309,8 @@ function renderAnchor(anchor: EvidenceAnchor): string {
   }
 
   if (anchor.confidence !== undefined) parts.push(`confidence ${anchor.confidence}`);
+
   if (anchor.note !== undefined) parts.push(anchor.note);
 
   return parts.join(" ");
-}
-
-function truncate(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value;
-
-  return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
 }
