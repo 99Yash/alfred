@@ -19,6 +19,37 @@ no front door, high-traffic merges, and contract split from owner. A package
 level schema module is earned by a registry need (that is why sync has one),
 never by convention.
 
+## Colocate the schema with its type, caps, and minting logic
+
+A boundary shape has one home file, and everything that co-changes with it
+lives there:
+
+- The schema, its `z.infer` type, and the caps/constants its bounds enforce
+  stay together in the owning domain file (`contextSearchRequestSchema` with
+  `ContextSearchRequest` and `CONTEXT_SEARCH_DEFAULT_LIMIT` /
+  `CONTEXT_SEARCH_MAX_LIMIT` in `packages/contracts/src/context-search.ts`;
+  the model is `briefing-constants.ts`: `briefingHourSchema` with
+  `BriefingHour` and its 0–23 bounds). Do not split the schema into
+  `schemas.ts`, the type into `types.ts`, and the caps into `constants.ts` —
+  that is the same junk drawer in three files, and a cap change then touches
+  three owners instead of one.
+- The result a verb mints lives with that verb. `searchContext` in
+  `packages/assistant/src/context-search/search.ts` owns `ContextSearchResult`
+  and the `ContextSourceReport` / `ContextSourceStatus` it constructs;
+  `registry.ts` owns the `ContextSource` contract (with the `ContextEvidence`
+  element its `search` returns) because it stores `Map<string,
+  ContextSource>`. A shared `types.ts` holding all six shapes groups by syntax
+  instead of by owner and hides which file may change which shape.
+- A provisional/internal shape stays with its owning module file until a
+  second boundary must agree on it. `ContextEvidence` is module-internal until
+  #423's canonical EvidenceCard lands; it does not move to `@alfred/contracts`
+  early just because it may one day cross. Promotion to contracts happens when
+  the second consumer (tool #426, web client) arrives, not before.
+
+Deletion test: deleting the owner file must delete the shape. If the shape
+survives in `types.ts` / `schemas.ts` / `constants.ts` after its logic is
+gone, it was in the wrong file.
+
 ## Finding schemas
 
 [`pnpm schemas`](../../scripts/schema-catalog.mjs) prints every schema binding
