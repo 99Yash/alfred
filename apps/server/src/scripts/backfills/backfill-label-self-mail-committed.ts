@@ -29,7 +29,7 @@
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/backfills/backfill-label-self-mail-committed.js`.
  *
- * SAFETY: dry by default — lists the candidate count per credential and writes
+ * Dry by default — lists the candidate count per credential and writes
  * NOTHING. `--commit` ensures the label and applies it.
  *
  *   # preview personal mailbox (writes no labels):
@@ -162,9 +162,7 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
       continue;
     }
 
-    // SAFETY: integration_credentials.scopes is a jsonb string array written by
-    // the connect flow.
-    const scopes = (r.scopes as string[] | null) ?? [];
+    const scopes = r.scopes;
 
     if (!hasGmailModifyScope(scopes)) {
       console.log(`! skipping credential=${r.credentialId} (${r.email}) — no gmail.modify scope`);

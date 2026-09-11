@@ -7,7 +7,7 @@
  * dist-list/kind slice only — no significance components, edges, or
  * co-occurrence are written here.
  *
- * SAFETY: dry by default. Dry mode runs the real writer path twice inside
+ * Dry by default. Dry mode runs the real writer path twice inside
  * rollback-only transactions and compares checksums. `--commit` is required to
  * persist the completed projection run. `--activate` is optional and requires
  * `--commit`.

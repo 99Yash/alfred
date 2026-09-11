@@ -36,7 +36,7 @@
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/backfills/backfill-purge-document-facts-committed.js`.
  *
- * SAFETY: dry by default — classifies and prints what it WOULD do, writes
+ * Dry by default — classifies and prints what it WOULD do, writes
  * nothing. `--commit` applies and REQUIRES `--emails=...` explicitly so a prod
  * shell typo cannot mutate the default account. Idempotent (rejected/non-active
  * rows won't re-match; already-canonical keys are no-ops).
@@ -55,7 +55,7 @@ import {
 } from "@alfred/assistant/knowledge/internal";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
-import { canonicalizeFactKey, toMessage } from "@alfred/contracts";
+import { canonicalizeFactKey, getStringPath, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, user as userTable, userFacts } from "@alfred/db/schemas";
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
@@ -95,9 +95,7 @@ type ActiveFactRow = {
 
 /** Lower wins. User edits beat cold-start beat agent beat autonomous extraction. */
 function sourcePriority(source: unknown): number {
-  // SAFETY: documents.source is the jsonb { kind, id } envelope written at
-  // ingest; every read below tolerates absence.
-  const kind = (source as { kind?: string } | null)?.kind;
+  const kind = getStringPath(source, "kind");
 
   switch (kind) {
     case "user":
@@ -186,11 +184,9 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
   // documents.id == the document fact's source.id.
   const docIds = Array.from(
     new Set(
-      // SAFETY: rows' source column is the jsonb { kind, id } envelope read by
-      // sourcePriority above; both reads below tolerate absence.
       rows
-        .filter((r) => (r.source as { kind?: string } | null)?.kind === "document")
-        .map((r) => (r.source as { id?: string } | null)?.id)
+        .filter((r) => getStringPath(r.source, "kind") === "document")
+        .map((r) => getStringPath(r.source, "id"))
         .filter((id): id is string => typeof id === "string" && id.length > 0),
     ),
   );
@@ -214,16 +210,14 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
   const surviving: ActiveFactRow[] = [];
 
   for (const r of rows) {
-    // SAFETY: same source envelope as sourcePriority above.
-    const kind = (r.source as { kind?: string } | null)?.kind;
+    const kind = getStringPath(r.source, "kind");
 
     if (kind !== "document") {
       surviving.push(r);
       continue;
     }
 
-    // SAFETY: same source envelope as above.
-    const sourceId = (r.source as { id?: string } | null)?.id;
+    const sourceId = getStringPath(r.source, "id");
     const doc = sourceId ? docById.get(sourceId) : undefined;
 
     // A missing source document can't attribute a Tier-B identity claim — feed

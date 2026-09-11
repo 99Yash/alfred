@@ -87,7 +87,10 @@ type PromptMessage = LanguageModelV4CallOptions["prompt"][number];
 
 type MessagePart = Extract<PromptMessage["content"], readonly unknown[]>[number];
 
-function encodeMessagePart(part: MessagePart, encode: (s: string) => string): MessagePart {
+function encodeMessagePart<Part extends MessagePart>(
+  part: Part,
+  encode: (s: string) => string,
+): Part {
   if ((part.type === "tool-call" || part.type === "tool-result") && "toolName" in part) {
     return { ...part, toolName: encode(part.toolName) };
   }
@@ -95,14 +98,18 @@ function encodeMessagePart(part: MessagePart, encode: (s: string) => string): Me
   return part;
 }
 
-function encodePromptMessage(message: PromptMessage, encode: (s: string) => string): PromptMessage {
-  if (!Array.isArray(message.content)) return message;
+function encodePromptMessage<Message extends PromptMessage>(
+  message: Message,
+  encode: (s: string) => string,
+): Message {
+  const content = message.content;
 
-  // SAFETY: encodeMessagePart preserves the PromptMessage content-part union; mapping keeps PromptMessage.
+  if (!Array.isArray(content)) return message;
+
   return {
     ...message,
-    content: message.content.map((part) => encodeMessagePart(part, encode)),
-  } as PromptMessage;
+    content: content.map((part) => encodeMessagePart(part, encode)),
+  };
 }
 
 function encodeParams(

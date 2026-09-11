@@ -19,10 +19,6 @@ const turnEnvelopeSchema = z
 
 type PromptMessage = LanguageModelV4CallOptions["prompt"][number];
 
-type ToolDefinition = NonNullable<LanguageModelV4CallOptions["tools"]>[number];
-
-type FunctionToolDefinition = Extract<ToolDefinition, { type: "function" }>;
-
 export function attachProviderTurnPolicy(
   providerOptions: SharedV4ProviderOptions | undefined,
   cacheTtl: CacheTtl | undefined,
@@ -30,7 +26,7 @@ export function attachProviderTurnPolicy(
   return {
     ...providerOptions,
     [INTERNAL_PROVIDER_NAMESPACE]: { cacheTtl: cacheTtl ?? null },
-  } as SharedV4ProviderOptions;
+  };
 }
 
 interface TurnEnvelopeConsume {
@@ -41,15 +37,13 @@ interface TurnEnvelopeConsume {
 function consumeTurnEnvelope(
   providerOptions: LanguageModelV4CallOptions["providerOptions"],
 ): TurnEnvelopeConsume {
-  // SAFETY: providerOptions is SharedV4ProviderOptions (record of JSONObject); toRecord validates the boundary.
-  const existing = toRecord(providerOptions);
+  const existing = providerOptions ?? {};
   const { [INTERNAL_PROVIDER_NAMESPACE]: envelope, ...rest } = existing;
   const parsed = turnEnvelopeSchema.safeParse(envelope);
 
   return {
     cacheTtl: parsed.success ? (parsed.data.cacheTtl ?? undefined) : undefined,
-    // SAFETY: rest is the caller's providerOptions minus our internal namespace; same Record<string, JSONObject> shape.
-    providerOptions: Object.keys(rest).length > 0 ? (rest as SharedV4ProviderOptions) : undefined,
+    providerOptions: Object.keys(rest).length > 0 ? rest : undefined,
   };
 }
 
@@ -57,8 +51,7 @@ function withAnthropicCacheControl<
   T extends { readonly providerOptions?: LanguageModelV4CallOptions["providerOptions"] },
 >(value: T, ttl: CacheTtl): T {
   const existing = value.providerOptions ?? {};
-  // SAFETY: existing is SharedV4ProviderOptions; getPath reads the nested anthropic bag off the validated record.
-  const anthropic = toRecord(getPath(existing as unknown, "anthropic"));
+  const anthropic = toRecord(getPath(existing, "anthropic"));
 
   return {
     ...value,
@@ -128,11 +121,10 @@ function decorateAnthropicTools(
   }
 
   if (lastFunctionIndex === -1) return out;
-  out[lastFunctionIndex] = withAnthropicCacheControl(
-    // SAFETY: lastFunctionIndex was set only where entry.type === "function", matching FunctionToolDefinition discriminant.
-    out[lastFunctionIndex] as FunctionToolDefinition,
-    ttl,
-  );
+  const entry = out[lastFunctionIndex];
+
+  if (entry?.type !== "function") return out;
+  out[lastFunctionIndex] = withAnthropicCacheControl(entry, ttl);
 
   return out;
 }
@@ -146,11 +138,10 @@ function cleanProviderRequest(params: LanguageModelV4CallOptions): CleanProvider
   const { cacheTtl, providerOptions } = consumeTurnEnvelope(params.providerOptions);
   const { providerOptions: _internalOptions, ...rest } = params;
 
-  // SAFETY: rest preserves all LanguageModelV4CallOptions fields minus providerOptions which we replace.
-  const clean = {
+  const clean: LanguageModelV4CallOptions = {
     ...rest,
     ...(providerOptions ? { providerOptions } : {}),
-  } as LanguageModelV4CallOptions;
+  };
 
   return { clean, cacheTtl };
 }

@@ -11,7 +11,7 @@
  * `node dist/scripts/backfills/backfill-team-graph-committed.js` — the prod image has no
  * `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default — aggregates + ranks but writes nothing. Pass
+ * Dry by default — aggregates + ranks but writes nothing. Pass
  * `--commit` to write entities/relations/scores.
  *
  *   # preview (writes nothing):

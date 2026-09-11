@@ -19,7 +19,7 @@
  * Bundled by tsdown (`noExternal: @alfred/*`, registered in `tsdown.config.ts`)
  * so it runs on prod with plain `node dist/...`.
  *
- * SAFETY: dry by default — classifies and prints what it WOULD do, writes nothing.
+ * Dry by default — classifies and prints what it WOULD do, writes nothing.
  * `--commit` applies and REQUIRES `--emails=...` explicitly so a prod shell typo
  * cannot mutate the default account. A DRY run with no `--emails` surveys ALL
  * users (read-only) so the operator can see the full picture first. Idempotent:
