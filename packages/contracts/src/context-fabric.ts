@@ -1,3 +1,14 @@
+/**
+ * Context Fabric read envelope (epic #422; ADR-0101).
+ *
+ * The Context Fabric boundary takes one bounded query/task envelope. The
+ * envelope lives here, in the browser-safe contracts package, because it is a
+ * cross-boundary shape, not an implementation detail of the
+ * `@alfred/assistant/context-fabric` module: the model-facing
+ * `system.search_context` tool (#426) derives its bounded input from this same
+ * schema and cap, and nothing else may grow a second envelope.
+ */
+
 import { z } from "zod";
 
 /** Default evidence budget when a request omits `limit`. */
@@ -10,11 +21,9 @@ export const CONTEXT_SEARCH_DEFAULT_LIMIT = 10;
 export const CONTEXT_SEARCH_MAX_LIMIT = 50;
 
 /**
- * The Context Fabric read request (#422): a query/task envelope, not a tool
- * schema. Every field is bounded here so `searchContext` rejects a malformed
- * request before any source runs, and so the eventual model-facing
- * `system.search_context` tool (#426) derives its own bounded input from the
- * same shape.
+ * The Context Fabric read request: a query/task envelope, not a tool schema.
+ * Every field is bounded here so `searchContext` rejects a malformed request
+ * before any source runs.
  */
 export const contextSearchRequestSchema = z.object({
   /** The user whose corpus is searched. */

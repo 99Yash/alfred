@@ -1,6 +1,6 @@
 /**
  * `context-fabric` — the canonical read boundary for cross-integration
- * evidence (#422).
+ * evidence (#422; ADR-0101).
  *
  * One verb, `searchContext`, takes a bounded query/task envelope and returns a
  * bounded, source-attributed evidence list. It is read-only by construction:
@@ -12,26 +12,28 @@
  * ## Where it sits
  *
  * The fabric is an aggregation seam over primitives that already exist, not a
- * replacement for any of them:
+ * replacement for any of them. The epic's acceptance criteria name some of the
+ * substrate by an older name; the mapping is explicit here so a reader can find
+ * the code:
  *
- * - **`search`** (`@alfred/corpus`) is the ingested document/chunk vector
+ * - **`semanticSearch`** — today the `search` verb in `@alfred/corpus`
+ *   (`packages/corpus/src/search.ts`). It is the ingested document/chunk vector
  *   search. A document adapter (#424) wraps it and emits evidence cards; the
  *   fabric does not re-implement pgvector retrieval.
- * - **`recallMemory`** and **`readUserContext`** (`@alfred/assistant/knowledge`)
- *   are the memory-recall and durable-user-context reads. A memory adapter
- *   (#424) wraps the former; `readUserContext` stays pull-on-demand for the
- *   boss and is not re-routed through here.
- * - **`userModelReader`** (`@alfred/assistant/knowledge`, ADR-0067) is the
- *   active user-model projection. The fabric consumes it only as an optional
- *   ranking / entity-resolution signal (#427, #431) and must degrade when no
- *   projection is active; it never writes observations and never mints a
- *   parallel identity graph.
- * - **`objectStateStore`**
- *   (`packages/assistant/src/connections/object-state/store.ts`) is
- *   the deterministic work-object state. An object-state adapter (#425)
- *   surfaces its rows as `object` evidence with provider/kind/native-state
- *   metadata, and missing state degrades honestly instead of inferring
- *   closure from absence.
+ * - **`read_user_context`** — the `system.read_user_context` tool, backed by
+ *   `readUserContext` and `recallMemory` in `@alfred/assistant/knowledge`. A
+ *   memory adapter (#424) wraps `recallMemory`; `readUserContext` stays
+ *   pull-on-demand for the boss and is not re-routed through here.
+ * - **The active user-model projection** — `userModelReader`
+ *   (`@alfred/assistant/knowledge`, ADR-0067). The fabric consumes it only as
+ *   an optional ranking / entity-resolution signal (#427, #431) and must
+ *   degrade when no projection is active; it never writes observations and
+ *   never mints a parallel identity graph.
+ * - **Object-state** — `objectStateStore`
+ *   (`packages/assistant/src/connections/object-state/store.ts`), the
+ *   deterministic work-object state. An object-state adapter (#425) surfaces
+ *   its rows as `object` evidence with provider/kind/native-state metadata, and
+ *   missing state degrades honestly instead of inferring closure from absence.
  * - **Live integration tools** (`packages/assistant/src/tool-runtime`) remain
  *   the provider drill-down and action surface. The fabric's live adapters
  *   (#428) are bounded read-only expansions of thin or stale local hits; they
@@ -43,12 +45,15 @@
  *
  * ## Extensibility
  *
- * Adding a native integration or an MCP-backed source is `registerContextSource`
- * with a `ContextSource`; no chat, briefing, todos, or meeting-prep caller
- * changes, and consumers never branch on a source name. Unknown or minimally
- * described sources are expected to be callable tools without being trusted
- * retrieval sources until the manifest declares their read semantics and
- * authority (#466).
+ * A new native integration or an MCP-backed source is `registerContextSource`
+ * with a `ContextSource`, and consumers never branch on a source name. That is
+ * the seam's design property. It is not yet exercised: no adapter is
+ * registered, no consumer calls `searchContext`, and `listContextSources` is
+ * the only reader of the registry. The "no consumer edit" claim is proven when
+ * #424 and #426 install the first adapter and its caller, not by this slice.
+ * Unknown or minimally described MCP sources are expected to be callable tools
+ * without being trusted retrieval sources until the manifest declares their
+ * read semantics and authority (#466).
  *
  * ## Degradation
  *
@@ -58,23 +63,10 @@
  * closed loop.
  */
 
-export {
-  CONTEXT_SEARCH_DEFAULT_LIMIT,
-  CONTEXT_SEARCH_MAX_LIMIT,
-  contextSearchRequestSchema,
-  type ContextSearchRequest,
-} from "./contracts";
+export type { ContextSearchRequest } from "@alfred/contracts";
 
 export { listContextSources, registerContextSource } from "./registry";
 
 export { searchContext } from "./search";
 
-export type {
-  ContextEvidence,
-  ContextMediaType,
-  ContextSearchResult,
-  ContextSource,
-  ContextSourceReport,
-  ContextSourceResult,
-  ContextSourceStatus,
-} from "./types";
+export type { ContextSource } from "./types";
