@@ -12,6 +12,8 @@
  */
 
 import { z } from "zod";
+import { enumGuard } from "./guards";
+import type { IntegrationSlug } from "./integrations";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
 // ---------------------------------------------------------------------------
@@ -215,8 +217,10 @@ export type McpRecoveryMutationResult = z.infer<typeof mcpRecoveryMutationResult
 // Generic server connection (PRD #1004). The owner supplies the endpoint URL;
 // the server validates and probes it. The label is optional and defaults to the
 // endpoint host when omitted. `outcome` is the closed answer the add route
-// returns: a reachable no-auth server becomes a connection, and a server that
-// answers with an authorization challenge is reported WITHOUT creating rows.
+// returns: a reachable no-auth server is connected on the spot, and a server
+// that answers with an authorization challenge becomes a connection in
+// `auth_required` whose id the answer carries, so the browser can walk it to
+// its consent screen.
 // ---------------------------------------------------------------------------
 export const MCP_ADD_SERVER_MAX_URL_LENGTH = 2_048;
 
@@ -230,6 +234,73 @@ export const mcpAddServerBodySchema = z
   .strict();
 
 export type McpAddServerBody = z.infer<typeof mcpAddServerBodySchema>;
+
+// ---------------------------------------------------------------------------
+// First-class remote MCP servers. The record's keys ARE the provider key space,
+// exactly as `INTEGRATIONS` owns the integration slug space (ADR-0093): a
+// built-in provider is spelled once, here.
+//
+// This half is browser-safe and presentational — the name a tile shows, the
+// brand artwork it borrows, and the one line that says what connecting buys.
+// The server half (endpoint, issuer, scope baseline, protocol pins) is
+// `BUILT_IN_REGISTRY` in `@alfred/assistant`, which is keyed by this union. An
+// entry here with no definition there is a compile error, and so is the
+// reverse, so neither half can ship a provider the other does not know.
+// ---------------------------------------------------------------------------
+export interface McpBuiltInEntry {
+  /** The registry slug whose brand artwork the tile borrows. */
+  readonly slug: IntegrationSlug;
+  /**
+   * The tile title. It is not the slug's display name: this names the SERVER,
+   * and one product can serve more than one (a read-only path and a read-write
+   * one are two resources).
+   */
+  readonly label: string;
+  /** What connecting this server buys, in one line. */
+  readonly blurb: string;
+}
+
+export const MCP_BUILT_IN_CATALOG = {
+  github: {
+    slug: "github",
+    label: "GitHub MCP",
+    blurb: "Read pull requests, issues, and code.",
+  },
+  linear: {
+    slug: "linear",
+    label: "Linear MCP",
+    blurb: "Work with Linear issues, projects, and cycles.",
+  },
+  notion: {
+    slug: "notion",
+    label: "Notion MCP",
+    blurb: "Work with Notion pages and databases.",
+  },
+  sentry: {
+    slug: "sentry",
+    label: "Sentry MCP",
+    blurb: "Investigate Sentry issues and error events.",
+  },
+} as const satisfies Record<string, McpBuiltInEntry>;
+
+/** The provider key space: the catalog's keys. Nothing else names a built-in. */
+export type McpBuiltInProvider = keyof typeof MCP_BUILT_IN_CATALOG;
+
+/**
+ * The providers in record order. `Object.keys` keeps insertion order for string
+ * keys, so this is the order the catalog is written in, and the order the
+ * integrations page renders.
+ */
+export const MCP_BUILT_IN_PROVIDERS: readonly McpBuiltInProvider[] =
+  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
+  // non-indexed literal are exactly `keyof typeof MCP_BUILT_IN_CATALOG`.
+  Object.keys(MCP_BUILT_IN_CATALOG) as McpBuiltInProvider[];
+
+/**
+ * Narrow a path segment to a built-in provider. The connect route takes the
+ * provider from the URL, so the value is untrusted until this says otherwise.
+ */
+export const isMcpBuiltInProvider = enumGuard(MCP_BUILT_IN_PROVIDERS);
 
 // ---------------------------------------------------------------------------
 // Content-block kinds (#541). The CLOSED set the MCP `ContentBlock` union

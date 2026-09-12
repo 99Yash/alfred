@@ -6,24 +6,11 @@ import { responseErrorMessage } from "~/lib/api-error";
 import { client, type EdenData } from "~/lib/eden";
 import { MCP_CONNECTIONS_QUERY_KEY } from "./helpers";
 import { McpTile } from "./mcp-tile";
-import { mcpConnectionStatusText } from "./mcp-server-status";
+import { mcpConnectionSubtitle } from "./mcp-server-status";
 
 type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
 
 export type McpConnection = McpConnectionsResponse["connections"][number];
-
-/**
- * Status text plus the published tool count once a revision exists. The count
- * is the one fact a fresh no-auth connection can report without a call, so it
- * is folded into the same line rather than a second field.
- */
-function connectionSubtitle(connection: McpConnection): string {
-  const status = mcpConnectionStatusText(connection);
-
-  if (connection.status !== "ready" || connection.toolCount === null) return status;
-
-  return `${status} · ${connection.toolCount} ${connection.toolCount === 1 ? "tool" : "tools"}`;
-}
 
 /**
  * One user-added MCP server: health, tool count, and the two lifecycle actions.
@@ -89,7 +76,7 @@ export function McpConnectionCard({ connection }: { connection: McpConnection })
 
   return (
     <McpTile
-      icon={<Plug size={18} />}
+      icon={{ glyph: <Plug size={18} /> }}
       label={connection.label}
       subtitle={
         actionError ? (
@@ -97,7 +84,7 @@ export function McpConnectionCard({ connection }: { connection: McpConnection })
             {toMessage(actionError)}
           </span>
         ) : (
-          connectionSubtitle(connection)
+          mcpConnectionSubtitle(connection)
         )
       }
     >

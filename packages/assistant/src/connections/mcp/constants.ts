@@ -28,3 +28,32 @@ export const GITHUB_MCP_ISSUER = "https://github.com/" as const;
  * UNDER an unchanged resource.
  */
 export const GITHUB_MCP_ENDPOINT_HREF = "https://api.githubcopilot.com/mcp/readonly" as const;
+
+/**
+ * Linear's remote MCP server and the authorization server that protects it.
+ *
+ * Measured on 2026-09-12. An unauthenticated `initialize` answers `401` with
+ * `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"`.
+ * That document names `https://mcp.linear.app` as the authorization server, and
+ * that server publishes a `registration_endpoint`, so Alfred registers its own
+ * client (RFC 7591) and needs no pre-registered credential in the environment.
+ * `scopes_supported` is `read`, `write`, `openid`, `email`.
+ */
+export const LINEAR_MCP_ENDPOINT_HREF = "https://mcp.linear.app/mcp" as const;
+
+/**
+ * Notion's remote MCP server. Measured on 2026-09-12, same shape as Linear:
+ * `401` with resource metadata, an authorization server at
+ * `https://mcp.notion.com` that publishes a `registration_endpoint`, and a
+ * single supported scope, `default`. The resource names itself
+ * `Notion MCP (Beta)`.
+ */
+export const NOTION_MCP_ENDPOINT_HREF = "https://mcp.notion.com/mcp" as const;
+
+/**
+ * Sentry's remote MCP server. Measured on 2026-09-12: `401` with resource
+ * metadata, an authorization server at `https://mcp.sentry.dev` with a
+ * `registration_endpoint`, and four supported scopes — `org:read`,
+ * `project:write`, `team:write`, `event:write`.
+ */
+export const SENTRY_MCP_ENDPOINT_HREF = "https://mcp.sentry.dev/mcp" as const;
