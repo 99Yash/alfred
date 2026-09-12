@@ -1,7 +1,7 @@
 import type { EvidenceSourceRef } from "@alfred/contracts";
 
 /**
- * The shared shape of a vector-backed context source (#424; epic #422).
+ * The shared helpers of a vector-backed context source (#424; epic #422).
  *
  * Both built-in adapters wrap a retrieval primitive that returns hits carrying
  * a stable chunk id and a cosine similarity, then map each hit to a card. The
@@ -11,20 +11,17 @@ import type { EvidenceSourceRef } from "@alfred/contracts";
  * these helpers only keep one source's own output deterministic.
  */
 
-/** The fields every retrieval primitive hit exposes to the card mapper. */
-export interface VectorHit {
-  /** Stable id of the retrieved chunk; the card id is derived from it. */
-  readonly chunkId: string;
-  /** Cosine similarity in [-1, 1], higher = more similar. */
-  readonly similarity: number;
-}
-
 /**
  * Deterministic source-local order: highest similarity first, chunk id as the
- * tie-break so an equal-score pair never flips between reads. #427 replaces
- * this with the cross-source ranker.
+ * tie-break so an equal-score pair never flips between reads. The constraint is
+ * the minimal intersection both retrieval primitives already satisfy — a
+ * structural bound, not a shape either of them parses into. #427 replaces this
+ * with the cross-source ranker.
  */
-export function compareByScoreThenId<THit extends VectorHit>(a: THit, b: THit): number {
+export function compareByScoreThenId<THit extends { chunkId: string; similarity: number }>(
+  a: THit,
+  b: THit,
+): number {
   return b.similarity - a.similarity || a.chunkId.localeCompare(b.chunkId);
 }
 
