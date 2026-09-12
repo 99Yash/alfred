@@ -108,6 +108,13 @@ const FIXTURES = {
     },
     arrayFields: ["include"],
   },
+  "system.search_context": {
+    base: {
+      query: "contract clause about termination",
+      objects: [{ by: "identity", provider: "github", kind: "pull_request", externalId: "123" }],
+    },
+    arrayFields: ["objects"],
+  },
   "system.spawn_sub_agent": {
     base: {
       subId: "research",

@@ -14,13 +14,33 @@ import { z } from "zod";
  *
  * Pure module — no Node imports (consumed across the web boundary).
  */
+
+/**
+ * The provider integration slug shared by the object identity below and the
+ * context-search key reference. Declared once so its bounds and description
+ * cannot drift between the two consumers.
+ */
+export const objectProviderSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .describe("Integration slug that owns the object, for example `github`.");
+
 export const objectIdentitySchema = z.object({
   /** Integration slug — `github`, later `clickup`, `claude-code`. */
-  provider: z.string().min(1).max(100),
+  provider: objectProviderSchema,
   /** Object kind within the provider — `pull_request`, `task`. */
-  kind: z.string().min(1).max(100),
+  kind: z
+    .string()
+    .min(1)
+    .max(100)
+    .describe("Provider-declared object kind, for example `pull_request`."),
   /** Provider-native stable id, as a string. */
-  externalId: z.string().min(1).max(512),
+  externalId: z
+    .string()
+    .min(1)
+    .max(512)
+    .describe("Provider-native stable id of the object, as a string."),
 });
 
 export type ObjectIdentity = z.infer<typeof objectIdentitySchema>;

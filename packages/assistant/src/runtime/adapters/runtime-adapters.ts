@@ -23,6 +23,10 @@ import {
 import { registerSystemToolAgent, unregisterSystemToolAgent } from "./system-tool-agent";
 import { registerSystemToolChat, unregisterSystemToolChat } from "./system-tool-chat";
 import {
+  registerSystemToolContextSearch,
+  unregisterSystemToolContextSearch,
+} from "./system-tool-context-search";
+import {
   registerSystemToolWorkflows,
   unregisterSystemToolWorkflows,
 } from "./system-tool-workflows";
@@ -97,6 +101,14 @@ export const RUNTIME_ADAPTERS = [
     retainIfAgentWorkerActive: true,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 9,
+  },
+  {
+    name: "system-tool-context-search",
+    register: registerSystemToolContextSearch,
+    unregister: unregisterSystemToolContextSearch,
+    retainIfAgentWorkerActive: true,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 13,
   },
   {
     name: "chat-attachment-enrichment",

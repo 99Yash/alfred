@@ -391,6 +391,11 @@ export const TOOL_LABELS = {
     done: "Searched your documents",
     title: "search your ingested documents",
   },
+  "system.search_context": {
+    running: "Gathering context",
+    done: "Gathered context",
+    title: "search across your context",
+  },
   "system.create_artifact": {
     running: "Creating an artifact",
     done: "Created an artifact",
@@ -709,6 +714,7 @@ export const TOOL_CATEGORIES = {
   "system.web_search": "source",
   "system.fetch_url": "source",
   "system.corpus_search": "source",
+  "system.search_context": "source",
   "system.create_artifact": "action",
   "system.append_artifact_page": "action",
   "system.append_artifact_section": "action",
