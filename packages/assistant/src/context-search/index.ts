@@ -55,29 +55,40 @@
  *   switch over today's integrations. Until it lands, adapters register by id
  *   through `registerContextSource`.
  *
+ * ## The built-in sources (#424)
+ *
+ * This slice installs the first adapters: `documents` over the corpus vector
+ * search and `memory` over `recallMemory`. Both are private to the module and
+ * are installed together by `registerDefaultContextSources`, which the server
+ * composition root calls at boot. They return canonical cards carrying a
+ * source, a citation, a source-native `score`, and a later-expandable handle;
+ * they never change an existing direct caller of `search` or `recallMemory`.
+ * The adapters are process-registered, not per-request: `searchContext` reads
+ * the registry, so no consumer names a source.
+ *
  * ## Extensibility
  *
  * A new native integration or an MCP-backed source is `registerContextSource`
  * with a `ContextSource`, and consumers never branch on a source name. That is
- * the seam's design property. It is not yet exercised: no adapter is
- * registered, no consumer calls `searchContext`, and `listContextSources` is
- * the only reader of the registry. The "no consumer edit" claim is proven when
- * #424 and #426 install the first adapter and its caller, not by this slice.
- * Unknown or minimally described MCP sources are expected to be callable tools
- * without being trusted retrieval sources until the manifest declares their
- * read semantics and authority (#466).
+ * the seam's design property, now exercised by two adapters. It is not yet
+ * exercised end to end: no consumer calls `searchContext` until the
+ * model-facing tool lands (#426). Unknown or minimally described MCP sources
+ * are expected to be callable tools without being trusted retrieval sources
+ * until the manifest declares their read semantics and authority (#466).
  *
  * ## Degradation
  *
- * With no source registered — the state at this slice — `searchContext`
- * returns an empty result. A source that throws, or that returns a card
- * violating the `EvidenceCard` contract, becomes one `error` report and never
- * fails the whole search. Absence is reported, never inferred as a closed loop.
+ * With no source registered, `searchContext` returns an empty result. A source
+ * that throws, or that returns a card violating the `EvidenceCard` contract,
+ * becomes one `error` report and never fails the whole search. Absence is
+ * reported, never inferred as a closed loop.
  */
 
 export type { ContextSearchRequest } from "@alfred/contracts";
 
 export { listContextSources, registerContextSource } from "./registry";
+
+export { registerDefaultContextSources } from "./default-sources";
 
 export { searchContext } from "./search";
 
