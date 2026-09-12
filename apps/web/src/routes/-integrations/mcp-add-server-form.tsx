@@ -1,4 +1,3 @@
-import { useForm } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MCP_ADD_SERVER_MAX_LABEL_LENGTH,
@@ -9,7 +8,13 @@ import {
 } from "@alfred/contracts";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { AppButton, AppField, AppInput, omitBlankStringFields } from "~/components/ui/v2";
+import {
+  AppButton,
+  AppFieldError,
+  AppModal,
+  omitBlankStringFields,
+  useAppForm,
+} from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
@@ -46,9 +51,9 @@ const endpointUrlValidator = mcpAddServerBodySchema.shape.endpointUrl;
  * The generic add door (#1004): a URL, an optional label, and the one outcome
  * this slice cannot serve.
  *
- * All three pieces are direct children of the MCP grid. The trigger takes one
- * cell beside the connection cards; the form and the notice take `col-span-full`
- * rows under them.
+ * The trigger takes one cell beside the connection cards. The form itself sits
+ * in a modal, so the grid stays a grid; the modal gathers the draft, the
+ * outcome notice, and the submit action in one place.
  *
  * The inputs also carry the contract's length bounds. Without them a
  * 101-character label reaches Elysia and comes back as a raw
@@ -74,9 +79,15 @@ export function McpAddServerForm() {
 
       return response.data;
     },
+    // The connection list is the one cache this add can stale. Success appends
+    // a row; a failure can still leave one, because the manager's own session
+    // opens AFTER the insert. Refetch on both, so a stranded connection appears
+    // now rather than on the next page load. An `auth_required` answer creates
+    // nothing, so its refetch finds the same list.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY }),
   });
 
-  const form = useForm({
+  const form = useAppForm({
     defaultValues: DEFAULT_FIELDS,
     onSubmit: async ({ value, formApi }) => {
       setNotice(null);
@@ -104,16 +115,21 @@ export function McpAddServerForm() {
 
         formApi.reset();
         setOpen(false);
-        void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
       } catch (error) {
         setNotice({ kind: "error", message: toMessage(error) });
-        // A failed add can still have left a row: the probe commits nothing, but
-        // the manager's own session opens AFTER the insert. Refetch, so a
-        // stranded connection appears now rather than on the next page load.
-        void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
       }
     },
   });
+
+  // Closing the door discards the draft. Without the reset, reopening it shows
+  // a URL the user already walked away from. The modal reports its own
+  // dismissals (Escape, overlay, drag) through `onOpenChange`, so they land
+  // here too.
+  const close = () => {
+    form.reset();
+    setNotice(null);
+    setOpen(false);
+  };
 
   return (
     <>
@@ -122,97 +138,82 @@ export function McpAddServerForm() {
         label={MCP_SECTION.name}
         subtitle={MCP_SECTION.description}
       >
-        <AppButton
-          size="sm"
-          variant="white"
-          onClick={() => {
-            // Closing the door discards the draft. Without the reset, reopening
-            // it shows a URL the user already walked away from.
-            if (open) form.reset();
-            setOpen((current) => !current);
-            setNotice(null);
-          }}
-        >
-          {open ? "Close" : "Add"}
+        <AppButton size="sm" variant="white" onClick={() => setOpen(true)}>
+          Add
         </AppButton>
       </McpTile>
 
-      {open ? (
+      <AppModal
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) close();
+        }}
+        title={MCP_SECTION.name}
+        description={MCP_SECTION.description}
+      >
         <form
-          className="col-span-full flex flex-col gap-2 rounded-2xl bg-app-bg-2 p-3 ring-1 ring-app-bg-3 sm:flex-row sm:items-start"
+          className="flex flex-col gap-4 px-6 pt-2 pb-6"
           onSubmit={(event) => {
             event.preventDefault();
             void form.handleSubmit();
           }}
         >
-          <form.Field
+          <form.AppField
             name="endpointUrl"
             validators={{ onBlur: endpointUrlValidator, onSubmit: endpointUrlValidator }}
           >
-            {(field) => {
-              const error = field.state.meta.isBlurred ? field.state.meta.errors[0] : undefined;
-              const errorId = `${field.name}-error`;
-
-              return (
-                <AppField className="flex-1" error={error?.message} errorId={errorId}>
-                  <AppInput
-                    type="url"
-                    maxLength={MCP_ADD_SERVER_MAX_URL_LENGTH}
-                    placeholder="https://mcp.example.com/mcp"
-                    value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                    onBlur={field.handleBlur}
-                    aria-label="MCP server URL"
-                    aria-invalid={error ? true : undefined}
-                    aria-errormessage={error ? errorId : undefined}
-                  />
-                </AppField>
-              );
-            }}
-          </form.Field>
-
-          <form.Field name="label">
             {(field) => (
-              <AppField className="sm:w-48">
-                <AppInput
-                  maxLength={MCP_ADD_SERVER_MAX_LABEL_LENGTH}
-                  placeholder="Label (optional)"
-                  value={field.state.value}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
-                  aria-label="MCP server label"
-                />
-              </AppField>
+              <field.TextField
+                type="url"
+                label="Server URL"
+                placeholder="https://mcp.example.com/mcp"
+                maxLength={MCP_ADD_SERVER_MAX_URL_LENGTH}
+              />
             )}
-          </form.Field>
+          </form.AppField>
 
-          <form.Subscribe selector={(state) => state.values.endpointUrl.trim().length === 0}>
-            {(isBlank) => (
-              <AppButton
-                type="submit"
-                variant="primary"
-                loading={addMutation.isPending}
-                disabled={isBlank}
-              >
-                Add server
-              </AppButton>
+          <form.AppField name="label">
+            {(field) => (
+              <field.TextField
+                label="Label"
+                optional
+                placeholder="Label (optional)"
+                maxLength={MCP_ADD_SERVER_MAX_LABEL_LENGTH}
+              />
             )}
-          </form.Subscribe>
+          </form.AppField>
+
+          {notice ? (
+            notice.kind === "error" ? (
+              <AppFieldError role="alert" id="mcp-add-notice">
+                {notice.message}
+              </AppFieldError>
+            ) : (
+              <p id="mcp-add-notice" role="status" className="px-1 text-xs text-app-fg-3">
+                {notice.message}
+              </p>
+            )
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <AppButton variant="ghost" onClick={close}>
+              Cancel
+            </AppButton>
+            <form.Subscribe selector={(state) => state.values.endpointUrl.trim().length === 0}>
+              {(isBlank) => (
+                <AppButton
+                  type="submit"
+                  variant="primary"
+                  loading={addMutation.isPending}
+                  disabled={isBlank}
+                >
+                  Add server
+                </AppButton>
+              )}
+            </form.Subscribe>
+          </div>
         </form>
-      ) : null}
-
-      {notice ? (
-        <p
-          className={
-            notice.kind === "error"
-              ? "col-span-full px-1 text-xs text-app-red-4"
-              : "col-span-full px-1 text-xs text-app-fg-3"
-          }
-          role={notice.kind === "error" ? "alert" : "status"}
-        >
-          {notice.message}
-        </p>
-      ) : null}
+      </AppModal>
     </>
   );
 }
