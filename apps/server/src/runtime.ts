@@ -1,6 +1,7 @@
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { registerDispatchToolCallRoundAdapter } from "@alfred/assistant/tool-runtime/dispatch";
+import { registerDefaultContextSources } from "@alfred/assistant/context-search";
 import { registerOnUserCreated } from "@alfred/auth";
 import { createAssistantRuntime, type AssistantRuntime } from "@alfred/assistant/runtime";
 import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault-maintenance";
@@ -36,6 +37,11 @@ function assistantRuntime(): AssistantRuntime {
     registerRecipes() {
       registerBuiltinWorkflows();
       registerBuiltinTools();
+      // The Context Search read boundary's built-in adapters (documents,
+      // memory). Inert until a consumer calls `searchContext` (#426); this
+      // registration is what makes the source set data, not a switch inside
+      // the boundary. Repeat boots reinstall the same memoized instances.
+      registerDefaultContextSources();
       // Dispatch implements tool-runtime's tool-call-round seam. It is installed at
       // the composition root (not inside registerBuiltinTools) so the built-in leaf
       // holds no dispatch import (ADR-0089); a first executeToolCallRound throws
