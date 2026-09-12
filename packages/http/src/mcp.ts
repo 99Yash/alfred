@@ -1,5 +1,6 @@
 import {
   Errors,
+  isMcpBuiltInProvider,
   mcpAddServerBodySchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
@@ -200,10 +201,56 @@ function redirectToIntegrations(set: Context["set"]): null {
 }
 
 /**
- * The MCP connection surface. Two creation doors: the GitHub built-in, whose
- * endpoint the registry supplies, and the generic `POST /connections` (#1004),
- * where the owner supplies the URL and the assistant validates and probes it
- * before any row exists.
+ * Walk one stored connection to its next consent step and answer the BROWSER.
+ *
+ * Every consent door ends here — the built-in connect, the generic add door's
+ * `auth_required` answer, and the forced re-consent — because they differ only
+ * in how they reach a connection id, never in what happens after. Two answers:
+ * the authorization server wants a consent screen, so the browser goes there;
+ * or the row already holds a usable credential, so the only work left is to
+ * open the session.
+ *
+ * ONE try covers both halves on purpose. `beginAuthorization` persists every
+ * reason it can name, and `getReadyClient` persists its own `failed` (or
+ * `auth_required`) row with a bounded `lastError` before it rethrows, so in
+ * both cases the card is where the reason is readable and the browser belongs
+ * back on the integrations page. Three hand-written copies of this sequence had
+ * already drifted: two of them left the session open OUTSIDE the try, so a
+ * remote that went down between consent and connect answered a navigation with
+ * the API error page.
+ */
+async function navigateToConsent(
+  set: Context["set"],
+  input: { connectionId: string; userId: string; forceReauthorization?: boolean },
+): Promise<null> {
+  try {
+    const authorizationUrl = await beginAuthorization(input);
+
+    if (authorizationUrl) {
+      set.status = 302;
+      set.headers["Location"] = authorizationUrl.href;
+
+      return null;
+    }
+
+    await getMcpConnectionManager().getReadyClient(input.connectionId);
+  } catch {
+    return redirectToIntegrations(set);
+  }
+
+  return redirectToIntegrations(set);
+}
+
+/**
+ * The MCP connection surface. Two creation doors: a first-class built-in, whose
+ * endpoint the registry supplies and whose provider key the path names, and the
+ * generic `POST /connections` (#1004), where the owner supplies the URL and the
+ * assistant validates and probes it before any row exists.
+ *
+ * Both end at the SAME consent flow. `GET /connections/:id/authorize` is the
+ * one door to an authorization server, so a built-in with a pinned client and a
+ * pasted URL whose server registers a client dynamically differ only in where
+ * the endpoint came from.
  */
 export const mcpIntegrationRoutes = new Elysia({
   prefix: "/api/integrations/mcp",
@@ -218,9 +265,10 @@ export const mcpIntegrationRoutes = new Elysia({
 
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
-      // First generic creation door (#1004). The owner supplies the endpoint;
-      // the assistant validates and probes it before any row exists, so a
-      // server that needs sign-in creates nothing and reports `auth_required`.
+      // The generic creation door (#1004). The owner supplies the endpoint; the
+      // assistant validates and probes it before any row exists. A server that
+      // needs sign-in answers `auth_required` with the id of the connection the
+      // browser must walk to `/connections/:id/authorize`.
       .post(
         "/connections",
         async ({ body, request, user }) => {
@@ -235,7 +283,7 @@ export const mcpIntegrationRoutes = new Elysia({
               ...(body.label !== undefined ? { label: body.label } : {}),
             });
 
-            return { outcome: result.outcome };
+            return { outcome: result.outcome, connectionId: result.connectionId };
           } catch (error) {
             // A refusal the OWNER caused is a 400, bounded by the one MCP error
             // funnel: a blocked scheme/host/port, an embedded credential, a
@@ -290,64 +338,65 @@ export const mcpIntegrationRoutes = new Elysia({
           body: t.Undefined(),
         },
       )
-      .get("/github/connect", async ({ user, set }) => {
-        let authorizationUrl: URL | null;
+      // One door for every first-class server. The provider key is the path
+      // segment, and `MCP_BUILT_IN_CATALOG` is the only thing that mints one,
+      // so a fourth built-in adds no route here.
+      .get(
+        "/built-ins/:provider/connect",
+        async ({ params, user, set }) => {
+          // The segment arrives from a URL, so it is untrusted until the
+          // catalog claims it. An unknown provider is a 404, not a redirect: a
+          // card cannot produce one, so it is a mistyped link.
+          if (!isMcpBuiltInProvider(params.provider)) {
+            throw Errors.NotFoundError("Unknown built-in MCP provider");
+          }
 
-        try {
-          // The ensure sits INSIDE the guard. It reaches the database and it
-          // reconciles the pinned built-in endpoint, so it can fail on its own,
-          // and a browser navigation must not meet a bare 500 page for it.
-          const connection = await ensureBuiltInConnection(user.id, "github");
-          await getMcpConnectionManager().disconnect(connection.id, user.id);
-          authorizationUrl = await beginAuthorization({
-            connectionId: connection.id,
-            userId: user.id,
-          });
+          let connectionId: string;
 
-          if (!authorizationUrl) await getMcpConnectionManager().getReadyClient(connection.id);
-        } catch {
-          // `beginAuthorization` already persisted every reason it can name.
-          return redirectToIntegrations(set);
-        }
+          try {
+            // The ensure sits INSIDE the guard. It reaches the database and it
+            // reconciles the pinned built-in endpoint, so it can fail on its own,
+            // and a browser navigation must not meet a bare 500 page for it.
+            const connection = await ensureBuiltInConnection(user.id, params.provider);
 
-        if (authorizationUrl) {
-          set.status = 302;
-          set.headers["Location"] = authorizationUrl.href;
+            // Drop any live client first: this door re-asks for a grant, and a
+            // session opened under the old one must not survive the new ask.
+            await getMcpConnectionManager().disconnect(connection.id, user.id);
+            connectionId = connection.id;
+          } catch {
+            return redirectToIntegrations(set);
+          }
 
-          return null;
-        }
-
-        return redirectToIntegrations(set);
-      })
+          return navigateToConsent(set, { connectionId, userId: user.id });
+        },
+        { params: t.Object({ provider: t.String({ minLength: 1 }) }) },
+      )
+      // First consent for a stored connection that has never authorized — the
+      // generic add door's `auth_required` answer lands here. It does NOT force
+      // a consent screen: there is no grant to widen, so an authorization
+      // server that can answer from an existing session should be allowed to.
+      // `reconsent` below is the widening case, and it disconnects first
+      // because it acts on a connection that may be live.
+      .get(
+        "/connections/:id/authorize",
+        async ({ params, user, set }) =>
+          navigateToConsent(set, { connectionId: params.id, userId: user.id }),
+        { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+      )
       .get(
         "/connections/:id/reconsent",
         async ({ params, user, set }) => {
           const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
 
+          // A 404, not a redirect: no row matches this owner and this id, so
+          // there is nothing to re-consent for and no row to carry a reason.
           if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
-          let authorizationUrl: URL | null;
 
-          try {
-            authorizationUrl = await beginAuthorization({
-              connectionId: params.id,
-              userId: user.id,
-              forceReauthorization: true,
-            });
-          } catch {
-            // `beginAuthorization` already persisted every reason it can name.
-            return redirectToIntegrations(set);
-          }
-
-          if (authorizationUrl) {
-            set.status = 302;
-            set.headers["Location"] = authorizationUrl.href;
-
-            return null;
-          }
-
-          await getMcpConnectionManager().getReadyClient(params.id);
-
-          return redirectToIntegrations(set);
+          return navigateToConsent(set, {
+            connectionId: params.id,
+            userId: user.id,
+            forceReauthorization: true,
+          });
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       )

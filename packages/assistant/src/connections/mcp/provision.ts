@@ -7,22 +7,31 @@
  * `McpRawClient` over the same `HostedMcpEndpointAuthorizer` the live manager
  * uses, so the DNS pin, the private-range refusal, the redirect guard, protocol
  * negotiation, and schema admission that protect a callable connection also
- * decide whether the URL is admissible at all. A server that answers with an
- * authorization challenge is reported and leaves no rows; a server that answers
- * as a reachable no-auth MCP server is then created and its first catalog
- * revision is published by the manager's normal connect path.
+ * decide whether the URL is admissible at all.
+ *
+ * The probe has exactly two admissible answers, and BOTH create the row pair:
+ *
+ *  - a reachable no-auth server is connected on the spot, and the manager's
+ *    normal connect path publishes its first catalog revision;
+ *  - a server that answers with an authorization challenge becomes a connection
+ *    in `auth_required`, which the caller then sends through the same OAuth
+ *    door a built-in uses. Alfred registers its own client through RFC 7591
+ *    where the authorization server allows it, so a server with no pinned
+ *    credential in `built-ins.ts` still connects.
  *
  * The probe is discarded once it has answered, so the manager opens its own
  * generation. That is one extra handshake per add, and it buys the rule this
- * slice carries: the *probe* never leaves rows behind.
+ * module keeps: a URL Alfred REFUSES leaves no rows behind. A challenge is not
+ * a refusal — it is the server naming its next step — so the row is what
+ * carries that step to the consent screen and back.
  *
- * That rule has one hole, and it is a second session, not a second probe. The
+ * The rule has one hole, and it is a second session, not a second probe. The
  * row pair is committed before `getReadyClient` opens the manager's own
  * session, so a server that admits the probe and then refuses the successor —
  * a per-IP session cap, a free-tier limit, credentials that apply only to the
  * second connect — leaves a connection in `failed` with no catalog. The card
- * shows it and the owner can remove it; a probe that is also the live session
- * is what would close the hole, and this slice does not have one.
+ * shows it and the owner can disconnect it; a probe that is also the live
+ * session is what would close the hole, and this module does not have one.
  */
 
 import { MCP_DEFAULT_REQUEST_TIMEOUT_MS, McpRawClient } from "./client";
@@ -52,7 +61,19 @@ const PROBE_CONNECTION_ID = "probe";
  */
 const ADD_SERVER_DEADLINE_MS = 60_000;
 
-export type AddUserMcpServerResult = { readonly outcome: "connected" | "auth_required" };
+/**
+ * What the add door did. Both outcomes leave one connection row; they differ in
+ * what has to happen next.
+ *
+ * `auth_required` carries the connection id because the browser's next hop is
+ * that connection's authorize route. The name matches the persisted
+ * `mcp_connections.status` the same answer writes, so the card and the add form
+ * report one state, not two spellings of it.
+ */
+export type AddUserMcpServerResult = {
+  readonly outcome: "connected" | "auth_required";
+  readonly connectionId: string;
+};
 
 /**
  * A URL that a built-in already owns.
@@ -89,7 +110,7 @@ export interface AddUserMcpServerInput {
  * a `fetch` failure carrying the `EBLOCKEDHOST` cause (private resolution); a
  * built-in's own endpoint throws {@link BuiltInMcpEndpointError}. All are the
  * caller's to map; none creates a row. `auth_required` is a normal answer, not
- * an error: it is the probe's one unsupported outcome.
+ * an error: the row exists and waits for the owner's consent.
  */
 export async function addUserMcpServer(
   input: AddUserMcpServerInput,
@@ -105,7 +126,7 @@ export async function addUserMcpServer(
   const deadline = AbortSignal.timeout(ADD_SERVER_DEADLINE_MS);
   const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
 
-  if (await probeRequiresAuthorization(endpoint, signal)) return { outcome: "auth_required" };
+  const requiresAuthorization = await probeRequiresAuthorization(endpoint, signal);
 
   const connection = await ensureConnection({
     userId: input.userId,
@@ -117,11 +138,21 @@ export async function addUserMcpServer(
     canonicalResource: resource,
     endpoint,
     endpointAuthority: "caller",
+    // `initialState` writes on INSERT only, so a re-add of a server that is
+    // already connected keeps its status. That is the property that lets the
+    // owner re-add a URL to correct its label without demoting a live row.
+    ...(requiresAuthorization
+      ? { initialState: { authServerIdentity: "oauth:pending", status: "auth_required" } }
+      : {}),
   });
+
+  // No credential exists yet, so there is nothing to connect WITH: the consent
+  // round trip ends at the OAuth callback, which is what opens the session.
+  if (requiresAuthorization) return { outcome: "auth_required", connectionId: connection.id };
 
   await getMcpConnectionManager().getReadyClient(connection.id);
 
-  return { outcome: "connected" };
+  return { outcome: "connected", connectionId: connection.id };
 }
 
 /**

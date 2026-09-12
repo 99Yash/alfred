@@ -44,3 +44,22 @@ The repo already has the right pattern in two places: `CREDENTIAL_SHAPE` and `GE
 - Per-tool facts (`TOOL_LABELS`, `TOOL_CATEGORIES`, `tool-schemas.ts`), per-client facts (`REST_GATE_CONFIG`, base URLs), and the route handlers. They stay where they are and key on derived unions.
 - The Gmail-only event-trigger readiness. Behavior, not a table.
 - The MCP per-connection catalog (PRD #540).
+
+---
+
+## Amendment, 2026-09-12 — a built-in MCP server is a second key space under the same law (#1002)
+
+**What changed.** Alfred pins first-class remote MCP servers: GitHub, Linear, Notion, and Sentry. The original ADR left "the MCP per-connection catalog (PRD #540)" undecided. This amendment decides only the part that touches a key space, and leaves the per-connection catalog where it was.
+
+**Decision.** `MCP_BUILT_IN_CATALOG` in `packages/contracts/src/mcp.ts` is a second record whose keys are a key space, and it obeys the same three rules `INTEGRATIONS` obeys. `McpBuiltInProvider` is `keyof typeof MCP_BUILT_IN_CATALOG`. `MCP_BUILT_IN_PROVIDERS` is its key list in record order. `isMcpBuiltInProvider` is the `enumGuard` over that list, and the connect route uses it to narrow a path segment.
+
+**Why it is not the slug space.** A slug names a PRODUCT. A built-in provider names one SERVER, and one product can serve more than one: a read-only resource and a read-write resource are two servers under one brand. The two spaces are one-to-one today, and a third GitHub resource would break that. Each catalog entry therefore carries a `slug` FIELD, which is how a tile borrows brand artwork, and the record's key stays free to name the server.
+
+**Where the halves split.** The split is by audience, not by convenience. `MCP_BUILT_IN_CATALOG` holds what a browser may read: the tile title, the brand slug, and one line of blurb. `BUILT_IN_REGISTRY` in `packages/assistant/src/connections/mcp/built-ins.ts` holds what decides the wire: the endpoint, the canonical resource, the scope baseline, and the protocol pins. The server half is `satisfies Record<McpBuiltInProvider, BuiltInDefinition>`, so an entry in one half with no entry in the other fails to compile. Neither half can ship a provider the other does not know.
+
+**What this costs and what it buys.** A fifth built-in adds two entries and edits nothing else. It adds no route, because `GET /api/integrations/mcp/built-ins/:provider/connect` takes the provider from the path, and no web component, because one `McpBuiltInCard` renders every catalog entry.
+
+**Two rules the same change locks, recorded here rather than in a new ADR.**
+
+1. **A pinned OAuth client is the exception, not the rule.** Most authorization servers publish a `registration_endpoint`, so Alfred registers its own client under RFC 7591 and pins no credential. `BuiltInDefinition.staticClient` is optional, and GitHub is the one entry that sets it, because its authorization server supports neither dynamic registration nor a URL-based client id (#934). A built-in that pins no client needs no environment variable, so a new first-class server is a code change alone.
+2. **A challenge is not a refusal.** The generic add door (#1004) used to answer an authorization challenge by creating no rows. It now creates the connection in `auth_required` and returns its id, and the browser walks that id to `GET /api/integrations/mcp/connections/:id/authorize`. The rule the probe still keeps is narrower and sharper: a URL Alfred REFUSES leaves no rows. The cost is that a user who abandons a consent screen leaves a connection in `auth_required`; the tile shows it and offers "Grant access", so it is visible, not silent.
