@@ -1,13 +1,15 @@
+import { useForm } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MCP_ADD_SERVER_MAX_LABEL_LENGTH,
   MCP_ADD_SERVER_MAX_URL_LENGTH,
+  mcpAddServerBodySchema,
   toMessage,
   type McpAddServerBody,
 } from "@alfred/contracts";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { AppButton, AppInput } from "~/components/ui/v2";
+import { AppButton, AppField, AppInput, omitBlankStringFields } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
@@ -22,6 +24,25 @@ import { McpTile } from "./mcp-tile";
 type AddNotice = { kind: "unsupported_sign_in" | "error"; message: string };
 
 /**
+ * The form's own field shape. It is not `McpAddServerBody`: an empty `label`
+ * input is a blank string here and is absent from the body, so the two shapes
+ * differ by exactly that one transform (applied in `onSubmit`).
+ */
+interface AddServerFields {
+  endpointUrl: string;
+  label: string;
+}
+
+const DEFAULT_FIELDS: AddServerFields = { endpointUrl: "", label: "" };
+
+/**
+ * The URL rule is the CONTRACT's own, reused rather than restated, so a client
+ * rejection and a server rejection can never disagree. It runs on blur and on
+ * submit, never on change — a half-typed `https://` is not yet an error.
+ */
+const endpointUrlValidator = mcpAddServerBodySchema.shape.endpointUrl;
+
+/**
  * The generic add door (#1004): a URL, an optional label, and the one outcome
  * this slice cannot serve.
  *
@@ -29,15 +50,14 @@ type AddNotice = { kind: "unsupported_sign_in" | "error"; message: string };
  * cell beside the connection cards; the form and the notice take `col-span-full`
  * rows under them.
  *
- * The inputs carry the CONTRACT's bounds. Without them a 101-character label
- * reaches Elysia and comes back as a raw `Validation failed:` sentence, and the
- * two exported constants have no reader outside the schema that declares them.
+ * The inputs also carry the contract's length bounds. Without them a
+ * 101-character label reaches Elysia and comes back as a raw
+ * `Validation failed:` sentence, and the two exported constants have no reader
+ * outside the schema that declares them.
  */
 export function McpAddServerForm() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [endpointUrl, setEndpointUrl] = useState("");
-  const [label, setLabel] = useState("");
   const [notice, setNotice] = useState<AddNotice | null>(null);
 
   const addMutation = useMutation({
@@ -54,30 +74,44 @@ export function McpAddServerForm() {
 
       return response.data;
     },
-    onSuccess: (data) => {
-      if (data.outcome === "auth_required") {
-        // No rows were created; the server answered with a sign-in challenge,
-        // which this slice does not support. The message is the whole state.
-        setNotice({
-          kind: "unsupported_sign_in",
-          message: "This server requires sign-in, which is not supported yet.",
-        });
+  });
 
-        return;
-      }
-
-      setEndpointUrl("");
-      setLabel("");
+  const form = useForm({
+    defaultValues: DEFAULT_FIELDS,
+    onSubmit: async ({ value, formApi }) => {
       setNotice(null);
-      setOpen(false);
-      void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
-    },
-    onError: (error) => {
-      setNotice({ kind: "error", message: toMessage(error) });
-      // A failed add can still have left a row: the probe commits nothing, but
-      // the manager's own session opens AFTER the insert. Refetch, so a stranded
-      // connection appears now rather than on the next page load.
-      void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
+
+      try {
+        const body: McpAddServerBody = {
+          endpointUrl: value.endpointUrl.trim(),
+          ...omitBlankStringFields({ label: value.label }),
+        };
+
+        const data = await addMutation.mutateAsync(body);
+
+        if (data.outcome === "auth_required") {
+          // No rows were created; the server answered with a sign-in challenge,
+          // which this slice does not support. The message is the whole state.
+          // Keep the fields, so the user can retarget the URL instead of
+          // retyping it.
+          setNotice({
+            kind: "unsupported_sign_in",
+            message: "This server requires sign-in, which is not supported yet.",
+          });
+
+          return;
+        }
+
+        formApi.reset();
+        setOpen(false);
+        void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
+      } catch (error) {
+        setNotice({ kind: "error", message: toMessage(error) });
+        // A failed add can still have left a row: the probe commits nothing, but
+        // the manager's own session opens AFTER the insert. Refetch, so a
+        // stranded connection appears now rather than on the next page load.
+        void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
+      }
     },
   });
 
@@ -92,6 +126,9 @@ export function McpAddServerForm() {
           size="sm"
           variant="white"
           onClick={() => {
+            // Closing the door discards the draft. Without the reset, reopening
+            // it shows a URL the user already walked away from.
+            if (open) form.reset();
             setOpen((current) => !current);
             setNotice(null);
           }}
@@ -102,42 +139,65 @@ export function McpAddServerForm() {
 
       {open ? (
         <form
-          className="col-span-full flex flex-col gap-2 rounded-2xl bg-app-bg-2 p-3 ring-1 ring-app-bg-3 sm:flex-row sm:items-center"
+          className="col-span-full flex flex-col gap-2 rounded-2xl bg-app-bg-2 p-3 ring-1 ring-app-bg-3 sm:flex-row sm:items-start"
           onSubmit={(event) => {
             event.preventDefault();
-            setNotice(null);
-            addMutation.mutate({
-              endpointUrl: endpointUrl.trim(),
-              ...(label.trim() ? { label: label.trim() } : {}),
-            });
+            void form.handleSubmit();
           }}
         >
-          <AppInput
-            type="url"
-            required
-            maxLength={MCP_ADD_SERVER_MAX_URL_LENGTH}
-            placeholder="https://mcp.example.com/mcp"
-            value={endpointUrl}
-            onChange={(event) => setEndpointUrl(event.target.value)}
-            aria-label="MCP server URL"
-            className="flex-1"
-          />
-          <AppInput
-            maxLength={MCP_ADD_SERVER_MAX_LABEL_LENGTH}
-            placeholder="Label (optional)"
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            aria-label="MCP server label"
-            className="sm:w-48"
-          />
-          <AppButton
-            type="submit"
-            variant="primary"
-            loading={addMutation.isPending}
-            disabled={endpointUrl.trim().length === 0}
+          <form.Field
+            name="endpointUrl"
+            validators={{ onBlur: endpointUrlValidator, onSubmit: endpointUrlValidator }}
           >
-            Add server
-          </AppButton>
+            {(field) => {
+              const error = field.state.meta.isBlurred ? field.state.meta.errors[0] : undefined;
+              const errorId = `${field.name}-error`;
+
+              return (
+                <AppField className="flex-1" error={error?.message} errorId={errorId}>
+                  <AppInput
+                    type="url"
+                    maxLength={MCP_ADD_SERVER_MAX_URL_LENGTH}
+                    placeholder="https://mcp.example.com/mcp"
+                    value={field.state.value}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    onBlur={field.handleBlur}
+                    aria-label="MCP server URL"
+                    aria-invalid={error ? true : undefined}
+                    aria-errormessage={error ? errorId : undefined}
+                  />
+                </AppField>
+              );
+            }}
+          </form.Field>
+
+          <form.Field name="label">
+            {(field) => (
+              <AppField className="sm:w-48">
+                <AppInput
+                  maxLength={MCP_ADD_SERVER_MAX_LABEL_LENGTH}
+                  placeholder="Label (optional)"
+                  value={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  onBlur={field.handleBlur}
+                  aria-label="MCP server label"
+                />
+              </AppField>
+            )}
+          </form.Field>
+
+          <form.Subscribe selector={(state) => state.values.endpointUrl.trim().length === 0}>
+            {(isBlank) => (
+              <AppButton
+                type="submit"
+                variant="primary"
+                loading={addMutation.isPending}
+                disabled={isBlank}
+              >
+                Add server
+              </AppButton>
+            )}
+          </form.Subscribe>
         </form>
       ) : null}
 
