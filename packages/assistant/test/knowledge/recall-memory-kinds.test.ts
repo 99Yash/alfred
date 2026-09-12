@@ -7,6 +7,7 @@ import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import {
+  MEMORY_CHUNK_KINDS,
   recallMemory,
   USER_FACING_MEMORY_CHUNK_KINDS,
   writeMemoryChunk,
@@ -16,15 +17,20 @@ import { embedMemoryChunk } from "@alfred/assistant/knowledge/chunks";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed test for the `recallMemory` kind restriction (#1052).
+ * DB-backed test for `recallMemory`'s kind handling (#1052).
  *
- * The Context Search memory source passes `USER_FACING_MEMORY_CHUNK_KINDS`, so
- * the exclusion has to hold in the candidate query, before top-K: an
- * `extraction_run` chunk that is the *closest* vector must still be absent when
- * the set is applied, or a near telemetry chunk could displace a real memory
- * hit. The differential below proves exactly that — the same query returns the
- * telemetry chunk when `kinds` is omitted and drops it when the user-facing set
- * is passed, while the orthogonal `thread_summary` survives both times.
+ * The primitive defaults `kinds` to `USER_FACING_MEMORY_CHUNK_KINDS`, and the
+ * restriction is applied in the candidate query before the HNSW pool and
+ * top-K. Two properties need proof the offline type system cannot give:
+ *
+ *  - The exclusion must not be a fetch-then-drop. The seed plants
+ *    `EXCLUDED_SEED_COUNT` operational chunks nearer the query than the one
+ *    real memory chunk, so the excluded kind alone fills more than the
+ *    candidate pool (`max(limit * 5, 50)`). A post-pool drop would return
+ *    nothing; only a candidate-query filter returns the summary. The same seed
+ *    makes the default's safety observable — with no `kinds` the summary must
+ *    still come back and no telemetry may.
+ *  - An empty set is an explicit "no kinds", not "any".
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
  * Postgres; skipped otherwise. Seeds throwaway `test-recallkinds-*` users and
@@ -33,6 +39,15 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-recallkinds-";
+
+const LIMIT = 10;
+
+// `recallMemory` pulls `max(limit * 5, 50)` candidates before reranking.
+const CANDIDATE_POOL = Math.max(LIMIT * 5, 50);
+
+// One more than the pool: the excluded kind alone cannot fit inside it, so a
+// fetch-then-drop implementation would starve the real memory chunk.
+const EXCLUDED_SEED_COUNT = CANDIDATE_POOL + 1;
 
 const createdUserIds: string[] = [];
 
@@ -81,17 +96,10 @@ describe("recallMemory kind restriction (DB-backed)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  test("excludes a closest-by-distance extraction_run while returning a thread_summary", async () => {
+  test("defaults to user-facing kinds and filters before the candidate pool", async () => {
     const userId = await seedUser();
     const query = "what does the user prefer";
     const queryEmbedding = unitVector(0);
-
-    const runId = await seedEmbeddedChunk(
-      userId,
-      "extraction_run",
-      "Memory-extraction run run_x: processed 20 document(s); proposed 0 fact(s).",
-      unitVector(0),
-    );
 
     const summaryId = await seedEmbeddedChunk(
       userId,
@@ -100,31 +108,62 @@ describe("recallMemory kind restriction (DB-backed)", { skip: SKIP }, () => {
       unitVector(1),
     );
 
-    // Without a restriction the telemetry chunk is findable — and, being the
-    // nearest vector, it is the top hit. This is the control: it proves the
-    // chunk is a live candidate, so the next assertion is not vacuous.
-    const unrestricted = await recallMemory({ userId, query, queryEmbedding, limit: 10 });
+    // Every operational chunk is nearer the query than the summary.
+    for (let i = 0; i < EXCLUDED_SEED_COUNT; i += 1) {
+      await seedEmbeddedChunk(
+        userId,
+        "extraction_run",
+        `Memory-extraction run run_${i}: processed ${i} document(s); proposed 0 fact(s).`,
+        unitVector(0),
+      );
+    }
+
+    // Control: with every kind allowed the telemetry chunks are live
+    // candidates, so the exclusions below are not vacuous.
+    const allKinds = await recallMemory({
+      userId,
+      query,
+      queryEmbedding,
+      kinds: MEMORY_CHUNK_KINDS,
+      limit: LIMIT,
+    });
+
     assert.ok(
-      unrestricted.some((hit) => hit.chunkId === runId),
-      "control: the extraction_run must be findable when kinds is omitted",
+      allKinds.some((hit) => hit.kind === "extraction_run"),
+      "control: the extraction_run chunks must be findable when every kind is allowed",
     );
 
-    const restricted = await recallMemory({
+    // Default (no `kinds`): user-facing only. If the filter were applied after
+    // the candidate pool, the excluded chunks would fill the pool and the
+    // summary could not come back.
+    const defaulted = await recallMemory({ userId, query, queryEmbedding, limit: LIMIT });
+    assert.equal(
+      defaulted.some((hit) => hit.kind === "extraction_run"),
+      false,
+      "an extraction_run must never survive the default user-facing restriction",
+    );
+    assert.ok(
+      defaulted.some((hit) => hit.chunkId === summaryId),
+      "the thread_summary must still be recalled through the candidate-query filter",
+    );
+
+    // The explicit user-facing set is the same restriction as the default.
+    const explicit = await recallMemory({
       userId,
       query,
       queryEmbedding,
       kinds: USER_FACING_MEMORY_CHUNK_KINDS,
-      limit: 10,
+      limit: LIMIT,
     });
 
     assert.equal(
-      restricted.some((hit) => hit.kind === "extraction_run"),
+      explicit.some((hit) => hit.kind === "extraction_run"),
       false,
-      "extraction_run must never survive the user-facing kind restriction",
     );
-    assert.ok(
-      restricted.some((hit) => hit.chunkId === summaryId),
-      "the thread_summary must still be recalled",
-    );
+    assert.ok(explicit.some((hit) => hit.chunkId === summaryId));
+
+    // An empty set means "no kinds", not "any".
+    const none = await recallMemory({ userId, query, queryEmbedding, kinds: [], limit: LIMIT });
+    assert.deepEqual(none, []);
   });
 });

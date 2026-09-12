@@ -1,9 +1,5 @@
 import { humanizeSlug, type ContextSearchRequest, type EvidenceCard } from "@alfred/contracts";
-import {
-  recallMemory,
-  USER_FACING_MEMORY_CHUNK_KINDS,
-  type RecallMemoryHit,
-} from "@alfred/assistant/knowledge";
+import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 import type { ContextSource, ContextSourceResult } from "./registry";
 import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
 
@@ -17,11 +13,11 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  * trust story, which is why it is a separate source with its own id rather than
  * a filter on the document adapter.
  *
- * The read requests only `USER_FACING_MEMORY_CHUNK_KINDS` (#1052): an
+ * The read relies on `recallMemory`'s user-facing default (#1052): an
  * `extraction_run` chunk is operational bookkeeping about Alfred's own runs,
  * not something Alfred knows about the user, so it must never render as
- * "Memory". The exclusion is pushed into the recall candidate query, before
- * top-K, so a near telemetry chunk cannot displace a real memory hit.
+ * "Memory". The exclusion lives in the recall candidate query, before top-K,
+ * so a near telemetry chunk cannot displace a real memory hit.
  *
  * A memory hit carries no timestamp, so the card declares `ingested`
  * freshness and no instant. That is honest, not a gap to fill from metadata
@@ -41,7 +37,6 @@ export function createMemoryContextSource(): ContextSource {
       const hits = await recallMemory({
         query: request.query,
         userId: request.userId,
-        kinds: USER_FACING_MEMORY_CHUNK_KINDS,
         limit: request.limit,
       });
 

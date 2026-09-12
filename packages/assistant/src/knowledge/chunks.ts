@@ -17,6 +17,7 @@ import {
   memoryChunkKindSchema,
   memorySourceSchema,
   parseMemorySourceOrDefault,
+  USER_FACING_MEMORY_CHUNK_KINDS,
 } from "./types";
 
 export const writeMemoryChunkArgsSchema = memoryChunkInsertSchema
@@ -199,7 +200,12 @@ export interface RecallMemoryArgs {
    * retrieval over the same query to avoid duplicate embedding calls.
    */
   queryEmbedding?: number[];
-  /** Restrict to these kinds (`thread_summary`, …). Default any. */
+  /**
+   * Restrict to these kinds. Defaults to `USER_FACING_MEMORY_CHUNK_KINDS`: an
+   * operational chunk (`extraction_run`) is Alfred's own run telemetry and must
+   * not surface as user memory unless a caller explicitly asks for it. An empty
+   * set means "no kinds", not "any".
+   */
   kinds?: readonly MemoryChunkKind[];
   /** Top-K. Default 10. */
   limit?: number;
@@ -242,11 +248,12 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
   const filters = [eq(memoryChunks.userId, args.userId), isNotNull(memoryChunks.embedding)];
 
   // The kind restriction belongs in the candidate query, before the HNSW pool
-  // and top-K, so excluding a kind does not let it displace a real hit. An empty
-  // set is an explicit "no kinds", not an accidental "every kind".
-  if (args.kinds !== undefined) {
-    filters.push(args.kinds.length > 0 ? inArray(memoryChunks.kind, [...args.kinds]) : sql`false`);
-  }
+  // and top-K, so excluding a kind does not let it displace a real hit. The
+  // default is the user-facing set, not "any": a reader that forgets to narrow
+  // cannot surface operational telemetry. An empty set is an explicit "no
+  // kinds", not an accidental "every kind".
+  const kinds = args.kinds ?? USER_FACING_MEMORY_CHUNK_KINDS;
+  filters.push(kinds.length > 0 ? inArray(memoryChunks.kind, [...kinds]) : sql`false`);
 
   // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
   // candidate pool is silently truncated unless we raise it to cover
