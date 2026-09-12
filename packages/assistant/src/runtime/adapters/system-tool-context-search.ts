@@ -26,7 +26,7 @@ import {
  * it at boot, beside the other `system-tool-*` adapters.
  */
 const contextSearchAdapter: SystemToolContextSearchAdapter = {
-  async searchContext({ input, context }) {
+  async runContextSearch({ input, context }) {
     const result = await searchContextFromFabric({
       userId: context.userId,
       query: input.query,
@@ -37,6 +37,9 @@ const contextSearchAdapter: SystemToolContextSearchAdapter = {
 
     const packed = packEvidenceCards(result);
 
+    // `ok` is true whenever the read ran: `searchContext` reports per-source
+    // empty/failed outcomes as reports and never throws, so a total source
+    // outage is honest note text, not a structured failure.
     return {
       ok: true,
       text: packed.text,

@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import { objectIdentitySchema } from "./object-identity";
+import { objectIdentitySchema, objectProviderSchema } from "./object-identity";
 
 /** Default evidence budget when a request omits `limit`. */
 export const CONTEXT_SEARCH_DEFAULT_LIMIT = 10;
@@ -35,12 +35,11 @@ export const CONTEXT_SEARCH_MAX_OBJECT_REFS = 25;
  */
 export const contextObjectKeyRefSchema = z.object({
   by: z.literal("key"),
-  /** Integration slug — `github`, later `clickup`. */
-  provider: z
-    .string()
-    .min(1)
-    .max(100)
-    .describe("Integration slug that owns the object, for example `github`."),
+  /**
+   * Integration slug — `github`, later `clickup`. Reuses the object-identity
+   * provider schema so the bounds and the description stay one definition.
+   */
+  provider: objectProviderSchema,
   /** Key kind within the provider — `head_sha`. */
   keyKind: z
     .string()

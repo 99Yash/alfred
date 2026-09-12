@@ -44,7 +44,7 @@ lives there:
   `evidenceCardSchema` / `EvidenceCard` live in
   `packages/contracts/src/evidence-card.ts` (#423) because source adapters, the
   model-facing packer (`context-search/pack.ts`), the source capability manifest
-  (#466), and the later `system.search_context` tool (#426) must all agree on
+  (#466), and the `system.search_context` tool (#426) must all agree on
   it. A provisional/internal shape stays with its owning module file until a
   second boundary must agree on it; `EvidenceCard` crossed to contracts at that
   point rather than early, just as the provisional `ContextEvidence` it replaced
