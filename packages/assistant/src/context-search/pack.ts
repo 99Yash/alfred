@@ -25,12 +25,15 @@ import type { ContextSearchResult, ContextSourceReport } from "./search";
  *   in its header.
  * - **Honest.** The packer takes the whole read result, reports, not a bare
  *   card list, so failed and empty sources are structurally impossible to
- *   forget. A source that returned nothing or failed is reported by id; cards
- *   the read's own `limit` dropped are counted; freshness is rendered per card
- *   and reads `unknown` when the source did not declare it, never inferred from
- *   a missing timestamp. A card's own `note` (degraded extraction, missing
- *   state) is preserved. `truncated` is true whenever any card, note, or source
- *   line was left out of `text`, including a render-cap cut.
+ *   forget. A source that returned nothing or failed is reported by id; a
+ *   productive source whose cards the read's own `limit` dropped entirely is
+ *   reported by id with its dropped count, so a source that answered is never
+ *   mistaken for one that was never consulted. Cards the read's `limit` dropped
+ *   are counted; freshness is rendered per card and reads `unknown` when the
+ *   source did not declare it, never inferred from a missing timestamp. A
+ *   card's own `note` (degraded extraction, missing state) is preserved.
+ *   `truncated` is true whenever any card, note, or source line was left out of
+ *   `text`, including a render-cap cut.
  * - **Safe.** Every string that reaches the model goes through
  *   `sanitizeErrorMessage`, the repo's surrogate-safe bounded truncator, so a
  *   lone surrogate or NUL byte can never ride a snippet, a note, or a provider
@@ -90,7 +93,7 @@ export function packEvidenceCards(
 ): PackedEvidence {
   const maxChars = clampBudget(options.maxChars);
   const cards = result.evidence;
-  const notes = renderSourceNotes(result.sources);
+  const notes = renderSourceNotes(result.sources, cards);
   const separator = "\n\n";
   const noteLength = notes.text.length > 0 ? notes.text.length + separator.length : 0;
 
@@ -159,18 +162,33 @@ interface RenderedNotes {
 
 /**
  * One line per source that could not contribute. `empty` and `error` are
- * distinct facts and render differently; a silently dropped source is the one
- * failure mode this exists to prevent. The status switch is exhaustive on
- * purpose: a new status member becomes a compile error here rather than
- * quietly rendering as an error.
+ * distinct facts and render differently; a productive source whose cards the
+ * read's `limit` dropped entirely is the third, and the one this exists to
+ * prevent forgetting. The status switch is exhaustive on purpose: a new status
+ * member becomes a compile error here rather than quietly rendering as an error.
+ *
+ * "Dropped entirely" is judged on the cards the read handed the packer, before
+ * the packer's own character budget: a card the packer omits for space still
+ * proves the source answered, and the per-source budget that would attribute
+ * that loss is #427.
  */
-function renderSourceNotes(sources: readonly ContextSourceReport[]): RenderedNotes {
+function renderSourceNotes(
+  sources: readonly ContextSourceReport[],
+  evidence: readonly EvidenceCard[],
+): RenderedNotes {
+  const represented = new Set(evidence.map((card) => card.source.id));
   const lines: string[] = [];
 
   for (const source of sources) {
     switch (source.status) {
       case "ok":
-        continue;
+        if (source.evidenceCount > 0 && !represented.has(source.sourceId)) {
+          lines.push(
+            `${source.sourceId}: ${source.evidenceCount} item(s) not shown (evidence budget)`,
+          );
+        }
+
+        break;
       case "empty":
         lines.push(`${source.sourceId}: no evidence found`);
         break;
