@@ -6,10 +6,10 @@
  * policy Alfred pins in CODE. `oauth.ts` reads the pre-registered client
  * through `resolveBuiltInClient`, and `persistence.ts` turns one entry into the
  * input of a connection ensure. The next built-in adds one entry here, one
- * entry in `MCP_BUILT_IN_CATALOG`, and edits nothing else.
+ * entry in `BUILT_IN_MCP_CATALOG`, and edits nothing else.
  *
  * The split is by audience, not by convenience. Everything a BROWSER may read —
- * the tile title, the brand, the blurb — is `MCP_BUILT_IN_CATALOG` in
+ * the tile title, the brand, the blurb — is `BUILT_IN_MCP_CATALOG` in
  * `@alfred/contracts`; everything that decides what Alfred sends to a remote is
  * here. `BUILT_IN_REGISTRY` is keyed by that catalog's union, so neither half
  * can ship a provider the other does not know.
@@ -199,7 +199,7 @@ const BUILT_IN_INITIAL_STATE = {
 } as const satisfies BuiltInDefinition["initialState"];
 
 /**
- * The pinned server for every provider `MCP_BUILT_IN_CATALOG` lists.
+ * The pinned server for every provider `BUILT_IN_MCP_CATALOG` lists.
  *
  * `satisfies Record<BuiltInMCPProvider, …>` is the enforcement: a catalog entry
  * with no definition here fails to compile, and a definition here for a

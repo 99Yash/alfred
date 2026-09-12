@@ -1,4 +1,4 @@
-import { MCP_BUILT_IN_CATALOG, type McpBuiltInProvider } from "@alfred/contracts";
+import { BUILT_IN_MCP_CATALOG, type BuiltInMCPProvider } from "@alfred/contracts";
 import { AlertTriangle, Plus } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
 import { brandForIntegration } from "~/lib/integrations/integrations";
@@ -71,14 +71,14 @@ export function McpBuiltInCard({
   readError,
   onRetry,
 }: {
-  provider: McpBuiltInProvider;
+  provider: BuiltInMCPProvider;
   /** Absent until the owner connects this server for the first time. */
   connection: McpConnection | undefined;
   loading: boolean;
   readError: boolean;
   onRetry: () => void;
 }) {
-  const entry = MCP_BUILT_IN_CATALOG[provider];
+  const entry = BUILT_IN_MCP_CATALOG[provider];
   const state = builtInState({ connection, loading, readError });
 
   const subtitle =
