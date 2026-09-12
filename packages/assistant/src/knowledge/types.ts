@@ -79,4 +79,21 @@ export const memoryChunkKindSchema = z.enum(MEMORY_CHUNK_KINDS);
 
 export type MemoryChunkKind = (typeof MEMORY_CHUNK_KINDS)[number];
 
+/**
+ * Kinds that record Alfred's own operational bookkeeping, never something
+ * Alfred knows about the user. An `extraction_run` chunk is run telemetry
+ * ("processed 20 documents; proposed 0 facts"), so it must never render as
+ * user memory. Kept as a set so the classification reads as membership.
+ */
+const OPERATIONAL_MEMORY_CHUNK_KINDS: ReadonlySet<MemoryChunkKind> = new Set(["extraction_run"]);
+
+/**
+ * The memory chunk kinds a user-facing read may surface. Derived by subtraction
+ * so a newly added kind is included by default rather than silently hidden; a
+ * new operational kind is one line in the set above.
+ */
+export const USER_FACING_MEMORY_CHUNK_KINDS: readonly MemoryChunkKind[] = MEMORY_CHUNK_KINDS.filter(
+  (kind) => !OPERATIONAL_MEMORY_CHUNK_KINDS.has(kind),
+);
+
 export { jsonRecordSchema, memorySourceSchema };
