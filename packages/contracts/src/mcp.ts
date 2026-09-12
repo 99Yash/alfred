@@ -13,7 +13,7 @@
 
 import { z } from "zod";
 import { enumGuard } from "./guards";
-import type { IntegrationSlug } from "./integrations";
+import type { CatalogSlug } from "./integrations";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
 // ---------------------------------------------------------------------------
@@ -248,8 +248,14 @@ export type McpAddServerBody = z.infer<typeof mcpAddServerBodySchema>;
 // reverse, so neither half can ship a provider the other does not know.
 // ---------------------------------------------------------------------------
 export interface McpBuiltInEntry {
-  /** The registry slug whose brand artwork the tile borrows. */
-  readonly slug: IntegrationSlug;
+  /**
+   * The registry slug whose brand artwork the tile borrows.
+   *
+   * `CatalogSlug`, not `IntegrationSlug`: only a PROVIDER entry carries brand
+   * artwork, so the wider union would admit a slug with no mark and force
+   * every tile to carry a fallback glyph for a case that cannot occur.
+   */
+  readonly slug: CatalogSlug;
   /**
    * The tile title. It is not the slug's display name: this names the SERVER,
    * and one product can serve more than one (a read-only path and a read-write

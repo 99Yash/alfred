@@ -4,16 +4,17 @@ import {
   type McpRecoveryDecision,
   type McpRecoveryOperationsPage,
 } from "@alfred/contracts";
-import { client, type EdenData } from "~/lib/eden";
-import { flattenMcpRecoveryPages, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
+import { client } from "~/lib/eden";
+import {
+  flattenMcpRecoveryPages,
+  MCP_CONNECTIONS_QUERY_KEY,
+  MCP_SECTION,
+  type McpConnection,
+} from "./helpers";
 import { McpAddServerForm } from "./mcp-add-server-form";
 import { McpBuiltInCard } from "./mcp-built-in-card";
 import { McpConnectionCard } from "./mcp-connection-card";
 import { McpRecoveryList } from "./mcp-recovery-list";
-
-type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
-
-type McpConnection = McpConnectionsResponse["connections"][number];
 
 type McpRecoveryAction =
   | {

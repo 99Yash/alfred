@@ -730,8 +730,15 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
     );
   });
 
-  test("an unconfigured environment leaves the built-in absent", async () => {
+  // NOT `undefined`. A provider that pins a client reads an absent one as
+  // consent to register dynamically, and GitHub's authorization server has no
+  // registration endpoint, so the fall-through reached the remote and failed
+  // there with an opaque SDK error instead of failing here with the env line to
+  // set. The throw is what makes this fail closed.
+  test("an unconfigured environment refuses, and names the line to set", async () => {
     const oauth = githubProvider(new MemoryStore());
-    assert.equal(await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }), undefined);
+    await assert.rejects(() => oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }), {
+      message: /GITHUB_MCP_CLIENT_ID/,
+    });
   });
 });

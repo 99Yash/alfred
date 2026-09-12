@@ -57,3 +57,19 @@ export const NOTION_MCP_ENDPOINT_HREF = "https://mcp.notion.com/mcp" as const;
  * `project:write`, `team:write`, `event:write`.
  */
 export const SENTRY_MCP_ENDPOINT_HREF = "https://mcp.sentry.dev/mcp" as const;
+
+/**
+ * The `auth_server_identity` a connection row carries before any authorization
+ * server is known.
+ *
+ * The column answers "which authorization server protects this connection".
+ * A row that is created by a built-in ensure, or by the generic add door
+ * against an endpoint that answered with a challenge, has no answer yet: the
+ * issuer arrives from discovery on the first authorize. The sentinel is what
+ * makes the column NON-NULL anyway, and `liveClientFactory` reads exactly that
+ * non-nullness to decide the connection speaks OAuth at all.
+ *
+ * It is one constant here rather than a literal at each creation door, because
+ * the two doors must agree and the column is the thing both write.
+ */
+export const MCP_OAUTH_PENDING_IDENTITY = "oauth:pending" as const;
