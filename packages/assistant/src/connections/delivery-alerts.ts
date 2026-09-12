@@ -1,6 +1,7 @@
 import {
   credentialSatisfies,
   deliveryAlertSchema,
+  eventDeliveryAccounts,
   EVENT_SOURCES,
   isLiveProviderSlug,
   LIVE_PROVIDERS,
@@ -9,6 +10,7 @@ import {
   type EventSource,
   type LiveProviderSlug,
 } from "@alfred/contracts";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { eventDeliveryRows, readEventSourceHealth } from "./event-source-health";
 import type { EventDeliveryFailure } from "./ingress/descriptor";
 
@@ -23,7 +25,7 @@ import type { EventDeliveryFailure } from "./ingress/descriptor";
  * worth showing a person, so the banner and the emailed alert cannot disagree
  * about what counts.
  *
- * Three conditions, and a verdict must meet all of them:
+ * Four conditions, and a verdict must meet all of them:
  *
  * 1. **The user lost something.** `cause: "broken"` is the whole of it. A
  *    source nobody connected never delivered, and a source with no health
@@ -43,6 +45,14 @@ import type { EventDeliveryFailure } from "./ingress/descriptor";
  *    in the web, so that the banner and the email suppress the same states. The
  *    first revision of this feature put the test in the React hook, which left
  *    the sweep emailing a state no banner could show.
+ * 4. **This instance can perform the repair.** A non-prod instance never
+ *    installs a Gmail watch — `gmailMailboxWritesEnabled()` defaults off outside
+ *    production (ADR-0081) — so every Gmail account reads `WATCH_NOT_INSTALLED`.
+ *    That verdict is honest for readiness, but the absence is the environment's
+ *    choice, not a subscription that lapsed, and the user's reconnect would not
+ *    install a watch either. {@link unrepairableHere} drops it from the surface
+ *    rule so the banner and the email stay quiet while readiness keeps refusing
+ *    the trigger exactly as before.
  *
  * The fold is over every `EventSource`, not the inbound ones only. Gmail's
  * Pub/Sub watch lapses (`WATCH_NOT_INSTALLED`, `cause: "broken"`, recovery
@@ -79,6 +89,7 @@ export async function readDeliveryAlerts(
 ): Promise<DeliveryAlertVerdict[]> {
   const health = await readEventSourceHealth(userId, rows, now);
   const suppressed = nagsOwnCredential(rows);
+  const unrepairable = unrepairableHere();
 
   return EVENT_SOURCES.flatMap((source): DeliveryAlertVerdict[] => {
     const entry = health[source];
@@ -89,7 +100,7 @@ export async function readDeliveryAlerts(
         : eventDeliveryRows(rows, entry.accounts).map(entry.healthOf);
 
     return verdicts.flatMap((verdict) =>
-      verdict.healthy ? [] : alertable(source, verdict, suppressed),
+      verdict.healthy ? [] : alertable(source, verdict, suppressed, unrepairable),
     );
   });
 }
@@ -98,6 +109,7 @@ function alertable(
   source: EventSource,
   verdict: EventDeliveryFailure,
   suppressed: ReadonlySet<LiveProviderSlug>,
+  unrepairable: ReadonlySet<LiveProviderSlug>,
 ): DeliveryAlertVerdict[] {
   if (verdict.cause !== "broken") return [];
 
@@ -107,6 +119,8 @@ function alertable(
   if (!isLiveProviderSlug(integration)) return [];
 
   if (suppressed.has(integration)) return [];
+
+  if (unrepairable.has(integration)) return [];
 
   return [{ source, integration, reason: verdict.reason }];
 }
@@ -133,6 +147,26 @@ function nagsOwnCredential(rows: CredentialRowsByProvider): ReadonlySet<LiveProv
   }
 
   return nagged;
+}
+
+/** Gmail's integration slug, read off the event-source registry's account space. */
+const GMAIL_INTEGRATION = eventDeliveryAccounts("gmail").integration;
+
+/**
+ * The integrations whose delivery repair this instance is forbidden from
+ * performing, so an alert for one would ask the user to press a button that
+ * cannot change anything.
+ *
+ * Gmail is the only one: its delivery repairs — reconnect the account, renew
+ * the watch — are mailbox mutations gated by `gmailMailboxWritesEnabled()`
+ * (ADR-0081). Off production that gate defaults off, so this instance never
+ * installs a watch and every Gmail account reads `WATCH_NOT_INSTALLED`. The
+ * verdict is honest, and workflow readiness must keep refusing the trigger, but
+ * the absence is the environment's choice rather than a subscription that
+ * lapsed. Suppress it here, at the surface rule, so readiness is untouched.
+ */
+function unrepairableHere(): ReadonlySet<LiveProviderSlug> {
+  return gmailMailboxWritesEnabled() ? new Set() : new Set([GMAIL_INTEGRATION]);
 }
 
 /**

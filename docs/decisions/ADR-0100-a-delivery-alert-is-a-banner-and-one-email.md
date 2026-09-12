@@ -36,7 +36,7 @@ ADR-0048 stays as written. `isQuietMorning`, `briefingGatherSchema` and the comp
 
 ## Which states can actually speak
 
-A cause is not enough. The alert rule adds two more conditions, so the set of reachable alerts is small and worth naming.
+A cause is not enough. The alert rule adds more conditions, so the set of reachable alerts is small and worth naming.
 
 - **A GitHub row that holds an installation id and is no longer active.** GitHub's adapter reads the connected rule (ADR-0093) first: an active row that carries an `installation_id` is healthy. When no row satisfies it, a non-null `installation_id` on **any** row, at any status, is the fact that separates the two unhealthy answers. That column is a durable record that the user once completed Install and Authorize, so App deliveries did flow and have stopped. A revoked or expired row that carries one is `broken`, and it is alertable.
 - **A Gmail account whose watch lapsed.** `WATCH_NOT_INSTALLED` in `connections/ingestion/gmail-event-health.ts` is `broken` with recovery `connect gmail`. The verdict is only ever asked of a row that exists, so the user connected Gmail and the watch has since gone.
@@ -47,6 +47,14 @@ Two states look alertable and are not.
 - **Every Sentry verdict.** Sentry's two `broken` arms are a missing `SENTRY_WEBHOOK_CLIENT_SECRET` and more than one connected organization. Both carry `recovery: { kind: "none" }`, because only an operator can act on either. The rule filters both out. Sentry cannot produce an alertable verdict today.
 
 Sentry's check order is `main`'s order, unchanged. An earlier revision put the credential question before the environment question, to improve which reason an operator reads. That reorder was withdrawn. `deliveryProblem` in workflow readiness branches on the **recovery** kind, not on the cause, so the reorder would have turned a deployment with no Client Secret from `trigger_degraded`, where the run defers quietly, into `trigger_not_ready`, where the workflow blocks and the owner is emailed. It bought a better operator log line with an email nobody asked for, and it bought the alert surface nothing, because the rule filters both arms whichever one wins.
+
+## Amendment — 2026-09-12: a non-prod instance is not told to repair a watch it can never install
+
+A dev instance showed `Alfred stopped receiving Gmail activity` for an account that was never broken. The cause is the collision of two correct decisions. `gmailMailboxWritesEnabled()` defaults off outside production (ADR-0081), so `gmail.watch_install` and `gmail.watch_renew` skip and no `metadata.watch` is ever written; the account reads `WATCH_NOT_INSTALLED`, which is `broken` with a `connect gmail` recovery. That verdict is honest — the trigger genuinely cannot fire — but the absence is the environment's choice, not a subscription that lapsed, and the user's reconnect would not install a watch either. The live banner read it as a loss.
+
+The fix is a **fourth alert condition**, not a change to the verdict: `unrepairableHere()` in `connections/delivery-alerts.ts` adds Gmail to the surface rule's suppressed set when the mailbox-write gate is off. `readGmailEventHealth` is untouched, so workflow readiness keeps refusing the Gmail trigger with the same `cause: "broken"` and `recovery: connect`, and the banner and the email go quiet together. The condition is general — an instance cannot ask a user to perform a repair the instance is forbidden from performing — and Gmail is its only member today.
+
+**Rejected alternative.** Return `cause: "unknown"` from the Gmail reader when writes are disabled. It reads well ("Alfred holds no signal"), but the verdict type pins `unknown` to `recovery: { kind: "none" }`, so readiness would move the trigger from `trigger_not_ready` to `trigger_degraded`: the workflow would defer quietly instead of telling the user, changing a second surface for a sentence the alert surface alone owns. The suppression keeps the amendment to the surface rule.
 
 ## Where the code lives
 
