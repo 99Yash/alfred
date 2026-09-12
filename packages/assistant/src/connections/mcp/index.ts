@@ -87,7 +87,15 @@ export {
   listOwnedConnections,
   readOwnedConnection,
   updateConnection,
+  type McpConnectionSummary,
+  type McpConnectionWithServer,
 } from "./persistence";
+
+export {
+  addUserMcpServer,
+  type AddUserMcpServerInput,
+  type AddUserMcpServerResult,
+} from "./provision";
 
 export {
   MCP_CLIENT_CAPABILITIES,

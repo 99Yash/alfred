@@ -1,5 +1,6 @@
 import {
   Errors,
+  mcpAddServerBodySchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
 } from "@alfred/contracts";
@@ -9,6 +10,7 @@ import { Elysia, t, type Context } from "elysia";
 import { z } from "zod";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import {
+  addUserMcpServer,
   boundedMcpErrorText,
   builtInProviderForEndpoint,
   ensureBuiltInConnection,
@@ -24,6 +26,7 @@ import {
   updateConnection,
   withMcpEndpointAuthorization,
   type McpConnectionManager,
+  type McpConnectionSummary,
   type McpEndpointAuthorizer,
   type McpEndpointConnection,
   type McpEndpointNetworkPolicy,
@@ -104,9 +107,7 @@ export async function completeMcpOAuthCallback(input: {
   );
 }
 
-function connectionResult(
-  connection: NonNullable<Awaited<ReturnType<typeof readOwnedConnection>>>,
-) {
+function connectionResult(connection: McpConnectionSummary) {
   return {
     id: connection.id,
     label: connection.label,
@@ -122,6 +123,9 @@ function connectionResult(
     lastError: connection.lastError,
     lastConnectedAt: connection.lastConnectedAt,
     updatedAt: connection.updatedAt,
+    // Null until the first catalog revision is published; the card states the
+    // count only when a revision exists.
+    toolCount: connection.toolCount,
   };
 }
 
@@ -211,6 +215,29 @@ export const mcpIntegrationRoutes = new Elysia({
 
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
+      // First generic creation door (#1004). The owner supplies the endpoint;
+      // the assistant validates and probes it before any row exists, so a
+      // server that needs sign-in creates nothing and reports `auth_required`.
+      .post(
+        "/connections",
+        async ({ body, user }) => {
+          try {
+            const result = await addUserMcpServer({
+              userId: user.id,
+              endpointUrl: body.endpointUrl,
+              ...(body.label !== undefined ? { label: body.label } : {}),
+            });
+
+            return { outcome: result.outcome };
+          } catch (error) {
+            // Every expected refusal (a blocked scheme/host/port, an embedded
+            // credential, an unreachable or non-MCP endpoint) arrives here
+            // already bounded by the one MCP error funnel.
+            throw Errors.BadRequestError(boundedMcpErrorText(error));
+          }
+        },
+        { body: mcpAddServerBodySchema },
+      )
       // The recovery read is pure: it never repairs a row, so a focus refetch
       // costs one query pair and no broker construction.
       .get(
@@ -310,6 +337,37 @@ export const mcpIntegrationRoutes = new Elysia({
           await getMcpConnectionManager().getReadyClient(params.id);
 
           return redirectToIntegrations(set);
+        },
+        { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+      )
+      // Generic lifecycle actions (#1004). Reconnect drops the live client and
+      // opens a fresh generation; disconnect closes it and marks the row.
+      .post(
+        "/connections/:id/reconnect",
+        async ({ params, user }) => {
+          const connection = await readOwnedConnection(params.id, user.id);
+
+          if (!connection) throw Errors.NotFoundError("MCP connection not found");
+
+          try {
+            await getMcpConnectionManager().disconnect(params.id, user.id);
+            await getMcpConnectionManager().getReadyClient(params.id);
+          } catch (error) {
+            throw Errors.BadRequestError(boundedMcpErrorText(error));
+          }
+
+          return { status: "connected" as const };
+        },
+        { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+      )
+      .post(
+        "/connections/:id/disconnect",
+        async ({ params, user }) => {
+          const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
+
+          if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
+
+          return { status: "disconnected" as const };
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       ),

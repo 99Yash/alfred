@@ -66,6 +66,15 @@ export type McpConnectionWithServer = McpConnection & {
 };
 
 /**
+ * A connection plus the size of the catalog revision it currently points at.
+ * `toolCount` is `null` until the first revision is published; the integrations
+ * card states the number only when it is known.
+ */
+export type McpConnectionSummary = McpConnectionWithServer & {
+  readonly toolCount: number | null;
+};
+
+/**
  * One connection ensure. `instanceKey` is the caller's idempotency key inside
  * one server definition: the same key returns the same row, and a different key
  * mints a second instance on the same endpoint. The caller always supplies it,
@@ -267,16 +276,28 @@ export async function readOwnedConnection(
 export async function listOwnedConnections(
   userId: string,
   runner: DbRunner = db(),
-): Promise<McpConnectionWithServer[]> {
+): Promise<McpConnectionSummary[]> {
   const rows = await runner
-    .select(connectionWithServerSelection)
+    .select({
+      ...connectionWithServerSelection,
+      toolCount: mcpCatalogRevisions.toolCount,
+    })
     .from(mcpConnections)
     .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
+    // A connection is listable before its first revision exists, so this is a
+    // LEFT join and `toolCount` stays null until a publication lands.
+    .leftJoin(
+      mcpCatalogRevisions,
+      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+    )
     .where(eq(mcpConnections.userId, userId))
     .orderBy(desc(mcpConnections.updatedAt))
     .limit(100);
 
-  return rows.map(joinConnection);
+  return rows.map(({ toolCount, ...row }) => ({
+    ...joinConnection(row),
+    toolCount: toolCount ?? null,
+  }));
 }
 
 /**
