@@ -101,29 +101,29 @@ describe("buildSdkToolSet caller/interaction projection", () => {
   // could never climb to a tool it needs.
   const kernelNames = () => listKernelTools().map((t) => t.name);
 
-  test("live chat boss projects all eight kernel tools", () => {
+  test("live chat boss projects all nine kernel tools", () => {
     const chat = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "live_chat" }),
     );
 
-    assert.equal(chat.length, 8, `[${[...chat].sort().join(", ")}]`);
+    assert.equal(chat.length, 9, `[${[...chat].sort().join(", ")}]`);
   });
 
-  test("a background brief drops read_chat_history (requiresLiveChat) → seven", () => {
+  test("a background brief drops read_chat_history (requiresLiveChat) → eight", () => {
     const brief = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "background" }),
     );
 
-    assert.equal(brief.length, 7);
+    assert.equal(brief.length, 8);
     assert.ok(!brief.includes("system.read_chat_history"), `[${[...brief].sort().join(", ")}]`);
   });
 
-  test("a sub-agent also drops spawn_sub_agent (boss-only caller) → five", () => {
+  test("a sub-agent also drops spawn_sub_agent (boss-only caller) → six", () => {
     const sub = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "sub_agent", interaction: "background" }),
     );
 
-    assert.equal(sub.length, 5);
+    assert.equal(sub.length, 6);
     assert.ok(!sub.includes("system.read_chat_history"));
     assert.ok(!sub.includes("system.spawn_sub_agent"), `[${[...sub].sort().join(", ")}]`);
   });

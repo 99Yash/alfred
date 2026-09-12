@@ -537,6 +537,40 @@ export function suggestTodo(args: SystemToolRequest<"system.suggest_todo">): Pro
   return systemToolTaskAdapterPort.read().suggestTodo(args);
 }
 
+/**
+ * Surface:  chat.
+ * Owns/hides: the cross-source evidence read the `system.search_context` tool
+ *   reaches — one bounded query envelope in, packed evidence text out. Hides the
+ *   `context-search` module (its registered source set, the vector/object
+ *   adapters, and the packer) and its `@alfred/db` / `@alfred/corpus` reach. The
+ *   method returns `unknown`, so no context-search result type crosses the seam.
+ * Why the seam: tool-runtime must not import `@alfred/assistant/context-search`,
+ *   whose adapters pull the database and corpus graphs into the eager tool
+ *   barrel that every tool declaration imports (ADR-0101, ADR-0089).
+ * Wiring: runtime/adapters/system-tool-context-search.ts installs;
+ *   internal/tools/context-search.ts reads.
+ * See: ADR-0101, ADR-0089, and docs/reference/tool-runtime-map.md.
+ */
+export interface SystemToolContextSearchAdapter {
+  searchContext(args: SystemToolRequest<"system.search_context">): Promise<unknown>;
+}
+
+const systemToolContextSearchAdapterPort = bootPort<SystemToolContextSearchAdapter>(
+  "system-tool context-search adapter",
+);
+
+/** Runtime composition installs the cross-source evidence read at boot. */
+export function registerSystemToolContextSearchAdapter(
+  adapter: SystemToolContextSearchAdapter,
+): () => void {
+  return systemToolContextSearchAdapterPort.install(adapter);
+}
+
+/** Read packed cross-source evidence behind the registered context-search seam. */
+export function searchContext(args: SystemToolRequest<"system.search_context">): Promise<unknown> {
+  return systemToolContextSearchAdapterPort.read().searchContext(args);
+}
+
 /** Read bounded raw evidence from the current chat thread. */
 export function readChatHistory(args: {
   userId: string;

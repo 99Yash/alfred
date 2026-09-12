@@ -9,6 +9,7 @@ import {
   type RegisteredTool,
 } from "./internal/registry";
 import { calendarTools } from "./internal/tools/calendar";
+import { contextSearchTools } from "./internal/tools/context-search";
 import { corpusTools } from "./internal/tools/corpus";
 import { docsTools } from "./internal/tools/docs";
 import { driveTools } from "./internal/tools/drive";
@@ -37,6 +38,7 @@ const builtinToolRegistry: BuiltinToolRegistry = {
 
 export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(systemTools);
+  registerTools(contextSearchTools);
   registerTools(corpusTools);
   registerTools(gmailTools);
   registerTools(calendarTools);
@@ -50,7 +52,7 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(sentryTools);
   registerTools(vercelTools);
   registerTools(mcpTools);
-  assertKernelToolsRegistered(systemTools);
+  assertKernelToolsRegistered([...systemTools, ...contextSearchTools]);
   registerToolsRuntimeAdapter();
   registerWorkflowToolCatalog();
 

@@ -46,6 +46,7 @@ describe("runtime adapter lifecycle", () => {
         "system-tool-chat",
         "system-tool-workflows",
         "system-tool-product",
+        "system-tool-context-search",
         "chat-attachment-enrichment",
         "chat-media",
         "gmail-triage",
@@ -75,13 +76,20 @@ describe("runtime adapter lifecycle", () => {
         "system-tool-workflows",
         "system-tool-chat",
         "system-tool-agent",
+        "system-tool-context-search",
       ],
     );
     assert.deepEqual(
       RUNTIME_ADAPTERS.filter(({ retainIfAgentWorkerActive }) =>
         Boolean(retainIfAgentWorkerActive),
       ).map(({ name }) => name),
-      ["system-tool-agent", "system-tool-chat", "system-tool-workflows", "system-tool-product"],
+      [
+        "system-tool-agent",
+        "system-tool-chat",
+        "system-tool-workflows",
+        "system-tool-product",
+        "system-tool-context-search",
+      ],
     );
     assert.deepEqual(
       RUNTIME_ADAPTERS.filter(({ retainIfIngestionWorkerActive }) =>

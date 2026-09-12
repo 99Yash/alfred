@@ -16,11 +16,23 @@ import { z } from "zod";
  */
 export const objectIdentitySchema = z.object({
   /** Integration slug — `github`, later `clickup`, `claude-code`. */
-  provider: z.string().min(1).max(100),
+  provider: z
+    .string()
+    .min(1)
+    .max(100)
+    .describe("Integration slug that owns the object, for example `github`."),
   /** Object kind within the provider — `pull_request`, `task`. */
-  kind: z.string().min(1).max(100),
+  kind: z
+    .string()
+    .min(1)
+    .max(100)
+    .describe("Provider-declared object kind, for example `pull_request`."),
   /** Provider-native stable id, as a string. */
-  externalId: z.string().min(1).max(512),
+  externalId: z
+    .string()
+    .min(1)
+    .max(512)
+    .describe("Provider-native stable id of the object, as a string."),
 });
 
 export type ObjectIdentity = z.infer<typeof objectIdentitySchema>;
