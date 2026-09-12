@@ -357,7 +357,7 @@ export const mcpIntegrationRoutes = new Elysia({
         },
       )
       // One door for every first-class server. The provider key is the path
-      // segment, and `MCP_BUILT_IN_CATALOG` is the only thing that mints one,
+      // segment, and `BUILT_IN_MCP_CATALOG` is the only thing that mints one,
       // so the next built-in adds no route here.
       .get(
         "/built-ins/:provider/connect",

@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  MCP_BUILT_IN_PROVIDERS,
+  BUILT_IN_MCP_PROVIDERS,
   type McpRecoveryDecision,
   type McpRecoveryOperationsPage,
 } from "@alfred/contracts";
@@ -108,7 +108,7 @@ export function MCPServerSection() {
         {MCP_SECTION.heading}
       </h2>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {MCP_BUILT_IN_PROVIDERS.map((provider) => (
+        {BUILT_IN_MCP_PROVIDERS.map((provider) => (
           <McpBuiltInCard
             key={provider}
             provider={provider}
