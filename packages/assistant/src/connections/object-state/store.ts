@@ -56,6 +56,12 @@ export interface ObjectState {
   title: string | null;
   url: string | null;
   repo: string | null;
+  /**
+   * Last delivery that advanced this object's state. Exposed so a reader can
+   * report when the projection observed the state (freshness) instead of
+   * inferring it from absence; the briefing reconciliation ignores it.
+   */
+  stateDeliveredAt: Date | null;
 }
 
 export interface ApplyEventArgs {
@@ -96,6 +102,17 @@ export interface ObjectStateStore {
    * place, so it always returns the live state.
    */
   getState(userId: string, ref: ObjectStateRef, at?: Date): Promise<ObjectState | null>;
+  /**
+   * Current state by provider-native identity, the `(provider, kind,
+   * externalId)` unique key. The deterministic read for a caller that already
+   * knows the object, not its sidecar key; returns `null` when no row exists.
+   */
+  getByIdentity(
+    userId: string,
+    provider: ObjectStateProvider,
+    kind: string,
+    externalId: string,
+  ): Promise<ObjectState | null>;
   list(
     userId: string,
     provider: ObjectStateProvider,
@@ -133,6 +150,7 @@ function rowToObjectState(row: IntegrationObject): ObjectState {
     title: row.title,
     url: row.url,
     repo: row.repo,
+    stateDeliveredAt: row.stateDeliveredAt,
   };
 }
 
@@ -267,6 +285,25 @@ export const objectStateStore: ObjectStateStore = {
       .select()
       .from(integrationObjects)
       .where(and(eq(integrationObjects.id, ref.objectId), eq(integrationObjects.userId, userId)))
+      .limit(1);
+
+    if (!row) return null;
+
+    return rowToObjectState(row);
+  },
+
+  async getByIdentity(userId, provider, kind, externalId) {
+    const [row] = await db()
+      .select()
+      .from(integrationObjects)
+      .where(
+        and(
+          eq(integrationObjects.userId, userId),
+          eq(integrationObjects.provider, provider),
+          eq(integrationObjects.kind, kind),
+          eq(integrationObjects.externalId, externalId),
+        ),
+      )
       .limit(1);
 
     if (!row) return null;

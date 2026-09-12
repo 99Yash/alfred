@@ -1,14 +1,15 @@
 import { createDocumentContextSource } from "./documents-source";
 import { createMemoryContextSource } from "./memory-source";
+import { createObjectStateContextSource } from "./object-state-source";
 import { registerContextSource, type ContextSource } from "./registry";
 
 /**
- * The production composition helper for the built-in sources (#424).
+ * The production composition helper for the built-in sources (#424, #425).
  *
  * The boundary never imports a concrete adapter; a composition root registers
- * them. This is that one call for the two source-backed primitives that exist
- * today (ingested documents and memory), so `apps/server` names one function
- * instead of reaching into adapter files the module keeps private.
+ * them. This is that one call for the primitives that exist today (ingested
+ * documents, memory, and deterministic object state), so `apps/server` names
+ * one function instead of reaching into adapter files the module keeps private.
  *
  * The instances are memoized: `registerContextSource` throws when a *different*
  * instance claims a live id, so a second boot call in one process must reinstall
@@ -19,6 +20,7 @@ import { registerContextSource, type ContextSource } from "./registry";
 const builtinSources: readonly ContextSource[] = [
   createDocumentContextSource(),
   createMemoryContextSource(),
+  createObjectStateContextSource(),
 ];
 
 /** Register the built-in context sources; returns a disposer for all of them. */
