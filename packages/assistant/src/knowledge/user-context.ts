@@ -11,7 +11,7 @@ import {
   userPreferences,
 } from "@alfred/db/schemas";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
-import { memorySourceSchema, type MemorySource } from "./types";
+import { memorySourceSchema, type MemorySource, USER_FACING_MEMORY_CHUNK_KINDS } from "./types";
 
 /** The sections {@link readUserContext} can be narrowed to via `include`. */
 export type UserContextSection =
@@ -406,7 +406,15 @@ export async function readUserContext(
       ? db()
           .select({ kind: memoryChunks.kind, content: memoryChunks.content })
           .from(memoryChunks)
-          .where(eq(memoryChunks.userId, userId))
+          .where(
+            and(
+              eq(memoryChunks.userId, userId),
+              // An `extraction_run` chunk is operational bookkeeping, never
+              // something Alfred knows about the user, so `recent_memory` reads
+              // the same user-facing set as recall (#1052).
+              inArray(memoryChunks.kind, [...USER_FACING_MEMORY_CHUNK_KINDS]),
+            ),
+          )
           .orderBy(desc(memoryChunks.createdAt))
           .limit(MEMORY_LIMIT)
       : Promise.resolve([]),
