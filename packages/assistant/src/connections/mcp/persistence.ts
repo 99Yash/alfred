@@ -66,6 +66,15 @@ export type McpConnectionWithServer = McpConnection & {
 };
 
 /**
+ * A connection plus the size of the catalog revision it currently points at.
+ * `toolCount` is `null` until the first revision is published; the integrations
+ * card states the number only when it is known.
+ */
+export type McpConnectionSummary = McpConnectionWithServer & {
+  readonly toolCount: McpCatalogRevision["toolCount"] | null;
+};
+
+/**
  * One connection ensure. `instanceKey` is the caller's idempotency key inside
  * one server definition: the same key returns the same row, and a different key
  * mints a second instance on the same endpoint. The caller always supplies it,
@@ -211,7 +220,10 @@ export async function ensureConnection(
       })
       .onConflictDoUpdate({
         target: [mcpConnections.userId, mcpConnections.serverId, mcpConnections.instanceKey],
-        set: { updatedAt: new Date() },
+        // The label travels with the ensure. Without it a re-add that corrects a
+        // typo in the display name reports success and keeps the old name, which
+        // reads as the write having been lost.
+        set: { label: input.label, updatedAt: new Date() },
       })
       .returning();
 
@@ -223,10 +235,14 @@ export async function ensureConnection(
 }
 
 /**
- * Ensure the one stable slot a closed built-in provider owns. This is the only
- * creation door the HTTP layer may open until the endpoint-authorizer slice
- * admits arbitrary URLs, so the registry — not a request — supplies the
- * endpoint, the canonical resource and the instance key.
+ * Ensure the one stable slot a closed built-in provider owns.
+ *
+ * The registry — not a request — supplies the endpoint, the canonical resource
+ * and the instance key. That is what separates this door from the generic one
+ * `addUserMcpServer` opens (#1004): a built-in's rows carry the registry's
+ * read-only catalog pin (ADR-0094) and protocol-era pin (ADR-0095), which are
+ * keyed on the endpoint the registry supplied, so the generic door refuses a
+ * built-in's URL rather than minting a lookalike row without them.
  */
 export async function ensureBuiltInConnection(
   userId: string,
@@ -267,16 +283,27 @@ export async function readOwnedConnection(
 export async function listOwnedConnections(
   userId: string,
   runner: DbRunner = db(),
-): Promise<McpConnectionWithServer[]> {
+): Promise<McpConnectionSummary[]> {
   const rows = await runner
-    .select(connectionWithServerSelection)
+    .select({
+      ...connectionWithServerSelection,
+      toolCount: mcpCatalogRevisions.toolCount,
+    })
     .from(mcpConnections)
     .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
+    // A connection is listable before its first revision exists, so this is a
+    // LEFT join and `toolCount` stays null until a publication lands.
+    .leftJoin(
+      mcpCatalogRevisions,
+      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+    )
     .where(eq(mcpConnections.userId, userId))
     .orderBy(desc(mcpConnections.updatedAt))
     .limit(100);
 
-  return rows.map(joinConnection);
+  // `toolCount` is already `number | null` here: Drizzle nullifies a LEFT-joined
+  // column on its own, so a `?? null` would only restate the type it has.
+  return rows.map(({ toolCount, ...row }) => ({ ...joinConnection(row), toolCount }));
 }
 
 /**

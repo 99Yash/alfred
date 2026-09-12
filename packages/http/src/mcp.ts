@@ -1,5 +1,6 @@
 import {
   Errors,
+  mcpAddServerBodySchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
 } from "@alfred/contracts";
@@ -9,13 +10,15 @@ import { Elysia, t, type Context } from "elysia";
 import { z } from "zod";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import {
+  addUserMcpServer,
   boundedMcpErrorText,
   builtInProviderForEndpoint,
   ensureBuiltInConnection,
   getMcpConnectionManager,
-  HostedMcpEndpointAuthorizer,
+  getMcpEndpointAuthorizer,
   listOwnedConnections,
   MCP_DEFAULT_REQUEST_TIMEOUT_MS,
+  isAddUserMcpServerRefusal,
   McpOAuthAuthorizationRequiredError,
   mcpConsentAsk,
   mcpOAuthClientConfiguration,
@@ -24,6 +27,7 @@ import {
   updateConnection,
   withMcpEndpointAuthorization,
   type McpConnectionManager,
+  type McpConnectionSummary,
   type McpEndpointAuthorizer,
   type McpEndpointConnection,
   type McpEndpointNetworkPolicy,
@@ -39,7 +43,7 @@ import { requireOnboarded } from "./middleware/onboarding";
 
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
 
-const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
+const endpointAuthorizer = getMcpEndpointAuthorizer();
 
 /** OAuth start and callback have no raw client, so they name the client's default budget. */
 const OAUTH_NETWORK: McpEndpointNetworkPolicy = {
@@ -104,9 +108,7 @@ export async function completeMcpOAuthCallback(input: {
   );
 }
 
-function connectionResult(
-  connection: NonNullable<Awaited<ReturnType<typeof readOwnedConnection>>>,
-) {
+function connectionResult(connection: McpConnectionSummary) {
   return {
     id: connection.id,
     label: connection.label,
@@ -122,6 +124,9 @@ function connectionResult(
     lastError: connection.lastError,
     lastConnectedAt: connection.lastConnectedAt,
     updatedAt: connection.updatedAt,
+    // Null until the first catalog revision is published; the card states the
+    // count only when a revision exists.
+    toolCount: connection.toolCount,
   };
 }
 
@@ -195,8 +200,10 @@ function redirectToIntegrations(set: Context["set"]): null {
 }
 
 /**
- * First real MCP connection surface. The endpoint is fixed to GitHub until the
- * separate endpoint-authorizer slice admits arbitrary URLs.
+ * The MCP connection surface. Two creation doors: the GitHub built-in, whose
+ * endpoint the registry supplies, and the generic `POST /connections` (#1004),
+ * where the owner supplies the URL and the assistant validates and probes it
+ * before any row exists.
  */
 export const mcpIntegrationRoutes = new Elysia({
   prefix: "/api/integrations/mcp",
@@ -211,6 +218,37 @@ export const mcpIntegrationRoutes = new Elysia({
 
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
+      // First generic creation door (#1004). The owner supplies the endpoint;
+      // the assistant validates and probes it before any row exists, so a
+      // server that needs sign-in creates nothing and reports `auth_required`.
+      .post(
+        "/connections",
+        async ({ body, request, user }) => {
+          try {
+            const result = await addUserMcpServer({
+              userId: user.id,
+              endpointUrl: body.endpointUrl,
+              // The probe commits nothing, so a closed tab may abort it. The
+              // assistant unions this with its own aggregate deadline, which is
+              // what bounds a server that answers slowly but forever.
+              signal: request.signal,
+              ...(body.label !== undefined ? { label: body.label } : {}),
+            });
+
+            return { outcome: result.outcome };
+          } catch (error) {
+            // A refusal the OWNER caused is a 400, bounded by the one MCP error
+            // funnel: a blocked scheme/host/port, an embedded credential, a
+            // built-in's own URL, an unreachable or non-MCP endpoint. Anything
+            // else — a failed insert, a missing key — is Alfred's fault and must
+            // stay a 500 rather than blame the URL the owner typed.
+            if (!isAddUserMcpServerRefusal(error)) throw error;
+
+            throw Errors.BadRequestError(boundedMcpErrorText(error));
+          }
+        },
+        { body: mcpAddServerBodySchema },
+      )
       // The recovery read is pure: it never repairs a row, so a focus refetch
       // costs one query pair and no broker construction.
       .get(
@@ -310,6 +348,39 @@ export const mcpIntegrationRoutes = new Elysia({
           await getMcpConnectionManager().getReadyClient(params.id);
 
           return redirectToIntegrations(set);
+        },
+        { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+      )
+      // Generic lifecycle actions (#1004). Reconnect drops the live client and
+      // opens a fresh generation; disconnect closes it and marks the row.
+      .post(
+        "/connections/:id/reconnect",
+        async ({ params, user }) => {
+          let reconnected: boolean;
+
+          try {
+            // The manager owns the close/open pair because it owns the restore:
+            // a remote that is down between the two must not cost the row its
+            // published catalog.
+            reconnected = await getMcpConnectionManager().reconnect(params.id, user.id);
+          } catch (error) {
+            throw Errors.BadRequestError(boundedMcpErrorText(error));
+          }
+
+          if (!reconnected) throw Errors.NotFoundError("MCP connection not found");
+
+          return { status: "connected" as const };
+        },
+        { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+      )
+      .post(
+        "/connections/:id/disconnect",
+        async ({ params, user }) => {
+          const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
+
+          if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
+
+          return { status: "disconnected" as const };
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       ),

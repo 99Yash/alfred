@@ -212,6 +212,26 @@ export const mcpRecoveryMutationResultSchema = z
 export type McpRecoveryMutationResult = z.infer<typeof mcpRecoveryMutationResultSchema>;
 
 // ---------------------------------------------------------------------------
+// Generic server connection (PRD #1004). The owner supplies the endpoint URL;
+// the server validates and probes it. The label is optional and defaults to the
+// endpoint host when omitted. `outcome` is the closed answer the add route
+// returns: a reachable no-auth server becomes a connection, and a server that
+// answers with an authorization challenge is reported WITHOUT creating rows.
+// ---------------------------------------------------------------------------
+export const MCP_ADD_SERVER_MAX_URL_LENGTH = 2_048;
+
+export const MCP_ADD_SERVER_MAX_LABEL_LENGTH = 100;
+
+export const mcpAddServerBodySchema = z
+  .object({
+    endpointUrl: z.url().max(MCP_ADD_SERVER_MAX_URL_LENGTH),
+    label: z.string().trim().min(1).max(MCP_ADD_SERVER_MAX_LABEL_LENGTH).optional(),
+  })
+  .strict();
+
+export type McpAddServerBody = z.infer<typeof mcpAddServerBodySchema>;
+
+// ---------------------------------------------------------------------------
 // Content-block kinds (#541). The CLOSED set the MCP `ContentBlock` union
 // admits, plus an explicit `unknown` tail. The SDK validates every block
 // against this union before a result reaches Alfred, so an out-of-set `type`
