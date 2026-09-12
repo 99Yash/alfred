@@ -1,7 +1,8 @@
 /**
  * MCP OAuth (RFC 8707 resource indicators + RFC 8414 discovery + RFC 7591 DCR).
  *
- * Execution order — start (`GET /github/connect` -> `beginAuthorization` in
+ * Execution order — start (`GET /built-ins/:provider/connect` or
+ * `GET /connections/:id/authorize` -> `beginAuthorization` in
  * `packages/http/src/mcp.ts`):
  *  1. `authorize()` runs SDK `auth()`: `saveDiscoveryState` (upsert
  *     `mcp_oauth_credentials`) -> `clientInformation` (DCR or built-in env
@@ -51,7 +52,11 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { rememberOAuthNonce, signOAuthState } from "@alfred/assistant/connections";
-import { resolveBuiltInClient } from "./built-ins";
+import {
+  builtInClientUnavailableMessage,
+  resolveBuiltInClient,
+  type BuiltInClientResolution,
+} from "./built-ins";
 import type { McpAuthorizedOAuth, McpAuthorizedOAuthServer } from "./endpoint-authorization";
 
 const oauthMetadataSchema = z.looseObject({
@@ -585,15 +590,26 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     // environment stays canonical, so a rotated secret takes effect on the very
     // next token exchange. `token_endpoint_auth_method` travels WITH the secret
     // because the SDK's `selectClientAuthMethod` reads it off this object.
-    const staticClient = this.#staticBuiltInClient(ctx?.issuer ?? credential?.issuer);
+    const resolution = this.#staticBuiltInClient(ctx?.issuer ?? credential?.issuer);
 
-    if (staticClient) {
+    // A provider that pins a client and cannot produce one is a REFUSAL, and
+    // `undefined` here does not report it: the SDK reads that as consent to
+    // register a client of its own, against the very issuer the pin refused.
+    // Throwing is what makes the PR's "fails closed" true. `beginAuthorization`
+    // records the message on the connection, so the card states the reason.
+    if (resolution.kind === "unavailable") {
+      throw new Error(builtInClientUnavailableMessage(resolution));
+    }
+
+    if (resolution.kind === "static") {
+      const { client } = resolution;
+
       return {
-        client_id: staticClient.clientId,
-        issuer: staticClient.issuer,
-        ...(staticClient.clientSecret
+        client_id: client.clientId,
+        issuer: client.issuer,
+        ...(client.clientSecret
           ? {
-              client_secret: staticClient.clientSecret,
+              client_secret: client.clientSecret,
               token_endpoint_auth_method: "client_secret_post",
             }
           : {}),
@@ -865,9 +881,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     return this.#attemptStateHash;
   }
 
-  #staticBuiltInClient(
-    issuerHint?: string,
-  ): { clientId: string; clientSecret?: string; issuer: string } | undefined {
+  #staticBuiltInClient(issuerHint?: string): BuiltInClientResolution {
     // The authorized resource IS the connection's endpoint: the authorizer
     // validated it against the stored server definition before this provider
     // existed, so no second copy of the URL can drift from it.

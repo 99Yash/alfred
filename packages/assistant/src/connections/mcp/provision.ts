@@ -36,6 +36,7 @@
 
 import { MCP_DEFAULT_REQUEST_TIMEOUT_MS, McpRawClient } from "./client";
 import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
+import { MCP_OAUTH_PENDING_IDENTITY } from "./constants";
 import { getMcpEndpointAuthorizer, validatePublicHttpsEndpoint } from "./endpoint-authorization";
 import { isMcpAuthorizationChallenge, isMcpEndpointRefusal } from "./errors";
 import { hostedEndpointKey } from "../hosted-endpoint";
@@ -142,7 +143,9 @@ export async function addUserMcpServer(
     // already connected keeps its status. That is the property that lets the
     // owner re-add a URL to correct its label without demoting a live row.
     ...(requiresAuthorization
-      ? { initialState: { authServerIdentity: "oauth:pending", status: "auth_required" } }
+      ? {
+          initialState: { authServerIdentity: MCP_OAUTH_PENDING_IDENTITY, status: "auth_required" },
+        }
       : {}),
   });
 

@@ -16,8 +16,8 @@ import {
   useAppForm,
 } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
-import { API_URL, client } from "~/lib/eden";
-import { MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
+import { client } from "~/lib/eden";
+import { mcpAuthorizeUrl, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
 import { McpTile } from "./mcp-tile";
 
 /**
@@ -96,7 +96,7 @@ export function McpAddServerForm() {
           // connection's authorize route, which redirects to the server's own
           // authorization server; its callback returns here. Nothing is reset
           // and the modal stays open, because this frame is leaving the page.
-          window.location.href = `${API_URL}/api/integrations/mcp/connections/${data.connectionId}/authorize`;
+          window.location.href = mcpAuthorizeUrl(data.connectionId);
 
           return;
         }

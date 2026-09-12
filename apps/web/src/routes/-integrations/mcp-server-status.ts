@@ -1,4 +1,4 @@
-import type { McpConnectionStatus } from "@alfred/contracts";
+import type { McpConnection } from "./helpers";
 
 /**
  * What one stored connection's state says to its owner.
@@ -8,10 +8,9 @@ import type { McpConnectionStatus } from "@alfred/contracts";
  * — what a first-class server buys, or what the generic add door is for — and
  * the caller already holds them.
  */
-export function mcpConnectionStatusText(connection: {
-  status: McpConnectionStatus;
-  lastError: string | null;
-}): string {
+export function mcpConnectionStatusText(
+  connection: Pick<McpConnection, "status" | "lastError">,
+): string {
   switch (connection.status) {
     case "ready":
       return "Connected";
@@ -39,11 +38,9 @@ export function mcpConnectionStatusText(connection: {
  * The count is the one fact a connection can report without a call, so it is
  * folded into the status line rather than given a second field.
  */
-export function mcpConnectionSubtitle(connection: {
-  status: McpConnectionStatus;
-  lastError: string | null;
-  toolCount: number | null;
-}): string {
+export function mcpConnectionSubtitle(
+  connection: Pick<McpConnection, "status" | "lastError" | "toolCount">,
+): string {
   const status = mcpConnectionStatusText(connection);
 
   if (connection.status !== "ready" || connection.toolCount === null) return status;

@@ -325,9 +325,14 @@ export function getIntegrationPage(value: string): IntegrationPage | undefined {
 /**
  * Brand mark for an integration slug, or `undefined` for a slug without a page
  * (Alfred's own `system` tools, the `mcp` projection, the `imessage` channel).
- * Every provider entry carries a brand, so a slug with a page always renders
- * its own mark.
+ *
+ * A `CatalogSlug` names a PROVIDER entry, and every provider entry carries a
+ * brand, so that overload answers a mark and never `undefined`. Without it a
+ * caller that already holds a provider slug still has to write a fallback
+ * branch for a case the registry cannot produce.
  */
+export function brandForIntegration(slug: CatalogSlug): IntegrationBrand;
+export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined;
 export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined {
   const entry = INTEGRATIONS[slug];
 

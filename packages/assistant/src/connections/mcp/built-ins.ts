@@ -5,7 +5,7 @@
  * A built-in is a provider whose endpoint, canonical resource and client-side
  * policy Alfred pins in CODE. `oauth.ts` reads the pre-registered client
  * through `resolveBuiltInClient`, and `persistence.ts` turns one entry into the
- * input of a connection ensure. A second built-in adds one entry here, one
+ * input of a connection ensure. The next built-in adds one entry here, one
  * entry in `MCP_BUILT_IN_CATALOG`, and edits nothing else.
  *
  * The split is by audience, not by convenience. Everything a BROWSER may read —
@@ -38,6 +38,7 @@ import {
   GITHUB_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ISSUER,
   LINEAR_MCP_ENDPOINT_HREF,
+  MCP_OAUTH_PENDING_IDENTITY,
   NOTION_MCP_ENDPOINT_HREF,
   SENTRY_MCP_ENDPOINT_HREF,
 } from "./constants";
@@ -47,6 +48,46 @@ export type BuiltInOAuthConfig = {
   readonly clientId: string;
   readonly clientSecret?: string;
 };
+
+/**
+ * The env keys a built-in may pin, derived from `ServerEnv` by NAME SHAPE.
+ *
+ * `keyof ServerEnv` was the obvious spelling and it is a hazard: the value this
+ * field names is read and sent to a third-party authorization server, so
+ * `clientIdKey: "OPENAI_API_KEY"` compiled and exfiltrated. A built-in's client
+ * credential is not any env field, it is the pair the environment declares for
+ * that provider, and the suffix is what says so.
+ *
+ * Derived, never listed: a provider that adds `LINEAR_MCP_CLIENT_ID` to
+ * `serverEnvSchema` becomes nameable here with no edit, and no other secret
+ * ever does.
+ */
+type McpClientIdEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_ID`>;
+
+type McpClientSecretEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_SECRET`>;
+
+/**
+ * What the registry can answer when a caller asks for a pinned OAuth client.
+ *
+ * Three different facts used to share one `undefined`, and the SDK reads the
+ * absence of a client as "register one dynamically". For "this provider pins
+ * none" that is right. For "the pin exists and the environment does not supply
+ * it", and for "discovery named an issuer outside the pinned origin", it turns
+ * a REFUSAL into a fall-through: the second case is `boundIssuer` refusing to
+ * let a pinned client reach a foreign origin, and dynamic registration against
+ * that same unverified issuer is the last thing that should follow it.
+ *
+ * The union makes the caller answer all three. `unavailable` carries the env
+ * key so the connection row can state which line an operator has to set.
+ */
+export type BuiltInClientResolution =
+  | { readonly kind: "dynamic" }
+  | { readonly kind: "static"; readonly client: BuiltInOAuthConfig }
+  | {
+      readonly kind: "unavailable";
+      readonly reason: "missing_client_id" | "issuer_not_bound";
+      readonly envKey: McpClientIdEnvKey;
+    };
 
 /**
  * One built-in definition.
@@ -77,8 +118,8 @@ type BuiltInDefinition = {
    */
   readonly staticClient?: {
     readonly issuer: string;
-    readonly clientIdKey: keyof ServerEnv;
-    readonly clientSecretKey: keyof ServerEnv;
+    readonly clientIdKey: McpClientIdEnvKey;
+    readonly clientSecretKey: McpClientSecretEnvKey;
   };
   /**
    * OAuth scopes Alfred asks for on EVERY authorize for this provider, and the
@@ -152,7 +193,7 @@ type BuiltInDefinition = {
  * yet. Shared because it is the same sentence for every provider.
  */
 const BUILT_IN_INITIAL_STATE = {
-  authServerIdentity: "oauth:pending",
+  authServerIdentity: MCP_OAUTH_PENDING_IDENTITY,
   status: "disconnected",
 } as const satisfies BuiltInDefinition["initialState"];
 
@@ -360,17 +401,22 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
 );
 
 /**
- * The pre-registered OAuth client for the built-in that owns `endpoint`, when
- * that built-in pins one AND the environment supplies it. GitHub's
- * authorization server supports neither RFC 7591 dynamic registration nor
- * URL-based client ids, so without this the SDK throws at registration (#934).
- * The SDK reads the result from `McpOAuthProvider.clientInformation` and then
- * skips registration; `undefined` leaves it to register a client itself, which
- * is what every other built-in and every user-added server relies on.
+ * How the built-in that owns `endpoint` wants its OAuth client obtained.
  *
- * `clientId` decides presence. A secret with no id leaves the built-in absent,
- * so a half-configured environment fails closed instead of sending a secret
- * with no client.
+ * GitHub's authorization server supports neither RFC 7591 dynamic registration
+ * nor URL-based client ids, so without a pinned client the SDK throws at
+ * registration (#934). Every other built-in, and every user-added server,
+ * relies on the server registering one.
+ *
+ * The three answers are distinct on purpose (see {@link BuiltInClientResolution}).
+ * `dynamic` is the normal case and the caller must let the SDK register.
+ * `unavailable` is a REFUSAL and the caller must fail the authorize: falling
+ * through to dynamic registration is what turned a refused issuer into a
+ * registration attempt against that same unverified origin.
+ *
+ * `clientId` decides presence. A secret with no id is `missing_client_id`, so a
+ * half-configured environment fails closed instead of sending a secret with no
+ * client.
  *
  * `issuerHint` comes from discovery and may name a path under the pinned
  * issuer. The hint must share the pinned issuer's ORIGIN; the returned `issuer`
@@ -379,27 +425,40 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
 export function resolveBuiltInClient(
   endpoint: URL,
   issuerHint?: string | undefined,
-): BuiltInOAuthConfig | undefined {
+): BuiltInClientResolution {
   const definition = lookupBuiltIn(endpoint);
   const staticClient = definition?.staticClient;
 
-  // No pinned client is the NORMAL answer, not a failure: the authorization
-  // server registers one dynamically. Returning `undefined` is what tells the
-  // SDK to do that.
-  if (!staticClient) return undefined;
-  const clientId = envFieldValue(staticClient.clientIdKey);
+  if (!staticClient) return { kind: "dynamic" };
+  const envKey = staticClient.clientIdKey;
+  const clientId = envFieldValue(envKey);
 
-  if (typeof clientId !== "string") return undefined;
+  if (typeof clientId !== "string") {
+    return { kind: "unavailable", reason: "missing_client_id", envKey };
+  }
+
   const issuer = issuerHint ? boundIssuer(definition, issuerHint) : staticClient.issuer;
 
-  if (!issuer) return undefined;
+  if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound", envKey };
   const clientSecret = envFieldValue(staticClient.clientSecretKey);
 
   return {
-    issuer,
-    clientId,
-    ...(typeof clientSecret === "string" ? { clientSecret } : {}),
+    kind: "static",
+    client: {
+      issuer,
+      clientId,
+      ...(typeof clientSecret === "string" ? { clientSecret } : {}),
+    },
   };
+}
+
+/** The sentence a refused pin puts on the connection row, for the owner to read. */
+export function builtInClientUnavailableMessage(
+  resolution: Extract<BuiltInClientResolution, { kind: "unavailable" }>,
+): string {
+  return resolution.reason === "missing_client_id"
+    ? `This server needs a pre-registered OAuth client. Set ${resolution.envKey}.`
+    : "The authorization server does not match this server's pinned issuer.";
 }
 
 function boundIssuer(definition: ResolvedDefinition, issuerHint: string): string | undefined {
