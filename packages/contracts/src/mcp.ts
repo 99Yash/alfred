@@ -266,7 +266,7 @@ export interface McpBuiltInEntry {
   readonly blurb: string;
 }
 
-export const MCP_BUILT_IN_CATALOG = {
+export const BUILT_IN_MCP_CATALOG = {
   github: {
     slug: "github",
     label: "GitHub MCP",
@@ -295,23 +295,23 @@ export const MCP_BUILT_IN_CATALOG = {
 } as const satisfies Record<string, McpBuiltInEntry>;
 
 /** The provider key space: the catalog's keys. Nothing else names a built-in. */
-export type McpBuiltInProvider = keyof typeof MCP_BUILT_IN_CATALOG;
+export type BuiltInMCPProvider = keyof typeof BUILT_IN_MCP_CATALOG;
 
 /**
  * The providers in record order. `Object.keys` keeps insertion order for string
  * keys, so this is the order the catalog is written in, and the order the
  * integrations page renders.
  */
-export const MCP_BUILT_IN_PROVIDERS: readonly McpBuiltInProvider[] =
+export const BUILT_IN_MCP_PROVIDERS: readonly BuiltInMCPProvider[] =
   // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
-  // non-indexed literal are exactly `keyof typeof MCP_BUILT_IN_CATALOG`.
-  Object.keys(MCP_BUILT_IN_CATALOG) as McpBuiltInProvider[];
+  // non-indexed literal are exactly `keyof typeof BUILT_IN_MCP_CATALOG`.
+  Object.keys(BUILT_IN_MCP_CATALOG) as BuiltInMCPProvider[];
 
 /**
  * Narrow a path segment to a built-in provider. The connect route takes the
  * provider from the URL, so the value is untrusted until this says otherwise.
  */
-export const isMcpBuiltInProvider = enumGuard(MCP_BUILT_IN_PROVIDERS);
+export const isBuiltInMCPProvider = enumGuard(BUILT_IN_MCP_PROVIDERS);
 
 // ---------------------------------------------------------------------------
 // Content-block kinds (#541). The CLOSED set the MCP `ContentBlock` union

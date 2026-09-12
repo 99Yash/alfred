@@ -1,5 +1,5 @@
 import type {
-  McpBuiltInProvider,
+  BuiltInMCPProvider,
   McpRecoveryOperation,
   McpRecoveryOperationsPage,
 } from "@alfred/contracts";
@@ -22,7 +22,7 @@ export const MCP_SECTION = {
   description: "Connect any MCP server to extend Alfred.",
 } as const;
 
-export const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
+export const BUILT_IN_MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
 
 /**
  * The one cache key for the MCP connection list.
@@ -59,7 +59,7 @@ export function mcpAuthorizeUrl(connectionId: string): string {
   return `${API_URL}/api/integrations/mcp/connections/${connectionId}/authorize`;
 }
 
-export function mcpBuiltInConnectUrl(provider: McpBuiltInProvider): string {
+export function mcpBuiltInConnectUrl(provider: BuiltInMCPProvider): string {
   return `${API_URL}/api/integrations/mcp/built-ins/${provider}/connect`;
 }
 
