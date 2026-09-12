@@ -1,5 +1,6 @@
 import {
   getObjectDef,
+  type ObjectIdentity,
   type ObjectStateProvider,
   type StateCategory,
   toRecord,
@@ -56,6 +57,12 @@ export interface ObjectState {
   title: string | null;
   url: string | null;
   repo: string | null;
+  /**
+   * Last delivery that advanced this object's state. Exposed so a reader can
+   * report when the projection observed the state (freshness) instead of
+   * inferring it from absence; the briefing reconciliation ignores it.
+   */
+  stateDeliveredAt: Date | null;
 }
 
 export interface ApplyEventArgs {
@@ -96,6 +103,13 @@ export interface ObjectStateStore {
    * place, so it always returns the live state.
    */
   getState(userId: string, ref: ObjectStateRef, at?: Date): Promise<ObjectState | null>;
+  /**
+   * Current state by provider-native identity, the `(provider, kind,
+   * externalId)` unique key indexed by `integration_objects_identity_idx`. The
+   * deterministic read for a caller that already knows the object, not its
+   * sidecar key; returns `null` when no row exists.
+   */
+  getByIdentity(userId: string, identity: ObjectIdentity): Promise<ObjectState | null>;
   list(
     userId: string,
     provider: ObjectStateProvider,
@@ -133,7 +147,23 @@ function rowToObjectState(row: IntegrationObject): ObjectState {
     title: row.title,
     url: row.url,
     repo: row.repo,
+    stateDeliveredAt: row.stateDeliveredAt,
   };
+}
+
+/**
+ * The `(userId, provider, kind, externalId)` unique-key predicate, shared by the
+ * `applyEvent` upsert lookup and `getByIdentity` so the two cannot drift. It
+ * matches `integration_objects_identity_idx`; keep the column order aligned with
+ * that index.
+ */
+function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
+  return and(
+    eq(integrationObjects.userId, userId),
+    eq(integrationObjects.provider, identity.provider),
+    eq(integrationObjects.kind, identity.kind),
+    eq(integrationObjects.externalId, identity.externalId),
+  );
 }
 
 export const objectStateStore: ObjectStateStore = {
@@ -154,12 +184,11 @@ export const objectStateStore: ObjectStateStore = {
         .select()
         .from(integrationObjects)
         .where(
-          and(
-            eq(integrationObjects.userId, args.userId),
-            eq(integrationObjects.provider, args.provider),
-            eq(integrationObjects.kind, delta.kind),
-            eq(integrationObjects.externalId, delta.externalId),
-          ),
+          objectIdentityWhere(args.userId, {
+            provider: args.provider,
+            kind: delta.kind,
+            externalId: delta.externalId,
+          }),
         )
         .limit(1);
 
@@ -267,6 +296,18 @@ export const objectStateStore: ObjectStateStore = {
       .select()
       .from(integrationObjects)
       .where(and(eq(integrationObjects.id, ref.objectId), eq(integrationObjects.userId, userId)))
+      .limit(1);
+
+    if (!row) return null;
+
+    return rowToObjectState(row);
+  },
+
+  async getByIdentity(userId, identity) {
+    const [row] = await db()
+      .select()
+      .from(integrationObjects)
+      .where(objectIdentityWhere(userId, identity))
       .limit(1);
 
     if (!row) return null;

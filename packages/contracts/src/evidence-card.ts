@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
+import { objectIdentitySchema } from "./object-identity";
 import { identityRefSchema } from "./user-model";
 
 /**
@@ -94,13 +95,7 @@ export type EvidenceSourceRef = z.infer<typeof evidenceSourceRefSchema>;
  * bucket the integration-object registry already owns. A missing category is
  * rendered as "uncategorized", never inferred from `nativeState`.
  */
-export const evidenceObjectRefSchema = z.object({
-  /** Integration slug — `github`, later `clickup`, `claude-code`. */
-  provider: z.string().min(1).max(100),
-  /** Object kind within the provider — `pull_request`, `task`. */
-  kind: z.string().min(1).max(100),
-  /** Provider-native stable id, as a string. */
-  externalId: z.string().min(1).max(512),
+export const evidenceObjectRefSchema = objectIdentitySchema.extend({
   /** Provider-agnostic lifecycle bucket; absent when the provider has none. */
   stateCategory: z.enum(OBJECT_STATE_CATEGORIES).optional(),
   /** Raw provider state for display — `open`/`merged`/`closed`. */
