@@ -59,6 +59,23 @@ export const NOTION_MCP_ENDPOINT_HREF = "https://mcp.notion.com/mcp" as const;
 export const SENTRY_MCP_ENDPOINT_HREF = "https://mcp.sentry.dev/mcp" as const;
 
 /**
+ * Polylane's remote MCP server. Measured on 2026-09-12: `401` with resource
+ * metadata, an authorization server at `https://mcp.polylane.com` that
+ * publishes a `registration_endpoint`, and NO `scopes_supported` member in
+ * either metadata document, so the ask carries no scope at all (see the
+ * registry entry). The server card names the resource `Polylane` and declares
+ * `transport: streamable-http`.
+ *
+ * Polylane watches production for the owner — logs, metrics, traces, the
+ * infrastructure graph, deployments, and the issues it opens. Alfred connects
+ * to it as a READER of that record. The server also serves tools that run a
+ * workspace agent tool or map a repository, and ADR-0088 is what keeps each of
+ * those behind an approval rather than a catalog pin: the resource is one
+ * read-write endpoint, so `readOnlyCatalog` cannot be claimed for it.
+ */
+export const POLYLANE_MCP_ENDPOINT_HREF = "https://mcp.polylane.com/mcp" as const;
+
+/**
  * The `auth_server_identity` a connection row carries before any authorization
  * server is known.
  *

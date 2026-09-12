@@ -40,6 +40,7 @@ import {
   LINEAR_MCP_ENDPOINT_HREF,
   MCP_OAUTH_PENDING_IDENTITY,
   NOTION_MCP_ENDPOINT_HREF,
+  POLYLANE_MCP_ENDPOINT_HREF,
   SENTRY_MCP_ENDPOINT_HREF,
 } from "./constants";
 
@@ -257,6 +258,23 @@ export const BUILT_IN_REGISTRY = {
     // Every scope the resource declares. `org:read` alone hides the issue and
     // event tools that make the server worth connecting.
     scopes: ["org:read", "project:write", "team:write", "event:write"],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+  polylane: {
+    instanceKey: "default",
+    canonicalResource: POLYLANE_MCP_ENDPOINT_HREF,
+    endpointHref: POLYLANE_MCP_ENDPOINT_HREF,
+    // EMPTY on measured evidence, not by omission: neither the protected
+    // resource metadata nor the authorization server metadata declares a
+    // `scopes_supported` member, so there is no scope to name and an invented
+    // one is a token request the server can refuse. The grant is graded by the
+    // workspace the account holder approves at consent time, the way Notion
+    // grades by shared pages. A scope the server later DEMANDS still widens the
+    // next consent, because `mcpConsentAsk` unions this baseline with the
+    // connection's own scopes.
+    scopes: [],
     readOnlyCatalog: false,
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,

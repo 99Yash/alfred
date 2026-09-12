@@ -287,6 +287,11 @@ export const MCP_BUILT_IN_CATALOG = {
     label: "Sentry MCP",
     blurb: "Investigate Sentry issues and error events.",
   },
+  polylane: {
+    slug: "polylane",
+    label: "Polylane MCP",
+    blurb: "Read production logs, metrics, traces, and tracked issues.",
+  },
 } as const satisfies Record<string, McpBuiltInEntry>;
 
 /** The provider key space: the catalog's keys. Nothing else names a built-in. */
