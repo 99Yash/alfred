@@ -11,6 +11,7 @@ import {
   GoogleSlidesTile,
   LinearTile,
   NotionTile,
+  PolylaneTile,
   RailwayTile,
   SentryTile,
   SlackTile,
@@ -60,6 +61,10 @@ const BRAND_SVGS = {
   vercel: `<path d="M37.6934 35.7358L25 13.75L12.3066 35.7358H37.6934Z" fill="currentColor"></path>`,
   // Sentry mark from simple-icons (24-unit grid), scaled onto the 34-unit glyph region.
   sentry: `<g transform="translate(8 8) scale(1.41667)"><path d="M13.91 2.505c-.873-1.448-2.972-1.448-3.844 0L6.904 7.92a15.478 15.478 0 0 1 8.53 12.811h-2.221A13.301 13.301 0 0 0 5.784 9.814l-2.926 5.06a7.65 7.65 0 0 1 4.435 5.848H2.194a.365.365 0 0 1-.298-.534l1.413-2.402a5.16 5.16 0 0 0-1.614-.913L.296 19.275a2.182 2.182 0 0 0 .812 2.999 2.24 2.24 0 0 0 1.086.288h6.983a9.322 9.322 0 0 0-3.845-8.318l1.11-1.922a11.47 11.47 0 0 1 4.95 10.24h5.915a17.242 17.242 0 0 0-7.885-15.28l2.244-3.845a.37.37 0 0 1 .504-.13c.255.14 9.75 16.708 9.928 16.9a.365.365 0 0 1-.327.543h-2.287c.029.612.029 1.223 0 1.831h2.297a2.206 2.206 0 0 0 1.922-3.31z" fill="currentColor"></path></g>`,
+  // Polylane mark from the product's own favicon (716-unit grid, brand lime
+  // #A8E840), scaled onto the 34-unit glyph region and re-tinted: the mark is
+  // one tone, so it follows the same currentColor rule as github/notion.
+  polylane: `<g transform="translate(8 8) scale(0.047486) translate(-120 -120)"><path fill-rule="evenodd" clip-rule="evenodd" d="M381.142 255.979C353.262 256.882 324.664 258.165 294.739 259.828C240.319 262.852 197.432 305.379 194.635 357.744C191.659 413.446 191.596 463.816 194.618 519.68C197.379 570.729 238.619 612.379 291.522 616.294C424.628 626.144 531.099 626.37 664.216 616.432C716.652 612.517 757.575 571.322 760.527 520.692C763.828 464.081 763.824 413.076 760.619 356.673C757.677 304.896 715.104 262.861 661.009 259.838C629.813 258.094 600.063 256.769 571.071 255.861C568.898 277.025 553.17 294.761 531.729 297.623C492.693 302.833 460.623 302.444 420.534 297.184C399.233 294.389 383.392 276.96 381.142 255.979ZM291.944 209.528C212.897 213.921 148.553 276.001 144.329 355.057C141.26 412.512 141.192 464.688 144.314 522.401C148.496 599.706 210.597 660.82 287.804 666.534C369.848 672.605 442.16 675.087 516.559 673.853C551.603 711.938 579.891 732.555 618.741 749.748C627.403 753.581 635.458 743.223 630.988 734.873C618.661 711.839 616.267 692.195 623.929 669.646C638.33 668.78 652.985 667.788 667.966 666.669C744.641 660.945 806.343 600.383 810.819 523.625C814.234 465.063 814.229 412.124 810.915 353.815C806.453 275.298 742.341 213.928 663.821 209.539C531.36 202.135 424.263 202.176 291.944 209.528Z" fill="currentColor"></path><path d="M438.296 415.062C438.296 447.11 412.316 473.09 380.269 473.09C348.221 473.09 322.242 447.11 322.242 415.062C322.242 383.015 348.221 357.035 380.269 357.035C412.316 357.035 438.296 383.015 438.296 415.062Z" fill="currentColor"></path><path d="M570.358 473.09C602.405 473.09 628.385 447.11 628.385 415.062C628.385 383.015 602.405 357.035 570.358 357.035C538.31 357.035 512.331 383.015 512.331 415.062C512.331 447.11 538.31 473.09 570.358 473.09Z" fill="currentColor"></path></g>`,
 } satisfies Record<IntegrationBrandKey, string>;
 
 type BrandIconMeta =
@@ -138,6 +143,15 @@ const BRAND_ICONS = {
     plainColor: "var(--app-fg-4)",
     frostColor: "#f4f4f5",
   },
+  // Lime on chrome, not --app-fg-4: the mark is monochrome but its one tone IS
+  // the brand, and #A8E840 keeps its contrast on both themes. `frost` stays
+  // white so the mark reads on the dark tile like every other coin.
+  polylane: {
+    kind: "svg",
+    slug: "polylane",
+    plainColor: "#a8e840",
+    frostColor: "#ffffff",
+  },
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
 } satisfies Record<IntegrationBrand, BrandIconMeta>;
 
@@ -167,6 +181,7 @@ const BRAND_ACCENT = {
   slack: "#a25da3",
   linear: "#5e6ad2",
   railway: "#8c1eaf",
+  polylane: "#a8e840",
 } satisfies Partial<Record<IntegrationBrand, string>>;
 
 /** The brand's accent hue, or `undefined` for a monochrome brand that falls back to the house purple. */
@@ -215,6 +230,7 @@ const INTEGRATION_TILES = {
   github: GithubTile,
   linear: LinearTile,
   notion: NotionTile,
+  polylane: PolylaneTile,
   railway: RailwayTile,
   sentry: SentryTile,
   slack: SlackTile,

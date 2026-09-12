@@ -49,7 +49,7 @@ The repo already has the right pattern in two places: `CREDENTIAL_SHAPE` and `GE
 
 ## Amendment, 2026-09-12 — a built-in MCP server is a second key space under the same law (#1002)
 
-**What changed.** Alfred pins first-class remote MCP servers: GitHub, Linear, Notion, and Sentry. The original ADR left "the MCP per-connection catalog (PRD #540)" undecided. This amendment decides only the part that touches a key space, and leaves the per-connection catalog where it was.
+**What changed.** Alfred pins first-class remote MCP servers: GitHub, Linear, Notion, Sentry, and Polylane. The original ADR left "the MCP per-connection catalog (PRD #540)" undecided. This amendment decides only the part that touches a key space, and leaves the per-connection catalog where it was.
 
 **Decision.** `MCP_BUILT_IN_CATALOG` in `packages/contracts/src/mcp.ts` is a second record whose keys are a key space, and it obeys the same three rules `INTEGRATIONS` obeys. `McpBuiltInProvider` is `keyof typeof MCP_BUILT_IN_CATALOG`. `MCP_BUILT_IN_PROVIDERS` is its key list in record order. `isMcpBuiltInProvider` is the `enumGuard` over that list, and the connect route uses it to narrow a path segment.
 
@@ -59,7 +59,9 @@ The repo already has the right pattern in two places: `CREDENTIAL_SHAPE` and `GE
 
 **What this costs and what it buys.** The next built-in adds no route, because `GET /api/integrations/mcp/built-ins/:provider/connect` takes the provider from the path, and no web component, because one `McpBuiltInCard` renders every catalog entry. That is the part the key space buys, and it holds.
 
-The entry count is two only when the product is ALREADY a provider entry with brand artwork, which is what the catalog's `slug` field borrows. A product Alfred has never integrated needs four: the `MCP_BUILT_IN_CATALOG` entry, the `BUILT_IN_REGISTRY` entry, an `INTEGRATIONS` provider entry for the slug to resolve, and its `BRAND_SVGS` mark. The compiler names all four — `slug` is typed `CatalogSlug`, so a slug with no provider entry does not compile, and a tile therefore never falls back to a generic glyph. Three further edits the compiler cannot name: the endpoint constant, the measured scope baseline, and this ADR.
+The entry count is two only when the product is ALREADY a provider entry with brand artwork, which is what the catalog's `slug` field borrows. A product Alfred has never integrated costs more, and Polylane is the first one to pay it: the `MCP_BUILT_IN_CATALOG` entry, the `BUILT_IN_REGISTRY` entry, an `INTEGRATIONS` provider entry for the slug to resolve, and then FOUR web tables, because the web keys its assets and its page prose on the registry and each table is exhaustive by `satisfies` — `BRAND_SVGS` (the bare mark), `BRAND_ICONS` (how that mark is tinted), `INTEGRATION_TILES` (the app-icon coin, which is what an MCP tile actually renders), and `INTEGRATION_PAGE_COPY` (the catalog page). Seven, not four; the first draft of this paragraph said four and was written before any such product existed.
+
+The compiler names all seven, which is the property worth keeping: `slug` is typed `CatalogSlug`, so a slug with no provider entry does not compile, and a tile therefore never falls back to a generic glyph. Three further edits the compiler cannot name: the endpoint constant, the measured scope baseline, and this ADR.
 
 **Two rules the same change locks, recorded here rather than in a new ADR.**
 
