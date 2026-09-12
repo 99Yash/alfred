@@ -148,6 +148,32 @@ describe("packEvidenceCards — budget and honesty", () => {
     assert.equal(packed.truncated, false);
   });
 
+  test("names a productive source whose cards the read dropped entirely", () => {
+    const card: EvidenceCard = {
+      id: "documents:1",
+      source: { id: "documents", kind: "native", displayName: "Documents" },
+      mediaKind: "text",
+      snippet: "The deploy runbook lives in the wiki.",
+    };
+
+    const packed = packEvidenceCards({
+      evidence: [card],
+      sources: [
+        { sourceId: "documents", status: "ok", evidenceCount: 1 },
+        { sourceId: "memory", status: "ok", evidenceCount: 7 },
+      ],
+    });
+
+    // The source that contributed a card is not accused of being dropped.
+    assert.doesNotMatch(packed.text, /documents: \d+ item\(s\) not shown/);
+    // The productive source the read slid off the combined evidence names its loss.
+    assert.match(packed.text, /memory: 7 item\(s\) not shown \(evidence budget\)/);
+    assert.deepEqual(packed.includedIds, ["documents:1"]);
+    // The read reported 8 cards and handed over 1; the aggregate already said so.
+    assert.equal(packed.omittedCount, 7);
+    assert.equal(packed.truncated, true);
+  });
+
   test("states plainly when no evidence matched", () => {
     const packed = packEvidenceCards({ evidence: [], sources: [] });
 

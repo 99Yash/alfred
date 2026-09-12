@@ -25,12 +25,15 @@ import type { ContextSearchResult, ContextSourceReport } from "./search";
  *   in its header.
  * - **Honest.** The packer takes the whole read result, reports, not a bare
  *   card list, so failed and empty sources are structurally impossible to
- *   forget. A source that returned nothing or failed is reported by id; cards
- *   the read's own `limit` dropped are counted; freshness is rendered per card
- *   and reads `unknown` when the source did not declare it, never inferred from
- *   a missing timestamp. A card's own `note` (degraded extraction, missing
- *   state) is preserved. `truncated` is true whenever any card, note, or source
- *   line was left out of `text`, including a render-cap cut.
+ *   forget. A source that returned nothing or failed is reported by id; a
+ *   productive source whose cards the read's own `limit` dropped entirely is
+ *   reported by id with its dropped count, so a source that answered is never
+ *   mistaken for one that was never consulted. Cards the read's `limit` dropped
+ *   are counted; freshness is rendered per card and reads `unknown` when the
+ *   source did not declare it, never inferred from a missing timestamp. A
+ *   card's own `note` (degraded extraction, missing state) is preserved.
+ *   `truncated` is true whenever any card, note, or source line was left out of
+ *   `text`, including a render-cap cut.
  * - **Safe.** Every string that reaches the model goes through
  *   `sanitizeErrorMessage`, the repo's surrogate-safe bounded truncator, so a
  *   lone surrogate or NUL byte can never ride a snippet, a note, or a provider
@@ -78,7 +81,7 @@ export interface PackedEvidence {
 /**
  * Render a read result as bounded, cited, honest model context.
  *
- * The notes section (failed/empty sources) is sized before the card loop, so
+ * The notes section (failed, empty, or fully-dropped sources) is sized before the card loop, so
  * honesty never pushes the result past the budget: the loop reserves room for
  * the notes and stops early rather than letting them overflow. The final
  * `sanitizeErrorMessage` is a backstop for a notes-only result, where no card
@@ -90,7 +93,7 @@ export function packEvidenceCards(
 ): PackedEvidence {
   const maxChars = clampBudget(options.maxChars);
   const cards = result.evidence;
-  const notes = renderSourceNotes(result.sources);
+  const notes = renderSourceNotes(result.sources, cards);
   const separator = "\n\n";
   const noteLength = notes.text.length > 0 ? notes.text.length + separator.length : 0;
 
@@ -158,19 +161,35 @@ interface RenderedNotes {
 }
 
 /**
- * One line per source that could not contribute. `empty` and `error` are
- * distinct facts and render differently; a silently dropped source is the one
- * failure mode this exists to prevent. The status switch is exhaustive on
- * purpose: a new status member becomes a compile error here rather than
- * quietly rendering as an error.
+ * One line per source whose evidence did not reach the packed text. `empty` and
+ * `error` are distinct facts and render differently; a productive source whose
+ * cards the read's `limit` dropped entirely is the third, and the one this
+ * exists to prevent forgetting. The status switch is exhaustive on purpose: a
+ * new status member becomes a compile error here rather than quietly rendering
+ * as an error.
+ *
+ * "Dropped entirely" is judged on the cards the read handed the packer, before
+ * the packer's own character budget: a card the packer omits for space still
+ * proves the source answered, and the per-source budget that would attribute
+ * that loss is #427.
  */
-function renderSourceNotes(sources: readonly ContextSourceReport[]): RenderedNotes {
+function renderSourceNotes(
+  sources: readonly ContextSourceReport[],
+  evidence: readonly EvidenceCard[],
+): RenderedNotes {
+  const representedSourceIds = new Set(evidence.map((card) => card.source.id));
   const lines: string[] = [];
 
   for (const source of sources) {
     switch (source.status) {
       case "ok":
-        continue;
+        if (source.evidenceCount > 0 && !representedSourceIds.has(source.sourceId)) {
+          lines.push(
+            `${source.sourceId}: ${source.evidenceCount} item(s) not shown (evidence budget)`,
+          );
+        }
+
+        break;
       case "empty":
         lines.push(`${source.sourceId}: no evidence found`);
         break;
@@ -182,13 +201,19 @@ function renderSourceNotes(sources: readonly ContextSourceReport[]): RenderedNot
         lines.push(`${source.sourceId}: unavailable${reason}`);
         break;
       }
+
+      default: {
+        const _exhaustive: never = source.status;
+
+        throw new Error(`[pack] unknown source status: ${String(_exhaustive)}`);
+      }
     }
   }
 
   const shown = lines.slice(0, EVIDENCE_PACK_MAX_SOURCE_NOTES);
   const hidden = lines.length - shown.length;
 
-  if (hidden > 0) shown.push(`+ ${hidden} more source(s) reported no usable evidence`);
+  if (hidden > 0) shown.push(`+ ${hidden} more source(s) with no shown evidence`);
 
   return { text: shown.length > 0 ? `Source notes:\n${shown.join("\n")}` : "", hidden };
 }
