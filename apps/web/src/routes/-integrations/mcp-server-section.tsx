@@ -3,7 +3,7 @@ import type { McpRecoveryDecision, McpRecoveryOperationsPage } from "@alfred/con
 import { AlertTriangle, Plug, Plus } from "lucide-react";
 import { client, type EdenData, API_URL } from "~/lib/eden";
 import { AppButton } from "~/components/ui/v2";
-import { flattenMcpRecoveryPages, MCP_SECTION } from "./helpers";
+import { flattenMcpRecoveryPages, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
 import { McpAddServerForm } from "./mcp-add-server-form";
 import { McpConnectionCard } from "./mcp-connection-card";
 import { McpRecoveryList } from "./mcp-recovery-list";
@@ -24,13 +24,11 @@ type McpRecoveryAction =
 
 const FIRST_RECOVERY_PAGE: string | null = null;
 
-const CONNECTIONS_QUERY_KEY = ["integrations", "mcp", "connections"] as const;
-
 export function MCPServerSection() {
   const queryClient = useQueryClient();
 
   const connectionQuery = useQuery<ReadonlyArray<McpConnection>>({
-    queryKey: CONNECTIONS_QUERY_KEY,
+    queryKey: MCP_CONNECTIONS_QUERY_KEY,
     queryFn: async () => {
       const response = await client.api.integrations.mcp.connections.get();
 
@@ -85,10 +83,6 @@ export function MCPServerSection() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["integrations", "mcp", "recovery"] }),
   });
-
-  const refreshConnections = () => {
-    void queryClient.invalidateQueries({ queryKey: CONNECTIONS_QUERY_KEY });
-  };
 
   const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
   // Every page reports the same owner-wide count; the newest page is the freshest.
@@ -157,14 +151,10 @@ export function MCPServerSection() {
         </McpTile>
 
         {genericConnections.map((connection) => (
-          <McpConnectionCard
-            key={connection.id}
-            connection={connection}
-            onChanged={refreshConnections}
-          />
+          <McpConnectionCard key={connection.id} connection={connection} />
         ))}
 
-        <McpAddServerForm onAdded={refreshConnections} />
+        <McpAddServerForm />
       </div>
 
       <McpRecoveryList

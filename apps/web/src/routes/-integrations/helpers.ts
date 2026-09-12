@@ -19,6 +19,16 @@ export const MCP_SECTION = {
 
 export const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
 
+/**
+ * The one cache key for the MCP connection list.
+ *
+ * Every component that reads or mutates a connection imports this key and
+ * invalidates the list itself. The list owner does not hand a refresh callback
+ * down, because a caller that forgets to pass it leaves a card that mutates and
+ * never redraws.
+ */
+export const MCP_CONNECTIONS_QUERY_KEY = ["integrations", "mcp", "connections"] as const;
+
 export function matches(haystack: string, query: string): boolean {
   const q = query.trim().toLowerCase();
 
