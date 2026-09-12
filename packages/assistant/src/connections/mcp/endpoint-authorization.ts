@@ -8,7 +8,6 @@ import {
   isHostedEndpointSensitiveHeader,
   requestFacts,
   validatePinnedHttpsEndpoint,
-  validatePublicWebUrl,
   type DnsLookupAll,
   type GuardedFetchRequester,
 } from "../hosted-endpoint";
@@ -93,10 +92,16 @@ export interface HostedMcpEndpointAuthorizerDependencies {
   requester?: GuardedFetchRequester;
 }
 
-function validatePublicHttpsEndpoint(input: unknown): URL {
-  const publicUrl = validatePublicWebUrl(input);
-
-  return validatePinnedHttpsEndpoint(publicUrl, publicUrl.origin);
+/**
+ * The guard stack for a URL with no stored origin behind it: a brand-new
+ * endpoint the owner supplied (#1004), or an OAuth discovery hop.
+ *
+ * Exported because the generic add door applies exactly this stack before it
+ * writes a row, and a second copy there is a second thing to keep in step with
+ * the pinned rules every later connect enforces.
+ */
+export function validatePublicHttpsEndpoint(input: unknown): URL {
+  return validatePinnedHttpsEndpoint(input, null);
 }
 
 /** Bound one OAuth request by the connection's deadline without dropping the caller's own signal. */
@@ -210,4 +215,21 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
       close: () => (closeFlight ??= dispatcher.destroy()),
     });
   }
+}
+
+let sharedAuthorizer: HostedMcpEndpointAuthorizer | undefined;
+
+/**
+ * The one endpoint authorizer for the process.
+ *
+ * It carries no per-connection state, but it does build an undici dispatcher
+ * and a pinned DNS lookup on every `authorize` call, and every MCP door needs
+ * one: the live client factory, the OAuth start/callback routes, and the
+ * generic add probe. One lazy instance instead of one `new` per module.
+ *
+ * It sits here rather than in `runtime.ts` because `runtime.ts` imports
+ * `manager.ts`, and `manager.ts` is one of the callers.
+ */
+export function getMcpEndpointAuthorizer(): HostedMcpEndpointAuthorizer {
+  return (sharedAuthorizer ??= new HostedMcpEndpointAuthorizer());
 }
