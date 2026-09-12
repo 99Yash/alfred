@@ -52,6 +52,7 @@ import {
   AppButton,
   AppCard,
   AppDateTimePicker,
+  AppField,
   AppInput,
   AppPill,
   AppSelect,
@@ -1848,7 +1849,7 @@ function V2SurfaceSection() {
   return (
     <Section
       id="v2-surfaces"
-      title="AppCard · AppPill · AppInput"
+      title="AppCard · AppPill · AppInput · AppField"
       recipe="Surfaces use the two-shadow elevation stack (drop + hairline). No border property anywhere."
     >
       <ThemePanes
@@ -1867,6 +1868,29 @@ function V2SurfaceSection() {
             </div>
             <div className="max-w-md">
               <AppInput placeholder="Search threads" />
+            </div>
+            <div className="max-w-md space-y-4">
+              <AppField
+                label="Server URL"
+                htmlFor="sg-field-url"
+                helperText="The public MCP endpoint, including /mcp."
+              >
+                <AppInput id="sg-field-url" placeholder="https://mcp.example.com/mcp" />
+              </AppField>
+              <AppField
+                label="Label"
+                htmlFor="sg-field-label"
+                optional
+                error="That label is already taken."
+                errorId="sg-field-label-error"
+              >
+                <AppInput
+                  id="sg-field-label"
+                  defaultValue="Work"
+                  aria-invalid
+                  aria-errormessage="sg-field-label-error"
+                />
+              </AppField>
             </div>
           </div>
         )}
