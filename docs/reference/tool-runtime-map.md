@@ -43,24 +43,25 @@ holds only the registration line. The GitHub object-state fold is the example:
 `packages/assistant/src/connections/object-state/github-activity-consumer.ts`
 sits beside the ADR-0062 reducer and store it calls (#986).
 
-## The eight seams
+## The nine seams
 
 Each seam is a `bootPort<T>` slot. The composition root installs one concrete
 value at boot, and a peer reads it. The `boot-port.ts` file defines the factory;
 it is not itself a seam.
 
-| Seam interface                 | Surface   | Install → read                                                           |
-| ------------------------------ | --------- | ------------------------------------------------------------------------ |
-| `ToolRuntimeAdapter`           | chat      | `surface-adapter.ts` installs → the runtime forwarders read              |
-| `ToolCallRoundAdapter`         | chat      | dispatch installs → `executeToolCallRound` reads                         |
-| `SystemToolAgentAdapter`       | chat      | agent installs → the system tools read                                   |
-| `SystemToolChatHistoryAdapter` | chat      | chat installs → the system tools read                                    |
-| `SystemToolWorkflowAdapter`    | chat      | workflows installs → the system tools read                               |
-| `SystemToolKnowledgeAdapter`   | chat      | runtime composition installs → the system tools read                     |
-| `SystemToolTaskAdapter`        | chat      | runtime composition installs → the system tools read                     |
-| `WorkflowToolCatalogSource`    | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
+| Seam interface                   | Surface   | Install → read                                                           |
+| -------------------------------- | --------- | ------------------------------------------------------------------------ |
+| `ToolRuntimeAdapter`             | chat      | `surface-adapter.ts` installs → the runtime forwarders read              |
+| `ToolCallRoundAdapter`           | chat      | dispatch installs → `executeToolCallRound` reads                         |
+| `SystemToolAgentAdapter`         | chat      | agent installs → the system tools read                                   |
+| `SystemToolChatHistoryAdapter`   | chat      | chat installs → the system tools read                                    |
+| `SystemToolWorkflowAdapter`      | chat      | workflows installs → the system tools read                               |
+| `SystemToolKnowledgeAdapter`     | chat      | runtime composition installs → the system tools read                     |
+| `SystemToolTaskAdapter`          | chat      | runtime composition installs → the system tools read                     |
+| `SystemToolContextSearchAdapter` | chat      | runtime composition installs → the `system.search_context` tool reads    |
+| `WorkflowToolCatalogSource`      | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
 
-The first seven seams live in `tool-runtime/index.ts`. The eighth lives in
+The first eight seams live in `tool-runtime/index.ts`. The ninth lives in
 `tool-runtime/workflow-tool-catalog.ts`. Each seam carries a fixed four-field
 header (`Surface:`, `Owns/hides:`, `Why the seam:`, `Wiring:`), and
 `scripts/check-module-architecture.mjs` fails when a `bootPort` file lacks it.

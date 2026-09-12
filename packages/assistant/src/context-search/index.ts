@@ -5,9 +5,10 @@
  * One verb, `searchContext`, takes a bounded query/task envelope and returns a
  * bounded, source-attributed evidence list. It is read-only by construction:
  * it never stages an action, never calls a write tool, and never places raw
- * provider bodies or media bytes in its result. A model-facing
- * `system.search_context` tool is a later slice (#426); this boundary is
- * deliberately not wired to one yet.
+ * provider bodies or media bytes in its result. Its model-facing caller is the
+ * `system.search_context` tool (#426), which reaches it through the
+ * `SystemToolContextSearchAdapter` boot seam and returns packed evidence text;
+ * the boundary still has no direct model-facing import.
  *
  * ## The card and the packer (#423)
  *
@@ -74,11 +75,12 @@
  *
  * A new native integration or an MCP-backed source is `registerContextSource`
  * with a `ContextSource`, and consumers never branch on a source name. That is
- * the seam's design property, now exercised by three adapters. It is not yet
- * exercised end to end: no consumer calls `searchContext` until the
- * model-facing tool lands (#426). Unknown or minimally described MCP sources
- * are expected to be callable tools without being trusted retrieval sources
- * until the manifest declares their read semantics and authority (#466).
+ * the seam's design property, now exercised by three adapters and one real
+ * consumer: `system.search_context` (#426) reads the registry through
+ * `searchContext` and names no source. Unknown or minimally described MCP
+ * sources are expected to be callable tools without being trusted retrieval
+ * sources until the manifest declares their read semantics and authority
+ * (#466).
  *
  * ## Degradation
  *

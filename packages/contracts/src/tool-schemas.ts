@@ -42,6 +42,7 @@ import {
   artifactKindSchema,
   artifactPageSchema,
 } from "./artifacts";
+import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { isRecord } from "./guards";
 import { mcpCallInput, mcpListToolsInput } from "./mcp";
@@ -1727,6 +1728,24 @@ export const corpusSearchInput = z
   })
   .strict();
 
+/**
+ * `system.search_context` input (epic #422; ADR-0101). The model supplies the
+ * query envelope; the server binds `userId` from the call context, exactly as
+ * `searchContext` expects. Derived from the boundary's own
+ * {@link contextSearchRequestSchema} by dropping `userId` and tightening the
+ * object to `.strict()`, so the model-facing shape cannot drift from the
+ * envelope the boundary parses — there is one set of bounds and one cap.
+ */
+export const searchContextInput = coerceJsonArrayFields(
+  ["objects"],
+  contextSearchRequestSchema
+    .omit({ userId: true })
+    .strict()
+    .describe(
+      "One read across Alfred's registered evidence sources for a query. Use it to assemble first-pass evidence, then drill into provider-specific tools for actions or exact records.",
+    ),
+);
+
 export const suggestTodoInput = coerceJsonArrayFields(
   ["sources"],
   z
@@ -2180,6 +2199,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.web_search": webSearchInput,
   "system.fetch_url": fetchUrlInput,
   "system.corpus_search": corpusSearchInput,
+  "system.search_context": searchContextInput,
   "system.create_artifact": createArtifactInput,
   "system.append_artifact_page": appendArtifactPageInput,
   "system.append_artifact_section": appendArtifactSectionInput,
