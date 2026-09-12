@@ -46,7 +46,7 @@ export type { ExternalToolRef } from "@alfred/contracts";
 export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
 
 export {
-  HostedMcpEndpointAuthorizer,
+  getMcpEndpointAuthorizer,
   withMcpEndpointAuthorization,
   type McpAuthorizedEndpoint,
   type McpAuthorizedOAuth,
@@ -88,14 +88,9 @@ export {
   readOwnedConnection,
   updateConnection,
   type McpConnectionSummary,
-  type McpConnectionWithServer,
 } from "./persistence";
 
-export {
-  addUserMcpServer,
-  type AddUserMcpServerInput,
-  type AddUserMcpServerResult,
-} from "./provision";
+export { addUserMcpServer, isAddUserMcpServerRefusal } from "./provision";
 
 export {
   MCP_CLIENT_CAPABILITIES,

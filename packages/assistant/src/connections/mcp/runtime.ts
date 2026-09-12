@@ -1,9 +1,9 @@
 /**
  * Process-lifetime MCP connection-manager singleton (PRD #540). The manager
- * caches live `McpRawClient`s per connection for the process lifetime, so it must
- * be shared across every dispatch rather than constructed per tool call; it is
- * lazily built once here. Mirrors the lazy-singleton shape of the action-policy
- * resolver.
+ * caches live `McpRawClient`s per connection for the process
+ * lifetime, so it must be shared across every dispatch rather than constructed
+ * per tool call; it is lazily built once here. Mirrors the lazy-singleton shape
+ * of the action-policy resolver.
  *
  * The execution broker's singleton is deliberately NOT here — it lives in
  * `tool-runtime/mcp/runtime.ts`. Holding both in one file is what would force a
@@ -12,12 +12,15 @@
  * singleton reaches this one, and nothing in `connections` knows the broker
  * exists.
  *
- * The default manager builds real clients against each connection's pinned
- * endpoint with the placeholder https/origin authorization (the full SSRF guard
- * is a later slice). No connection-creation route wires an untrusted endpoint
- * yet, so in practice `getReadyClient` only ever finds the connections a future
- * OAuth slice persists — until then a call fails cleanly with
- * `McpConnectionNotFoundError`.
+ * The endpoint authorizer's singleton is NOT here either, and for the same
+ * reason in miniature: this file imports `manager.ts`, so `manager.ts` cannot
+ * import this file. `getMcpEndpointAuthorizer` therefore lives beside its class
+ * in `endpoint-authorization.ts`, which every caller already reaches.
+ *
+ * Every connection — the GitHub built-in, an OAuth callback, and a user-added
+ * server (#1004) — is reached through the full SSRF guard: the pinned DNS
+ * lookup, the private-range refusal and the per-hop redirect revalidation that
+ * `HostedMcpEndpointAuthorizer` owns.
  */
 
 import { McpConnectionManager } from "./manager";

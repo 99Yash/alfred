@@ -35,6 +35,52 @@ export function toMessage(err: unknown): string {
 }
 
 /**
+ * How many links of a cause chain a walker follows, head included.
+ *
+ * Four is enough for the deepest real chain Alfred has seen: an SDK error, the
+ * `TypeError: fetch failed` it wraps, and the errno refusal under that.
+ */
+export const MAX_CAUSE_CHAIN_DEPTH = 4;
+
+/**
+ * The error and its causes, nearest first, bounded to `maxDepth` links.
+ *
+ * A cause hides in one of two places, and the thrower decides which. Node puts
+ * it on `Error.cause`. The MCP SDK takes a cause as its `SdkError` *data*
+ * argument and stores it on `data`, so `Version negotiation probe failed: fetch
+ * failed` carries the real reason at `data.cause` and carries nothing at all on
+ * `cause`. A walker that reads only `cause` therefore prints one identical
+ * sentence for a blocked private address, a timeout, a refused connection and a
+ * TLS failure — and writes that same sentence into a durable column.
+ *
+ * One reader for both shapes, so no caller has to know which library threw.
+ */
+export function causeChain(err: unknown, maxDepth: number = MAX_CAUSE_CHAIN_DEPTH): unknown[] {
+  const chain: unknown[] = [err];
+  let cause: unknown = err instanceof Error ? causeOf(err) : undefined;
+
+  for (let depth = 1; depth < maxDepth && cause !== undefined; depth += 1) {
+    chain.push(cause);
+    cause = cause instanceof Error ? causeOf(cause) : undefined;
+  }
+
+  return chain;
+}
+
+function causeOf(err: Error): unknown {
+  if (err.cause !== undefined) return err.cause;
+  // SAFETY: `data` is the field the MCP SDK puts on every `SdkError`; reading it
+  // off an `Error` is a presence check, not a shape assertion.
+  const data: unknown = (err as { readonly data?: unknown }).data;
+
+  if (typeof data !== "object" || data === null) return undefined;
+
+  // SAFETY: the line above proves `data` is a non-null object, and the read
+  // yields `unknown`, so the assertion widens nothing the caller can trust.
+  return (data as { readonly cause?: unknown }).cause;
+}
+
+/**
  * Strip high-confidence secrets from text before it lands in an error message
  * or log. Targets `Bearer`/`Basic`/`Token` auth values and the common
  * `secret-ish-key: value` shapes (access/refresh tokens, client secrets, API
