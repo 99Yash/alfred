@@ -46,6 +46,7 @@ catalog:
   "@sentry/node": ^10.60.0
   "@sentry/react": ^10.60.0
   "@tailwindcss/postcss": ^4.1.8
+  "@tanstack/react-form": ^1.33.5
   "@tanstack/react-query": ^5.80.2
   "@tanstack/react-router": ^1.121.7
   "@tanstack/router-plugin": ^1.121.7
