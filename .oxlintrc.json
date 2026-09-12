@@ -41,7 +41,9 @@
     // - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
     // - no-unknown-parameters: conflicts with boundary validator pattern
     // - no-reflect-get: conflicts with Reflect.get for class instances
-    "anti-slop/no-runtime-typeof": "warn",
+    // allowInTypeGuards: `typeof` inside a `value is T` predicate is the predicate's
+    // correct implementation, not the ad-hoc narrowing this rule exists to reject.
+    "anti-slop/no-runtime-typeof": ["warn", { "allowInTypeGuards": true }],
     "anti-slop/no-shape-in-symbol-names": "warn",
     "anti-slop/no-unknown-returns": "warn",
     "anti-slop/no-unsafe-dictionary-type": "warn",

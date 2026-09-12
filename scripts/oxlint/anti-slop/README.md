@@ -10,6 +10,13 @@ copy we own, not a dependency we track.
   `require-readable-spacing.ts` plus its vendored `vendor/eslint-stylistic/`
   dependency. The second revision also carries upstream fixes to rules we keep at
   the first; porting those is a separate change, not part of this one.
+- Two rules were ported forward to `f2a8e0b9a479f3c7fa75d64ab7341add40eab7e1`
+  ("fix: refine third-party and boundary conventions"): `no-shape-in-symbol-names.ts`
+  gained `isBorrowedMemberName` (a static member read such as Zod's `schema.shape`
+  belongs to its owner and cannot be renamed locally) and `no-runtime-typeof.ts`
+  gained `isExistenceProbe` (`typeof x === "undefined"` establishes whether a
+  binding exists rather than narrowing its representation). Their fixtures were
+  re-copied from the same revision.
 - Upstream license: MIT (see `./LICENSE`; retained because these files are copied,
   not rewritten). `vendor/eslint-stylistic/` carries its own `LICENSE` and
   `UPSTREAM.md` provenance, because the padding rule is vendored from ESLint
@@ -64,7 +71,9 @@ ESLint Stylistic `padding-line-between-statements` rule, vendored under
 | `no-unsafe-dictionary-type`                 | ~155       | `Record<string, unknown>` and equivalents           |
 | `no-unknown-returns`                        | ~94        | functions returning `unknown`                       |
 
-Counts drift with paydown; regenerate with
+`no-runtime-typeof` runs with `{ "allowInTypeGuards": true }` (see
+`.oxlintrc.json`), so a `typeof` check inside a `value is T` predicate does not
+report. Counts drift with paydown; regenerate with
 `pnpm exec oxlint --format json . | grep -o 'anti-slop([^)]*)' | sort | uniq -c`.
 
 `pnpm check:oxlint-plugin` holds all of that together: it runs the upstream
