@@ -1,5 +1,6 @@
 import {
   getObjectDef,
+  type ObjectIdentity,
   type ObjectStateProvider,
   type StateCategory,
   toRecord,
@@ -104,15 +105,11 @@ export interface ObjectStateStore {
   getState(userId: string, ref: ObjectStateRef, at?: Date): Promise<ObjectState | null>;
   /**
    * Current state by provider-native identity, the `(provider, kind,
-   * externalId)` unique key. The deterministic read for a caller that already
-   * knows the object, not its sidecar key; returns `null` when no row exists.
+   * externalId)` unique key indexed by `integration_objects_identity_idx`. The
+   * deterministic read for a caller that already knows the object, not its
+   * sidecar key; returns `null` when no row exists.
    */
-  getByIdentity(
-    userId: string,
-    provider: ObjectStateProvider,
-    kind: string,
-    externalId: string,
-  ): Promise<ObjectState | null>;
+  getByIdentity(userId: string, identity: ObjectIdentity): Promise<ObjectState | null>;
   list(
     userId: string,
     provider: ObjectStateProvider,
@@ -154,6 +151,21 @@ function rowToObjectState(row: IntegrationObject): ObjectState {
   };
 }
 
+/**
+ * The `(userId, provider, kind, externalId)` unique-key predicate, shared by the
+ * `applyEvent` upsert lookup and `getByIdentity` so the two cannot drift. It
+ * matches `integration_objects_identity_idx`; keep the column order aligned with
+ * that index.
+ */
+function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
+  return and(
+    eq(integrationObjects.userId, userId),
+    eq(integrationObjects.provider, identity.provider),
+    eq(integrationObjects.kind, identity.kind),
+    eq(integrationObjects.externalId, identity.externalId),
+  );
+}
+
 export const objectStateStore: ObjectStateStore = {
   async applyEvent(args) {
     const reduce = REDUCERS[args.provider];
@@ -172,12 +184,11 @@ export const objectStateStore: ObjectStateStore = {
         .select()
         .from(integrationObjects)
         .where(
-          and(
-            eq(integrationObjects.userId, args.userId),
-            eq(integrationObjects.provider, args.provider),
-            eq(integrationObjects.kind, delta.kind),
-            eq(integrationObjects.externalId, delta.externalId),
-          ),
+          objectIdentityWhere(args.userId, {
+            provider: args.provider,
+            kind: delta.kind,
+            externalId: delta.externalId,
+          }),
         )
         .limit(1);
 
@@ -292,18 +303,11 @@ export const objectStateStore: ObjectStateStore = {
     return rowToObjectState(row);
   },
 
-  async getByIdentity(userId, provider, kind, externalId) {
+  async getByIdentity(userId, identity) {
     const [row] = await db()
       .select()
       .from(integrationObjects)
-      .where(
-        and(
-          eq(integrationObjects.userId, userId),
-          eq(integrationObjects.provider, provider),
-          eq(integrationObjects.kind, kind),
-          eq(integrationObjects.externalId, externalId),
-        ),
-      )
+      .where(objectIdentityWhere(userId, identity))
       .limit(1);
 
     if (!row) return null;

@@ -32,6 +32,8 @@ export * from "./attachment-content-references";
 
 export * from "./integration-objects";
 
+export * from "./object-identity";
+
 export * from "./integration-availability";
 
 export * from "./integration-status";

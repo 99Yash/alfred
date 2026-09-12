@@ -74,7 +74,7 @@
  *
  * A new native integration or an MCP-backed source is `registerContextSource`
  * with a `ContextSource`, and consumers never branch on a source name. That is
- * the seam's design property, now exercised by two adapters. It is not yet
+ * the seam's design property, now exercised by three adapters. It is not yet
  * exercised end to end: no consumer calls `searchContext` until the
  * model-facing tool lands (#426). Unknown or minimally described MCP sources
  * are expected to be callable tools without being trusted retrieval sources

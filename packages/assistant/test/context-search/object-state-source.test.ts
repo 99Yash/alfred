@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { ObjectState, ObjectStateStore } from "@alfred/assistant/connections";
+import type { ObjectState } from "@alfred/assistant/connections";
 import { registerContextSource, searchContext } from "@alfred/assistant/context-search";
 
-import { createObjectStateContextSource } from "../../src/context-search/object-state-source";
+import {
+  createObjectStateContextSource,
+  type ObjectStateReader,
+} from "../../src/context-search/object-state-source";
 
 /**
  * Behavioral tests for the #425 object-state adapter.
@@ -18,8 +21,6 @@ import { createObjectStateContextSource } from "../../src/context-search/object-
  * Each test installs and disposes its own instance; node's runner isolates test
  * files in separate processes, and the disposer runs in `finally`.
  */
-
-type ObjectStateReader = Pick<ObjectStateStore, "resolveByKey" | "getState" | "getByIdentity">;
 
 const SHA = "a1b2c3d4".repeat(5);
 
