@@ -7,11 +7,17 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  * The memory adapter (#424; epic #422; ADR-0101).
  *
  * It wraps `recallMemory` over `memory_chunks` — Alfred's *interpretation*
- * layer (distilled thread summaries, extraction runs, cold-start research) —
- * into canonical `EvidenceCard`s. It is the counterpart to the document
- * adapter over raw ingested provider content: same vector primitive family,
- * a different trust story, which is why it is a separate source with its own
- * id rather than a filter on the document adapter.
+ * layer (distilled thread summaries, cold-start research, manual notes) — into
+ * canonical `EvidenceCard`s. It is the counterpart to the document adapter over
+ * raw ingested provider content: same vector primitive family, a different
+ * trust story, which is why it is a separate source with its own id rather than
+ * a filter on the document adapter.
+ *
+ * The read relies on `recallMemory`'s user-facing default (#1052): an
+ * `extraction_run` chunk is operational bookkeeping about Alfred's own runs,
+ * not something Alfred knows about the user, so it must never render as
+ * "Memory". The exclusion lives in the recall candidate query, before top-K,
+ * so a near telemetry chunk cannot displace a real memory hit.
  *
  * A memory hit carries no timestamp, so the card declares `ingested`
  * freshness and no instant. That is honest, not a gap to fill from metadata

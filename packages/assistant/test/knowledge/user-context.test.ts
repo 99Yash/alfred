@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { entities, user, userFacts } from "@alfred/db/schemas";
+import { entities, memoryChunks, user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { readUserContext } from "@alfred/assistant/knowledge";
@@ -19,7 +19,8 @@ import { dbBackedSkip } from "../support/db-backed";
  *      silently misses its subject;
  *   3. confirmed facts rank by confidence before recency, and canonical
  *      identity facts are guaranteed into the slice so transactional per-email
- *      noise can never evict the user's authoritative identity (issue #329).
+ *      noise can never evict the user's authoritative identity (issue #329);
+ *   4. `recent_memory` excludes operational `extraction_run` telemetry (#1052).
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
  * migrated schema (the local dev DB). Skipped otherwise so the pure-function
@@ -97,6 +98,23 @@ async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
           updatedAt: ts,
         };
       }),
+    );
+}
+
+/** Insert memory chunks directly — `recent_memory` orders by `createdAt`, no embedding needed. */
+async function seedMemoryChunks(
+  userId: string,
+  specs: Array<{ kind: string; content: string }>,
+): Promise<void> {
+  await db()
+    .insert(memoryChunks)
+    .values(
+      specs.map((spec) => ({
+        userId,
+        kind: spec.kind,
+        content: spec.content,
+        contentHash: createHash("sha256").update(spec.content).digest("hex"),
+      })),
     );
 }
 
@@ -323,6 +341,25 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       keys,
       ["settled", "rumor"],
       "higher-confidence fact ranks first despite being older",
+    );
+  });
+
+  test("recent_memory excludes operational extraction_run telemetry (#1052)", async () => {
+    const userId = await seedUser();
+    await seedMemoryChunks(userId, [
+      {
+        kind: "extraction_run",
+        content: "Memory-extraction run run_x: processed 20 document(s); proposed 0 fact(s).",
+      },
+      { kind: "thread_summary", content: "The user prefers dark mode." },
+    ]);
+
+    const ctx = await readUserContext(userId, { include: ["recent_memory"] });
+
+    assert.deepEqual(
+      ctx.recentMemory.map((chunk) => chunk.kind),
+      ["thread_summary"],
+      "recent_memory must not surface operational extraction_run telemetry",
     );
   });
 });
