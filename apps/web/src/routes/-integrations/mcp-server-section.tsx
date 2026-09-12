@@ -1,11 +1,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpRecoveryDecision, McpRecoveryOperationsPage } from "@alfred/contracts";
 import { AlertTriangle, Plug, Plus } from "lucide-react";
-import { AppCard } from "~/components/ui/v2";
 import { client, type EdenData, API_URL } from "~/lib/eden";
-import { flattenMcpRecoveryPages, MCP_SECTION } from "./helpers";
+import { AppButton } from "~/components/ui/v2";
+import { flattenMcpRecoveryPages, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
+import { McpAddServerForm } from "./mcp-add-server-form";
+import { McpConnectionCard } from "./mcp-connection-card";
 import { McpRecoveryList } from "./mcp-recovery-list";
 import { mcpConnectionStatusText } from "./mcp-server-status";
+import { McpTile } from "./mcp-tile";
 
 type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
 
@@ -25,7 +28,7 @@ export function MCPServerSection() {
   const queryClient = useQueryClient();
 
   const connectionQuery = useQuery<ReadonlyArray<McpConnection>>({
-    queryKey: ["integrations", "mcp", "connections"],
+    queryKey: MCP_CONNECTIONS_QUERY_KEY,
     queryFn: async () => {
       const response = await client.api.integrations.mcp.connections.get();
 
@@ -89,9 +92,14 @@ export function MCPServerSection() {
   // `canonicalResource.includes("github")` also matched a user-added URL that
   // merely had "github" in it, and broke on any endpoint rename.
   const github = connections.find((connection) => connection.builtInProvider === "github");
+
+  const genericConnections = connections.filter(
+    (connection) => connection.builtInProvider !== "github",
+  );
+
   const isConnecting = github?.status === "connecting";
 
-  const statusText = connectionQuery.isPending
+  const githubStatusText = connectionQuery.isPending
     ? "Loading connection…"
     : connectionQuery.isError
       ? "Could not load connection status."
@@ -103,22 +111,18 @@ export function MCPServerSection() {
         {MCP_SECTION.heading}
       </h2>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-        <AppCard padded={false} className="flex items-center gap-3 px-3 py-2.5">
-          <span
-            className="grid size-9 shrink-0 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3 ring-1 ring-app-bg-3"
-            aria-hidden
-          >
-            <Plug size={18} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-app-fg-4">
-              {github?.label ?? "GitHub MCP"}
-            </p>
-            <p className="truncate text-xs text-app-fg-3">{statusText}</p>
-          </div>
-          <button
-            type="button"
-            className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg bg-app-bg-2 px-2.5 text-xs font-medium text-app-fg-2 hover:text-app-fg-4"
+        <McpTile
+          icon={<Plug size={18} />}
+          label={github?.label ?? "GitHub MCP"}
+          subtitle={githubStatusText}
+        >
+          <AppButton
+            size="sm"
+            variant="white"
+            leading={
+              github?.status === "auth_required" ? <AlertTriangle size={12} /> : <Plus size={12} />
+            }
+            disabled={connectionQuery.isPending || isConnecting}
             onClick={() => {
               if (connectionQuery.isError) {
                 void connectionQuery.refetch();
@@ -131,9 +135,7 @@ export function MCPServerSection() {
                   ? `${API_URL}/api/integrations/mcp/connections/${github.id}/reconsent`
                   : `${API_URL}/api/integrations/mcp/github/connect`;
             }}
-            disabled={connectionQuery.isPending || isConnecting}
           >
-            {github?.status === "auth_required" ? <AlertTriangle size={12} /> : <Plus size={12} />}
             {connectionQuery.isPending
               ? "Loading"
               : connectionQuery.isError
@@ -145,9 +147,16 @@ export function MCPServerSection() {
                     : github
                       ? "Reconnect"
                       : "Add"}
-          </button>
-        </AppCard>
+          </AppButton>
+        </McpTile>
+
+        {genericConnections.map((connection) => (
+          <McpConnectionCard key={connection.id} connection={connection} />
+        ))}
+
+        <McpAddServerForm />
       </div>
+
       <McpRecoveryList
         operations={recoveryOperations}
         awaitingRepair={awaitingRepair}

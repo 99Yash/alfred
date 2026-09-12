@@ -21,6 +21,7 @@
 
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
+import { hostedEndpointKey } from "../hosted-endpoint";
 import { GITHUB_MCP_ENDPOINT_HREF, GITHUB_MCP_ISSUER } from "./constants";
 
 export type BuiltInOAuthConfig = {
@@ -151,7 +152,7 @@ export type BuiltInProvider = keyof typeof BUILT_IN_REGISTRY;
 function lookupBuiltIn(endpoint: URL): ResolvedDefinition | undefined {
   if (endpoint.search !== "" || endpoint.hash !== "") return undefined;
 
-  return BY_ENDPOINT.get(endpointKey(endpoint));
+  return BY_ENDPOINT.get(hostedEndpointKey(endpoint));
 }
 
 /**
@@ -240,16 +241,6 @@ export function builtInProviderForEndpoint(endpointUrl: string): BuiltInProvider
   return lookupBuiltInHref(endpointUrl)?.provider;
 }
 
-/**
- * Origin plus path with any trailing slashes removed. Two hrefs that name the
- * same MCP endpoint produce the same key, and `URL` does the parsing.
- */
-function endpointKey(url: URL): string {
-  const path = url.pathname.replace(/\/+$/, "");
-
-  return `${url.origin}${path === "" ? "/" : path}`;
-}
-
 type ResolvedDefinition = BuiltInDefinition & {
   readonly provider: BuiltInProvider;
   readonly issuerOrigin: string;
@@ -257,7 +248,7 @@ type ResolvedDefinition = BuiltInDefinition & {
 
 const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
   Object.entries(BUILT_IN_REGISTRY).map(([provider, entry]) => [
-    endpointKey(new URL(entry.endpointHref)),
+    hostedEndpointKey(new URL(entry.endpointHref)),
     {
       ...entry,
       // SAFETY: `Object.entries` of BUILT_IN_REGISTRY yields that object's own

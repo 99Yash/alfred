@@ -36,7 +36,7 @@ import {
   type McpPreparedToolCall,
 } from "./client";
 import { builtInClientPolicy } from "./built-ins";
-import { HostedMcpEndpointAuthorizer } from "./endpoint-authorization";
+import { getMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, McpClientError } from "./errors";
 import {
   compareAndSetCatalogRevision,
@@ -76,6 +76,23 @@ const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
 
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
 
+/**
+ * What a disconnect writes. The revision pointer travels WITH the status,
+ * because the pointer — not the status — is what the model can see.
+ *
+ * Both catalog readers ignore `status`: `listOwnedCurrentCatalogSlices` filters
+ * on `currentCatalogRevisionId is not null`, and `resolveMcpToolIdentity` joins
+ * the revision the pointer names. Clearing the status alone would leave
+ * `mcp.list_tools` listing every tool of a server the owner just removed, and
+ * `mcp.call` resolving against it and reopening the connection. The clear is
+ * unconditional rather than a compare-and-set: a disconnect is the owner's
+ * terminal instruction, not a publication race.
+ */
+const DISCONNECTED_PATCH: McpConnectionUpdate = {
+  status: "disconnected",
+  currentCatalogRevisionId: null,
+};
+
 interface CatalogRefreshState {
   dirty: boolean;
   promise: Promise<void>;
@@ -108,7 +125,7 @@ export class McpConnectionNotFoundError extends Error {
  * in-flight call.
  */
 function liveClientFactory(): McpClientFactory {
-  const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
+  const endpointAuthorizer = getMcpEndpointAuthorizer();
 
   return (connection) => {
     const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
@@ -365,6 +382,41 @@ export class McpConnectionManager {
     if (!owned) return false;
     const generation = this.#beginClosing(connectionId);
     await this.#closeGeneration(generation, "disconnect");
+
+    return true;
+  }
+
+  /**
+   * Close the live client and open a fresh generation, or leave the row exactly
+   * as it was.
+   *
+   * `false` means the connection is not the caller's (or does not exist).
+   *
+   * The restore is the point. Disconnect-then-connect is two writes, and the
+   * remote decides whether the second one lands: 20 seconds of downtime between
+   * them used to leave `status = "failed"` and a NULL revision pointer, so a
+   * user who pressed Reconnect on a working server lost its published catalog
+   * and got an error. Doing nothing was strictly better than the button. So the
+   * pre-click status and pointer are read first and written back on a throw,
+   * with the reason recorded in `lastError` — the failure is reported, and
+   * nothing that worked before the click stops working after it.
+   */
+  async reconnect(connectionId: string, userId: string): Promise<boolean> {
+    const before = await this.#persistence.readOwnedConnection(connectionId, userId);
+
+    if (!before) return false;
+    await this.disconnect(connectionId, userId);
+
+    try {
+      await this.getReadyClient(connectionId);
+    } catch (error) {
+      await this.#patch(connectionId, {
+        status: before.status,
+        currentCatalogRevisionId: before.currentCatalogRevisionId,
+        lastError: boundedMcpErrorText(error),
+      });
+      throw error;
+    }
 
     return true;
   }
@@ -763,7 +815,7 @@ export class McpConnectionManager {
       const selectedIntent = generation.closeIntent;
 
       if (selectedIntent === "disconnect") {
-        await this.#patch(generation.connectionId, { status: "disconnected" });
+        await this.#patch(generation.connectionId, DISCONNECTED_PATCH);
       } else if (selectedIntent === "failure") {
         await this.#persistence.compareAndSetCatalogRevision({
           connectionId: generation.connectionId,
@@ -776,7 +828,7 @@ export class McpConnectionManager {
         });
 
         if (generation.closeIntent === "disconnect") {
-          await this.#patch(generation.connectionId, { status: "disconnected" });
+          await this.#patch(generation.connectionId, DISCONNECTED_PATCH);
         }
       }
 

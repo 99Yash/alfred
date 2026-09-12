@@ -1,11 +1,9 @@
 import dns from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
+import { causeChain } from "@alfred/contracts";
 import { Agent, type Dispatcher } from "undici";
 
 const DEFAULT_MAX_REDIRECTS = 5;
-
-/** How far `hostedEndpointErrorFrom` follows an `Error.cause` chain. */
-const MAX_CAUSE_DEPTH = 4;
 
 const HOSTED_ENDPOINT_SENSITIVE_HEADERS = new Set([
   "authorization",
@@ -23,6 +21,25 @@ export function isHostedEndpointSensitiveHeader(name: string): boolean {
 
 function stripHostedEndpointSensitiveHeaders(headers: Headers): void {
   for (const name of HOSTED_ENDPOINT_SENSITIVE_HEADERS) headers.delete(name);
+}
+
+/**
+ * The identity of a hosted endpoint: its origin plus its path, with any
+ * trailing slashes removed.
+ *
+ * Two hrefs that name the same endpoint produce one key, and `URL` does the
+ * parsing. `URL` itself does NOT normalize a trailing slash, so without this
+ * `…/mcp` and `…/mcp/` are two servers, two catalogs and two tool namespaces
+ * for one thing. Every door that mints or matches an endpoint identity — the
+ * built-in registry lookup and the generic add — keys on this one function.
+ *
+ * The query and the fragment are deliberately absent: they are request
+ * parameters, not identity. A caller that must refuse them does so itself.
+ */
+export function hostedEndpointKey(url: URL): string {
+  const path = url.pathname.replace(/\/+$/, "");
+
+  return `${url.origin}${path === "" ? "/" : path}`;
 }
 
 export type HostedEndpointErrorCode =
@@ -56,21 +73,24 @@ const BLOCKED_HOST_ERRNO = "EBLOCKEDHOST";
  * buries it as the `cause` of a bare `TypeError: fetch failed`. Both are the
  * same fact — this host is blocked — so both come back as `blocked_host`.
  *
+ * The walk is {@link causeChain}, not a bare `cause` loop, because the MCP SDK
+ * wraps a connect failure in an `SdkError` that keeps its cause on `data`. A
+ * `cause`-only walk answers `null` for every refused private address reached
+ * through that SDK, and the caller then reports `fetch failed`.
+ *
  * Returns `null` for anything else so callers keep their own generic text.
  */
 export function hostedEndpointErrorFrom(err: unknown): HostedEndpointError | null {
-  let current: unknown = err;
+  for (const link of causeChain(err)) {
+    if (link instanceof HostedEndpointError) return link;
 
-  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current instanceof Error; depth += 1) {
-    if (current instanceof HostedEndpointError) return current;
+    if (!(link instanceof Error)) continue;
 
     // SAFETY: `code` is the errno field Node puts on network errors; reading it
     // off an `Error` is a presence check, not a shape assertion.
-    if ((current as NodeJS.ErrnoException).code === BLOCKED_HOST_ERRNO) {
-      return new HostedEndpointError("blocked_host", current.message);
+    if ((link as NodeJS.ErrnoException).code === BLOCKED_HOST_ERRNO) {
+      return new HostedEndpointError("blocked_host", link.message);
     }
-
-    current = current.cause;
   }
 
   return null;
@@ -333,7 +353,21 @@ function parseExpectedOrigin(input: string): string {
   return origin.origin;
 }
 
-export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: string): URL {
+/**
+ * The shape every hosted endpoint must have — public web URL, HTTPS, no
+ * fragment — and, when the caller has a stored origin, the pin to it.
+ *
+ * `expectedOrigin` is `null` for a URL Alfred has never stored: a brand-new
+ * endpoint the owner just typed, or an OAuth discovery hop that may legally
+ * leave the resource origin. There is no prior origin to disagree with, so the
+ * pin is not merely skipped, it does not yet exist. Passing the URL's OWN
+ * origin instead reads like a pin and is a tautology — `origin_mismatch`
+ * becomes unreachable — so the absence is spelled `null` and typed.
+ *
+ * The pin becomes load-bearing on every LATER connect, where the expected
+ * origin comes from the `mcp_servers` row rather than from the candidate.
+ */
+export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: string | null): URL {
   const url = validatePublicWebUrl(input);
 
   if (url.protocol !== "https:") {
@@ -347,7 +381,7 @@ export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: stri
     );
   }
 
-  if (url.origin !== parseExpectedOrigin(expectedOrigin)) {
+  if (expectedOrigin !== null && url.origin !== parseExpectedOrigin(expectedOrigin)) {
     throw new HostedEndpointError(
       "origin_mismatch",
       "The endpoint does not match its stored origin.",
@@ -547,20 +581,11 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
   return async (input, init) => {
     const { url, method, headers, body } = requestFacts(input, init);
 
-    const validate = (candidate: unknown): URL => {
-      if (expectedOrigin !== null) return validatePinnedHttpsEndpoint(candidate, expectedOrigin);
-      const url = validatePublicWebUrl(candidate);
-
-      if (url.protocol !== "https:") {
-        throw new HostedEndpointError("blocked_scheme", "Hosted requests must use HTTPS.");
-      }
-
-      if (url.hash !== "") {
-        throw new HostedEndpointError("malformed_url", "Hosted requests cannot contain fragments.");
-      }
-
-      return url;
-    };
+    // One validator for both modes: `expectedOrigin` is `null` exactly when the
+    // chain is unpinned, which is the argument `validatePinnedHttpsEndpoint`
+    // takes for "no stored origin yet".
+    const validate = (candidate: unknown): URL =>
+      validatePinnedHttpsEndpoint(candidate, expectedOrigin);
 
     let current = validate(url);
 
