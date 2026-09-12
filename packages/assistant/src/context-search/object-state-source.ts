@@ -2,6 +2,7 @@ import {
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
+  integrationDisplayName,
   isObjectStateProvider,
   sanitizeErrorMessage,
   type ContextObjectRef,
@@ -15,6 +16,7 @@ import {
   type ObjectState,
   type ObjectStateStore,
 } from "@alfred/assistant/connections";
+import { sha256Canonical } from "@alfred/db/hash";
 import type { ContextSource, ContextSourceResult } from "./registry";
 import { internalSourceRef } from "./vector-source";
 
@@ -49,7 +51,10 @@ const OBJECT_STATE_DISPLAY_NAME = "Object state";
  * The read surface this adapter needs. Narrower than `ObjectStateStore` so the
  * adapter cannot write and a test does not have to fake the whole store.
  */
-type ObjectStateReader = Pick<ObjectStateStore, "resolveByKey" | "getState" | "getByIdentity">;
+export type ObjectStateReader = Pick<
+  ObjectStateStore,
+  "resolveByKey" | "getState" | "getByIdentity"
+>;
 
 /** Build the object-state context source over the real store. */
 export function createObjectStateContextSource(
@@ -62,8 +67,15 @@ export function createObjectStateContextSource(
 
       if (refs === undefined || refs.length === 0) return { evidence: [] };
 
+      // Resolve every requested reference, not `refs.slice(0, request.limit)`:
+      // `limit` is the *combined evidence* budget that `searchContext` owns and
+      // counts, not this source's reference cap. Slicing here would silently
+      // drop references past the budget, so the caller would see a clean `ok`
+      // with no miss card and no omission count even though the lookups never
+      // happened. Emitting one card per reference keeps the miss honest; the
+      // boundary truncates and reports the overflow.
       const evidence = await Promise.all(
-        refs.slice(0, request.limit).map((ref) => resolveObjectRef(store, request.userId, ref)),
+        refs.map((ref) => resolveObjectRef(store, request.userId, ref)),
       );
 
       return { evidence };
@@ -85,7 +97,7 @@ async function resolveObjectRef(
   if (!isObjectStateProvider(ref.provider)) {
     return missingRefCard(
       ref,
-      `No object-state provider "${ref.provider}" is known to this build.`,
+      `No object-state provider "${integrationDisplayName(ref.provider)}" is known to this build.`,
     );
   }
 
@@ -93,22 +105,31 @@ async function resolveObjectRef(
     const resolved = await store.resolveByKey(userId, ref.provider, ref.keyKind, ref.keyValue);
 
     if (!resolved) {
-      return missingRefCard(ref, `No ${ref.provider} object resolves this ${ref.keyKind} key.`);
+      return missingRefCard(
+        ref,
+        `No ${integrationDisplayName(ref.provider)} object resolves this ${ref.keyKind} key.`,
+      );
     }
 
     const state = await store.getState(userId, resolved);
 
     if (!state) {
-      return missingRefCard(ref, `The ${ref.provider} object for this key is no longer stored.`);
+      return missingRefCard(
+        ref,
+        `The ${integrationDisplayName(ref.provider)} object for this key is no longer stored.`,
+      );
     }
 
     return objectStateCard(state);
   }
 
-  const state = await store.getByIdentity(userId, ref.provider, ref.kind, ref.externalId);
+  const state = await store.getByIdentity(userId, ref);
 
   if (!state) {
-    return missingRefCard(ref, `No stored ${ref.provider} ${ref.kind} matches this identity.`);
+    return missingRefCard(
+      ref,
+      `No stored ${integrationDisplayName(ref.provider)} ${ref.kind} matches this identity.`,
+    );
   }
 
   return objectStateCard(state);
@@ -137,10 +158,12 @@ function objectStateCard(state: ObjectState): EvidenceCard {
   const repo = bound(state.repo, 300);
 
   // A URL longer than the citation cap is not cited rather than truncated into a
-  // link that no longer resolves (the document adapter's rule).
+  // link that no longer resolves (the document adapter's rule). It still goes
+  // through `bound` so NUL/surrogate poison cannot ride the raw field into the
+  // card, the one field that previously skipped the strip.
   const url =
     state.url !== null && state.url.length <= EVIDENCE_CITATION_URL_MAX_CHARS
-      ? state.url
+      ? bound(state.url, EVIDENCE_CITATION_URL_MAX_CHARS)
       : undefined;
 
   const object: EvidenceObjectRef = {
@@ -155,7 +178,9 @@ function objectStateCard(state: ObjectState): EvidenceCard {
   };
 
   const citation: EvidenceCitation = {
-    label: bound(title, EVIDENCE_CITATION_LABEL_MAX_CHARS) ?? `${state.provider} ${kind}`,
+    label:
+      bound(title, EVIDENCE_CITATION_LABEL_MAX_CHARS) ??
+      `${integrationDisplayName(state.provider)} ${kind}`,
     ...(url ? { url } : {}),
     locator: bound(repo ?? `${kind} ${externalId}`, 500) ?? state.objectId,
   };
@@ -188,12 +213,19 @@ function objectStateCard(state: ObjectState): EvidenceCard {
  * lifecycle bucket from a missing row. `score: 0` lets the ranker demote it.
  */
 function missingRefCard(ref: ContextObjectRef, note: string): EvidenceCard {
-  const id =
+  // Distinct refs must not collapse to one id. A key ref concatenates up to
+  // ~830 characters, so the 512-character id cap would truncate two different
+  // references into the same card; a canonical hash of the full reference keeps
+  // the id stable and unique instead.
+  const identity =
     ref.by === "key"
-      ? `${OBJECT_STATE_CONTEXT_SOURCE_ID}:key:${ref.provider}:${ref.keyKind}:${ref.keyValue}`
-      : `${OBJECT_STATE_CONTEXT_SOURCE_ID}:identity:${ref.provider}:${ref.kind}:${ref.externalId}`;
+      ? { by: ref.by, provider: ref.provider, keyKind: ref.keyKind, keyValue: ref.keyValue }
+      : { by: ref.by, provider: ref.provider, kind: ref.kind, externalId: ref.externalId };
 
-  return missingCard(id, note);
+  return missingCard(
+    `${OBJECT_STATE_CONTEXT_SOURCE_ID}:missing:${sha256Canonical(identity)}`,
+    note,
+  );
 }
 
 function missingObjectCard(objectId: string, note: string): EvidenceCard {
@@ -202,8 +234,9 @@ function missingObjectCard(objectId: string, note: string): EvidenceCard {
 
 function missingCard(id: string, note: string): EvidenceCard {
   return {
-    // The request schema bounds each component; the truncation is a defense for
-    // an unexpectedly long value, not the primary guarantee.
+    // Callers either pass an object id or a fixed-length hash; `bound` is the
+    // defensive strip/truncate for an unexpectedly long value, not the identity
+    // guarantee (the hash is what keeps distinct refs distinct).
     id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_ID}:unresolved`,
     source: internalSourceRef(OBJECT_STATE_CONTEXT_SOURCE_ID, OBJECT_STATE_DISPLAY_NAME),
     mediaKind: "text",

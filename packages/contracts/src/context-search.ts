@@ -10,6 +10,7 @@
  */
 
 import { z } from "zod";
+import { objectIdentitySchema } from "./object-identity";
 
 /** Default evidence budget when a request omits `limit`. */
 export const CONTEXT_SEARCH_DEFAULT_LIMIT = 10;
@@ -48,14 +49,8 @@ export type ContextObjectKeyRef = z.infer<typeof contextObjectKeyRefSchema>;
  * An exact reference to a work object by its provider-native identity — the
  * `(provider, kind, externalId)` tuple the object store is uniquely keyed on.
  */
-export const contextObjectIdentityRefSchema = z.object({
+export const contextObjectIdentityRefSchema = objectIdentitySchema.extend({
   by: z.literal("identity"),
-  /** Integration slug — `github`, later `clickup`. */
-  provider: z.string().min(1).max(100),
-  /** Object kind within the provider — `pull_request`. */
-  kind: z.string().min(1).max(100),
-  /** Provider-native stable id, as a string. */
-  externalId: z.string().min(1).max(512),
 });
 
 export type ContextObjectIdentityRef = z.infer<typeof contextObjectIdentityRefSchema>;
