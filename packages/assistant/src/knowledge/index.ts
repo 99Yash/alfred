@@ -167,12 +167,7 @@ export {
 } from "./facts";
 
 // recall (chunks) + the cold-start write door.
-export {
-  recallMemory,
-  writeMemoryChunk,
-  type RecallMemoryArgs,
-  type RecallMemoryHit,
-} from "./chunks";
+export { recallMemory, writeMemoryChunk, type RecallMemoryHit } from "./chunks";
 
 // contextFor.
 export { readUserContext, type UserContext } from "./user-context";

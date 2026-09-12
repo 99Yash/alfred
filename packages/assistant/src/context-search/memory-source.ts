@@ -1,10 +1,7 @@
 import { humanizeSlug, type ContextSearchRequest, type EvidenceCard } from "@alfred/contracts";
-import {
-  recallMemory,
-  type RecallMemoryArgs,
-  type RecallMemoryHit,
-} from "@alfred/assistant/knowledge";
+import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 import type { ContextSource, ContextSourceResult } from "./registry";
+import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
 
 /**
  * The memory adapter (#424; epic #422; ADR-0101).
@@ -19,31 +16,25 @@ import type { ContextSource, ContextSourceResult } from "./registry";
  * A memory hit carries no timestamp, so the card declares `ingested`
  * freshness and no instant. That is honest, not a gap to fill from metadata
  * the primitive did not return; #427 ranks on what the card actually holds.
- * The primitive is injected so a test can drive ranking and mapping without a
- * database; the default is the real verb.
+ * The ordering and content fallback are shared with the document adapter in
+ * `vector-source.ts`.
  */
 
 /** Stable manifest id for the memory-chunk adapter (#466). */
 const MEMORY_CONTEXT_SOURCE_ID = "memory";
 
-/** The retrieval verb this adapter wraps; injectable so tests need no DB. */
-type MemoryRecall = (args: RecallMemoryArgs) => Promise<RecallMemoryHit[]>;
-
-/**
- * Build the memory context source. `runRecall` defaults to the real
- * `@alfred/assistant/knowledge` verb; a test passes a fake.
- */
-export function createMemoryContextSource(runRecall: MemoryRecall = recallMemory): ContextSource {
+/** Build the memory context source over the real `@alfred/assistant/knowledge` verb. */
+export function createMemoryContextSource(): ContextSource {
   return {
     id: MEMORY_CONTEXT_SOURCE_ID,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
-      const hits = await runRecall({
+      const hits = await recallMemory({
         query: request.query,
         userId: request.userId,
         limit: request.limit,
       });
 
-      const evidence = [...hits].sort(compareMemoryHits).map(memoryHitToEvidenceCard);
+      const evidence = [...hits].sort(compareByScoreThenId).map(memoryHitToEvidenceCard);
 
       return { evidence };
     },
@@ -51,31 +42,22 @@ export function createMemoryContextSource(runRecall: MemoryRecall = recallMemory
 }
 
 /**
- * Deterministic source-local order: highest similarity first, chunk id as the
- * tie-break. #427 owns cross-source ranking; this only keeps one adapter's
- * output stable.
- */
-function compareMemoryHits(a: RecallMemoryHit, b: RecallMemoryHit): number {
-  return b.similarity - a.similarity || a.chunkId.localeCompare(b.chunkId);
-}
-
-/**
  * Map one recall hit to a canonical card. The id is the chunk id, the citation
  * locates the chunk inside Alfred's own store (there is no public URL), and
  * the expansion handle points at the chunk for a later drill-down (#428).
+ * `hit.kind` is a chunk kind, not an integration slug, so `humanizeSlug` is
+ * the right display helper here (`thread_summary` → "Thread Summary").
  */
-export function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
+function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
   const label = humanizeSlug(hit.kind);
 
   return {
     id: `${MEMORY_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: {
-      id: MEMORY_CONTEXT_SOURCE_ID,
-      kind: "internal",
-      displayName: "Memory",
-    },
+    source: internalSourceRef(MEMORY_CONTEXT_SOURCE_ID, "Memory"),
     mediaKind: "text",
-    ...renderSnippet(hit.preview),
+    // `writeMemoryChunk` requires non-empty content today, so the note guards a
+    // persisted row that predates that rule, not an expected path.
+    ...renderContent(hit.preview, "This memory chunk has no stored text."),
     score: hit.similarity,
     time: { freshness: "ingested" },
     citations: [{ label, locator: `memory chunk ${hit.chunkId}` }],
@@ -86,16 +68,4 @@ export function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
       hint: label,
     },
   };
-}
-
-/**
- * The card must carry content: snippet when the recalled chunk has text, an
- * honest note when it does not. `writeMemoryChunk` requires non-empty content
- * today, so the note is a guard against a persisted row that predates that
- * rule, not an expected path.
- */
-function renderSnippet(preview: string): { snippet: string } | { note: string } {
-  return preview.length > 0
-    ? { snippet: preview }
-    : { note: "This memory chunk has no stored text." };
 }

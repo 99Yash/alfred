@@ -1,11 +1,14 @@
 import {
-  humanizeSlug,
+  EVIDENCE_CITATION_LABEL_MAX_CHARS,
+  EVIDENCE_CITATION_URL_MAX_CHARS,
+  integrationDisplayName,
   sanitizeErrorMessage,
   type ContextSearchRequest,
   type EvidenceCard,
 } from "@alfred/contracts";
-import { search, type SearchArgs, type SearchHit } from "@alfred/corpus";
+import { search, type SearchHit } from "@alfred/corpus";
 import type { ContextSource, ContextSourceResult } from "./registry";
+import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
 
 /**
  * The ingested-document adapter (#424; epic #422; ADR-0101).
@@ -24,39 +27,27 @@ import type { ContextSource, ContextSourceResult } from "./registry";
  * keys on the one stable id. Splitting per provider would clone this file once
  * per `DOCUMENT_SOURCES` member for no retrieval difference.
  *
- * The primitive is injected so a test can drive ranking and mapping without a
- * database; the default is the real verb. Cards are re-sorted by score here so
- * the adapter's order is deterministic even if a future primitive changes
- * `search`'s own ordering. Cross-source ranking is #427, not this file.
+ * Cards are re-sorted by score here so the adapter's order is deterministic
+ * even if the primitive changes its own ordering; that ordering and the
+ * content fallback are shared with the memory adapter in `vector-source.ts`.
+ * Cross-source ranking is #427, not this file.
  */
 
 /** Stable manifest id for the ingested-document corpus adapter (#466). */
 const DOCUMENT_CONTEXT_SOURCE_ID = "documents";
 
-/** Bound on a title carried into a citation label or expansion hint. */
-const DOCUMENT_TITLE_MAX_CHARS = 300;
-
-/** Citation URL ceiling, mirroring `evidenceCitationSchema`; longer URLs are dropped. */
-const DOCUMENT_URL_MAX_CHARS = 2_048;
-
-/** The retrieval verb this adapter wraps; injectable so tests need no DB. */
-type DocumentSearch = (args: SearchArgs) => Promise<SearchHit[]>;
-
-/**
- * Build the document context source. `runSearch` defaults to the real
- * `@alfred/corpus` verb; a test passes a fake that returns crafted hits.
- */
-export function createDocumentContextSource(runSearch: DocumentSearch = search): ContextSource {
+/** Build the document context source over the real `@alfred/corpus` verb. */
+export function createDocumentContextSource(): ContextSource {
   return {
     id: DOCUMENT_CONTEXT_SOURCE_ID,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
-      const hits = await runSearch({
+      const hits = await search({
         query: request.query,
         userId: request.userId,
         limit: request.limit,
       });
 
-      const evidence = [...hits].sort(compareDocumentHits).map(documentHitToEvidenceCard);
+      const evidence = [...hits].sort(compareByScoreThenId).map(documentHitToEvidenceCard);
 
       return { evidence };
     },
@@ -64,46 +55,39 @@ export function createDocumentContextSource(runSearch: DocumentSearch = search):
 }
 
 /**
- * Deterministic source-local order: highest similarity first, chunk id as the
- * tie-break so an equal-score pair never flips between reads. #427 replaces
- * this with the cross-source ranker; until then it keeps the adapter stable.
- */
-function compareDocumentHits(a: SearchHit, b: SearchHit): number {
-  return b.similarity - a.similarity || a.chunkId.localeCompare(b.chunkId);
-}
-
-/**
  * Map one corpus hit to a canonical card. The id is the chunk id — the same
  * chunk retrieved twice is the same card — and the expansion handle points at
  * the parent document, the unit a later live drill-down (#428) fetches.
  */
-export function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
+function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
   // `sanitizeErrorMessage` bounds and strips poison; an all-poison title
   // collapses to empty, which is not a citation, so it falls back to undefined.
+  // The label cap is the tighter bound shared with the citation schema.
   const title = hit.title
-    ? sanitizeErrorMessage(hit.title, DOCUMENT_TITLE_MAX_CHARS) || undefined
+    ? sanitizeErrorMessage(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS) || undefined
     : undefined;
 
   return {
     id: `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: {
-      id: DOCUMENT_CONTEXT_SOURCE_ID,
-      kind: "internal",
-      displayName: "Documents",
-    },
+    source: internalSourceRef(DOCUMENT_CONTEXT_SOURCE_ID, "Documents"),
     mediaKind: "document",
-    ...renderSnippet(hit.preview),
+    ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,
     time: {
-      ...(hit.authoredAt ? { observedAt: hit.authoredAt.toISOString() } : {}),
+      // `authoredAt` is the authored instant (an email Date header, an event
+      // start), so it is when the underlying event happened — `occurredAt`,
+      // never `observedAt`, which is when the source observed the record.
+      ...(hit.authoredAt ? { occurredAt: hit.authoredAt.toISOString() } : {}),
       freshness: "ingested",
     },
     citations: [
       {
         // A title is the useful citation; without one, name the provider the
-        // hit came from rather than citing the corpus adapter it arrived through.
-        label: title ?? humanizeSlug(hit.source),
-        ...(hit.url && hit.url.length <= DOCUMENT_URL_MAX_CHARS ? { url: hit.url } : {}),
+        // hit came from rather than humanizing the raw slug (`github` would
+        // become "Github"). `integrationDisplayName` reads the display registry
+        // and falls back to `humanizeSlug` for a non-integration source.
+        label: title ?? integrationDisplayName(hit.source),
+        ...(hit.url && hit.url.length <= EVIDENCE_CITATION_URL_MAX_CHARS ? { url: hit.url } : {}),
         ...(hit.page !== null ? { locator: `page ${hit.page}` } : {}),
       },
     ],
@@ -114,15 +98,4 @@ export function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
       ...(title ? { hint: title } : {}),
     },
   };
-}
-
-/**
- * The card must carry content: snippet when the chunk has extracted text, an
- * honest note when it does not. An empty chunk is a real state (a media-only
- * attachment), never a reason to emit a contract-invalid card.
- */
-function renderSnippet(preview: string): { snippet: string } | { note: string } {
-  return preview.length > 0
-    ? { snippet: preview }
-    : { note: "No extracted text is available for this chunk." };
 }
