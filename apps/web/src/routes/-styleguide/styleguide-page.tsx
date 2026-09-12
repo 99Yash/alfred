@@ -52,9 +52,12 @@ import {
   AppButton,
   AppCard,
   AppDateTimePicker,
+  AppField,
   AppInput,
+  AppModal,
   AppPill,
   AppSelect,
+  useAppForm,
 } from "~/components/ui/v2";
 import { toast } from "~/lib/toast";
 import { ChatApprovalTray } from "../-chat/approval-tray";
@@ -1741,6 +1744,7 @@ function V2Half() {
       />
       <V2ButtonSection />
       <V2SurfaceSection />
+      <V2ModalSection />
       <V2ToastSection />
       <V2FrostOverlaySection />
       <V2ApprovalTraySection />
@@ -1848,7 +1852,7 @@ function V2SurfaceSection() {
   return (
     <Section
       id="v2-surfaces"
-      title="AppCard · AppPill · AppInput"
+      title="AppCard · AppPill · AppInput · AppField"
       recipe="Surfaces use the two-shadow elevation stack (drop + hairline). No border property anywhere."
     >
       <ThemePanes
@@ -1868,9 +1872,92 @@ function V2SurfaceSection() {
             <div className="max-w-md">
               <AppInput placeholder="Search threads" />
             </div>
+            <div className="max-w-md space-y-4">
+              <AppField
+                label="Server URL"
+                htmlFor="sg-field-url"
+                helperText="The public MCP endpoint, including /mcp."
+              >
+                <AppInput id="sg-field-url" placeholder="https://mcp.example.com/mcp" />
+              </AppField>
+              <AppField
+                label="Label"
+                htmlFor="sg-field-label"
+                optional
+                error="That label is already taken."
+                errorId="sg-field-label-error"
+              >
+                <AppInput
+                  id="sg-field-label"
+                  defaultValue="Work"
+                  aria-invalid
+                  aria-errormessage="sg-field-label-error"
+                />
+              </AppField>
+            </div>
           </div>
         )}
       />
+    </Section>
+  );
+}
+
+function V2ModalSection() {
+  const [open, setOpen] = useState(false);
+
+  const form = useAppForm({
+    defaultValues: { endpointUrl: "", label: "" },
+    onSubmit: () => setOpen(false),
+  });
+
+  return (
+    <Section
+      id="v2-modal"
+      title="Modal · form fields"
+      recipe="components/ui/v2/modal.tsx — a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below. The form uses useAppForm, so each field component owns its input wiring and error slot."
+    >
+      <ThemePanes
+        render={() => (
+          <AppButton variant="white" onClick={() => setOpen(true)}>
+            Add a server
+          </AppButton>
+        )}
+      />
+      <AppModal
+        open={open}
+        onOpenChange={setOpen}
+        title="MCP Server"
+        description="Connect any MCP server to extend Alfred."
+      >
+        <form
+          className="flex flex-col gap-4 px-6 pt-2 pb-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void form.handleSubmit();
+          }}
+        >
+          <form.AppField name="endpointUrl">
+            {(field) => (
+              <field.TextField
+                type="url"
+                label="Server URL"
+                placeholder="https://mcp.example.com/mcp"
+              />
+            )}
+          </form.AppField>
+          <form.AppField name="label">
+            {(field) => <field.TextField label="Label" optional placeholder="Label (optional)" />}
+          </form.AppField>
+          <div className="flex justify-end gap-2 pt-1">
+            <AppButton variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </AppButton>
+            <AppButton type="submit" variant="primary">
+              Add server
+            </AppButton>
+          </div>
+        </form>
+      </AppModal>
     </Section>
   );
 }
