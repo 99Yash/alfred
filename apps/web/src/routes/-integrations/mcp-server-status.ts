@@ -1,11 +1,16 @@
-import type { McpConnectionStatus } from "@alfred/contracts";
-import { MCP_SECTION } from "./helpers";
+import type { McpConnection } from "./helpers";
 
+/**
+ * What one stored connection's state says to its owner.
+ *
+ * Both helpers take a connection that EXISTS. A tile with no row yet is a tile
+ * concern, not a status concern: only the caller knows which words belong there
+ * — what a first-class server buys, or what the generic add door is for — and
+ * the caller already holds them.
+ */
 export function mcpConnectionStatusText(
-  connection: { status: McpConnectionStatus; lastError: string | null } | undefined,
+  connection: Pick<McpConnection, "status" | "lastError">,
 ): string {
-  if (!connection) return MCP_SECTION.description;
-
   switch (connection.status) {
     case "ready":
       return "Connected";
@@ -25,4 +30,20 @@ export function mcpConnectionStatusText(
       return _exhaustive;
     }
   }
+}
+
+/**
+ * Status text plus the published tool count once a revision exists.
+ *
+ * The count is the one fact a connection can report without a call, so it is
+ * folded into the status line rather than given a second field.
+ */
+export function mcpConnectionSubtitle(
+  connection: Pick<McpConnection, "status" | "lastError" | "toolCount">,
+): string {
+  const status = mcpConnectionStatusText(connection);
+
+  if (connection.status !== "ready" || connection.toolCount === null) return status;
+
+  return `${status} · ${connection.toolCount} ${connection.toolCount === 1 ? "tool" : "tools"}`;
 }

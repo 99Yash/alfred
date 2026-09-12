@@ -4,8 +4,8 @@ import {
   buildConnectedSection,
   filterSections,
   matches,
-  MCP_HAYSTACK,
   type Section,
+  BUILT_IN_MCP_HAYSTACK,
 } from "./helpers";
 
 export interface IntegrationCatalog {
@@ -46,7 +46,7 @@ export function useIntegrationCatalog(query: string): IntegrationCatalog {
     [connectedSection, filtered],
   );
 
-  const mcpVisible = matches(MCP_HAYSTACK, query);
+  const mcpVisible = matches(BUILT_IN_MCP_HAYSTACK, query);
   const empty = sections.length === 0 && !mcpVisible;
 
   return { sections, mcpVisible, empty };

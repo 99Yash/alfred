@@ -1,29 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toMessage } from "@alfred/contracts";
-import { Plug } from "lucide-react";
+import { AlertTriangle, Plug } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
-import { client, type EdenData } from "~/lib/eden";
-import { MCP_CONNECTIONS_QUERY_KEY } from "./helpers";
+import { client } from "~/lib/eden";
+import { mcpAuthorizeUrl, MCP_CONNECTIONS_QUERY_KEY, type McpConnection } from "./helpers";
 import { McpTile } from "./mcp-tile";
-import { mcpConnectionStatusText } from "./mcp-server-status";
-
-type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
-
-export type McpConnection = McpConnectionsResponse["connections"][number];
-
-/**
- * Status text plus the published tool count once a revision exists. The count
- * is the one fact a fresh no-auth connection can report without a call, so it
- * is folded into the same line rather than a second field.
- */
-function connectionSubtitle(connection: McpConnection): string {
-  const status = mcpConnectionStatusText(connection);
-
-  if (connection.status !== "ready" || connection.toolCount === null) return status;
-
-  return `${status} · ${connection.toolCount} ${connection.toolCount === 1 ? "tool" : "tools"}`;
-}
+import { mcpConnectionSubtitle } from "./mcp-server-status";
 
 /**
  * One user-added MCP server: health, tool count, and the two lifecycle actions.
@@ -37,6 +20,13 @@ function connectionSubtitle(connection: McpConnection): string {
  * Both actions change the stored row, so both invalidate the connection list
  * here. The card refreshes the list it belongs to; the list does not pass a
  * refresh callback in.
+ *
+ * `auth_required` is the one state neither mutation can repair. The row holds no
+ * usable credential, so `reconnect` throws and answers 400; only a consent round
+ * trip helps. That state therefore replaces Reconnect with a browser NAVIGATION
+ * to the same consent door the built-in tile uses. Every row this card renders
+ * can reach that state — the generic add door creates one there — so without the
+ * navigation an abandoned consent is unrecoverable from the page.
  */
 export function McpConnectionCard({ connection }: { connection: McpConnection }) {
   const queryClient = useQueryClient();
@@ -86,10 +76,11 @@ export function McpConnectionCard({ connection }: { connection: McpConnection })
   // The route answers 400 on a refusal. Without this line the spinner stops,
   // the card does not change, and the click reads as a no-op.
   const actionError = reconnectMutation.error ?? disconnectMutation.error;
+  const needsConsent = connection.status === "auth_required";
 
   return (
     <McpTile
-      icon={<Plug size={18} />}
+      icon={{ glyph: <Plug size={18} /> }}
       label={connection.label}
       subtitle={
         actionError ? (
@@ -97,20 +88,33 @@ export function McpConnectionCard({ connection }: { connection: McpConnection })
             {toMessage(actionError)}
           </span>
         ) : (
-          connectionSubtitle(connection)
+          mcpConnectionSubtitle(connection)
         )
       }
     >
       <div className="flex shrink-0 items-center gap-1">
-        <AppButton
-          size="sm"
-          variant="ghost"
-          loading={reconnectMutation.isPending}
-          disabled={disconnectMutation.isPending}
-          onClick={() => reconnectMutation.mutate()}
-        >
-          {connection.status === "disconnected" ? "Connect" : "Reconnect"}
-        </AppButton>
+        {needsConsent ? (
+          <AppButton
+            size="sm"
+            variant="white"
+            leading={<AlertTriangle size={12} />}
+            onClick={() => {
+              window.location.href = mcpAuthorizeUrl(connection.id);
+            }}
+          >
+            Grant access
+          </AppButton>
+        ) : (
+          <AppButton
+            size="sm"
+            variant="ghost"
+            loading={reconnectMutation.isPending}
+            disabled={disconnectMutation.isPending}
+            onClick={() => reconnectMutation.mutate()}
+          >
+            {connection.status === "disconnected" ? "Connect" : "Reconnect"}
+          </AppButton>
+        )}
         {connection.status !== "disconnected" ? (
           <AppButton
             size="sm"

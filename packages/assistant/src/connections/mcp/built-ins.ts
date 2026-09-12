@@ -1,34 +1,94 @@
 /**
- * Built-in MCP provider registry — the single source of truth for closed
- * provider definitions (PRD #540 / #934).
+ * Built-in MCP provider registry — the server half of the first-class server
+ * catalog (PRD #540 / #934).
  *
- * A built-in is a provider whose endpoint, canonical resource, issuer and OAuth
- * client Alfred pins in CODE. `oauth.ts` reads the client through
- * `resolveBuiltInClient`, and `persistence.ts` turns one entry into the input of
- * a connection ensure. A second built-in adds one entry here and edits nothing
- * else.
+ * A built-in is a provider whose endpoint, canonical resource and client-side
+ * policy Alfred pins in CODE. `oauth.ts` reads the pre-registered client
+ * through `resolveBuiltInClient`, and `persistence.ts` turns one entry into the
+ * input of a connection ensure. The next built-in adds one entry here, one
+ * entry in `BUILT_IN_MCP_CATALOG`, and edits nothing else.
  *
- * The environment is canonical for a built-in client, and nothing writes the
+ * The split is by audience, not by convenience. Everything a BROWSER may read —
+ * the tile title, the brand, the blurb — is `BUILT_IN_MCP_CATALOG` in
+ * `@alfred/contracts`; everything that decides what Alfred sends to a remote is
+ * here. `BUILT_IN_REGISTRY` is keyed by that catalog's union, so neither half
+ * can ship a provider the other does not know.
+ *
+ * Most authorization servers support RFC 7591 dynamic client registration, so
+ * most built-ins pin no credential at all: the SDK registers a client on first
+ * authorize and persists it on the connection. {@link BuiltInDefinition.staticClient}
+ * is the exception, and GitHub is why it exists.
+ *
+ * For that exception the environment is canonical, and nothing writes the
  * client id or the client secret to a durable row. An operator who rotates
  * `GITHUB_MCP_CLIENT_SECRET` therefore gets the new value on the next token
  * exchange. Reads stay lazy inside `resolveBuiltInClient` so a per-test
  * `process.env` override still works — the same reason
  * `packages/integrations/src/integrations.ts` reads inside `resolve()`.
  * `envFieldValue()` parses one `serverEnvSchema` field per call and caches
- * nothing, and the `env` keys are part of the entry, so a second provider does
+ * nothing, and the env keys are part of the entry, so a second provider does
  * not copy hard-coded `GITHUB_MCP_*` names.
  */
 
+import type { BuiltInMCPProvider } from "@alfred/contracts";
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
-import { GITHUB_MCP_ENDPOINT_HREF, GITHUB_MCP_ISSUER } from "./constants";
+import {
+  GITHUB_MCP_ENDPOINT_HREF,
+  GITHUB_MCP_ISSUER,
+  LINEAR_MCP_ENDPOINT_HREF,
+  MCP_OAUTH_PENDING_IDENTITY,
+  NOTION_MCP_ENDPOINT_HREF,
+  POLYLANE_MCP_ENDPOINT_HREF,
+  SENTRY_MCP_ENDPOINT_HREF,
+} from "./constants";
 
 export type BuiltInOAuthConfig = {
   readonly issuer: string;
   readonly clientId: string;
   readonly clientSecret?: string;
 };
+
+/**
+ * The env keys a built-in may pin, derived from `ServerEnv` by NAME SHAPE.
+ *
+ * `keyof ServerEnv` was the obvious spelling and it is a hazard: the value this
+ * field names is read and sent to a third-party authorization server, so
+ * `clientIdKey: "OPENAI_API_KEY"` compiled and exfiltrated. A built-in's client
+ * credential is not any env field, it is the pair the environment declares for
+ * that provider, and the suffix is what says so.
+ *
+ * Derived, never listed: a provider that adds `LINEAR_MCP_CLIENT_ID` to
+ * `serverEnvSchema` becomes nameable here with no edit, and no other secret
+ * ever does.
+ */
+type McpClientIdEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_ID`>;
+
+type McpClientSecretEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_SECRET`>;
+
+/**
+ * What the registry can answer when a caller asks for a pinned OAuth client.
+ *
+ * Three different facts used to share one `undefined`, and the SDK reads the
+ * absence of a client as "register one dynamically". For "this provider pins
+ * none" that is right. For "the pin exists and the environment does not supply
+ * it", and for "discovery named an issuer outside the pinned origin", it turns
+ * a REFUSAL into a fall-through: the second case is `boundIssuer` refusing to
+ * let a pinned client reach a foreign origin, and dynamic registration against
+ * that same unverified issuer is the last thing that should follow it.
+ *
+ * The union makes the caller answer all three. `unavailable` carries the env
+ * key so the connection row can state which line an operator has to set.
+ */
+export type BuiltInClientResolution =
+  | { readonly kind: "dynamic" }
+  | { readonly kind: "static"; readonly client: BuiltInOAuthConfig }
+  | {
+      readonly kind: "unavailable";
+      readonly reason: "missing_client_id" | "issuer_not_bound";
+      readonly envKey: McpClientIdEnvKey;
+    };
 
 /**
  * One built-in definition.
@@ -40,13 +100,27 @@ export type BuiltInOAuthConfig = {
  */
 type BuiltInDefinition = {
   readonly instanceKey: string;
-  readonly label: string;
   readonly canonicalResource: string;
   readonly endpointHref: string;
-  readonly issuer: string;
-  readonly env: {
-    readonly clientIdKey: keyof ServerEnv;
-    readonly clientSecretKey: keyof ServerEnv;
+  /**
+   * The pre-registered OAuth client this provider's authorization server
+   * requires, and the pinned issuer that client belongs to.
+   *
+   * ABSENT is the normal case: an authorization server that publishes a
+   * `registration_endpoint` lets the SDK register a client per connection and
+   * persist it, so Alfred configures nothing. Linear, Notion and Sentry all do.
+   *
+   * PRESENT is the exception GitHub forced (#934): its authorization server
+   * supports neither RFC 7591 registration nor a URL-based client id, so the
+   * SDK throws at registration unless a client is supplied. The issuer lives in
+   * this group rather than beside the endpoint because the group is its only
+   * reader — a pinned issuer no code compares against would read as a control
+   * and be none.
+   */
+  readonly staticClient?: {
+    readonly issuer: string;
+    readonly clientIdKey: McpClientIdEnvKey;
+    readonly clientSecretKey: McpClientSecretEnvKey;
   };
   /**
    * OAuth scopes Alfred asks for on EVERY authorize for this provider, and the
@@ -115,14 +189,31 @@ type BuiltInDefinition = {
   };
 };
 
+/**
+ * The row a built-in starts life with: it exists, and it has not authorized
+ * yet. Shared because it is the same sentence for every provider.
+ */
+const BUILT_IN_INITIAL_STATE = {
+  authServerIdentity: MCP_OAUTH_PENDING_IDENTITY,
+  status: "disconnected",
+} as const satisfies BuiltInDefinition["initialState"];
+
+/**
+ * The pinned server for every provider `BUILT_IN_MCP_CATALOG` lists.
+ *
+ * `satisfies Record<BuiltInMCPProvider, …>` is the enforcement: a catalog entry
+ * with no definition here fails to compile, and a definition here for a
+ * provider the catalog does not list fails too. The one initial state is shared
+ * because it says the same thing for every provider — the row exists and has
+ * not authorized yet.
+ */
 export const BUILT_IN_REGISTRY = {
   github: {
     instanceKey: "default",
-    label: "GitHub MCP",
     canonicalResource: GITHUB_MCP_ENDPOINT_HREF,
     endpointHref: GITHUB_MCP_ENDPOINT_HREF,
-    issuer: GITHUB_MCP_ISSUER,
-    env: {
+    staticClient: {
+      issuer: GITHUB_MCP_ISSUER,
       clientIdKey: "GITHUB_MCP_CLIENT_ID",
       clientSecretKey: "GITHUB_MCP_CLIENT_SECRET",
     },
@@ -133,14 +224,70 @@ export const BUILT_IN_REGISTRY = {
     scopes: ["repo", "read:org"],
     readOnlyCatalog: true,
     pinLegacyProtocol: true,
-    initialState: {
-      authServerIdentity: "oauth:pending",
-      status: "disconnected",
-    },
+    initialState: BUILT_IN_INITIAL_STATE,
   },
-} as const satisfies Record<string, BuiltInDefinition>;
+  linear: {
+    instanceKey: "default",
+    canonicalResource: LINEAR_MCP_ENDPOINT_HREF,
+    endpointHref: LINEAR_MCP_ENDPOINT_HREF,
+    // Every scope the resource declares except `openid` and `email`, which buy
+    // an identity claim Alfred does not read. GitHub taught that a server may
+    // HIDE a tool the token cannot use rather than fail the call, and nothing in
+    // the protocol reports that, so the ask covers the whole catalog and
+    // ADR-0088 keeps every call behind an approval.
+    scopes: ["read", "write"],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+  notion: {
+    instanceKey: "default",
+    canonicalResource: NOTION_MCP_ENDPOINT_HREF,
+    endpointHref: NOTION_MCP_ENDPOINT_HREF,
+    // The one scope the resource declares. Notion grades access by the pages
+    // the owner shares with the integration at consent time, not by scope.
+    scopes: ["default"],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+  sentry: {
+    instanceKey: "default",
+    canonicalResource: SENTRY_MCP_ENDPOINT_HREF,
+    endpointHref: SENTRY_MCP_ENDPOINT_HREF,
+    // Every scope the resource declares. `org:read` alone hides the issue and
+    // event tools that make the server worth connecting.
+    scopes: ["org:read", "project:write", "team:write", "event:write"],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+  polylane: {
+    instanceKey: "default",
+    canonicalResource: POLYLANE_MCP_ENDPOINT_HREF,
+    endpointHref: POLYLANE_MCP_ENDPOINT_HREF,
+    // EMPTY on measured evidence, not by omission: neither the protected
+    // resource metadata nor the authorization server metadata declares a
+    // `scopes_supported` member, so there is no scope to name and an invented
+    // one is a token request the server can refuse. The grant is graded by the
+    // workspace the account holder approves at consent time, the way Notion
+    // grades by shared pages. A scope the server later DEMANDS still widens the
+    // next consent, because `mcpConsentAsk` unions this baseline with the
+    // connection's own scopes.
+    scopes: [],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+} as const satisfies Record<BuiltInMCPProvider, BuiltInDefinition>;
 
-export type BuiltInProvider = keyof typeof BUILT_IN_REGISTRY;
+/**
+ * The provider key space is the CATALOG's, re-exported under the name this
+ * directory already uses. It is not `keyof typeof BUILT_IN_REGISTRY`: that
+ * spelling would let this file widen the key space on its own, and the browser
+ * half would not know.
+ */
+export type BuiltInProvider = BuiltInMCPProvider;
 
 /**
  * The built-in that owns `endpoint`, or `undefined` when no entry claims it.
@@ -243,33 +390,51 @@ export function builtInProviderForEndpoint(endpointUrl: string): BuiltInProvider
 
 type ResolvedDefinition = BuiltInDefinition & {
   readonly provider: BuiltInProvider;
-  readonly issuerOrigin: string;
+  /** Origin of {@link BuiltInDefinition.staticClient}'s issuer, absent without one. */
+  readonly issuerOrigin?: string;
 };
 
 const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
-  Object.entries(BUILT_IN_REGISTRY).map(([provider, entry]) => [
-    hostedEndpointKey(new URL(entry.endpointHref)),
-    {
-      ...entry,
-      // SAFETY: `Object.entries` of BUILT_IN_REGISTRY yields that object's own
-      // keys, and `BuiltInProvider` is `keyof typeof BUILT_IN_REGISTRY`. The
-      // cast only restores what `Object.entries` widens to `string`.
-      provider: provider as BuiltInProvider,
-      issuerOrigin: new URL(entry.issuer).origin,
-    },
-  ]),
+  Object.entries(BUILT_IN_REGISTRY).map(([provider, entry]): [string, ResolvedDefinition] => {
+    // The registry preserves each entry's literal type, so an entry that pins
+    // no static client has NO `staticClient` property to read. Widening to the
+    // declared shape once here is what lets one loop serve both kinds.
+    const definition: BuiltInDefinition = entry;
+
+    return [
+      hostedEndpointKey(new URL(definition.endpointHref)),
+      {
+        ...definition,
+        // SAFETY: `Object.entries` of BUILT_IN_REGISTRY yields that object's
+        // own keys, and the registry `satisfies Record<BuiltInMCPProvider, …>`,
+        // so those keys are exactly `BuiltInProvider`. The cast only restores
+        // what `Object.entries` widens to `string`.
+        provider: provider as BuiltInProvider,
+        ...(definition.staticClient
+          ? { issuerOrigin: new URL(definition.staticClient.issuer).origin }
+          : {}),
+      },
+    ];
+  }),
 );
 
 /**
- * The pre-registered OAuth client for the built-in that owns `endpoint`, if the
- * environment supplies one. GitHub's authorization server supports neither
- * RFC 7591 dynamic registration nor URL-based client ids, so without this the
- * SDK throws at registration (#934). The SDK reads the result from
- * `McpOAuthProvider.clientInformation` and then skips registration.
+ * How the built-in that owns `endpoint` wants its OAuth client obtained.
  *
- * `clientId` decides presence. A secret with no id leaves the built-in absent,
- * so a half-configured environment fails closed instead of sending a secret
- * with no client.
+ * GitHub's authorization server supports neither RFC 7591 dynamic registration
+ * nor URL-based client ids, so without a pinned client the SDK throws at
+ * registration (#934). Every other built-in, and every user-added server,
+ * relies on the server registering one.
+ *
+ * The three answers are distinct on purpose (see {@link BuiltInClientResolution}).
+ * `dynamic` is the normal case and the caller must let the SDK register.
+ * `unavailable` is a REFUSAL and the caller must fail the authorize: falling
+ * through to dynamic registration is what turned a refused issuer into a
+ * registration attempt against that same unverified origin.
+ *
+ * `clientId` decides presence. A secret with no id is `missing_client_id`, so a
+ * half-configured environment fails closed instead of sending a secret with no
+ * client.
  *
  * `issuerHint` comes from discovery and may name a path under the pinned
  * issuer. The hint must share the pinned issuer's ORIGIN; the returned `issuer`
@@ -278,23 +443,40 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
 export function resolveBuiltInClient(
   endpoint: URL,
   issuerHint?: string | undefined,
-): BuiltInOAuthConfig | undefined {
+): BuiltInClientResolution {
   const definition = lookupBuiltIn(endpoint);
+  const staticClient = definition?.staticClient;
 
-  if (!definition) return undefined;
-  const clientId = envFieldValue(definition.env.clientIdKey);
+  if (!staticClient) return { kind: "dynamic" };
+  const envKey = staticClient.clientIdKey;
+  const clientId = envFieldValue(envKey);
 
-  if (typeof clientId !== "string") return undefined;
-  const issuer = issuerHint ? boundIssuer(definition, issuerHint) : definition.issuer;
+  if (typeof clientId !== "string") {
+    return { kind: "unavailable", reason: "missing_client_id", envKey };
+  }
 
-  if (!issuer) return undefined;
-  const clientSecret = envFieldValue(definition.env.clientSecretKey);
+  const issuer = issuerHint ? boundIssuer(definition, issuerHint) : staticClient.issuer;
+
+  if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound", envKey };
+  const clientSecret = envFieldValue(staticClient.clientSecretKey);
 
   return {
-    issuer,
-    clientId,
-    ...(typeof clientSecret === "string" ? { clientSecret } : {}),
+    kind: "static",
+    client: {
+      issuer,
+      clientId,
+      ...(typeof clientSecret === "string" ? { clientSecret } : {}),
+    },
   };
+}
+
+/** The sentence a refused pin puts on the connection row, for the owner to read. */
+export function builtInClientUnavailableMessage(
+  resolution: Extract<BuiltInClientResolution, { kind: "unavailable" }>,
+): string {
+  return resolution.reason === "missing_client_id"
+    ? `This server needs a pre-registered OAuth client. Set ${resolution.envKey}.`
+    : "The authorization server does not match this server's pinned issuer.";
 }
 
 function boundIssuer(definition: ResolvedDefinition, issuerHint: string): string | undefined {

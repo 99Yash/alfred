@@ -17,16 +17,8 @@ import {
 } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import { MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
+import { mcpAuthorizeUrl, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
 import { McpTile } from "./mcp-tile";
-
-/**
- * The "sign-in is not supported yet" answer, kept apart from the persisted
- * `auth_required` connection status that shares its name. This one describes an
- * add that created NOTHING; that one describes a stored connection waiting for
- * consent.
- */
-type AddNotice = { kind: "unsupported_sign_in" | "error"; message: string };
 
 /**
  * The form's own field shape. It is not `McpAddServerBody`: an empty `label`
@@ -48,12 +40,12 @@ const DEFAULT_FIELDS: AddServerFields = { endpointUrl: "", label: "" };
 const endpointUrlValidator = mcpAddServerBodySchema.shape.endpointUrl;
 
 /**
- * The generic add door (#1004): a URL, an optional label, and the one outcome
- * this slice cannot serve.
+ * The generic add door (#1004): a URL, an optional label, and a handoff to a
+ * consent screen when the server asks for one.
  *
  * The trigger takes one cell beside the connection cards. The form itself sits
  * in a modal, so the grid stays a grid; the modal gathers the draft, the
- * outcome notice, and the submit action in one place.
+ * failure message, and the submit action in one place.
  *
  * The inputs also carry the contract's length bounds. Without them a
  * 101-character label reaches Elysia and comes back as a raw
@@ -63,7 +55,7 @@ const endpointUrlValidator = mcpAddServerBodySchema.shape.endpointUrl;
 export function McpAddServerForm() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [notice, setNotice] = useState<AddNotice | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const addMutation = useMutation({
     mutationFn: async (input: McpAddServerBody) => {
@@ -79,18 +71,17 @@ export function McpAddServerForm() {
 
       return response.data;
     },
-    // The connection list is the one cache this add can stale. Success appends
-    // a row; a failure can still leave one, because the manager's own session
-    // opens AFTER the insert. Refetch on both, so a stranded connection appears
-    // now rather than on the next page load. An `auth_required` answer creates
-    // nothing, so its refetch finds the same list.
+    // The connection list is the one cache this add can stale. Every answer
+    // appends a row, and a failure can still leave one, because the manager's
+    // own session opens AFTER the insert. Refetch on both, so a stranded
+    // connection appears now rather than on the next page load.
     onSettled: () => queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY }),
   });
 
   const form = useAppForm({
     defaultValues: DEFAULT_FIELDS,
     onSubmit: async ({ value, formApi }) => {
-      setNotice(null);
+      setError(null);
 
       try {
         const body: McpAddServerBody = {
@@ -101,22 +92,19 @@ export function McpAddServerForm() {
         const data = await addMutation.mutateAsync(body);
 
         if (data.outcome === "auth_required") {
-          // No rows were created; the server answered with a sign-in challenge,
-          // which this slice does not support. The message is the whole state.
-          // Keep the fields, so the user can retarget the URL instead of
-          // retyping it.
-          setNotice({
-            kind: "unsupported_sign_in",
-            message: "This server requires sign-in, which is not supported yet.",
-          });
+          // The row exists and waits for consent. Hand the browser to the
+          // connection's authorize route, which redirects to the server's own
+          // authorization server; its callback returns here. Nothing is reset
+          // and the modal stays open, because this frame is leaving the page.
+          window.location.href = mcpAuthorizeUrl(data.connectionId);
 
           return;
         }
 
         formApi.reset();
         setOpen(false);
-      } catch (error) {
-        setNotice({ kind: "error", message: toMessage(error) });
+      } catch (submitError) {
+        setError(toMessage(submitError));
       }
     },
   });
@@ -127,14 +115,14 @@ export function McpAddServerForm() {
   // here too.
   const close = () => {
     form.reset();
-    setNotice(null);
+    setError(null);
     setOpen(false);
   };
 
   return (
     <>
       <McpTile
-        icon={<Plus size={18} />}
+        icon={{ glyph: <Plus size={18} /> }}
         label={MCP_SECTION.name}
         subtitle={MCP_SECTION.description}
       >
@@ -183,16 +171,10 @@ export function McpAddServerForm() {
             )}
           </form.AppField>
 
-          {notice ? (
-            notice.kind === "error" ? (
-              <AppFieldError role="alert" id="mcp-add-notice">
-                {notice.message}
-              </AppFieldError>
-            ) : (
-              <p id="mcp-add-notice" role="status" className="px-1 text-xs text-app-fg-3">
-                {notice.message}
-              </p>
-            )
+          {error ? (
+            <AppFieldError role="alert" id="mcp-add-error">
+              {error}
+            </AppFieldError>
           ) : null}
 
           <div className="flex justify-end gap-2 pt-1">

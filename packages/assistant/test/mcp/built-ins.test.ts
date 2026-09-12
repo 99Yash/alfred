@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
 import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
-import { resolveBuiltInClient } from "../../src/connections/mcp/built-ins";
+import { resolveBuiltInClient, type BuiltInOAuthConfig } from "../../src/connections/mcp/built-ins";
 
 /**
  * The built-in registry is the ONLY place Alfred can get an OAuth client for a
@@ -18,6 +18,13 @@ const CLIENT_SECRET = "GITHUB_MCP_CLIENT_SECRET";
 
 const ENDPOINT = new URL(GITHUB_MCP_ENDPOINT_HREF);
 
+/** The `static` arm's client, for the cases that only assert one of its fields. */
+function staticClient(endpoint: URL, issuerHint?: string): BuiltInOAuthConfig | undefined {
+  const resolution = resolveBuiltInClient(endpoint, issuerHint);
+
+  return resolution.kind === "static" ? resolution.client : undefined;
+}
+
 function setEnv(clientId?: string, clientSecret?: string): void {
   if (clientId === undefined) delete process.env[CLIENT_ID];
   else process.env[CLIENT_ID] = clientId;
@@ -29,73 +36,99 @@ function setEnv(clientId?: string, clientSecret?: string): void {
 describe("built-in MCP provider registry (#934)", () => {
   afterEach(() => setEnv(undefined, undefined));
 
-  test("an unset client id leaves the built-in absent", () => {
+  test("an unset client id refuses, and names the line to set", () => {
     setEnv(undefined, undefined);
-    assert.equal(resolveBuiltInClient(ENDPOINT), undefined);
+    assert.deepEqual(resolveBuiltInClient(ENDPOINT), {
+      kind: "unavailable",
+      reason: "missing_client_id",
+      envKey: CLIENT_ID,
+    });
   });
 
   test("a secret without a client id fails closed", () => {
     setEnv(undefined, "orphan-secret");
-    assert.equal(resolveBuiltInClient(ENDPOINT), undefined);
+    assert.equal(resolveBuiltInClient(ENDPOINT).kind, "unavailable");
   });
 
   test("a blank environment line counts as unset", () => {
     setEnv("   ", undefined);
-    assert.equal(resolveBuiltInClient(ENDPOINT), undefined);
+    assert.equal(resolveBuiltInClient(ENDPOINT).kind, "unavailable");
   });
 
   test("a client id alone resolves a public client on the pinned issuer", () => {
     setEnv("public-client", undefined);
     assert.deepEqual(resolveBuiltInClient(ENDPOINT), {
-      issuer: "https://github.com/",
-      clientId: "public-client",
+      kind: "static",
+      client: { issuer: "https://github.com/", clientId: "public-client" },
     });
   });
 
   test("a client id and a secret resolve a confidential client", () => {
     setEnv("confidential-client", "confidential-secret");
     assert.deepEqual(resolveBuiltInClient(ENDPOINT), {
-      issuer: "https://github.com/",
-      clientId: "confidential-client",
-      clientSecret: "confidential-secret",
+      kind: "static",
+      client: {
+        issuer: "https://github.com/",
+        clientId: "confidential-client",
+        clientSecret: "confidential-secret",
+      },
     });
   });
 
   test("a rotated secret takes effect on the next call", () => {
     setEnv("confidential-client", "secret-one");
-    assert.equal(resolveBuiltInClient(ENDPOINT)?.clientSecret, "secret-one");
+    assert.equal(staticClient(ENDPOINT)?.clientSecret, "secret-one");
     setEnv("confidential-client", "secret-two");
-    assert.equal(resolveBuiltInClient(ENDPOINT)?.clientSecret, "secret-two");
+    assert.equal(staticClient(ENDPOINT)?.clientSecret, "secret-two");
   });
 
   test("a trailing slash still names the same built-in", () => {
     setEnv("confidential-client", undefined);
-    assert.ok(resolveBuiltInClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}/`)));
+    assert.ok(staticClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}/`)));
   });
 
+  test("a redundant percent escape still names the same built-in", () => {
+    setEnv("confidential-client", undefined);
+    assert.ok(staticClient(new URL("https://api.githubcopilot.com/%6Dcp/readonly")));
+  });
+
+  // `dynamic`, not `unavailable`: no built-in claims these endpoints at all, so
+  // there is no pin to refuse and the SDK registers its own client.
   test("a query or a fragment cannot inherit the pre-registered client", () => {
     setEnv("confidential-client", "confidential-secret");
-    assert.equal(resolveBuiltInClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}?foo=1`)), undefined);
-    assert.equal(resolveBuiltInClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}#frag`)), undefined);
+    assert.equal(
+      resolveBuiltInClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}?foo=1`)).kind,
+      "dynamic",
+    );
+    assert.equal(resolveBuiltInClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}#frag`)).kind, "dynamic");
   });
 
   test("an unrelated endpoint gets no client", () => {
     setEnv("confidential-client", "confidential-secret");
-    assert.equal(resolveBuiltInClient(new URL("https://evil.example.test/mcp")), undefined);
-    assert.equal(resolveBuiltInClient(new URL("https://api.githubcopilot.com/other")), undefined);
+    assert.equal(resolveBuiltInClient(new URL("https://evil.example.test/mcp")).kind, "dynamic");
+    assert.equal(
+      resolveBuiltInClient(new URL("https://api.githubcopilot.com/other")).kind,
+      "dynamic",
+    );
   });
 
   test("a discovered issuer under the pinned origin binds the client to that href", () => {
     setEnv("confidential-client", undefined);
     assert.equal(
-      resolveBuiltInClient(ENDPOINT, "https://github.com/login/oauth")?.issuer,
+      staticClient(ENDPOINT, "https://github.com/login/oauth")?.issuer,
       "https://github.com/login/oauth",
     );
   });
 
+  // The sharp one. A refused issuer must NOT read as "register a client
+  // dynamically", or the pin sends the caller to the very origin it refused.
   test("a discovered issuer on another origin refuses the client", () => {
     setEnv("confidential-client", "confidential-secret");
-    assert.equal(resolveBuiltInClient(ENDPOINT, "https://evil.example.test/"), undefined);
-    assert.equal(resolveBuiltInClient(ENDPOINT, "not-a-url"), undefined);
+    assert.deepEqual(resolveBuiltInClient(ENDPOINT, "https://evil.example.test/"), {
+      kind: "unavailable",
+      reason: "issuer_not_bound",
+      envKey: CLIENT_ID,
+    });
+    assert.equal(resolveBuiltInClient(ENDPOINT, "not-a-url").kind, "unavailable");
   });
 });

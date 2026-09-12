@@ -24,22 +24,63 @@ function stripHostedEndpointSensitiveHeaders(headers: Headers): void {
 }
 
 /**
- * The identity of a hosted endpoint: its origin plus its path, with any
- * trailing slashes removed.
+ * Characters a path segment may carry UNESCAPED (RFC 3986 `pchar`, minus the
+ * percent sign itself). A `%XX` escape that decodes to one of these says the
+ * same thing as the bare character, so {@link canonicalPercentEncoding} may
+ * decode it. Everything else — `/`, `?`, `#`, a space, any byte of a UTF-8
+ * sequence — keeps its escape, because decoding one of those would merge two
+ * different resources into one key.
+ */
+const UNESCAPED_PATH_CHARACTER = /^[A-Za-z0-9\-._~!$&'()*+,;=:@]$/;
+
+/**
+ * One spelling for a path that percent-encoding can spell many ways.
+ *
+ * `URL` does not do this: `new URL("https://host/%6Dcp").pathname` is `/%6Dcp`,
+ * not `/mcp`. That let a supplied URL name a built-in's own endpoint while
+ * reading as a different key, so the registry did not claim it and the generic
+ * add door did not refuse it — two connections, two catalogs and two tool
+ * namespaces for one server, the second with no scope baseline and no
+ * read-only pin.
+ *
+ * A redundant escape is decoded; every other escape is kept and its hex digits
+ * are upper-cased, which is the one remaining spelling choice. `%2F` therefore
+ * stays `%2F`, so `/a%2Fb` and `/a/b` remain two resources.
+ */
+function canonicalPercentEncoding(path: string): string {
+  return path.replace(/%[0-9A-Fa-f]{2}/g, (escape) => {
+    const decoded = String.fromCharCode(Number.parseInt(escape.slice(1), 16));
+
+    return UNESCAPED_PATH_CHARACTER.test(decoded) ? decoded : escape.toUpperCase();
+  });
+}
+
+/**
+ * The identity of a hosted endpoint: its origin plus its path, canonically
+ * spelled, with any trailing slashes removed.
  *
  * Two hrefs that name the same endpoint produce one key, and `URL` does the
- * parsing. `URL` itself does NOT normalize a trailing slash, so without this
- * `…/mcp` and `…/mcp/` are two servers, two catalogs and two tool namespaces
- * for one thing. Every door that mints or matches an endpoint identity — the
- * built-in registry lookup and the generic add — keys on this one function.
+ * parsing. `URL` itself normalizes neither of the two spellings this function
+ * owns:
+ *
+ * - a trailing slash, so `…/mcp` and `…/mcp/` would be two servers;
+ * - a redundant percent escape, so `…/%6Dcp` and `…/mcp` would be two;
+ * - a fully qualified host, so `https://host./mcp` and `https://host/mcp` would
+ *   be two. The root label a trailing dot names is implicit in every other
+ *   spelling, and DNS resolves both to one host, so the dot is dropped.
+ *
+ * Every door that mints or matches an endpoint identity — the built-in registry
+ * lookup and the generic add — keys on this one function, so a spelling this
+ * function does not fold is a spelling that walks past the built-in refusal.
  *
  * The query and the fragment are deliberately absent: they are request
  * parameters, not identity. A caller that must refuse them does so itself.
  */
 export function hostedEndpointKey(url: URL): string {
-  const path = url.pathname.replace(/\/+$/, "");
+  const path = canonicalPercentEncoding(url.pathname).replace(/\/+$/, "");
+  const host = url.host.replace(/\.(?=:|$)/, "");
 
-  return `${url.origin}${path === "" ? "/" : path}`;
+  return `${url.protocol}//${host}${path === "" ? "/" : path}`;
 }
 
 export type HostedEndpointErrorCode =
