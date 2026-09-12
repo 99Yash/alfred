@@ -231,6 +231,18 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Sentry issues and error events",
     domain: "sentry.io",
   },
+  // `planned` as a PRODUCT integration: Alfred has no Polylane REST credential
+  // and registers no `polylane.*` tool. The entry exists so the slug resolves
+  // and carries brand artwork, which is what the built-in MCP catalog borrows
+  // (ADR-0093). Linear is the same shape. The connection itself is real and
+  // lives on the MCP surface, not here.
+  polylane: {
+    kind: "provider",
+    status: "planned",
+    displayName: "Polylane",
+    brand: "polylane",
+    actions: [],
+  },
   imessage: { kind: "channel", displayName: "iMessage", actions: [] },
 } as const satisfies Record<string, IntegrationEntry>;
 

@@ -1,18 +1,20 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { McpRecoveryDecision, McpRecoveryOperationsPage } from "@alfred/contracts";
-import { AlertTriangle, Plug, Plus } from "lucide-react";
-import { client, type EdenData, API_URL } from "~/lib/eden";
-import { AppButton } from "~/components/ui/v2";
-import { flattenMcpRecoveryPages, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
+import {
+  BUILT_IN_MCP_PROVIDERS,
+  type McpRecoveryDecision,
+  type McpRecoveryOperationsPage,
+} from "@alfred/contracts";
+import { client } from "~/lib/eden";
+import {
+  flattenMcpRecoveryPages,
+  MCP_CONNECTIONS_QUERY_KEY,
+  MCP_SECTION,
+  type McpConnection,
+} from "./helpers";
 import { McpAddServerForm } from "./mcp-add-server-form";
+import { McpBuiltInCard } from "./mcp-built-in-card";
 import { McpConnectionCard } from "./mcp-connection-card";
 import { McpRecoveryList } from "./mcp-recovery-list";
-import { mcpConnectionStatusText } from "./mcp-server-status";
-import { McpTile } from "./mcp-tile";
-
-type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
-
-type McpConnection = McpConnectionsResponse["connections"][number];
 
 type McpRecoveryAction =
   | {
@@ -87,23 +89,18 @@ export function MCPServerSection() {
   const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
   // Every page reports the same owner-wide count; the newest page is the freshest.
   const awaitingRepair = recoveryQuery.data?.pages.at(-1)?.awaitingRepair ?? 0;
-  // `builtInProvider` is derived server-side from the pinned endpoint, so the
-  // card follows the built-in when its path moves. The old
-  // `canonicalResource.includes("github")` also matched a user-added URL that
-  // merely had "github" in it, and broke on any endpoint rename.
-  const github = connections.find((connection) => connection.builtInProvider === "github");
 
+  // `builtInProvider` is derived server-side from the pinned endpoint, so a tile
+  // follows its built-in when that endpoint moves. The old test was
+  // `canonicalResource.includes("github")`, which also matched a user-added URL
+  // that merely had "github" in it, and broke on any endpoint rename.
+  //
+  // NULL is the whole test for a generic card. Naming the built-ins here
+  // instead would silently demote every future first-class server into the
+  // generic list, which offers no consent action.
   const genericConnections = connections.filter(
-    (connection) => connection.builtInProvider !== "github",
+    (connection) => connection.builtInProvider === null,
   );
-
-  const isConnecting = github?.status === "connecting";
-
-  const githubStatusText = connectionQuery.isPending
-    ? "Loading connection…"
-    : connectionQuery.isError
-      ? "Could not load connection status."
-      : mcpConnectionStatusText(github);
 
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: `${480}ms` }}>
@@ -111,44 +108,18 @@ export function MCPServerSection() {
         {MCP_SECTION.heading}
       </h2>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-        <McpTile
-          icon={<Plug size={18} />}
-          label={github?.label ?? "GitHub MCP"}
-          subtitle={githubStatusText}
-        >
-          <AppButton
-            size="sm"
-            variant="white"
-            leading={
-              github?.status === "auth_required" ? <AlertTriangle size={12} /> : <Plus size={12} />
-            }
-            disabled={connectionQuery.isPending || isConnecting}
-            onClick={() => {
-              if (connectionQuery.isError) {
-                void connectionQuery.refetch();
-
-                return;
-              }
-
-              window.location.href =
-                github?.status === "auth_required"
-                  ? `${API_URL}/api/integrations/mcp/connections/${github.id}/reconsent`
-                  : `${API_URL}/api/integrations/mcp/github/connect`;
+        {BUILT_IN_MCP_PROVIDERS.map((provider) => (
+          <McpBuiltInCard
+            key={provider}
+            provider={provider}
+            connection={connections.find((connection) => connection.builtInProvider === provider)}
+            loading={connectionQuery.isPending}
+            readError={connectionQuery.isError}
+            onRetry={() => {
+              void connectionQuery.refetch();
             }}
-          >
-            {connectionQuery.isPending
-              ? "Loading"
-              : connectionQuery.isError
-                ? "Retry"
-                : isConnecting
-                  ? "Connecting"
-                  : github?.status === "auth_required"
-                    ? "Grant access"
-                    : github
-                      ? "Reconnect"
-                      : "Add"}
-          </AppButton>
-        </McpTile>
+          />
+        ))}
 
         {genericConnections.map((connection) => (
           <McpConnectionCard key={connection.id} connection={connection} />

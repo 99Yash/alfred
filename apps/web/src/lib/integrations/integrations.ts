@@ -280,6 +280,31 @@ const INTEGRATION_PAGE_COPY = {
         "Alfred can list an organization's projects and issues, read one issue and its latest event with the stack trace, and receive the webhook when Sentry sends an alert or Seer opens a pull request.",
     },
   },
+  polylane: {
+    description: "Read production logs, metrics, traces, and tracked issues.",
+    category: "Development",
+    capabilities: [
+      "Read Logs",
+      "Read Metrics",
+      "Read Traces",
+      "Read Deployments",
+      "Read Tracked Issues",
+      "Read the Infrastructure Graph",
+    ],
+    trust: {
+      title: "You approve every call",
+      body: "Polylane connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
+    },
+    overview: {
+      body: "Connect Polylane to give Alfred your production record: the logs, metrics, and traces Polylane already collects, the infrastructure graph, the deployments, and the issues Polylane opens.",
+      heading: "Production Context",
+      detail:
+        "When you ask about an incident or a failed deploy, Alfred can read the same evidence Polylane watched it with, instead of guessing from a log line.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Polylane has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Polylane's own.",
+    },
+  },
 } satisfies Record<CatalogSlug, IntegrationPageCopy>;
 
 function buildPage(slug: CatalogSlug): IntegrationPage {
@@ -325,9 +350,14 @@ export function getIntegrationPage(value: string): IntegrationPage | undefined {
 /**
  * Brand mark for an integration slug, or `undefined` for a slug without a page
  * (Alfred's own `system` tools, the `mcp` projection, the `imessage` channel).
- * Every provider entry carries a brand, so a slug with a page always renders
- * its own mark.
+ *
+ * A `CatalogSlug` names a PROVIDER entry, and every provider entry carries a
+ * brand, so that overload answers a mark and never `undefined`. Without it a
+ * caller that already holds a provider slug still has to write a fallback
+ * branch for a case the registry cannot produce.
  */
+export function brandForIntegration(slug: CatalogSlug): IntegrationBrand;
+export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined;
 export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined {
   const entry = INTEGRATIONS[slug];
 

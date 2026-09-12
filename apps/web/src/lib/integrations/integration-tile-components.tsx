@@ -1466,6 +1466,129 @@ const VercelTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   );
 };
 
+const PolylaneTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
+  const idJitter = React.useId();
+
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <g clipPath={`url(#clip0_${idJitter})`}>
+        <rect width="50" height="50" fill={`url(#paint0_radial_${idJitter})`} />
+        <g filter={`url(#filter0_ddddi_${idJitter})`}>
+          {/* Polylane mark (product favicon, 716-unit grid) scaled onto the 34-unit glyph region. */}
+          <g transform="translate(8 8) scale(0.047486) translate(-120 -120)">
+            <path
+              fillRule="evenodd"
+              clipRule="evenodd"
+              d="M381.142 255.979C353.262 256.882 324.664 258.165 294.739 259.828C240.319 262.852 197.432 305.379 194.635 357.744C191.659 413.446 191.596 463.816 194.618 519.68C197.379 570.729 238.619 612.379 291.522 616.294C424.628 626.144 531.099 626.37 664.216 616.432C716.652 612.517 757.575 571.322 760.527 520.692C763.828 464.081 763.824 413.076 760.619 356.673C757.677 304.896 715.104 262.861 661.009 259.838C629.813 258.094 600.063 256.769 571.071 255.861C568.898 277.025 553.17 294.761 531.729 297.623C492.693 302.833 460.623 302.444 420.534 297.184C399.233 294.389 383.392 276.96 381.142 255.979ZM291.944 209.528C212.897 213.921 148.553 276.001 144.329 355.057C141.26 412.512 141.192 464.688 144.314 522.401C148.496 599.706 210.597 660.82 287.804 666.534C369.848 672.605 442.16 675.087 516.559 673.853C551.603 711.938 579.891 732.555 618.741 749.748C627.403 753.581 635.458 743.223 630.988 734.873C618.661 711.839 616.267 692.195 623.929 669.646C638.33 668.78 652.985 667.788 667.966 666.669C744.641 660.945 806.343 600.383 810.819 523.625C814.234 465.063 814.229 412.124 810.915 353.815C806.453 275.298 742.341 213.928 663.821 209.539C531.36 202.135 424.263 202.176 291.944 209.528Z"
+              fill={`url(#paint1_linear_${idJitter})`}
+            />
+            <path
+              d="M438.296 415.062C438.296 447.11 412.316 473.09 380.269 473.09C348.221 473.09 322.242 447.11 322.242 415.062C322.242 383.015 348.221 357.035 380.269 357.035C412.316 357.035 438.296 383.015 438.296 415.062Z"
+              fill={`url(#paint1_linear_${idJitter})`}
+            />
+            <path
+              d="M570.358 473.09C602.405 473.09 628.385 447.11 628.385 415.062C628.385 383.015 602.405 357.035 570.358 357.035C538.31 357.035 512.331 383.015 512.331 415.062C512.331 447.11 538.31 473.09 570.358 473.09Z"
+              fill={`url(#paint1_linear_${idJitter})`}
+            />
+          </g>
+        </g>
+      </g>
+      <defs>
+        <filter
+          id={`filter0_ddddi_${idJitter}`}
+          x="4"
+          y="7"
+          width="42"
+          height="56"
+          filterUnits="userSpaceOnUse"
+          colorInterpolationFilters="sRGB"
+        >
+          <feFlood floodOpacity="0" result="BackgroundImageFix" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="1.65426" />
+          <feGaussianBlur stdDeviation="1.65426" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
+          <feBlend
+            mode="normal"
+            in2="BackgroundImageFix"
+            result={`effect1_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="4.96277" />
+          <feGaussianBlur stdDeviation="2.48138" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect1_dropShadow_${idJitter}`}
+            result={`effect2_dropShadow_${idJitter}`}
+          />
+          <feBlend
+            mode="normal"
+            in="SourceGraphic"
+            in2={`effect2_dropShadow_${idJitter}`}
+            result="shape"
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset />
+          <feGaussianBlur stdDeviation="0.661703" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0" />
+          <feBlend mode="normal" in2="shape" result={`effect3_innerShadow_${idJitter}`} />
+        </filter>
+        <radialGradient
+          id={`paint0_radial_${idJitter}`}
+          cx="0"
+          cy="0"
+          r="1"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="translate(25.333 50) rotate(-90) scale(50 167.578)"
+        >
+          <stop stopColor="#15200D" />
+          <stop offset="1" stopColor="#2E3D22" />
+        </radialGradient>
+        {/* The brand lime, top-lit like every other coin: full strength at the
+         * crown, half strength at the foot. */}
+        <linearGradient
+          id={`paint1_linear_${idJitter}`}
+          x1="25"
+          y1="11.5"
+          x2="25.9223"
+          y2="38.2"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#C4F76A" />
+          <stop offset="1" stopColor="#A8E840" />
+        </linearGradient>
+        <clipPath id={`clip0_${idJitter}`}>
+          <rect width="50" height="50" fill="white" />
+        </clipPath>
+      </defs>
+    </svg>
+  );
+};
+
 const SentryTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   const idJitter = React.useId();
 
@@ -1616,6 +1739,7 @@ export {
   LinearTile,
   NotionTile,
   RailwayTile,
+  PolylaneTile,
   SentryTile,
   SlackTile,
   VercelTile,

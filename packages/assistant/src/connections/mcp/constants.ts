@@ -28,3 +28,65 @@ export const GITHUB_MCP_ISSUER = "https://github.com/" as const;
  * UNDER an unchanged resource.
  */
 export const GITHUB_MCP_ENDPOINT_HREF = "https://api.githubcopilot.com/mcp/readonly" as const;
+
+/**
+ * Linear's remote MCP server and the authorization server that protects it.
+ *
+ * Measured on 2026-09-12. An unauthenticated `initialize` answers `401` with
+ * `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"`.
+ * That document names `https://mcp.linear.app` as the authorization server, and
+ * that server publishes a `registration_endpoint`, so Alfred registers its own
+ * client (RFC 7591) and needs no pre-registered credential in the environment.
+ * `scopes_supported` is `read`, `write`, `openid`, `email`.
+ */
+export const LINEAR_MCP_ENDPOINT_HREF = "https://mcp.linear.app/mcp" as const;
+
+/**
+ * Notion's remote MCP server. Measured on 2026-09-12, same shape as Linear:
+ * `401` with resource metadata, an authorization server at
+ * `https://mcp.notion.com` that publishes a `registration_endpoint`, and a
+ * single supported scope, `default`. The resource names itself
+ * `Notion MCP (Beta)`.
+ */
+export const NOTION_MCP_ENDPOINT_HREF = "https://mcp.notion.com/mcp" as const;
+
+/**
+ * Sentry's remote MCP server. Measured on 2026-09-12: `401` with resource
+ * metadata, an authorization server at `https://mcp.sentry.dev` with a
+ * `registration_endpoint`, and four supported scopes — `org:read`,
+ * `project:write`, `team:write`, `event:write`.
+ */
+export const SENTRY_MCP_ENDPOINT_HREF = "https://mcp.sentry.dev/mcp" as const;
+
+/**
+ * Polylane's remote MCP server. Measured on 2026-09-12: `401` with resource
+ * metadata, an authorization server at `https://mcp.polylane.com` that
+ * publishes a `registration_endpoint`, and NO `scopes_supported` member in
+ * either metadata document, so the ask carries no scope at all (see the
+ * registry entry). The server card names the resource `Polylane` and declares
+ * `transport: streamable-http`.
+ *
+ * Polylane watches production for the owner — logs, metrics, traces, the
+ * infrastructure graph, deployments, and the issues it opens. Alfred connects
+ * to it as a READER of that record. The server also serves tools that run a
+ * workspace agent tool or map a repository, and ADR-0088 is what keeps each of
+ * those behind an approval rather than a catalog pin: the resource is one
+ * read-write endpoint, so `readOnlyCatalog` cannot be claimed for it.
+ */
+export const POLYLANE_MCP_ENDPOINT_HREF = "https://mcp.polylane.com/mcp" as const;
+
+/**
+ * The `auth_server_identity` a connection row carries before any authorization
+ * server is known.
+ *
+ * The column answers "which authorization server protects this connection".
+ * A row that is created by a built-in ensure, or by the generic add door
+ * against an endpoint that answered with a challenge, has no answer yet: the
+ * issuer arrives from discovery on the first authorize. The sentinel is what
+ * makes the column NON-NULL anyway, and `liveClientFactory` reads exactly that
+ * non-nullness to decide the connection speaks OAuth at all.
+ *
+ * It is one constant here rather than a literal at each creation door, because
+ * the two doors must agree and the column is the thing both write.
+ */
+export const MCP_OAUTH_PENDING_IDENTITY = "oauth:pending" as const;

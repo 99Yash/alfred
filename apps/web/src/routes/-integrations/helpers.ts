@@ -1,4 +1,9 @@
-import type { McpRecoveryOperation, McpRecoveryOperationsPage } from "@alfred/contracts";
+import type {
+  BuiltInMCPProvider,
+  McpRecoveryOperation,
+  McpRecoveryOperationsPage,
+} from "@alfred/contracts";
+import { API_URL, type client, type EdenData } from "~/lib/eden";
 import {
   CATEGORY_ORDER,
   matchesIntegration,
@@ -17,7 +22,7 @@ export const MCP_SECTION = {
   description: "Connect any MCP server to extend Alfred.",
 } as const;
 
-export const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
+export const BUILT_IN_MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
 
 /**
  * The one cache key for the MCP connection list.
@@ -28,6 +33,35 @@ export const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SE
  * never redraws.
  */
 export const MCP_CONNECTIONS_QUERY_KEY = ["integrations", "mcp", "connections"] as const;
+
+type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
+
+/**
+ * One row of the MCP connection list, as the wire hands it over.
+ *
+ * It lives here rather than on a card, because three components read it and a
+ * component that owns a shared type makes a sibling import from a sibling
+ * VIEW. The shape is derived from the route, never restated, so a field added
+ * server-side reaches every reader at once.
+ */
+export type McpConnection = McpConnectionsResponse["connections"][number];
+
+/**
+ * The consent door for a STORED connection, and the creation door for a
+ * built-in that may have no row yet.
+ *
+ * Both are browser NAVIGATIONS, not fetches: they end at a third-party
+ * authorization server. They are built here because three call sites used to
+ * spell the same `${API_URL}/api/integrations/mcp/...` prefix by hand, and a
+ * route rename would have missed one.
+ */
+export function mcpAuthorizeUrl(connectionId: string): string {
+  return `${API_URL}/api/integrations/mcp/connections/${connectionId}/authorize`;
+}
+
+export function mcpBuiltInConnectUrl(provider: BuiltInMCPProvider): string {
+  return `${API_URL}/api/integrations/mcp/built-ins/${provider}/connect`;
+}
 
 export function matches(haystack: string, query: string): boolean {
   const q = query.trim().toLowerCase();
