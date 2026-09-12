@@ -32,6 +32,7 @@ Everything outside a `.app` ancestor is unaffected.
 | `AppHeader`     | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                                                             |
 | `AppInput`      | Pill input. `readOnly` flips to the muted `bg-app-bg-2` token-display variant.                                                            |
 | `AppField`      | Field wrapper: label + control + helper/error, with `AppFieldLabel` / `AppFieldHelperText` / `AppFieldError` exported for custom layouts. |
+| `AppModal`      | Responsive overlay: a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below.                                       |
 
 ## Tokens
 
@@ -73,6 +74,24 @@ const body: McpAddServerBody = {
   ...omitBlankStringFields({ label: value.label }),
 };
 ```
+
+## Forms
+
+`useAppForm` (from `./form.ts`) is `@tanstack/react-form`'s `useForm` with the app
+field components registered. Render a field through `form.AppField` and the
+component owns the input wiring and the error slot:
+
+```tsx
+const form = useAppForm({ defaultValues, onSubmit });
+
+<form.AppField name="endpointUrl" validators={{ onBlur: urlSchema }}>
+  {(field) => <field.TextField label="Server URL" placeholder="https://…" />}
+</form.AppField>;
+```
+
+`field.TextField` and `field.TextAreaField` are registered today. To add a
+control, write it in `form-fields.tsx`, register it in `form.ts`, and every form
+can use it.
 
 ## Preview
 
