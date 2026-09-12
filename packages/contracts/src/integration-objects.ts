@@ -12,6 +12,8 @@
  * Pure module — no Node imports (consumed across the web boundary).
  */
 
+import { enumGuard } from "./guards";
+
 /** Provider-agnostic lifecycle bucket. Generic consumers (briefing reconciliation) read this. */
 export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
 
@@ -74,6 +76,14 @@ export interface IntegrationObjectDef {
 export const OBJECT_STATE_PROVIDERS = ["github"] as const;
 
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
+
+/**
+ * Narrow an arbitrary (contract-bounded but provider-open) string to a provider
+ * the object-state registry knows. A caller-supplied reference can name a
+ * provider that this build does not project, and that must degrade to an honest
+ * miss rather than index the registry with an unchecked string.
+ */
+export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 
 /**
  * The registry. v1 = GitHub PR/CI only. A github PR's native state token is one
