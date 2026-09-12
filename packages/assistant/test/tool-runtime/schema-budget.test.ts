@@ -47,17 +47,19 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // its one-line grounding to the authorable event trigger, which both `system.author_workflow`
 // and `system.activate_workflow` embed (+256 B each). Ceiling raised 90,000 → 92,000: the #990
 // delta plus ~1.5 KB, so the next tool addition trips it and records its own line.
-// Measured 2026-09-12: kernel 6,420 → 9,653 B / ~2,413 tok and full 90,494 → 93,303 B —
+// Measured 2026-09-12: kernel 6,420 → 9,481 B / ~2,370 tok and full 90,494 → 93,131 B —
 // `system.search_context` (#426) is the model-facing door to the Context Search boundary and the
-// chat prompt names it as the first-pass cross-source read, so it is kernel. Its envelope
+// chat prompt names it as the first-pass cross-source read, so it is kernel (the spec's "chat
+// guidance prefers it" cannot hold if the tool must be searched and loaded first). Its envelope
 // (query + task + exact object references + limit) carries the boundary's full request shape,
 // which is most of the kernel delta; keeping the exact-object path is what lets the fabric's
-// object-state adapter contribute instead of always reporting empty. Cleanup opportunity: the
-// exact-object union is ~1.3 KB of the tool and could move behind a later drill-down if the
-// first-pass query path proves sufficient. Ceilings raised for this deliberate review signal.
-const KERNEL_SCHEMA_BYTES_CEILING = 10_600;
+// object-state adapter contribute instead of always reporting empty. The tool prose was trimmed
+// to keep the ratchet tight; the exact-object union is still ~1.3 KB of the tool and is the first
+// candidate to move behind a later drill-down if the first-pass query path proves sufficient.
+// Ceilings raised for this deliberate review signal.
+const KERNEL_SCHEMA_BYTES_CEILING = 10_500;
 
-const KERNEL_SCHEMA_TOKENS_CEILING = 2_750;
+const KERNEL_SCHEMA_TOKENS_CEILING = 2_600;
 
 const FULL_SCHEMA_BYTES_CEILING = 95_000;
 

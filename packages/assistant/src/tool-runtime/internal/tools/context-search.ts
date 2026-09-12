@@ -1,6 +1,6 @@
 import { searchContextInput } from "@alfred/contracts";
 import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
-import { liveTool, searchContext } from "@alfred/assistant/tool-runtime";
+import { liveTool, runContextSearch } from "@alfred/assistant/tool-runtime";
 
 /**
  * `system.search_context` — the model-facing door to the Context Search read
@@ -34,10 +34,10 @@ export const contextSearchTools: readonly RegisteredTool[] = [
     // invalidation. The #414 budget ratchet records the cost deliberately.
     availability: { surface: "kernel" },
     description:
-      "Read one answer across Alfred's evidence sources at once: your memory of the user, their ingested documents and attachments, and known work-object state. Use it as the first pass for a question that could be answered by assembling evidence across several sources — 'what do we know about X', 'what did Y change last week', 'get me up to speed on Z'. It returns bounded, cited snippets with a note for any source that had nothing or failed; it never returns full documents or media bytes. When the ask is an action or an exact record, use the provider-specific tools (gmail.*, drive.*, github.*, calendar.*, …) — search_context is for gathering evidence, not for sending, editing, or expanding a whole document. An empty or thin result is a real answer, not a dead end: drill into a provider or the live web next.",
+      "One bounded read across Alfred's evidence sources at once: your memory of the user, their ingested documents and attachments, and known work-object state. Use it as the first pass for a question that may need evidence assembled across sources — 'what do we know about X', 'what did Y change last week'. It returns bounded, cited snippets with a note for any source that had nothing or failed; never full documents or media bytes. For an action or an exact record, use the provider-specific tools (gmail.*, drive.*, github.*, calendar.*, …). An empty or thin result is a real answer, not a dead end: drill into a provider or the live web next.",
     inputSchema: searchContextInput,
     execute: async (input, ctx) => {
-      return await searchContext({
+      return await runContextSearch({
         input,
         context: {
           userId: ctx.userId,
