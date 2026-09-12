@@ -278,6 +278,15 @@ export const evidenceCardSchema = z
     mediaKind: evidenceMediaKindSchema,
     /** Bounded text preview. Absent on a media placeholder explained by `note`. */
     snippet: z.string().min(1).max(EVIDENCE_SNIPPET_MAX_CHARS).optional(),
+    /**
+     * Source-native relevance reading, higher = more relevant. Comparable only
+     * within one source: cosine similarity for the vector adapters (#424), an
+     * exact-key confidence for object-state (#425). The deterministic ranker
+     * (#427) normalizes across sources; the packer never renders it, so it is
+     * ranking metadata, never model-facing prose. Absent when the source cannot
+     * score — the ranker degrades rather than inventing a number.
+     */
+    score: z.number().finite().optional(),
     /** Honest degraded/missing explanation — extraction gaps, missing state. */
     note: z.string().min(1).max(1_000).optional(),
     /** Deterministic object-state identity (#425). */
