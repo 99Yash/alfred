@@ -1,9 +1,10 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toMessage } from "@alfred/contracts";
 import { Plug } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, type EdenData } from "~/lib/eden";
+import { MCP_CONNECTIONS_QUERY_KEY } from "./helpers";
 import { McpTile } from "./mcp-tile";
 import { mcpConnectionStatusText } from "./mcp-server-status";
 
@@ -32,14 +33,14 @@ function connectionSubtitle(connection: McpConnection): string {
  * holds the last id mutated, so a second click moves the spinner off the first
  * card while its request — which can run for tens of seconds — is still in
  * flight, and a failure reports against the wrong row.
+ *
+ * Both actions change the stored row, so both invalidate the connection list
+ * here. The card refreshes the list it belongs to; the list does not pass a
+ * refresh callback in.
  */
-export function McpConnectionCard({
-  connection,
-  onChanged,
-}: {
-  connection: McpConnection;
-  onChanged: () => void;
-}) {
+export function McpConnectionCard({ connection }: { connection: McpConnection }) {
+  const queryClient = useQueryClient();
+
   const reconnectMutation = useMutation({
     mutationFn: async () => {
       const response = await client.api.integrations.mcp
@@ -54,7 +55,9 @@ export function McpConnectionCard({
 
       return response.data;
     },
-    onSuccess: onChanged,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
+    },
   });
 
   const disconnectMutation = useMutation({
@@ -75,7 +78,9 @@ export function McpConnectionCard({
 
       return response.data;
     },
-    onSuccess: onChanged,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
+    },
   });
 
   // The route answers 400 on a refusal. Without this line the spinner stops,

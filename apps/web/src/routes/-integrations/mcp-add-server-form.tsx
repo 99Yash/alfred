@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MCP_ADD_SERVER_MAX_LABEL_LENGTH,
   MCP_ADD_SERVER_MAX_URL_LENGTH,
@@ -10,7 +10,7 @@ import { useState } from "react";
 import { AppButton, AppInput } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import { MCP_SECTION } from "./helpers";
+import { MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
 import { McpTile } from "./mcp-tile";
 
 /**
@@ -33,7 +33,8 @@ type AddNotice = { kind: "unsupported_sign_in" | "error"; message: string };
  * reaches Elysia and comes back as a raw `Validation failed:` sentence, and the
  * two exported constants have no reader outside the schema that declares them.
  */
-export function McpAddServerForm({ onAdded }: { onAdded: () => void }) {
+export function McpAddServerForm() {
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [endpointUrl, setEndpointUrl] = useState("");
   const [label, setLabel] = useState("");
@@ -69,14 +70,14 @@ export function McpAddServerForm({ onAdded }: { onAdded: () => void }) {
       setLabel("");
       setNotice(null);
       setOpen(false);
-      onAdded();
+      void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
     },
     onError: (error) => {
       setNotice({ kind: "error", message: toMessage(error) });
       // A failed add can still have left a row: the probe commits nothing, but
       // the manager's own session opens AFTER the insert. Refetch, so a stranded
       // connection appears now rather than on the next page load.
-      onAdded();
+      void queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
     },
   });
 
