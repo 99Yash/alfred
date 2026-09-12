@@ -76,6 +76,19 @@ export const OBJECT_STATE_PROVIDERS = ["github"] as const;
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
 /**
+ * Narrow an arbitrary (contract-bounded but provider-open) string to a provider
+ * the object-state registry knows. A caller-supplied reference can name a
+ * provider that this build does not project, and that must degrade to an honest
+ * miss rather than index the registry with an unchecked string.
+ */
+export function isObjectStateProvider(value: string): value is ObjectStateProvider {
+  // SAFETY: the tuple is a const list of ObjectStateProvider literals; widening
+  // to readonly string[] only types the .includes receiver for this narrowing
+  // predicate.
+  return (OBJECT_STATE_PROVIDERS as readonly string[]).includes(value);
+}
+
+/**
  * The registry. v1 = GitHub PR/CI only. A github PR's native state token is one
  * of `open` | `merged` | `closed` (closed-not-merged), collapsed by the reducer
  * from the `pull_request` payload's `state` + `merged` boolean.

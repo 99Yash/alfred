@@ -55,14 +55,18 @@
  *   switch over today's integrations. Until it lands, adapters register by id
  *   through `registerContextSource`.
  *
- * ## The built-in sources (#424)
+ * ## The built-in sources (#424, #425)
  *
  * This slice installs the first adapters: `documents` over the corpus vector
- * search and `memory` over `recallMemory`. Both are private to the module and
- * are installed together by `registerDefaultContextSources`, which the server
- * composition root calls at boot. They return canonical cards carrying a
- * source, a citation, a source-native `score`, and a later-expandable handle;
- * they never change an existing direct caller of `search` or `recallMemory`.
+ * search, `memory` over `recallMemory`, and `object-state` over the
+ * deterministic object-state store. All are private to the module and are
+ * installed together by `registerDefaultContextSources`, which the server
+ * composition root calls at boot. The vector adapters return canonical cards
+ * carrying a source, a citation, a source-native `score`, and a later-expandable
+ * handle; the object-state adapter is the same card shape for a card with no
+ * text body, reading the request's exact `objects` references rather than the
+ * query. They never change an existing direct caller of `search` or
+ * `recallMemory`, or the briefing's object-state reconciliation.
  * The adapters are process-registered, not per-request: `searchContext` reads
  * the registry, so no consumer names a source.
  *
