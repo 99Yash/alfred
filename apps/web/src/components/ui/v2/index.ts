@@ -27,6 +27,10 @@ export type { AppSelectOption } from "./select";
 
 export { AppField, AppFieldError, AppFieldHelperText, AppFieldLabel } from "./field";
 
+export { useAppForm } from "./form";
+
+export { AppModal } from "./modal";
+
 export { omitBlankStringFields } from "./form-values";
 
 export { AppDateTimePicker } from "./date-time-picker";

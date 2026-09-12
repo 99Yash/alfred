@@ -87,6 +87,7 @@ catalog:
   tailwindcss: ^4.1.8
   tsdown: ^0.15.5
   typescript: ^7.0.2
+  vaul: ^1.1.2
   vite: ^6.3.5
   zod: 4.5.2
 
