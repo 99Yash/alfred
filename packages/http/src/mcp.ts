@@ -1,7 +1,7 @@
 import {
   Errors,
   isApiError,
-  isMcpBuiltInProvider,
+  isBuiltInMCPProvider,
   mcpAddServerBodySchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
@@ -365,7 +365,7 @@ export const mcpIntegrationRoutes = new Elysia({
           // The segment arrives from a URL, so it is untrusted until the
           // catalog claims it. An unknown provider is a 404, not a redirect: a
           // card cannot produce one, so it is a mistyped link.
-          if (!isMcpBuiltInProvider(params.provider)) {
+          if (!isBuiltInMCPProvider(params.provider)) {
             throw Errors.NotFoundError("Unknown built-in MCP provider");
           }
 

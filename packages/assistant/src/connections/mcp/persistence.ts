@@ -19,7 +19,7 @@
  * one-way on purpose: nothing in this module may reach the invocation half.
  */
 
-import { MCP_BUILT_IN_CATALOG } from "@alfred/contracts";
+import { BUILT_IN_MCP_CATALOG } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
@@ -258,7 +258,7 @@ export async function ensureBuiltInConnection(
       // The tile title IS the connection label, read from the one browser-safe
       // catalog rather than restated server-side, so a card and its row cannot
       // name the same server differently.
-      label: MCP_BUILT_IN_CATALOG[provider].label,
+      label: BUILT_IN_MCP_CATALOG[provider].label,
       instanceKey: builtIn.instanceKey,
       canonicalResource: builtIn.canonicalResource,
       endpoint: new URL(builtIn.endpointHref),

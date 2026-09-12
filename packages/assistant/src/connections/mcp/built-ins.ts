@@ -30,7 +30,7 @@
  * not copy hard-coded `GITHUB_MCP_*` names.
  */
 
-import type { McpBuiltInProvider } from "@alfred/contracts";
+import type { BuiltInMCPProvider } from "@alfred/contracts";
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
@@ -201,7 +201,7 @@ const BUILT_IN_INITIAL_STATE = {
 /**
  * The pinned server for every provider `MCP_BUILT_IN_CATALOG` lists.
  *
- * `satisfies Record<McpBuiltInProvider, …>` is the enforcement: a catalog entry
+ * `satisfies Record<BuiltInMCPProvider, …>` is the enforcement: a catalog entry
  * with no definition here fails to compile, and a definition here for a
  * provider the catalog does not list fails too. The one initial state is shared
  * because it says the same thing for every provider — the row exists and has
@@ -279,7 +279,7 @@ export const BUILT_IN_REGISTRY = {
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,
   },
-} as const satisfies Record<McpBuiltInProvider, BuiltInDefinition>;
+} as const satisfies Record<BuiltInMCPProvider, BuiltInDefinition>;
 
 /**
  * The provider key space is the CATALOG's, re-exported under the name this
@@ -287,7 +287,7 @@ export const BUILT_IN_REGISTRY = {
  * spelling would let this file widen the key space on its own, and the browser
  * half would not know.
  */
-export type BuiltInProvider = McpBuiltInProvider;
+export type BuiltInProvider = BuiltInMCPProvider;
 
 /**
  * The built-in that owns `endpoint`, or `undefined` when no entry claims it.
@@ -406,7 +406,7 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
       {
         ...definition,
         // SAFETY: `Object.entries` of BUILT_IN_REGISTRY yields that object's
-        // own keys, and the registry `satisfies Record<McpBuiltInProvider, …>`,
+        // own keys, and the registry `satisfies Record<BuiltInMCPProvider, …>`,
         // so those keys are exactly `BuiltInProvider`. The cast only restores
         // what `Object.entries` widens to `string`.
         provider: provider as BuiltInProvider,
