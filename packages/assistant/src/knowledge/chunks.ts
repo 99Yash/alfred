@@ -7,7 +7,7 @@ import {
   type MemoryChunk,
   type NewMemoryChunk,
 } from "@alfred/db/schemas";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -199,8 +199,8 @@ export interface RecallMemoryArgs {
    * retrieval over the same query to avoid duplicate embedding calls.
    */
   queryEmbedding?: number[];
-  /** Restrict to a kind (`thread_summary`, …). Default any. */
-  kind?: MemoryChunkKind;
+  /** Restrict to these kinds (`thread_summary`, …). Default any. */
+  kinds?: readonly MemoryChunkKind[];
   /** Top-K. Default 10. */
   limit?: number;
 }
@@ -241,7 +241,12 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
 
   const filters = [eq(memoryChunks.userId, args.userId), isNotNull(memoryChunks.embedding)];
 
-  if (args.kind) filters.push(eq(memoryChunks.kind, args.kind));
+  // The kind restriction belongs in the candidate query, before the HNSW pool
+  // and top-K, so excluding a kind does not let it displace a real hit. An empty
+  // set is an explicit "no kinds", not an accidental "every kind".
+  if (args.kinds !== undefined) {
+    filters.push(args.kinds.length > 0 ? inArray(memoryChunks.kind, [...args.kinds]) : sql`false`);
+  }
 
   // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
   // candidate pool is silently truncated unless we raise it to cover
