@@ -537,6 +537,73 @@ export function suggestTodo(args: SystemToolRequest<"system.suggest_todo">): Pro
   return systemToolTaskAdapterPort.read().suggestTodo(args);
 }
 
+/**
+ * The packed result `system.search_context` returns to the model. It carries the
+ * packer's truncation facts (`includedCount` / `omittedCount` / `truncated`) so
+ * the model can disclose partial evidence instead of presenting an incomplete
+ * read as complete. `ok` is true whenever the read ran — per-source empty and
+ * failed outcomes are honest notes in `text`, because an empty read is a real
+ * result, not a failed call. Typing this shape at the seam keeps the truncation
+ * hazard in the type, not only in a docstring (structural-review "hazard rule").
+ */
+export interface ContextSearchToolResult {
+  /** True whenever the read ran; the packer's per-source notes carry failures. */
+  readonly ok: boolean;
+  /** Bounded, cited, model-facing evidence text. */
+  readonly text: string;
+  /** How many cards made it into `text`. */
+  readonly includedCount: number;
+  /** Cards dropped by the budget or by the read's own `limit`. */
+  readonly omittedCount: number;
+  /** True when any card, note, or source line was left out of `text`. */
+  readonly truncated: boolean;
+}
+
+/**
+ * Surface:  chat.
+ * Owns/hides: the cross-source evidence read the `system.search_context` tool
+ *   reaches — one bounded query envelope in, packed evidence text out. Hides the
+ *   `context-search` module (its registered source set, the vector/object
+ *   adapters, and the packer) and its `@alfred/db` / `@alfred/corpus` reach. It
+ *   returns the named `ContextSearchToolResult`, so the result shape the model
+ *   consumes is owned here rather than widened to `unknown`.
+ * Why the seam: tool-runtime must not import `@alfred/assistant/context-search`,
+ *   whose adapters pull the database and corpus graphs into the eager tool
+ *   barrel that every tool declaration imports (ADR-0101, ADR-0089).
+ * Wiring: runtime/adapters/system-tool-context-search.ts installs;
+ *   internal/tools/context-search.ts reads.
+ * See: ADR-0101, ADR-0089, and docs/reference/tool-runtime-map.md.
+ */
+export interface SystemToolContextSearchAdapter {
+  /**
+   * Named `runContextSearch`, not `searchContext`: the boundary already exports
+   * `searchContext` for the read verb (ADR-0101), and two same-named doors — one
+   * the read, one the seam that reaches it — made the adapter import alias the
+   * only clue. The forwarder keeps the same name.
+   */
+  runContextSearch(
+    args: SystemToolRequest<"system.search_context">,
+  ): Promise<ContextSearchToolResult>;
+}
+
+const systemToolContextSearchAdapterPort = bootPort<SystemToolContextSearchAdapter>(
+  "system-tool context-search adapter",
+);
+
+/** Runtime composition installs the cross-source evidence read at boot. */
+export function registerSystemToolContextSearchAdapter(
+  adapter: SystemToolContextSearchAdapter,
+): () => void {
+  return systemToolContextSearchAdapterPort.install(adapter);
+}
+
+/** Read packed cross-source evidence behind the registered context-search seam. */
+export function runContextSearch(
+  args: SystemToolRequest<"system.search_context">,
+): Promise<ContextSearchToolResult> {
+  return systemToolContextSearchAdapterPort.read().runContextSearch(args);
+}
+
 /** Read bounded raw evidence from the current chat thread. */
 export function readChatHistory(args: {
   userId: string;

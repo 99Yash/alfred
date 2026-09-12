@@ -44,6 +44,7 @@ export const INTEGRATIONS = {
       "web_search",
       "fetch_url",
       "corpus_search",
+      "search_context",
       "create_artifact",
       "append_artifact_page",
       "append_artifact_section",
