@@ -891,7 +891,42 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
 export interface McpOAuthClientConfiguration {
   redirectUrl: URL;
+  /**
+   * The Client Identifier URL Alfred sends as `client_id`, present only over
+   * HTTPS and always paired with
+   * {@link McpOAuthClientConfiguration.clientMetadataDocument}.
+   *
+   * A Client Identifier URL must be absolute HTTPS, so on an `http://` API
+   * base there is no URL to advertise and no document to serve. The two travel
+   * as one group precisely so a later edit cannot advertise a URL whose
+   * document names a different one — that equality is the whole check an
+   * authorization server runs.
+   */
   clientMetadataUrl?: string;
+  /**
+   * The document Alfred SERVES at `clientMetadataUrl`, which is not the same
+   * body as {@link McpOAuthClientConfiguration.clientMetadata}.
+   *
+   * RFC 7591 registration and a Client ID Metadata Document carry the same
+   * fields and disagree about exactly one: registration FORBIDS `client_id`
+   * (the authorization server mints it), and a CIMD REQUIRES it, set to the
+   * document's own URL. Serving one object as both is therefore always wrong
+   * for one of the two, and the served half is the wrong one.
+   *
+   * Measured on 2026-09-13 against the three built-ins that advertise
+   * `client_id_metadata_document_supported`. With `client_id` absent, Sentry's
+   * authorization server answered `500 Internal Server Error` in plain text
+   * (its `lookupClient` throws a `CimdFetchError` that the route does not
+   * catch), Linear answered `400 Invalid client. The clientId provided does
+   * not match to this client.`, and Notion accepted the request because it
+   * does not validate the document at authorize time. One defect, three error
+   * styles, so a per-provider workaround would have chased the loudest one.
+   *
+   * The type stays inline rather than becoming a named alias: Elysia infers
+   * the whole route tree, and a name this package exports but `@alfred/http`
+   * cannot reach makes that inferred type unportable (TS2883).
+   */
+  clientMetadataDocument?: OAuthClientMetadata & { readonly client_id: string };
   clientMetadata: OAuthClientMetadata;
 }
 
@@ -915,7 +950,13 @@ export function mcpOAuthClientConfiguration(): McpOAuthClientConfiguration {
     redirectUrl,
     clientMetadata,
     ...(candidateMetadataUrl.protocol === "https:"
-      ? { clientMetadataUrl: candidateMetadataUrl.href }
+      ? {
+          clientMetadataUrl: candidateMetadataUrl.href,
+          clientMetadataDocument: {
+            ...clientMetadata,
+            client_id: candidateMetadataUrl.href,
+          },
+        }
       : {}),
   };
 }
