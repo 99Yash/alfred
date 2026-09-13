@@ -208,6 +208,86 @@ export async function incrementExpiringCounter(
 }
 
 /**
+ * Reserve the next slot in a paced queue, and say how long to wait for it.
+ *
+ * This is GCRA (the leaky-bucket form a rate limiter usually hides), and it
+ * differs from {@link incrementExpiringCounter} in the question it answers.
+ * A counter answers "may I go NOW?", so a caller over the line can only fail.
+ * This answers "WHEN may I go?", so a caller over the line waits instead —
+ * which is the whole point when the limit belongs to an upstream that charges
+ * a failed turn rather than a queued one.
+ *
+ * The key holds one number, the theoretical arrival time (TAT): the moment the
+ * queue would be empty again. Each reservation pushes it one `intervalMs`
+ * further out. A caller may start `burst * intervalMs` AHEAD of that mark, so
+ * an idle bucket serves `burst + 1` callers with no delay at all and only a
+ * sustained stream gets paced to one per interval. That is deliberate: a short
+ * burst is the common case and must stay fast.
+ *
+ * Every reservation is granted, up to the caller's ceiling. The return value
+ * is the wait in milliseconds, and the caller owns the sleep — so an abort
+ * during the wait costs the slot, not the caller's error budget. A caller
+ * whose wait exceeds `maxWaitMs` goes early; it forfeits the guarantee, and
+ * — load-bearing — the TAT is NOT advanced for it. Advancing the mark for a
+ * slot nobody waits for lets the queue diverge permanently once the backlog
+ * passes the cap: every later caller then waits the maximum for a queue that
+ * no longer exists.
+ *
+ * `PX` on every write, so an idle bucket disappears rather than pinning a
+ * stale TAT forever. The TTL must outlive the burst window plus the longest
+ * wait the caller will honor (`maxWaitMs`) plus slack for a pause between the
+ * write and the next read. The caller passes its own ceiling so the two
+ * constants stay linked by value — a comment cannot hold a cross-package
+ * invariant.
+ *
+ * "Now" is READ FROM REDIS, never sent by the caller. The TAT is shared across
+ * processes, so one process with a fast clock would otherwise push the mark
+ * into the future and send every other process to its maximum wait. Reading the
+ * clock here makes the bucket the single authority on both numbers it holds.
+ * `TIME` is non-deterministic, which is fine on Redis 5 and later — scripts
+ * replicate by effect there — and a caller on anything older gets an error it
+ * already handles by pacing locally.
+ */
+const RESERVE_SLOT_SCRIPT = `local interval = tonumber(ARGV[1])
+local burst = tonumber(ARGV[2])
+local ttlMs = tonumber(ARGV[3])
+local maxWaitMs = tonumber(ARGV[4])
+local time = redis.call("TIME")
+local now = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
+local tat = tonumber(redis.call("GET", KEYS[1]) or "0")
+if tat < now then tat = now end
+local wait = tat - (burst * interval) - now
+if wait < 0 then wait = 0 end
+if wait > maxWaitMs then return math.floor(wait) end
+redis.call("SET", KEYS[1], tat + interval, "PX", ttlMs)
+return math.floor(wait)`;
+
+/**
+ * Milliseconds the caller must sleep before using the slot it just reserved.
+ * Zero means go now. Past `maxWaitMs` the wait is returned WITHOUT reserving
+ * — the caller goes early and the shared mark stays where it is. See
+ * {@link RESERVE_SLOT_SCRIPT} for the model.
+ */
+export async function reserveRateSlot(
+  redis: EvalRedis,
+  key: string,
+  intervalMs: number,
+  burst: number,
+  maxWaitMs: number,
+): Promise<number> {
+  // The burst window plus the longest wait the caller honors, plus a minute of
+  // slack past that for a long pause between the write and the next read. The
+  // queue itself can run further ahead than this when callers go early past
+  // their ceiling, but anything past `maxWaitMs` is a slot the caller did not
+  // wait for, so expiring it only drops pressure the caller already declined.
+  const ttlMs = intervalMs * (burst + 1) + maxWaitMs + 60_000;
+
+  const result = await redis.eval(RESERVE_SLOT_SCRIPT, 1, key, intervalMs, burst, ttlMs, maxWaitMs);
+
+  return Number(result);
+}
+
+/**
  * The one door to an ioredis client. `new IORedis(...)` appears nowhere else in
  * the repo and `pnpm check` fails on a second one, so every connection in the
  * process carries one of the profiles above.

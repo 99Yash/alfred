@@ -14,8 +14,10 @@ import {
   createProviderRouteModel,
   googleLeg,
   openAiLeg,
+  type RouteLeg,
   type RouteReasoning,
 } from "./provider-adapter";
+import { identifyLanguageModel } from "./models";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
 // from here; the literal itself is owned by `@alfred/contracts` (single source
@@ -45,8 +47,8 @@ const GOOGLE_THOUGHT_SUMMARIES = {
 } as const satisfies SharedV4ProviderOptions;
 
 interface ModelRoute {
-  /** Leg makers, constructed in fallback order by their own provider factories. */
-  readonly legs: readonly (() => LanguageModelV4)[];
+  /** Validated leg makers, in fallback order. A bare model cannot be spelled here. */
+  readonly legs: readonly (() => RouteLeg)[];
   /** Generic AI SDK reasoning ceiling; the provider package maps/clamps it. */
   readonly reasoning: RouteReasoning;
   /** Provider-option exception the generic reasoning setting cannot express (e.g. OpenAI `max`). */
@@ -146,14 +148,14 @@ const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
 /**
  * Resolve a named product route, or build a one-model probe/eval route from an
- * already-constructed, adapter-attached leg. The probe form takes the model
- * object so identity is read off the leg rather than reconstructed from a
- * handwritten model-to-provider table.
+ * already-validated {@link RouteLeg}. The probe form takes the leg triple so
+ * identity is carried, not reconstructed from a handwritten model-to-provider
+ * table.
  */
 export function route(name: ModelRouteName): ModelRouteHandle;
-export function route(leg: LanguageModelV4, reasoning: RouteReasoning): ModelRouteHandle;
+export function route(leg: RouteLeg, reasoning: RouteReasoning): ModelRouteHandle;
 export function route(
-  nameOrLeg: ModelRouteName | LanguageModelV4,
+  nameOrLeg: ModelRouteName | RouteLeg,
   reasoning?: RouteReasoning,
 ): ModelRouteHandle {
   if (typeof nameOrLeg === "string") {
@@ -224,7 +226,7 @@ const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
  * `thinkingBudget: 0` for a Gemini 3 model was a shape that generation does not
  * own; this is the SDK-owned equivalent, not a new budget.
  */
-function withDisabledReasoning(leg: LanguageModelV4): LanguageModelV4 {
+function withDisabledReasoning(leg: RouteLeg): LanguageModelV4 {
   return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
 }
 
@@ -282,11 +284,6 @@ export function googleSearchGroundingTools(): ToolSet {
  *
  * Streaming caveat: fallback only covers errors raised before the stream
  * starts; a provider dying mid-stream after tokens flowed is not replayable.
- *
- * Attribution: the returned model proxies `provider`/`modelId` to whichever
- * model is *currently* serving, and after the call the metering layer reads
- * that pair off the model object (`served` in `MeteredResult`), so
- * `api_call_log` stays correct when the fallback fires.
  */
 /**
  * True when a 4xx is a billing/quota *capacity* condition (a workspace spend
@@ -312,6 +309,34 @@ function isQuotaOrBillingError(e: APICallError): boolean {
   );
 }
 
+/**
+ * Compose a primary leg with a fallback leg: retry the primary twice, then
+ * degrade to the fallback on any capacity condition.
+ *
+ * The returned object is a STATELESS FACADE, and that is load-bearing. It
+ * builds a fresh `createRetryableModel` per call instead of holding one.
+ * ai-retry's `RetryableLanguageModel` keeps the serving leg in an INSTANCE
+ * field (`currentModel`, plus `stickyState`): `doGenerate` assigns the start
+ * model, the retry loop re-reads the field at dispatch time, and the backoff
+ * delay sits between the two. One instance therefore cannot serve two calls at
+ * once. `createRouteHandle` memoizes one model per named route, so before this
+ * facade every concurrent caller of a route shared that field — a call whose
+ * attempt 1 failed on OpenAI was directly observed dispatching attempt 2 to
+ * Google, because a sibling call moved the field during the 1-second sleep.
+ * The retry budget was mis-charged the same way, since `findRetryModel` counts
+ * attempts by `getModelKey(attempt.model)`.
+ *
+ * The memo stays: the facade is built once per route, so `route(name).model()`
+ * keeps returning the same object and referential-identity callers still hold.
+ * Only the mutable retry state is now per call.
+ *
+ * `provider` and `modelId` name the PRIMARY leg and never move. Do not read
+ * them to learn which leg answered — they cannot tell you. `wrapLanguageModel`
+ * copies both into plain properties when `createProviderRouteModel` installs
+ * the reasoning middleware, so even ai-retry's own live values were frozen at
+ * the primary before any call ran. `providerForServedModel` plus the SDK's
+ * `result.response.modelId` is the seam that does know.
+ */
 export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4): LanguageModelV4 {
   // True for any error worth degrading to the fallback; false for a
   // non-retryable client bug we want to surface. Built with the raw `error`
@@ -326,6 +351,29 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     if (isCallerAbort(e)) return false;
 
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
+      // A 429 degrades, INCLUDING a Cloudflare `2018` "Wholesale Rate limited"
+      // from the gateway edge — but for a smaller reason than an earlier
+      // comment here claimed, and the distinction matters to anyone reading
+      // this as a reliability guarantee.
+      //
+      // Unified Billing meters ONE budget per gateway, shared across
+      // providers. Two order-reversed bursts on 2026-09-13 show it: whichever
+      // provider fires first takes the slots and the one that fires second
+      // gets 13-20 percent. So on a `2018` the fallback leg draws on the same
+      // exhausted bucket as the primary, and degrading is NOT what lands the
+      // turn. It lands roughly one attempt in five, which still beats failing
+      // outright, and it costs one request.
+      //
+      // The switch stays for the case it is actually good at: a 429 the
+      // PROVIDER raised (an Anthropic or OpenAI account limit), which is per
+      // provider and which the other leg genuinely escapes. Nothing here can
+      // separate the two from the status code alone — the `2018` body is the
+      // only tell, and a TERMINAL failure records it on
+      // `api_call_log.response_body` (via `transportFacts`, which unwraps the
+      // `RetryError` to the last `APICallError`). A degrade that SUCCEEDS
+      // writes no body anywhere — the success row carries only the
+      // `servedModelId` / `requestedModelId` divergence — so do not read this
+      // as a guarantee that every 2018 is queryable from the ledger.
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
 
@@ -341,11 +389,84 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     return true;
   });
 
-  return createRetryableModel({
-    model: primary,
-    retries: [
-      or(error.isRetryable(true), timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
-      shouldSwitch.switch({ model: fallback }),
-    ],
-  });
+  const compose = (): LanguageModelV4 =>
+    createRetryableModel({
+      model: primary,
+      retries: [
+        or(error.isRetryable(true), timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
+        shouldSwitch.switch({ model: fallback }),
+      ],
+    });
+
+  return {
+    specificationVersion: primary.specificationVersion,
+    provider: primary.provider,
+    modelId: primary.modelId,
+    // Either leg can serve, so the facade accepts what either leg accepts. A
+    // primary-only value would reject the fallback's inputs (or vice versa) on
+    // the one turn the other leg answers.
+    supportedUrls: mergeSupportedUrls(primary.supportedUrls, fallback.supportedUrls),
+    doGenerate: (options) => compose().doGenerate(options),
+    doStream: (options) => compose().doStream(options),
+  };
+}
+
+/**
+ * Union of two legs' URL patterns, keyed by media kind. Both sides are
+ * awaited rather than branched on: the field admits a plain record or a
+ * promise of one, and awaiting covers both without a shape check.
+ */
+function mergeSupportedUrls(
+  primary: LanguageModelV4["supportedUrls"],
+  fallback: LanguageModelV4["supportedUrls"],
+): LanguageModelV4["supportedUrls"] {
+  return (async () => {
+    const [a, b] = await Promise.all([primary, fallback]);
+    const merged: Record<string, RegExp[]> = {};
+
+    for (const record of [a, b]) {
+      for (const [kind, patterns] of Object.entries(record)) {
+        merged[kind] = [...(merged[kind] ?? []), ...patterns];
+      }
+    }
+
+    return merged;
+  })();
+}
+
+/**
+ * Every (provider, model) pair any route in this module can serve — every leg
+ * of every named route plus every media-enrichment leg. The boot guard
+ * verifies this set rather than the route facades: a facade reports only its
+ * primary leg, so verifying facades silently skips every fallback.
+ */
+export function allRouteLegIdentifiers(): Array<{
+  route: string;
+  provider: string;
+  model: string;
+}> {
+  const seen = new Set<string>();
+  const identifiers: Array<{ route: string; provider: string; model: string }> = [];
+
+  const add = (route: string, provider: string, model: string): void => {
+    const key = `${provider}/${model}`;
+
+    if (seen.has(key)) return;
+    seen.add(key);
+    identifiers.push({ route, provider, model });
+  };
+
+  for (const [name, definition] of Object.entries(MODEL_ROUTES)) {
+    for (const makeLeg of definition.legs) {
+      const leg = makeLeg();
+      add(name, leg.provider, leg.modelId);
+    }
+  }
+
+  for (const entry of MEDIA_ENRICHMENT_LEGS) {
+    const { provider, modelId } = identifyLanguageModel(entry.make());
+    add("media_enrichment", provider, modelId);
+  }
+
+  return identifiers;
 }

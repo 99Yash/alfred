@@ -3,6 +3,7 @@ import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
 import { cloudflareGatewayConfig, serverEnv } from "@alfred/env/server";
 
+import { throttledGatewayFetch } from "./gateway-throttle";
 import {
   type TranscribeAudioResult,
   transcribeViaCloudflareRun,
@@ -86,6 +87,27 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     };
   }
 
+  // ONE queue for the whole gateway, shared by all three providers, because
+  // Cloudflare meters one Unified Billing budget per gateway rather than one
+  // per provider — see `gateway-throttle.ts` for the order-reversed bursts
+  // that settle it. `throttledGatewayFetch` resolves the shared waiter from
+  // the config, so every later `createGateway` in this process joins that same
+  // queue rather than opening its own.
+  const requestsPerMinute = serverEnv().CLOUDFLARE_AI_GATEWAY_RPM;
+  const burst = serverEnv().CLOUDFLARE_AI_GATEWAY_BURST;
+
+  const throttleConfig = {
+    accountId: config.accountId,
+    gatewayId: config.gatewayId,
+    // Omitted rather than passed as `undefined`: under
+    // `exactOptionalPropertyTypes` the absent key is what selects the module's
+    // own default, and an explicit `undefined` is a different type.
+    ...(requestsPerMinute === undefined ? {} : { requestsPerMinute }),
+    ...(burst === undefined ? {} : { burst }),
+  };
+
+  const paced = (inner?: typeof globalThis.fetch) => throttledGatewayFetch(throttleConfig, inner);
+
   // Create once per Gateway instance — stateless from caller's view; no
   // module-level `let _cfAnthropic` needed. Each factory closes over its own
   // configured client rather than a lazy global.
@@ -93,6 +115,7 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "anthropic"),
     headers: gatewayHeaders(config.token),
+    fetch: paced(),
   });
 
   // No `headers` option here: `openaiGatewayFetch` already sets
@@ -101,13 +124,14 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
   const cfOpenAI = createOpenAI({
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "openai"),
-    fetch: openaiGatewayFetch(config.token),
+    fetch: paced(openaiGatewayFetch(config.token)),
   });
 
   const cfGoogle = createGoogleGenerativeAI({
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "google-ai-studio/v1beta"),
     headers: gatewayHeaders(config.token),
+    fetch: paced(),
   });
 
   return {
@@ -115,7 +139,9 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     createAnthropic: () => cfAnthropic,
     createOpenAI: () => cfOpenAI,
     createGoogle: () => cfGoogle,
-    transcribe: (audio) => transcribeViaCloudflareRun(config, audio),
+    // Paced like every model leg: `/ai/run` carries `cf-aig-gateway-id`, so it
+    // draws on the same one-per-gateway budget.
+    transcribe: (audio) => transcribeViaCloudflareRun(config, audio, paced()),
   };
 }
 

@@ -754,6 +754,13 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // The hash + execute always use raw `input`.
   const redactedInput = tool.redactInput ? tool.redactInput(input) : input;
   const proposedInputForRow = !requiresApproval ? redactedInput : input;
+  // The staged `proposed_input` doubles as the approval-resume payload a
+  // gated tool executes from, so it parses strictly: a value that is not a
+  // `JsonValue` must throw loudly here rather than persist a silent
+  // `{ unserializable }` marker the resume path would then execute as the
+  // user's approved input. The `gmail.read_message` undefined-key shape that
+  // once threw here is fixed at the source (`tool-schemas.ts` omits the key
+  // instead of writing it as `undefined`).
   const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
   // #374: notification sinks (approval email, delivery payload) read this
   // column — never raw `proposed_input`, which a gated tool keeps verbatim

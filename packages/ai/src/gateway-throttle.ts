@@ -1,0 +1,409 @@
+import { toMessage } from "@alfred/contracts";
+import { createRedisConnection, isQueueEnabled, reserveRateSlot } from "@alfred/db/redis";
+import type { BoundedRedis } from "@alfred/db/redis";
+
+/**
+ * Client-side pacing for the Cloudflare AI Gateway.
+ *
+ * TWO different 429s come back from the gateway edge, and conflating them
+ * wasted an afternoon on 2026-09-12. Both carry `latency: 0`, `wholesale:
+ * false` and `cost: 0` in the log row, because the edge answers before the
+ * provider is called and nothing is billed. Only the body separates them:
+ *
+ * - `internalCode 2003`, `"Rate limited"` — the gateway's OWN rule, the
+ *   `rate_limiting_limit` / `rate_limiting_interval` / `rate_limiting_technique`
+ *   fields on the gateway record. This is Alfred's own setting, not a
+ *   Cloudflare ceiling. `alfred-dev` carried 14 requests per 6 seconds on a
+ *   fixed window (140 per minute) until it was cleared on 2026-09-12, and that
+ *   rule — not the budget below — produced every 429 the first diagnosis read
+ *   as a budget rejection.
+ * - `internalCode 2018`, `"Wholesale Rate limited"` — the Unified Billing
+ *   budget, which Cloudflare owns and documents at 200 requests per 60 seconds
+ *   per gateway. That published figure does not describe what the pools
+ *   actually do; see the measurement below.
+ *
+ * The wholesale budget is SHARED ACROSS PROVIDERS, one per gateway. Two
+ * order-reversed bursts on 2026-09-13, each after a 10-minute quiet period,
+ * settle it: 25 OpenAI calls took 19 slots and 15 Google calls fired straight
+ * afterwards got 3, then 25 Google calls took 11 and 15 OpenAI calls straight
+ * afterwards got 2. Whichever provider goes FIRST takes the slots and the one
+ * that goes second starves, at 13-20 percent against 44-76 percent. A
+ * per-provider pool cannot produce that shape, because the second burst would
+ * be drawing on a bucket nothing had touched.
+ *
+ * This reverses a 2026-09-12 reading — "Google took 120 per minute sustained
+ * and a burst of 40 with zero rejections", "the OpenAI pool is simply
+ * unhealthy" — that came from single runs on a bucket earlier probes had
+ * already drained. Drain state, not a property of either provider. Do not
+ * restore those claims without an order-reversed pair behind them.
+ *
+ * Read the limit of this module honestly. The budget is a bucket of roughly 15
+ * to 25 requests that refills at single digits per minute once drained, not
+ * the 200 per 60 seconds Cloudflare documents. One chat turn makes 8 to 16
+ * model legs. So pacing spreads Alfred's own fan-out across the budget, and
+ * that is all it can do — no client-side rate makes a drained bucket serve,
+ * and the degrade leg cannot either, because it draws on the same bucket.
+ *
+ * Why pace rather than retry: one chat turn makes 8-16 model legs, and a
+ * parallel fan-out (sub-agents, a triage batch) can put dozens in flight at
+ * once. The retry ladder then fires four attempts inside about three seconds
+ * against a bucket that has not refilled, and the turn dies with every tool
+ * result already written. Waiting converts that failure into latency.
+ *
+ * This sits in `fetch` rather than in the agent loop so it covers every caller
+ * of the gateway — chat, background boss, cheap classifiers, retries and
+ * fallback legs alike — with no call site aware of it. A wait here is charged
+ * only to the SDK's `totalMs`, never to a chunk-gap timer: triage allows 30s
+ * for the whole request (`TRIAGE_REQUEST_TIMEOUT_MS`) and a chat turn 180s
+ * (`DEFAULT_TURN_STREAM_TIMEOUT` sets `chunkMs`, and the SDK measures that
+ * BETWEEN content chunks). The separate `firstChunkMs` option, which would
+ * cover this wait, is deliberately not set — so the cap below must sit under
+ * the TIGHTEST caller (triage), not the roomiest.
+ */
+
+/**
+ * Requests per minute the pacer aims for across the WHOLE gateway, against a
+ * documented Unified Billing ceiling of 200 per 60 seconds. The margin absorbs
+ * the other things that share the budget — a backfill script, an eval run, a
+ * second replica — and the drift between this process's clock and
+ * Cloudflare's.
+ *
+ * Treat 200 as the documented figure, not the measured one. Measured behaviour
+ * is a burst allowance near 15 to 25 that then refills at single digits per
+ * minute, so this number bounds Alfred's fan-out but cannot keep the budget
+ * from draining under sustained load.
+ *
+ * Do NOT raise this to match a gateway `rate_limiting_limit`. That field is a
+ * separate, self-imposed rule; `alfred-dev` has none, and adding one back puts
+ * the tighter of the two in charge without changing this number.
+ */
+const DEFAULT_REQUESTS_PER_MINUTE = 180;
+
+/**
+ * How many requests may start with no delay after an idle period. GCRA lets a
+ * caller run `burst` intervals ahead of the queue, so the bucket serves
+ * `burst + 1` immediately and the worst minute holds `perMinute + burst` — 182
+ * against the 200 figure. Small on purpose: at 180 per minute a slot arrives
+ * every 333ms, so a SEQUENTIAL agent loop never waits at all and the burst
+ * only has to cover the first few legs of a parallel fan-out.
+ */
+const DEFAULT_BURST = 2;
+
+/**
+ * Longest this will hold a request back. Past it the request goes anyway and
+ * probably earns a 429, which the retry ladder handles — and that retry re-
+ * enters the pacer, so the slot is not lost, only the attempt.
+ *
+ * This is a property of the CALLER's deadline, not of the gateway, so it
+ * lives on {@link GatewayThrottleConfig} rather than as a module constant —
+ * a hardcoded value cannot see the callers it binds. The default sits under
+ * the tightest production caller: triage allows 30s for the whole request
+ * (`TRIAGE_REQUEST_TIMEOUT_MS` in `packages/assistant/src/triage`), which
+ * must also fit the provider round-trip AND the fallback attempt that shares
+ * the same total-timeout signal. 20s leaves ~10s for those; a chat turn (180s
+ * total) never notices the difference, because a sequential agent loop waits
+ * ~0ms per leg and only a deep parallel backlog reaches the cap at all.
+ */
+const DEFAULT_MAX_WAIT_MS = 20_000;
+
+/**
+ * Spread added to an over-cap wait. Every over-cap caller would otherwise
+ * sleep exactly `maxWaitMs` and wake together — the burst the pacer exists
+ * to prevent, synchronized. One interval is ~333ms at the default rate, so
+ * up to 1s staggers the shed load over ~3 slots without materially extending
+ * the wait.
+ */
+const OVER_CAP_JITTER_MS = 1_000;
+
+/**
+ * How long a failed shared-bucket reservation keeps the Redis path closed.
+ * Bounds the `commandTimeout` cost of a reachable-but-dead Redis to one slow
+ * leg per cooldown window instead of one per model call, while still
+ * rejoining the shared bucket when Redis recovers.
+ */
+const REDIS_SUSPEND_MS = 30_000;
+
+export interface GatewayThrottleConfig {
+  readonly accountId: string;
+  readonly gatewayId: string;
+  readonly requestsPerMinute?: number;
+  readonly burst?: number;
+  /**
+   * Longest a request is held back before it goes anyway. Must sit under the
+   * tightest caller's total timeout — triage at 30s — because the wait is
+   * charged to that budget and an expired signal fails the fallback leg too.
+   * One shared waiter per gateway means one cap: the tightest deadline wins.
+   */
+  readonly maxWaitMs?: number;
+}
+
+/**
+ * The bucket is keyed by GATEWAY ONLY, never by provider, because one Unified
+ * Billing budget covers every provider behind a gateway. Two Alfred processes
+ * pointed at one gateway must share this key; one process pointed at two
+ * gateways must not.
+ *
+ * An earlier version carried a `provider` segment here, on a measurement that
+ * did not hold (see the header). The field is gone rather than merely unused,
+ * so it cannot come back by accident: a provider segment multiplies the
+ * effective rate by the number of providers in play — three keys at 180 per
+ * minute each is 540 per minute against a budget of roughly 200 — and the
+ * pacer would pace nothing at exactly the moment it is needed.
+ *
+ * The key also carries the rate it paces at. The in-process waiter is already
+ * keyed per rate; the Redis key must be too, or a rolling deploy with two
+ * pods at different `CLOUDFLARE_AI_GATEWAY_RPM` shares one TAT while
+ * subtracting different delay tolerances, and the effective rate is neither
+ * value.
+ */
+function bucketKey(config: GatewayThrottleConfig, perMinute: number, burst: number): string {
+  return `aigw:slot:${config.accountId}:${config.gatewayId}:${perMinute}:${burst}`;
+}
+
+/**
+ * In-process GCRA, in the same arithmetic as the Lua body in `@alfred/db`.
+ *
+ * Two jobs, not one. It is the whole pacer when Redis is absent (a script, a
+ * test, a local run with no `REDIS_URL`), and it is the floor when Redis is
+ * present but momentarily unreachable — a throttle that fails open on a
+ * connection blip would send the burst it exists to prevent.
+ *
+ * Two-phase: `take()` reserves one interval locally and reports the local
+ * wait; `observeHonored()` then pulls the local clock forward when the Redis
+ * answer was further out. Without the second phase the local clock advances
+ * by one interval while the honored wait was larger, so it falls behind the
+ * shared queue at exactly the Redis handover — and a later Redis outage would
+ * pace against a stale clock.
+ *
+ * `take()` is cap-aware: past `maxWaitMs` it reports the wait WITHOUT
+ * advancing, mirroring the Lua body's conditional write. The caller goes
+ * early rather than honor the slot, so advancing for it would let the local
+ * mark run away the same way the shared one did. Self-limiting: once the
+ * local mark sits a full cap ahead of now, every taker reports over-cap and
+ * nothing advances further.
+ */
+interface LocalPacer {
+  take: (maxWaitMs?: number) => number;
+  observeHonored: (localWait: number, honoredWait: number) => void;
+}
+
+function createLocalPacer(intervalMs: number, burst: number): LocalPacer {
+  let theoreticalArrival = 0;
+
+  return {
+    take: (maxWaitMs) => {
+      const now = Date.now();
+      const tat = Math.max(theoreticalArrival, now);
+      const wait = Math.max(0, tat - burst * intervalMs - now);
+
+      if (maxWaitMs !== undefined && wait > maxWaitMs) return wait;
+
+      theoreticalArrival = tat + intervalMs;
+
+      return wait;
+    },
+    observeHonored: (localWait, honoredWait) => {
+      // Only the Redis-ahead case moves the clock: on an idle bucket the
+      // honored wait is zero and the formula below would push the mark a full
+      // burst window into the future, manufacturing a wait from nothing.
+      if (honoredWait > localWait) {
+        theoreticalArrival = Math.max(
+          theoreticalArrival,
+          Date.now() + honoredWait + burst * intervalMs + intervalMs,
+        );
+      }
+    },
+  };
+}
+
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    function onAbort() {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    }
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Holds a caller until the gateway's budget has room for its request. */
+type SlotWaiter = (signal: AbortSignal | undefined) => Promise<void>;
+
+/**
+ * One waiter per gateway per process, because the caller cannot give us one.
+ *
+ * `activeGateway()` builds a fresh `Gateway` — and therefore a fresh set of
+ * provider clients — on EVERY leg construction, by design: creation there is
+ * pure from config and holds no state. A pacer is the opposite; it is only
+ * correct while it remembers the requests already sent. So the sharing lives
+ * here rather than at the call site, and a hundred `createGateway` calls in a
+ * process resolve to the same waiter, the same local clock and the same Redis
+ * handle instead of a hundred empty buckets and a hundred connections.
+ *
+ * The map is keyed by the budget the waiter guards, not by the gateway alone,
+ * so a changed rate OR cap gets its own waiter rather than silently reusing
+ * the old pace. The key space is env-sized: one entry in practice.
+ */
+const waiters = new Map<string, SlotWaiter>();
+
+/**
+ * Wraps `inner` so every request waits for a slot in the gateway's budget.
+ *
+ * Pass the provider's own fetch decorator as `inner` when it has one — OpenAI
+ * needs its `Authorization` header stripped before the wire — so the two
+ * concerns compose instead of one file knowing both.
+ */
+export function throttledGatewayFetch(
+  config: GatewayThrottleConfig,
+  inner: typeof globalThis.fetch = fetch,
+): typeof globalThis.fetch {
+  const waitForSlot = sharedWaiter(config);
+
+  return async (input, init) => {
+    await waitForSlot(init?.signal ?? undefined);
+
+    return inner(input, init);
+  };
+}
+
+function sharedWaiter(config: GatewayThrottleConfig): SlotWaiter {
+  const perMinute = config.requestsPerMinute ?? DEFAULT_REQUESTS_PER_MINUTE;
+  const burst = config.burst ?? DEFAULT_BURST;
+  const maxWaitMs = config.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
+  const key = bucketKey(config, perMinute, burst);
+  const memoKey = `${key}:${maxWaitMs}`;
+  const existing = waiters.get(memoKey);
+
+  if (existing) return existing;
+
+  const created = createSlotWaiter(key, Math.round(60_000 / perMinute), burst, maxWaitMs);
+
+  waiters.set(memoKey, created);
+
+  return created;
+}
+
+function createSlotWaiter(
+  key: string,
+  intervalMs: number,
+  burst: number,
+  maxWaitMs: number,
+): SlotWaiter {
+  const localPacer = createLocalPacer(intervalMs, burst);
+
+  // One connection for the process, built on first use rather than at module
+  // load: `createRedisConnection` reads `serverEnv()`, and a gateway can be
+  // constructed in a process that never makes a call. `"command"` is required
+  // here — the bucket IS this caller's source of truth and it gets no second
+  // read, which is exactly the case the profile note in `@alfred/db/redis`
+  // says must not take `"fail-fast"`.
+  let redis: BoundedRedis | null = null;
+  let redisUnavailable = false;
+  // A failed reservation suspends the shared bucket rather than retrying it
+  // on every leg: the profile carries a 2s `commandTimeout`, so a
+  // reachable-but-dead Redis would add up to 2s plus a warning to every model
+  // call for the whole outage. The suspension is time-bound, not permanent —
+  // a latched-permanent flag would fail open to local-only pacing forever
+  // after one blip and never rejoin the shared bucket when Redis recovers.
+  let redisSuspendedUntil = 0;
+
+  function connection(): BoundedRedis | null {
+    if (redisUnavailable) return null;
+
+    if (Date.now() < redisSuspendedUntil) return null;
+
+    if (!redis) {
+      if (!isQueueEnabled()) {
+        redisUnavailable = true;
+
+        return null;
+      }
+
+      try {
+        redis = createRedisConnection("command");
+      } catch (err) {
+        // The ioredis constructor throws SYNCHRONOUSLY on a malformed url, and
+        // `isQueueEnabled()` only proves `REDIS_URL` is set, not that it
+        // parses. Latch instead of retrying: a url that does not parse will
+        // not start parsing later, and one warning per process beats one per
+        // model call.
+        redisUnavailable = true;
+        console.warn("[ai-gateway] redis unavailable, pacing locally:", toMessage(err));
+
+        return null;
+      }
+    }
+
+    return redis;
+  }
+
+  return async (signal) => {
+    // An already-aborted call must not reserve: the reservation is granted
+    // unconditionally, so checking after it burns a slot for a call that will
+    // never run. Fail before either clock moves.
+    if (signal?.aborted) throw signal.reason;
+
+    const localWait = localPacer.take(maxWaitMs);
+    let waitMs = localWait;
+
+    // `connection()` is INSIDE the try with the reservation. Nothing this
+    // decorator does may throw: it sits in `fetch`, so an escaping error kills
+    // every model call in the process, and the local pacer is a complete
+    // answer on its own.
+    try {
+      const shared = connection();
+
+      // A locally over-cap caller already declined its slot (`take` did not
+      // advance), so it must not advance the shared mark either — the Lua
+      // body would decline the write anyway, and the round trip buys nothing.
+      if (shared && localWait <= maxWaitMs) {
+        waitMs = Math.max(
+          localWait,
+          await reserveRateSlot(shared, key, intervalMs, burst, maxWaitMs),
+        );
+
+        // Only when honoring: pulling the local clock forward past a wait the
+        // caller will not keep manufactures a wait from nothing on the next
+        // leg — the over-cap twin of the stale-clock bug this phase closes.
+        if (waitMs <= maxWaitMs) localPacer.observeHonored(localWait, waitMs);
+      }
+    } catch (err) {
+      // Latch the shared bucket closed for a cooldown: one warning per
+      // cooldown window beats one per model call, and the local pacer below
+      // is a complete answer on its own.
+      redisSuspendedUntil = Date.now() + REDIS_SUSPEND_MS;
+      console.warn("[ai-gateway] slot reservation failed, pacing locally:", toMessage(err));
+    }
+
+    if (waitMs <= 0) return;
+
+    if (waitMs > maxWaitMs) {
+      // Shed, with jitter: every over-cap caller that sleeps exactly the cap
+      // wakes together and re-fires as one burst. Neither clock advanced for
+      // this caller (cap-aware `take`, conditional Lua write), so going early
+      // sheds load without corrupting the queue — the 429 the retry ladder
+      // may then earn re-enters the pacer for a fresh reservation.
+      const jitterMs = Math.floor(Math.random() * OVER_CAP_JITTER_MS);
+      console.warn(
+        `[ai-gateway] gateway budget backed up ${waitMs}ms; sending after ${maxWaitMs + jitterMs}ms and accepting a possible 429`,
+      );
+      await sleep(maxWaitMs + jitterMs, signal);
+
+      return;
+    }
+
+    await sleep(waitMs, signal);
+  };
+}
