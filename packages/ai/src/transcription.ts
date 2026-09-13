@@ -76,13 +76,13 @@ const DIRECT_MODEL = "gpt-4o-mini-transcribe";
  * `fetchImpl` carries the gateway pacer. This call leaves the AI SDK, so it
  * misses the `fetch` decorator every model leg gets — but `cf-aig-gateway-id`
  * puts it in the same gateway, and therefore against the same Unified Billing
- * budget the pacer exists to spread. A caller that passes the bare `fetch`
- * takes a slot without reserving one.
+ * budget the pacer exists to spread. Required (no default) so a caller cannot
+ * pass the bare `fetch` and take a slot without reserving one.
  */
 export async function transcribeViaCloudflareRun(
   gateway: GatewayConfig,
   audio: Uint8Array,
-  fetchImpl: typeof globalThis.fetch = fetch,
+  fetchImpl: typeof globalThis.fetch,
 ): Promise<TranscribeAudioResult> {
   const url = `https://api.cloudflare.com/client/v4/accounts/${gateway.accountId}/ai/run`;
 

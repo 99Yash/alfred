@@ -142,6 +142,10 @@ const FALLBACK_CONTEXT_WINDOWS = {
   "google/gemini-2.5-flash-lite": 1_048_576,
   "google/gemini-3.5-flash": 1_048_576,
   "google/gemini-3.8-flash": 1_048_576,
+  // models.dev `limit.context` for gpt-5.6-luna (see the 2026-09-02
+  // `model_prices` backup in references/scratch). Like the rest of this map: a
+  // boot safety net, not source of truth.
+  "openai/gpt-5.6-luna": 1_050_000,
 } as const satisfies Readonly<Record<string, number>>;
 
 /**
@@ -160,6 +164,16 @@ const FALLBACK_CONTEXT_WINDOWS = {
  */
 export async function resolveModelContextWindow(model: LanguageModel): Promise<number> {
   const { provider, modelId } = identifyLanguageModel(model);
+
+  return resolveContextWindowById(provider, modelId);
+}
+
+/**
+ * `resolveModelContextWindow` for a caller that holds identifiers rather than
+ * a model object — the boot guard enumerates every leg a route can serve
+ * (`allRouteLegIdentifiers`), and a composed facade only names its primary.
+ */
+export async function resolveContextWindowById(provider: string, modelId: string): Promise<number> {
   const price = await getPrice(provider, modelId);
 
   if (price?.contextWindow != null) return price.contextWindow;

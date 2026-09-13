@@ -104,11 +104,25 @@ export interface MeteredMeta extends CallAttribution {
   input?: unknown;
 }
 
+/** One step's attribution + usage inside a multi-step turn. Cost sums per step. */
+export interface MeteredStep {
+  provider: string;
+  model: string;
+  usage: CallUsage | undefined;
+}
+
 /** What the runtime extracts from a successful SDK result for billing + log shape. */
 export interface MeteredResult {
   usage?: CallUsage | undefined;
   /** Surfaced to `response_meta` (finish_reason, model id echoed back, tool_calls count, etc.). */
   responseMeta?: Record<string, unknown> | undefined;
+  /**
+   * Per-step attribution + usage for a multi-step turn. When present with more
+   * than one entry, `metered()` prices each step against its own serving leg
+   * and sums — `usage` above stays the turn total for the ledger columns.
+   * Single-step turns omit this and take the single-price path unchanged.
+   */
+  steps?: readonly MeteredStep[] | undefined;
   /**
    * Full completion text/object for the Langfuse span. Only sent when
    * `LANGFUSE_CAPTURE_IO=true`; never persisted to `api_call_log`.
@@ -127,6 +141,15 @@ export interface MeteredResult {
    * `../provider-adapter` owns the rule and the reason.
    */
   served?: { provider: string; model: string } | undefined;
+  /**
+   * The raw `result.response.modelId` when it names no leg of this route.
+   * A WeakMap miss is otherwise indistinguishable from no divergence — the
+   * row keeps its nominal attribution either way — so `reconcileServed`
+   * surfaces this on `response_meta.servedModelIdUnresolved` to keep the
+   * fail-open visible. Anthropic dated snapshot ids miss the leg table on
+   * the common path, not the edge.
+   */
+  servedUnresolved?: string | undefined;
 }
 
 export type ResultExtractor<T> = (value: T) => MeteredResult;

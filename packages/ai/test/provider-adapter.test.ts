@@ -57,7 +57,7 @@ const tools: ToolSet = {
 describe("provider turn protocol", () => {
   test("Anthropic consumes the internal envelope and owns all cache decoration", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = adaptProviderModel("anthropic", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner)).model;
 
     await generateText({
       model,
@@ -85,7 +85,7 @@ describe("provider turn protocol", () => {
 
   test("Google consumes the same envelope without receiving Anthropic metadata", async () => {
     const inner = mockModel("google", "gemini-3.5-flash");
-    const model = adaptProviderModel("google", asModel(inner));
+    const model = adaptProviderModel("google", asModel(inner)).model;
 
     await generateText({
       model,
@@ -111,7 +111,7 @@ describe("provider turn protocol", () => {
 
   test("OpenAI consumes the envelope and uses the adapter-owned name policy", async () => {
     const inner = mockModel("openai", "gpt-5.6-sol");
-    const model = adaptProviderModel("openai", asModel(inner));
+    const model = adaptProviderModel("openai", asModel(inner)).model;
 
     await generateText({
       model,
@@ -131,7 +131,7 @@ describe("provider turn protocol", () => {
 
   test("name encoding leaves provider-defined tools unchanged", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = adaptProviderModel("anthropic", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner)).model;
 
     await generateText({
       model,
@@ -175,8 +175,8 @@ describe("provider turn protocol", () => {
     const fallback = mockModel("google", "gemini-3.5-flash");
 
     const model = withFallback(
-      adaptProviderModel("anthropic", asModel(primary)),
-      adaptProviderModel("google", asModel(fallback)),
+      adaptProviderModel("anthropic", asModel(primary)).model,
+      adaptProviderModel("google", asModel(fallback)).model,
     );
 
     await generateText({
@@ -203,7 +203,7 @@ describe("provider turn protocol", () => {
 
   test("malformed internal metadata fails closed and is still stripped", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = adaptProviderModel("anthropic", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner)).model;
 
     await generateText({
       model,
@@ -221,7 +221,7 @@ describe("provider turn protocol", () => {
 
   test("disabled caching strips the envelope without adding breakpoints", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = adaptProviderModel("anthropic", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner)).model;
 
     await generateText({
       model,
@@ -241,7 +241,7 @@ describe("provider turn protocol", () => {
 
   test("cache projection preserves existing provider options", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = adaptProviderModel("anthropic", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner)).model;
 
     await generateText({
       model,
@@ -271,7 +271,7 @@ describe("provider turn protocol", () => {
 
   test("tool-result bursts retain a prior cache-read boundary within the four-breakpoint cap", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = adaptProviderModel("anthropic", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner)).model;
 
     const toolResults = Array.from({ length: 32 }, (_, index) => ({
       type: "tool-result" as const,
@@ -317,7 +317,7 @@ describe("provider turn protocol", () => {
 
   test("compacted tool bursts stay within the four-breakpoint cap", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
-    const model = adaptProviderModel("anthropic", asModel(inner));
+    const model = adaptProviderModel("anthropic", asModel(inner)).model;
 
     const toolResults = Array.from({ length: 8 }, (_, index) => ({
       type: "tool-result" as const,
@@ -368,7 +368,7 @@ describe("provider turn protocol", () => {
   // provider-defined tool untouched — proving both layers ran, projection first.
   test("strip the envelope outside the name shim without rewriting provider tools", async () => {
     const inner = mockModel("google", "gemini-3.5-flash");
-    const model = adaptProviderModel("google", asModel(inner));
+    const model = adaptProviderModel("google", asModel(inner)).model;
 
     await generateText({
       model,
@@ -430,10 +430,14 @@ describe("route legs", () => {
   test("forward the route's provider-option exceptions to the serving leg", async () => {
     const inner = mockModel("google", "gemini-3.5-flash");
 
-    const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
-      reasoning: "medium",
-      providerOptions: { google: { thinkingConfig: { includeThoughts: true } } },
-    });
+    const model = createProviderRouteModel(
+      [() => adaptProviderModel("google", asModel(inner))],
+      withFallback,
+      {
+        reasoning: "medium",
+        providerOptions: { google: { thinkingConfig: { includeThoughts: true } } },
+      },
+    );
 
     await generateText({ model, prompt: "hello" });
 
@@ -448,9 +452,13 @@ describe("route legs", () => {
   test("apply the route reasoning default to the serving leg", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
 
-    const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
-      reasoning: "medium",
-    });
+    const model = createProviderRouteModel(
+      [() => adaptProviderModel("anthropic", asModel(inner))],
+      withFallback,
+      {
+        reasoning: "medium",
+      },
+    );
 
     await generateText({ model, prompt: "hello" });
 
@@ -460,9 +468,13 @@ describe("route legs", () => {
   test("let a caller override the route reasoning default", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
 
-    const model = createProviderRouteModel([() => asModel(inner)], withFallback, {
-      reasoning: "medium",
-    });
+    const model = createProviderRouteModel(
+      [() => adaptProviderModel("anthropic", asModel(inner))],
+      withFallback,
+      {
+        reasoning: "medium",
+      },
+    );
 
     await generateText({ model, prompt: "hello", reasoning: "high" });
 

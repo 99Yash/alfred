@@ -7,10 +7,9 @@ import type {
   SharedV4ProviderOptions,
 } from "@ai-sdk/provider";
 import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
-import type { LanguageModel as SdkLanguageModel } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { activeGateway } from "./gateway";
-import { normalizeProvider, type ProviderId } from "./models";
+import { normalizeProvider, type ModelObject, type ProviderId } from "./models";
 import {
   cleanProviderRequest,
   projectAnthropicRequest,
@@ -214,11 +213,19 @@ function toolNameMiddleware(
  *
  * Alfred owns this seam per leg and knows which model the leg is, so it fills
  * the gap the provider left. A provider that reports its own id keeps it,
- * including a dated alias echo — attribution already handles that. The stream
- * arm also SYNTHESIZES a `response-metadata` part when the provider emits none
- * at all, which Google does whenever the response carries no `responseId`.
+ * including a dated alias echo — attribution already handles that.
+ *
+ * The stream arm fills `modelId` on every `response-metadata` part the
+ * provider emits without one, and it SYNTHESIZES the part only for Google:
+ * Google emits none at all whenever the response carries no `responseId`,
+ * while OpenAI and Anthropic always report their own id one chunk later — and
+ * the SDK merges `response-metadata` field by field with last-wins, so a
+ * synthesized part ahead of theirs is harmless to `modelId` but still a part
+ * the provider never sent. An eager synthesis for those providers would fire
+ * after chunk 1 on every turn; scoping it to the one provider that sometimes
+ * emits nothing keeps the wire truthful.
  */
-function servedModelIdMiddleware(modelId: string): LanguageModelV4Middleware {
+function servedModelIdMiddleware(modelId: string, provider: ProviderId): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
     wrapGenerate: async ({ doGenerate }) => {
@@ -231,6 +238,10 @@ function servedModelIdMiddleware(modelId: string): LanguageModelV4Middleware {
     wrapStream: async ({ doStream }) => {
       const { stream, ...rest } = await doStream();
       let seen = false;
+      // Only Google ever needs the synthesized part (see the docblock): every
+      // other provider reports its own id, so synthesizing for them would emit
+      // a part the provider never sent on every turn.
+      const synthesizeMissing = provider === "google";
 
       return {
         ...rest,
@@ -250,7 +261,7 @@ function servedModelIdMiddleware(modelId: string): LanguageModelV4Middleware {
               // step's response when the model's terminal part arrives, so a
               // part enqueued at close is too late. An id the provider sends
               // later still wins, because the SDK merges field by field.
-              if (!seen) {
+              if (synthesizeMissing && !seen) {
                 seen = true;
                 controller.enqueue({ type: "response-metadata", modelId });
               }
@@ -271,12 +282,33 @@ function servedModelIdMiddleware(modelId: string): LanguageModelV4Middleware {
 // sit closest to the real model so it names one leg, never a composition.
 
 /**
+ * One leg of a model route: the provider and model id the leg was validated
+ * as, plus the adapter-attached model that serves it.
+ *
+ * The triple is the proof `adaptProviderModel` checked — it throws when the
+ * constructed model disagrees with the claimed provider — carried on the
+ * value instead of rebuilt later. The middleware re-attaches the model id to
+ * the result, this table re-attaches the provider to the model id, and
+ * neither has to re-read the model object; a leg that skipped validation
+ * cannot be spelled, because there is no `RouteLeg` for it.
+ */
+export interface RouteLeg {
+  readonly provider: ProviderId;
+  readonly modelId: string;
+  readonly model: LanguageModelV4;
+}
+
+/**
  * Attach the matching Alfred adapter to a model the provider package already
  * constructed. The provider is read off the model object, never a registry, and
  * the call fails loudly on a mismatch so an adapter cannot decorate the wrong
  * provider's request.
+ *
+ * Returns the {@link RouteLeg} triple rather than the bare model, so the
+ * validated (provider, modelId) pair travels with the model into
+ * `createProviderRouteModel` instead of being re-derived there.
  */
-export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4): LanguageModelV4 {
+export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4): RouteLeg {
   const codec = codecForProvider(provider);
   const actualProvider = normalizeProvider(model.provider);
 
@@ -286,7 +318,7 @@ export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4)
 
   const stamped = wrapLanguageModel({
     model,
-    middleware: servedModelIdMiddleware(model.modelId),
+    middleware: servedModelIdMiddleware(model.modelId, provider),
   });
 
   const named = wrapLanguageModel({
@@ -294,19 +326,21 @@ export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4)
     middleware: toolNameMiddleware(codec.encode, codec.decode),
   });
 
-  return wrapLanguageModel({
+  const composed = wrapLanguageModel({
     model: named,
     middleware: middlewareFor(provider),
   });
+
+  return { provider, modelId: model.modelId, model: composed };
 }
 
 /** Construct an Anthropic leg with its adapter attached. */
-export function anthropicLeg(modelId: AnthropicModelId): LanguageModelV4 {
+export function anthropicLeg(modelId: AnthropicModelId): RouteLeg {
   return adaptProviderModel("anthropic", activeGateway().createAnthropic()(modelId));
 }
 
 /** Construct a Google leg with its adapter attached. */
-export function googleLeg(modelId: GoogleModelId): LanguageModelV4 {
+export function googleLeg(modelId: GoogleModelId): RouteLeg {
   return adaptProviderModel("google", activeGateway().createGoogle()(modelId));
 }
 
@@ -317,15 +351,17 @@ export function googleLeg(modelId: GoogleModelId): LanguageModelV4 {
  * so replaying a reasoning item by `rs_…` id 400s and kills the turn. See the
  * longer note in the removed `reasoning-policy.ts` history and ADR-0077.
  */
-export function openAiLeg(modelId: OpenAiModelId): LanguageModelV4 {
-  const model = adaptProviderModel("openai", activeGateway().createOpenAI().responses(modelId));
+export function openAiLeg(modelId: OpenAiModelId): RouteLeg {
+  const leg = adaptProviderModel("openai", activeGateway().createOpenAI().responses(modelId));
 
-  return wrapLanguageModel({
-    model,
+  const model = wrapLanguageModel({
+    model: leg.model,
     middleware: defaultSettingsMiddleware({
       settings: { providerOptions: { openai: { store: false } } },
     }),
   });
+
+  return { ...leg, model };
 }
 
 /**
@@ -354,8 +390,9 @@ export interface RouteModelSettings {
  * bare gateway model-id string is excluded. Wider than `LanguageModelV4`
  * because the SDK's own handle type still admits older specification versions,
  * and a caller holding one must be able to ask this question.
+ *
+ * Single home: {@link ModelObject} in `./models`.
  */
-type ModelObject = Exclude<SdkLanguageModel, string>;
 
 /**
  * Which provider serves each model id a given route can degrade to.
@@ -389,7 +426,9 @@ type ModelObject = Exclude<SdkLanguageModel, string>;
  * it. This map supplies the missing half from the legs the route was built
  * from, so no hand-written model-to-provider table is needed and an unknown id
  * resolves to nothing rather than to a guess. Keyed by the FINAL wrapped
- * object, because that is what call sites hold.
+ * object, because that is what call sites hold. The table itself is derived
+ * data: `createProviderRouteModel` builds it from the {@link RouteLeg} triples
+ * the caller passed, never by re-reading the model objects.
  */
 const routeLegProviders = new WeakMap<ModelObject, ReadonlyMap<string, string>>();
 
@@ -406,9 +445,9 @@ export function providerForServedModel(
 }
 
 /**
- * Compose a route's legs — constructed in order, each through its own provider
- * factory and adapter — then install the route's reasoning ceiling and provider
- * exceptions as overridable defaults.
+ * Compose a route's legs — validated {@link RouteLeg} triples, each built by
+ * its own provider factory and adapter — then install the route's reasoning
+ * ceiling and provider exceptions as overridable defaults.
  *
  * The composed facade reports the PRIMARY leg's `provider`/`modelId`, and that
  * stays true at any leg count — `ai-retry`'s `getModelKey` reads those two
@@ -418,7 +457,7 @@ export function providerForServedModel(
  * fewer. Check that assumption before adding a third.
  */
 export function createProviderRouteModel(
-  legs: readonly (() => LanguageModelV4)[],
+  legs: readonly (() => RouteLeg)[],
   composeFallback: (primary: LanguageModelV4, fallback: LanguageModelV4) => LanguageModelV4,
   settings: RouteModelSettings,
 ): LanguageModelV4 {
@@ -428,17 +467,28 @@ export function createProviderRouteModel(
 
   const firstLeg = first();
 
-  const legProviders = new Map<string, string>([
-    [firstLeg.modelId, normalizeProvider(firstLeg.provider)],
-  ]);
+  const legProviders = new Map<string, string>([[firstLeg.modelId, firstLeg.provider]]);
 
-  let model: LanguageModelV4 = firstLeg;
+  let model: LanguageModelV4 = firstLeg.model;
 
   for (const makeLeg of rest) {
     const leg = makeLeg();
 
-    legProviders.set(leg.modelId, normalizeProvider(leg.provider));
-    model = composeFallback(model, leg);
+    // Two legs can share a model id (the same model behind two providers, or
+    // the same leg listed twice). A shared id with one provider is the same
+    // entry; a shared id across providers is ambiguous, and silently keeping
+    // the last writer would misattribute every turn the other leg served. Drop
+    // the entry instead, so the lookup resolves to nothing and the row keeps
+    // its pre-call attribution rather than taking a guessed provider.
+    const existing = legProviders.get(leg.modelId);
+
+    if (existing === undefined) {
+      legProviders.set(leg.modelId, leg.provider);
+    } else if (existing !== leg.provider) {
+      legProviders.delete(leg.modelId);
+    }
+
+    model = composeFallback(model, leg.model);
   }
 
   if (settings.providerOptions) {

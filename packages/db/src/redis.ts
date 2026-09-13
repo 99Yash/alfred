@@ -224,14 +224,21 @@ export async function incrementExpiringCounter(
  * sustained stream gets paced to one per interval. That is deliberate: a short
  * burst is the common case and must stay fast.
  *
- * Every reservation is granted. The return value is the wait in milliseconds,
- * and the caller owns the sleep — so an abort during the wait costs the slot,
- * not the caller's error budget. A caller that cannot wait that long may go
- * early; it forfeits the guarantee, it does not corrupt the queue.
+ * Every reservation is granted, up to the caller's ceiling. The return value
+ * is the wait in milliseconds, and the caller owns the sleep — so an abort
+ * during the wait costs the slot, not the caller's error budget. A caller
+ * whose wait exceeds `maxWaitMs` goes early; it forfeits the guarantee, and
+ * — load-bearing — the TAT is NOT advanced for it. Advancing the mark for a
+ * slot nobody waits for lets the queue diverge permanently once the backlog
+ * passes the cap: every later caller then waits the maximum for a queue that
+ * no longer exists.
  *
  * `PX` on every write, so an idle bucket disappears rather than pinning a
- * stale TAT forever. The TTL must outlive the furthest reservation the bucket
- * can hold, which is what {@link reserveRateSlot} computes for the caller.
+ * stale TAT forever. The TTL must outlive the burst window plus the longest
+ * wait the caller will honor (`maxWaitMs`) plus slack for a pause between the
+ * write and the next read. The caller passes its own ceiling so the two
+ * constants stay linked by value — a comment cannot hold a cross-package
+ * invariant.
  *
  * "Now" is READ FROM REDIS, never sent by the caller. The TAT is shared across
  * processes, so one process with a fast clock would otherwise push the mark
@@ -244,31 +251,38 @@ export async function incrementExpiringCounter(
 const RESERVE_SLOT_SCRIPT = `local interval = tonumber(ARGV[1])
 local burst = tonumber(ARGV[2])
 local ttlMs = tonumber(ARGV[3])
+local maxWaitMs = tonumber(ARGV[4])
 local time = redis.call("TIME")
 local now = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
 local tat = tonumber(redis.call("GET", KEYS[1]) or "0")
 if tat < now then tat = now end
 local wait = tat - (burst * interval) - now
 if wait < 0 then wait = 0 end
+if wait > maxWaitMs then return math.floor(wait) end
 redis.call("SET", KEYS[1], tat + interval, "PX", ttlMs)
 return math.floor(wait)`;
 
 /**
  * Milliseconds the caller must sleep before using the slot it just reserved.
- * Zero means go now. See {@link RESERVE_SLOT_SCRIPT} for the model.
+ * Zero means go now. Past `maxWaitMs` the wait is returned WITHOUT reserving
+ * — the caller goes early and the shared mark stays where it is. See
+ * {@link RESERVE_SLOT_SCRIPT} for the model.
  */
 export async function reserveRateSlot(
   redis: EvalRedis,
   key: string,
   intervalMs: number,
   burst: number,
+  maxWaitMs: number,
 ): Promise<number> {
-  // The furthest a reservation can sit in the future is the burst window plus
-  // one interval; a minute of slack past that keeps a long pause between the
-  // write and the next read from expiring a live bucket.
-  const ttlMs = intervalMs * (burst + 1) + 60_000;
+  // The burst window plus the longest wait the caller honors, plus a minute of
+  // slack past that for a long pause between the write and the next read. The
+  // queue itself can run further ahead than this when callers go early past
+  // their ceiling, but anything past `maxWaitMs` is a slot the caller did not
+  // wait for, so expiring it only drops pressure the caller already declined.
+  const ttlMs = intervalMs * (burst + 1) + maxWaitMs + 60_000;
 
-  const result = await redis.eval(RESERVE_SLOT_SCRIPT, 1, key, intervalMs, burst, ttlMs);
+  const result = await redis.eval(RESERVE_SLOT_SCRIPT, 1, key, intervalMs, burst, ttlMs, maxWaitMs);
 
   return Number(result);
 }

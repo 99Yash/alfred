@@ -10,10 +10,10 @@ import {
   type StreamTextResult,
   type ToolSet,
 } from "ai";
-import { identifyLanguageModel, isModelObject } from "../models";
+import { identifyLanguageModel, isModelObject, normalizeProvider } from "../models";
 import { providerForServedModel } from "../provider-adapter";
 import { metered, meteredStream } from "./metered";
-import type { CallAttribution, MeteredMeta, MeteredResult } from "./types";
+import type { CallAttribution, MeteredMeta, MeteredResult, MeteredStep } from "./types";
 
 /**
  * AI-SDK call wrappers — thin sugar over `metered()`. They:
@@ -70,18 +70,30 @@ const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_M
 // `metered()` only reads `usage`/`finishReason`/`toolCalls`/`steps`,
 // none of which depend on the OUTPUT generic — so we collapse to the
 // widest valid instantiation and let the call site cast through `never`.
+//
+// Multi-step pricing: `result.usage` is the SUM across steps while
+// `result.response` names the FINAL step only. Pricing the sum at the final
+// leg under-reports a turn whose early steps ran on the expensive primary
+// and only the tail degraded (Sonnet → Gemini). Each step carries its own
+// `usage` + `response.modelId`, so resolve every step's serving leg and let
+// `metered()` sum the per-step costs. Single-step turns skip this and take
+// the single-price path unchanged.
 function extractTextUsage(
   result: GenerateTextResult<ToolSet, never, never>,
   cacheWriteTtl: AttributedCall["cacheWriteTtl"],
   model: LanguageModel,
 ): MeteredResult {
+  const steps = extractStepAttribution(model, result.steps, cacheWriteTtl);
+
   return {
     usage: usageFromSdk(result.usage, cacheWriteTtl),
     responseMeta: {
       finishReason: result.finishReason,
       toolCallCount: result.toolCalls.length,
       stepCount: result.steps?.length,
+      ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
     },
+    ...(steps ? { steps } : {}),
     // Completion — only sent to Langfuse when capture is on (gated in
     // metering/langfuse.ts). Folds the turn's tool calls in alongside the text:
     // on a tool-call turn the model often emits no prose, so `.text` alone would
@@ -164,18 +176,93 @@ function captureInput(args: { instructions?: unknown; prompt?: unknown; messages
 function servedFromModel(
   model: LanguageModel,
   servedModelId: string | undefined,
-): Pick<MeteredResult, "served"> {
+): Pick<MeteredResult, "served" | "servedUnresolved"> {
   const nominal = identifyLanguageModel(model);
 
   if (servedModelId !== undefined && servedModelId !== nominal.modelId && isModelObject(model)) {
     const provider = providerForServedModel(model, servedModelId);
 
     if (provider !== undefined) return { served: { provider, model: servedModelId } };
+
+    // The id belongs to no leg of this route (e.g. an Anthropic dated
+    // snapshot echo). Keep the nominal attribution rather than guessing a
+    // provider, but carry the raw id so the row can mark the miss.
+    return { servedUnresolved: servedModelId };
   }
 
   if (nominal.provider === "unknown") return {};
 
   return { served: { provider: nominal.provider, model: nominal.modelId } };
+}
+
+/**
+ * Per-step serving legs for a multi-step turn. Each step ran its own
+ * `doGenerate` through the `withFallback` facade, so each step may have
+ * degraded independently — the turn-level `response.modelId` (final step
+ * only) cannot name them. Resolve every step off its own
+ * `step.response.modelId` + the route's leg table, falling back to the
+ * step's own `model` pair and then the nominal route pair.
+ *
+ * Returns `undefined` for single-step (or empty) turns so they keep the
+ * single-price path with no extra lookups and no `response_meta` change.
+ * Multi-step turns with a uniform leg still return the list: the cost sum
+ * equals the single price, and the `stepModels` audit trail stays uniform.
+ */
+function extractStepAttribution(
+  model: LanguageModel,
+  steps: readonly {
+    usage?: LanguageModelUsage | undefined;
+    response?: { modelId?: string | undefined } | undefined;
+    model?: { provider: string; modelId: string } | undefined;
+  }[],
+  cacheWriteTtl: AttributedCall["cacheWriteTtl"],
+): readonly MeteredStep[] | undefined {
+  if (steps.length <= 1) return undefined;
+  const nominal = identifyLanguageModel(model);
+
+  return steps.map((step) => {
+    const responseModelId = step.response?.modelId;
+
+    if (
+      responseModelId !== undefined &&
+      responseModelId !== nominal.modelId &&
+      isModelObject(model)
+    ) {
+      const provider = providerForServedModel(model, responseModelId);
+
+      if (provider !== undefined) {
+        return {
+          provider,
+          model: responseModelId,
+          usage: usageFromSdk(step.usage, cacheWriteTtl),
+        };
+      }
+    }
+
+    if (responseModelId !== undefined && responseModelId === nominal.modelId) {
+      return {
+        provider: nominal.provider,
+        model: nominal.modelId,
+        usage: usageFromSdk(step.usage, cacheWriteTtl),
+      };
+    }
+
+    const stepModel = step.model;
+
+    if (stepModel) {
+      return {
+        provider: normalizeProvider(stepModel.provider),
+        model: stepModel.modelId,
+        usage: usageFromSdk(step.usage, cacheWriteTtl),
+      };
+    }
+
+    return {
+      provider: nominal.provider,
+      model: nominal.modelId,
+      usage: usageFromSdk(step.usage, cacheWriteTtl),
+    };
+  });
 }
 
 function extractEmbedUsage(result: EmbedResult): MeteredResult {
@@ -353,13 +440,16 @@ export function meteredStreamText(
       ...args,
       timeout,
       onEnd: (event: StreamTextEndEvent) => {
+        const steps = extractStepAttribution(args.model, event.steps, attribution.cacheWriteTtl);
         finish({
           usage: usageFromSdk(event.usage, attribution.cacheWriteTtl),
           responseMeta: {
             finishReason: event.finishReason,
             toolCallCount: event.toolCalls.length,
             stepCount: event.steps?.length,
+            ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
           },
+          ...(steps ? { steps } : {}),
           // Same fold as the non-streaming path: a streamed tool-call turn emits
           // no prose, so capture the proposed calls or the replay loses them.
           output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
@@ -372,18 +462,19 @@ export function meteredStreamText(
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {
-        // An abort carries no `response`, so the served leg is unknowable and
-        // the row falls back to the nominal primary. Accepted: a stop or a
-        // timeout after a `withFallback` cascade is attributed to the primary,
-        // and a cancelled call carries no usage to misprice.
+        // Completed steps keep their own legs (same per-step rule as the
+        // success path), so an abort after N steps prices those steps where
+        // they ran. Only the unknowable remainder falls back to nominal.
         const served = servedFromModel(args.model, undefined);
+        const steps = extractStepAttribution(args.model, event.steps, attribution.cacheWriteTtl);
         abort({
           usage: usageFromSteps(event.steps, attribution.cacheWriteTtl),
           responseMeta: {
             finishReason: "abort",
             stepCount: event.steps.length,
-            ...(served.served ? {} : { servedModelUnknown: true }),
+            ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
           },
+          ...(steps ? { steps } : {}),
           ...served,
         });
         callerOnAbort?.(event);

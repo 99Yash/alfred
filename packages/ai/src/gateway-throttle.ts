@@ -53,10 +53,12 @@ import type { BoundedRedis } from "@alfred/db/redis";
  * This sits in `fetch` rather than in the agent loop so it covers every caller
  * of the gateway — chat, background boss, cheap classifiers, retries and
  * fallback legs alike — with no call site aware of it. A wait here is charged
- * only to the SDK's `totalMs` (180s for a chat turn), never to a chunk-gap
- * timer: `DEFAULT_TURN_STREAM_TIMEOUT` sets `chunkMs`, and the SDK measures
- * that BETWEEN content chunks. The separate `firstChunkMs` option, which would
- * cover this wait, is deliberately not set.
+ * only to the SDK's `totalMs`, never to a chunk-gap timer: triage allows 30s
+ * for the whole request (`TRIAGE_REQUEST_TIMEOUT_MS`) and a chat turn 180s
+ * (`DEFAULT_TURN_STREAM_TIMEOUT` sets `chunkMs`, and the SDK measures that
+ * BETWEEN content chunks). The separate `firstChunkMs` option, which would
+ * cover this wait, is deliberately not set — so the cap below must sit under
+ * the TIGHTEST caller (triage), not the roomiest.
  */
 
 /**
@@ -90,17 +92,49 @@ const DEFAULT_BURST = 2;
 /**
  * Longest this will hold a request back. Past it the request goes anyway and
  * probably earns a 429, which the retry ladder handles — and that retry re-
- * enters the pacer, so the slot is not lost, only the attempt. The ceiling
- * exists because a wait is charged to the caller's total timeout: a chat turn
- * allows 180s for the whole leg, and no single leg may eat most of it.
+ * enters the pacer, so the slot is not lost, only the attempt.
+ *
+ * This is a property of the CALLER's deadline, not of the gateway, so it
+ * lives on {@link GatewayThrottleConfig} rather than as a module constant —
+ * a hardcoded value cannot see the callers it binds. The default sits under
+ * the tightest production caller: triage allows 30s for the whole request
+ * (`TRIAGE_REQUEST_TIMEOUT_MS` in `packages/assistant/src/triage`), which
+ * must also fit the provider round-trip AND the fallback attempt that shares
+ * the same total-timeout signal. 20s leaves ~10s for those; a chat turn (180s
+ * total) never notices the difference, because a sequential agent loop waits
+ * ~0ms per leg and only a deep parallel backlog reaches the cap at all.
  */
-const MAX_WAIT_MS = 45_000;
+const DEFAULT_MAX_WAIT_MS = 20_000;
+
+/**
+ * Spread added to an over-cap wait. Every over-cap caller would otherwise
+ * sleep exactly `maxWaitMs` and wake together — the burst the pacer exists
+ * to prevent, synchronized. One interval is ~333ms at the default rate, so
+ * up to 1s staggers the shed load over ~3 slots without materially extending
+ * the wait.
+ */
+const OVER_CAP_JITTER_MS = 1_000;
+
+/**
+ * How long a failed shared-bucket reservation keeps the Redis path closed.
+ * Bounds the `commandTimeout` cost of a reachable-but-dead Redis to one slow
+ * leg per cooldown window instead of one per model call, while still
+ * rejoining the shared bucket when Redis recovers.
+ */
+const REDIS_SUSPEND_MS = 30_000;
 
 export interface GatewayThrottleConfig {
   readonly accountId: string;
   readonly gatewayId: string;
   readonly requestsPerMinute?: number;
   readonly burst?: number;
+  /**
+   * Longest a request is held back before it goes anyway. Must sit under the
+   * tightest caller's total timeout — triage at 30s — because the wait is
+   * charged to that budget and an expired signal fails the fallback leg too.
+   * One shared waiter per gateway means one cap: the tightest deadline wins.
+   */
+  readonly maxWaitMs?: number;
 }
 
 /**
@@ -115,9 +149,15 @@ export interface GatewayThrottleConfig {
  * effective rate by the number of providers in play — three keys at 180 per
  * minute each is 540 per minute against a budget of roughly 200 — and the
  * pacer would pace nothing at exactly the moment it is needed.
+ *
+ * The key also carries the rate it paces at. The in-process waiter is already
+ * keyed per rate; the Redis key must be too, or a rolling deploy with two
+ * pods at different `CLOUDFLARE_AI_GATEWAY_RPM` shares one TAT while
+ * subtracting different delay tolerances, and the effective rate is neither
+ * value.
  */
-function bucketKey(config: GatewayThrottleConfig): string {
-  return `aigw:slot:${config.accountId}:${config.gatewayId}`;
+function bucketKey(config: GatewayThrottleConfig, perMinute: number, burst: number): string {
+  return `aigw:slot:${config.accountId}:${config.gatewayId}:${perMinute}:${burst}`;
 }
 
 /**
@@ -127,18 +167,52 @@ function bucketKey(config: GatewayThrottleConfig): string {
  * test, a local run with no `REDIS_URL`), and it is the floor when Redis is
  * present but momentarily unreachable — a throttle that fails open on a
  * connection blip would send the burst it exists to prevent.
+ *
+ * Two-phase: `take()` reserves one interval locally and reports the local
+ * wait; `observeHonored()` then pulls the local clock forward when the Redis
+ * answer was further out. Without the second phase the local clock advances
+ * by one interval while the honored wait was larger, so it falls behind the
+ * shared queue at exactly the Redis handover — and a later Redis outage would
+ * pace against a stale clock.
+ *
+ * `take()` is cap-aware: past `maxWaitMs` it reports the wait WITHOUT
+ * advancing, mirroring the Lua body's conditional write. The caller goes
+ * early rather than honor the slot, so advancing for it would let the local
+ * mark run away the same way the shared one did. Self-limiting: once the
+ * local mark sits a full cap ahead of now, every taker reports over-cap and
+ * nothing advances further.
  */
-function createLocalPacer(intervalMs: number, burst: number): () => number {
+interface LocalPacer {
+  take: (maxWaitMs?: number) => number;
+  observeHonored: (localWait: number, honoredWait: number) => void;
+}
+
+function createLocalPacer(intervalMs: number, burst: number): LocalPacer {
   let theoreticalArrival = 0;
 
-  return () => {
-    const now = Date.now();
-    const tat = Math.max(theoreticalArrival, now);
-    const wait = Math.max(0, tat - burst * intervalMs - now);
+  return {
+    take: (maxWaitMs) => {
+      const now = Date.now();
+      const tat = Math.max(theoreticalArrival, now);
+      const wait = Math.max(0, tat - burst * intervalMs - now);
 
-    theoreticalArrival = tat + intervalMs;
+      if (maxWaitMs !== undefined && wait > maxWaitMs) return wait;
 
-    return wait;
+      theoreticalArrival = tat + intervalMs;
+
+      return wait;
+    },
+    observeHonored: (localWait, honoredWait) => {
+      // Only the Redis-ahead case moves the clock: on an idle bucket the
+      // honored wait is zero and the formula below would push the mark a full
+      // burst window into the future, manufacturing a wait from nothing.
+      if (honoredWait > localWait) {
+        theoreticalArrival = Math.max(
+          theoreticalArrival,
+          Date.now() + honoredWait + burst * intervalMs + intervalMs,
+        );
+      }
+    },
   };
 }
 
@@ -179,8 +253,8 @@ type SlotWaiter = (signal: AbortSignal | undefined) => Promise<void>;
  * handle instead of a hundred empty buckets and a hundred connections.
  *
  * The map is keyed by the budget the waiter guards, not by the gateway alone,
- * so a changed rate gets its own waiter rather than silently reusing the old
- * pace. The key space is env-sized: one entry in practice.
+ * so a changed rate OR cap gets its own waiter rather than silently reusing
+ * the old pace. The key space is env-sized: one entry in practice.
  */
 const waiters = new Map<string, SlotWaiter>();
 
@@ -207,20 +281,26 @@ export function throttledGatewayFetch(
 function sharedWaiter(config: GatewayThrottleConfig): SlotWaiter {
   const perMinute = config.requestsPerMinute ?? DEFAULT_REQUESTS_PER_MINUTE;
   const burst = config.burst ?? DEFAULT_BURST;
-  const key = bucketKey(config);
-  const memoKey = `${key}:${perMinute}:${burst}`;
+  const maxWaitMs = config.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
+  const key = bucketKey(config, perMinute, burst);
+  const memoKey = `${key}:${maxWaitMs}`;
   const existing = waiters.get(memoKey);
 
   if (existing) return existing;
 
-  const created = createSlotWaiter(key, Math.round(60_000 / perMinute), burst);
+  const created = createSlotWaiter(key, Math.round(60_000 / perMinute), burst, maxWaitMs);
 
   waiters.set(memoKey, created);
 
   return created;
 }
 
-function createSlotWaiter(key: string, intervalMs: number, burst: number): SlotWaiter {
+function createSlotWaiter(
+  key: string,
+  intervalMs: number,
+  burst: number,
+  maxWaitMs: number,
+): SlotWaiter {
   const localPacer = createLocalPacer(intervalMs, burst);
 
   // One connection for the process, built on first use rather than at module
@@ -231,9 +311,18 @@ function createSlotWaiter(key: string, intervalMs: number, burst: number): SlotW
   // says must not take `"fail-fast"`.
   let redis: BoundedRedis | null = null;
   let redisUnavailable = false;
+  // A failed reservation suspends the shared bucket rather than retrying it
+  // on every leg: the profile carries a 2s `commandTimeout`, so a
+  // reachable-but-dead Redis would add up to 2s plus a warning to every model
+  // call for the whole outage. The suspension is time-bound, not permanent —
+  // a latched-permanent flag would fail open to local-only pacing forever
+  // after one blip and never rejoin the shared bucket when Redis recovers.
+  let redisSuspendedUntil = 0;
 
   function connection(): BoundedRedis | null {
     if (redisUnavailable) return null;
+
+    if (Date.now() < redisSuspendedUntil) return null;
 
     if (!redis) {
       if (!isQueueEnabled()) {
@@ -261,9 +350,12 @@ function createSlotWaiter(key: string, intervalMs: number, burst: number): SlotW
   }
 
   return async (signal) => {
-    // The local pacer advances on EVERY request, whichever answer is used, so
-    // its clock never falls behind the traffic it is the fallback for.
-    const localWait = localPacer();
+    // An already-aborted call must not reserve: the reservation is granted
+    // unconditionally, so checking after it burns a slot for a call that will
+    // never run. Fail before either clock moves.
+    if (signal?.aborted) throw signal.reason;
+
+    const localWait = localPacer.take(maxWaitMs);
     let waitMs = localWait;
 
     // `connection()` is INSIDE the try with the reservation. Nothing this
@@ -273,20 +365,41 @@ function createSlotWaiter(key: string, intervalMs: number, burst: number): SlotW
     try {
       const shared = connection();
 
-      if (shared) {
-        waitMs = Math.max(localWait, await reserveRateSlot(shared, key, intervalMs, burst));
+      // A locally over-cap caller already declined its slot (`take` did not
+      // advance), so it must not advance the shared mark either — the Lua
+      // body would decline the write anyway, and the round trip buys nothing.
+      if (shared && localWait <= maxWaitMs) {
+        waitMs = Math.max(
+          localWait,
+          await reserveRateSlot(shared, key, intervalMs, burst, maxWaitMs),
+        );
+
+        // Only when honoring: pulling the local clock forward past a wait the
+        // caller will not keep manufactures a wait from nothing on the next
+        // leg — the over-cap twin of the stale-clock bug this phase closes.
+        if (waitMs <= maxWaitMs) localPacer.observeHonored(localWait, waitMs);
       }
     } catch (err) {
+      // Latch the shared bucket closed for a cooldown: one warning per
+      // cooldown window beats one per model call, and the local pacer below
+      // is a complete answer on its own.
+      redisSuspendedUntil = Date.now() + REDIS_SUSPEND_MS;
       console.warn("[ai-gateway] slot reservation failed, pacing locally:", toMessage(err));
     }
 
     if (waitMs <= 0) return;
 
-    if (waitMs > MAX_WAIT_MS) {
+    if (waitMs > maxWaitMs) {
+      // Shed, with jitter: every over-cap caller that sleeps exactly the cap
+      // wakes together and re-fires as one burst. Neither clock advanced for
+      // this caller (cap-aware `take`, conditional Lua write), so going early
+      // sheds load without corrupting the queue — the 429 the retry ladder
+      // may then earn re-enters the pacer for a fresh reservation.
+      const jitterMs = Math.floor(Math.random() * OVER_CAP_JITTER_MS);
       console.warn(
-        `[ai-gateway] gateway budget backed up ${waitMs}ms; sending after ${MAX_WAIT_MS}ms and accepting a possible 429`,
+        `[ai-gateway] gateway budget backed up ${waitMs}ms; sending after ${maxWaitMs + jitterMs}ms and accepting a possible 429`,
       );
-      await sleep(MAX_WAIT_MS, signal);
+      await sleep(maxWaitMs + jitterMs, signal);
 
       return;
     }

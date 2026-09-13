@@ -41,8 +41,13 @@ export function normalizeProvider(raw: string): string {
  * different information: only the object arm can be looked up in a registry
  * keyed by identity. `isIndexable` is the correct guard for a class/SDK
  * instance — `isRecord` rejects it on prototype.
+ *
+ * The single home for this shape — `provider-adapter.ts` asks the same
+ * question about the SDK handle and imports this rather than restating it.
  */
-export function isModelObject(model: LanguageModel): model is Exclude<LanguageModel, string> {
+export type ModelObject = Exclude<LanguageModel, string>;
+
+export function isModelObject(model: LanguageModel): model is ModelObject {
   return isIndexable(model);
 }
 

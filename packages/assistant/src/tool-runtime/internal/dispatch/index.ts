@@ -754,17 +754,18 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // The hash + execute always use raw `input`.
   const redactedInput = tool.redactInput ? tool.redactInput(input) : input;
   const proposedInputForRow = !requiresApproval ? redactedInput : input;
-  // `toJsonValue`, not `jsonValueSchema.parse`: a tool schema may transform its
-  // input into a record that carries a key with an `undefined` value (an
-  // optional field the caller omitted, written back by a `.transform`). That is
-  // not a `JsonValue`, so a strict parse THROWS here and kills the whole step
-  // before the tool runs — `gmail.read_message` never executed once for this
-  // reason. Both columns are jsonb, so dropping those keys is the right coerce.
-  const persistedProposedInput = toJsonValue(proposedInputForRow);
+  // The staged `proposed_input` doubles as the approval-resume payload a
+  // gated tool executes from, so it parses strictly: a value that is not a
+  // `JsonValue` must throw loudly here rather than persist a silent
+  // `{ unserializable }` marker the resume path would then execute as the
+  // user's approved input. The `gmail.read_message` undefined-key shape that
+  // once threw here is fixed at the source (`tool-schemas.ts` omits the key
+  // instead of writing it as `undefined`).
+  const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
   // #374: notification sinks (approval email, delivery payload) read this
   // column — never raw `proposed_input`, which a gated tool keeps verbatim
   // for resume.
-  const persistedDisplayInput = toJsonValue(redactedInput);
+  const persistedDisplayInput = jsonValueSchema.parse(redactedInput);
 
   const upserted = await stagingStore().upsertStaging({
     userId: args.userId,

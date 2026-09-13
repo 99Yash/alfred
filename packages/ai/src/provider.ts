@@ -14,8 +14,10 @@ import {
   createProviderRouteModel,
   googleLeg,
   openAiLeg,
+  type RouteLeg,
   type RouteReasoning,
 } from "./provider-adapter";
+import { identifyLanguageModel } from "./models";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
 // from here; the literal itself is owned by `@alfred/contracts` (single source
@@ -45,8 +47,8 @@ const GOOGLE_THOUGHT_SUMMARIES = {
 } as const satisfies SharedV4ProviderOptions;
 
 interface ModelRoute {
-  /** Leg makers, constructed in fallback order by their own provider factories. */
-  readonly legs: readonly (() => LanguageModelV4)[];
+  /** Validated leg makers, in fallback order. A bare model cannot be spelled here. */
+  readonly legs: readonly (() => RouteLeg)[];
   /** Generic AI SDK reasoning ceiling; the provider package maps/clamps it. */
   readonly reasoning: RouteReasoning;
   /** Provider-option exception the generic reasoning setting cannot express (e.g. OpenAI `max`). */
@@ -146,14 +148,14 @@ const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
 /**
  * Resolve a named product route, or build a one-model probe/eval route from an
- * already-constructed, adapter-attached leg. The probe form takes the model
- * object so identity is read off the leg rather than reconstructed from a
- * handwritten model-to-provider table.
+ * already-validated {@link RouteLeg}. The probe form takes the leg triple so
+ * identity is carried, not reconstructed from a handwritten model-to-provider
+ * table.
  */
 export function route(name: ModelRouteName): ModelRouteHandle;
-export function route(leg: LanguageModelV4, reasoning: RouteReasoning): ModelRouteHandle;
+export function route(leg: RouteLeg, reasoning: RouteReasoning): ModelRouteHandle;
 export function route(
-  nameOrLeg: ModelRouteName | LanguageModelV4,
+  nameOrLeg: ModelRouteName | RouteLeg,
   reasoning?: RouteReasoning,
 ): ModelRouteHandle {
   if (typeof nameOrLeg === "string") {
@@ -224,7 +226,7 @@ const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
  * `thinkingBudget: 0` for a Gemini 3 model was a shape that generation does not
  * own; this is the SDK-owned equivalent, not a new budget.
  */
-function withDisabledReasoning(leg: LanguageModelV4): LanguageModelV4 {
+function withDisabledReasoning(leg: RouteLeg): LanguageModelV4 {
   return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
 }
 
@@ -282,11 +284,6 @@ export function googleSearchGroundingTools(): ToolSet {
  *
  * Streaming caveat: fallback only covers errors raised before the stream
  * starts; a provider dying mid-stream after tokens flowed is not replayable.
- *
- * Attribution: the returned model proxies `provider`/`modelId` to whichever
- * model is *currently* serving, and after the call the metering layer reads
- * that pair off the model object (`served` in `MeteredResult`), so
- * `api_call_log` stays correct when the fallback fires.
  */
 /**
  * True when a 4xx is a billing/quota *capacity* condition (a workspace spend
@@ -371,7 +368,12 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
       // PROVIDER raised (an Anthropic or OpenAI account limit), which is per
       // provider and which the other leg genuinely escapes. Nothing here can
       // separate the two from the status code alone — the `2018` body is the
-      // only tell, and `api_call_log.response_body` now records it.
+      // only tell, and a TERMINAL failure records it on
+      // `api_call_log.response_body` (via `transportFacts`, which unwraps the
+      // `RetryError` to the last `APICallError`). A degrade that SUCCEEDS
+      // writes no body anywhere — the success row carries only the
+      // `servedModelId` / `requestedModelId` divergence — so do not read this
+      // as a guarantee that every 2018 is queryable from the ledger.
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
 
@@ -400,8 +402,71 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     specificationVersion: primary.specificationVersion,
     provider: primary.provider,
     modelId: primary.modelId,
-    supportedUrls: primary.supportedUrls,
+    // Either leg can serve, so the facade accepts what either leg accepts. A
+    // primary-only value would reject the fallback's inputs (or vice versa) on
+    // the one turn the other leg answers.
+    supportedUrls: mergeSupportedUrls(primary.supportedUrls, fallback.supportedUrls),
     doGenerate: (options) => compose().doGenerate(options),
     doStream: (options) => compose().doStream(options),
   };
+}
+
+/**
+ * Union of two legs' URL patterns, keyed by media kind. Both sides are
+ * awaited rather than branched on: the field admits a plain record or a
+ * promise of one, and awaiting covers both without a shape check.
+ */
+function mergeSupportedUrls(
+  primary: LanguageModelV4["supportedUrls"],
+  fallback: LanguageModelV4["supportedUrls"],
+): LanguageModelV4["supportedUrls"] {
+  return (async () => {
+    const [a, b] = await Promise.all([primary, fallback]);
+    const merged: Record<string, RegExp[]> = {};
+
+    for (const record of [a, b]) {
+      for (const [kind, patterns] of Object.entries(record)) {
+        merged[kind] = [...(merged[kind] ?? []), ...patterns];
+      }
+    }
+
+    return merged;
+  })();
+}
+
+/**
+ * Every (provider, model) pair any route in this module can serve — every leg
+ * of every named route plus every media-enrichment leg. The boot guard
+ * verifies this set rather than the route facades: a facade reports only its
+ * primary leg, so verifying facades silently skips every fallback.
+ */
+export function allRouteLegIdentifiers(): Array<{
+  route: string;
+  provider: string;
+  model: string;
+}> {
+  const seen = new Set<string>();
+  const identifiers: Array<{ route: string; provider: string; model: string }> = [];
+
+  const add = (route: string, provider: string, model: string): void => {
+    const key = `${provider}/${model}`;
+
+    if (seen.has(key)) return;
+    seen.add(key);
+    identifiers.push({ route, provider, model });
+  };
+
+  for (const [name, definition] of Object.entries(MODEL_ROUTES)) {
+    for (const makeLeg of definition.legs) {
+      const leg = makeLeg();
+      add(name, leg.provider, leg.modelId);
+    }
+  }
+
+  for (const entry of MEDIA_ENRICHMENT_LEGS) {
+    const { provider, modelId } = identifyLanguageModel(entry.make());
+    add("media_enrichment", provider, modelId);
+  }
+
+  return identifiers;
 }
