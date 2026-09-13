@@ -26,14 +26,13 @@ export async function flushMeteringWrites(): Promise<void> {
 
 /**
  * Reconcile the pre-call attribution (`meta.provider`/`meta.model`, resolved
- * from the model object before dispatch) with the model the provider object
- * reports actually serving. The two diverge when a `withFallback` cascade
- * switches providers mid-call: the composed model proxies `provider`/`modelId`
- * to whichever leg currently serves, and the extractor reads it after the call.
+ * from the model object before dispatch) with the model that actually served.
+ * The two diverge when a `withFallback` cascade switches providers mid-call.
  *
- * Identity comes off the model object, so a provider's dated alias echo never
- * knocks attribution to `unknown`. A divergence is surfaced on
- * `response_meta.servedModelId` so the row is auditable.
+ * The composed model does NOT proxy `provider`/`modelId` to the serving leg —
+ * see `routeLegProviders` in `../provider-adapter`, which owns that rule. The
+ * served pair reaches here on `MeteredResult.served`, and a divergence is
+ * surfaced on `response_meta.servedModelId` so the row is auditable.
  */
 function reconcileServed(meta: MeteredMeta, extracted: MeteredResult) {
   const served = extracted.served;

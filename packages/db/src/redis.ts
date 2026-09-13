@@ -232,11 +232,20 @@ export async function incrementExpiringCounter(
  * `PX` on every write, so an idle bucket disappears rather than pinning a
  * stale TAT forever. The TTL must outlive the furthest reservation the bucket
  * can hold, which is what {@link reserveRateSlot} computes for the caller.
+ *
+ * "Now" is READ FROM REDIS, never sent by the caller. The TAT is shared across
+ * processes, so one process with a fast clock would otherwise push the mark
+ * into the future and send every other process to its maximum wait. Reading the
+ * clock here makes the bucket the single authority on both numbers it holds.
+ * `TIME` is non-deterministic, which is fine on Redis 5 and later — scripts
+ * replicate by effect there — and a caller on anything older gets an error it
+ * already handles by pacing locally.
  */
 const RESERVE_SLOT_SCRIPT = `local interval = tonumber(ARGV[1])
 local burst = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
-local ttlMs = tonumber(ARGV[4])
+local ttlMs = tonumber(ARGV[3])
+local time = redis.call("TIME")
+local now = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
 local tat = tonumber(redis.call("GET", KEYS[1]) or "0")
 if tat < now then tat = now end
 local wait = tat - (burst * interval) - now
@@ -255,19 +264,11 @@ export async function reserveRateSlot(
   burst: number,
 ): Promise<number> {
   // The furthest a reservation can sit in the future is the burst window plus
-  // one interval; a minute of slack past that keeps a clock skew between two
-  // processes from expiring a live bucket.
+  // one interval; a minute of slack past that keeps a long pause between the
+  // write and the next read from expiring a live bucket.
   const ttlMs = intervalMs * (burst + 1) + 60_000;
 
-  const result = await redis.eval(
-    RESERVE_SLOT_SCRIPT,
-    1,
-    key,
-    intervalMs,
-    burst,
-    Date.now(),
-    ttlMs,
-  );
+  const result = await redis.eval(RESERVE_SLOT_SCRIPT, 1, key, intervalMs, burst, ttlMs);
 
   return Number(result);
 }

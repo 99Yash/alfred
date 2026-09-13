@@ -66,8 +66,16 @@ export const apiCallLog = pgTable(
     statusCode: integer("status_code"),
     /**
      * The provider's raw error body, run through `redactSecrets` and truncated.
-     * Written only on a failure — a success body would duplicate the response
-     * and carry user content into the cost log for no auditing value.
+     *
+     * Written only on a failure, which narrows the exposure but does not remove
+     * it: `redactSecrets` strips credentials, not prose, and an error body can
+     * still carry user content — a 400 `invalid_request_error` echoes the
+     * offending request, and a content-filter rejection carries the flagged
+     * text. So this column holds user data on those two shapes, and
+     * `api_call_log` has no retention policy yet. The trade is deliberate: a
+     * rejection body is the only thing that separates the gateway's two 429s
+     * (see {@link apiCallLog.statusCode}) without the Cloudflare log API.
+     * Revisit it with retention, not by dropping the column.
      */
     responseBody: text("response_body"),
   },

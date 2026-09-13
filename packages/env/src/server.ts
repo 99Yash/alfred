@@ -149,12 +149,17 @@ const serverEnvSchema = z
     /**
      * Requests per minute the client-side pacer allows through the gateway.
      *
-     * Unified Billing meters 200 requests per 60 seconds per gateway. Over the
-     * line the edge returns a 429 `AiGatewayError` 2018 and the turn dies with
-     * its tool results already written, so
-     * `packages/ai/src/gateway-throttle.ts` paces every call to stay under it.
-     * Unset takes that module's default, which holds a margin below the
-     * ceiling for the other callers that share the bucket.
+     * Unified Billing DOCUMENTS 200 requests per 60 seconds per gateway. Over
+     * the line the edge returns a 429 `AiGatewayError` 2018 and the turn dies
+     * with its tool results already written, so
+     * `packages/ai/src/gateway-throttle.ts` paces every call. Unset takes that
+     * module's default, which holds a margin below the documented ceiling for
+     * the other callers that share the bucket.
+     *
+     * Treat 200 as documented, not measured. The measured bucket is a burst of
+     * roughly 15 to 25 that then refills at single digits per minute, so no
+     * value here keeps a drained budget serving. `gateway-throttle.ts` carries
+     * the measurement and is the number's owner; this field only overrides it.
      *
      * This is NOT the gateway's own `rate_limiting_limit`. That field is a
      * separate self-imposed rule which answers 429 `2003`; `alfred-dev` has

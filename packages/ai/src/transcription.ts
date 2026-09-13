@@ -70,14 +70,23 @@ const CLOUDFLARE_MODEL = "openai/gpt-4o-transcribe";
  */
 const DIRECT_MODEL = "gpt-4o-mini-transcribe";
 
-/** Cloudflare transport. Called by `Gateway.transcribe`, never chosen here. */
+/**
+ * Cloudflare transport. Called by `Gateway.transcribe`, never chosen here.
+ *
+ * `fetchImpl` carries the gateway pacer. This call leaves the AI SDK, so it
+ * misses the `fetch` decorator every model leg gets — but `cf-aig-gateway-id`
+ * puts it in the same gateway, and therefore against the same Unified Billing
+ * budget the pacer exists to spread. A caller that passes the bare `fetch`
+ * takes a slot without reserving one.
+ */
 export async function transcribeViaCloudflareRun(
   gateway: GatewayConfig,
   audio: Uint8Array,
+  fetchImpl: typeof globalThis.fetch = fetch,
 ): Promise<TranscribeAudioResult> {
   const url = `https://api.cloudflare.com/client/v4/accounts/${gateway.accountId}/ai/run`;
 
-  const res = await fetch(url, {
+  const res = await fetchImpl(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${gateway.token}`,

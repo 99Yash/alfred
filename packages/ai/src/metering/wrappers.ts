@@ -152,14 +152,10 @@ function captureInput(args: { instructions?: unknown; prompt?: unknown; messages
  * pre-call meta still names the primary).
  *
  * `servedModelId` comes from the SDK result (`result.response.modelId`) and is
- * the ONLY source here that moves with the cascade. The docblock this replaced
- * claimed the composed model object proxies `provider`/`modelId` to the leg
- * currently serving; it does not. `wrapLanguageModel` copies both into plain
- * properties at construction time, and `createProviderRouteModel` wraps every
- * route, so the object names the primary leg for the life of the process. A
- * probe over a fallback that returned text read `openai` off the object while
- * the result named the Gemini leg — meaning every degraded call was priced
- * against the primary's `model_prices` row (#216 did not hold).
+ * the ONLY source here that moves with the cascade — the composed model object
+ * cannot answer the question, and the result only answers it because each leg
+ * stamps its own id. `routeLegProviders` in `../provider-adapter` owns both
+ * halves of that rule; read it there rather than restating it here.
  *
  * The result carries no provider beside the id, so the route's own legs supply
  * it. An id that belongs to no leg of this route resolves to nothing and the
@@ -376,10 +372,10 @@ export function meteredStreamText(
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {
-        // No top-level `response` on an abort, so read the served model off the
-        // composed model object — otherwise a stop/timeout after a
-        // `withFallback` cascade gets logged as the nominal primary (#216).
-        // No `response` on an abort, so only the nominal primary is knowable.
+        // An abort carries no `response`, so the served leg is unknowable and
+        // the row falls back to the nominal primary. Accepted: a stop or a
+        // timeout after a `withFallback` cascade is attributed to the primary,
+        // and a cancelled call carries no usage to misprice.
         const served = servedFromModel(args.model, undefined);
         abort({
           usage: usageFromSteps(event.steps, attribution.cacheWriteTtl),
