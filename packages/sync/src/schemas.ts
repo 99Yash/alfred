@@ -38,7 +38,10 @@ import {
 import { isoDateTimeStringSchema, runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
 import { z } from "zod";
 
-export { isoDateTimeStringSchema, jsonRecordSchema, memorySourceSchema, type MemorySource };
+// `isoDateTimeStringSchema` is NOT re-exported. It belongs to `@alfred/contracts`,
+// which is browser-safe and already a direct dependency of every consumer, so a
+// second import path for it only creates a choice with no right answer.
+export { jsonRecordSchema, memorySourceSchema, type MemorySource };
 
 export const factValueSchema = z.union([
   z.string(),
