@@ -213,6 +213,47 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Every state in which the snapshot did not arrive.
+ *
+ * 404 is the ONLY final answer. A revoked link and a slug that never existed
+ * both answer 404, and this page says one thing for both — telling them
+ * apart would confirm a guess. Every other status is the server or the
+ * network failing, and saying "never shared" there tells the visitor their
+ * link is dead when it is not, so those get the truth and a retry instead.
+ */
+function SharedThreadUnavailable({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const gone = error instanceof SharingRequestError && error.status === 404;
+
+  return (
+    <Centered>
+      {gone ? (
+        <Lock size={18} aria-hidden className="text-app-fg-2" />
+      ) : (
+        <RotateCcw size={18} aria-hidden className="text-app-fg-2" />
+      )}
+      <h1 className="text-base font-medium text-app-fg-4">
+        {gone ? "This link is not available" : "This thread did not load"}
+      </h1>
+      <p className="text-sm text-app-fg-2">
+        {gone
+          ? "The thread was never shared, or its link has been revoked."
+          : "Something went wrong on our side. The link itself may still be good."}
+      </p>
+      {gone ? (
+        <TryAlfredButton>Go to Alfred</TryAlfredButton>
+      ) : (
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <FrostButton size="sm" onClick={onRetry}>
+            Try again
+          </FrostButton>
+          <TryAlfredButton size="sm">Go to Alfred</TryAlfredButton>
+        </div>
+      )}
+    </Centered>
+  );
+}
+
 function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
   const query = useSharedThreadPage(urlSlug);
   const [showArtifacts, setShowArtifacts] = useState(false);
@@ -227,40 +268,7 @@ function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
   }
 
   if (query.isError || !query.data) {
-    // 404 is the ONLY final answer. A revoked link and a slug that never existed
-    // both answer 404, and this page says one thing for both — telling them
-    // apart would confirm a guess. Every other status is the server or the
-    // network failing, and saying "never shared" there tells the visitor their
-    // link is dead when it is not, so those get the truth and a retry instead.
-    const gone = query.error instanceof SharingRequestError && query.error.status === 404;
-
-    return (
-      <Centered>
-        {gone ? (
-          <Lock size={18} aria-hidden className="text-app-fg-2" />
-        ) : (
-          <RotateCcw size={18} aria-hidden className="text-app-fg-2" />
-        )}
-        <h1 className="text-base font-medium text-app-fg-4">
-          {gone ? "This link is not available" : "This thread did not load"}
-        </h1>
-        <p className="text-sm text-app-fg-2">
-          {gone
-            ? "The thread was never shared, or its link has been revoked."
-            : "Something went wrong on our side. The link itself may still be good."}
-        </p>
-        {gone ? (
-          <TryAlfredButton>Go to Alfred</TryAlfredButton>
-        ) : (
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <FrostButton size="sm" onClick={() => void query.refetch()}>
-              Try again
-            </FrostButton>
-            <TryAlfredButton size="sm">Go to Alfred</TryAlfredButton>
-          </div>
-        )}
-      </Centered>
-    );
+    return <SharedThreadUnavailable error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   const { title, messages, artifacts, sharedAt } = query.data;
