@@ -642,18 +642,46 @@ jobs:
 
   # @alfred/assistant holds product modules moved out of @alfred/api during
   # Phase 6B. Some are DB-backed (e.g. `delivery` owns notification idempotency
-  # over `email_sends`), so this job runs Postgres + Redis + a format-valid
-  # serverEnv, exactly like `http-tests`. The check name stays `assistant-unit-tests`
-  # (branch-protection stability); the `test` glob runs both pure and DB-backed
+  # over `email_sends`), so each shard runs Postgres + Redis + a format-valid
+  # serverEnv, exactly like `http-tests`. The glob runs both pure and DB-backed
   # suites, picking up the DB from the job-level env just as `http-tests` does.
+  # `assistant-unit-tests` is a REQUIRED status check in the `main protection`
+  # ruleset, and a matrix publishes one check per leg — never the bare name — so
+  # the required name lives on the aggregate job below, not on this one.
   # `timeout-minutes` is 20 rather than 10 because campaign item 187 moved 114
   # runnable suites here from `api-tests` (100 -> 214), so the job takes about
   # twice as long as before. A timeout is the one way this job reports red for a
   # reason no assertion caused.
-  assistant-unit-tests:
-    name: assistant-unit-tests
+  #
+  # `@alfred/assistant` owns 236 test files and about 1970 tests, and it is the
+  # ONLY job that sets this workflow's wall clock. Unsharded it ran 265 s while
+  # every other job finished inside 160 s.
+  #
+  # The cost is NOT process startup, so do not reach for a faster loader. A
+  # 60-file noop suite costs 6.85 CPU-s under `tsx` and 4.08 CPU-s under Node 24
+  # native type-stripping, so the loader floor is 9 % of this suite and a swap
+  # buys about 2 %. (It also does not work here: the relative imports carry no
+  # file extension, which native stripping requires.) The cost is the module
+  # graph — 60 real `test/tool-runtime` files cost 72.6 CPU-s, about 1.1 CPU-s
+  # each to transpile and evaluate the import graph again in every child
+  # process. That is CPU-bound and splits cleanly, so more runners is the lever.
+  #
+  # THREE shards, not more. 265 s becomes about 90 s, and a shard still pays the
+  # ~45 s this job spends on checkout, install, container health and migrations,
+  # so a shard lands near 135 s — already below the `static` job's 160 s. A
+  # fourth shard pays a fourth setup and moves the wall clock nowhere.
+  #
+  # `fail-fast: false` because a red shard must not cancel its siblings. With
+  # the default, one failure hides the other two thirds of the suite and the
+  # next push re-runs everything to find the rest.
+  assistant-unit-tests-shard:
+    name: assistant-unit-tests-shard (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -724,8 +752,44 @@ jobs:
       - name: Apply database migrations
         run: corepack pnpm --filter @alfred/db db:migrate
 
+      # Calls `test:shard`, NOT `test` with an appended flag. Node stops reading
+      # flags at the first positional argument, so
+      # `tsx --test "<glob>" --test-shard=1/3` exits 0 and runs the WHOLE suite:
+      # all three shards would silently duplicate each other and nothing would
+      # redden. `packages/assistant/package.json` keeps the flag ahead of the
+      # glob for that reason. `TEST_SHARD` is required, and an unset value is
+      # loud rather than silent — it renders `--test-shard=` and node exits with
+      # `--test-shard= requires an argument`.
       - name: Assistant tests
-        run: corepack pnpm --filter @alfred/assistant test
+        env:
+          TEST_SHARD: ${{ matrix.shard }}/3
+        run: corepack pnpm --filter @alfred/assistant test:shard
+
+  # This job exists to publish ONE check named `assistant-unit-tests`, because
+  # the `main protection` ruleset requires exactly that context. A matrix job
+  # publishes `assistant-unit-tests-shard (1/3)` and two siblings and never the
+  # bare name, so without this job the ruleset waits on a check that can never
+  # arrive and every pull request blocks forever. Rename the shards freely;
+  # rename THIS job only together with the ruleset.
+  #
+  # `needs.<matrix job>.result` aggregates the whole matrix: it reads `success`
+  # only when every leg succeeded, and `failure` when any leg failed. `always()`
+  # is required — without it a failed shard SKIPS this job, and a skipped
+  # required check is not a passing one. It runs no checkout and no install, so
+  # it costs seconds.
+  assistant-unit-tests:
+    name: assistant-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: assistant-unit-tests-shard
+    if: always()
+    steps:
+      - name: Require every shard to pass
+        env:
+          SHARDS_RESULT: ${{ needs.assistant-unit-tests-shard.result }}
+        run: |
+          echo "assistant-unit-tests-shard matrix result: $SHARDS_RESULT"
+          test "$SHARDS_RESULT" = "success"
 
   # This job builds the browser bundle as well as running the web unit tests. The
   # name is unchanged and this comment carries the widened remit instead, because
