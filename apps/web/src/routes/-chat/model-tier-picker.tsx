@@ -17,6 +17,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { use, useId, useState } from "react";
 import { AppThemeContext, type AppResolvedTheme } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
+import { TIER_OPTIONS, tierOption } from "./model-tier-options";
 import { Tip } from "./tip";
 
 // Per-tier, theme-tuned Alfred marks. Like dimension's agent-mode picker, each
@@ -35,32 +36,6 @@ const TIER_MARK = {
     dark: "/images/logo/alfred-logo-pro-dark.svg",
   },
 } satisfies Record<ChatModelTier, Record<AppResolvedTheme, string>>;
-
-export interface TierOption {
-  value: ChatModelTier;
-  label: string;
-  description: string;
-}
-
-const STANDARD_OPTION: TierOption = {
-  value: "standard",
-  label: "Alfred",
-  description: "Great for almost everything",
-};
-
-const DEEP_OPTION: TierOption = {
-  value: "deep",
-  label: "Alfred Pro",
-  description: "Flagship reasoning for complex tasks",
-};
-
-/**
- * The two tiers, as the user reads them. EXPORTED because the chat header's
- * "..." menu offers the same choice, and a second spelling of "Alfred" /
- * "Alfred Pro" is how two surfaces that write the same state end up disagreeing
- * about what that state is called.
- */
-export const TIER_OPTIONS: ReadonlyArray<TierOption> = [STANDARD_OPTION, DEEP_OPTION];
 
 export function ModelTierPicker({
   value,
@@ -82,7 +57,7 @@ export function ModelTierPicker({
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
 
-  const selected = value === "deep" ? DEEP_OPTION : STANDARD_OPTION;
+  const selected = tierOption(value);
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
