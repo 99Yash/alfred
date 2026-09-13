@@ -137,7 +137,9 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     createAnthropic: () => cfAnthropic,
     createOpenAI: () => cfOpenAI,
     createGoogle: () => cfGoogle,
-    transcribe: (audio) => transcribeViaCloudflareRun(config, audio),
+    // Paced like every model leg: `/ai/run` carries `cf-aig-gateway-id`, so it
+    // draws on the same one-per-gateway budget.
+    transcribe: (audio) => transcribeViaCloudflareRun(config, audio, paced()),
   };
 }
 

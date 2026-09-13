@@ -242,7 +242,19 @@ function createSlotWaiter(key: string, intervalMs: number, burst: number): SlotW
         return null;
       }
 
-      redis = createRedisConnection("command");
+      try {
+        redis = createRedisConnection("command");
+      } catch (err) {
+        // The ioredis constructor throws SYNCHRONOUSLY on a malformed url, and
+        // `isQueueEnabled()` only proves `REDIS_URL` is set, not that it
+        // parses. Latch instead of retrying: a url that does not parse will
+        // not start parsing later, and one warning per process beats one per
+        // model call.
+        redisUnavailable = true;
+        console.warn("[ai-gateway] redis unavailable, pacing locally:", toMessage(err));
+
+        return null;
+      }
     }
 
     return redis;
@@ -252,15 +264,20 @@ function createSlotWaiter(key: string, intervalMs: number, burst: number): SlotW
     // The local pacer advances on EVERY request, whichever answer is used, so
     // its clock never falls behind the traffic it is the fallback for.
     const localWait = localPacer();
-    const shared = connection();
     let waitMs = localWait;
 
-    if (shared) {
-      try {
+    // `connection()` is INSIDE the try with the reservation. Nothing this
+    // decorator does may throw: it sits in `fetch`, so an escaping error kills
+    // every model call in the process, and the local pacer is a complete
+    // answer on its own.
+    try {
+      const shared = connection();
+
+      if (shared) {
         waitMs = Math.max(localWait, await reserveRateSlot(shared, key, intervalMs, burst));
-      } catch (err) {
-        console.warn("[ai-gateway] slot reservation failed, pacing locally:", toMessage(err));
       }
+    } catch (err) {
+      console.warn("[ai-gateway] slot reservation failed, pacing locally:", toMessage(err));
     }
 
     if (waitMs <= 0) return;

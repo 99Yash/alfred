@@ -199,11 +199,76 @@ function toolNameMiddleware(
   };
 }
 
+/**
+ * Stamp the leg's own model id onto a result the provider left unstamped.
+ *
+ * Without this, served-model attribution cannot fire on any Google leg, which
+ * is every degrade leg Alfred has. `@ai-sdk/google` fills `response` with
+ * `{ id }` alone — its source carries a literal `// TODO timestamp, model id` —
+ * and its stream emits `response-metadata` with `{ id }` for the same reason.
+ * `ai` then resolves the step as `result.response?.modelId ?? stepModel.modelId`,
+ * and on a composed route `stepModel` is the facade, frozen at the PRIMARY leg
+ * (see {@link routeLegProviders}). So a degraded call reported the primary's
+ * id, the meter saw no divergence, and the turn was priced against the wrong
+ * `model_prices` row.
+ *
+ * Alfred owns this seam per leg and knows which model the leg is, so it fills
+ * the gap the provider left. A provider that reports its own id keeps it,
+ * including a dated alias echo — attribution already handles that. The stream
+ * arm also SYNTHESIZES a `response-metadata` part when the provider emits none
+ * at all, which Google does whenever the response carries no `responseId`.
+ */
+function servedModelIdMiddleware(modelId: string): LanguageModelV4Middleware {
+  return {
+    specificationVersion: "v4",
+    wrapGenerate: async ({ doGenerate }) => {
+      const result = await doGenerate();
+
+      if (result.response?.modelId !== undefined) return result;
+
+      return { ...result, response: { ...result.response, modelId } };
+    },
+    wrapStream: async ({ doStream }) => {
+      const { stream, ...rest } = await doStream();
+      let seen = false;
+
+      return {
+        ...rest,
+        stream: stream.pipeThrough(
+          new TransformStream<StreamPart, StreamPart>({
+            transform: (chunk, controller) => {
+              if (chunk.type === "response-metadata") {
+                seen = true;
+                controller.enqueue(chunk.modelId === undefined ? { ...chunk, modelId } : chunk);
+
+                return;
+              }
+
+              controller.enqueue(chunk);
+
+              // After the first part rather than in `flush`: the SDK reads the
+              // step's response when the model's terminal part arrives, so a
+              // part enqueued at close is too late. An id the provider sends
+              // later still wins, because the SDK merges field by field.
+              if (!seen) {
+                seen = true;
+                controller.enqueue({ type: "response-metadata", modelId });
+              }
+            },
+          }),
+        ),
+      };
+    },
+  };
+}
+
 // ── Adapter attachment ─────────────────────────────────────────────────────
-// Ordered chain [toolName (inner) ← projection (outer)]: the outer projection
-// strips the internal envelope and decorates for the provider, the inner name
-// shim encodes only the final function-tool set and leaves provider-defined
-// tools alone. Order is load-bearing.
+// Ordered chain [served-model stamp (innermost) ← toolName ← projection
+// (outermost)]: the outer projection strips the internal envelope and decorates
+// for the provider, the name shim encodes only the final function-tool set and
+// leaves provider-defined tools alone, and the innermost stamp labels the
+// result with the leg that produced it. Order is load-bearing — the stamp must
+// sit closest to the real model so it names one leg, never a composition.
 
 /**
  * Attach the matching Alfred adapter to a model the provider package already
@@ -219,8 +284,13 @@ export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4)
     throw new Error(`cannot attach the ${provider} protocol to ${actualProvider}/${model.modelId}`);
   }
 
-  const named = wrapLanguageModel({
+  const stamped = wrapLanguageModel({
     model,
+    middleware: servedModelIdMiddleware(model.modelId),
+  });
+
+  const named = wrapLanguageModel({
+    model: stamped,
     middleware: toolNameMiddleware(codec.encode, codec.decode),
   });
 
@@ -280,28 +350,6 @@ export interface RouteModelSettings {
 }
 
 /**
- * Compose a route's legs — constructed in order, each through its own provider
- * factory and adapter — then install the route's reasoning ceiling and provider
- * exceptions as overridable defaults.
- */
-/**
- * Which provider serves each model id a given route can degrade to.
- *
- * Attribution cannot be read off the composed model object. `wrapLanguageModel`
- * evaluates `provider` and `modelId` ONCE, at construction, into plain
- * properties — it installs no getters — and `createProviderRouteModel` wraps
- * every route unconditionally to carry the reasoning ceiling. So the composed
- * model reports the primary leg forever, whichever leg actually answered. A
- * probe over a fallback that returned text confirmed it: `result.response`
- * named the Gemini leg while the model object still read `openai`.
- *
- * The SDK result does carry the truth, but only as a bare `modelId` with no
- * provider beside it. This map supplies the missing half from the legs the
- * route was built from, so no hand-written model-to-provider table is needed
- * and an unknown id resolves to nothing rather than to a guess. Keyed by the
- * FINAL wrapped object, because that is what call sites hold.
- */
-/**
  * Any constructed SDK model object — the arm `LanguageModel` narrows to once a
  * bare gateway model-id string is excluded. Wider than `LanguageModelV4`
  * because the SDK's own handle type still admits older specification versions,
@@ -309,6 +357,40 @@ export interface RouteModelSettings {
  */
 type ModelObject = Exclude<SdkLanguageModel, string>;
 
+/**
+ * Which provider serves each model id a given route can degrade to.
+ *
+ * THIS DOCBLOCK IS THE ONE HOME OF THE SERVED-MODEL RULE. Every other site
+ * that touches attribution — `servedModelIdMiddleware` above, `reconcileServed`
+ * and `MeteredResult.served` in `./metering` — points here instead of
+ * restating it, because the rule has moved twice already and a restated copy
+ * does not move with it.
+ *
+ * The rule has two halves, and BOTH must hold or a degraded call is priced
+ * against the wrong `model_prices` row.
+ *
+ * 1. Attribution cannot be read off the composed model object.
+ *    `wrapLanguageModel` evaluates `provider` and `modelId` ONCE, at
+ *    construction, into plain properties — it installs no getters — and
+ *    `createProviderRouteModel` wraps every route unconditionally to carry the
+ *    reasoning ceiling. So the composed model reports the primary leg forever,
+ *    whichever leg actually answered. A probe over a fallback that returned
+ *    text confirmed it: `result.response` named the Gemini leg while the model
+ *    object still read `openai`.
+ * 2. The SDK result carries the truth ONLY because Alfred puts it there.
+ *    `ai` resolves a step as `result.response?.modelId ?? stepModel.modelId`,
+ *    and `stepModel` is the frozen facade from (1) — so a provider that
+ *    reports no model id, which `@ai-sdk/google` does on both its generate and
+ *    its stream path, silently returns the primary's id and no divergence is
+ *    ever seen. `servedModelIdMiddleware` stamps each leg's own id at
+ *    construction to close that hole.
+ *
+ * The stamped result still carries a bare `modelId` with no provider beside
+ * it. This map supplies the missing half from the legs the route was built
+ * from, so no hand-written model-to-provider table is needed and an unknown id
+ * resolves to nothing rather than to a guess. Keyed by the FINAL wrapped
+ * object, because that is what call sites hold.
+ */
 const routeLegProviders = new WeakMap<ModelObject, ReadonlyMap<string, string>>();
 
 /**
@@ -323,6 +405,18 @@ export function providerForServedModel(
   return routeLegProviders.get(routeModel)?.get(servedModelId);
 }
 
+/**
+ * Compose a route's legs — constructed in order, each through its own provider
+ * factory and adapter — then install the route's reasoning ceiling and provider
+ * exceptions as overridable defaults.
+ *
+ * The composed facade reports the PRIMARY leg's `provider`/`modelId`, and that
+ * stays true at any leg count — `ai-retry`'s `getModelKey` reads those two
+ * fields, so a three-leg route would key its retry state on the primary as
+ * well. Harmless today because attribution runs off {@link routeLegProviders}
+ * rather than off the facade, and because every route here has two legs or
+ * fewer. Check that assumption before adding a third.
+ */
 export function createProviderRouteModel(
   legs: readonly (() => LanguageModelV4)[],
   composeFallback: (primary: LanguageModelV4, fallback: LanguageModelV4) => LanguageModelV4,

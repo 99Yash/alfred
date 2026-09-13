@@ -115,13 +115,16 @@ export interface MeteredResult {
    */
   output?: unknown;
   /**
-   * Provider + model id the served model object reports after the call
-   * (`identifyLanguageModel(args.model)`). `MeteredMeta.provider/model` are
-   * resolved from the model object *before* the call, so when a `withFallback`
-   * cascade switches providers mid-call the meta misattributes — `metered()`
-   * re-resolves provider + price from this pair when it differs. Identity comes
-   * off the model object, never a model-to-provider registry, so a provider's
-   * dated alias echo does not knock attribution to `unknown`.
+   * Provider + model id of the leg that actually served the call.
+   * `MeteredMeta.provider/model` are resolved from the model object *before*
+   * the call, so when a `withFallback` cascade switches legs mid-call the meta
+   * misattributes — `metered()` re-resolves provider + price from this pair
+   * when it differs.
+   *
+   * Produced by `servedFromModel` in `./wrappers`, which pairs the SDK's
+   * `result.response.modelId` with the route's own leg table. The composed
+   * model object cannot answer this question; `routeLegProviders` in
+   * `../provider-adapter` owns the rule and the reason.
    */
   served?: { provider: string; model: string } | undefined;
 }
