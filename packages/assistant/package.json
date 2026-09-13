@@ -75,7 +75,8 @@
     "./action-policies": "./src/action-policies/index.ts",
     "./action-policies/test-support": "./src/action-policies/test-support.ts",
     "./runtime": "./src/runtime/index.ts",
-    "./runtime/test-support": "./src/runtime/test-support.ts"
+    "./runtime/test-support": "./src/runtime/test-support.ts",
+    "./sharing": "./src/sharing/index.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",

@@ -1,8 +1,7 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
+import { isoDateTimeStringSchema, MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
 import { SYNC_MODEL } from "../sync-model";
-import { isoDateTimeStringSchema } from "../schemas";
 import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../types";
 
 /**

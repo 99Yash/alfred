@@ -13,35 +13,12 @@
  * pending approval, so flipping to Autopilot lets a parked run continue.
  */
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, ChevronDown, ShieldCheck, Zap } from "lucide-react";
-import { use, useId, type ComponentType } from "react";
+import { Check, ChevronDown } from "lucide-react";
+import { use, useId } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
+import { MODE_OPTIONS, modeOption } from "./approval-mode-options";
 import { Tip } from "./tip";
-
-interface ModeOption {
-  /** True = autonomy (Autopilot); false = gated (Review). */
-  autonomy: boolean;
-  label: string;
-  description: string;
-  Icon: ComponentType<{ size?: number | string; className?: string }>;
-}
-
-const REVIEW_OPTION: ModeOption = {
-  autonomy: false,
-  label: "Review",
-  description: "Alfred pauses for your approval before acting.",
-  Icon: ShieldCheck,
-};
-
-const AUTOPILOT_OPTION: ModeOption = {
-  autonomy: true,
-  label: "Autopilot",
-  description: "Alfred acts without pausing for approval.",
-  Icon: Zap,
-};
-
-const MODE_OPTIONS: ReadonlyArray<ModeOption> = [REVIEW_OPTION, AUTOPILOT_OPTION];
 
 export function ApprovalModePicker({
   on,
@@ -63,7 +40,7 @@ export function ApprovalModePicker({
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
 
-  const selected = on ? AUTOPILOT_OPTION : REVIEW_OPTION;
+  const selected = modeOption(on);
   const SelectedIcon = selected.Icon;
 
   return (

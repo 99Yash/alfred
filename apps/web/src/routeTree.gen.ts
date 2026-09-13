@@ -27,6 +27,7 @@ import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as BriefingsDateRouteImport } from './routes/briefings.$date'
+import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 import { Route as IntegrationsSlugRouteImport } from './routes/integrations.$slug'
@@ -128,6 +129,11 @@ const BriefingsDateRoute = BriefingsDateRouteImport.update({
   path: '/$date',
   getParentRoute: () => BriefingsRoute,
 } as any)
+const CSlugRoute = CSlugRouteImport.update({
+  id: '/c/$slug',
+  path: '/c/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   id: '/$threadId',
   path: '/$threadId',
@@ -198,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/briefings/$date': typeof BriefingsDateRoute
+  '/c/$slug': typeof CSlugRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$slug': typeof IntegrationsSlugRoute
@@ -228,6 +235,7 @@ export interface FileRoutesByTo {
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/briefings/$date': typeof BriefingsDateRoute
+  '/c/$slug': typeof CSlugRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$slug': typeof IntegrationsSlugRoute
@@ -259,6 +267,7 @@ export interface FileRoutesById {
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/briefings/$date': typeof BriefingsDateRoute
+  '/c/$slug': typeof CSlugRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$slug': typeof IntegrationsSlugRoute
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
     | '/terms-of-service'
     | '/workflows'
     | '/briefings/$date'
+    | '/c/$slug'
     | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$slug'
@@ -321,6 +331,7 @@ export interface FileRouteTypes {
     | '/terms-of-service'
     | '/workflows'
     | '/briefings/$date'
+    | '/c/$slug'
     | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$slug'
@@ -351,6 +362,7 @@ export interface FileRouteTypes {
     | '/terms-of-service'
     | '/workflows'
     | '/briefings/$date'
+    | '/c/$slug'
     | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$slug'
@@ -381,6 +393,7 @@ export interface RootRouteChildren {
   SupportRoute: typeof SupportRoute
   TermsOfServiceRoute: typeof TermsOfServiceRoute
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
+  CSlugRoute: typeof CSlugRoute
   DebugEventsRoute: typeof DebugEventsRoute
   PreviewChatRoute: typeof PreviewChatRouteWithChildren
   PreviewLandingRoute: typeof PreviewLandingRoute
@@ -514,6 +527,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/briefings/$date'
       preLoaderRoute: typeof BriefingsDateRouteImport
       parentRoute: typeof BriefingsRoute
+    }
+    '/c/$slug': {
+      id: '/c/$slug'
+      path: '/c/$slug'
+      fullPath: '/c/$slug'
+      preLoaderRoute: typeof CSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/chat/$threadId': {
       id: '/chat/$threadId'
@@ -686,6 +706,7 @@ const rootRouteChildren: RootRouteChildren = {
   SupportRoute: SupportRoute,
   TermsOfServiceRoute: TermsOfServiceRoute,
   WorkflowsRoute: WorkflowsRouteWithChildren,
+  CSlugRoute: CSlugRoute,
   DebugEventsRoute: DebugEventsRoute,
   PreviewChatRoute: PreviewChatRouteWithChildren,
   PreviewLandingRoute: PreviewLandingRoute,

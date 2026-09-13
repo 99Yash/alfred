@@ -1,5 +1,4 @@
 import { useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import type { SyncedChatThread } from "@alfred/sync";
 import { EventStreamBanner } from "~/components/event-stream-banner";
 import { DeliveryAlertBanner } from "~/components/delivery-alert-banner";
@@ -7,9 +6,9 @@ import { GithubReconnectBanner } from "~/components/github-reconnect-banner";
 import { ScopeGapBanner } from "~/components/scope-gap-banner";
 import { AppThemed } from "~/components/ui/v2/themed";
 import { useEventBridge } from "~/lib/events/use-event-bridge";
-import { useReplicache } from "~/lib/replicache/context";
 import { useChatThreads } from "~/lib/replicache/use-chat";
-import { AppSidebar, type SidebarThreadActions } from "~/lib/shell/app-sidebar";
+import { useThreadActions } from "~/lib/chat/use-thread-actions";
+import { AppSidebar } from "~/lib/shell/app-sidebar";
 import { SearchPalette } from "~/lib/shell/search-palette";
 import type {
   RecentThread,
@@ -45,11 +44,9 @@ export default function AuthedAppShell({
   // (inbox.updated -> ["me","inbox"]). Mounted in the authenticated shell so
   // public routes do not import the event or sync graph.
   useEventBridge();
-  const navigate = useNavigate();
 
   // Live chat threads (Replicache-synced), grouped by recency for the sidebar
   // and flattened into "Recent chats" rows for the ⌘K palette.
-  const rep = useReplicache();
   const chatThreads = useChatThreads();
   const realThreads = useMemo(() => groupChatThreads(chatThreads), [chatThreads]);
   const realRecentThreads = useMemo(() => recentThreadsForPalette(chatThreads), [chatThreads]);
@@ -59,22 +56,11 @@ export default function AuthedAppShell({
   const paletteRecentThreads = threadViewModel?.recent ?? realRecentThreads;
 
   /* Rename / pin / delete run as Replicache mutators (optimistic patch, then
-   * the next pull confirms). Wired only on real routes — preview rows are
-   * inert demo ids that no mutator should touch. Deleting the open thread
-   * bounces back to a fresh /chat. */
-  const threadActions = useMemo<SidebarThreadActions | undefined>(() => {
-    if (threadViewModel || !rep) return undefined;
-
-    return {
-      rename: (id, title) => void rep.mutate.chatThreadRename({ id, title }),
-      setPinned: (id, pinned) => void rep.mutate.chatThreadSetPinned({ id, pinned }),
-      remove: (id) => {
-        void rep.mutate.chatThreadDelete({ id });
-
-        if (activeThread === id) void navigate({ to: "/chat" });
-      },
-    };
-  }, [threadViewModel, rep, activeThread, navigate]);
+   * the next pull confirms), through the same hook the chat header uses.
+   * Wired only on real routes — a preview row is an inert demo id that no
+   * mutator should touch, so the whole surface goes inert instead. */
+  const realThreadActions = useThreadActions(activeThread);
+  const threadActions = threadViewModel ? undefined : realThreadActions;
 
   return (
     <AppThemed className="min-h-dvh bg-app-background-subtle">

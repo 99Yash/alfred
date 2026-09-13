@@ -61,29 +61,46 @@ const BOOT_PORT_IMPORT = /\bimport\b[^;\n]*\bbootPort\b[^;\n]*\bfrom\b/;
 
 const BOOT_SEAM_HEADER_LABELS = ["Surface:", "Owns/hides:", "Why the seam:", "Wiring:"];
 
-const TARGET_ASSISTANT_MODULES = new Set([
-  "action-policies",
-  "artifacts",
-  "automation",
-  "briefings",
-  "tool-runtime",
-  "connections",
-  "chat",
-  "context-search",
-  "corpus",
-  "delivery",
-  "triggers",
-  "execution",
-  "knowledge",
-  "realtime",
-  "runtime",
-  "settings",
-  "skills",
-  "tasks",
-  "time",
-  "triage",
-  "reply-drafting",
+// Directories under `packages/assistant/src` that are NOT modules. Everything
+// else there is one.
+//
+// THIS IS AN EXEMPTION LIST, AND THE DIRECTION MATTERS. It used to be an
+// allowlist of 22 module names, which failed silently in the one direction
+// nobody looks: a module added without its name being added here was not a
+// module as far as this gate was concerned. Its INTERNALS were then unowned —
+// any file in any other module could import them directly and the gate reported
+// clean, because a private reach needs the TARGET to be a module and the target
+// was not one. It also contributed no node to the module graph, so the cycle
+// rule and the execution-gate liveness check skipped it, and a reach OUT of it
+// was attributed to `@alfred/assistant` rather than to the module that made it.
+//
+// Measured, planting a `zz-probe` directory and one importer in `sharing`:
+// under the allowlist the run printed `clean (53 package edges, 79
+// assistant-module edges)`; inverted, the same tree printed `private
+// assistant-module import: sharing/zz-intruder.ts -> zz-probe`. The author's
+// evidence that a new module is well-formed was a gate that never ran on it.
+//
+// Inverted, the same omission fails loudly: a directory that is NOT a module
+// has to say so here, in one line, with a reason. The old list had already
+// rotted twice over — `corpus` stayed a member long after the directory was
+// deleted, and `scripts` was a real directory no fence covered.
+const NON_MODULE_ASSISTANT_DIRECTORIES = new Set([
+  // Committed one-off scripts and backfills. They are entry points, not a
+  // surface anything imports, so they own no `index.ts` and export nothing.
+  // Exempting them makes them MORE constrained, not less: a non-module file
+  // that reaches into a module's internals is a private reach, so a script may
+  // only enter a module through its barrel.
+  "scripts",
 ]);
+
+/**
+ * Whether a directory name directly under the assistant source root names a
+ * module. See {@link NON_MODULE_ASSISTANT_DIRECTORIES} for why this is a
+ * refusal list rather than a roster.
+ */
+function isAssistantModuleName(name) {
+  return Boolean(name) && !NON_MODULE_ASSISTANT_DIRECTORIES.has(name);
+}
 
 // The root that decides which module owns a file, as one parameter so a self-test can
 // point the module derivation at a fixture tree. Its member is the existing constant,
@@ -636,9 +653,17 @@ function packageFromSpecifier(entries, specifier) {
 // fixture module tree outside the repository has to be able to point this at it.
 function moduleForPath(path, roots = MODULE_ROOTS) {
   if (path.startsWith(`${roots.assistantSource}${sep}`)) {
-    const [name] = relative(roots.assistantSource, path).split(sep);
+    const segments = relative(roots.assistantSource, path).split(sep);
 
-    return name && TARGET_ASSISTANT_MODULES.has(name)
+    // A module is a DIRECTORY directly under the source root, so a top-level
+    // file has one segment and owns no module. Under the old allowlist the Set
+    // rejected such a file by accident, because "runtime-reach.ts" was never a
+    // member; with an exemption list nothing rejects it but this length check.
+    if (segments.length < 2) return null;
+
+    const [name] = segments;
+
+    return isAssistantModuleName(name)
       ? { index: join(roots.assistantSource, name, "index.ts"), name }
       : null;
   }
@@ -1056,7 +1081,7 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
         if (!toModule && imported.specifier.startsWith("@alfred/assistant/")) {
           const name = imported.specifier.split("/")[2];
 
-          if (name && TARGET_ASSISTANT_MODULES.has(name)) {
+          if (isAssistantModuleName(name)) {
             toModule = {
               index: join(moduleRoots.assistantSource, name, "index.ts"),
               name,
@@ -1166,7 +1191,7 @@ function collectArchitecture() {
 
   const moduleNodes = listDirectories(ASSISTANT_SOURCE_ROOT)
     .map((path) => path.split(sep).at(-1))
-    .filter((name) => name && TARGET_ASSISTANT_MODULES.has(name));
+    .filter((name) => isAssistantModuleName(name));
 
   return {
     // Every tree read a rule needs is collected here, so `checkArchitecture` decides
@@ -1866,15 +1891,18 @@ const text = 'import "ignored-string"';
     // carries the field-coverage row below that pins `from` to the package name, and it
     // becomes non-redundant the day a top-level assistant file appears.
     //
-    // `triage` and `knowledge` are real `TARGET_ASSISTANT_MODULES` members, so the module
-    // name Set needs no parameter of its own; `not-a-module` deliberately is not one.
+    // Any directory under the source root is a module now, so `triage` and `knowledge`
+    // need no roster entry. The "outside any module" position therefore has to be
+    // planted in an EXEMPT directory — `scripts`, the one member of
+    // `NON_MODULE_ASSISTANT_DIRECTORIES` — because a directory named `not-a-module`
+    // would be a module and the arm would silently become a second `module-reach`.
     plant(join(assistantSourceRoot, "triage", "internal.ts"), null);
     plant(join(assistantSourceRoot, "triage", "index.ts"), null);
     plant(join(assistantSourceRoot, "knowledge", "internal.ts"), null);
     // One importer per position a private reach can come from.
     plant(join(assistantSourceRoot, "runtime-reach.ts"), "./triage/internal.ts");
     plant(join(serverSourceRoot, "wire-reach.ts"), "../../assistant/src/triage/internal.ts");
-    plant(join(assistantSourceRoot, "not-a-module", "outside-module.ts"), "../triage/internal.ts");
+    plant(join(assistantSourceRoot, "scripts", "outside-module.ts"), "../triage/internal.ts");
     plant(join(assistantSourceRoot, "triage", "module-reach.ts"), "../knowledge/internal.ts");
     // One importer per way an import into a module directory stays public.
     plant(join(assistantSourceRoot, "runtime-barrel.ts"), "./triage/index.ts");
@@ -1896,7 +1924,7 @@ const text = 'import "ignored-string"';
     for (const [importerBasename, position] of [
       ["runtime-reach", "a top-level non-module file reaching into a module of its own package"],
       ["wire-reach", "a non-module file in another package reaching around into a module"],
-      ["outside-module", "a file inside the assistant source root but outside any target module"],
+      ["outside-module", "a file in an exempt directory, inside the source root but in no module"],
       ["module-reach", "a module file reaching into another module"],
     ]) {
       if (!privateReaches.some((imported) => imported.key.includes(`${importerBasename}.ts`))) {

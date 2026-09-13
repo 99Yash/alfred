@@ -1,7 +1,7 @@
+import { isoDateTimeStringSchema } from "@alfred/contracts";
 import { z } from "zod";
 import type { WriteTransaction } from "replicache";
 import { SYNC_MODEL } from "../sync-model";
-import { isoDateTimeStringSchema } from "../schemas";
 import type { SyncedNote } from "../types";
 
 export const noteCreateArgsSchema = z.object({
