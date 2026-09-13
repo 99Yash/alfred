@@ -21,11 +21,10 @@ import { cn } from "~/lib/utils";
  * a shell, a sidebar, or a synced hook in here.
  *
  * `AppShell` still wraps this route, because it wraps every route from
- * `__root`. What keeps it inert here is the `chromeless` set in
- * `lib/shell/app-shell.tsx`, which `/c/` is a member of: no chrome renders and,
- * more importantly, the shell's signed-out-visitor redirect to `/login` does
- * not fire. Drop that membership and this page is unreachable by the only
- * audience it has.
+ * `__root`. What keeps it inert here is `staticData: { publicRoute: true }` on
+ * the route itself: no chrome renders and, more importantly, the shell's
+ * signed-out-visitor redirect to `/login` does not fire. Drop that flag and
+ * this page is unreachable by the only audience it has.
  *
  * It lives in `-chat/` because it is a second view of the chat feature, not a
  * feature of its own: it reuses `MessageBubble` so a published transcript keeps
