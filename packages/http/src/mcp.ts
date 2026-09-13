@@ -467,7 +467,20 @@ export const mcpIntegrationRoutes = new Elysia({
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       ),
   )
-  .get("/client-metadata", () => mcpOAuthClientConfiguration().clientMetadata)
+  // The Client ID Metadata Document, NOT the RFC 7591 registration body. The
+  // two differ by `client_id`, and `mcpOAuthClientConfiguration` owns which
+  // field belongs to which. An `http://` API base advertises no Client
+  // Identifier URL, so on that base this path has nothing honest to serve and
+  // says so rather than publishing a document no server may accept.
+  .get("/client-metadata", () => {
+    const { clientMetadataDocument } = mcpOAuthClientConfiguration();
+
+    if (!clientMetadataDocument) {
+      throw Errors.NotFoundError("MCP client metadata is served over HTTPS only");
+    }
+
+    return clientMetadataDocument;
+  })
   .get("/callback", async ({ request, set }) => {
     const params = new URL(request.url).searchParams;
     const parsed = callbackParamsSchema.safeParse({ state: params.get("state") });

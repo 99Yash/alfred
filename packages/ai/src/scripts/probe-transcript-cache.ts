@@ -43,7 +43,7 @@ const systemBlock =
   "Here is durable context you must keep in mind: " +
   FILLER;
 
-const model = adaptProviderModel("anthropic", anthropic("claude-sonnet-4-6"));
+const model = adaptProviderModel("anthropic", anthropic("claude-sonnet-4-6")).model;
 
 function cacheStats(meta: unknown) {
   // Anthropic reports cache accounting under providerMetadata.anthropic.usage

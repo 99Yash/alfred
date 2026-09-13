@@ -2,7 +2,13 @@ export * from "./provider";
 
 export * from "./models";
 
-export { anthropicLeg, googleLeg, openAiLeg, type RouteReasoning } from "./provider-adapter";
+export {
+  anthropicLeg,
+  googleLeg,
+  openAiLeg,
+  type RouteLeg,
+  type RouteReasoning,
+} from "./provider-adapter";
 
 // Named, not `export *`: the transcription transports and the audio sniff are
 // internals `gateway.ts` calls, not package surface.

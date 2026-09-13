@@ -314,12 +314,25 @@ export const artifactDeltaSchema = z.object({
  * client mount the in-flight bubble keyed by `messageId`; `completed` signals
  * the durable message has been persisted (Replicache poke incoming) so the
  * client can reconcile the streamed bubble against the synced copy.
+ *
+ * `capacity_retry` is sent when the turn hits a 429 or 5xx before anything
+ * streamed and is about to wait out a backoff. It carries a job the other
+ * phases do not: the client arms a 45s stall watchdog on every frame, and the
+ * backoff is long enough to trip it, so a turn that is healthy and waiting on
+ * purpose would paint "Connection stalled". The frame both re-arms that timer
+ * and names the state, so the bubble can say what it is doing.
  */
 export const chatMessageSchema = z.object({
   runId: z.string().min(1).max(120),
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
-  phase: z.enum(["started", "compaction_started", "compaction_finished", "completed"]),
+  phase: z.enum([
+    "started",
+    "compaction_started",
+    "compaction_finished",
+    "capacity_retry",
+    "completed",
+  ]),
   /** Present only for the explicit compaction phases. */
   compactionScope: z.enum(["foreground", "within_run"]).optional(),
 });

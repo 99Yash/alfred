@@ -147,6 +147,51 @@ const serverEnvSchema = z
     CLOUDFLARE_ACCOUNT_ID: optionalSecret(),
     CLOUDFLARE_GATEWAY_ID: optionalSecret(),
     /**
+     * Requests per minute the client-side pacer allows through the gateway.
+     *
+     * Unified Billing DOCUMENTS 200 requests per 60 seconds per gateway. Over
+     * the line the edge returns a 429 `AiGatewayError` 2018 and the turn dies
+     * with its tool results already written, so
+     * `packages/ai/src/gateway-throttle.ts` paces every call. Unset takes that
+     * module's default, which holds a margin below the documented ceiling for
+     * the other callers that share the bucket.
+     *
+     * Treat 200 as documented, not measured. The measured bucket is a burst of
+     * roughly 15 to 25 that then refills at single digits per minute, so no
+     * value here keeps a drained budget serving. `gateway-throttle.ts` carries
+     * the measurement and is the number's owner; this field only overrides it.
+     *
+     * This is NOT the gateway's own `rate_limiting_limit`. That field is a
+     * separate self-imposed rule which answers 429 `2003`; `alfred-dev` has
+     * none. Setting one again puts the tighter of the two in charge and this
+     * value must then move under it.
+     */
+    CLOUDFLARE_AI_GATEWAY_RPM: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.coerce
+        .number()
+        .int()
+        .positive()
+        // Past 120 000 the GCRA interval `Math.round(60_000 / rpm)` rounds to
+        // 0 and pacing turns off silently — a blank-tolerant field with no
+        // ceiling would accept it. Fail loud at boot instead.
+        .max(120_000)
+        .optional(),
+    ),
+    /**
+     * Idle burst the client-side pacer allows through the gateway.
+     *
+     * GCRA lets a caller run `burst` intervals ahead of the queue, so an idle
+     * bucket serves `burst + 1` immediately and the worst minute holds
+     * `rpm + burst`. Unset takes `gateway-throttle.ts`'s default. Capped so a
+     * burst cannot quietly erase the margin the rate holds below the
+     * documented ceiling.
+     */
+    CLOUDFLARE_AI_GATEWAY_BURST: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.coerce.number().int().min(0).max(10).optional(),
+    ),
+    /**
      * Vercel AI Gateway (`vck_` token) — kept for migration but unused when
      * Cloudflare is configured. `optionalSecret` tolerates `AI_GATEWAY_API_KEY=`
      * blank line; a `cfut_` token here is also accepted as Cloudflare alias so

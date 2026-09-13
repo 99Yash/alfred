@@ -744,7 +744,7 @@ function selectedScenario(): ScenarioName {
 
 async function runAnthropic(): Promise<ScenarioResult> {
   const tools = withNativeSearchTool(buildFunctionTools(), "anthropic");
-  const leg = probeLeg("anthropic", anthropicLeg(ANTHROPIC_MODEL_ID), "native");
+  const leg = probeLeg("anthropic", anthropicLeg(ANTHROPIC_MODEL_ID).model, "native");
 
   return await runNativeScenario({
     scenario: "anthropic-native",
@@ -759,7 +759,7 @@ async function runAnthropic(): Promise<ScenarioResult> {
 
 async function runOpenAi(): Promise<ScenarioResult> {
   const tools = withNativeSearchTool(buildFunctionTools(), "openai");
-  const leg = probeLeg("openai", openAiLeg(OPENAI_MODEL_ID), "native");
+  const leg = probeLeg("openai", openAiLeg(OPENAI_MODEL_ID).model, "native");
 
   return await runNativeScenario({
     scenario: "openai-native",
@@ -810,11 +810,11 @@ async function runFallback(): Promise<ScenarioResult> {
   const capturedPrimary: LanguageModelV4CallOptions[] = [];
 
   const primary = wrapLanguageModel({
-    model: anthropicLeg(ANTHROPIC_MODEL_ID),
+    model: anthropicLeg(ANTHROPIC_MODEL_ID).model,
     middleware: forcingPrimaryFailureMiddleware(capturedPrimary),
   });
 
-  const fallback = probeLeg("google", googleLeg(GEMINI_MODEL_ID), "application");
+  const fallback = probeLeg("google", googleLeg(GEMINI_MODEL_ID).model, "application");
   const model = withFallback(primary, fallback);
 
   const result = await generateText(generateOptions(model, tools));

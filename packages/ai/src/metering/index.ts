@@ -13,6 +13,8 @@ export {
   getPrice,
   computeCost,
   resolveModelContextWindow,
+  resolveContextWindowById,
+  assertLegPriced,
   _resetPriceCacheForTests,
 } from "./prices";
 

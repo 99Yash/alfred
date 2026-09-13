@@ -1,3 +1,6 @@
+import { APICallError } from "@ai-sdk/provider";
+import { RetryError } from "ai";
+
 /**
  * True for a caller-initiated cancel — `AbortController.abort()`, which Node
  * surfaces as a `DOMException` named `AbortError`.
@@ -19,4 +22,34 @@
  */
 export function isCallerAbort(e: unknown): boolean {
   return e instanceof Error && e.name === "AbortError";
+}
+
+/**
+ * Deepest useful transport error: the outer `APICallError` when the call
+ * failed on its first attempt, else the most recent `APICallError` inside a
+ * `RetryError`'s attempt list. A multi-attempt failure through `withFallback`
+ * throws ai-retry's `RetryError` wrapping every attempt's error — the status
+ * and body sit on `lastError` / `errors`, never on the outer object — so any
+ * reader that branches on transport facts must unwrap here rather than match
+ * the outer error. Single home for the walk: `metered()` and the capacity
+ * predicate in `./provider` share it instead of each carrying a copy.
+ */
+export function findApiCallError(err: unknown): APICallError | undefined {
+  if (APICallError.isInstance(err)) return err;
+
+  if (RetryError.isInstance(err)) {
+    const errors = err.errors;
+
+    if (Array.isArray(errors)) {
+      for (let i = errors.length - 1; i >= 0; i--) {
+        const candidate = errors[i];
+
+        if (APICallError.isInstance(candidate)) return candidate;
+      }
+    }
+
+    if (APICallError.isInstance(err.lastError)) return err.lastError;
+  }
+
+  return undefined;
 }
