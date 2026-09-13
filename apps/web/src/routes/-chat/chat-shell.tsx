@@ -449,6 +449,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           selectedArtifactId={artifact.selectedId}
           onOpenArtifact={artifact.open}
           onCloseArtifact={artifact.close}
+          threadMessages={messages}
         />
         {hasConversation ? (
           <>
