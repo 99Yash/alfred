@@ -14,6 +14,7 @@ import { sanitizeRedirect, type LoginSearch } from "./-login/login-search";
  * `AppShell`'s auth guard) so sign-in returns them there instead of `/`.
  */
 export const Route = createFileRoute("/login")({
+  staticData: { publicRoute: true },
   head: () => pageMeta({ title: "Sign in", path: "/login" }),
   component: LoginPage,
   validateSearch: (search): LoginSearch => ({

@@ -19,6 +19,7 @@ import { ChatContext } from "~/components/chat-context";
 import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
+import { useIsPublicRoute } from "~/lib/shell/public-route";
 import type { ShellThreadViewModel } from "~/lib/shell/thread-view-model";
 import {
   onboardingHintBelongsToAnotherUser,
@@ -353,29 +354,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
-  /* Routes that render edge-to-edge — no sidebar, no rail. `/` is in
-   * this set because it owns its own layout: signed-out visitors see
-   * the marketing landing, signed-in visitors get redirected to
-   * `/chat`. Wrapping it in app chrome — even briefly during the
-   * pending window — flashes "Memory / Notes / Skills…" at strangers
-   * before the landing renders.
+  /* Routes that render edge-to-edge — no sidebar, no rail — and skip the auth
+   * guard below. Each such route declares itself with `staticData: {
+   * publicRoute: true }`; see `lib/shell/public-route.ts` for why the two
+   * effects share one flag, and why the declaration lives on the route rather
+   * than in a pathname list here.
    *
-   * `/c/` — a shared thread (ADR-0102) — is in this set for BOTH reasons this
-   * set exists, and membership is what makes the page reachable at all. This
-   * list also drives the auth guard below, so a public route left out of it is
-   * redirected to `/login` and its visitor never sees the page. That failure is
-   * invisible to a signed-in developer, who gets the page wrapped in the app
-   * chrome instead. Any future signed-out route belongs here on the same day
-   * the route is written. */
-  const chromeless =
-    location.pathname === "/" ||
-    location.pathname.startsWith("/c/") ||
-    location.pathname === "/login" ||
-    location.pathname === "/preview/landing" ||
-    location.pathname === "/privacy-policy" ||
-    location.pathname === "/terms-of-service" ||
-    location.pathname === "/support" ||
-    location.pathname.startsWith("/onboarding");
+   * `/` is public because it owns its own layout: signed-out visitors see the
+   * marketing landing, signed-in visitors get redirected to `/chat`. Wrapping
+   * it in app chrome — even briefly during the pending window — would flash
+   * "Memory / Notes / Skills…" at strangers before the landing renders.
+   *
+   * `/c/$slug` — a shared thread (ADR-0102) — is public for BOTH reasons, and
+   * the flag is what makes the page reachable at all: without it a visitor is
+   * redirected to `/login` and never sees the page. */
+  const chromeless = useIsPublicRoute();
 
   /* Auth guard: a signed-out visitor on any non-chromeless (i.e. authed) route
    * is bounced to `/login`, carrying the path they were on as `?redirect=` so

@@ -3,8 +3,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, Ellipsis, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Dialog, DialogContent } from "~/components/ui/dialog";
-import { AppButton, AppInput, useAppTheme } from "~/components/ui/v2";
+import { AppInput, useAppTheme } from "~/components/ui/v2";
 import type { ThreadEntry } from "~/lib/shell/thread-view-model";
 import { cn } from "~/lib/utils";
 import type { SidebarThreadActions } from "./types";
@@ -326,39 +325,5 @@ function ThreadMenuContent({
         </Item>
       </Content>
     </Portal>
-  );
-}
-
-export function DeleteThreadDialog({
-  target,
-  onCancel,
-  onConfirm,
-}: {
-  target: ThreadEntry | null;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { resolved } = useAppTheme();
-
-  return (
-    <Dialog open={!!target} onOpenChange={(open) => (open ? undefined : onCancel())}>
-      {target ? (
-        <DialogContent
-          title="Delete chat?"
-          description={`“${target.title}” and its messages will be permanently removed. This can’t be undone.`}
-          className="app max-w-sm"
-          data-app-theme={resolved}
-        >
-          <div className="flex justify-end gap-2 px-6 pt-2 pb-5">
-            <AppButton variant="ghost" size="md" onClick={onCancel}>
-              Cancel
-            </AppButton>
-            <AppButton variant="destructive" size="md" onClick={onConfirm}>
-              Delete
-            </AppButton>
-          </div>
-        </DialogContent>
-      ) : null}
-    </Dialog>
   );
 }
