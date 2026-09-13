@@ -7,10 +7,11 @@ import ReactMarkdown from "react-markdown";
 import remend from "remend";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { MarkdownPre } from "~/components/markdown-renderer";
+import { altTextImageComponents, MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
+import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
@@ -197,6 +198,15 @@ function healStreamingMarkdown(text: string): string {
 export function AssistantMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
   const body = streaming ? healStreamingMarkdown(text) : text;
 
+  // This file drives `ReactMarkdown` itself rather than going through
+  // `MarkdownRenderer`, so it has no `images` prop to set: it merges the same
+  // override in by hand. The merge is LAST so nothing above it can put a remote
+  // `<img>` back on a published page.
+  const imageComponents =
+    useMarkdownImageMode() === "alt-text" ? altTextImageComponents("surface") : null;
+
+  const baseComponents = streaming ? STREAMING_COMPONENTS : BASE_COMPONENTS;
+
   return (
     <div
       // The reply reads at a larger scale than the rail, so its fenced code
@@ -209,7 +219,7 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
     >
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
-        components={streaming ? STREAMING_COMPONENTS : BASE_COMPONENTS}
+        components={imageComponents ? { ...baseComponents, ...imageComponents } : baseComponents}
       >
         {body}
       </ReactMarkdown>

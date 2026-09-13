@@ -9,6 +9,7 @@ import { TermsOfServicePage } from "./-legal/terms-of-service-page";
  * `app-shell.tsx`.
  */
 export const Route = createFileRoute("/terms-of-service")({
+  staticData: { publicRoute: true },
   head: () => pageMeta({ title: "Terms of Service", path: "/terms-of-service" }),
   component: TermsOfServicePage,
 });

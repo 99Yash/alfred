@@ -4,19 +4,15 @@ import { formatCost, formatTokens } from "~/lib/usage-format";
 import { Tip } from "./tip";
 
 /**
- * Thread-level rollup for the dev-gated economics readout. The per-turn
- * `UsageLine` under each reply stays turn-scoped; this chip lives in the
- * sticky `TopBar` chrome so the running total is visible without scrolling
- * (wayfinding) and never repeats once per reply (grouping).
+ * Roll a thread's durable messages up into the economics totals.
  *
- * Derived during render from the durable `messages` array — no new
- * subscription, no mirrored state. The in-flight stream isn't in `messages`
- * yet, so the tooltip says the total excludes it rather than looking wrong
- * mid-turn. Gated on `import.meta.env.DEV` by the caller, mirroring
- * `message-bubble.tsx`.
+ * Exported because two surfaces read the same numbers — the `TopBar` chip and
+ * the thread menu's usage row — and a second copy of this arithmetic would be
+ * free to disagree with the first. The in-flight stream is not in `messages`
+ * yet, so every consumer must say the total excludes it.
  */
-export function ThreadUsage({ messages }: { messages: readonly SyncedChatMessage[] }) {
-  const summary = useMemo(() => {
+export function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
+  return useMemo(() => {
     let inputTokens = 0;
     let outputTokens = 0;
     let cachedInputTokens = 0;
@@ -43,6 +39,22 @@ export function ThreadUsage({ messages }: { messages: readonly SyncedChatMessage
 
     return { inputTokens, outputTokens, cachedInputTokens, costUsd, calls, turns, user, assistant };
   }, [messages]);
+}
+
+/**
+ * Thread-level rollup for the dev-gated economics readout. The per-turn
+ * `UsageLine` under each reply stays turn-scoped; this chip lives in the
+ * sticky `TopBar` chrome so the running total is visible without scrolling
+ * (wayfinding) and never repeats once per reply (grouping).
+ *
+ * Derived during render from the durable `messages` array — no new
+ * subscription, no mirrored state. The in-flight stream isn't in `messages`
+ * yet, so the tooltip says the total excludes it rather than looking wrong
+ * mid-turn. Gated on `import.meta.env.DEV` by the caller, mirroring
+ * `message-bubble.tsx`.
+ */
+export function ThreadUsage({ messages }: { messages: readonly SyncedChatMessage[] }) {
+  const summary = useThreadUsageSummary(messages);
 
   const total = messages.length;
 

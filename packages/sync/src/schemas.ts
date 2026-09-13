@@ -35,15 +35,12 @@ import {
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
-import { runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
+import { isoDateTimeStringSchema, runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
 import { z } from "zod";
 
-export const isoDateTimeStringSchema = z
-  .string()
-  .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-    message: "must be a valid date-time string",
-  });
-
+// `isoDateTimeStringSchema` is NOT re-exported. It belongs to `@alfred/contracts`,
+// which is browser-safe and already a direct dependency of every consumer, so a
+// second import path for it only creates a choice with no right answer.
 export { jsonRecordSchema, memorySourceSchema, type MemorySource };
 
 export const factValueSchema = z.union([

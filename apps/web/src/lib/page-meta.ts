@@ -35,6 +35,14 @@ export interface PageMetaInput {
   description?: string | undefined;
   /** Canonical route path, e.g. `"/settings"`. Omit only for route-agnostic defaults. */
   path?: string | undefined;
+  /**
+   * Emit `<meta name="robots" content="noindex, nofollow">` and no canonical
+   * link. Set it on a page whose URL is itself a secret — a shared thread's
+   * slug is its only access control (ADR-0102), so an index entry hands out the
+   * capability. `robots.txt` and the Caddyfile's `X-Robots-Tag` cover the same
+   * path for a crawler that never runs this code.
+   */
+  noindex?: boolean | undefined;
 }
 
 interface MetaTag {
@@ -79,15 +87,18 @@ interface PageMeta {
   links: LinkTag[];
 }
 
-export function pageMeta({ title, description, path }: PageMetaInput = {}): PageMeta {
+export function pageMeta({ title, description, path, noindex }: PageMetaInput = {}): PageMeta {
   const fullTitle = formatPageTitle(title);
   const desc = description ?? SITE_DESCRIPTION;
-  const url = path ? absoluteUrl(path) : null;
+  // A noindex page gets no canonical link either: a canonical URL invites the
+  // crawler to treat the page as the indexable original.
+  const url = path && !noindex ? absoluteUrl(path) : null;
 
   return {
     meta: [
       { title: fullTitle },
       { name: "description", content: desc },
+      ...(noindex ? [{ name: "robots", content: "noindex, nofollow" }] : []),
       { property: "og:title", content: fullTitle },
       { property: "og:description", content: desc },
       ...(url ? [{ property: "og:url", content: url }] : []),

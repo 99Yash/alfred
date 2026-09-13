@@ -10,7 +10,9 @@ import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
-import { useChatMessages } from "~/lib/replicache/use-chat";
+import { useThreadActions } from "~/lib/chat/use-thread-actions";
+import { DeleteThreadDialog } from "~/lib/chat/delete-thread-dialog";
+import { useChatMessages, useChatThread } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
@@ -398,6 +400,32 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     void setDefaultMode(autoApprove ? "gated" : "autonomy");
   }, [autoApprove, policyLoading, setDefaultMode]);
 
+  /* Thread-level actions behind the header's "..." menu, from the same hook
+   * the sidebar row menu uses — one write path, so a rename from either
+   * surface lands identically, the optimistic patch is shared, and the bounce
+   * to `/chat` after deleting the open thread cannot apply to only one of
+   * them. Passing `threadId` as the active thread is what arms that bounce. */
+  const threadActions = useThreadActions(threadId);
+  const { thread } = useChatThread(threadId);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const onRenameThread = useCallback(
+    (next: string) => {
+      if (threadId) threadActions?.rename(threadId, next);
+    },
+    [threadActions, threadId],
+  );
+
+  const onTogglePinThread = useCallback(() => {
+    if (threadId) threadActions?.setPinned(threadId, !thread?.pinned);
+  }, [threadActions, threadId, thread?.pinned]);
+
+  const onDeleteThread = useCallback(() => {
+    if (!threadId) return;
+    threadActions?.remove(threadId);
+    setDeleteOpen(false);
+  }, [threadActions, threadId]);
+
   // Follow-up suggestions for the last completed reply. We commit to a single
   // affordance per reply to avoid the split-brain of a ghosted prompt competing
   // with chips: exactly one suggestion → composer ghost text (Tab to accept);
@@ -443,6 +471,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       <div className="relative flex h-full min-w-0 flex-col">
         <TopBar
           title={title}
+          threadId={threadId}
+          pinned={thread?.pinned ?? false}
           railOpen={railOpen}
           onToggleRail={() => setRailOpen((v) => !v)}
           artifacts={artifact.artifacts}
@@ -450,6 +480,19 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           onOpenArtifact={artifact.open}
           onCloseArtifact={artifact.close}
           threadMessages={messages}
+          onRename={onRenameThread}
+          onTogglePin={onTogglePinThread}
+          onDelete={() => setDeleteOpen(true)}
+          tier={tier}
+          onTierChange={setTier}
+          autoApprove={autoApprove}
+          autoApprovePending={autoApprovePending}
+          onToggleAutoApprove={onToggleAutoApprove}
+        />
+        <DeleteThreadDialog
+          target={deleteOpen ? { title } : null}
+          onCancel={() => setDeleteOpen(false)}
+          onConfirm={onDeleteThread}
         />
         {hasConversation ? (
           <>

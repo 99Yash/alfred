@@ -13,6 +13,7 @@ interface OnboardingSearch {
 }
 
 export const Route = createFileRoute("/onboarding")({
+  staticData: { publicRoute: true },
   head: () => pageMeta({ title: "Get started", path: "/onboarding" }),
   validateSearch: (search): OnboardingSearch => {
     const params = toRecord(search);

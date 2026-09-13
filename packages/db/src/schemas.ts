@@ -45,3 +45,5 @@ export * from "./schema/chat";
 export * from "./schema/artifacts";
 
 export * from "./schema/mcp";
+
+export * from "./schema/shared-threads";

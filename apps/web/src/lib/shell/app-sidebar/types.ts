@@ -1,11 +1,14 @@
+import type { ThreadActions } from "~/lib/chat/use-thread-actions";
 import type { ThreadEntry, ThreadGroup } from "~/lib/shell/thread-view-model";
 
-/** Actions a real Replicache-backed surface wires into each chat row. */
-export interface SidebarThreadActions {
-  rename: (id: string, title: string) => void;
-  setPinned: (id: string, pinned: boolean) => void;
-  remove: (id: string) => void;
-}
+/**
+ * Actions a real Replicache-backed surface wires into each chat row.
+ *
+ * An ALIAS, not a second declaration. The sidebar and the chat header offer the
+ * same three actions, and `useThreadActions` is what supplies both; restating
+ * the shape here would let one drift from the other without a compile error.
+ */
+export type SidebarThreadActions = ThreadActions;
 
 export interface AppSidebarProps {
   /** Open the cmd-K palette. */

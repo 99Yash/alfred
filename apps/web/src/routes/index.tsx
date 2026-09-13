@@ -22,6 +22,7 @@ import { getLocalStorageItem, LOCAL_STORAGE_KEY } from "~/lib/storage/storage";
  * `false` (show the landing) for SSR, private mode, and first-ever visits.
  */
 export const Route = createFileRoute("/")({
+  staticData: { publicRoute: true },
   head: () => pageMeta({ path: "/" }),
   component: IndexRoute,
 });

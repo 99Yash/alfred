@@ -1,4 +1,5 @@
 import { MarkdownRenderer } from "~/components/markdown-renderer";
+import { useMarkdownImageMode } from "./published-transcript";
 
 /**
  * Compact, muted markdown for the chat's *subordinate* prose surfaces — the
@@ -17,10 +18,20 @@ import { MarkdownRenderer } from "~/components/markdown-renderer";
  * heals half-typed markdown and animates words in while streaming — cost these
  * short, subordinate lines don't warrant, matching how the reasoning block has
  * always streamed.
+ *
+ * Images follow {@link useMarkdownImageMode}: in the owner's chat they render,
+ * and on a published transcript they degrade to alt text so a visitor's browser
+ * makes no request to a host the owner never vetted. Reasoning is the surface
+ * that most needs it — it quotes model output verbatim, image markdown and all.
  */
 export function ChatProse({ children, className }: { children: string; className?: string }) {
   return (
-    <MarkdownRenderer size="compact" tone="surface" className={className}>
+    <MarkdownRenderer
+      size="compact"
+      tone="surface"
+      className={className}
+      images={useMarkdownImageMode()}
+    >
       {children}
     </MarkdownRenderer>
   );

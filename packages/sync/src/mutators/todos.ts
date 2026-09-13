@@ -1,7 +1,7 @@
+import { isoDateTimeStringSchema } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
-import { isoDateTimeStringSchema } from "../schemas";
 import type { SyncedTodo } from "../types";
 
 /**

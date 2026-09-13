@@ -2,10 +2,18 @@
 # Crawlers should index the public marketing + legal surface. Everything behind
 # auth (the app itself) renders an empty client-only shell to a bot, so there's
 # nothing to gain from crawling it — disallow to keep crawl budget on real pages.
+#
+# `/c/` is the exception that inverts that reason, and the reason it MUST stay
+# listed. A shared thread renders real conversation text with no session, and
+# crawlers run JavaScript. Its 80-bit slug is the whole access control, so an
+# indexed page hands an attacker the capability they cannot guess. See ADR-0102;
+# the Caddyfile also sends `X-Robots-Tag` for the same path, because robots.txt
+# asks and a header tells.
 
 User-agent: *
 Allow: /
 Disallow: /chat
+Disallow: /c/
 Disallow: /onboarding
 Disallow: /briefings
 Disallow: /integrations
