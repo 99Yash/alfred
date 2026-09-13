@@ -154,6 +154,10 @@ export const chatRunStateSchema = z
     // it counts retries of the *same* stuck turn — not one timeout per tool-loop
     // step. Default 0 for runs minted before the field existed.
     streamTimeoutRetries: z.number().int().min(0).default(0),
+    // Consecutive capacity (429/5xx) retries this run (bounded by
+    // `turn-budgets`). Sibling of the two above: reset to 0 on any productive
+    // turn. Default 0 for runs minted before the field existed.
+    capacityRetries: z.number().int().min(0).default(0),
     startedAt: z.iso.datetime().optional(),
     // Read only while resuming checkpoints created before `startedAt`.
     started: z.boolean().optional(),

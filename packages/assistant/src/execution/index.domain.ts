@@ -135,11 +135,14 @@ export { toolEventOutcome } from "./workflows/tool-event-outcome";
 export { pendingToolCallSchema } from "./workflows/pending-tool-call";
 
 export {
+  CAPACITY_RETRY_DELAYS_MS,
+  CAPACITY_RETRY_JITTER_MS,
   CHAT_TURN_CAP_LANDING_NOTE,
   chatTurnCap,
   chatTurnCapVerdict,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
+  type ChatTurnRetries,
 } from "./workflows/turn-budgets";
 
 export { PREVIEW_CHARS } from "./workflows/tool-preview";

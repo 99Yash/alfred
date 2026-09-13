@@ -654,6 +654,9 @@ function FeedFooter() {
           />
 
           {stream.compacting ? <ThinkingIndicator label="Condensing conversation…" /> : null}
+          {stream.awaitingCapacity ? (
+            <ThinkingIndicator label="Waiting for model capacity…" />
+          ) : null}
 
           {stream.text.length > 0 ? (
             <div ref={streamBodyRef}>

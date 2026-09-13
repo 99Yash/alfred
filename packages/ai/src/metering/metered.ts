@@ -1,12 +1,10 @@
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
-import { isCallerAbort } from "../abort";
+import { findApiCallError, isCallerAbort } from "../abort";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice, type PriceLookup } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
 import { summarizeBody, toMessage } from "@alfred/contracts";
-import { APICallError } from "@ai-sdk/provider";
-import { RetryError } from "ai";
 
 const pendingMeteringWrites = new Set<Promise<void>>();
 
@@ -362,32 +360,6 @@ function transportFacts(err: unknown): TransportFacts {
     ...(apiError.statusCode === undefined ? {} : { statusCode: apiError.statusCode }),
     ...(body === undefined ? {} : { responseBody: summarizeBody(body, MAX_RESPONSE_BODY_CHARS) }),
   };
-}
-
-/**
- * Deepest useful transport error: the outer `APICallError` when the call
- * failed on its first attempt, else the most recent `APICallError` inside a
- * `RetryError`'s attempt list. Scans from the last attempt backwards so a
- * fallback leg's rejection wins over the primary's.
- */
-function findApiCallError(err: unknown): APICallError | undefined {
-  if (APICallError.isInstance(err)) return err;
-
-  if (RetryError.isInstance(err)) {
-    const errors = err.errors;
-
-    if (Array.isArray(errors)) {
-      for (let i = errors.length - 1; i >= 0; i--) {
-        const candidate = errors[i];
-
-        if (APICallError.isInstance(candidate)) return candidate;
-      }
-    }
-
-    if (APICallError.isInstance(err.lastError)) return err.lastError;
-  }
-
-  return undefined;
 }
 
 interface WriteArgs {

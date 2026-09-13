@@ -1,3 +1,4 @@
+import { APICallError } from "@ai-sdk/provider";
 import { toMessage } from "@alfred/contracts";
 import { createRedisConnection, isQueueEnabled, reserveRateSlot } from "@alfred/db/redis";
 import type { BoundedRedis } from "@alfred/db/redis";
@@ -50,6 +51,15 @@ import type { BoundedRedis } from "@alfred/db/redis";
  * against a bucket that has not refilled, and the turn dies with every tool
  * result already written. Waiting converts that failure into latency.
  *
+ * TWO REGIMES, and the cap is the line between them. Under `maxWaitMs` this
+ * module queues: the caller sleeps and then sends. Over it this module
+ * refuses, with a retryable 429 that never reaches the wire. It does not
+ * sleep the cap and send anyway — that spends the caller's whole deadline to
+ * buy a near-certain 429, and it hides the request from both clocks. The
+ * refusal hands the case to the layers that own "retry later" (ai-retry,
+ * `withFallback`, and the chat turn's capacity ladder), so this module owns
+ * pacing and nothing else.
+ *
  * This sits in `fetch` rather than in the agent loop so it covers every caller
  * of the gateway — chat, background boss, cheap classifiers, retries and
  * fallback legs alike — with no call site aware of it. A wait here is charged
@@ -90,9 +100,26 @@ const DEFAULT_REQUESTS_PER_MINUTE = 180;
 const DEFAULT_BURST = 2;
 
 /**
- * Longest this will hold a request back. Past it the request goes anyway and
- * probably earns a 429, which the retry ladder handles — and that retry re-
- * enters the pacer, so the slot is not lost, only the attempt.
+ * Longest this will hold a request back. Past it the pacer REFUSES the call
+ * with a retryable 429 instead of sleeping the cap and sending anyway.
+ *
+ * Refusing is the whole point of the cap. An over-cap wait means this
+ * process has already queued more legs than the budget can serve inside the
+ * caller's deadline, so the request would sleep the cap, send into a drained
+ * bucket, and earn a real 429 — after spending the deadline that the caller
+ * needed for its own answer. The refusal returns that time immediately.
+ *
+ * The refusal is shaped as an {@link APICallError} with status 429 because
+ * that is exactly what it means, and because every downstream handler already
+ * reads that shape: ai-retry retries it, `withFallback` degrades on it, and
+ * `isCapacityError` in `./provider` routes it to the chat turn's capacity
+ * ladder, which waits 10s / 20s / 30s — spacing a drained bucket can actually
+ * use. The pacer therefore owns pacing only, and hands "retry later" to the
+ * layers that own it.
+ *
+ * A caller with no ladder (a briefing, the background boss) now fails here
+ * rather than sending. That is a real change and an accepted one: the send it
+ * replaces was near-certain to 429.
  *
  * This is a property of the CALLER's deadline, not of the gateway, so it
  * lives on {@link GatewayThrottleConfig} rather than as a module constant —
@@ -105,15 +132,6 @@ const DEFAULT_BURST = 2;
  * ~0ms per leg and only a deep parallel backlog reaches the cap at all.
  */
 const DEFAULT_MAX_WAIT_MS = 20_000;
-
-/**
- * Spread added to an over-cap wait. Every over-cap caller would otherwise
- * sleep exactly `maxWaitMs` and wake together — the burst the pacer exists
- * to prevent, synchronized. One interval is ~333ms at the default rate, so
- * up to 1s staggers the shed load over ~3 slots without materially extending
- * the wait.
- */
-const OVER_CAP_JITTER_MS = 1_000;
 
 /**
  * How long a failed shared-bucket reservation keeps the Redis path closed.
@@ -129,8 +147,8 @@ export interface GatewayThrottleConfig {
   readonly requestsPerMinute?: number;
   readonly burst?: number;
   /**
-   * Longest a request is held back before it goes anyway. Must sit under the
-   * tightest caller's total timeout — triage at 30s — because the wait is
+   * Longest a request is held back before the pacer refuses it. Must sit under
+   * the tightest caller's total timeout — triage at 30s — because the wait is
    * charged to that budget and an expired signal fails the fallback leg too.
    * One shared waiter per gateway means one cap: the tightest deadline wins.
    */
@@ -176,11 +194,13 @@ function bucketKey(config: GatewayThrottleConfig, perMinute: number, burst: numb
  * pace against a stale clock.
  *
  * `take()` is cap-aware: past `maxWaitMs` it reports the wait WITHOUT
- * advancing, mirroring the Lua body's conditional write. The caller goes
- * early rather than honor the slot, so advancing for it would let the local
- * mark run away the same way the shared one did. Self-limiting: once the
- * local mark sits a full cap ahead of now, every taker reports over-cap and
- * nothing advances further.
+ * advancing, mirroring the Lua body's conditional write. The caller is
+ * refused rather than served, so it consumes no slot, and advancing for it
+ * would let the local mark run away the same way the shared one did.
+ * Self-limiting, and that property is load-bearing: once the local mark sits
+ * a full cap ahead of now, every taker reports over-cap and nothing advances
+ * further, so the mark decays as `now` catches up instead of growing without
+ * bound under a sustained fan-out.
  */
 interface LocalPacer {
   take: (maxWaitMs?: number) => number;
@@ -238,8 +258,37 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
   });
 }
 
-/** Holds a caller until the gateway's budget has room for its request. */
-type SlotWaiter = (signal: AbortSignal | undefined) => Promise<void>;
+/**
+ * Holds a caller until the gateway's budget has room for its request, or
+ * rejects with a retryable 429 when the room is further out than the cap.
+ * `url` is carried only so that refusal can name the request it refused.
+ */
+type SlotWaiter = (signal: AbortSignal | undefined, url: string) => Promise<void>;
+
+/**
+ * The pacer's refusal: a 429 that never went to the wire.
+ *
+ * Shaped as an `APICallError` rather than a bespoke class so it needs no new
+ * reader. `findApiCallError` unwraps it out of ai-retry's `RetryError`, and
+ * `isCapacityError` then reads the status — the same path a real gateway 429
+ * takes — so the chat turn's capacity ladder picks it up with no change.
+ *
+ * The message deliberately avoids the words `isQuotaOrBillingError` matches
+ * ("usage limit", "credit balance", "billing"): a backed-up budget refills on
+ * a backoff schedule and money does not, and misreading this as the second
+ * kind would make the ladder skip a turn it can actually land.
+ */
+function overCapRefusal(waitMs: number, maxWaitMs: number, url: string): APICallError {
+  return new APICallError({
+    message:
+      `[ai-gateway] gateway budget backed up ${waitMs}ms, past the ${maxWaitMs}ms cap ` +
+      `this caller may wait; refusing without sending`,
+    url,
+    requestBodyValues: {},
+    statusCode: 429,
+    isRetryable: true,
+  });
+}
 
 /**
  * One waiter per gateway per process, because the caller cannot give us one.
@@ -272,10 +321,21 @@ export function throttledGatewayFetch(
   const waitForSlot = sharedWaiter(config);
 
   return async (input, init) => {
-    await waitForSlot(init?.signal ?? undefined);
+    await waitForSlot(init?.signal ?? undefined, requestUrl(input));
 
     return inner(input, init);
   };
+}
+
+/**
+ * The request's url, for the one field `APICallError` requires and we have.
+ * Typed off `fetch` itself rather than off `RequestInfo`: this package builds
+ * without the DOM lib, so the global request types are not in scope.
+ */
+function requestUrl(input: Parameters<typeof globalThis.fetch>[0]): string {
+  if (typeof input === "string") return input;
+
+  return input instanceof URL ? input.toString() : input.url;
 }
 
 function sharedWaiter(config: GatewayThrottleConfig): SlotWaiter {
@@ -349,26 +409,32 @@ function createSlotWaiter(
     return redis;
   }
 
-  return async (signal) => {
+  return async (signal, url) => {
     // An already-aborted call must not reserve: the reservation is granted
     // unconditionally, so checking after it burns a slot for a call that will
     // never run. Fail before either clock moves.
     if (signal?.aborted) throw signal.reason;
 
     const localWait = localPacer.take(maxWaitMs);
+
+    // Refuse before the round trip. The local mark alone already puts the slot
+    // past the cap, `take` did not advance for it, and the Lua body would
+    // decline the write for the same reason — so Redis can only confirm a
+    // verdict this caller already has.
+    if (localWait > maxWaitMs) throw overCapRefusal(localWait, maxWaitMs, url);
+
     let waitMs = localWait;
 
-    // `connection()` is INSIDE the try with the reservation. Nothing this
-    // decorator does may throw: it sits in `fetch`, so an escaping error kills
-    // every model call in the process, and the local pacer is a complete
-    // answer on its own.
+    // `connection()` is INSIDE the try with the reservation. No UNEXPECTED
+    // error may escape this decorator: it sits in `fetch`, so a Redis fault
+    // would kill every model call in the process, and the local pacer is a
+    // complete answer on its own. The refusals above and below are the
+    // opposite case — a deliberate, transport-shaped verdict about this one
+    // request — so they are thrown, not swallowed.
     try {
       const shared = connection();
 
-      // A locally over-cap caller already declined its slot (`take` did not
-      // advance), so it must not advance the shared mark either — the Lua
-      // body would decline the write anyway, and the round trip buys nothing.
-      if (shared && localWait <= maxWaitMs) {
+      if (shared) {
         waitMs = Math.max(
           localWait,
           await reserveRateSlot(shared, key, intervalMs, burst, maxWaitMs),
@@ -387,22 +453,12 @@ function createSlotWaiter(
       console.warn("[ai-gateway] slot reservation failed, pacing locally:", toMessage(err));
     }
 
+    // The shared queue runs further ahead than this process knew. Same verdict
+    // as above, and it must stay outside the `catch`: this is the pacer's
+    // answer, not a Redis fault.
+    if (waitMs > maxWaitMs) throw overCapRefusal(waitMs, maxWaitMs, url);
+
     if (waitMs <= 0) return;
-
-    if (waitMs > maxWaitMs) {
-      // Shed, with jitter: every over-cap caller that sleeps exactly the cap
-      // wakes together and re-fires as one burst. Neither clock advanced for
-      // this caller (cap-aware `take`, conditional Lua write), so going early
-      // sheds load without corrupting the queue — the 429 the retry ladder
-      // may then earn re-enters the pacer for a fresh reservation.
-      const jitterMs = Math.floor(Math.random() * OVER_CAP_JITTER_MS);
-      console.warn(
-        `[ai-gateway] gateway budget backed up ${waitMs}ms; sending after ${maxWaitMs + jitterMs}ms and accepting a possible 429`,
-      );
-      await sleep(maxWaitMs + jitterMs, signal);
-
-      return;
-    }
 
     await sleep(waitMs, signal);
   };
