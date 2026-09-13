@@ -6,6 +6,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { cn } from "~/lib/utils";
+import { altTextImageComponents } from "./alt-text-image";
 import { markdownComponents } from "./elements";
 
 import "katex/dist/katex.min.css";
@@ -19,31 +20,10 @@ export { MarkdownPre } from "./markdown-pre";
 
 export { CodeBlock } from "./code-block";
 
-/**
- * The `img` override that turns `images="alt-text"` into a real guarantee: it
- * emits the alt text in brackets and NEVER an `<img>`, so no remote request
- * leaves the page.
- *
- * It is exported because two renderers need the identical rule.
- * {@link MarkdownRenderer} applies it through its `images` prop, and the chat
- * reply's `AssistantMarkdown` drives `ReactMarkdown` directly, so it merges
- * this into its own component registry. A second hand-written copy would let
- * one of the two surfaces keep loading remote images after the other stopped.
- *
- * The placeholder follows `tone`. Fixed white is invisible on a light app
- * surface, which the inbox Reader never hit because it renders on the dark
- * media backdrop.
- */
-export function altTextImageComponents(tone: "surface" | "media" = "surface"): Components {
-  return {
-    img: ({ alt }) =>
-      alt ? (
-        <span className={cn("italic", tone === "media" ? "text-white/55" : "text-app-fg-2")}>
-          [{alt}]
-        </span>
-      ) : null,
-  };
-}
+// The `alt-text` image override lives in its own module so this file exports
+// components only: a component file that also exports a plain function loses
+// React Fast Refresh, and editing it forces a full reload instead of a hot swap.
+export { altTextImageComponents } from "./alt-text-image";
 
 type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
 
