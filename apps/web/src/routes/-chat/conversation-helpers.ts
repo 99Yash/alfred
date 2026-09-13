@@ -41,7 +41,8 @@ export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
     stream.tools.length === 0 &&
     stream.reasoning.length === 0 &&
     !stream.reasoningActive &&
-    !stream.compacting
+    !stream.compacting &&
+    !stream.awaitingCapacity
   );
 }
 
@@ -55,6 +56,8 @@ export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
  */
 export function describeActivity(stream: StreamingMessage): string {
   if (stream.compacting) return "Condensing conversation…";
+
+  if (stream.awaitingCapacity) return "Waiting for model capacity…";
   const lastTool = stream.tools[stream.tools.length - 1];
 
   if (lastTool && lastTool.status === "started") return `${presentTool(lastTool).running}…`;

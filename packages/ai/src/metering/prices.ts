@@ -142,6 +142,10 @@ const FALLBACK_CONTEXT_WINDOWS = {
   "google/gemini-2.5-flash-lite": 1_048_576,
   "google/gemini-3.5-flash": 1_048_576,
   "google/gemini-3.8-flash": 1_048_576,
+  // models.dev `limit.context` for gpt-5.6-luna (see the 2026-09-02
+  // `model_prices` backup in references/scratch). Like the rest of this map: a
+  // boot safety net, not source of truth.
+  "openai/gpt-5.6-luna": 1_050_000,
 } as const satisfies Readonly<Record<string, number>>;
 
 /**
@@ -160,6 +164,52 @@ const FALLBACK_CONTEXT_WINDOWS = {
  */
 export async function resolveModelContextWindow(model: LanguageModel): Promise<number> {
   const { provider, modelId } = identifyLanguageModel(model);
+
+  return resolveContextWindowById(provider, modelId);
+}
+
+/**
+ * Boot assertion for ONE route leg: the leg must have a real, priced row in
+ * `model_prices`.
+ *
+ * Separate from {@link resolveContextWindowById} because that function cannot
+ * carry this proof. It answers with `FALLBACK_CONTEXT_WINDOWS` when the row is
+ * missing, and that table lists the fallback legs — so a boot guard built on it
+ * passes for a leg whose price row does not exist, which is exactly the leg
+ * that then meters at $0 on the turn the cascade degrades to it.
+ *
+ * Two conditions, because a row can exist and still price nothing: `computeCost`
+ * returns 0 for a missing row AND for a row whose rates are all zero with no
+ * per-call price, and both produce the same silent under-report.
+ */
+export async function assertLegPriced(provider: string, modelId: string): Promise<void> {
+  const key = `${provider}/${modelId}`;
+  const price = await getPrice(provider, modelId);
+
+  if (!price) {
+    throw new Error(
+      `[metering] no model_prices row for ${key} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
+    );
+  }
+
+  if (price.perCallUsd == null && !(price.inputPerMtok > 0) && !(price.outputPerMtok > 0)) {
+    throw new Error(
+      `[metering] model_prices row for ${key} carries no rates — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
+    );
+  }
+
+  // The compaction threshold needs a window too (ADR-0035). The code fallback
+  // is allowed here: it is a deliberate safety net for a fresh checkout, and
+  // unlike the price above it cannot hide a metering hole.
+  await resolveContextWindowById(provider, modelId);
+}
+
+/**
+ * `resolveModelContextWindow` for a caller that holds identifiers rather than
+ * a model object — the boot guard enumerates every leg a route can serve
+ * (`allRouteLegIdentifiers`), and a composed facade only names its primary.
+ */
+export async function resolveContextWindowById(provider: string, modelId: string): Promise<number> {
   const price = await getPrice(provider, modelId);
 
   if (price?.contextWindow != null) return price.contextWindow;

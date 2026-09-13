@@ -13,8 +13,10 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import {
+  collectResumableRunIds,
   findResumableRunIds,
   minStaleAfterMs,
+  type ResumeSweepCandidate,
   resolveStaleAfterMs,
   STALE_RUN_LEASE_MS,
 } from "@alfred/assistant/execution/service";
@@ -114,6 +116,49 @@ describe("per-step stale-lease resolution (pure)", () => {
     );
   });
 
+  test("the sweep paginates past a page filled by per-step refinement", async () => {
+    // Regression: applying LIMIT before the JS per-step refinement meant a live
+    // long-window row could consume the whole SQL page, get filtered out, and
+    // hide a genuinely reclaimable row behind it until a later sweep.
+    //
+    // The page reader is injected rather than seeded into Postgres. The real
+    // sweep reads `agent_runs` for EVERY user, so in the shared CI database
+    // another suite's pending row takes the one-row page and the assertion
+    // becomes a race — it did, and this test was the flake.
+    const candidate = (id: string, currentStep: string, staleMs: number): ResumeSweepCandidate => ({
+      id,
+      workflowSlug: SLUG,
+      currentStep,
+      status: "running",
+      staleMs,
+    });
+
+    const pages: ResumeSweepCandidate[][] = [
+      // Fresh inside its 60min window: selected at the 30s floor, refined out.
+      [candidate("run_giant_fresh", "giant-step", 90_000)],
+      // Stale past the 60s default: the row the page-consuming bug hid.
+      [candidate("run_quick_stale", "quick-step", 80_000)],
+    ];
+
+    const reads: { limit: number; offset: number }[] = [];
+
+    const resumable = await collectResumableRunIds(1, async (page) => {
+      reads.push(page);
+
+      return pages[page.offset] ?? [];
+    });
+
+    assert.deepEqual(resumable, ["run_quick_stale"]);
+    assert.deepEqual(
+      reads,
+      [
+        { limit: 1, offset: 0 },
+        { limit: 1, offset: 1 },
+      ],
+      "the refined-out row advances the offset instead of ending the sweep",
+    );
+  });
+
   test("minStaleAfterMs is the smallest declared window (the SQL sweep floor)", () => {
     // The fast-step declares below the default, so the floor drops to it. This
     // is the invariant the sweep depends on: selecting at the floor can never
@@ -180,19 +225,6 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
 
     _resetRegistryForTests();
     await closeConnections();
-  });
-
-  test("findResumableRunIds paginates past rows filtered by per-step refinement", async () => {
-    // Regression: applying LIMIT before the JS per-step refinement meant a
-    // live long-window row could consume the whole SQL page, get filtered out,
-    // and hide a genuinely reclaimable row behind it until a later sweep.
-    const filtered = await seedRunningRun("giant-step", ago(90_000)); // fresh under 60min
-    const claimable = await seedRunningRun("quick-step", ago(80_000)); // stale under default
-
-    const resumable = await findResumableRunIds({ limit: 1 });
-
-    assert.deepEqual(resumable, [claimable]);
-    assert.equal(resumable.includes(filtered), false, "fresh long-window row is still refined out");
   });
 
   test("leaseRun does NOT reclaim a wide-window step within its window", async () => {

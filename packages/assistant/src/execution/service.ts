@@ -1137,35 +1137,60 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
  * live long-window rows could hide genuinely-stale rows behind it.
  */
 export async function findResumableRunIds(opts: { limit?: number }): Promise<string[]> {
-  const limit = opts.limit ?? 100;
+  return collectResumableRunIds(opts.limit ?? 100, readResumeSweepPage);
+}
 
+/** One candidate row of the resume sweep, before the per-step refinement. */
+export type ResumeSweepCandidate = {
+  readonly id: string;
+  readonly workflowSlug: string;
+  readonly currentStep: string;
+  readonly status: string;
+  readonly staleMs: number | string | null;
+};
+
+/** Reads one ordered page of sweep candidates at the {@link minStaleAfterMs} floor. */
+async function readResumeSweepPage(page: {
+  limit: number;
+  offset: number;
+}): Promise<ResumeSweepCandidate[]> {
+  const result = await db().execute(sql`
+    SELECT id, workflow_slug AS "workflowSlug", current_step AS "currentStep", status,
+           EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
+    FROM agent_runs
+    WHERE status IN ('pending', 'runnable')
+       OR (status = 'deferred' AND deferred_until <= now())
+       OR (status = 'running' AND (
+         last_checkpoint_at IS NULL
+         OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
+       ))
+    ORDER BY last_checkpoint_at NULLS FIRST, id
+    LIMIT ${page.limit}
+    OFFSET ${page.offset}
+  `);
+
+  return rowsFromExecute<ResumeSweepCandidate>(result);
+}
+
+/**
+ * The page loop of {@link findResumableRunIds}, with the page reader injected.
+ *
+ * The reader is a parameter because the pagination invariant — a page filled by
+ * refined-out rows must not hide a claimable row behind it — cannot be proved
+ * against the real sweep. That query reads `agent_runs` for every user, so in a
+ * shared test database any other suite's pending row lands on the page first and
+ * the assertion becomes a race.
+ */
+export async function collectResumableRunIds(
+  limit: number,
+  readPage: (page: { limit: number; offset: number }) => Promise<readonly ResumeSweepCandidate[]>,
+): Promise<string[]> {
   if (limit <= 0) return [];
   const resumable: string[] = [];
   let offset = 0;
 
   while (resumable.length < limit) {
-    const result = await db().execute(sql`
-      SELECT id, workflow_slug AS "workflowSlug", current_step AS "currentStep", status,
-             EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
-      FROM agent_runs
-      WHERE status IN ('pending', 'runnable')
-         OR (status = 'deferred' AND deferred_until <= now())
-         OR (status = 'running' AND (
-           last_checkpoint_at IS NULL
-           OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
-         ))
-      ORDER BY last_checkpoint_at NULLS FIRST, id
-      LIMIT ${limit}
-      OFFSET ${offset}
-    `);
-
-    const rows = rowsFromExecute<{
-      id: string;
-      workflowSlug: string;
-      currentStep: string;
-      status: string;
-      staleMs: number | string | null;
-    }>(result);
+    const rows = await readPage({ limit, offset });
 
     if (rows.length === 0) break;
     offset += rows.length;

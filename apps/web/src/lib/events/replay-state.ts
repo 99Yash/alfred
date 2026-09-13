@@ -340,6 +340,7 @@ function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
     case "started":
     case "compaction_started":
     case "compaction_finished":
+    case "capacity_retry":
       return false;
   }
 }

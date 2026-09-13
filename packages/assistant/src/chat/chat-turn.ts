@@ -2,6 +2,7 @@ import {
   AlfredAgent,
   classifyStreamFinish,
   DEFAULT_TURN_STREAM_TIMEOUT,
+  isCapacityError,
   route,
   type ChatModelTier,
   type ModelMessage,
@@ -29,6 +30,8 @@ import {
   appendModelResponseMessages,
   buildConnectedSummaryFromAvailability,
   appendSystemNote,
+  CAPACITY_RETRY_DELAYS_MS,
+  CAPACITY_RETRY_JITTER_MS,
   CHAT_TURN_CAP_LANDING_NOTE,
   chatTurnCap,
   chatTurnCapVerdict,
@@ -37,6 +40,7 @@ import {
   resetChatTurnRetryBudgets,
   resolveRuntimeGroundingAnchor,
   systemToolKernel,
+  type ChatTurnRetries,
   uniqueToolNames,
   toolCardTerminal,
   toolEventOutcome,
@@ -237,13 +241,21 @@ export function buildChatSystemPrompt(
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-async function publishChatCompactionPhase(args: {
+/**
+ * Publish one mid-turn `chat.message` phase, best-effort.
+ *
+ * Best-effort is the point: every caller is a progress signal beside the real
+ * work, so a failed publish must not fail the turn it describes. Shared by the
+ * compaction phases and by `capacity_retry` rather than copied, because both
+ * want the same swallow-and-log rule.
+ */
+async function publishChatPhase(args: {
   userId: string;
   runId: string;
   threadId: string;
   messageId: string;
-  phase: "compaction_started" | "compaction_finished";
-  compactionScope: "foreground" | "within_run";
+  phase: "compaction_started" | "compaction_finished" | "capacity_retry";
+  compactionScope?: "foreground" | "within_run";
 }): Promise<void> {
   try {
     await publishEvent({
@@ -255,19 +267,19 @@ async function publishChatCompactionPhase(args: {
         threadId: args.threadId,
         messageId: args.messageId,
         phase: args.phase,
-        compactionScope: args.compactionScope,
+        ...(args.compactionScope ? { compactionScope: args.compactionScope } : {}),
       },
     });
   } catch (error) {
     logger.warn(
       {
         err: error,
-        event: "chat_compaction_phase_publish_failed",
+        event: "chat_phase_publish_failed",
         runId: args.runId,
         threadId: args.threadId,
         phase: args.phase,
       },
-      "Chat compaction phase publish failed",
+      "Chat turn phase publish failed",
     );
   }
 }
@@ -324,6 +336,26 @@ const chatTurnStep: Step<ChatRunState> = {
       });
     };
 
+    // Own cancellation for the whole step body, created before the `try` so
+    // the terminal catch below can read it: a capacity failure is only
+    // retryable when no stop landed, and the backoff wait must abort on one.
+    // (Polling still starts beside the guard, where the stop window opens.)
+    const stop = createTurnStopController(ctx.runId);
+
+    // The turn's retry planners, bound once the pre-turn transcript is final
+    // (see below). `let`, not `const`, so the terminal catch can plan a
+    // capacity retry from the same handle the try body used — `const`
+    // declarations inside the `try` block are invisible to its `catch`.
+    // Undefined when the failure came before the binding (guard phase); those
+    // failures keep today's terminal behavior.
+    let retries: ChatTurnRetries | undefined;
+
+    // This turn's pre-model transcript. `let` at step scope for the same reason
+    // as `retries` above: the terminal catch ends a stopped backoff on it, and
+    // a `const` inside the `try` is invisible there. Assigned first thing in
+    // the try; `ctx.transcript` until then.
+    let transcript: AgentTranscriptMessage[] = ctx.transcript;
+
     try {
       // The tool-loop cap lands the turn instead of failing it: at the cap the
       // model runs once more with no tools and a note to report what got done,
@@ -351,7 +383,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // The note enters the durable transcript exactly once, on the `land`
       // turn; a step retry of that turn re-runs from the checkpoint without the
       // note, and every later turn continues from a transcript that carries it.
-      const transcript =
+      transcript =
         capVerdict === "land"
           ? appendSystemNote(ctx.transcript, CHAT_TURN_CAP_LANDING_NOTE)
           : [...ctx.transcript];
@@ -493,7 +525,8 @@ const chatTurnStep: Step<ChatRunState> = {
 
       // Own cancellation before the context guard: compaction can make billable
       // model calls too, so Stop must cover it as well as the streamed answer.
-      const stop = createTurnStopController(ctx.runId);
+      // Created once at function scope above; polling still starts here, where
+      // the stop window opens.
 
       // Canonical run transcript excludes the ephemeral artifact reference. The
       // reference is composed only for the provider request so it cannot
@@ -524,7 +557,7 @@ const chatTurnStep: Step<ChatRunState> = {
           pendingGuidance,
           abortSignal: stop.signal,
           onPhase: (phase, compactionScope) =>
-            publishChatCompactionPhase({
+            publishChatPhase({
               userId: ctx.userId,
               runId: ctx.runId,
               threadId: state.threadId,
@@ -558,7 +591,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // before the model call, so `nextTranscript` (which appends the response,
       // and whose empty assistant message Anthropic 400s on) does not exist yet
       // and cannot be handed to a retry. The planners below take state only.
-      const retries = openChatTurnRetries(continuationTranscript);
+      retries = openChatTurnRetries(continuationTranscript);
       const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
 
       const requestEstimate = await estimateChatRequestTokens({
@@ -851,6 +884,73 @@ const chatTurnStep: Step<ChatRunState> = {
         output: { messageId: state.messageId },
       };
     } catch (err) {
+      // Capacity retries: a 429/408/5xx that failed BEFORE anything streamed
+      // is worth waiting for, not terminating over. The gateway budget refills
+      // at single digits per minute, so the ladder's four attempts inside ~3s
+      // could never land — spacing the same attempts over ~60s converts the
+      // termination into latency. Gated like the stream-timeout retry (no stop,
+      // nothing user-visible streamed) plus the structural capacity check, so
+      // billing 4xx, timeouts (own budget), and caller aborts never enter.
+      // Per ADR-0072 this error is not terminal while a retry is planned, so
+      // it must not reach `finalizeFailedMessage` on that path.
+      if (
+        !stop.stopped &&
+        !isStreamTimeoutAbort(err) &&
+        state.assistantText.trim().length === 0 &&
+        isCapacityError(err)
+      ) {
+        const retry = retries?.afterCapacityError(state);
+
+        if (retry) {
+          const base =
+            CAPACITY_RETRY_DELAYS_MS[
+              Math.min(retry.attempt - 1, CAPACITY_RETRY_DELAYS_MS.length - 1)
+            ] ?? CAPACITY_RETRY_DELAYS_MS[0];
+
+          const delayMs = base + Math.floor(Math.random() * CAPACITY_RETRY_JITTER_MS);
+          // Close the brackets before the wait so this failed attempt's
+          // wall-clock rides the retry, matching the timeout path above.
+          closeBrackets();
+          console.warn(
+            `[chat-turn] capacity error; retry ` +
+              `${retry.attempt}/${retry.max} after ${delayMs}ms (run ${ctx.runId})`,
+          );
+          // Tell the client BEFORE the silence, not after it. The backoff runs
+          // up to ~35s and the client arms a 45s stall watchdog on every frame,
+          // so a wait with no frame in it paints "Connection stalled" over a
+          // turn that is healthy and waiting on purpose.
+          await publishChatPhase({
+            userId: ctx.userId,
+            runId: ctx.runId,
+            threadId: state.threadId,
+            messageId: state.messageId,
+            phase: "capacity_retry",
+          });
+
+          // `stop.wait` owns its own poller for the duration. Waiting on
+          // `stop.signal` alone cannot work here: the guard's poller was
+          // disposed when the guard block exited, and nothing else drives the
+          // Redis read that calls `abort()`, so the signal would stay unarmed
+          // for the whole backoff.
+          if ((await stop.wait(delayMs)) === "elapsed") return retry.step;
+
+          // Stop landed inside the backoff. End the turn as STOPPED, the same
+          // ending the guard block and the stream loop give: nothing streamed
+          // and nothing faulted, so falling through to `finalizeFailedMessage`
+          // would persist a failed row and show the user an error they did not
+          // earn for pressing Stop.
+          await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+          emitPhases("stopped");
+
+          return {
+            kind: "done",
+            state,
+            transcript,
+            output: { messageId: state.messageId, stopped: true },
+          };
+        }
+      }
+
       // Any terminal failure (stream error, turn-cap, preview overflow, a down
       // provider) must still close the loop for the client: persist a failed
       // assistant row + emit `chat.message completed` so the streaming bubble
@@ -1118,6 +1218,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       inFlightTailStart: 0,
       emptyCompletionRetries: 0,
       streamTimeoutRetries: 0,
+      capacityRetries: 0,
       startedAt: undefined,
       // Phase thermometer (#902) accumulators.
       generationMs: 0,
