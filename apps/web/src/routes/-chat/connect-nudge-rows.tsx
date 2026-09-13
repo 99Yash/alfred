@@ -17,8 +17,20 @@ import { presentConnectNudges } from "./connect-nudges";
  *
  * Shown live under the streaming bubble (the bounce can land mid-turn) and on
  * reload from the durable tool-call entries.
+ *
+ * The credential query lives in `NudgeRows` below, not here, and the empty case
+ * returns before that child ever mounts. Keep it that way: this component is on
+ * every message bubble, including the ones the public `/c/$slug` page renders
+ * signed out (ADR-0102). A hook called above this guard would make a bubble
+ * with no bounce ask an authenticated endpoint who the visitor is.
  */
 export function ConnectNudgeRows({ nudges }: { nudges: readonly ChatConnectNudge[] }) {
+  if (nudges.length === 0) return null;
+
+  return <NudgeRows nudges={nudges} />;
+}
+
+function NudgeRows({ nudges }: { nudges: readonly ChatConnectNudge[] }) {
   const { integrations, ready } = useResolvedIntegrationsWithReady();
 
   const statusBySlug = useMemo(

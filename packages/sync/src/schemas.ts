@@ -35,16 +35,10 @@ import {
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
-import { runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
+import { isoDateTimeStringSchema, runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
 import { z } from "zod";
 
-export const isoDateTimeStringSchema = z
-  .string()
-  .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-    message: "must be a valid date-time string",
-  });
-
-export { jsonRecordSchema, memorySourceSchema, type MemorySource };
+export { isoDateTimeStringSchema, jsonRecordSchema, memorySourceSchema, type MemorySource };
 
 export const factValueSchema = z.union([
   z.string(),
