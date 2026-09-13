@@ -76,6 +76,13 @@
 		-Server
 	}
 
+	# Shared threads (`/c/<slug>`, ADR-0102) must never be indexed. The slug is
+	# the whole read capability at 80 bits, so an index entry removes the need to
+	# guess it. `robots.txt` disallows the same path; this header is the half a
+	# crawler cannot choose to ignore, and it reaches a bot that runs the SPA.
+	@sharedThread path /c/*
+	header @sharedThread X-Robots-Tag "noindex, nofollow"
+
 	# Vite emits content-hashed filenames under /assets (e.g. index-o6_ZGOXw.js):
 	# the hash changes whenever the bytes change, so the URL is immutable and safe
 	# to cache forever. This is what lets repeat visits and reloads skip the

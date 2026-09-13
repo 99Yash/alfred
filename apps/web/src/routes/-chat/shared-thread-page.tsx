@@ -1,13 +1,14 @@
 import type { SharedThreadArtifact, SharedThreadMessage } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowRight, FileText, Layers, Loader2, Lock } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowRight, FileText, Layers, Loader2, Lock, Paperclip, RotateCcw } from "lucide-react";
+import { useState } from "react";
 import { AppThemed, AppThemeProvider } from "~/components/ui/v2";
 import { FrostButton } from "~/components/landing/frost-button";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { MessageBubble } from "./message-bubble";
-import { useSharedThreadPage } from "~/lib/sharing/use-thread-sharing";
+import { PublishedTranscript, useMarkdownImageMode } from "./published-transcript";
+import { SharingRequestError, useSharedThreadPage } from "~/lib/sharing/use-thread-sharing";
 import { cn } from "~/lib/utils";
 
 /**
@@ -80,7 +81,7 @@ function TryAlfredBanner() {
       {/* Fades the transcript out under the pill rather than cutting it. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-full h-16 bg-gradient-to-b from-transparent to-app-background"
+        className="pointer-events-none absolute inset-x-0 bottom-full h-16 bg-linear-to-b from-transparent to-app-background"
       />
       <div
         className={cn(
@@ -138,38 +139,69 @@ function toRenderableMessage(message: SharedThreadMessage): SyncedChatMessage {
   };
 }
 
+/**
+ * One published artifact.
+ *
+ * The branch below is exhaustive because the WIRE is narrow, not because this
+ * component checks carefully. `sharedThreadArtifactBodySchema` has exactly two
+ * variants, and an artifact whose body fits neither — an `external_file`, whose
+ * body is a pointer into the owner's Drive — never reaches the snapshot at all
+ * (see `toSharedArtifact`). So there is no "no published body" state to draw
+ * here: a row that exists has something to show.
+ *
+ * A `pages` artifact publishes its COUNT and never its HTML (ADR-0102 D7). A
+ * page body is assembled from tool results, so inlining it would restate the
+ * mail, calendar, and file content that the snapshot already dropped from the
+ * same thread.
+ */
 function ArtifactPanel({ artifact }: { artifact: SharedThreadArtifact }) {
-  const body =
-    artifact.content?.kind === "document"
-      ? artifact.content.markdown
-      : // A `pages` artifact is ordered full-bleed HTML. Rendering foreign HTML
-        // into this page would hand a published thread script execution on the
-        // app's own origin, so the public view names the artifact and its page
-        // count instead of inlining it.
-        null;
+  const { body } = artifact;
+  const images = useMarkdownImageMode();
 
   return (
     <section className="rounded-2xl border border-app-bg-3/70 bg-app-bg-1 p-5">
       <div className="mb-3 flex items-center gap-2">
-        {artifact.kind === "pages" ? (
+        {body.kind === "pages" ? (
           <Layers size={14} aria-hidden className="text-app-fg-2" />
         ) : (
           <FileText size={14} aria-hidden className="text-app-fg-2" />
         )}
         <h2 className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</h2>
       </div>
-      {body !== null ? (
-        <MarkdownRenderer size="compact" tone="surface">
-          {body}
+      {body.kind === "document" ? (
+        <MarkdownRenderer size="compact" tone="surface" images={images}>
+          {body.markdown}
         </MarkdownRenderer>
       ) : (
         <p className="text-xs text-app-fg-2">
-          {artifact.content?.kind === "pages"
-            ? `${artifact.content.pages.length} page${artifact.content.pages.length === 1 ? "" : "s"} — open this thread in Alfred to view them.`
-            : "This artifact has no published body."}
+          {body.pageCount} {body.pageCount === 1 ? "page" : "pages"} — open this thread in Alfred to
+          view them.
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * Says that files rode with a turn, without publishing them.
+ *
+ * A snapshot carries attachment COUNTS and no bytes, because the bytes sit
+ * behind the owner's auth-gated content proxy and a visitor cannot fetch them.
+ * Drawing the count keeps the transcript honest: a turn that carried three
+ * screenshots would otherwise read as a bare sentence, and the reply to it
+ * would look like a non sequitur.
+ */
+function AttachmentNote({ count, role }: { count: number; role: "user" | "assistant" }) {
+  return (
+    <p
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg bg-app-bg-2 px-2.5 py-1 text-xs text-app-fg-2",
+        role === "user" ? "self-end" : "self-start",
+      )}
+    >
+      <Paperclip size={12} aria-hidden />
+      {count} {count === 1 ? "file" : "files"} — not published
+    </p>
   );
 }
 
@@ -186,11 +218,6 @@ function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
   const query = useSharedThreadPage(urlSlug);
   const [showArtifacts, setShowArtifacts] = useState(false);
 
-  const messages = useMemo(
-    () => (query.data?.messages ?? []).map(toRenderableMessage),
-    [query.data],
-  );
-
   if (query.isPending) {
     return (
       <Centered>
@@ -200,22 +227,44 @@ function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
     );
   }
 
-  // A revoked link and a slug that never existed answer identically (both 404),
-  // and so does this page — telling the two apart would confirm a guess.
   if (query.isError || !query.data) {
+    // 404 is the ONLY final answer. A revoked link and a slug that never existed
+    // both answer 404, and this page says one thing for both — telling them
+    // apart would confirm a guess. Every other status is the server or the
+    // network failing, and saying "never shared" there tells the visitor their
+    // link is dead when it is not, so those get the truth and a retry instead.
+    const gone = query.error instanceof SharingRequestError && query.error.status === 404;
+
     return (
       <Centered>
-        <Lock size={18} aria-hidden className="text-app-fg-2" />
-        <h1 className="text-base font-medium text-app-fg-4">This link is not available</h1>
+        {gone ? (
+          <Lock size={18} aria-hidden className="text-app-fg-2" />
+        ) : (
+          <RotateCcw size={18} aria-hidden className="text-app-fg-2" />
+        )}
+        <h1 className="text-base font-medium text-app-fg-4">
+          {gone ? "This link is not available" : "This thread did not load"}
+        </h1>
         <p className="text-sm text-app-fg-2">
-          The thread was never shared, or its link has been revoked.
+          {gone
+            ? "The thread was never shared, or its link has been revoked."
+            : "Something went wrong on our side. The link itself may still be good."}
         </p>
-        <TryAlfredButton>Go to Alfred</TryAlfredButton>
+        {gone ? (
+          <TryAlfredButton>Go to Alfred</TryAlfredButton>
+        ) : (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <FrostButton size="sm" onClick={() => void query.refetch()}>
+              Try again
+            </FrostButton>
+            <TryAlfredButton size="sm">Go to Alfred</TryAlfredButton>
+          </div>
+        )}
       </Centered>
     );
   }
 
-  const { title, artifacts, sharedAt } = query.data;
+  const { title, messages, artifacts, sharedAt } = query.data;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5">
@@ -237,7 +286,15 @@ function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
 
       <div className="flex flex-col gap-8 py-4">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          // The note sits ABOVE the bubble because that is where the owner's own
+          // chat draws attachments on a user turn (`MessageAttachments`), and a
+          // published transcript should not reorder the turn it copies.
+          <div key={message.id} className="flex flex-col gap-2">
+            {message.attachmentCount > 0 ? (
+              <AttachmentNote count={message.attachmentCount} role={message.role} />
+            ) : null}
+            <MessageBubble message={toRenderableMessage(message)} />
+          </div>
         ))}
       </div>
 
@@ -275,7 +332,12 @@ export function SharedThreadPage({ urlSlug }: { urlSlug: string }) {
   return (
     <AppThemeProvider>
       <AppThemed as="main" className="min-h-dvh bg-app-background">
-        <SharedThreadBody urlSlug={urlSlug} />
+        {/* Everything below renders alt text instead of remote images. The
+         * provider wraps the WHOLE body, not just the transcript, so an
+         * artifact body added to this page later is covered too. */}
+        <PublishedTranscript>
+          <SharedThreadBody urlSlug={urlSlug} />
+        </PublishedTranscript>
       </AppThemed>
     </AppThemeProvider>
   );

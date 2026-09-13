@@ -14,12 +14,20 @@ import { SharedThreadPage } from "./-chat/shared-thread-page";
  * private context, and route `head` output is what a link preview scrapes — so
  * the tab and the preview stay generic, and the title only renders inside the
  * page once the snapshot has actually loaded.
+ *
+ * It also carries `noindex`. Every other route in this app is either marketing
+ * (index it) or behind auth (a crawler sees an empty shell), so the crawl rules
+ * have never had to think about a third case. This is it: real conversation
+ * text, no session, and a URL that is the whole access control. An indexed page
+ * removes the need to guess an 80-bit slug. `robots.txt` and the Caddyfile's
+ * `X-Robots-Tag` state the same rule for a crawler that never runs this code.
  */
 export const Route = createFileRoute("/c/$slug")({
   head: () =>
     pageMeta({
       title: "Shared thread",
       description: "A conversation shared from Alfred.",
+      noindex: true,
     }),
   component: SharedThreadRoute,
 });
