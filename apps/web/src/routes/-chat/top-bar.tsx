@@ -1,9 +1,10 @@
-import type { SyncedArtifact } from "@alfred/sync";
+import type { SyncedArtifact, SyncedChatMessage } from "@alfred/sync";
 import { Ellipsis, PanelLeft, PanelRight, Share2 } from "lucide-react";
 import { useSidebarState } from "~/lib/shell/app-shell";
 import { cn } from "~/lib/utils";
 import { ArtifactMenu } from "./artifact-menu";
 import { IconButton } from "./rail/icon-button";
+import { ThreadUsage } from "./thread-usage";
 import { Tip } from "./tip";
 
 export function TopBar({
@@ -14,6 +15,7 @@ export function TopBar({
   selectedArtifactId,
   onOpenArtifact,
   onCloseArtifact,
+  threadMessages,
 }: {
   title: string;
   railOpen: boolean;
@@ -22,6 +24,8 @@ export function TopBar({
   selectedArtifactId: string | null;
   onOpenArtifact: (artifactId: string) => void;
   onCloseArtifact: () => void;
+  /** Durable thread messages, for the dev-gated thread usage rollup. */
+  threadMessages?: readonly SyncedChatMessage[] | undefined;
 }) {
   const { open: sidebarOpen, setOpen: setSidebarOpen } = useSidebarState();
 
@@ -39,6 +43,9 @@ export function TopBar({
           </IconButton>
         ) : null}
         <h1 className="truncate text-sm font-medium text-app-fg-4">{title}</h1>
+        {import.meta.env.DEV && threadMessages ? (
+          <ThreadUsage messages={threadMessages} />
+        ) : null}
       </div>
       <div className="flex items-center gap-1.5">
         <Tip label="Share thread">
