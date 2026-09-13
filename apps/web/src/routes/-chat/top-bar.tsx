@@ -43,9 +43,7 @@ export function TopBar({
           </IconButton>
         ) : null}
         <h1 className="truncate text-sm font-medium text-app-fg-4">{title}</h1>
-        {import.meta.env.DEV && threadMessages ? (
-          <ThreadUsage messages={threadMessages} />
-        ) : null}
+        {import.meta.env.DEV && threadMessages ? <ThreadUsage messages={threadMessages} /> : null}
       </div>
       <div className="flex items-center gap-1.5">
         <Tip label="Share thread">
