@@ -82,6 +82,7 @@
     "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json && tsc -p tsconfig.eval.json",
     "test": "tsx --test --test-force-exit \"test/**/*.test.ts\"",
     "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\"",
+    "test:shard": "tsx --test --test-force-exit --test-shard=\"$TEST_SHARD\" \"test/**/*.test.ts\"",
     "eval": "evalite run",
     "eval:watch": "evalite watch"
   },
