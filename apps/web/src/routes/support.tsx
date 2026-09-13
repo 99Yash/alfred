@@ -9,6 +9,7 @@ import { SupportPage } from "./-legal/support-page";
  * `app-shell.tsx`. Mirrors the legal pages' standalone dark canvas.
  */
 export const Route = createFileRoute("/support")({
+  staticData: { publicRoute: true },
   head: () => pageMeta({ title: "Support", path: "/support" }),
   component: SupportPage,
 });

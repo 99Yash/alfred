@@ -23,6 +23,7 @@ import { SharedThreadPage } from "./-chat/shared-thread-page";
  * `X-Robots-Tag` state the same rule for a crawler that never runs this code.
  */
 export const Route = createFileRoute("/c/$slug")({
+  staticData: { publicRoute: true },
   head: () =>
     pageMeta({
       title: "Shared thread",

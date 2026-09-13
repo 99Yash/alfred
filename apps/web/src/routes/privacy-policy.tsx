@@ -14,6 +14,7 @@ import { PrivacyPolicyPage } from "./-legal/privacy-policy-page";
  * and Drive scopes.
  */
 export const Route = createFileRoute("/privacy-policy")({
+  staticData: { publicRoute: true },
   head: () => pageMeta({ title: "Privacy Policy", path: "/privacy-policy" }),
   component: PrivacyPolicyPage,
 });
