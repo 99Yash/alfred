@@ -181,7 +181,7 @@ function planTurnRetry<S>(
 }
 
 /**
- * The two consecutive-failure counters a chat turn budgets. Named as a type so
+ * The consecutive-failure counters a chat turn budgets. Named as a type so
  * this module — which stays in `agent` — does not import the concrete
  * `ChatRunState` that moved to `chat`. The chat planners are generic
  * over it, exactly like {@link openBriefTurnRetries} is over its own counter.
@@ -189,6 +189,7 @@ function planTurnRetry<S>(
 type ChatRetryState = {
   emptyCompletionRetries: number;
   streamTimeoutRetries: number;
+  capacityRetries: number;
 };
 
 /**
@@ -204,6 +205,7 @@ type ChatRetryState = {
 export function resetChatTurnRetryBudgets<S extends ChatRetryState>(state: S): void {
   state.emptyCompletionRetries = 0;
   state.streamTimeoutRetries = 0;
+  state.capacityRetries = 0;
 }
 
 /** Every bounded retry a chat turn can plan, bound to one pre-turn transcript. */
@@ -217,7 +219,31 @@ export interface ChatTurnRetries {
    * resend that recovers today.
    */
   readonly afterStreamTimeout: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
+  /**
+   * Re-issue a turn that failed on capacity (429/5xx before anything
+   * streamed) after the caller waits out {@link CAPACITY_RETRY_DELAYS_MS}.
+   * The wait is the fix: the gateway budget refills at single digits per
+   * minute, so the ladder's four attempts inside ~3s were mathematically
+   * unable to land and only guaranteed termination. A chat turn is
+   * single-step — it needs one slot — and ~10s of quiet refills roughly one,
+   * so spaced attempts land instead of dying. Chat-only by construction:
+   * triage's 30s total cannot afford the wait and keeps its fast fail.
+   */
+  readonly afterCapacityError: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
 }
+
+/**
+ * Backoff before each capacity retry, 1-based by attempt. Worst single
+ * silence stays ~35s (30s sleep + a fast failure) under the client's 45s SSE
+ * watchdog; worst total added latency ~60s of sleep plus attempt time.
+ */
+export const CAPACITY_RETRY_DELAYS_MS = [10_000, 20_000, 30_000] as const;
+
+/** Jitter ceiling added to each capacity backoff so concurrent retries desync. */
+export const CAPACITY_RETRY_JITTER_MS = 5_000;
+
+/** Bounded wait-and-retry after a capacity failure (see `afterCapacityError`). */
+const CAPACITY_MAX_RETRIES = 3;
 
 /**
  * Bind the chat turn's retry planners to the transcript as it stood *before*
@@ -248,6 +274,17 @@ export function openChatTurnRetries(preTurnTranscript: AgentTranscriptMessage[])
           max: STREAM_TIMEOUT_MAX_RETRIES,
           read: (s) => s.streamTimeoutRetries,
           bump: (s) => ({ ...s, streamTimeoutRetries: s.streamTimeoutRetries + 1 }),
+          nextStep: "chat-turn",
+        },
+        state,
+        preTurnTranscript,
+      ),
+    afterCapacityError: (state) =>
+      planTurnRetry(
+        {
+          max: CAPACITY_MAX_RETRIES,
+          read: (s) => s.capacityRetries,
+          bump: (s) => ({ ...s, capacityRetries: s.capacityRetries + 1 }),
           nextStep: "chat-turn",
         },
         state,

@@ -90,6 +90,9 @@ function stubStop(opts?: { stopAfter?: number }): TurnStopController {
       return stopped;
     },
     startPolling: () => () => {},
+    // `streamModelTurn` polls; it never backs off. A stub that resolves
+    // immediately keeps the member honest without a timer in the suite.
+    wait: async () => (stopped ? "stopped" : "elapsed"),
   };
 }
 

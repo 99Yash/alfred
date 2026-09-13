@@ -265,8 +265,8 @@ return math.floor(wait)`;
 /**
  * Milliseconds the caller must sleep before using the slot it just reserved.
  * Zero means go now. Past `maxWaitMs` the wait is returned WITHOUT reserving
- * — the caller goes early and the shared mark stays where it is. See
- * {@link RESERVE_SLOT_SCRIPT} for the model.
+ * — the caller is refused, consumes no slot, and the shared mark stays where
+ * it is. See {@link RESERVE_SLOT_SCRIPT} for the model.
  */
 export async function reserveRateSlot(
   redis: EvalRedis,
@@ -276,10 +276,10 @@ export async function reserveRateSlot(
   maxWaitMs: number,
 ): Promise<number> {
   // The burst window plus the longest wait the caller honors, plus a minute of
-  // slack past that for a long pause between the write and the next read. The
-  // queue itself can run further ahead than this when callers go early past
-  // their ceiling, but anything past `maxWaitMs` is a slot the caller did not
-  // wait for, so expiring it only drops pressure the caller already declined.
+  // slack past that for a long pause between the write and the next read.
+  // Anything past `maxWaitMs` is a slot no caller reserved, because a wait
+  // that long is refused rather than honored, so expiring it drops nothing a
+  // caller is waiting on.
   const ttlMs = intervalMs * (burst + 1) + maxWaitMs + 60_000;
 
   const result = await redis.eval(RESERVE_SLOT_SCRIPT, 1, key, intervalMs, burst, ttlMs, maxWaitMs);

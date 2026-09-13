@@ -100,7 +100,7 @@ function extractTextUsage(
     // drop the one thing a trajectory replay needs — what the model decided to
     // call (see captureOutput).
     output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
-    ...servedFromModel(model, result.response.modelId),
+    ...servedFromModel(model, result.finalStep.response.modelId),
   };
 }
 
@@ -163,7 +163,9 @@ function captureInput(args: { instructions?: unknown; prompt?: unknown; messages
  * attribute a call a `withFallback` cascade routed to the fallback leg (the
  * pre-call meta still names the primary).
  *
- * `servedModelId` comes from the SDK result (`result.response.modelId`) and is
+ * `servedModelId` comes from the SDK result (`result.finalStep.response.modelId`,
+ * the non-deprecated spelling of what `ai@7` still exposes flat as
+ * `result.response`) and is
  * the ONLY source here that moves with the cascade — the composed model object
  * cannot answer the question, and the result only answers it because each leg
  * stamps its own id. `routeLegProviders` in `../provider-adapter` owns both
@@ -198,8 +200,8 @@ function servedFromModel(
 /**
  * Per-step serving legs for a multi-step turn. Each step ran its own
  * `doGenerate` through the `withFallback` facade, so each step may have
- * degraded independently — the turn-level `response.modelId` (final step
- * only) cannot name them. Resolve every step off its own
+ * degraded independently — the turn-level `finalStep.response.modelId` (final
+ * step only) cannot name them. Resolve every step off its own
  * `step.response.modelId` + the route's leg table, falling back to the
  * step's own `model` pair and then the nominal route pair.
  *

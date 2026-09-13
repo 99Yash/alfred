@@ -111,6 +111,12 @@ export interface StreamingMessage {
   awaitingApproval: boolean;
   /** Context is being condensed before the next provider call. */
   compacting: boolean;
+  /**
+   * The turn hit a capacity error before anything streamed and is waiting out
+   * a backoff. Distinct from `compacting`: nothing is being done to the turn,
+   * it is queued behind the provider's budget.
+   */
+  awaitingCapacity: boolean;
   /** The turn finished; the durable synced message will replace this shortly. */
   done: boolean;
   /** Client-side stream failure (SSE disconnect, watchdog) — shown inline. */
@@ -163,6 +169,7 @@ interface StreamRef {
   subAgentRuns: Map<string, string>;
   awaitingApproval: boolean;
   compacting: boolean;
+  awaitingCapacity: boolean;
   done: boolean;
   error: string | null;
   /**
@@ -330,6 +337,7 @@ function ensureStreamRef(
     subAgentRuns: new Map(),
     awaitingApproval: false,
     compacting: false,
+    awaitingCapacity: false,
     done: false,
     error: null,
     stopped: false,
@@ -413,6 +421,17 @@ export function applyChatFrame(
 
     if (p.phase === "compaction_started" || p.phase === "compaction_finished") {
       r.compacting = p.phase === "compaction_started";
+      // Compaction is the turn moving again, so it retires the capacity wait.
+      // The two labels are mutually exclusive by construction, which is why no
+      // renderer has to order them.
+      r.awaitingCapacity = false;
+
+      return true;
+    }
+
+    if (p.phase === "capacity_retry") {
+      r.awaitingCapacity = true;
+      r.compacting = false;
 
       return true;
     }
@@ -426,6 +445,7 @@ export function applyChatFrame(
       r.done = true;
       r.awaitingApproval = false;
       r.compacting = false;
+      r.awaitingCapacity = false;
 
       return true;
     }
@@ -688,6 +708,7 @@ function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
   ref.done = true;
   ref.awaitingApproval = false;
   ref.compacting = false;
+  ref.awaitingCapacity = false;
 }
 
 /**
@@ -833,6 +854,7 @@ export function tickDrip(
       })),
       awaitingApproval: ref.awaitingApproval,
       compacting: ref.compacting,
+      awaitingCapacity: ref.awaitingCapacity,
       done: ref.done,
       error: ref.error,
     },
@@ -862,6 +884,7 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     a.reasoningMs !== b.reasoningMs ||
     a.awaitingApproval !== b.awaitingApproval ||
     a.compacting !== b.compacting ||
+    a.awaitingCapacity !== b.awaitingCapacity ||
     a.done !== b.done ||
     a.error !== b.error ||
     a.tools.length !== b.tools.length ||

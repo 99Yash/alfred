@@ -1,7 +1,7 @@
 import { google } from "@ai-sdk/google";
 import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
 import type { ChatModelTier } from "@alfred/contracts";
-import { isCallerAbort } from "./abort";
+import { findApiCallError, isCallerAbort } from "./abort";
 import { APICallError, type ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV4` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
@@ -307,6 +307,35 @@ function isQuotaOrBillingError(e: APICallError): boolean {
     haystack.includes("credit balance") ||
     haystack.includes("billing")
   );
+}
+
+/**
+ * True when a failed call is worth WAITING for rather than terminating over:
+ * a 429, 408, or 5xx `APICallError`, direct or as the newest attempt inside a
+ * `RetryError`. The chat turn's capacity retries (`afterCapacityError`) gate
+ * on this to convert termination into latency.
+ *
+ * Structural only, per ADR-0072 — no message sniffing. That deliberately
+ * excludes the classifier's `overloaded` message net (`fetch failed`,
+ * `econnreset`, …): those stay terminal-tagged with the client's retry
+ * affordance rather than auto-waited, so a fault that never clears (DNS, TLS)
+ * cannot park a run.
+ *
+ * Excludes quota/billing 4xx even though they degrade: money does not refill
+ * on a backoff schedule, so waiting burns attempts without landing the turn.
+ * Excludes timeouts, which already own a retry budget (the streaming
+ * circuit-breaker's single regeneration) — counting them here too would
+ * double-spend a ~180s anomaly. Caller aborts carry no status and never match.
+ */
+export function isCapacityError(err: unknown): boolean {
+  const apiError = findApiCallError(err);
+
+  if (!apiError || apiError.statusCode === undefined) return false;
+  const code = apiError.statusCode;
+
+  if (code !== 429 && code !== 408 && code < 500) return false;
+
+  return !isQuotaOrBillingError(apiError);
 }
 
 /**

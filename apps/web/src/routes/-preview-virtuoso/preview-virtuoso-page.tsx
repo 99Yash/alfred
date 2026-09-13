@@ -92,6 +92,7 @@ export function PreviewVirtuosoPage() {
       subAgents: [],
       awaitingApproval: false,
       compacting: false,
+      awaitingCapacity: false,
       done: false,
       error: null,
     });
