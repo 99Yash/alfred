@@ -78,6 +78,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "realtime",
   "runtime",
   "settings",
+  "sharing",
   "skills",
   "tasks",
   "time",

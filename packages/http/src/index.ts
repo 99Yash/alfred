@@ -20,6 +20,7 @@ import {
   invalidateSessionToken,
 } from "./middleware/session-cache";
 import { onboardingRoutes } from "./onboarding";
+import { sharingRoutes } from "./sharing";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
 import { replicache } from "./sync/replicache";
@@ -83,6 +84,7 @@ export {
   integrationsRoutes,
   mcpIntegrationRoutes,
   onboardingRoutes,
+  sharingRoutes,
   skillsRoutes,
   workflowRoutes,
 };
@@ -180,6 +182,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(integrationsRoutes)
   .use(meRoutes)
   .use(onboardingRoutes)
+  .use(sharingRoutes)
   .use(skillsRoutes)
   .use(workflowRoutes)
   .get("/health", async ({ set }) => {

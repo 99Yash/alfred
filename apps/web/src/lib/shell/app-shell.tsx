@@ -358,9 +358,18 @@ export function AppShell({ children }: { children: ReactNode }) {
    * the marketing landing, signed-in visitors get redirected to
    * `/chat`. Wrapping it in app chrome — even briefly during the
    * pending window — flashes "Memory / Notes / Skills…" at strangers
-   * before the landing renders. */
+   * before the landing renders.
+   *
+   * `/c/` — a shared thread (ADR-0102) — is in this set for BOTH reasons this
+   * set exists, and membership is what makes the page reachable at all. This
+   * list also drives the auth guard below, so a public route left out of it is
+   * redirected to `/login` and its visitor never sees the page. That failure is
+   * invisible to a signed-in developer, who gets the page wrapped in the app
+   * chrome instead. Any future signed-out route belongs here on the same day
+   * the route is written. */
   const chromeless =
     location.pathname === "/" ||
+    location.pathname.startsWith("/c/") ||
     location.pathname === "/login" ||
     location.pathname === "/preview/landing" ||
     location.pathname === "/privacy-policy" ||

@@ -1,5 +1,6 @@
 import { isEmptyChatTurnInput } from "@alfred/contracts";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { useNavigate } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useArtifactStream } from "~/lib/chat/use-artifact-stream";
@@ -10,7 +11,8 @@ import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
-import { useChatMessages } from "~/lib/replicache/use-chat";
+import { useReplicache } from "~/lib/replicache/context";
+import { useChatMessages, useChatThread } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
@@ -22,6 +24,7 @@ import { EmptyHero } from "./empty-hero";
 import { RightRail } from "./rail/right-rail";
 import { useRailData } from "./rail/use-rail-data";
 import { useRailMode } from "./rail/use-rail-mode";
+import { ThreadDeleteDialog } from "./thread-delete-dialog";
 import { TopBar } from "./top-bar";
 import { pendingToolCallId, useArtifactPanel } from "./use-artifact-panel";
 
@@ -398,6 +401,35 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     void setDefaultMode(autoApprove ? "gated" : "autonomy");
   }, [autoApprove, policyLoading, setDefaultMode]);
 
+  /* Thread-level actions behind the header's "..." menu. They run the same
+   * Replicache mutators the sidebar row menu runs — one write path, so a rename
+   * from either surface lands identically and the optimistic patch is shared.
+   * Deleting the open thread bounces to a fresh `/chat`, matching the sidebar. */
+  const rep = useReplicache();
+  const navigate = useNavigate();
+  const { thread } = useChatThread(threadId);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const onRenameThread = useCallback(
+    (next: string) => {
+      if (!rep || !threadId) return;
+      void rep.mutate.chatThreadRename({ id: threadId, title: next });
+    },
+    [rep, threadId],
+  );
+
+  const onTogglePinThread = useCallback(() => {
+    if (!rep || !threadId) return;
+    void rep.mutate.chatThreadSetPinned({ id: threadId, pinned: !thread?.pinned });
+  }, [rep, threadId, thread?.pinned]);
+
+  const onDeleteThread = useCallback(() => {
+    if (!rep || !threadId) return;
+    void rep.mutate.chatThreadDelete({ id: threadId });
+    setDeleteOpen(false);
+    void navigate({ to: "/chat" });
+  }, [rep, threadId, navigate]);
+
   // Follow-up suggestions for the last completed reply. We commit to a single
   // affordance per reply to avoid the split-brain of a ghosted prompt competing
   // with chips: exactly one suggestion → composer ghost text (Tab to accept);
@@ -443,6 +475,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       <div className="relative flex h-full min-w-0 flex-col">
         <TopBar
           title={title}
+          threadId={threadId}
+          pinned={thread?.pinned ?? false}
           railOpen={railOpen}
           onToggleRail={() => setRailOpen((v) => !v)}
           artifacts={artifact.artifacts}
@@ -450,6 +484,20 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           onOpenArtifact={artifact.open}
           onCloseArtifact={artifact.close}
           threadMessages={messages}
+          onRename={onRenameThread}
+          onTogglePin={onTogglePinThread}
+          onDelete={() => setDeleteOpen(true)}
+          tier={tier}
+          onTierChange={setTier}
+          autoApprove={autoApprove}
+          autoApprovePending={autoApprovePending}
+          onToggleAutoApprove={onToggleAutoApprove}
+        />
+        <ThreadDeleteDialog
+          title={title}
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          onConfirm={onDeleteThread}
         />
         {hasConversation ? (
           <>
