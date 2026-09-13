@@ -166,7 +166,31 @@ const serverEnvSchema = z
      * none. Setting one again puts the tighter of the two in charge and this
      * value must then move under it.
      */
-    CLOUDFLARE_AI_GATEWAY_RPM: z.coerce.number().int().positive().optional(),
+    CLOUDFLARE_AI_GATEWAY_RPM: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.coerce
+        .number()
+        .int()
+        .positive()
+        // Past 120 000 the GCRA interval `Math.round(60_000 / rpm)` rounds to
+        // 0 and pacing turns off silently — a blank-tolerant field with no
+        // ceiling would accept it. Fail loud at boot instead.
+        .max(120_000)
+        .optional(),
+    ),
+    /**
+     * Idle burst the client-side pacer allows through the gateway.
+     *
+     * GCRA lets a caller run `burst` intervals ahead of the queue, so an idle
+     * bucket serves `burst + 1` immediately and the worst minute holds
+     * `rpm + burst`. Unset takes `gateway-throttle.ts`'s default. Capped so a
+     * burst cannot quietly erase the margin the rate holds below the
+     * documented ceiling.
+     */
+    CLOUDFLARE_AI_GATEWAY_BURST: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.coerce.number().int().min(0).max(10).optional(),
+    ),
     /**
      * Vercel AI Gateway (`vck_` token) — kept for migration but unused when
      * Cloudflare is configured. `optionalSecret` tolerates `AI_GATEWAY_API_KEY=`

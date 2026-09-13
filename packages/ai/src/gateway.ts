@@ -94,6 +94,7 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
   // the config, so every later `createGateway` in this process joins that same
   // queue rather than opening its own.
   const requestsPerMinute = serverEnv().CLOUDFLARE_AI_GATEWAY_RPM;
+  const burst = serverEnv().CLOUDFLARE_AI_GATEWAY_BURST;
 
   const throttleConfig = {
     accountId: config.accountId,
@@ -102,6 +103,7 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     // `exactOptionalPropertyTypes` the absent key is what selects the module's
     // own default, and an explicit `undefined` is a different type.
     ...(requestsPerMinute === undefined ? {} : { requestsPerMinute }),
+    ...(burst === undefined ? {} : { burst }),
   };
 
   const paced = (inner?: typeof globalThis.fetch) => throttledGatewayFetch(throttleConfig, inner);
