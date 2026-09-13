@@ -754,11 +754,17 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
   // The hash + execute always use raw `input`.
   const redactedInput = tool.redactInput ? tool.redactInput(input) : input;
   const proposedInputForRow = !requiresApproval ? redactedInput : input;
-  const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
+  // `toJsonValue`, not `jsonValueSchema.parse`: a tool schema may transform its
+  // input into a record that carries a key with an `undefined` value (an
+  // optional field the caller omitted, written back by a `.transform`). That is
+  // not a `JsonValue`, so a strict parse THROWS here and kills the whole step
+  // before the tool runs — `gmail.read_message` never executed once for this
+  // reason. Both columns are jsonb, so dropping those keys is the right coerce.
+  const persistedProposedInput = toJsonValue(proposedInputForRow);
   // #374: notification sinks (approval email, delivery payload) read this
   // column — never raw `proposed_input`, which a gated tool keeps verbatim
   // for resume.
-  const persistedDisplayInput = jsonValueSchema.parse(redactedInput);
+  const persistedDisplayInput = toJsonValue(redactedInput);
 
   const upserted = await stagingStore().upsertStaging({
     userId: args.userId,

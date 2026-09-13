@@ -10,10 +10,10 @@ import {
   type StreamTextResult,
   type ToolSet,
 } from "ai";
-import { identifyLanguageModel } from "../models";
+import { identifyLanguageModel, isModelObject } from "../models";
+import { providerForServedModel } from "../provider-adapter";
 import { metered, meteredStream } from "./metered";
 import type { CallAttribution, MeteredMeta, MeteredResult } from "./types";
-import { toMessage } from "@alfred/contracts";
 
 /**
  * AI-SDK call wrappers — thin sugar over `metered()`. They:
@@ -88,7 +88,7 @@ function extractTextUsage(
     // drop the one thing a trajectory replay needs — what the model decided to
     // call (see captureOutput).
     output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
-    ...servedFromModel(model),
+    ...servedFromModel(model, result.response.modelId),
   };
 }
 
@@ -147,18 +147,39 @@ function captureInput(args: { instructions?: unknown; prompt?: unknown; messages
 }
 
 /**
- * Pull the served provider + model id off the model object after the call so
- * `metered()` can re-attribute calls a `withFallback` cascade routed to the
- * fallback provider (the pre-call meta still names the primary). ai-retry's
- * composed model proxies `provider`/`modelId` to whichever leg currently
- * serves, so reading it here reflects the model that actually answered.
+ * The provider + model id that actually answered, so `metered()` can re-
+ * attribute a call a `withFallback` cascade routed to the fallback leg (the
+ * pre-call meta still names the primary).
+ *
+ * `servedModelId` comes from the SDK result (`result.response.modelId`) and is
+ * the ONLY source here that moves with the cascade. The docblock this replaced
+ * claimed the composed model object proxies `provider`/`modelId` to the leg
+ * currently serving; it does not. `wrapLanguageModel` copies both into plain
+ * properties at construction time, and `createProviderRouteModel` wraps every
+ * route, so the object names the primary leg for the life of the process. A
+ * probe over a fallback that returned text read `openai` off the object while
+ * the result named the Gemini leg — meaning every degraded call was priced
+ * against the primary's `model_prices` row (#216 did not hold).
+ *
+ * The result carries no provider beside the id, so the route's own legs supply
+ * it. An id that belongs to no leg of this route resolves to nothing and the
+ * row keeps its pre-call attribution, rather than taking a guessed provider.
  */
-function servedFromModel(model: LanguageModel): Pick<MeteredResult, "served"> {
-  const { provider, modelId } = identifyLanguageModel(model);
+function servedFromModel(
+  model: LanguageModel,
+  servedModelId: string | undefined,
+): Pick<MeteredResult, "served"> {
+  const nominal = identifyLanguageModel(model);
 
-  if (provider === "unknown") return {};
+  if (servedModelId !== undefined && servedModelId !== nominal.modelId && isModelObject(model)) {
+    const provider = providerForServedModel(model, servedModelId);
 
-  return { served: { provider, model: modelId } };
+    if (provider !== undefined) return { served: { provider, model: servedModelId } };
+  }
+
+  if (nominal.provider === "unknown") return {};
+
+  return { served: { provider: nominal.provider, model: nominal.modelId } };
 }
 
 function extractEmbedUsage(result: EmbedResult): MeteredResult {
@@ -346,19 +367,20 @@ export function meteredStreamText(
           // Same fold as the non-streaming path: a streamed tool-call turn emits
           // no prose, so capture the proposed calls or the replay loses them.
           output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
-          ...servedFromModel(args.model),
+          ...servedFromModel(args.model, event.finalStep.response.modelId),
         });
         callerOnEnd?.(event);
       },
       onError: (event: StreamTextErrorEvent) => {
-        fail(toMessage(event.error));
+        fail(event.error);
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {
         // No top-level `response` on an abort, so read the served model off the
         // composed model object — otherwise a stop/timeout after a
         // `withFallback` cascade gets logged as the nominal primary (#216).
-        const served = servedFromModel(args.model);
+        // No `response` on an abort, so only the nominal primary is knowable.
+        const served = servedFromModel(args.model, undefined);
         abort({
           usage: usageFromSteps(event.steps, attribution.cacheWriteTtl),
           responseMeta: {

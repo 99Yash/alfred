@@ -147,6 +147,22 @@ const serverEnvSchema = z
     CLOUDFLARE_ACCOUNT_ID: optionalSecret(),
     CLOUDFLARE_GATEWAY_ID: optionalSecret(),
     /**
+     * Requests per minute the client-side pacer allows through the gateway.
+     *
+     * Unified Billing meters 200 requests per 60 seconds per gateway. Over the
+     * line the edge returns a 429 `AiGatewayError` 2018 and the turn dies with
+     * its tool results already written, so
+     * `packages/ai/src/gateway-throttle.ts` paces every call to stay under it.
+     * Unset takes that module's default, which holds a margin below the
+     * ceiling for the other callers that share the bucket.
+     *
+     * This is NOT the gateway's own `rate_limiting_limit`. That field is a
+     * separate self-imposed rule which answers 429 `2003`; `alfred-dev` has
+     * none. Setting one again puts the tighter of the two in charge and this
+     * value must then move under it.
+     */
+    CLOUDFLARE_AI_GATEWAY_RPM: z.coerce.number().int().positive().optional(),
+    /**
      * Vercel AI Gateway (`vck_` token) — kept for migration but unused when
      * Cloudflare is configured. `optionalSecret` tolerates `AI_GATEWAY_API_KEY=`
      * blank line; a `cfut_` token here is also accepted as Cloudflare alias so

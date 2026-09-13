@@ -7,6 +7,7 @@ import type {
   SharedV4ProviderOptions,
 } from "@ai-sdk/provider";
 import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
+import type { LanguageModel as SdkLanguageModel } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { activeGateway } from "./gateway";
 import { normalizeProvider, type ProviderId } from "./models";
@@ -283,6 +284,45 @@ export interface RouteModelSettings {
  * factory and adapter — then install the route's reasoning ceiling and provider
  * exceptions as overridable defaults.
  */
+/**
+ * Which provider serves each model id a given route can degrade to.
+ *
+ * Attribution cannot be read off the composed model object. `wrapLanguageModel`
+ * evaluates `provider` and `modelId` ONCE, at construction, into plain
+ * properties — it installs no getters — and `createProviderRouteModel` wraps
+ * every route unconditionally to carry the reasoning ceiling. So the composed
+ * model reports the primary leg forever, whichever leg actually answered. A
+ * probe over a fallback that returned text confirmed it: `result.response`
+ * named the Gemini leg while the model object still read `openai`.
+ *
+ * The SDK result does carry the truth, but only as a bare `modelId` with no
+ * provider beside it. This map supplies the missing half from the legs the
+ * route was built from, so no hand-written model-to-provider table is needed
+ * and an unknown id resolves to nothing rather than to a guess. Keyed by the
+ * FINAL wrapped object, because that is what call sites hold.
+ */
+/**
+ * Any constructed SDK model object — the arm `LanguageModel` narrows to once a
+ * bare gateway model-id string is excluded. Wider than `LanguageModelV4`
+ * because the SDK's own handle type still admits older specification versions,
+ * and a caller holding one must be able to ask this question.
+ */
+type ModelObject = Exclude<SdkLanguageModel, string>;
+
+const routeLegProviders = new WeakMap<ModelObject, ReadonlyMap<string, string>>();
+
+/**
+ * The provider that owns `servedModelId` on this route, or `undefined` when the
+ * id belongs to no leg of it. Pair with `result.response.modelId`; never with
+ * the route model's own `modelId`, which names the primary leg only.
+ */
+export function providerForServedModel(
+  routeModel: ModelObject,
+  servedModelId: string,
+): string | undefined {
+  return routeLegProviders.get(routeModel)?.get(servedModelId);
+}
+
 export function createProviderRouteModel(
   legs: readonly (() => LanguageModelV4)[],
   composeFallback: (primary: LanguageModelV4, fallback: LanguageModelV4) => LanguageModelV4,
@@ -291,10 +331,20 @@ export function createProviderRouteModel(
   const [first, ...rest] = legs;
 
   if (!first) throw new Error("a model route needs at least one leg");
-  let model: LanguageModelV4 = first();
+
+  const firstLeg = first();
+
+  const legProviders = new Map<string, string>([
+    [firstLeg.modelId, normalizeProvider(firstLeg.provider)],
+  ]);
+
+  let model: LanguageModelV4 = firstLeg;
 
   for (const makeLeg of rest) {
-    model = composeFallback(model, makeLeg());
+    const leg = makeLeg();
+
+    legProviders.set(leg.modelId, normalizeProvider(leg.provider));
+    model = composeFallback(model, leg);
   }
 
   if (settings.providerOptions) {
@@ -307,6 +357,7 @@ export function createProviderRouteModel(
   }
 
   model = wrapLanguageModel({ model, middleware: reasoningMiddleware(settings.reasoning) });
+  routeLegProviders.set(model, legProviders);
 
   return model;
 }
