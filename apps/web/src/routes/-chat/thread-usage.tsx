@@ -54,7 +54,11 @@ export function ThreadUsage({ messages }: { messages: readonly SyncedChatMessage
 
   return (
     <Tip
-      label={summary.turns > 0 ? `${cost} across ${summary.turns} ${turnNoun}` : `${total} ${messageNoun}`}
+      label={
+        summary.turns > 0
+          ? `${cost} across ${summary.turns} ${turnNoun}`
+          : `${total} ${messageNoun}`
+      }
       description={
         summary.turns > 0
           ? `${formatTokens(summary.inputTokens)} in (${summary.inputTokens.toLocaleString()}) · ${formatTokens(summary.outputTokens)} out (${summary.outputTokens.toLocaleString()}) · ${formatTokens(summary.cachedInputTokens)} cached · ${summary.calls} calls. ${summary.user} user + ${summary.assistant} assistant across ${total} ${messageNoun}. Excludes the in-flight turn.`
