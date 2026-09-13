@@ -119,7 +119,7 @@ export function ApprovalModePicker({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl p-1.5",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
             "app-fade-in outline-none",
           )}
         >
@@ -142,7 +142,11 @@ export function ApprovalModePicker({
                   className={cn(
                     "flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
                     "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
-                    checked && "bg-app-bg-a2",
+                    "active:scale-[0.98] active:bg-app-bg-a3",
+                    // Selected holds a step-stronger fill than hover, so a
+                    // hovered row never reads as the active mode — the Codex
+                    // list keeps the same distinction via its check + highlight.
+                    checked && "bg-app-bg-a3",
                   )}
                 >
                   <span
