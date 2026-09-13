@@ -36,7 +36,7 @@ const TIER_MARK = {
   },
 } satisfies Record<ChatModelTier, Record<AppResolvedTheme, string>>;
 
-interface TierOption {
+export interface TierOption {
   value: ChatModelTier;
   label: string;
   description: string;
@@ -54,7 +54,13 @@ const DEEP_OPTION: TierOption = {
   description: "Flagship reasoning for complex tasks",
 };
 
-const TIER_OPTIONS: ReadonlyArray<TierOption> = [STANDARD_OPTION, DEEP_OPTION];
+/**
+ * The two tiers, as the user reads them. EXPORTED because the chat header's
+ * "..." menu offers the same choice, and a second spelling of "Alfred" /
+ * "Alfred Pro" is how two surfaces that write the same state end up disagreeing
+ * about what that state is called.
+ */
+export const TIER_OPTIONS: ReadonlyArray<TierOption> = [STANDARD_OPTION, DEEP_OPTION];
 
 export function ModelTierPicker({
   value,

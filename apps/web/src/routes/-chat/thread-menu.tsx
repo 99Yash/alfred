@@ -1,22 +1,14 @@
 import type { ChatModelTier } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import {
-  Brain,
-  ClipboardCopy,
-  Ellipsis,
-  Pencil,
-  Pin,
-  PinOff,
-  ShieldCheck,
-  Trash2,
-  Zap,
-} from "lucide-react";
+import { Brain, ClipboardCopy, Ellipsis, Pencil, Pin, PinOff, Trash2, Zap } from "lucide-react";
 import { useState } from "react";
 import { useAppTheme } from "~/components/ui/v2";
 import { formatCost, formatTokens } from "~/lib/usage-format";
 import { callToast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
+import { MODE_OPTIONS } from "./approval-mode-picker";
+import { TIER_OPTIONS } from "./model-tier-picker";
 import { IconButton } from "./rail/icon-button";
 import { threadToMarkdown } from "./thread-markdown";
 import { useThreadUsageSummary } from "./thread-usage";
@@ -38,9 +30,10 @@ import { Tip } from "./tip";
  *   3. How Alfred behaves — model effort and action autonomy. These MIRROR the
  *      composer's two pickers rather than replacing them: the composer is where
  *      you change them mid-sentence, and this is where you find them when you
- *      have forgotten which control is which. Both write the same state, so the
- *      two surfaces can never disagree.
- *   4. Economics — the thread usage rollup, as a read-only row.
+ *      have forgotten which control is which. Both write the same state AND
+ *      read their labels from the pickers' own `TIER_OPTIONS` / `MODE_OPTIONS`,
+ *      so the two surfaces cannot disagree about either.
+ *   4. Economics — the thread usage rollup, DEV-ONLY, as a read-only row.
  *   5. Destructive — Delete, last and separated.
  */
 
@@ -63,6 +56,16 @@ const radioItemClass = cn(menuItemClass, "relative pl-7 data-[state=checked]:tex
 
 const sectionLabelClass = "px-2 pt-2 pb-1 text-[11px] font-medium text-app-fg-2 select-none";
 
+/**
+ * Indicator glyph per tier. The labels come from `TIER_OPTIONS`; only the icon
+ * is local, because the composer's picker draws a per-tier SVG mark that does
+ * not read at a 13px menu indicator.
+ */
+const TIER_ICON = { standard: Zap, deep: Brain } satisfies Record<
+  ChatModelTier,
+  typeof Zap | typeof Brain
+>;
+
 export interface ThreadMenuProps {
   /** Absent on a thread that has not been created yet; the menu then stays unmounted. */
   threadId: string | undefined;
@@ -79,23 +82,36 @@ export interface ThreadMenuProps {
   onToggleAutoApprove: () => void;
 }
 
-/** Read-only economics row. Renders nothing before a turn has landed with usage. */
+/**
+ * Read-only economics row.
+ *
+ * DEV-ONLY, matching `ThreadUsage` in the header and `UsageLine` under a reply:
+ * token counts and dollars are internal instrumentation, not a product surface.
+ * Renders nothing before a turn has landed with usage either.
+ *
+ * It owns its own leading separator rather than being wrapped in one, because a
+ * separator outside a component that returns `null` draws two adjacent rules on
+ * every thread with no usage yet.
+ */
 function UsageRow({ messages }: { messages: readonly SyncedChatMessage[] }) {
   const summary = useThreadUsageSummary(messages);
 
-  if (summary.turns === 0) return null;
+  if (!import.meta.env.DEV || summary.turns === 0) return null;
 
   return (
-    <div className="px-2 pt-1.5 pb-2 text-[11px] leading-relaxed text-app-fg-2 tabular-nums">
-      <div className="font-medium text-app-fg-4">
-        {formatCost(summary.costUsd)} · {summary.turns} {summary.turns === 1 ? "turn" : "turns"}
+    <>
+      <DropdownMenu.Separator className="my-1 h-px bg-app-bg-3/70" />
+      <div className="px-2 pt-1.5 pb-2 text-[11px] leading-relaxed text-app-fg-2 tabular-nums">
+        <div className="font-medium text-app-fg-4">
+          {formatCost(summary.costUsd)} · {summary.turns} {summary.turns === 1 ? "turn" : "turns"}
+        </div>
+        <div>
+          {formatTokens(summary.inputTokens)} in · {formatTokens(summary.outputTokens)} out ·{" "}
+          {formatTokens(summary.cachedInputTokens)} cached
+        </div>
+        <div>Excludes the in-flight turn.</div>
       </div>
-      <div>
-        {formatTokens(summary.inputTokens)} in · {formatTokens(summary.outputTokens)} out ·{" "}
-        {formatTokens(summary.cachedInputTokens)} cached
-      </div>
-      <div>Excludes the in-flight turn.</div>
-    </div>
+    </>
   );
 }
 
@@ -142,6 +158,14 @@ export function ThreadMenu({
           className={menuSurfaceClass}
           align="end"
           sideOffset={4}
+          // Radix returns focus to the trigger in a `setTimeout(…, 0)` after the
+          // menu closes. `Rename` opens an inline editor that focuses itself on
+          // mount, so that timeout fires SECOND, steals the focus back, and the
+          // editor's blur handler commits and closes it in the same frame — the
+          // rename affordance never appears. The sidebar's copy escapes this
+          // only because its trigger unmounts with the row; this trigger does
+          // not. Preventing the auto-focus leaves the editor holding focus.
+          onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <DropdownMenu.Item className={menuItemClass} onSelect={onRename}>
             <Pencil size={14} aria-hidden className="text-app-fg-2" />
@@ -171,18 +195,22 @@ export function ThreadMenu({
             value={tier}
             onValueChange={(next) => onTierChange(next === "deep" ? "deep" : "standard")}
           >
-            <DropdownMenu.RadioItem className={radioItemClass} value="standard">
-              <DropdownMenu.ItemIndicator className="absolute left-2">
-                <Zap size={13} aria-hidden />
-              </DropdownMenu.ItemIndicator>
-              Auto
-            </DropdownMenu.RadioItem>
-            <DropdownMenu.RadioItem className={radioItemClass} value="deep">
-              <DropdownMenu.ItemIndicator className="absolute left-2">
-                <Brain size={13} aria-hidden />
-              </DropdownMenu.ItemIndicator>
-              Deep
-            </DropdownMenu.RadioItem>
+            {TIER_OPTIONS.map((option) => {
+              const Icon = TIER_ICON[option.value];
+
+              return (
+                <DropdownMenu.RadioItem
+                  key={option.value}
+                  className={radioItemClass}
+                  value={option.value}
+                >
+                  <DropdownMenu.ItemIndicator className="absolute left-2">
+                    <Icon size={13} aria-hidden />
+                  </DropdownMenu.ItemIndicator>
+                  {option.label}
+                </DropdownMenu.RadioItem>
+              );
+            })}
           </DropdownMenu.RadioGroup>
 
           <DropdownMenu.Label className={sectionLabelClass}>Actions</DropdownMenu.Label>
@@ -197,21 +225,19 @@ export function ThreadMenu({
               if ((next === "autonomy") !== autoApprove) onToggleAutoApprove();
             }}
           >
-            <DropdownMenu.RadioItem className={radioItemClass} value="gated">
-              <DropdownMenu.ItemIndicator className="absolute left-2">
-                <ShieldCheck size={13} aria-hidden />
-              </DropdownMenu.ItemIndicator>
-              Review before acting
-            </DropdownMenu.RadioItem>
-            <DropdownMenu.RadioItem className={radioItemClass} value="autonomy">
-              <DropdownMenu.ItemIndicator className="absolute left-2">
-                <Zap size={13} aria-hidden />
-              </DropdownMenu.ItemIndicator>
-              Autopilot
-            </DropdownMenu.RadioItem>
+            {MODE_OPTIONS.map((option) => (
+              <DropdownMenu.RadioItem
+                key={option.label}
+                className={radioItemClass}
+                value={option.autonomy ? "autonomy" : "gated"}
+              >
+                <DropdownMenu.ItemIndicator className="absolute left-2">
+                  <option.Icon size={13} aria-hidden />
+                </DropdownMenu.ItemIndicator>
+                {option.label}
+              </DropdownMenu.RadioItem>
+            ))}
           </DropdownMenu.RadioGroup>
-
-          <DropdownMenu.Separator className="my-1 h-px bg-app-bg-3/70" />
 
           <UsageRow messages={messages} />
 

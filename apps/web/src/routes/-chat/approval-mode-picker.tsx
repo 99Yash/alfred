@@ -19,7 +19,7 @@ import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
 
-interface ModeOption {
+export interface ModeOption {
   /** True = autonomy (Autopilot); false = gated (Review). */
   autonomy: boolean;
   label: string;
@@ -41,7 +41,12 @@ const AUTOPILOT_OPTION: ModeOption = {
   Icon: Zap,
 };
 
-const MODE_OPTIONS: ReadonlyArray<ModeOption> = [REVIEW_OPTION, AUTOPILOT_OPTION];
+/**
+ * The two autonomy modes, as the user reads them. EXPORTED for the same reason
+ * as {@link TIER_OPTIONS}: the header menu writes this exact state, so it reads
+ * these labels rather than re-spelling them.
+ */
+export const MODE_OPTIONS: ReadonlyArray<ModeOption> = [REVIEW_OPTION, AUTOPILOT_OPTION];
 
 export function ApprovalModePicker({
   on,

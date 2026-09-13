@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { artifactContentSchema, artifactFormatSchema, artifactKindSchema } from "./artifacts";
+import { DOCUMENT_MARKDOWN_MAX } from "./artifacts";
 import { isoDateTimeStringSchema } from "./iso-date-time";
 import { slugBase } from "./slug";
 
@@ -79,15 +79,55 @@ export const sharedThreadMessageSchema = z.object({
   status: z.enum(["complete", "failed"]),
   toolCalls: z.array(sharedThreadToolCallSchema).nullable().default(null),
   narration: z.array(sharedThreadNarrationSchema).nullable().default(null),
+  /**
+   * How many files rode with this turn. A COUNT, never the files: attachment
+   * bytes sit behind the owner's auth-gated content proxy and a visitor cannot
+   * fetch them, so publishing the count is what keeps the transcript honest —
+   * a turn that carried three screenshots would otherwise read as a bare
+   * sentence, which is the same doctoring the `status` field exists to prevent.
+   *
+   * Defaulted so a row written before this field existed still parses.
+   */
+  attachmentCount: z.number().int().nonnegative().default(0),
   createdAt: isoDateTimeStringSchema,
 });
 
 export type SharedThreadMessage = z.infer<typeof sharedThreadMessageSchema>;
 
 /**
+ * A published artifact BODY. This union is deliberately not
+ * `artifactContentSchema`, and the difference is the point of the split.
+ *
+ *   - `document` publishes its markdown. The owner authored it as prose and the
+ *     public page renders it.
+ *   - `pages` publishes a COUNT and no HTML. A page body is assembled from tool
+ *     results, so it can restate the mail, calendar, and file content that the
+ *     `resultPreview` drop already removed from the same thread. A count says
+ *     the deck exists without republishing what it was built from.
+ *   - `external_file` has no variant here AT ALL. Its body is a pointer into
+ *     the owner's Drive — a file id, a preview URL, a file name — which is
+ *     private material with no reader on a public page. An artifact whose body
+ *     does not map onto this union is dropped from the snapshot rather than
+ *     published with an empty body (see `toSharedArtifact`).
+ *
+ * Narrowing here is what makes the write-time redaction real: the row cannot
+ * store a field this union cannot express, so no read path can return one.
+ */
+export const sharedThreadArtifactBodySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("document"), markdown: z.string().max(DOCUMENT_MARKDOWN_MAX) }),
+  z.object({ kind: z.literal("pages"), pageCount: z.number().int().nonnegative().max(100) }),
+]);
+
+export type SharedThreadArtifactBody = z.infer<typeof sharedThreadArtifactBodySchema>;
+
+/**
  * A published artifact. Only `complete` artifacts are snapshotted, so there is
  * no `status` field: a half-written `generating` body and a failed `error` body
  * are both things the owner never chose to publish.
+ *
+ * `kind` and `format` are gone too — `body.kind` already selects the renderer,
+ * and `format` (slides versus pdf) drives page geometry that this surface never
+ * draws.
  *
  * Unlike Dimension — whose public page re-reads artifact bodies live from the
  * `artifacts` table by id, so a later edit silently rewrites an already-shared
@@ -95,10 +135,8 @@ export type SharedThreadMessage = z.infer<typeof sharedThreadMessageSchema>;
  */
 export const sharedThreadArtifactSchema = z.object({
   id: z.string(),
-  kind: artifactKindSchema,
-  format: artifactFormatSchema.nullable().default(null),
   title: z.string(),
-  content: artifactContentSchema.nullable().default(null),
+  body: sharedThreadArtifactBodySchema,
   createdAt: isoDateTimeStringSchema,
 });
 
@@ -124,6 +162,7 @@ export const sharedThreadSummarySchema = z.object({
   urlSlug: z.string(),
   title: z.string(),
   messageCount: z.number().int().nonnegative(),
+  artifactCount: z.number().int().nonnegative(),
   sharedAt: isoDateTimeStringSchema,
 });
 

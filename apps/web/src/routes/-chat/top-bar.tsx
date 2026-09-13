@@ -59,6 +59,28 @@ export function TopBar({
   const [renaming, setRenaming] = useState(false);
   const messages = threadMessages ?? [];
 
+  /* Both pieces of state above NAME A THREAD, and `ChatShell` carries no key, so
+   * a thread switch re-renders this bar rather than remounting it. Left alone,
+   * each one re-targets itself at the new thread in silence:
+   *
+   *   - `renaming` keeps an uncontrolled input holding the PREVIOUS thread's
+   *     text. Press Enter and the new thread takes the old title — a data loss
+   *     with no error.
+   *   - `shareOpen` keeps the dialog on screen, now publishing a thread the user
+   *     was not looking at when they opened it.
+   *
+   * Reset during render, not in an effect: an effect commits one frame late, and
+   * that frame is enough for an Enter keypress to land on the wrong thread. This
+   * is the same pure render-phase adjustment `chat-shell.tsx` uses to reset its
+   * queue gate. */
+  const [prevThreadId, setPrevThreadId] = useState(threadId);
+
+  if (prevThreadId !== threadId) {
+    setPrevThreadId(threadId);
+    setRenaming(false);
+    setShareOpen(false);
+  }
+
   return (
     <header
       className={cn(

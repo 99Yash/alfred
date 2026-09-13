@@ -1,8 +1,9 @@
 import type { SharedThreadSummary } from "@alfred/contracts";
-import { Check, Copy, Globe, Loader2, Trash2 } from "lucide-react";
+import { Check, Copy, ExternalLink, Globe, Loader2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
-import { AppButton, useAppTheme } from "~/components/ui/v2";
+import { AppButton } from "~/components/ui/v2";
+import { toMessage } from "@alfred/contracts";
 import {
   sharedThreadUrl,
   useRevokeShare,
@@ -25,6 +26,15 @@ import { cn } from "~/lib/utils";
  * reasoning; they do not see tool results, token costs, or attachments. Users
  * cannot reason about a privacy control they have to infer, so the copy says it
  * rather than relying on the reader having read the ADR.
+ *
+ * REVOKE ASKS TWICE. It is a hard delete of the row and its snapshot bytes
+ * (ADR-0102 D9), so it gets the same second click a thread delete gets. The
+ * confirmation is inline on the row rather than a nested dialog: a dialog over
+ * a dialog moves the focus trap twice for a one-word question.
+ *
+ * PREVIEW OPENS THE REAL PAGE. Dimension renders its own preview from the LIVE
+ * thread, so its preview can disagree with what it published. A plain link to
+ * the published URL cannot: it is the page, so it is correct by construction.
  */
 
 /** Time-boxed "Copied" acknowledgement on the copy button. */
@@ -50,6 +60,14 @@ function useCopiedFlag() {
   };
 }
 
+/** One small text action on a share row: Preview, Revoke, and the confirm pair. */
+const ROW_ACTION_CLASS = cn(
+  "inline-flex items-center rounded-lg px-2 py-1 text-xs font-medium no-underline",
+  "text-app-fg-2 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
+  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+  "disabled:pointer-events-none disabled:opacity-50",
+);
+
 function ShareRow({
   share,
   onRevoke,
@@ -61,6 +79,7 @@ function ShareRow({
 }) {
   const url = sharedThreadUrl(share.urlSlug);
   const { copied, flag } = useCopiedFlag();
+  const [confirming, setConfirming] = useState(false);
 
   const copy = () => {
     navigator.clipboard.writeText(url).then(
@@ -103,31 +122,67 @@ function ShareRow({
         </AppButton>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
-        <span className="truncate text-xs text-app-fg-2">
-          {share.messageCount} {share.messageCount === 1 ? "message" : "messages"} · shared{" "}
-          {new Date(share.sharedAt).toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-          })}
-        </span>
-        <button
-          type="button"
-          onClick={onRevoke}
-          disabled={revoking}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
-            "text-app-fg-2 transition-colors hover:bg-app-red-1 hover:text-app-red-4",
-            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-            "disabled:pointer-events-none disabled:opacity-50",
-          )}
-        >
-          {revoking ? (
-            <Loader2 size={12} aria-hidden className="animate-spin" />
-          ) : (
-            <Trash2 size={12} aria-hidden />
-          )}
-          Revoke
-        </button>
+        {confirming ? (
+          <>
+            <span className="truncate text-xs text-app-fg-3">
+              Revoke this link? Anyone holding it loses the page.
+            </span>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className={ROW_ACTION_CLASS}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirming(false);
+                  onRevoke();
+                }}
+                disabled={revoking}
+                className={cn(ROW_ACTION_CLASS, "text-app-red-4 hover:bg-app-red-1")}
+              >
+                Revoke
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="truncate text-xs text-app-fg-2">
+              {share.messageCount} {share.messageCount === 1 ? "message" : "messages"} · shared{" "}
+              {new Date(share.sharedAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+            <div className="flex shrink-0 items-center gap-1">
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(ROW_ACTION_CLASS, "gap-1.5")}
+              >
+                <ExternalLink size={12} aria-hidden />
+                Preview
+              </a>
+              <button
+                type="button"
+                onClick={() => setConfirming(true)}
+                disabled={revoking}
+                className={cn(ROW_ACTION_CLASS, "gap-1.5 hover:bg-app-red-1 hover:text-app-red-4")}
+              >
+                {revoking ? (
+                  <Loader2 size={12} aria-hidden className="animate-spin" />
+                ) : (
+                  <Trash2 size={12} aria-hidden />
+                )}
+                Revoke
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -142,7 +197,6 @@ export function ShareThreadDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { resolved } = useAppTheme();
   const shares = useThreadShares(threadId, open);
   const share = useShareThread(threadId);
   const revoke = useRevokeShare(threadId);
@@ -154,7 +208,7 @@ export function ShareThreadDialog({
     setRevokingId(id);
     revoke.mutate(id, {
       onSuccess: () => callToast({ message: "Link revoked", variant: "success" }),
-      onError: () => callToast({ message: "Could not revoke the link.", variant: "error" }),
+      onError: (error) => callToast({ message: toMessage(error), variant: "error" }),
       onSettled: () => setRevokingId(null),
     });
   };
@@ -164,8 +218,8 @@ export function ShareThreadDialog({
       <DialogContent
         title="Share this thread"
         description="Anyone with the link can read this conversation. They do not need an Alfred account."
-        className="app max-w-lg"
-        data-app-theme={resolved}
+        themed
+        className="max-w-lg"
       >
         <div className="flex flex-col gap-3 px-6 pt-1 pb-5">
           <p className="text-xs leading-relaxed text-app-fg-2">
@@ -191,7 +245,7 @@ export function ShareThreadDialog({
           ))}
 
           {shares.isError ? (
-            <p className="text-xs text-app-red-4">Could not load existing links.</p>
+            <p className="text-xs text-app-red-4">{toMessage(shares.error)}</p>
           ) : null}
 
           <div className="flex items-center justify-end gap-2 pt-1">
@@ -205,9 +259,10 @@ export function ShareThreadDialog({
               disabled={!threadId}
               leading={<Globe size={14} aria-hidden />}
               onClick={() =>
+                // The server's own message is the actionable one: it names the
+                // empty thread, the message cap, and the size cap by number.
                 share.mutate(undefined, {
-                  onError: () =>
-                    callToast({ message: "Could not create a link.", variant: "error" }),
+                  onError: (error) => callToast({ message: toMessage(error), variant: "error" }),
                 })
               }
             >

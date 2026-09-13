@@ -19,6 +19,13 @@
  * inherit the wrong side of that line by default. Two instances make the
  * boundary structural: the guarded block cannot accidentally leak a route, and
  * this one has exactly one member that a reviewer can see in full.
+ *
+ * THE PUBLIC INSTANCE OWNS A NARROW PREFIX, AND THAT IS PART OF THE SPLIT. It
+ * is mounted at `/api/shared`, not at `/api`. An unauthenticated instance that
+ * owned the whole `/api` namespace would make every path it could ever declare
+ * public by default, so the next route appended to that chain would inherit no
+ * session check and nothing would say so. The prefix keeps the blast radius of
+ * a future edit inside one namespace whose name reads as public.
  */
 import { Errors } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
@@ -31,6 +38,7 @@ import {
 } from "@alfred/assistant/sharing";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
+import { publicRateLimit } from "./middleware/public-rate-limit";
 
 /** Owner-only share management. Every route here needs a session AND onboarding. */
 const ownerSharingRoutes = new Elysia({ prefix: "/api", normalize: "typebox" })
@@ -89,18 +97,24 @@ const ownerSharingRoutes = new Elysia({ prefix: "/api", normalize: "typebox" })
  * A missing slug answers 404 with no detail. Do not enrich that message with
  * "revoked" versus "never existed": the difference tells a prober whether a
  * guessed slug was ever real.
+ *
+ * `publicRateLimit` is the bound that a session check gives every other route
+ * here. It is a cost control and fails open; the slug remains the access
+ * control.
  */
-const publicSharingRoutes = new Elysia({ prefix: "/api", normalize: "typebox" }).get(
-  "/shared/:urlSlug",
-  async ({ params }) => {
-    const page = await readSharedThreadPage(params.urlSlug);
+const publicSharingRoutes = new Elysia({ prefix: "/api/shared", normalize: "typebox" })
+  .use(publicRateLimit("shared-thread"))
+  .get(
+    "/:urlSlug",
+    async ({ params }) => {
+      const page = await readSharedThreadPage(params.urlSlug);
 
-    if (!page) throw Errors.NotFoundError("This shared thread is not available.");
+      if (!page) throw Errors.NotFoundError("This shared thread is not available.");
 
-    return page;
-  },
-  { params: t.Object({ urlSlug: t.String({ minLength: 1, maxLength: 200 }) }) },
-);
+      return page;
+    },
+    { params: t.Object({ urlSlug: t.String({ minLength: 1, maxLength: 200 }) }) },
+  );
 
 export const sharingRoutes = new Elysia({ name: "sharing", normalize: "typebox" })
   .use(publicSharingRoutes)
