@@ -1008,10 +1008,18 @@ export const gmailReadMessageInput = z
     message: "documentId or messageId is required",
   })
   // Fold the legacy `id` alias into `messageId` so consumers read one field.
-  .transform((value) => ({
-    documentId: value.documentId,
-    messageId: value.messageId ?? value.id,
-  }));
+  // Omit the key the caller did not supply rather than writing it as
+  // `undefined`: the dispatcher persists the parsed input as a `JsonValue`,
+  // and a record with an `undefined` value is not JSON, so an explicit key
+  // would throw at the staging boundary before the tool ever executes.
+  .transform((value) => {
+    const messageId = value.messageId ?? value.id;
+
+    return {
+      ...(value.documentId === undefined ? {} : { documentId: value.documentId }),
+      ...(messageId === undefined ? {} : { messageId }),
+    };
+  });
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 

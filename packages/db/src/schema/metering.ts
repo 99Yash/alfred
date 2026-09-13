@@ -53,6 +53,23 @@ export const apiCallLog = pgTable(
     /** finish_reason, usage block, tool_calls count, raw provider response id. */
     responseMeta: jsonb("response_meta"),
     error: jsonb("error"),
+    /**
+     * Transport status of a failed call. NULL on success and on a failure that
+     * carried no HTTP status (an abort, a socket error, a parse fault).
+     *
+     * Present because `error.message` alone cannot separate the two 429s the
+     * Cloudflare AI Gateway returns. Both read "Too Many Requests"; only the
+     * body distinguishes the gateway's own rule (`internalCode 2003`) from the
+     * Unified Billing budget (`internalCode 2018`), and three separate
+     * diagnoses had to open the Cloudflare dashboard to tell them apart.
+     */
+    statusCode: integer("status_code"),
+    /**
+     * The provider's raw error body, run through `redactSecrets` and truncated.
+     * Written only on a failure — a success body would duplicate the response
+     * and carry user content into the cost log for no auditing value.
+     */
+    responseBody: text("response_body"),
   },
   (t) => [
     index("api_call_log_run_idx").on(t.runId, t.id),

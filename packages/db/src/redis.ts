@@ -208,6 +208,71 @@ export async function incrementExpiringCounter(
 }
 
 /**
+ * Reserve the next slot in a paced queue, and say how long to wait for it.
+ *
+ * This is GCRA (the leaky-bucket form a rate limiter usually hides), and it
+ * differs from {@link incrementExpiringCounter} in the question it answers.
+ * A counter answers "may I go NOW?", so a caller over the line can only fail.
+ * This answers "WHEN may I go?", so a caller over the line waits instead —
+ * which is the whole point when the limit belongs to an upstream that charges
+ * a failed turn rather than a queued one.
+ *
+ * The key holds one number, the theoretical arrival time (TAT): the moment the
+ * queue would be empty again. Each reservation pushes it one `intervalMs`
+ * further out. A caller may start `burst * intervalMs` AHEAD of that mark, so
+ * an idle bucket serves `burst + 1` callers with no delay at all and only a
+ * sustained stream gets paced to one per interval. That is deliberate: a short
+ * burst is the common case and must stay fast.
+ *
+ * Every reservation is granted. The return value is the wait in milliseconds,
+ * and the caller owns the sleep — so an abort during the wait costs the slot,
+ * not the caller's error budget. A caller that cannot wait that long may go
+ * early; it forfeits the guarantee, it does not corrupt the queue.
+ *
+ * `PX` on every write, so an idle bucket disappears rather than pinning a
+ * stale TAT forever. The TTL must outlive the furthest reservation the bucket
+ * can hold, which is what {@link reserveRateSlot} computes for the caller.
+ */
+const RESERVE_SLOT_SCRIPT = `local interval = tonumber(ARGV[1])
+local burst = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+local ttlMs = tonumber(ARGV[4])
+local tat = tonumber(redis.call("GET", KEYS[1]) or "0")
+if tat < now then tat = now end
+local wait = tat - (burst * interval) - now
+if wait < 0 then wait = 0 end
+redis.call("SET", KEYS[1], tat + interval, "PX", ttlMs)
+return math.floor(wait)`;
+
+/**
+ * Milliseconds the caller must sleep before using the slot it just reserved.
+ * Zero means go now. See {@link RESERVE_SLOT_SCRIPT} for the model.
+ */
+export async function reserveRateSlot(
+  redis: EvalRedis,
+  key: string,
+  intervalMs: number,
+  burst: number,
+): Promise<number> {
+  // The furthest a reservation can sit in the future is the burst window plus
+  // one interval; a minute of slack past that keeps a clock skew between two
+  // processes from expiring a live bucket.
+  const ttlMs = intervalMs * (burst + 1) + 60_000;
+
+  const result = await redis.eval(
+    RESERVE_SLOT_SCRIPT,
+    1,
+    key,
+    intervalMs,
+    burst,
+    Date.now(),
+    ttlMs,
+  );
+
+  return Number(result);
+}
+
+/**
  * The one door to an ioredis client. `new IORedis(...)` appears nowhere else in
  * the repo and `pnpm check` fails on a second one, so every connection in the
  * process carries one of the profiles above.

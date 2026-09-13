@@ -36,6 +36,17 @@ export function normalizeProvider(raw: string): string {
 }
 
 /**
+ * True for a constructed model object rather than a bare gateway model-id
+ * string. The SDK's `LanguageModel` is that union, and the two arms carry
+ * different information: only the object arm can be looked up in a registry
+ * keyed by identity. `isIndexable` is the correct guard for a class/SDK
+ * instance — `isRecord` rejects it on prototype.
+ */
+export function isModelObject(model: LanguageModel): model is Exclude<LanguageModel, string> {
+  return isIndexable(model);
+}
+
+/**
  * Resolve `{ provider, modelId }` from an AI SDK `LanguageModel`. The SDK's
  * `LanguageModel` includes gateway strings and versioned model objects. Every
  * object member exposes `provider` + `modelId`, so we read the two fields off

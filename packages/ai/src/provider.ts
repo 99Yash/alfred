@@ -312,6 +312,34 @@ function isQuotaOrBillingError(e: APICallError): boolean {
   );
 }
 
+/**
+ * Compose a primary leg with a fallback leg: retry the primary twice, then
+ * degrade to the fallback on any capacity condition.
+ *
+ * The returned object is a STATELESS FACADE, and that is load-bearing. It
+ * builds a fresh `createRetryableModel` per call instead of holding one.
+ * ai-retry's `RetryableLanguageModel` keeps the serving leg in an INSTANCE
+ * field (`currentModel`, plus `stickyState`): `doGenerate` assigns the start
+ * model, the retry loop re-reads the field at dispatch time, and the backoff
+ * delay sits between the two. One instance therefore cannot serve two calls at
+ * once. `createRouteHandle` memoizes one model per named route, so before this
+ * facade every concurrent caller of a route shared that field — a call whose
+ * attempt 1 failed on OpenAI was directly observed dispatching attempt 2 to
+ * Google, because a sibling call moved the field during the 1-second sleep.
+ * The retry budget was mis-charged the same way, since `findRetryModel` counts
+ * attempts by `getModelKey(attempt.model)`.
+ *
+ * The memo stays: the facade is built once per route, so `route(name).model()`
+ * keeps returning the same object and referential-identity callers still hold.
+ * Only the mutable retry state is now per call.
+ *
+ * `provider` and `modelId` name the PRIMARY leg and never move. Do not read
+ * them to learn which leg answered — they cannot tell you. `wrapLanguageModel`
+ * copies both into plain properties when `createProviderRouteModel` installs
+ * the reasoning middleware, so even ai-retry's own live values were frozen at
+ * the primary before any call ran. `providerForServedModel` plus the SDK's
+ * `result.response.modelId` is the seam that does know.
+ */
 export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4): LanguageModelV4 {
   // True for any error worth degrading to the fallback; false for a
   // non-retryable client bug we want to surface. Built with the raw `error`
@@ -326,6 +354,24 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     if (isCallerAbort(e)) return false;
 
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
+      // A 429 degrades, INCLUDING a Cloudflare `2018` "Wholesale Rate limited"
+      // from the gateway edge — but for a smaller reason than an earlier
+      // comment here claimed, and the distinction matters to anyone reading
+      // this as a reliability guarantee.
+      //
+      // Unified Billing meters ONE budget per gateway, shared across
+      // providers. Two order-reversed bursts on 2026-09-13 show it: whichever
+      // provider fires first takes the slots and the one that fires second
+      // gets 13-20 percent. So on a `2018` the fallback leg draws on the same
+      // exhausted bucket as the primary, and degrading is NOT what lands the
+      // turn. It lands roughly one attempt in five, which still beats failing
+      // outright, and it costs one request.
+      //
+      // The switch stays for the case it is actually good at: a 429 the
+      // PROVIDER raised (an Anthropic or OpenAI account limit), which is per
+      // provider and which the other leg genuinely escapes. Nothing here can
+      // separate the two from the status code alone — the `2018` body is the
+      // only tell, and `api_call_log.response_body` now records it.
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
 
@@ -341,11 +387,21 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     return true;
   });
 
-  return createRetryableModel({
-    model: primary,
-    retries: [
-      or(error.isRetryable(true), timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
-      shouldSwitch.switch({ model: fallback }),
-    ],
-  });
+  const compose = (): LanguageModelV4 =>
+    createRetryableModel({
+      model: primary,
+      retries: [
+        or(error.isRetryable(true), timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
+        shouldSwitch.switch({ model: fallback }),
+      ],
+    });
+
+  return {
+    specificationVersion: primary.specificationVersion,
+    provider: primary.provider,
+    modelId: primary.modelId,
+    supportedUrls: primary.supportedUrls,
+    doGenerate: (options) => compose().doGenerate(options),
+    doStream: (options) => compose().doStream(options),
+  };
 }

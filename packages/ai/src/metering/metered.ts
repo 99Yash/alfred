@@ -4,7 +4,8 @@ import { isCallerAbort } from "../abort";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
-import { toMessage } from "@alfred/contracts";
+import { redactSecrets, toMessage } from "@alfred/contracts";
+import { APICallError } from "@ai-sdk/provider";
 
 const pendingMeteringWrites = new Set<Promise<void>>();
 
@@ -147,6 +148,7 @@ export async function metered<T>(
         costUsd: 0,
         responseMeta: undefined,
         error: { message },
+        transport: transportFacts(err),
       }),
     );
     span.error(message);
@@ -163,8 +165,11 @@ export async function metered<T>(
  *   - `finish(result)` — call once when the stream completes, with the same
  *     `MeteredResult` shape `metered()`'s extractor returns. Computes cost,
  *     writes the `api_call_log` row, closes the Langfuse span.
- *   - `fail(message)` — call on stream error. Writes an error row, ends the
- *     span. The caller still rethrows/propagates as it sees fit.
+ *   - `fail(cause)` — call on stream error with the RAW error, not a message.
+ *     Writes an error row, ends the span. The caller still rethrows/propagates
+ *     as it sees fit. The raw value is needed because `status_code` and
+ *     `response_body` only exist on an `APICallError`, and a message string has
+ *     already thrown both away.
  *
  * Both are idempotent — only the first call lands — so wiring them into both
  * `onEnd` and a `try/catch` is safe. The span opens synchronously here so
@@ -174,7 +179,7 @@ export function meteredStream<T>(
   meta: MeteredMeta,
   start: (hooks: {
     finish: (result: MeteredResult) => void;
-    fail: (message: string) => void;
+    fail: (cause: unknown) => void;
     abort: (result: MeteredResult) => void;
   }) => T,
 ): T {
@@ -219,9 +224,10 @@ export function meteredStream<T>(
     settleWithUsage(extracted, true);
   };
 
-  const fail = (message: string): void => {
+  const fail = (cause: unknown): void => {
     if (settled) return;
     settled = true;
+    const message = toMessage(cause);
     const latencyMs = Date.now() - startedAt.getTime();
     enqueueMeteringWrite(
       writeLogRow({
@@ -231,12 +237,45 @@ export function meteredStream<T>(
         costUsd: 0,
         responseMeta: undefined,
         error: { message },
+        transport: transportFacts(cause),
       }),
     );
     span.error(message);
   };
 
   return start({ finish, fail, abort });
+}
+
+/**
+ * Longest error body kept on a row. A provider error body is a few hundred
+ * bytes; the cap only bounds a provider that answers a failure with a page.
+ */
+const MAX_RESPONSE_BODY_CHARS = 2_000;
+
+/** The two transport columns a failed `api_call_log` row can carry. */
+interface TransportFacts {
+  readonly statusCode?: number;
+  readonly responseBody?: string;
+}
+
+/**
+ * The transport facts a failed call carries beyond its message, for the two
+ * columns that exist so a 429 can be diagnosed without the provider dashboard.
+ *
+ * Only an `APICallError` has them. Everything else — an abort, a socket fault,
+ * a schema parse failure — leaves both NULL, which is the honest answer rather
+ * than a zero.
+ */
+function transportFacts(err: unknown): TransportFacts {
+  if (!APICallError.isInstance(err)) return {};
+  const body = err.responseBody;
+
+  return {
+    ...(err.statusCode === undefined ? {} : { statusCode: err.statusCode }),
+    ...(body === undefined
+      ? {}
+      : { responseBody: redactSecrets(body).slice(0, MAX_RESPONSE_BODY_CHARS) }),
+  };
 }
 
 interface WriteArgs {
@@ -246,10 +285,11 @@ interface WriteArgs {
   costUsd: number;
   responseMeta: MeteredResult["responseMeta"];
   error: { message: string } | null;
+  transport?: TransportFacts;
 }
 
 async function writeLogRow(args: WriteArgs): Promise<void> {
-  const { meta, latencyMs, usage, costUsd, responseMeta, error } = args;
+  const { meta, latencyMs, usage, costUsd, responseMeta, error, transport } = args;
 
   try {
     await db()
@@ -276,6 +316,8 @@ async function writeLogRow(args: WriteArgs): Promise<void> {
         },
         responseMeta: responseMeta ?? null,
         error,
+        statusCode: transport?.statusCode ?? null,
+        responseBody: transport?.responseBody ?? null,
       });
   } catch (err) {
     console.warn("[metered] failed to write api_call_log row:", toMessage(err));
