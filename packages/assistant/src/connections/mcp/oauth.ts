@@ -367,7 +367,25 @@ function parseAuthorizationServerMetadata(
     : undefined;
 
   return {
-    issuer: issuer.href,
+    // The issuer identifier travels EXACTLY as the server published it, not as
+    // `URL` would normalize it. Both RFC 8414 §2 and RFC 9207 §2.4 compare an
+    // issuer by simple string comparison, and `new URL("https://host").href`
+    // appends a path `/` that the origin-only form never had. Every built-in
+    // publishes the origin-only form, so normalizing here rewrote the value
+    // into one no server would ever echo.
+    //
+    // Only Sentry sets `authorization_response_iss_parameter_supported`, so
+    // only Sentry sends `iss` back and only Sentry reached the comparison: it
+    // expected `https://mcp.sentry.dev/` and received `https://mcp.sentry.dev`,
+    // and the callback failed with the code already in hand. The client's
+    // METADATA echo check tolerates a trailing slash and its authorization-
+    // RESPONSE check does not, which is why discovery passed and the callback
+    // did not.
+    //
+    // `validateEndpoint` above still pins the origin and `issuer.href` still
+    // has to equal it, so the raw string is proven to name the same server
+    // before it is returned.
+    issuer: parsed.issuer,
     authorization_endpoint: authorizationEndpoint.href,
     token_endpoint: tokenEndpoint.href,
     response_types_supported: parsed.response_types_supported,
