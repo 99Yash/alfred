@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  isTrustedRetrievalSource,
   type ContextSearchRequest,
   type EvidenceCard,
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
 import {
+  isTrustedRetrievalSource,
   registerContextSource,
   searchContext,
   selectContextSources,
@@ -46,21 +46,26 @@ function cardFrom(sourceId: string): EvidenceCard {
 }
 
 /**
- * A source that records whether it was read. "Skipped" must mean the search
- * never ran, not that its output was discarded afterwards — the whole point of
+ * A source that records whether it was read. "Skipped" must mean no reader
+ * ran, not that its output was discarded afterwards — the whole point of
  * excluding a source is not paying for it.
  */
 function recordingSource(manifest: RetrievalSourceManifest) {
   let read = false;
 
+  async function handler() {
+    read = true;
+
+    return { evidence: [cardFrom(manifest.id)] };
+  }
+
   const source: ContextSource = {
     id: manifest.id,
     manifest,
-    async search() {
-      read = true;
-
-      return { evidence: [cardFrom(manifest.id)] };
-    },
+    // SAFETY: entries are built from manifest.read keys, so the record keys are capabilities by construction.
+    reads: Object.fromEntries(
+      manifest.read.map((capability) => [capability, handler] as const),
+    ) as ContextSource["reads"],
   };
 
   return { source, wasRead: () => read };
@@ -130,18 +135,14 @@ function select(
 }
 
 function reasonFor(selection: ReturnType<typeof select>, sourceId: string): string | undefined {
-  return selection.excluded.find((one) => one.sourceId === sourceId)?.reason;
+  return selection.get(sourceId);
 }
 
 describe("selectContextSources — who gets asked", () => {
   test("a fully described native source is a candidate", () => {
     const selection = select([NATIVE]);
 
-    assert.deepEqual(
-      selection.candidates.map((source) => source.id),
-      [NATIVE.id],
-    );
-    assert.equal(selection.excluded.length, 0);
+    assert.equal(selection.size, 0);
   });
 
   test("a described MCP source is a candidate on the same terms as a native one", () => {
@@ -150,10 +151,7 @@ describe("selectContextSources — who gets asked", () => {
     // and its provenance is asked exactly as a first-party source is.
     const selection = select([DESCRIBED_MCP]);
 
-    assert.deepEqual(
-      selection.candidates.map((source) => source.id),
-      [DESCRIBED_MCP.id],
-    );
+    assert.equal(selection.size, 0);
   });
 
   test("a source that forgets its read declaration fails at registration, not at read time", () => {
@@ -164,9 +162,7 @@ describe("selectContextSources — who gets asked", () => {
       registerContextSource({
         id: manifest.id,
         manifest,
-        async search() {
-          return { evidence: [] };
-        },
+        reads: {},
       }),
     );
   });
@@ -182,9 +178,7 @@ describe("selectContextSources — who gets asked", () => {
       registerContextSource({
         id: manifest.id,
         manifest,
-        async search() {
-          return { evidence: [] };
-        },
+        reads: { semantic_search: async () => ({ evidence: [] }) },
       }),
     );
   });
@@ -192,18 +186,13 @@ describe("selectContextSources — who gets asked", () => {
   test("a source that declares itself unavailable is excluded", () => {
     const selection = select([UNAVAILABLE]);
 
-    assert.equal(selection.candidates.length, 0);
-    assert.equal(reasonFor(selection, UNAVAILABLE.id), "source declares it is unavailable");
+    assert.equal(reasonFor(selection, UNAVAILABLE.id), "unavailable");
   });
 
   test("an exact-lookup source is skipped for a query that declares no object", () => {
     const selection = select([EXACT_ONLY]);
 
-    assert.equal(selection.candidates.length, 0);
-    assert.equal(
-      reasonFor(selection, EXACT_ONLY.id),
-      "source declares no read capability that answers this request",
-    );
+    assert.equal(reasonFor(selection, EXACT_ONLY.id), "no-answering-read");
   });
 
   test("the same exact-lookup source is a candidate once the request declares an object", () => {
@@ -212,10 +201,7 @@ describe("selectContextSources — who gets asked", () => {
       objects: [{ by: "identity", provider: "github", kind: "pull_request", externalId: "1" }],
     });
 
-    assert.deepEqual(
-      selection.candidates.map((source) => source.id),
-      [EXACT_ONLY.id],
-    );
+    assert.equal(selection.size, 0);
   });
 });
 
@@ -246,7 +232,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
       // `skipped` is its own status: "never asked" must not read as "asked and
       // found nothing", or absence becomes evidence of absence.
       assert.equal(report?.status, "skipped");
-      assert.equal(report?.reason, "source declares it is unavailable");
+      assert.equal(report?.status === "skipped" ? report.reason : undefined, "unavailable");
       assert.equal(report?.evidenceCount, 0);
     } finally {
       for (const dispose of disposers.reverse()) dispose();

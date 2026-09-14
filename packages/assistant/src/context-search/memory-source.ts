@@ -7,7 +7,7 @@ import {
   type RetrievalSourceManifest,
 } from "@alfred/contracts";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
-import type { ContextSource, ContextSourceResult } from "./registry";
+import { defineContextSource, type ContextSource } from "./registry";
 import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
@@ -48,11 +48,10 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * and authority: cards derive all of them from it, so the declaration and the
  * evidence cannot drift.
  */
-const MEMORY_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
+const MEMORY_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
   id: "memory",
   kind: "internal",
   displayName: "Memory",
-  read: ["semantic_search"],
   freshness: { typical: "ingested" },
   authority: { level: "medium", label: "Alfred's distilled note, not a primary record" },
   cost: { class: "metered" },
@@ -61,21 +60,22 @@ const MEMORY_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
 
 /** Build the memory context source over the real `@alfred/assistant/knowledge` verb. */
 export function createMemoryContextSource(): ContextSource {
-  return {
-    id: MEMORY_CONTEXT_SOURCE_MANIFEST.id,
-    manifest: MEMORY_CONTEXT_SOURCE_MANIFEST,
-    async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
-      const hits = await recallMemory({
-        query: request.query,
-        userId: request.userId,
-        limit: request.limit,
-      });
+  return defineContextSource({
+    manifest: MEMORY_CONTEXT_SOURCE_MANIFEST_BASE,
+    reads: { semantic_search: readMemory },
+  });
+}
 
-      const evidence = [...hits].sort(compareByScoreThenId).map(memoryHitToEvidenceCard);
+async function readMemory(request: ContextSearchRequest) {
+  const hits = await recallMemory({
+    query: request.query,
+    userId: request.userId,
+    limit: request.limit,
+  });
 
-      return { evidence };
-    },
-  };
+  const evidence = [...hits].sort(compareByScoreThenId).map(memoryHitToEvidenceCard);
+
+  return { evidence };
 }
 
 /**
@@ -87,11 +87,11 @@ export function createMemoryContextSource(): ContextSource {
  */
 function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
   const label = humanizeSlug(hit.kind);
-  const authority = sourceAuthorityFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST);
+  const authority = sourceAuthorityFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST_BASE);
 
   return {
-    id: `${MEMORY_CONTEXT_SOURCE_MANIFEST.id}:${hit.chunkId}`,
-    source: sourceRefFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST),
+    id: `${MEMORY_CONTEXT_SOURCE_MANIFEST_BASE.id}:${hit.chunkId}`,
+    source: sourceRefFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST_BASE),
     mediaKind: "text",
     // `writeMemoryChunk` requires non-empty content today, so the note guards a
     // persisted row that predates that rule, not an expected path.
@@ -101,7 +101,7 @@ function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
     time: { freshness: "ingested" },
     citations: [{ label, locator: `memory chunk ${hit.chunkId}` }],
     expansion: {
-      sourceId: MEMORY_CONTEXT_SOURCE_MANIFEST.id,
+      sourceId: MEMORY_CONTEXT_SOURCE_MANIFEST_BASE.id,
       kind: "memory_chunk",
       ref: hit.chunkId,
       hint: label,

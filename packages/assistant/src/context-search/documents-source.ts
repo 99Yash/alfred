@@ -10,7 +10,7 @@ import {
   type RetrievalSourceManifest,
 } from "@alfred/contracts";
 import { search, type SearchHit } from "@alfred/corpus";
-import type { ContextSource, ContextSourceResult } from "./registry";
+import { defineContextSource, type ContextSource } from "./registry";
 import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
@@ -49,11 +49,10 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * and authority: cards derive all of them from it, so the declaration and the
  * evidence cannot drift.
  */
-const DOCUMENT_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
+const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
   id: "documents",
   kind: "internal",
   displayName: "Documents",
-  read: ["semantic_search"],
   freshness: { typical: "ingested" },
   authority: { level: "high", label: "verbatim slice of an ingested provider record" },
   cost: { class: "metered" },
@@ -71,21 +70,22 @@ const DOCUMENT_FUTURE_SKEW_MS = 86_400_000;
 
 /** Build the document context source over the real `@alfred/corpus` verb. */
 export function createDocumentContextSource(): ContextSource {
-  return {
-    id: DOCUMENT_CONTEXT_SOURCE_MANIFEST.id,
-    manifest: DOCUMENT_CONTEXT_SOURCE_MANIFEST,
-    async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
-      const hits = await search({
-        query: request.query,
-        userId: request.userId,
-        limit: request.limit,
-      });
+  return defineContextSource({
+    manifest: DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE,
+    reads: { semantic_search: readDocuments },
+  });
+}
 
-      const evidence = [...hits].sort(compareByScoreThenId).map(documentHitToEvidenceCard);
+async function readDocuments(request: ContextSearchRequest) {
+  const hits = await search({
+    query: request.query,
+    userId: request.userId,
+    limit: request.limit,
+  });
 
-      return { evidence };
-    },
-  };
+  const evidence = [...hits].sort(compareByScoreThenId).map(documentHitToEvidenceCard);
+
+  return { evidence };
 }
 
 /**
@@ -101,11 +101,11 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
     ? sanitizeErrorMessage(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS) || undefined
     : undefined;
 
-  const authority = sourceAuthorityFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST);
+  const authority = sourceAuthorityFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE);
 
   return {
-    id: `${DOCUMENT_CONTEXT_SOURCE_MANIFEST.id}:${hit.chunkId}`,
-    source: sourceRefFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST),
+    id: `${DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE.id}:${hit.chunkId}`,
+    source: sourceRefFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE),
     mediaKind: "document",
     ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,
@@ -132,7 +132,7 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
       },
     ],
     expansion: {
-      sourceId: DOCUMENT_CONTEXT_SOURCE_MANIFEST.id,
+      sourceId: DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE.id,
       kind: "document",
       ref: hit.documentId,
       ...(title ? { hint: title } : {}),

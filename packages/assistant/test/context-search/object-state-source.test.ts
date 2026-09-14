@@ -212,8 +212,8 @@ describe("object-state adapter — exact references", () => {
       assert.equal(result.evidence.length, 0);
       assert.equal(result.sources[0]?.status, "skipped");
       assert.equal(
-        result.sources[0]?.reason,
-        "source declares no read capability that answers this request",
+        result.sources[0]?.status === "skipped" ? result.sources[0].reason : undefined,
+        "no-answering-read",
       );
     });
   });

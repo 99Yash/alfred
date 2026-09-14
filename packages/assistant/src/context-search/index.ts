@@ -136,21 +136,33 @@
 
 export type { ContextSearchRequest } from "@alfred/contracts";
 
-export { listContextSources, registerContextSource } from "./registry";
+export { registerContextSource } from "./registry";
 
-export { contextSourcePriorities, selectContextSources } from "./manifest";
+export {
+  contextSourcePriorities,
+  isTrustedRetrievalSource,
+  selectContextSources,
+  SOURCE_EXCLUSION_REASONS,
+} from "./manifest";
 
-export type { ContextSourceExclusion, ContextSourceSelection } from "./manifest";
+export type { SourceExclusionReason } from "./manifest";
 
 export { registerDefaultContextSources } from "./default-sources";
 
 export { searchContext } from "./search";
 
-export type { ContextSearchResult, ContextSourceReport } from "./search";
+export type {
+  ContextSearchResult,
+  ContextSourceErrorReport,
+  ContextSourceOkReport,
+  ContextSourceReport,
+  ContextSourceSkippedReport,
+  ContextSourceStatus,
+} from "./search";
 
 export type { EvidenceRanking } from "./rank";
 
-export type { ContextSource } from "./registry";
+export type { ContextSource, ContextSourceReads, ContextSourceReader } from "./registry";
 
 export {
   EVIDENCE_PACK_DEFAULT_MAX_CHARS,

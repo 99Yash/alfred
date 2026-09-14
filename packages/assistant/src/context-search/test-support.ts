@@ -9,6 +9,8 @@
  * `src/` imports this file except tests and eval harnesses.
  */
 
+import type { ContextSearchRequest } from "@alfred/contracts";
+import type { ContextSourceReads, ContextSourceResult } from "./registry";
 import type { RetrievalSourceManifest } from "@alfred/contracts";
 
 /**
@@ -28,6 +30,18 @@ export function searchableTestSourceManifest(id: string): RetrievalSourceManifes
     read: ["semantic_search", "exact_lookup"],
     authority: { level: "medium" },
   };
+}
+
+/**
+ * Readers for a test source that answers every declared capability the same
+ * way. Registration requires `manifest.read` to equal the keys of `reads`, so
+ * a test cannot hand-write one `search` body beside a two-capability manifest
+ * without drifting; this builds both readers from the one handler.
+ */
+export function testSourceReads(
+  handler: (request: ContextSearchRequest) => Promise<ContextSourceResult>,
+): ContextSourceReads {
+  return { semantic_search: handler, exact_lookup: handler };
 }
 
 export { EVIDENCE_RANK_FEATURES, entitySignificanceKey, rankEvidenceCards } from "./rank";

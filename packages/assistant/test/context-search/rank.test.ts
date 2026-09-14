@@ -7,6 +7,7 @@ import {
   entitySignificanceKey,
   rankEvidenceCards,
   searchableTestSourceManifest,
+  testSourceReads,
 } from "@alfred/assistant/context-search/test-support";
 
 /**
@@ -395,7 +396,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
     const disposeWeak = registerContextSource({
       id: "rank-test:weak",
       manifest: searchableTestSourceManifest("rank-test:weak"),
-      async search() {
+      reads: testSourceReads(async () => {
         return {
           evidence: [
             {
@@ -408,13 +409,13 @@ describe("searchContext — ranking runs before the limit truncation", () => {
             },
           ],
         };
-      },
+      }),
     });
 
     const disposeStrong = registerContextSource({
       id: "rank-test:strong",
       manifest: searchableTestSourceManifest("rank-test:strong"),
-      async search() {
+      reads: testSourceReads(async () => {
         return {
           evidence: [
             {
@@ -428,7 +429,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
             },
           ],
         };
-      },
+      }),
     });
 
     try {
@@ -454,7 +455,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
     const dispose = registerContextSource({
       id: "rank-test:pair",
       manifest: searchableTestSourceManifest("rank-test:pair"),
-      async search() {
+      reads: testSourceReads(async () => {
         return {
           evidence: [
             {
@@ -473,7 +474,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
             },
           ],
         };
-      },
+      }),
     });
 
     try {
