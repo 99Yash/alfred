@@ -122,6 +122,19 @@ export const chatMessageUsageSchema = z.object({
   outputTokens: z.number().int().nonnegative(),
   cachedInputTokens: z.number().int().nonnegative(),
   /**
+   * Input tokens this turn wrote INTO the prompt cache — the miss half of the
+   * same number `cachedInputTokens` reports the hit half of. Providers bill a
+   * write above the plain input rate (Anthropic 1.25x/2x by TTL), so a turn
+   * that misses is more expensive than one that never cached at all, and
+   * `costUsd` already reflects that. Carried so the readout can say WHY a turn
+   * cost what it did: without it, `inputTokens - cachedInputTokens` looks like
+   * ordinary fresh input.
+   *
+   * `null` for a rollup written before this field existed, which must read as
+   * "not recorded" rather than "wrote nothing" — those turns wrote plenty.
+   */
+  cacheWriteInputTokens: z.number().int().nonnegative().nullable().default(null),
+  /**
    * Sum of successful LLM request-to-stream-end durations for this turn. It
    * excludes tool execution and other workflow time, so outputTokens divided
    * by this value is model output throughput. Defaulted for durable messages

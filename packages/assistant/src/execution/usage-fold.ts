@@ -33,6 +33,12 @@ export interface ModelUsageGroup {
   inputTokens: string | number;
   outputTokens: string | number;
   cachedInputTokens: string | number;
+  /**
+   * Cache WRITES for the group. Optional because the backfill's older shape and
+   * fixtures don't group by it; absent leaves the folded total `null`, which
+   * downstream must read as "not recorded", never as zero.
+   */
+  cacheWriteInputTokens?: string | number | undefined;
   modelLatencyMs: string | number;
   costUsd: string | number;
   calls: string | number;
@@ -65,6 +71,9 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     inputTokens: 0,
     outputTokens: 0,
     cachedInputTokens: 0,
+    // Stays `null` unless some group actually carried the column, so a caller
+    // that never selects it folds to "not recorded" instead of a false zero.
+    cacheWriteInputTokens: null,
     modelLatencyMs: 0,
     costUsd: 0,
     calls: 0,
@@ -93,6 +102,12 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     usage.inputTokens += Number(group.inputTokens) || 0;
     usage.outputTokens += Number(group.outputTokens) || 0;
     usage.cachedInputTokens += Number(group.cachedInputTokens) || 0;
+
+    if (group.cacheWriteInputTokens !== undefined) {
+      usage.cacheWriteInputTokens =
+        (usage.cacheWriteInputTokens ?? 0) + (Number(group.cacheWriteInputTokens) || 0);
+    }
+
     usage.modelLatencyMs += Number(group.modelLatencyMs) || 0;
     usage.costUsd += costUsd;
     usage.calls += calls;
@@ -194,6 +209,7 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
+      cacheWriteInputTokens: sql<string>`coalesce(sum(${apiCallLog.cacheWriteInputTokens}), 0)`,
       modelLatencyMs: sql<string>`coalesce(sum(case
         when ${apiCallLog.kind} = 'llm'
           and ${apiCallLog.error} is null
