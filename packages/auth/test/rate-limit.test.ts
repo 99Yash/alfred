@@ -41,16 +41,6 @@ function fakeRedis() {
 
         return next;
       },
-      get: async (key: string) => {
-        const value = values.get(key);
-
-        return value === undefined ? null : String(value);
-      },
-      set: async (key: string, value: string) => {
-        values.set(key, Number.parseInt(value, 10));
-
-        return "OK";
-      },
     },
   };
 }
@@ -74,7 +64,6 @@ describe("auth rate limit storage (#458)", () => {
   test("counts one window in Redis and refuses past the max", async () => {
     const redis = fakeRedis();
     const storage = createAuthRateLimitStorage(() => redis.conn);
-    assert.ok(storage.consume, "the storage must be atomic, not the legacy get/set path");
 
     const first = await storage.consume("203.0.113.7|/sign-in/social", RULE);
     const second = await storage.consume("203.0.113.7|/sign-in/social", RULE);
@@ -94,8 +83,8 @@ describe("auth rate limit storage (#458)", () => {
     const redis = fakeRedis();
     const storage = createAuthRateLimitStorage(() => redis.conn);
 
-    await storage.consume?.("203.0.113.7|/sign-in/social", RULE);
-    await storage.consume?.("203.0.113.7|/sign-in/social", RULE);
+    await storage.consume("203.0.113.7|/sign-in/social", RULE);
+    await storage.consume("203.0.113.7|/sign-in/social", RULE);
 
     // The Lua script runs INCR + EXPIRE atomically. The second call still
     // issues EXPIRE but the TTL clause in the script (`TTL == -1`) does not
@@ -112,7 +101,7 @@ describe("auth rate limit storage (#458)", () => {
     const storage = createAuthRateLimitStorage(() => redis.conn);
 
     const before = Math.floor(Date.now() / (RULE.window * 1000));
-    await storage.consume?.("203.0.113.7|/sign-in/social", RULE);
+    await storage.consume("203.0.113.7|/sign-in/social", RULE);
     const after = Math.floor(Date.now() / (RULE.window * 1000));
 
     const [key] = [...redis.values.keys()];
@@ -136,9 +125,9 @@ describe("auth rate limit storage (#458)", () => {
     const storage = createAuthRateLimitStorage(unreachable);
 
     const { result, warnings } = await withoutWarnings(async () => [
-      await storage.consume?.("203.0.113.7|/sign-in/social", RULE),
-      await storage.consume?.("203.0.113.7|/sign-in/social", RULE),
-      await storage.consume?.("203.0.113.7|/sign-in/social", RULE),
+      await storage.consume("203.0.113.7|/sign-in/social", RULE),
+      await storage.consume("203.0.113.7|/sign-in/social", RULE),
+      await storage.consume("203.0.113.7|/sign-in/social", RULE),
     ]);
 
     // Degraded, not disabled, and not closed: an outage must neither lift the
