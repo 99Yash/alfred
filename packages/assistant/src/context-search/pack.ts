@@ -162,35 +162,46 @@ interface RenderedNotes {
 
 /**
  * One line per source whose evidence did not reach the packed text. `empty` and
- * `error` are distinct facts and render differently; a productive source whose
- * cards the read's `limit` dropped entirely is the third, and the one this
+ * `error` are distinct facts and render differently; a productive source that
+ * lost cards to the read's `limit` is the third, and the one this
  * exists to prevent forgetting. The status switch is exhaustive on purpose: a
  * new status member becomes a compile error here rather than quietly rendering
  * as an error.
  *
- * "Dropped entirely" is judged on the cards the read handed the packer, before
- * the packer's own character budget: a card the packer omits for space still
- * proves the source answered. Those cards now arrive in ranked order (#427),
- * so the packer's budget drops the lowest-ranked cards rather than whichever
- * source registered last.
+ * Loss is per-source, not presence-based: the note reports
+ * `evidenceCount - survived`, so a source that returned two cards and kept one
+ * still names the one the `limit` dropped. Judged on the cards the read handed
+ * the packer, before the packer's own character budget: a card the packer
+ * omits for space still proves the source answered. Those cards now arrive in
+ * ranked order (#427), so the packer's budget drops the lowest-ranked cards
+ * rather than whichever source registered last.
  */
 function renderSourceNotes(
   sources: readonly ContextSourceReport[],
   evidence: readonly EvidenceCard[],
 ): RenderedNotes {
-  const representedSourceIds = new Set(evidence.map((card) => card.source.id));
+  const survivedBySource = new Map<string, number>();
+
+  for (const card of evidence) {
+    survivedBySource.set(card.source.id, (survivedBySource.get(card.source.id) ?? 0) + 1);
+  }
+
   const lines: string[] = [];
 
   for (const source of sources) {
     switch (source.status) {
-      case "ok":
-        if (source.evidenceCount > 0 && !representedSourceIds.has(source.sourceId)) {
+      case "ok": {
+        const survived = survivedBySource.get(source.sourceId) ?? 0;
+        const dropped = source.evidenceCount - survived;
+
+        if (dropped > 0) {
           lines.push(
-            `${source.sourceId}: ${source.evidenceCount} item(s) not shown (evidence budget)`,
+            `${source.sourceId}: ${dropped} item(s) not shown (evidence budget)`,
           );
         }
 
         break;
+      }
       case "empty":
         lines.push(`${source.sourceId}: no evidence found`);
         break;
