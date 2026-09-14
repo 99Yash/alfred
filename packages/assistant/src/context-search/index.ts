@@ -74,27 +74,14 @@
  * ## Ranking (#427)
  *
  * `searchContext` ranks the collected cards before it truncates them to the
- * request `limit`. `rankEvidenceCards` is a pure function: it scores each card
- * as a weighted average over the features the card can supply — normalized
- * semantic score, exact-object match, recency, freshness, authority, manifest
- * source priority, object state, the caller's declared focus, and a user-model
- * weight — and breaks ties on the card id. No model is called, and `now` is an
- * input rather than a clock the ranker reads, so the same cards always come
- * back in the same order.
- *
- * A feature a card cannot supply is dropped from that card's average, never
- * defaulted to zero: a card with no timestamp is not ranked as infinitely old,
- * a card with no `object` carries no `exactMatch` or `focus` feature, and an
- * undeclared authority is neither promoted toward `high` nor pushed
- * below a source that declared itself `low`. The two deliberate exceptions
- * are `freshness` and `authority`, which read silence as `unknown`. `score`
- * is normalized WITHIN its source, because the card contract says it is
- * comparable only there.
- *
- * The per-card working rides on `ContextSearchResult.ranking`, parallel to
- * `evidence`. It is never a field on a card and is never handed to
- * `packEvidenceCards`, so a trace, a test, or a retrieval eval (#430) can read
- * it and the model structurally cannot.
+ * request `limit`. The ranker contract lives in ADR-0101 sub-decision 12;
+ * `rank.ts` implements it as a pure function over declared card fields. The
+ * per-card working rides on `ContextSearchResult.ranking`, parallel to
+ * `evidence`, and is never handed to `packEvidenceCards` — the model
+ * structurally cannot see it, while a trace, the retrieval eval (#430), or a
+ * test can. The pure ranker itself is a test-support door
+ * (`@alfred/assistant/context-search/test-support`), not part of the
+ * production interface below.
  *
  * ## Extensibility
  *
@@ -125,14 +112,7 @@ export { searchContext } from "./search";
 
 export type { ContextSearchResult, ContextSourceReport } from "./search";
 
-export { EVIDENCE_RANK_FEATURES, entitySignificanceKey, rankEvidenceCards } from "./rank";
-
-export type {
-  EvidenceRankContext,
-  EvidenceRankFeature,
-  EvidenceRanking,
-  RankedEvidence,
-} from "./rank";
+export type { EvidenceRanking } from "./rank";
 
 export type { ContextSource } from "./registry";
 
