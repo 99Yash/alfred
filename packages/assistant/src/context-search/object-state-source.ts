@@ -2,10 +2,8 @@ import {
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
-  getObjectDef,
   integrationDisplayName,
   isObjectStateProvider,
-  OBJECT_STATE_PROVIDERS,
   sanitizeErrorMessage,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
@@ -53,9 +51,9 @@ import type { ContextSource, ContextSourceResult } from "./registry";
  * reads the free-text query, so the boundary must not spend a lookup on it for
  * a question that carries no object references — and with the manifest it no
  * longer does. Its authority is `high`: the state is a deterministic reduction
- * of provider webhook deliveries, not an inference. The object kinds and the
- * identity key are DERIVED from the ADR-0093 object registry rather than
- * restated, so adding a provider kind there describes this source too.
+ * of provider webhook deliveries, not an inference. The manifest declares only
+ * what the boundary acts on; the wider catalog surface (`objectKinds`,
+ * `identityKeys`, `indexability`, `discovery`, latency hints) stays unset.
  *
  * The manifest is the single owner of the id, kind, display name, source ref,
  * and authority: cards derive all of them from it, so the declaration and the
@@ -65,19 +63,11 @@ const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
   id: "object-state",
   kind: "internal",
   displayName: "Object state",
-  objectKinds: OBJECT_STATE_PROVIDERS.flatMap((provider) => [...getObjectDef(provider).kinds]),
-  mediaKinds: ["text"],
   read: ["exact_lookup"],
-  identityKeys: ["integration_object_key"],
-  indexability: "indexed",
   freshness: { typical: "ingested" },
   authority: { level: "high", label: "deterministic projection of provider webhook deliveries" },
-  cost: { class: "local", typicalLatencyMs: 50 },
+  cost: { class: "local" },
   availability: "available",
-  discovery: {
-    summary: "Deterministic work-object state — whether a pull request is open, merged, or closed.",
-    topics: ["pull requests", "deployments", "work object state"],
-  },
 };
 
 /**

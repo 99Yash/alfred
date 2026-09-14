@@ -56,6 +56,10 @@ export interface ContextSource {
    * `SourceManifest` stays loose for the catalog case, but a registered source
    * is always a trusted retrieval source — a forgotten declaration fails at
    * boot rather than going dark behind a `skipped` line.
+   *
+   * Parsed and frozen once at registration: `availability` is a boot-time
+   * statement, not a live health reading, and a mid-read failure reports
+   * `error` rather than moving this value.
    */
   readonly manifest: RetrievalSourceManifest;
   search(request: ContextSearchRequest): Promise<ContextSourceResult>;

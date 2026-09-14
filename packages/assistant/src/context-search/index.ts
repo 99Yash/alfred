@@ -86,20 +86,25 @@
  * ## Discovery (#466)
  *
  * Every source registers with a `RetrievalSourceManifest`
- * (`@alfred/contracts`): what it holds (object kinds, media kinds, identity
- * keys), how it can be read (read capabilities, indexability, freshness,
- * availability), and how far to trust and how much to spend (authority, cost,
- * discovery hints). `SourceManifest` stays loose for the catalog case, but
- * registration takes the strict retrieval subtype — at least one read
- * capability and an authority above `unknown` — so a forgotten declaration
- * fails at boot rather than going dark. A native source names
- * its ADR-0093 `integration` slug and the shared facts — display name, domain —
- * are read back out of that record, so the manifest never restates tool-registry
- * metadata.
+ * (`@alfred/contracts`): how it can be read (read capabilities, freshness,
+ * availability), and how far to trust and how much to spend (authority, cost).
+ * The contract reserves a wider catalog surface (`objectKinds`, `mediaKinds`,
+ * `identityKeys`, `indexability`, `freshness.windowMinutes`,
+ * `cost.typicalLatencyMs`, `discovery`, and the `enumerate` / `expand`
+ * capabilities for #428); the boundary does not branch on those yet and
+ * production manifests leave them unset. `SourceManifest` stays loose for the
+ * catalog case, but registration takes the strict retrieval subtype — at
+ * least one read capability and an authority above `unknown` — so a
+ * forgotten declaration fails at boot rather than going dark. The ADR-0093
+ * integration join (`integration` slug in, `sourceManifestDisplayName` /
+ * `sourceManifestDomains` out) is implemented and covered from a fixture, but
+ * no built-in source names a slug today: `documents`, `memory`, and
+ * `object-state` each span every ingested provider at once, so they declare
+ * their own display name and no slug.
  *
  * `searchContext` then SELECTS before it reads. `selectContextSources` excludes
- * a source that declares itself unavailable and one whose declared reads cannot
- * answer this request. Each
+ * a source whose boot-time manifest declares it unavailable and one whose
+ * declared reads cannot answer this request. Each
  * exclusion is a `skipped` report with its reason, so "not asked" is visibly
  * different from "asked and found nothing". An undescribed MCP source stays a
  * perfectly callable tool on the
@@ -133,7 +138,7 @@ export type { ContextSearchRequest } from "@alfred/contracts";
 
 export { listContextSources, registerContextSource } from "./registry";
 
-export { contextSourcePriorities, listSourceManifests, selectContextSources } from "./manifest";
+export { contextSourcePriorities, selectContextSources } from "./manifest";
 
 export type { ContextSourceExclusion, ContextSourceSelection } from "./manifest";
 
