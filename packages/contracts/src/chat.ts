@@ -19,6 +19,18 @@ export type ChatModelTier = (typeof chatModelTierValues)[number];
 export const chatModelTierSchema = z.enum(chatModelTierValues);
 
 /**
+ * The reasoning-effort vocabulary a product route can select, mirroring the AI
+ * SDK's `reasoning` union minus `provider-default` (which is "let the provider
+ * decide", not a level). Defined here so the server can persist the effort a
+ * turn ran at and the web can render it without importing `@alfred/ai`.
+ */
+export const chatEffortValues = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+
+export type ChatEffort = (typeof chatEffortValues)[number];
+
+export const chatEffortSchema = z.enum(chatEffortValues);
+
+/**
  * Why a chat turn ended in `status:"failed"`. The server classifies the raw
  * provider/runtime error into one of these user-meaningful kinds (it never
  * surfaces the raw error — that leaks vendor URLs and attempt-count noise);
@@ -166,6 +178,18 @@ export const chatMessageUsageSchema = z.object({
       }),
     )
     .default([]),
+  /**
+   * The reasoning effort this turn ran at — the route's generic ceiling
+   * (`medium` for a standard turn, `xhigh` for a deep one), resolved
+   * server-side at finalize so the row keeps the effort it ran at even if the
+   * route table later changes. Each provider maps the ceiling to its own
+   * scale (OpenAI `reasoningEffort`, Gemini `thinkingLevel`); a fallback leg
+   * may have served individual calls lower, but the turn asked for this.
+   * Defaulted because rows written before this field existed predate effort
+   * selection on this surface, and the default tier has always been standard
+   * at medium effort.
+   */
+  effort: chatEffortSchema.default("medium"),
   /**
    * How the turn's cost divides across the agents that ran it, most expensive
    * first, boss included. One entry means the boss did the whole turn alone.

@@ -1,4 +1,4 @@
-import type { ChatMessageUsage } from "@alfred/contracts";
+import type { ChatEffort, ChatMessageUsage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, apiCallLog } from "@alfred/db/schemas";
 import { inArray, sql } from "drizzle-orm";
@@ -66,7 +66,10 @@ export interface ModelUsageGroup {
  * model can serve two agents, and one agent can be served by two models, so the
  * caller's GROUP BY is the cross product of the two.
  */
-export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageUsage {
+export function foldModelUsage(
+  groups: readonly ModelUsageGroup[],
+  effort: ChatEffort = "medium",
+): ChatMessageUsage {
   const usage: ChatMessageUsage = {
     inputTokens: 0,
     outputTokens: 0,
@@ -79,6 +82,7 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     calls: 0,
     models: [],
     agents: [],
+    effort,
   };
 
   const callsByModel = new Map<
@@ -190,7 +194,10 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
  * runs the same pair widened by message id. Changing what usage records means
  * changing this file.
  */
-export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null> {
+export async function aggregateRunUsage(
+  runId: string,
+  effort: ChatEffort = "medium",
+): Promise<ChatMessageUsage | null> {
   const runs = await listTurnRuns(runId);
 
   // Grouped by run and model: by model so the readout can name every model that
@@ -238,6 +245,7 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
       ...row,
       subId: row.runId === null ? null : (runs.get(row.runId) ?? null),
     })),
+    effort,
   );
 
   return usage.calls === 0 ? null : usage;

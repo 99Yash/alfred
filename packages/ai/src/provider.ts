@@ -1,6 +1,6 @@
 import { google } from "@ai-sdk/google";
 import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
-import type { ChatModelTier } from "@alfred/contracts";
+import { chatEffortSchema, type ChatEffort, type ChatModelTier } from "@alfred/contracts";
 import { findApiCallError, isCallerAbort } from "./abort";
 import { APICallError, type ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV4` — the concrete model
@@ -172,6 +172,22 @@ export function route(
   if (!reasoning) throw new Error("a one-model probe route needs a reasoning policy");
 
   return createRouteHandle({ legs: [() => nameOrLeg], reasoning });
+}
+
+/**
+ * The displayable reasoning effort a named route selects. `route(name)`
+ * exposes the raw SDK `reasoning` value, which admits `provider-default` —
+ * "let the provider decide", not a level and nothing the readout can show.
+ * No named route selects it today, so this throws rather than rendering a
+ * non-level; a route that does must decide what its turns claim.
+ */
+export function routeEffort(name: ModelRouteName): ChatEffort {
+  const reasoning = route(name).reasoning();
+  const parsed = chatEffortSchema.safeParse(reasoning);
+
+  if (!parsed.success) throw new Error(`route "${name}" selects a non-level reasoning effort`);
+
+  return parsed.data;
 }
 
 interface MediaEnrichmentLeg {
