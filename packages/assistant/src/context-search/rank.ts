@@ -318,10 +318,7 @@ interface FeatureInputs {
  * permanently. An object-state MISS card (no `object`) is demoted through its
  * `score: 0`, not through these features.
  */
-function cardFeatures(
-  card: EvidenceCard,
-  { context, semantic, focus }: FeatureInputs,
-) {
+function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureInputs) {
   // The bag starts empty and every feature writes itself in. A feature here is
   // PRESENT or ABSENT, never neutral, so there is no value to seed it with.
   const features: Partial<Record<EvidenceRankFeature, number>> = {};
@@ -428,7 +425,9 @@ function roundScore(value: number): number {
  * its other features decide its place. That is the "ranker degrades rather than
  * inventing a number" rule the card contract writes down.
  */
-function normalizeSemanticScores(cards: readonly EvidenceCard[]): ReadonlyMap<EvidenceCard, number> {
+function normalizeSemanticScores(
+  cards: readonly EvidenceCard[],
+): ReadonlyMap<EvidenceCard, number> {
   const bySource = new Map<string, EvidenceCard[]>();
 
   for (const card of cards) {
