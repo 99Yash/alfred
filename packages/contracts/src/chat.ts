@@ -24,7 +24,15 @@ export const chatModelTierSchema = z.enum(chatModelTierValues);
  * decide", not a level). Defined here so the server can persist the effort a
  * turn ran at and the web can render it without importing `@alfred/ai`.
  */
-export const chatEffortValues = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+export const chatEffortValues = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
 
 export type ChatEffort = (typeof chatEffortValues)[number];
 
