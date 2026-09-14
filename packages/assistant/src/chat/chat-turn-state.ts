@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   foldToolSurfaceState,
   pendingToolCallSchema as basePendingToolCallSchema,
+  RUNTIME_GROUNDING_PARK_GRACE_MS,
   toolSurfaceStateFields,
   type StepResult,
 } from "@alfred/assistant/execution";
@@ -180,8 +181,9 @@ export const chatRunStateSchema = z
     // Instant the ephemeral `<runtime_context>` line — the chat run's single
     // source of the current date and time — is anchored to (#410). Held stable
     // across a contiguous execution slice so the tool-result tail stays
-    // cacheable. Every interrupt clears it, so any resumed invocation re-stamps
-    // to wake-time regardless of how short the park was. Absent on legacy runs.
+    // cacheable, and across a park too: it is cleared only when the park
+    // outlived the prompt cache, and re-stamped only when the reading it states
+    // is wrong. Absent on legacy runs.
     runtimeGroundingAnchor: z.iso.datetime().optional(),
     // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
     // are already accounted for in the transcript — either folded by the guard, or
@@ -249,9 +251,9 @@ export function interruptChatRun(
   transcript: AgentTranscriptMessage[],
   wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
 ): Extract<StepResult<ChatRunState>, { kind: "interrupt" }> {
-  // A park is the real discontinuity. Clearing here makes even a millisecond
-  // park refresh grounding, while a long uninterrupted tool loop retains it.
-  state.runtimeGroundingAnchor = undefined;
+  // The grounding anchor deliberately survives the park. Its fate is decided on
+  // the way back in, by `foldResumedPark`, which knows how long the park lasted;
+  // clearing it here made a one-second approval cost the whole cached tail.
   // Stamp the park so the phase thermometer (#902) can attribute the parked
   // wall-clock on resume: in this workflow a signal wake is a sub-agent join
   // (`await_sub_agent`), an HIL wake is a gated action waiting on the user.
@@ -262,18 +264,26 @@ export function interruptChatRun(
 }
 
 /**
- * Attribute the wall-clock a just-resumed run spent parked (#902).
+ * Close out a park on the way back in: attribute its wall-clock (#902) and
+ * decide whether the run's "now" survived it.
  *
- * Called at the top of the resumed step body. A sub-agent join park folds into
- * `dispatchMs` — the join is tool work the boss is synchronously waiting on,
- * and it is exactly the slow-tool signal the thermometer hunts. A gate
+ * Called at the top of the resumed step body, the one seam a wake passes
+ * through — which is why both decisions live here. A sub-agent join park folds
+ * into `dispatchMs` — the join is tool work the boss is synchronously waiting
+ * on, and it is exactly the slow-tool signal the thermometer hunts. A gate
  * (approval) park is human time, not machine dispatch, so it stays out of the
  * buckets and lands in the residual `other` reading instead. Either way the
- * markers clear so a later park stamps fresh. Returns the folded gap (0 when
- * the state carries no unfinished park).
+ * markers clear so a later park stamps fresh.
+ *
+ * The grounding anchor is cleared only when the park outlived the prompt cache
+ * ({@link RUNTIME_GROUNDING_PARK_GRACE_MS}), because clearing it re-stamps the
+ * `<runtime_context>` line and costs every cached token behind it. A short park
+ * keeps the anchor, and `resolveRuntimeGroundingAnchor` still re-stamps if the
+ * calendar day moved. Returns the folded gap (0 when the state carries no
+ * unfinished park).
  */
 export function foldResumedPark(
-  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs">,
+  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs" | "runtimeGroundingAnchor">,
   now: number,
 ): number {
   if (state.parkedAt === undefined || state.parkKind === undefined) return 0;
@@ -281,6 +291,10 @@ export function foldResumedPark(
   const gap = Number.isFinite(parkedAtMs) ? Math.max(0, now - parkedAtMs) : 0;
 
   if (state.parkKind === "join") state.dispatchMs += gap;
+
+  // Past the grace the cached prefix is gone anyway, so the re-stamp is free.
+  if (gap >= RUNTIME_GROUNDING_PARK_GRACE_MS) state.runtimeGroundingAnchor = undefined;
+
   state.parkedAt = undefined;
   state.parkKind = undefined;
 

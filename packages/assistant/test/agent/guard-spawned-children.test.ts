@@ -341,8 +341,8 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.equal(result?.kind, "interrupt", "a still-running child parks");
     assert.equal(
       state.runtimeGroundingAnchor,
-      undefined,
-      "the park lifecycle seam invalidates grounding even for a short wake gap",
+      "2026-07-15T03:58:00.000Z",
+      "the park preserves grounding; the wake seam decides it once the gap is known",
     );
     const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
     assert.notEqual(
