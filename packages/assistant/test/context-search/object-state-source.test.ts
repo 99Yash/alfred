@@ -198,14 +198,23 @@ describe("object-state adapter — exact references", () => {
     });
   });
 
-  test("a request with no exact references returns no evidence", async () => {
+  test("a request with no exact references never reaches this source", async () => {
     const store = reader();
 
     await withObjectStateSource(store, async () => {
       const result = await searchContext({ userId: "user-1", query: "anything" });
 
+      // Since #466 the adapter is not merely unproductive here, it is not
+      // consulted at all: its manifest declares `exact_lookup` only, and this
+      // request declares no object for it to look up. The read is saved, and
+      // the report says `skipped` rather than `empty` so "never asked" cannot
+      // be misread as "asked and found nothing".
       assert.equal(result.evidence.length, 0);
-      assert.equal(result.sources[0]?.status, "empty");
+      assert.equal(result.sources[0]?.status, "skipped");
+      assert.equal(
+        result.sources[0]?.status === "skipped" ? result.sources[0].reason : undefined,
+        "no-answering-read",
+      );
     });
   });
 });
