@@ -3,13 +3,15 @@ import {
   EVIDENCE_CITATION_URL_MAX_CHARS,
   integrationDisplayName,
   sanitizeErrorMessage,
+  sourceAuthorityFromManifest,
+  sourceRefFromManifest,
   type ContextSearchRequest,
   type EvidenceCard,
-  type SourceManifest,
+  type RetrievalSourceManifest,
 } from "@alfred/contracts";
 import { search, type SearchHit } from "@alfred/corpus";
 import type { ContextSource, ContextSourceResult } from "./registry";
-import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
+import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
  * The ingested-document adapter (#424; epic #422; ADR-0101).
@@ -34,25 +36,22 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  * Cross-source ranking is `rank.ts` (#427), not this file.
  */
 
-/** Stable manifest id for the ingested-document corpus adapter (#466). */
-const DOCUMENT_CONTEXT_SOURCE_ID = "documents";
-
-const DOCUMENT_DISPLAY_NAME = "Documents";
-
 /**
- * What this source can answer (#466).
+ * What this source declares (#466): `high` authority because a chunk is a
+ * VERBATIM slice of the provider's own record — an email body, an attachment's
+ * text — not a summary of one. It names no `integration` and no `domains`
+ * because it spans every ingested provider at once; the per-record provider
+ * rides each card's citation instead. The cost is `metered`: the corpus search
+ * embeds the query, so one read is one embedding call.
  *
- * It declares `high` authority because a chunk is a VERBATIM slice of the
- * provider's own record — an email body, an attachment's text — not a summary
- * of one. It names no `integration` and no `domains` because it spans every
- * ingested provider at once; the per-record provider rides each card's citation
- * instead. The cost is `metered`: the corpus search embeds the query, so one
- * read is one embedding call.
+ * The manifest is the single owner of the id, kind, display name, source ref,
+ * and authority: cards derive all of them from it, so the declaration and the
+ * evidence cannot drift.
  */
-const DOCUMENT_CONTEXT_SOURCE_MANIFEST: SourceManifest = {
-  id: DOCUMENT_CONTEXT_SOURCE_ID,
+const DOCUMENT_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
+  id: "documents",
   kind: "internal",
-  displayName: DOCUMENT_DISPLAY_NAME,
+  displayName: "Documents",
   mediaKinds: ["document"],
   read: ["semantic_search"],
   indexability: "indexed",
@@ -78,7 +77,7 @@ const DOCUMENT_FUTURE_SKEW_MS = 86_400_000;
 /** Build the document context source over the real `@alfred/corpus` verb. */
 export function createDocumentContextSource(): ContextSource {
   return {
-    id: DOCUMENT_CONTEXT_SOURCE_ID,
+    id: DOCUMENT_CONTEXT_SOURCE_MANIFEST.id,
     manifest: DOCUMENT_CONTEXT_SOURCE_MANIFEST,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
       const hits = await search({
@@ -107,12 +106,15 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
     ? sanitizeErrorMessage(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS) || undefined
     : undefined;
 
+  const authority = sourceAuthorityFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST);
+
   return {
-    id: `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: internalSourceRef(DOCUMENT_CONTEXT_SOURCE_ID, DOCUMENT_DISPLAY_NAME),
+    id: `${DOCUMENT_CONTEXT_SOURCE_MANIFEST.id}:${hit.chunkId}`,
+    source: sourceRefFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST),
     mediaKind: "document",
     ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,
+    ...(authority !== undefined ? { authority } : {}),
     time: {
       // `authoredAt` is the authored instant (an email Date header, an event
       // start), so it is when the underlying event happened — `occurredAt`,
@@ -135,7 +137,7 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
       },
     ],
     expansion: {
-      sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
+      sourceId: DOCUMENT_CONTEXT_SOURCE_MANIFEST.id,
       kind: "document",
       ref: hit.documentId,
       ...(title ? { hint: title } : {}),

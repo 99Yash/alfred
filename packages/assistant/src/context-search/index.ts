@@ -85,21 +85,26 @@
  *
  * ## Discovery (#466)
  *
- * Every source registers with a `SourceManifest` (`@alfred/contracts`): what it
- * holds (object kinds, media kinds, identity keys), how it can be read (read
- * capabilities, indexability, freshness, availability), and how far to trust and
- * how much to spend (authority, cost, discovery hints). A native source names
+ * Every source registers with a `RetrievalSourceManifest`
+ * (`@alfred/contracts`): what it holds (object kinds, media kinds, identity
+ * keys), how it can be read (read capabilities, indexability, freshness,
+ * availability), and how far to trust and how much to spend (authority, cost,
+ * discovery hints). `SourceManifest` stays loose for the catalog case, but
+ * registration takes the strict retrieval subtype — at least one read
+ * capability and an authority above `unknown` — so a forgotten declaration
+ * fails at boot rather than going dark. A native source names
  * its ADR-0093 `integration` slug and the shared facts — display name, domain —
  * are read back out of that record, so the manifest never restates tool-registry
  * metadata.
  *
  * `searchContext` then SELECTS before it reads. `selectContextSources` excludes
- * a source that declares itself unavailable, one that declared no read semantics
- * or no authority, and one whose declared reads cannot answer this request. Each
+ * a source that declares itself unavailable and one whose declared reads cannot
+ * answer this request. Each
  * exclusion is a `skipped` report with its reason, so "not asked" is visibly
- * different from "asked and found nothing". That is how an unknown or minimally
- * described MCP source degrades: it stays a perfectly callable tool on the
- * `mcp.call` surface and is simply never laundered into ranked evidence. The
+ * different from "asked and found nothing". An undescribed MCP source stays a
+ * perfectly callable tool on the
+ * `mcp.call` surface and simply cannot register for retrieval until it declares
+ * how it can be read and where its evidence comes from. The
  * selection reads declared capability only — no source id and no integration
  * name appears in it.
  *
