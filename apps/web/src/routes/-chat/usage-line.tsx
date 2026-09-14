@@ -1,6 +1,6 @@
 import type { ChatMessageAgentUsage, ChatMessageUsage } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
-import { ArrowDown, ArrowUp, Gauge, Repeat, Snowflake, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Gauge, Repeat, Snowflake, TriangleAlert, Zap } from "lucide-react";
 import { modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
 import { formatCost, formatTokens, outputTokensPerSecond } from "~/lib/usage-format";
 import { cn } from "~/lib/utils";
@@ -226,6 +226,22 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
   );
 }
 
+/** Which of the two receipts to draw. */
+export type UsageTone = "ok" | "failed";
+
+/**
+ * How the strip reads: an ordinary receipt, or the receipt of a turn that
+ * faulted. Only two things change on a failure — the pill takes the same
+ * `bg-app-red-1` tint as the failure alert above it, and the cost anchor turns
+ * red ink. The amber cache ring and the sky `Snowflake` keep their own colors,
+ * because those cells answer "was the prompt cached", which a fault does not
+ * change. Full class strings, so Tailwind can see them.
+ */
+const TONE = {
+  ok: { container: "", cost: "text-app-fg-4" },
+  failed: { container: "bg-app-red-1", cost: "text-app-red-4" },
+} satisfies Record<UsageTone, { container: string; cost: string }>;
+
 /**
  * Dev-only per-turn token + cost readout under an assistant reply. Gated by the
  * caller on `import.meta.env.DEV` (stripped from prod bundles) — it exposes the
@@ -250,8 +266,19 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
  * abbreviated figure keeps its exact count and its explanation one hover away.
  * `Tip` needs an ancestor `Tooltip.Provider`; `chat-shell.tsx` wraps the whole
  * chat surface in one, so this component must stay inside that tree.
+ *
+ * A failed turn passes `tone="failed"`. It draws the same numbers — a fault
+ * does not refund them — but says up front that they bought an error. See
+ * {@link TONE} for what the tone changes and what it deliberately leaves alone.
  */
-export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usage"]> }) {
+export function UsageLine({
+  usage,
+  tone = "ok",
+}: {
+  usage: NonNullable<SyncedChatMessage["usage"]>;
+  tone?: UsageTone | undefined;
+}) {
+  const toneClass = TONE[tone];
   const cost = formatCost(usage.costUsd);
   const tokensPerSecond = outputTokensPerSecond(usage.outputTokens, usage.modelLatencyMs);
 
@@ -269,8 +296,22 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         "inline-flex max-w-full flex-wrap items-center gap-x-2.5 gap-y-1.5",
         "rounded-lg px-2.5 py-1.5",
         "text-[11px] leading-none text-app-fg-2 tabular-nums",
+        toneClass.container,
       )}
     >
+      {/* The one cell a healthy turn never draws. It leads the strip so the
+       * reader knows what the numbers are before reading them: this is what
+       * the failure cost, not what a reply cost. */}
+      {tone === "failed" ? (
+        <Tip
+          label="The turn failed"
+          description="These tokens were still billed. A turn pays for every model call it made before the fault, so a turn that died late can be the most expensive one in the thread."
+        >
+          <span className="inline-flex items-center">
+            <TriangleAlert className="size-3 shrink-0 text-app-red-4" />
+          </span>
+        </Tip>
+      ) : null}
       <Stat
         icon={ArrowUp}
         value={formatTokens(usage.inputTokens)}
@@ -326,7 +367,7 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         label={`${cost} this turn`}
         description="The whole turn at the snapshot prices in api_call_log: the boss run plus every sub-agent it spawned."
       >
-        <span className="inline-flex items-center gap-1.5 font-medium text-app-fg-4">
+        <span className={cn("inline-flex items-center gap-1.5 font-medium", toneClass.cost)}>
           <span className="text-app-fg-2">$</span>
           {cost.replace(/^\$/, "")}
         </span>

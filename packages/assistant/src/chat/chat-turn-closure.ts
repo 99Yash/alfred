@@ -336,8 +336,15 @@ async function upsertCompletedRow(
  * The failed-turn insert. `onConflictDoNothing`, not an upsert: a row that
  * already exists for this message is either a completed reply (which a late
  * fault must not demote to an error) or an earlier failure that already said the
- * same thing. No `usage` either — a faulted turn's spend is in `api_call_log`,
- * and the client's failed state reads only `errorKind`.
+ * same thing.
+ *
+ * It carries `usage`, like the completed row. A turn that faults after twenty
+ * tool rounds is often the most expensive turn in the thread, and the row is the
+ * only place the reader ever sees that money: the failed bubble and the thread
+ * total both read this column, so a null here spends the tokens silently.
+ * `aggregateRunUsage` reads the same `api_call_log` rows the completed path
+ * reads, counts the failed calls, and returns null when the turn billed nothing
+ * — which is the honest render for a turn that died before its first call.
  */
 async function insertFailedRow(
   userId: string,
@@ -354,6 +361,7 @@ async function insertFailedRow(
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
   const errorKind = await classifyChatTurnFailure(userId, state, error);
+  const usage = await aggregateRunUsage(runId);
   logger.warn(
     { err: error, event: "chat_turn_failed", runId, threadId: state.threadId, errorKind },
     "Chat turn failed",
@@ -373,6 +381,7 @@ async function insertFailedRow(
       errorKind,
       toolCalls: fields.toolCalls,
       narration: fields.narration,
+      usage,
       runId,
     })
     .onConflictDoNothing()
