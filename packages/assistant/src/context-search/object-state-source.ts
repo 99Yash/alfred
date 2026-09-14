@@ -13,6 +13,7 @@ import {
   type EvidenceCitation,
   type EvidenceObjectRef,
   type RetrievalSourceManifest,
+  type SourceManifest,
 } from "@alfred/contracts";
 import {
   objectStateStore,
@@ -58,12 +59,15 @@ import { defineContextSource, type ContextSource } from "./registry";
  * acts on; the wider catalog surface (`objectKinds`, `identityKeys`,
  * `indexability`, `discovery`, latency hints) stays unset.
  *
- * The manifest is the single owner of the id, kind, display name, source ref,
+ * The manifest is the single owner of the kind, display name, source ref,
  * and authority: cards derive all of them from it, so the declaration and the
- * evidence cannot drift.
+ * evidence cannot drift. The stable id lives once in
+ * `OBJECT_STATE_CONTEXT_SOURCE_ID` and the registry mints it into the
+ * manifest.
  */
-const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
-  id: "object-state",
+const OBJECT_STATE_CONTEXT_SOURCE_ID = "object-state";
+
+const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   kind: "internal",
   displayName: "Object state",
   freshness: { typical: "ingested" },
@@ -71,6 +75,15 @@ const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "
   cost: { class: "local" },
   availability: "available",
 };
+
+/**
+ * The manifest as cards read it: the base plus the once-stated id. Cards
+ * derive their source ref and authority from this rather than restating
+ * either beside the manifest fragment.
+ */
+function objectStateManifest(): SourceManifest {
+  return { ...OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE, id: OBJECT_STATE_CONTEXT_SOURCE_ID };
+}
 
 /**
  * The read surface this adapter needs. Narrower than `ObjectStateStore` so the
@@ -86,6 +99,7 @@ export function createObjectStateContextSource(
   store: ObjectStateReader = objectStateStore,
 ): ContextSource {
   return defineContextSource({
+    id: OBJECT_STATE_CONTEXT_SOURCE_ID,
     manifest: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE,
     reads: {
       exact_lookup: async (request: ContextSearchRequest) => {
@@ -212,11 +226,11 @@ function objectStateCard(state: ObjectState): EvidenceCard {
     locator: bound(repo ?? `${kind} ${externalId}`, 500) ?? state.objectId,
   };
 
-  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE);
+  const authority = sourceAuthorityFromManifest(objectStateManifest());
 
   return {
-    id: `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:${state.objectId}`,
-    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE),
+    id: `${OBJECT_STATE_CONTEXT_SOURCE_ID}:${state.objectId}`,
+    source: sourceRefFromManifest(objectStateManifest()),
     mediaKind: "text",
     snippet: objectStateSnippet(state, title, nativeState, repo),
     score: 1,
@@ -229,7 +243,7 @@ function objectStateCard(state: ObjectState): EvidenceCard {
       : { freshness: "unknown" },
     citations: [citation],
     expansion: {
-      sourceId: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id,
+      sourceId: OBJECT_STATE_CONTEXT_SOURCE_ID,
       kind: "integration_object",
       ref: state.objectId,
       ...(title ? { hint: bound(title, 300) } : {}),
@@ -253,24 +267,24 @@ function missingRefCard(ref: ContextObjectRef, note: string): EvidenceCard {
       : { by: ref.by, provider: ref.provider, kind: ref.kind, externalId: ref.externalId };
 
   return missingCard(
-    `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:missing:${sha256Canonical(identity)}`,
+    `${OBJECT_STATE_CONTEXT_SOURCE_ID}:missing:${sha256Canonical(identity)}`,
     note,
   );
 }
 
 function missingObjectCard(objectId: string, note: string): EvidenceCard {
-  return missingCard(`${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:${objectId}`, note);
+  return missingCard(`${OBJECT_STATE_CONTEXT_SOURCE_ID}:${objectId}`, note);
 }
 
 function missingCard(id: string, note: string): EvidenceCard {
-  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE);
+  const authority = sourceAuthorityFromManifest(objectStateManifest());
 
   return {
     // Callers either pass an object id or a fixed-length hash; `bound` is the
     // defensive strip/truncate for an unexpectedly long value, not the identity
     // guarantee (the hash is what keeps distinct refs distinct).
-    id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:unresolved`,
-    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE),
+    id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_ID}:unresolved`,
+    source: sourceRefFromManifest(objectStateManifest()),
     mediaKind: "text",
     score: 0,
     ...(authority !== undefined ? { authority } : {}),

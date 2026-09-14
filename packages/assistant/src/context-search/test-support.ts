@@ -10,26 +10,47 @@
  */
 
 import type { ContextSearchRequest } from "@alfred/contracts";
-import type { ContextSourceReads, ContextSourceResult } from "./registry";
+import {
+  defineContextSource,
+  type ContextSource,
+  type ContextSourceReads,
+  type ContextSourceResult,
+} from "./registry";
 import type { RetrievalSourceManifest } from "@alfred/contracts";
 
 /**
- * The manifest of an ordinary searchable test source (#466).
+ * The manifest fragment of an ordinary searchable test source (#466).
  *
  * Registration requires a manifest, and selection consults only a source that
  * declared read semantics and an authority. A test about something else — card
  * validation, ranking, the tool adapter — should not have to restate that
- * declaration nine times, and a copied literal would drift. A test that is
- * ABOUT the manifest writes its own literal instead, so the degraded cases stay
- * visible in the test that asserts them.
+ * declaration nine times, and a copied literal would drift. The stable id is
+ * stated once per test (see {@link defineTestContextSource}); the registry
+ * mints it into the manifest. A test that is ABOUT the manifest writes its
+ * own literal instead, so the degraded cases stay visible in the test that
+ * asserts them.
  */
-export function searchableTestSourceManifest(id: string): RetrievalSourceManifest {
+export function searchableTestSourceManifest(): Omit<RetrievalSourceManifest, "id" | "read"> {
   return {
-    id,
     kind: "native",
-    read: ["semantic_search", "exact_lookup"],
     authority: { level: "medium" },
   };
+}
+
+/**
+ * A test source whose id is stated once: the registry mints it into the
+ * manifest and derives `read` from the readers, so the test never writes the
+ * same id beside the manifest and on it.
+ */
+export function defineTestContextSource(
+  id: string,
+  handler: (request: ContextSearchRequest) => Promise<ContextSourceResult>,
+): ContextSource {
+  return defineContextSource({
+    id,
+    manifest: searchableTestSourceManifest(),
+    reads: testSourceReads(handler),
+  });
 }
 
 /**
@@ -45,6 +66,8 @@ export function testSourceReads(
 }
 
 export { EVIDENCE_RANK_FEATURES, entitySignificanceKey, rankEvidenceCards } from "./rank";
+
+export { defineContextSource } from "./registry";
 
 export type {
   EvidenceRankContext,

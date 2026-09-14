@@ -14,6 +14,7 @@ import {
   selectContextSources,
   type ContextSource,
 } from "@alfred/assistant/context-search";
+import { defineContextSource } from "@alfred/assistant/context-search/test-support";
 
 /**
  * Behavioral tests for the source capability manifest (#466; ADR-0101
@@ -48,7 +49,9 @@ function cardFrom(sourceId: string): EvidenceCard {
 /**
  * A source that records whether it was read. "Skipped" must mean no reader
  * ran, not that its output was discarded afterwards — the whole point of
- * excluding a source is not paying for it.
+ * excluding a source is not paying for it. The id is stated once on the
+ * manifest fixture; the registry mints it into the source and derives `read`
+ * from the readers, so the fixture never repeats either beside the manifest.
  */
 function recordingSource(manifest: RetrievalSourceManifest) {
   let read = false;
@@ -59,14 +62,16 @@ function recordingSource(manifest: RetrievalSourceManifest) {
     return { evidence: [cardFrom(manifest.id)] };
   }
 
-  const source: ContextSource = {
-    id: manifest.id,
-    manifest,
+  const { id, read: _read, ...fragment } = manifest;
+
+  const source: ContextSource = defineContextSource({
+    id,
+    manifest: fragment,
     // SAFETY: entries are built from manifest.read keys, so the record keys are capabilities by construction.
     reads: Object.fromEntries(
       manifest.read.map((capability) => [capability, handler] as const),
     ) as ContextSource["reads"],
-  };
+  });
 
   return { source, wasRead: () => read };
 }
@@ -245,7 +250,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
     // Authority is the only axis that differs: both sources are remote with
     // undeclared (hence `unknown`) freshness, so the order below follows the
     // authority declaration alone rather than the source that declared less.
-    const silent = recordingSource({
+    const mediumAuthority = recordingSource({
       id: "manifest-test:no-priority",
       kind: "native",
       read: ["semantic_search"],
@@ -255,7 +260,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
 
     const disposers = [
       registerContextSource(described.source),
-      registerContextSource(silent.source),
+      registerContextSource(mediumAuthority.source),
     ];
 
     try {
@@ -269,12 +274,12 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
         result.ranking.map((entry) => [entry.sourceId, entry.features.sourcePriority]),
       );
 
-      const silentPriority = priorities.get(silent.source.id);
+      const mediumPriority = priorities.get(mediumAuthority.source.id);
       const describedPriority = priorities.get(described.source.id);
 
-      assert.ok(silentPriority !== undefined);
+      assert.ok(mediumPriority !== undefined);
       assert.ok(describedPriority !== undefined);
-      assert.ok(silentPriority > describedPriority);
+      assert.ok(mediumPriority > describedPriority);
     } finally {
       for (const dispose of disposers.reverse()) dispose();
     }
