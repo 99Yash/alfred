@@ -3,6 +3,8 @@ import type {
   EvidenceAuthorityLevel,
   EvidenceCard,
   EvidenceFreshness,
+  SourceCostClass,
+  SourceManifest,
   StateCategory,
 } from "@alfred/contracts";
 import { clamp01 } from "@alfred/contracts";
@@ -144,6 +146,81 @@ const AUTHORITY_SCORES = {
 } as const satisfies Record<EvidenceAuthorityLevel, number>;
 
 /**
+ * What one read of a source costs, as a ranking reading (#466).
+ *
+ * Cost is the weakest of the three manifest readings and it only ever breaks a
+ * tie: a local store is preferred over a metered provider call when nothing
+ * else separates them, and never over relevance. `unknown` again sits above the
+ * honest bad case, so a source is not punished for silence.
+ */
+const COST_SCORES = {
+  local: 1,
+  remote: 0.6,
+  unknown: 0.5,
+  metered: 0.35,
+} as const satisfies Record<SourceCostClass, number>;
+
+/**
+ * Relative pull of the three manifest readings inside one source's priority.
+ *
+ * Authority leads by a wide margin because it is the only one of the three that
+ * says anything about whether the source's evidence is RIGHT. Freshness is a
+ * property of the copy, and cost is an operational preference with no bearing
+ * on truth at all — hence the small tail. The fold divides by the FIXED total
+ * weight and reads an undeclared axis as `unknown`, so silence and a declared
+ * `unknown` agree and omission buys nothing.
+ */
+const MANIFEST_PRIORITY_WEIGHTS = {
+  authority: 0.6,
+  freshness: 0.25,
+  cost: 0.15,
+} as const;
+
+/** Fixed divisor for the manifest fold: the sum of every manifest weight. */
+const MANIFEST_PRIORITY_TOTAL_WEIGHT =
+  MANIFEST_PRIORITY_WEIGHTS.authority +
+  MANIFEST_PRIORITY_WEIGHTS.freshness +
+  MANIFEST_PRIORITY_WEIGHTS.cost;
+
+/**
+ * Fold one manifest into the single `[0, 1]` priority the `sourcePriority`
+ * feature reads (#466; ADR-0101 sub-decision 13).
+ *
+ * Every axis always contributes: a declared reading scores its declared value
+ * and an undeclared axis scores its `unknown` row, so a manifest that declares
+ * only authority agrees with one that declares `unknown` freshness and cost
+ * outright. The divisor is the fixed total weight, never the weight of the
+ * readings the manifest happened to declare — dividing by the present weight
+ * rewarded omission, because an omitted axis then read as a declared maximum
+ * and every honest sub-maximum declaration lowered the result.
+ *
+ * The numbers live here rather than in the manifest contract because they are
+ * ranking judgements, not facts about a source. `@alfred/contracts` states what
+ * a manifest MEANS; this file decides what a ranker does about it, and a
+ * reweighting is then one file's change.
+ */
+export function sourcePriorityFromManifest(manifest: SourceManifest): number {
+  const authority =
+    manifest.authority !== undefined
+      ? AUTHORITY_SCORES[manifest.authority.level]
+      : AUTHORITY_SCORES.unknown;
+
+  const freshness =
+    manifest.freshness !== undefined
+      ? FRESHNESS_SCORES[manifest.freshness.typical]
+      : FRESHNESS_SCORES.unknown;
+
+  const cost = manifest.cost !== undefined ? COST_SCORES[manifest.cost.class] : COST_SCORES.unknown;
+
+  return clamp01(
+    (authority * MANIFEST_PRIORITY_WEIGHTS.authority +
+      freshness * MANIFEST_PRIORITY_WEIGHTS.freshness +
+      cost * MANIFEST_PRIORITY_WEIGHTS.cost) /
+      MANIFEST_PRIORITY_TOTAL_WEIGHT,
+  );
+}
+
+/**
  * Lifecycle reading for object-state evidence (#425).
  *
  * `active` leads because open work is what a question about current state
@@ -178,9 +255,12 @@ export interface EvidenceRankContext {
    *
    * This is the #466 seam. The manifest declares a source's authority,
    * freshness, and cost; the boundary folds them into one priority per source
-   * and passes it here. Until the manifest lands the map is empty and the
-   * `sourcePriority` feature is simply absent from every card, which is the
-   * same degradation path an unlisted source will take afterwards.
+   * and passes it here. Every consulted source folds to a number (an undeclared
+   * axis scores its `unknown` row), so through `searchContext` the feature is
+   * present on every card and moves every combined score slightly toward the
+   * declared trust reading; the weight stays small so it reorders ties rather
+   * than overturning relevance. A source missing from the map degrades the
+   * same way as before: the feature drops from that card's average.
    */
   readonly sourcePriority?: ReadonlyMap<string, number>;
   /**

@@ -1,7 +1,14 @@
-import { humanizeSlug, type ContextSearchRequest, type EvidenceCard } from "@alfred/contracts";
+import {
+  humanizeSlug,
+  sourceAuthorityFromManifest,
+  sourceRefFromManifest,
+  type ContextSearchRequest,
+  type EvidenceCard,
+  type RetrievalSourceManifest,
+} from "@alfred/contracts";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
-import type { ContextSource, ContextSourceResult } from "./registry";
-import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
+import { defineContextSource, type ContextSource } from "./registry";
+import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
  * The memory adapter (#424; epic #422; ADR-0101).
@@ -28,25 +35,47 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  * `vector-source.ts`.
  */
 
-/** Stable manifest id for the memory-chunk adapter (#466). */
-const MEMORY_CONTEXT_SOURCE_ID = "memory";
+/**
+ * What this source declares (#466): `medium` authority, one step below the
+ * document corpus, and the gap is the whole reason the two are separate
+ * sources: a memory chunk is Alfred's own DISTILLATION of a thread or a
+ * research run, so it can be wrong in a way a verbatim provider record cannot.
+ * It names no `integration`, because a memory chunk is Alfred's own writing
+ * rather than any provider's record. Only the fields the boundary acts on are
+ * declared; catalog-reserved fields stay unset.
+ *
+ * The manifest is the single owner of the id, kind, display name, source ref,
+ * and authority: cards derive all of them from it, so the declaration and the
+ * evidence cannot drift.
+ */
+const MEMORY_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
+  id: "memory",
+  kind: "internal",
+  displayName: "Memory",
+  freshness: { typical: "ingested" },
+  authority: { level: "medium", label: "Alfred's distilled note, not a primary record" },
+  cost: { class: "metered" },
+  availability: "available",
+};
 
 /** Build the memory context source over the real `@alfred/assistant/knowledge` verb. */
 export function createMemoryContextSource(): ContextSource {
-  return {
-    id: MEMORY_CONTEXT_SOURCE_ID,
-    async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
-      const hits = await recallMemory({
-        query: request.query,
-        userId: request.userId,
-        limit: request.limit,
-      });
+  return defineContextSource({
+    manifest: MEMORY_CONTEXT_SOURCE_MANIFEST_BASE,
+    reads: { semantic_search: readMemory },
+  });
+}
 
-      const evidence = [...hits].sort(compareByScoreThenId).map(memoryHitToEvidenceCard);
+async function readMemory(request: ContextSearchRequest) {
+  const hits = await recallMemory({
+    query: request.query,
+    userId: request.userId,
+    limit: request.limit,
+  });
 
-      return { evidence };
-    },
-  };
+  const evidence = [...hits].sort(compareByScoreThenId).map(memoryHitToEvidenceCard);
+
+  return { evidence };
 }
 
 /**
@@ -58,19 +87,21 @@ export function createMemoryContextSource(): ContextSource {
  */
 function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
   const label = humanizeSlug(hit.kind);
+  const authority = sourceAuthorityFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST_BASE);
 
   return {
-    id: `${MEMORY_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: internalSourceRef(MEMORY_CONTEXT_SOURCE_ID, "Memory"),
+    id: `${MEMORY_CONTEXT_SOURCE_MANIFEST_BASE.id}:${hit.chunkId}`,
+    source: sourceRefFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST_BASE),
     mediaKind: "text",
     // `writeMemoryChunk` requires non-empty content today, so the note guards a
     // persisted row that predates that rule, not an expected path.
     ...renderContent(hit.preview, "This memory chunk has no stored text."),
     score: hit.similarity,
+    ...(authority !== undefined ? { authority } : {}),
     time: { freshness: "ingested" },
     citations: [{ label, locator: `memory chunk ${hit.chunkId}` }],
     expansion: {
-      sourceId: MEMORY_CONTEXT_SOURCE_ID,
+      sourceId: MEMORY_CONTEXT_SOURCE_MANIFEST_BASE.id,
       kind: "memory_chunk",
       ref: hit.chunkId,
       hint: label,

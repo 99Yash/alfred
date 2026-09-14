@@ -51,10 +51,10 @@
  *   the provider drill-down and action surface. The boundary's live adapters
  *   (#428) are bounded read-only expansions of thin or stale local hits; they
  *   never invoke a provider-specific action tool.
- * - **The source capability manifest** (#466) is the source-discovery contract.
- *   The boundary enumerates candidate sources from it rather than a hard-coded
- *   switch over today's integrations. Until it lands, adapters register by id
- *   through `registerContextSource`.
+ * - **The source capability manifest** (#466) is the source-discovery contract,
+ *   now live. `SourceManifest` in `@alfred/contracts` is what a source declares
+ *   about itself; `manifest.ts` here is the only code that acts on the
+ *   declaration. See "Discovery" below.
  *
  * ## The built-in sources (#424, #425)
  *
@@ -83,38 +83,86 @@
  * (`@alfred/assistant/context-search/test-support`), not part of the
  * production interface below.
  *
+ * ## Discovery (#466)
+ *
+ * Every source registers with a `RetrievalSourceManifest`
+ * (`@alfred/contracts`): how it can be read (read capabilities, freshness,
+ * availability), and how far to trust and how much to spend (authority, cost).
+ * The contract reserves a wider catalog surface (`objectKinds`, `mediaKinds`,
+ * `identityKeys`, `indexability`, `freshness.windowMinutes`,
+ * `cost.typicalLatencyMs`, `discovery`, and the `enumerate` / `expand`
+ * capabilities for #428); the boundary does not branch on those yet and
+ * production manifests leave them unset. `SourceManifest` stays loose for the
+ * catalog case, but registration takes the strict retrieval subtype — at
+ * least one read capability and an authority above `unknown` — so a
+ * forgotten declaration fails at boot rather than going dark. The ADR-0093
+ * integration join (`integration` slug in, `sourceManifestDisplayName` /
+ * `sourceManifestDomains` out) is implemented and covered from a fixture, but
+ * no built-in source names a slug today: `documents`, `memory`, and
+ * `object-state` each span every ingested provider at once, so they declare
+ * their own display name and no slug.
+ *
+ * `searchContext` then SELECTS before it reads. `selectContextSources` excludes
+ * a source whose boot-time manifest declares it unavailable and one whose
+ * declared reads cannot answer this request. Each
+ * exclusion is a `skipped` report with its reason, so "not asked" is visibly
+ * different from "asked and found nothing". An undescribed MCP source stays a
+ * perfectly callable tool on the
+ * `mcp.call` surface and simply cannot register for retrieval until it declares
+ * how it can be read and where its evidence comes from. The
+ * selection reads declared capability only — no source id and no integration
+ * name appears in it.
+ *
+ * The same manifests feed `contextSourcePriorities`, which fills the ranker's
+ * `sourcePriority` seam (ADR-0101 sub-decision 13) by folding each source's
+ * authority, freshness, and cost into one number.
+ *
  * ## Extensibility
  *
  * A new native integration or an MCP-backed source is `registerContextSource`
  * with a `ContextSource`, and consumers never branch on a source name. That is
  * the seam's design property, now exercised by three adapters and one real
  * consumer: `system.search_context` (#426) reads the registry through
- * `searchContext` and names no source. Unknown or minimally described MCP
- * sources are expected to be callable tools without being trusted retrieval
- * sources until the manifest declares their read semantics and authority
- * (#466).
+ * `searchContext` and names no source.
  *
  * ## Degradation
  *
  * With no source registered, `searchContext` returns an empty result. A source
  * that throws, or that returns a card violating the `EvidenceCard` contract,
- * becomes one `error` report and never fails the whole search. Absence is
- * reported, never inferred as a closed loop.
+ * becomes one `error` report and never fails the whole search. A source the
+ * manifest reader excluded becomes one `skipped` report. Absence is reported,
+ * never inferred as a closed loop.
  */
 
 export type { ContextSearchRequest } from "@alfred/contracts";
 
-export { listContextSources, registerContextSource } from "./registry";
+export { registerContextSource } from "./registry";
+
+export {
+  contextSourcePriorities,
+  isTrustedRetrievalSource,
+  selectContextSources,
+  SOURCE_EXCLUSION_REASONS,
+} from "./manifest";
+
+export type { SourceExclusionReason } from "./manifest";
 
 export { registerDefaultContextSources } from "./default-sources";
 
 export { searchContext } from "./search";
 
-export type { ContextSearchResult, ContextSourceReport } from "./search";
+export type {
+  ContextSearchResult,
+  ContextSourceErrorReport,
+  ContextSourceOkReport,
+  ContextSourceReport,
+  ContextSourceSkippedReport,
+  ContextSourceStatus,
+} from "./search";
 
 export type { EvidenceRanking } from "./rank";
 
-export type { ContextSource } from "./registry";
+export type { ContextSource, ContextSourceReads, ContextSourceReader } from "./registry";
 
 export {
   EVIDENCE_PACK_DEFAULT_MAX_CHARS,

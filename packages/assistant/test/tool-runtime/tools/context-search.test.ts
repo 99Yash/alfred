@@ -9,6 +9,10 @@ import {
 } from "@alfred/contracts";
 import { registerContextSource } from "@alfred/assistant/context-search";
 import {
+  searchableTestSourceManifest,
+  testSourceReads,
+} from "@alfred/assistant/context-search/test-support";
+import {
   executeToolCallRound,
   registerToolCallRoundAdapter,
   runContextSearch,
@@ -137,9 +141,10 @@ describe("system.search_context", () => {
   test("returns packed evidence text on a representative call", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
-      async search() {
+      manifest: searchableTestSourceManifest(SOURCE_ID),
+      reads: testSourceReads(async () => {
         return { evidence: [evidenceCard("The contract clause is section 12.")] };
-      },
+      }),
     });
 
     const result = await runContextSearch(seamRequest("contract clause"));
@@ -155,9 +160,10 @@ describe("system.search_context", () => {
   test("reports an empty read honestly without failing the call", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
-      async search() {
+      manifest: searchableTestSourceManifest(SOURCE_ID),
+      reads: testSourceReads(async () => {
         return { evidence: [] };
-      },
+      }),
     });
 
     const result = await runContextSearch(seamRequest("nothing matches"));
@@ -172,9 +178,10 @@ describe("system.search_context", () => {
   test("turns a failing source into an honest note, not a thrown call", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
-      async search() {
+      manifest: searchableTestSourceManifest(SOURCE_ID),
+      reads: testSourceReads(async () => {
         throw new Error("provider exploded");
-      },
+      }),
     });
 
     const result = await runContextSearch(seamRequest("anything"));
@@ -186,9 +193,10 @@ describe("system.search_context", () => {
   test("wraps the packed result for the model through a real tool-call round", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
-      async search() {
+      manifest: searchableTestSourceManifest(SOURCE_ID),
+      reads: testSourceReads(async () => {
         return { evidence: [evidenceCard("The contract clause is section 12.")] };
-      },
+      }),
     });
 
     const tool = getTool("system.search_context");

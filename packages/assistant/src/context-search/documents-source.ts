@@ -3,12 +3,15 @@ import {
   EVIDENCE_CITATION_URL_MAX_CHARS,
   integrationDisplayName,
   sanitizeErrorMessage,
+  sourceAuthorityFromManifest,
+  sourceRefFromManifest,
   type ContextSearchRequest,
   type EvidenceCard,
+  type RetrievalSourceManifest,
 } from "@alfred/contracts";
 import { search, type SearchHit } from "@alfred/corpus";
-import type { ContextSource, ContextSourceResult } from "./registry";
-import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
+import { defineContextSource, type ContextSource } from "./registry";
+import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
  * The ingested-document adapter (#424; epic #422; ADR-0101).
@@ -33,8 +36,28 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  * Cross-source ranking is `rank.ts` (#427), not this file.
  */
 
-/** Stable manifest id for the ingested-document corpus adapter (#466). */
-const DOCUMENT_CONTEXT_SOURCE_ID = "documents";
+/**
+ * What this source declares (#466): `high` authority because a chunk is a
+ * VERBATIM slice of the provider's own record — an email body, an attachment's
+ * text — not a summary of one. It names no `integration` and no `domains`
+ * because it spans every ingested provider at once; the per-record provider
+ * rides each card's citation instead. The cost is `metered`: the corpus search
+ * embeds the query, so one read is one embedding call. Only the fields the
+ * boundary acts on are declared; catalog-reserved fields stay unset.
+ *
+ * The manifest is the single owner of the id, kind, display name, source ref,
+ * and authority: cards derive all of them from it, so the declaration and the
+ * evidence cannot drift.
+ */
+const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
+  id: "documents",
+  kind: "internal",
+  displayName: "Documents",
+  freshness: { typical: "ingested" },
+  authority: { level: "high", label: "verbatim slice of an ingested provider record" },
+  cost: { class: "metered" },
+  availability: "available",
+};
 
 /**
  * Tolerance for a sender-controlled authored instant that lies slightly in the
@@ -47,20 +70,22 @@ const DOCUMENT_FUTURE_SKEW_MS = 86_400_000;
 
 /** Build the document context source over the real `@alfred/corpus` verb. */
 export function createDocumentContextSource(): ContextSource {
-  return {
-    id: DOCUMENT_CONTEXT_SOURCE_ID,
-    async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
-      const hits = await search({
-        query: request.query,
-        userId: request.userId,
-        limit: request.limit,
-      });
+  return defineContextSource({
+    manifest: DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE,
+    reads: { semantic_search: readDocuments },
+  });
+}
 
-      const evidence = [...hits].sort(compareByScoreThenId).map(documentHitToEvidenceCard);
+async function readDocuments(request: ContextSearchRequest) {
+  const hits = await search({
+    query: request.query,
+    userId: request.userId,
+    limit: request.limit,
+  });
 
-      return { evidence };
-    },
-  };
+  const evidence = [...hits].sort(compareByScoreThenId).map(documentHitToEvidenceCard);
+
+  return { evidence };
 }
 
 /**
@@ -76,12 +101,15 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
     ? sanitizeErrorMessage(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS) || undefined
     : undefined;
 
+  const authority = sourceAuthorityFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE);
+
   return {
-    id: `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: internalSourceRef(DOCUMENT_CONTEXT_SOURCE_ID, "Documents"),
+    id: `${DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE.id}:${hit.chunkId}`,
+    source: sourceRefFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE),
     mediaKind: "document",
     ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,
+    ...(authority !== undefined ? { authority } : {}),
     time: {
       // `authoredAt` is the authored instant (an email Date header, an event
       // start), so it is when the underlying event happened — `occurredAt`,
@@ -104,7 +132,7 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
       },
     ],
     expansion: {
-      sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
+      sourceId: DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE.id,
       kind: "document",
       ref: hit.documentId,
       ...(title ? { hint: title } : {}),
