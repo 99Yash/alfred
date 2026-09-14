@@ -1,8 +1,8 @@
 import {
-  sourceManifestSchema,
+  retrievalSourceManifestSchema,
   type ContextSearchRequest,
   type EvidenceCard,
-  type SourceManifest,
+  type RetrievalSourceManifest,
 } from "@alfred/contracts";
 
 /**
@@ -51,18 +51,24 @@ export interface ContextSource {
   /**
    * What this source can know and how it can be read (#466).
    *
-   * Required, and `manifest.id` must equal `id`. A source that knows almost
-   * nothing about itself still declares that much — `{ id, kind: "mcp" }` is a
-   * valid manifest — and the boundary reads the silence conservatively rather
-   * than the source going undescribed. Making it optional would have created a
-   * second, quieter degradation path for exactly the case the manifest exists
-   * to handle.
+   * Required, and `manifest.id` must equal `id`. It takes the strict retrieval
+   * subtype: at least one read capability and an authority above `unknown`.
+   * `SourceManifest` stays loose for the catalog case, but a registered source
+   * is always a trusted retrieval source — a forgotten declaration fails at
+   * boot rather than going dark behind a `skipped` line.
    */
-  readonly manifest: SourceManifest;
+  readonly manifest: RetrievalSourceManifest;
   search(request: ContextSearchRequest): Promise<ContextSourceResult>;
 }
 
-const registeredSources = new Map<string, ContextSource>();
+interface RegisteredSlot {
+  /** The exact instance the composition root installed. */
+  readonly instance: ContextSource;
+  /** The parsed, unknown-key-stripped, frozen manifest for every later reader. */
+  readonly manifest: RetrievalSourceManifest;
+}
+
+const registeredSources = new Map<string, RegisteredSlot>();
 
 /**
  * Register a read-only evidence source. A composition root calls this at boot
@@ -73,21 +79,23 @@ const registeredSources = new Map<string, ContextSource>();
  * throws — a duplicate id is a bug, not a reconfiguration. Returns a disposer
  * that clears the slot only while it still holds this exact source.
  *
- * The manifest is parsed here, not at read time. A malformed manifest is a
- * composition-root bug that should stop a boot, and parsing once means every
- * later reader — candidate selection, the priority fold, a catalog page — works
- * on a value the contract has already accepted.
+ * The manifest is parsed here, not at read time, and the registry stores the
+ * PARSED value beside the original instance — never the caller's object. A
+ * malformed manifest, an unknown key, or a missing read/authority declaration
+ * is a composition-root bug that stops the boot, and every later reader works
+ * on a frozen value the contract has already accepted. Mutating the caller's
+ * manifest after registration cannot move the registry.
  */
 export function registerContextSource(source: ContextSource): () => void {
   const existing = registeredSources.get(source.id);
 
-  if (existing === source) return () => {};
+  if (existing?.instance === source) return () => {};
 
   if (existing !== undefined) {
     throw new Error(`A context search source is already registered for id "${source.id}"`);
   }
 
-  const manifest = sourceManifestSchema.parse(source.manifest);
+  const manifest = retrievalSourceManifestSchema.parse(source.manifest);
 
   if (manifest.id !== source.id) {
     throw new Error(
@@ -95,14 +103,44 @@ export function registerContextSource(source: ContextSource): () => void {
     );
   }
 
-  registeredSources.set(source.id, source);
+  registeredSources.set(source.id, { instance: source, manifest: deepFreezeManifest(manifest) });
 
   return () => {
-    if (registeredSources.get(source.id) === source) registeredSources.delete(source.id);
+    if (registeredSources.get(source.id)?.instance === source) registeredSources.delete(source.id);
   };
 }
 
 /** Registered sources, in registration order. The manifest reader (#466) enumerates them here. */
 export function listContextSources(): readonly ContextSource[] {
-  return [...registeredSources.values()];
+  return [...registeredSources.values()].map((slot) => ({
+    ...slot.instance,
+    manifest: slot.manifest,
+  }));
+}
+
+/**
+ * Deep-freeze a parsed manifest so no later reader — and no later mutation of
+ * a returned reference — can change what the registry accepted. Plain JSON
+ * data only: objects freeze recursively, arrays freeze element-wise.
+ */
+function deepFreezeManifest(manifest: RetrievalSourceManifest): RetrievalSourceManifest {
+  deepFreezeValue(manifest);
+
+  return manifest;
+}
+
+function deepFreezeValue(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) deepFreezeValue(entry);
+
+    Object.freeze(value);
+
+    return;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    for (const entry of Object.values(value)) deepFreezeValue(entry);
+
+    Object.freeze(value);
+  }
 }

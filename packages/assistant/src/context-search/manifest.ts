@@ -1,8 +1,7 @@
 import {
-  declaresReadSemantics,
-  isTrustedRetrievalSource,
   sourceManifestSupportsRead,
   type ContextSearchRequest,
+  type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
 import { sourcePriorityFromManifest } from "./rank";
@@ -56,17 +55,12 @@ export interface ContextSourceSelection {
  * Split the registered sources into the ones this request can usefully ask and
  * the ones it cannot.
  *
- * The three exclusions, in the order they are checked:
+ * Registration guarantees every source declares read semantics and an
+ * authority above `unknown`, so the two exclusions here are the only ones left:
  *
  * - **Declared unavailable.** The source says it cannot be read right now (a
  *   disconnected integration, an MCP connection awaiting reauthorization).
  *   Silence is not this answer: an undeclared `availability` is still consulted.
- * - **Not a trusted retrieval source.** The source declared no read semantics,
- *   or no authority above `unknown`. It may well be a fine tool — the `mcp.call`
- *   surface is untouched by this — but a retrieval boundary that cannot say what
- *   questioning it means, or where its evidence comes from, must not launder its
- *   output into ranked evidence. See `isTrustedRetrievalSource` for why the
- *   authority half is not merely tidiness.
  * - **No capability this request can use.** A source that only does exact
  *   lookups is not asked a free-text question with no object references
  *   attached; asking it would cost a read and return nothing.
@@ -92,10 +86,10 @@ export function selectContextSources(
  * Per-source ranking priority, keyed by `ContextSource.id` (ADR-0101
  * sub-decision 13).
  *
- * A source whose manifest declares none of authority, freshness, or cost is
- * absent from the map, so the ranker drops its `sourcePriority` feature rather
- * than scoring it zero — the same degradation the empty seam had before this
- * slice.
+ * Every registered source folds to a number: a declared reading scores its
+ * declared value and an undeclared axis scores its `unknown` row, divided by
+ * the fixed total weight. Silence and declared `unknown` therefore agree and
+ * omission buys nothing.
  */
 export function contextSourcePriorities(
   sources: readonly ContextSource[],
@@ -103,9 +97,7 @@ export function contextSourcePriorities(
   const priorities = new Map<string, number>();
 
   for (const source of sources) {
-    const priority = sourcePriorityFromManifest(source.manifest);
-
-    if (priority !== undefined) priorities.set(source.id, priority);
+    priorities.set(source.id, sourcePriorityFromManifest(source.manifest));
   }
 
   return priorities;
@@ -118,14 +110,10 @@ export function listSourceManifests(sources: readonly ContextSource[]): readonly
 
 /** Why this request cannot usefully ask this source, or `undefined` if it can. */
 function exclusionReason(
-  manifest: SourceManifest,
+  manifest: RetrievalSourceManifest,
   request: ContextSearchRequest,
 ): string | undefined {
   if (manifest.availability === "unavailable") return "source declares it is unavailable";
-
-  if (!declaresReadSemantics(manifest)) return "source declares no read capability";
-
-  if (!isTrustedRetrievalSource(manifest)) return "source declares no authority";
 
   if (answersFreeText(manifest)) return undefined;
 
@@ -144,7 +132,7 @@ function exclusionReason(
  * records ignores the question, and expansion needs a handle from a card that
  * does not exist yet (#428).
  */
-function answersFreeText(manifest: SourceManifest): boolean {
+function answersFreeText(manifest: RetrievalSourceManifest): boolean {
   return (
     sourceManifestSupportsRead(manifest, "semantic_search") ||
     sourceManifestSupportsRead(manifest, "keyword_search")

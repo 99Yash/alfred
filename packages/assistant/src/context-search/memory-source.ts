@@ -1,12 +1,14 @@
 import {
   humanizeSlug,
+  sourceAuthorityFromManifest,
+  sourceRefFromManifest,
   type ContextSearchRequest,
   type EvidenceCard,
-  type SourceManifest,
+  type RetrievalSourceManifest,
 } from "@alfred/contracts";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 import type { ContextSource, ContextSourceResult } from "./registry";
-import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
+import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
  * The memory adapter (#424; epic #422; ADR-0101).
@@ -33,24 +35,22 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  * `vector-source.ts`.
  */
 
-/** Stable manifest id for the memory-chunk adapter (#466). */
-const MEMORY_CONTEXT_SOURCE_ID = "memory";
-
-const MEMORY_DISPLAY_NAME = "Memory";
-
 /**
- * What this source can answer (#466).
+ * What this source declares (#466): `medium` authority, one step below the
+ * document corpus, and the gap is the whole reason the two are separate
+ * sources: a memory chunk is Alfred's own DISTILLATION of a thread or a
+ * research run, so it can be wrong in a way a verbatim provider record cannot.
+ * It names no `integration`, because a memory chunk is Alfred's own writing
+ * rather than any provider's record.
  *
- * Its authority is `medium`, one step below the document corpus, and the gap is
- * the whole reason the two are separate sources: a memory chunk is Alfred's own
- * DISTILLATION of a thread or a research run, so it can be wrong in a way a
- * verbatim provider record cannot. It names no `integration`, because a memory
- * chunk is Alfred's own writing rather than any provider's record.
+ * The manifest is the single owner of the id, kind, display name, source ref,
+ * and authority: cards derive all of them from it, so the declaration and the
+ * evidence cannot drift.
  */
-const MEMORY_CONTEXT_SOURCE_MANIFEST: SourceManifest = {
-  id: MEMORY_CONTEXT_SOURCE_ID,
+const MEMORY_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
+  id: "memory",
   kind: "internal",
-  displayName: MEMORY_DISPLAY_NAME,
+  displayName: "Memory",
   mediaKinds: ["text"],
   read: ["semantic_search"],
   indexability: "indexed",
@@ -67,7 +67,7 @@ const MEMORY_CONTEXT_SOURCE_MANIFEST: SourceManifest = {
 /** Build the memory context source over the real `@alfred/assistant/knowledge` verb. */
 export function createMemoryContextSource(): ContextSource {
   return {
-    id: MEMORY_CONTEXT_SOURCE_ID,
+    id: MEMORY_CONTEXT_SOURCE_MANIFEST.id,
     manifest: MEMORY_CONTEXT_SOURCE_MANIFEST,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
       const hits = await recallMemory({
@@ -92,19 +92,21 @@ export function createMemoryContextSource(): ContextSource {
  */
 function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
   const label = humanizeSlug(hit.kind);
+  const authority = sourceAuthorityFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST);
 
   return {
-    id: `${MEMORY_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: internalSourceRef(MEMORY_CONTEXT_SOURCE_ID, MEMORY_DISPLAY_NAME),
+    id: `${MEMORY_CONTEXT_SOURCE_MANIFEST.id}:${hit.chunkId}`,
+    source: sourceRefFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST),
     mediaKind: "text",
     // `writeMemoryChunk` requires non-empty content today, so the note guards a
     // persisted row that predates that rule, not an expected path.
     ...renderContent(hit.preview, "This memory chunk has no stored text."),
     score: hit.similarity,
+    ...(authority !== undefined ? { authority } : {}),
     time: { freshness: "ingested" },
     citations: [{ label, locator: `memory chunk ${hit.chunkId}` }],
     expansion: {
-      sourceId: MEMORY_CONTEXT_SOURCE_ID,
+      sourceId: MEMORY_CONTEXT_SOURCE_MANIFEST.id,
       kind: "memory_chunk",
       ref: hit.chunkId,
       hint: label,

@@ -7,6 +7,7 @@ import {
   sourceManifestDomains,
   type ContextSearchRequest,
   type EvidenceCard,
+  type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
 import {
@@ -24,10 +25,12 @@ import {
  * sources a read consults and what it says about the ones it does not. The
  * compiler already carries the shape, and `registerContextSource` already
  * carries the parse; neither can carry the selection policy, because that is a
- * decision rather than a type. These tests pin the four cases the policy exists
+ * decision rather than a type. These tests pin the cases the policy exists
  * for: a fully described source, a described MCP-backed source, a source that
- * declares itself unavailable, and a source that describes itself too little to
- * be trusted with retrieval.
+ * declares itself unavailable, and an exact-lookup source facing a free-text
+ * query. A source that forgets its read or authority declaration never reaches
+ * selection — registration rejects it — so those cases assert a throw rather
+ * than an exclusion reason.
  *
  * The selection never reads a source id, so every assertion below is on the
  * DECLARATION a source makes and never on which source made it.
@@ -49,7 +52,7 @@ function cardFrom(sourceId: string): EvidenceCard {
  * never ran, not that its output was discarded afterwards — the whole point of
  * excluding a source is not paying for it.
  */
-function recordingSource(manifest: SourceManifest) {
+function recordingSource(manifest: RetrievalSourceManifest) {
   let read = false;
 
   const source: ContextSource = {
@@ -65,7 +68,7 @@ function recordingSource(manifest: SourceManifest) {
   return { source, wasRead: () => read };
 }
 
-const NATIVE: SourceManifest = {
+const NATIVE: RetrievalSourceManifest = {
   id: "manifest-test:native",
   kind: "native",
   integration: "github",
@@ -80,7 +83,7 @@ const NATIVE: SourceManifest = {
 };
 
 /** A described MCP server: remote and third-party, but it said how to read it. */
-const DESCRIBED_MCP: SourceManifest = {
+const DESCRIBED_MCP: RetrievalSourceManifest = {
   id: "manifest-test:mcp-described",
   kind: "mcp",
   displayName: "A described MCP server",
@@ -97,7 +100,7 @@ const UNDESCRIBED_MCP: SourceManifest = {
 };
 
 /** Described, readable, and temporarily out of service. */
-const UNAVAILABLE: SourceManifest = {
+const UNAVAILABLE: RetrievalSourceManifest = {
   id: "manifest-test:unavailable",
   kind: "native",
   read: ["semantic_search"],
@@ -113,7 +116,7 @@ const NO_AUTHORITY: SourceManifest = {
 };
 
 /** Deterministic lookups only — it cannot answer a free-text question. */
-const EXACT_ONLY: SourceManifest = {
+const EXACT_ONLY: RetrievalSourceManifest = {
   id: "manifest-test:exact-only",
   kind: "internal",
   read: ["exact_lookup"],
@@ -122,7 +125,10 @@ const EXACT_ONLY: SourceManifest = {
 
 const QUERY: ContextSearchRequest = { userId: "user-1", query: "anything", limit: 10 };
 
-function select(manifests: readonly SourceManifest[], request: ContextSearchRequest = QUERY) {
+function select(
+  manifests: readonly RetrievalSourceManifest[],
+  request: ContextSearchRequest = QUERY,
+) {
   const sources = manifests.map((manifest) => recordingSource(manifest).source);
 
   return selectContextSources(sources, request);
@@ -155,21 +161,37 @@ describe("selectContextSources — who gets asked", () => {
     );
   });
 
-  test("an undescribed MCP source is excluded for declaring no read capability", () => {
-    const selection = select([UNDESCRIBED_MCP]);
+  test("a source that forgets its read declaration fails at registration, not at read time", () => {
+    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
+    const manifest = UNDESCRIBED_MCP as RetrievalSourceManifest;
 
-    assert.equal(selection.candidates.length, 0);
-    assert.equal(reasonFor(selection, UNDESCRIBED_MCP.id), "source declares no read capability");
+    assert.throws(() =>
+      registerContextSource({
+        id: manifest.id,
+        manifest,
+        async search() {
+          return { evidence: [] };
+        },
+      }),
+    );
   });
 
-  test("a source that declares read semantics but no authority is still excluded", () => {
-    // The half-described case is the dangerous one: `semantic` is the ranker's
-    // heaviest feature and a source sets its own `score`, so a source that
-    // never said where its evidence comes from must not enter the ranking.
-    const selection = select([NO_AUTHORITY]);
+  test("a source that declares read semantics but no authority fails at registration", () => {
+    // The half-described case used to go dark behind a `skipped` line for the
+    // life of the process. Registration now rejects it, so a forgotten
+    // authority stops the boot instead of reading as ordinary output.
+    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
+    const manifest = NO_AUTHORITY as RetrievalSourceManifest;
 
-    assert.equal(selection.candidates.length, 0);
-    assert.equal(reasonFor(selection, NO_AUTHORITY.id), "source declares no authority");
+    assert.throws(() =>
+      registerContextSource({
+        id: manifest.id,
+        manifest,
+        async search() {
+          return { evidence: [] };
+        },
+      }),
+    );
   });
 
   test("a source that declares itself unavailable is excluded", () => {
@@ -203,13 +225,13 @@ describe("selectContextSources — who gets asked", () => {
 });
 
 describe("searchContext — an excluded source is reported, not hidden", () => {
-  test("an undescribed source is never read and is reported skipped with its reason", async () => {
+  test("an unavailable source is never read and is reported skipped with its reason", async () => {
     const described = recordingSource(DESCRIBED_MCP);
-    const undescribed = recordingSource(UNDESCRIBED_MCP);
+    const unavailable = recordingSource(UNAVAILABLE);
 
     const disposers = [
       registerContextSource(described.source),
-      registerContextSource(undescribed.source),
+      registerContextSource(unavailable.source),
     ];
 
     try {
@@ -217,19 +239,19 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
 
       // Skipping must save the read, not discard its output afterwards.
       assert.equal(described.wasRead(), true);
-      assert.equal(undescribed.wasRead(), false);
+      assert.equal(unavailable.wasRead(), false);
 
       assert.deepEqual(
         result.evidence.map((card) => card.source.id),
         [DESCRIBED_MCP.id],
       );
 
-      const report = result.sources.find((one) => one.sourceId === UNDESCRIBED_MCP.id);
+      const report = result.sources.find((one) => one.sourceId === UNAVAILABLE.id);
 
       // `skipped` is its own status: "never asked" must not read as "asked and
       // found nothing", or absence becomes evidence of absence.
       assert.equal(report?.status, "skipped");
-      assert.equal(report?.reason, "source declares no read capability");
+      assert.equal(report?.reason, "source declares it is unavailable");
       assert.equal(report?.evidenceCount, 0);
     } finally {
       for (const dispose of disposers.reverse()) dispose();

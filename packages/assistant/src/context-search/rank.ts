@@ -166,10 +166,9 @@ const COST_SCORES = {
  * Authority leads by a wide margin because it is the only one of the three that
  * says anything about whether the source's evidence is RIGHT. Freshness is a
  * property of the copy, and cost is an operational preference with no bearing
- * on truth at all — hence the small tail. The fold is a weighted average over
- * the readings a manifest actually declares, so a manifest that declares only
- * authority yields its authority score rather than a value diluted toward zero
- * by two silences.
+ * on truth at all — hence the small tail. The fold divides by the FIXED total
+ * weight and reads an undeclared axis as `unknown`, so silence and a declared
+ * `unknown` agree and omission buys nothing.
  */
 const MANIFEST_PRIORITY_WEIGHTS = {
   authority: 0.6,
@@ -177,47 +176,48 @@ const MANIFEST_PRIORITY_WEIGHTS = {
   cost: 0.15,
 } as const;
 
+/** Fixed divisor for the manifest fold: the sum of every manifest weight. */
+const MANIFEST_PRIORITY_TOTAL_WEIGHT =
+  MANIFEST_PRIORITY_WEIGHTS.authority +
+  MANIFEST_PRIORITY_WEIGHTS.freshness +
+  MANIFEST_PRIORITY_WEIGHTS.cost;
+
 /**
  * Fold one manifest into the single `[0, 1]` priority the `sourcePriority`
  * feature reads (#466; ADR-0101 sub-decision 13).
  *
- * Returns `undefined` when the manifest declares none of authority, freshness,
- * or cost. That is not a zero: an undeclared source drops the `sourcePriority`
- * feature entirely, exactly as it did while the manifest was an empty seam, so
- * the conservative path is the one that was already exercised.
+ * Every axis always contributes: a declared reading scores its declared value
+ * and an undeclared axis scores its `unknown` row, so a manifest that declares
+ * only authority agrees with one that declares `unknown` freshness and cost
+ * outright. The divisor is the fixed total weight, never the weight of the
+ * readings the manifest happened to declare — dividing by the present weight
+ * rewarded omission, because an omitted axis then read as a declared maximum
+ * and every honest sub-maximum declaration lowered the result.
  *
  * The numbers live here rather than in the manifest contract because they are
  * ranking judgements, not facts about a source. `@alfred/contracts` states what
  * a manifest MEANS; this file decides what a ranker does about it, and a
  * reweighting is then one file's change.
  */
-export function sourcePriorityFromManifest(manifest: SourceManifest): number | undefined {
-  const readings: readonly (readonly [number, number])[] = [
-    manifest.authority
-      ? ([AUTHORITY_SCORES[manifest.authority.level], MANIFEST_PRIORITY_WEIGHTS.authority] as const)
-      : undefined,
-    manifest.freshness
-      ? ([
-          FRESHNESS_SCORES[manifest.freshness.typical],
-          MANIFEST_PRIORITY_WEIGHTS.freshness,
-        ] as const)
-      : undefined,
-    manifest.cost
-      ? ([COST_SCORES[manifest.cost.class], MANIFEST_PRIORITY_WEIGHTS.cost] as const)
-      : undefined,
-  ].filter((reading) => reading !== undefined);
+export function sourcePriorityFromManifest(manifest: SourceManifest): number {
+  const authority =
+    manifest.authority !== undefined
+      ? AUTHORITY_SCORES[manifest.authority.level]
+      : AUTHORITY_SCORES.unknown;
 
-  if (readings.length === 0) return undefined;
+  const freshness =
+    manifest.freshness !== undefined
+      ? FRESHNESS_SCORES[manifest.freshness.typical]
+      : FRESHNESS_SCORES.unknown;
 
-  let weighted = 0;
-  let totalWeight = 0;
+  const cost = manifest.cost !== undefined ? COST_SCORES[manifest.cost.class] : COST_SCORES.unknown;
 
-  for (const [value, weight] of readings) {
-    weighted += value * weight;
-    totalWeight += weight;
-  }
-
-  return clamp01(weighted / totalWeight);
+  return clamp01(
+    (authority * MANIFEST_PRIORITY_WEIGHTS.authority +
+      freshness * MANIFEST_PRIORITY_WEIGHTS.freshness +
+      cost * MANIFEST_PRIORITY_WEIGHTS.cost) /
+      MANIFEST_PRIORITY_TOTAL_WEIGHT,
+  );
 }
 
 /**

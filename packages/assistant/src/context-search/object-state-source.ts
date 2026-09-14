@@ -7,12 +7,14 @@ import {
   isObjectStateProvider,
   OBJECT_STATE_PROVIDERS,
   sanitizeErrorMessage,
+  sourceAuthorityFromManifest,
+  sourceRefFromManifest,
   type ContextObjectRef,
   type ContextSearchRequest,
   type EvidenceCard,
   type EvidenceCitation,
   type EvidenceObjectRef,
-  type SourceManifest,
+  type RetrievalSourceManifest,
 } from "@alfred/contracts";
 import {
   objectStateStore,
@@ -21,7 +23,6 @@ import {
 } from "@alfred/assistant/connections";
 import { sha256Canonical } from "@alfred/db/hash";
 import type { ContextSource, ContextSourceResult } from "./registry";
-import { internalSourceRef } from "./vector-source";
 
 /**
  * The deterministic object-state adapter (#425; epic #422; ADR-0101).
@@ -45,13 +46,8 @@ import { internalSourceRef } from "./vector-source";
  * exists so the mapping can be exercised against a fake without a database.
  */
 
-/** Stable manifest id for the object-state adapter (#466). */
-const OBJECT_STATE_CONTEXT_SOURCE_ID = "object-state";
-
-const OBJECT_STATE_DISPLAY_NAME = "Object state";
-
 /**
- * What this source can answer (#466).
+ * What this source declares (#466).
  *
  * `read: ["exact_lookup"]` is the load-bearing declaration. This adapter never
  * reads the free-text query, so the boundary must not spend a lookup on it for
@@ -60,11 +56,15 @@ const OBJECT_STATE_DISPLAY_NAME = "Object state";
  * of provider webhook deliveries, not an inference. The object kinds and the
  * identity key are DERIVED from the ADR-0093 object registry rather than
  * restated, so adding a provider kind there describes this source too.
+ *
+ * The manifest is the single owner of the id, kind, display name, source ref,
+ * and authority: cards derive all of them from it, so the declaration and the
+ * evidence cannot drift.
  */
-const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST: SourceManifest = {
-  id: OBJECT_STATE_CONTEXT_SOURCE_ID,
+const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
+  id: "object-state",
   kind: "internal",
-  displayName: OBJECT_STATE_DISPLAY_NAME,
+  displayName: "Object state",
   objectKinds: OBJECT_STATE_PROVIDERS.flatMap((provider) => [...getObjectDef(provider).kinds]),
   mediaKinds: ["text"],
   read: ["exact_lookup"],
@@ -94,7 +94,7 @@ export function createObjectStateContextSource(
   store: ObjectStateReader = objectStateStore,
 ): ContextSource {
   return {
-    id: OBJECT_STATE_CONTEXT_SOURCE_ID,
+    id: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id,
     manifest: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
       const refs = request.objects;
@@ -219,13 +219,16 @@ function objectStateCard(state: ObjectState): EvidenceCard {
     locator: bound(repo ?? `${kind} ${externalId}`, 500) ?? state.objectId,
   };
 
+  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST);
+
   return {
-    id: `${OBJECT_STATE_CONTEXT_SOURCE_ID}:${state.objectId}`,
-    source: internalSourceRef(OBJECT_STATE_CONTEXT_SOURCE_ID, OBJECT_STATE_DISPLAY_NAME),
+    id: `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:${state.objectId}`,
+    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST),
     mediaKind: "text",
     snippet: objectStateSnippet(state, title, nativeState, repo),
     score: 1,
     object,
+    ...(authority !== undefined ? { authority } : {}),
     // The projection observed the state when the last advancing delivery
     // arrived; without that instant the freshness is honestly unknown.
     time: state.stateDeliveredAt
@@ -233,7 +236,7 @@ function objectStateCard(state: ObjectState): EvidenceCard {
       : { freshness: "unknown" },
     citations: [citation],
     expansion: {
-      sourceId: OBJECT_STATE_CONTEXT_SOURCE_ID,
+      sourceId: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id,
       kind: "integration_object",
       ref: state.objectId,
       ...(title ? { hint: bound(title, 300) } : {}),
@@ -257,24 +260,27 @@ function missingRefCard(ref: ContextObjectRef, note: string): EvidenceCard {
       : { by: ref.by, provider: ref.provider, kind: ref.kind, externalId: ref.externalId };
 
   return missingCard(
-    `${OBJECT_STATE_CONTEXT_SOURCE_ID}:missing:${sha256Canonical(identity)}`,
+    `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:missing:${sha256Canonical(identity)}`,
     note,
   );
 }
 
 function missingObjectCard(objectId: string, note: string): EvidenceCard {
-  return missingCard(`${OBJECT_STATE_CONTEXT_SOURCE_ID}:${objectId}`, note);
+  return missingCard(`${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:${objectId}`, note);
 }
 
 function missingCard(id: string, note: string): EvidenceCard {
+  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST);
+
   return {
     // Callers either pass an object id or a fixed-length hash; `bound` is the
     // defensive strip/truncate for an unexpectedly long value, not the identity
     // guarantee (the hash is what keeps distinct refs distinct).
-    id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_ID}:unresolved`,
-    source: internalSourceRef(OBJECT_STATE_CONTEXT_SOURCE_ID, OBJECT_STATE_DISPLAY_NAME),
+    id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:unresolved`,
+    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST),
     mediaKind: "text",
     score: 0,
+    ...(authority !== undefined ? { authority } : {}),
     note: bound(note, 1_000) ?? "Object state is unavailable.",
     time: { freshness: "unknown" },
   };

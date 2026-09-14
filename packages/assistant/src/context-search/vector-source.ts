@@ -1,13 +1,13 @@
-import type { EvidenceSourceRef } from "@alfred/contracts";
-
 /**
  * The shared helpers of a vector-backed context source (#424; epic #422).
  *
  * Both built-in adapters wrap a retrieval primitive that returns hits carrying
  * a stable chunk id and a cosine similarity, then map each hit to a card. The
- * helpers here are that common shape — the ordering, the honest-content
- * fallback, and the internal source ref — so the two adapters cannot drift and
- * a third vector source does not retype them. Cross-source ranking is
+ * helpers here are that common shape — the ordering and the honest-content
+ * fallback — so the two adapters cannot drift and a third vector source does
+ * not retype them. A card's source ref and authority come from its own
+ * manifest via `sourceRefFromManifest` / `sourceAuthorityFromManifest` in
+ * `@alfred/contracts`, never from a restated id. Cross-source ranking is
  * `rank.ts` (#427); these helpers only keep one source's own output
  * deterministic, which is what the ranker's per-source score normalization
  * needs from an adapter.
@@ -48,13 +48,4 @@ export function renderContent(
   emptyNote: string,
 ): { snippet: string } | { note: string } {
   return preview.length > 0 ? { snippet: preview } : { note: emptyNote };
-}
-
-/**
- * The source ref for one of Alfred's own stores. `kind: "internal"` is the
- * structural trust signal; the id must equal the producing `ContextSource.id`
- * (enforced at the boundary).
- */
-export function internalSourceRef(id: string, displayName: string): EvidenceSourceRef {
-  return { id, kind: "internal", displayName };
 }

@@ -9,7 +9,7 @@
  * `src/` imports this file except tests and eval harnesses.
  */
 
-import type { SourceManifest } from "@alfred/contracts";
+import type { RetrievalSourceManifest } from "@alfred/contracts";
 
 /**
  * The manifest of an ordinary searchable test source (#466).
@@ -21,7 +21,7 @@ import type { SourceManifest } from "@alfred/contracts";
  * ABOUT the manifest writes its own literal instead, so the degraded cases stay
  * visible in the test that asserts them.
  */
-export function searchableTestSourceManifest(id: string): SourceManifest {
+export function searchableTestSourceManifest(id: string): RetrievalSourceManifest {
   return {
     id,
     kind: "native",

@@ -4,6 +4,8 @@ import {
   evidenceFreshnessSchema,
   evidenceMediaKindSchema,
   evidenceSourceKindSchema,
+  type EvidenceAuthority,
+  type EvidenceSourceRef,
 } from "./evidence-card";
 import { INTEGRATION_DISPLAY_NAMES, INTEGRATION_SLUGS, integrationEntry } from "./integrations";
 import { identityKindSchema } from "./user-model";
@@ -209,6 +211,24 @@ export const sourceManifestSchema = z.object({
 export type SourceManifest = z.infer<typeof sourceManifestSchema>;
 
 /**
+ * A manifest that may back a registered retrieval source.
+ *
+ * `SourceManifest` stays loose for the catalog case — an undescribed MCP
+ * server is still describable as `{ id, kind: "mcp" }` and the reader treats
+ * that silence conservatively. A `ContextSource` registration takes this
+ * strict subtype instead: at least one read capability and an authority above
+ * `unknown`. A source that forgets either then fails at boot (a compile error
+ * for a literal, a parse throw otherwise) rather than going dark for the life
+ * of the process with only a `skipped` line as evidence.
+ */
+export const retrievalSourceManifestSchema = sourceManifestSchema.extend({
+  read: z.array(sourceReadCapabilitySchema).min(1).max(SOURCE_MANIFEST_MAX_LIST),
+  authority: evidenceAuthoritySchema.extend({ level: z.enum(["high", "medium", "low"]) }),
+});
+
+export type RetrievalSourceManifest = z.infer<typeof retrievalSourceManifestSchema>;
+
+/**
  * The display name for a source: its own, else the ADR-0093 integration's, else
  * the id. The fallback chain is the point — a manifest that names an
  * integration never restates the name, so renaming an integration renames its
@@ -257,6 +277,57 @@ export function sourceManifestSupportsRead(
  */
 export function declaresReadSemantics(manifest: SourceManifest): boolean {
   return (manifest.read?.length ?? 0) > 0;
+}
+
+/**
+ * The card source ref for a manifest's own cards.
+ *
+ * Single owner for the `id` / `kind` / `displayName` / `domain` join key: an
+ * adapter calls this with its manifest constant instead of restating the id
+ * and display name a third time beside the manifest literal. `displayName` is
+ * included only when the manifest declares one (directly or via its
+ * integration); otherwise the card cites the bare id and the packer renders
+ * it once, never `id [id]`. The domain is the manifest's first declared host,
+ * when it declares one.
+ */
+export function sourceRefFromManifest(manifest: SourceManifest): EvidenceSourceRef {
+  const domains = sourceManifestDomains(manifest);
+  const domain = domains[0] !== undefined ? { domain: domains[0] } : {};
+
+  if (manifest.displayName !== undefined) {
+    return { id: manifest.id, kind: manifest.kind, displayName: manifest.displayName, ...domain };
+  }
+
+  if (manifest.integration !== undefined) {
+    return {
+      id: manifest.id,
+      kind: manifest.kind,
+      displayName: INTEGRATION_DISPLAY_NAMES[manifest.integration],
+      ...domain,
+    };
+  }
+
+  return { id: manifest.id, kind: manifest.kind, ...domain };
+}
+
+/**
+ * The card authority snapshot for a manifest's own cards.
+ *
+ * Returns a copy of the manifest's declared authority, or `undefined` when
+ * the manifest declares none — the card then reads `unknown` at rank time.
+ * The copy matters: the manifest stored in the registry is frozen, and a card
+ * must never alias it.
+ */
+export function sourceAuthorityFromManifest(
+  manifest: SourceManifest,
+): EvidenceAuthority | undefined {
+  const authority = manifest.authority;
+
+  if (authority === undefined) return undefined;
+
+  return authority.label !== undefined
+    ? { level: authority.level, label: authority.label }
+    : { level: authority.level };
 }
 
 /**
