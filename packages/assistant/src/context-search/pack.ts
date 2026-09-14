@@ -200,6 +200,7 @@ function renderSourceNotes(
 
         break;
       }
+
       case "empty":
         lines.push(`${source.sourceId}: no evidence found`);
         break;
