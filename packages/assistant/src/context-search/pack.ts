@@ -195,9 +195,7 @@ function renderSourceNotes(
         const dropped = source.evidenceCount - survived;
 
         if (dropped > 0) {
-          lines.push(
-            `${source.sourceId}: ${dropped} item(s) not shown (evidence budget)`,
-          );
+          lines.push(`${source.sourceId}: ${dropped} item(s) not shown (evidence budget)`);
         }
 
         break;
