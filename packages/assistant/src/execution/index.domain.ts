@@ -106,7 +106,11 @@ export {
 
 export { buildConnectedSummaryFromAvailability } from "./connected-summary";
 
-export { formatRuntimeTimeGrounding, resolveRuntimeGroundingAnchor } from "./grounding";
+export {
+  formatRuntimeTimeGrounding,
+  resolveRuntimeGroundingAnchor,
+  RUNTIME_GROUNDING_PARK_GRACE_MS,
+} from "./grounding";
 
 export {
   foldToolSurfaceState,
