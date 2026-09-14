@@ -193,8 +193,10 @@ interface DecisionToast {
  * Posts one decision for a staged row and lands the card's local state: which
  * decision it was (drives the resolved badge) and the "resuming" affordance.
  * Shared by the write card and the question card, which differ only in the
- * copy they raise — the route, the error wording, and the preview no-op are
- * the same for both.
+ * copy they raise for a run-ending decision — the route, the error wording,
+ * and the preview no-op are the same for both. Approve/reject decisions raise
+ * no toast: the inline card already collapses to a "Resuming…" state, so a
+ * toast would double-announce the same signal.
  */
 function useRecordDecision<Decision extends RecordedDecision>({
   staging,
@@ -209,7 +211,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
   onDecision: () => void;
   run: ApprovalDecisionState["run"];
   setDecided: (value: boolean) => void;
-  toastFor: (decision: Decision) => DecisionToast;
+  toastFor: (decision: Decision) => DecisionToast | null;
 }) {
   // Generic over the decision union, so a write card cannot record a
   // reason-less rejection and a question card cannot record a `cancel_run`.
@@ -252,9 +254,13 @@ function useRecordDecision<Decision extends RecordedDecision>({
 
       setDecided(true);
       onDecision();
-      const { tone, message, description } = toastFor(decision);
-      const recorded = tone === "success" ? toast.success : toast.info;
-      recorded({ message, description, position: "top-center" });
+      const pendingToast = toastFor(decision);
+
+      if (pendingToast) {
+        const { tone, message, description } = pendingToast;
+        const recorded = tone === "success" ? toast.success : toast.info;
+        recorded({ message, description, position: "top-center" });
+      }
     });
   };
 
@@ -330,8 +336,8 @@ function InlineApprovalCard({
             <Accordion.Header>
               <Accordion.Trigger
                 className={cn(
-                  "group/approval flex w-full items-center gap-3 px-3 py-3 text-left outline-none sm:px-4",
-                  "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-purple-2",
+                  "group/approval flex w-full items-center gap-3 p-3 text-left outline-none sm:px-4",
+                  "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-inset",
                 )}
               >
                 <ToolIcon integration={staging.integration} />
@@ -369,8 +375,8 @@ function InlineApprovalCard({
                       "bg-linear-to-b from-app-bg-1 transition-[margin] duration-200",
                       "group-hover/app:mr-0 group-focus-visible/app:mr-0 group-data-[state=open]/app:mr-0",
                       approved
-                        ? "text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)] to-app-green-2"
-                        : "text-app-red-4 shadow-[0_0_0_1px_var(--app-red-2)] to-app-red-1",
+                        ? "to-app-green-2 text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
+                        : "to-app-red-1 text-app-red-4 shadow-[0_0_0_1px_var(--app-red-2)]",
                     )}
                   >
                     {approved ? (
@@ -408,7 +414,7 @@ function InlineApprovalCard({
             ) : null}
           </div>
           <Accordion.Content className="data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down overflow-hidden">
-            <div className="border-t border-app-bg-a2 px-3 pt-3 pb-3 sm:px-4">
+            <div className="border-t border-app-bg-a2 sm:px-4 p-3">
               {/* Fields are always live — no read-only/Adjust step. Edit in place, then
                * the primary button reads "Approve changes". */}
               <ApprovalInputEditor
@@ -549,23 +555,13 @@ function InlineApprovalCard({
   );
 }
 
-/** The toast copy for a write approval's three decisions. */
-function writeDecisionToast(decision: WriteDecision): DecisionToast {
-  if (decision.decision === "approve") {
-    return {
-      tone: "success",
-      message: "Approval recorded",
-      description: "Alfred is resuming the run.",
-    };
-  }
+/** The toast copy for a write approval's run-ending decision. Approve and
+ * reject resume the run, which the inline card already announces with its
+ * "Resuming…" state — so they raise no toast. */
+function writeDecisionToast(decision: WriteDecision): DecisionToast | null {
+  if (decision.decision === "approve") return null;
 
-  if (decision.decision === "reject") {
-    return {
-      tone: "info",
-      message: "Sent back to Alfred",
-      description: "Alfred is resuming the run.",
-    };
-  }
+  if (decision.decision === "reject") return null;
 
   if (decision.decision === "cancel_run") {
     return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
@@ -579,26 +575,15 @@ function writeDecisionToast(decision: WriteDecision): DecisionToast {
 }
 
 /**
- * The toast copy for a question's two decisions. Both arms are `approve` /
- * `reject` on the wire, so the copy — not the wire shape — is what separates
- * "answers sent" from "dismissed".
+ * The toast copy for a question's decisions. Both arms continue the turn,
+ * which the inline card already announces — so neither raises a toast. The
+ * builder stays so a future run-ending question decision fails to compile
+ * instead of silently raising nothing.
  */
-function questionDecisionToast(decision: QuestionDecision): DecisionToast {
-  if (decision.decision === "approve") {
-    return {
-      tone: "success",
-      message: "Answers sent",
-      description: "Alfred is continuing the turn.",
-    };
-  }
+function questionDecisionToast(decision: QuestionDecision): DecisionToast | null {
+  if (decision.decision === "approve") return null;
 
-  if (decision.decision === "reject") {
-    return {
-      tone: "info",
-      message: "Question dismissed",
-      description: "Alfred is continuing without an answer.",
-    };
-  }
+  if (decision.decision === "reject") return null;
 
   const unhandled: never = decision;
 
