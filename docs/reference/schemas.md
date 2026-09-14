@@ -50,6 +50,18 @@ lives there:
   point rather than early, just as the provisional `ContextEvidence` it replaced
   stayed in `registry.ts` until then.
 
+- The same split separates a shape's MEANING from a reader's JUDGEMENT.
+  `sourceManifestSchema` / `SourceManifest` live in
+  `packages/contracts/src/source-manifest.ts` (#466) with their enums
+  (`SOURCE_READ_CAPABILITIES`, `SOURCE_COST_CLASSES`, ...) and their
+  contract-level predicates (`isTrustedRetrievalSource`,
+  `sourceManifestDisplayName`), because the web catalog and the server boundary
+  read one shape. The ranking WEIGHTS that fold a manifest into a number stay in
+  `context-search/rank.ts`, and the selection policy stays in
+  `context-search/manifest.ts`: those are decisions about a manifest, not facts
+  about one, and putting them in contracts would make every consumer inherit one
+  reader's opinion.
+
 Deletion test: deleting the owner file must delete the shape. If the shape
 survives in `types.ts` / `schemas.ts` / `constants.ts` after its logic is
 gone, it was in the wrong file.

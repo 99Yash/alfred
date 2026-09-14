@@ -6,6 +6,7 @@ import { registerContextSource, searchContext } from "@alfred/assistant/context-
 import {
   entitySignificanceKey,
   rankEvidenceCards,
+  searchableTestSourceManifest,
 } from "@alfred/assistant/context-search/test-support";
 
 /**
@@ -393,6 +394,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
     // budget and `strong` was dropped without ever being compared to it.
     const disposeWeak = registerContextSource({
       id: "rank-test:weak",
+      manifest: searchableTestSourceManifest("rank-test:weak"),
       async search() {
         return {
           evidence: [
@@ -411,6 +413,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
 
     const disposeStrong = registerContextSource({
       id: "rank-test:strong",
+      manifest: searchableTestSourceManifest("rank-test:strong"),
       async search() {
         return {
           evidence: [
@@ -450,6 +453,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
   test("ranking metadata is parallel to the returned evidence", async () => {
     const dispose = registerContextSource({
       id: "rank-test:pair",
+      manifest: searchableTestSourceManifest("rank-test:pair"),
       async search() {
         return {
           evidence: [

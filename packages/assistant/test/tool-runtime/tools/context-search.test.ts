@@ -8,6 +8,7 @@ import {
   type EvidenceCard,
 } from "@alfred/contracts";
 import { registerContextSource } from "@alfred/assistant/context-search";
+import { searchableTestSourceManifest } from "@alfred/assistant/context-search/test-support";
 import {
   executeToolCallRound,
   registerToolCallRoundAdapter,
@@ -137,6 +138,7 @@ describe("system.search_context", () => {
   test("returns packed evidence text on a representative call", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
+      manifest: searchableTestSourceManifest(SOURCE_ID),
       async search() {
         return { evidence: [evidenceCard("The contract clause is section 12.")] };
       },
@@ -155,6 +157,7 @@ describe("system.search_context", () => {
   test("reports an empty read honestly without failing the call", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
+      manifest: searchableTestSourceManifest(SOURCE_ID),
       async search() {
         return { evidence: [] };
       },
@@ -172,6 +175,7 @@ describe("system.search_context", () => {
   test("turns a failing source into an honest note, not a thrown call", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
+      manifest: searchableTestSourceManifest(SOURCE_ID),
       async search() {
         throw new Error("provider exploded");
       },
@@ -186,6 +190,7 @@ describe("system.search_context", () => {
   test("wraps the packed result for the model through a real tool-call round", async () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
+      manifest: searchableTestSourceManifest(SOURCE_ID),
       async search() {
         return { evidence: [evidenceCard("The contract clause is section 12.")] };
       },

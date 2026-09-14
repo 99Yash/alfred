@@ -1,4 +1,9 @@
-import { humanizeSlug, type ContextSearchRequest, type EvidenceCard } from "@alfred/contracts";
+import {
+  humanizeSlug,
+  type ContextSearchRequest,
+  type EvidenceCard,
+  type SourceManifest,
+} from "@alfred/contracts";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 import type { ContextSource, ContextSourceResult } from "./registry";
 import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector-source";
@@ -31,10 +36,39 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
 /** Stable manifest id for the memory-chunk adapter (#466). */
 const MEMORY_CONTEXT_SOURCE_ID = "memory";
 
+const MEMORY_DISPLAY_NAME = "Memory";
+
+/**
+ * What this source can answer (#466).
+ *
+ * Its authority is `medium`, one step below the document corpus, and the gap is
+ * the whole reason the two are separate sources: a memory chunk is Alfred's own
+ * DISTILLATION of a thread or a research run, so it can be wrong in a way a
+ * verbatim provider record cannot. It names no `integration`, because a memory
+ * chunk is Alfred's own writing rather than any provider's record.
+ */
+const MEMORY_CONTEXT_SOURCE_MANIFEST: SourceManifest = {
+  id: MEMORY_CONTEXT_SOURCE_ID,
+  kind: "internal",
+  displayName: MEMORY_DISPLAY_NAME,
+  mediaKinds: ["text"],
+  read: ["semantic_search"],
+  indexability: "indexed",
+  freshness: { typical: "ingested" },
+  authority: { level: "medium", label: "Alfred's distilled note, not a primary record" },
+  cost: { class: "metered", typicalLatencyMs: 1_500 },
+  availability: "available",
+  discovery: {
+    summary: "Alfred's own memory — distilled thread summaries, research, and notes.",
+    topics: ["memory", "notes", "summaries", "research"],
+  },
+};
+
 /** Build the memory context source over the real `@alfred/assistant/knowledge` verb. */
 export function createMemoryContextSource(): ContextSource {
   return {
     id: MEMORY_CONTEXT_SOURCE_ID,
+    manifest: MEMORY_CONTEXT_SOURCE_MANIFEST,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
       const hits = await recallMemory({
         query: request.query,
@@ -61,7 +95,7 @@ function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
 
   return {
     id: `${MEMORY_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: internalSourceRef(MEMORY_CONTEXT_SOURCE_ID, "Memory"),
+    source: internalSourceRef(MEMORY_CONTEXT_SOURCE_ID, MEMORY_DISPLAY_NAME),
     mediaKind: "text",
     // `writeMemoryChunk` requires non-empty content today, so the note guards a
     // persisted row that predates that rule, not an expected path.

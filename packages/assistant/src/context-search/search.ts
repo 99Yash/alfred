@@ -6,6 +6,7 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
 } from "@alfred/contracts";
+import { contextSourcePriorities, selectContextSources } from "./manifest";
 import { rankEvidenceCards, type EvidenceRanking } from "./rank";
 import { listContextSources, type ContextSourceResult } from "./registry";
 
@@ -14,8 +15,8 @@ import { listContextSources, type ContextSourceResult } from "./registry";
  *
  * These live here — not in a `types.ts` grab-bag — because `searchContext`
  * below is the only code that mints them: every `ContextSourceReport` status
- * (`ok` / `empty` / `error`) and every `ContextSearchResult` truncation to
- * `request.limit` happens in this file. The source-side element is the
+ * (`ok` / `empty` / `error` / `skipped`) and every `ContextSearchResult`
+ * truncation to `request.limit` happens in this file. The source-side element is the
  * canonical `EvidenceCard` in `@alfred/contracts` (#423), imported rather than
  * restated here; `registry.ts` owns the `ContextSource` contract that returns
  * it.
@@ -26,12 +27,13 @@ import { listContextSources, type ContextSourceResult } from "./registry";
  */
 
 /**
- * Per-source outcome for one search. `empty` is distinct from `error` on
- * purpose: "this source found nothing" and "this source could not answer" are
- * different facts, and the honest-missing note (#423) depends on telling them
- * apart.
+ * Per-source outcome for one search. The four are distinct on purpose, and the
+ * distinctions carry the boundary's honesty rule down to the source level:
+ * "found nothing" (`empty`), "could not answer" (`error`), and "was never
+ * asked" (`skipped`, #466) are three different facts, and the honest-missing
+ * note (#423) depends on telling them apart.
  */
-export type ContextSourceStatus = "ok" | "empty" | "error";
+export type ContextSourceStatus = "ok" | "empty" | "error" | "skipped";
 
 export interface ContextSourceReport {
   readonly sourceId: string;
@@ -42,7 +44,11 @@ export interface ContextSourceReport {
    * to `ContextSearchResult.evidence.length` when the limit binds.
    */
   readonly evidenceCount: number;
-  /** Present only for `error`; the safe message from the failed source. */
+  /**
+   * Why the source produced no evidence. On `error` it is the safe message from
+   * the failed source; on `skipped` it is the missing manifest declaration that
+   * kept the source out of this read (#466).
+   */
   readonly reason?: string | undefined;
 }
 
@@ -52,7 +58,11 @@ export interface ContextSearchResult {
   readonly request: ContextSearchRequest;
   /** Evidence in ranked order (#427), bounded by `request.limit`. */
   readonly evidence: readonly EvidenceCard[];
-  /** One report per registered source consulted. */
+  /**
+   * One report per REGISTERED source, not per consulted source. A source the
+   * manifest reader excluded from this read (#466) is reported `skipped` with
+   * its reason, so a source never disappears from the answer.
+   */
   readonly sources: readonly ContextSourceReport[];
   /**
    * The ranker's per-card working, parallel to `evidence` and in the same
@@ -76,15 +86,22 @@ export interface ContextSearchResult {
  * becomes one `error` report; it never fails the whole search, and absence
  * never closes a loop.
  *
+ * Sources are SELECTED before they are read (#466). `selectContextSources`
+ * reads each source's capability manifest and drops the ones this request
+ * cannot usefully ask — a source that declares itself unavailable, one that
+ * declared no read semantics or authority, and one whose declared reads do not
+ * answer this request. Each becomes a `skipped` report, so exclusion is stated
+ * rather than silent. The selection reads only declared capability: no source
+ * id and no integration name appears in it.
+ *
  * Cards are RANKED before the `limit` truncation (#427), not after collection
  * in registration order. The order of those two steps is the whole point: the
  * pre-#427 boundary truncated a registration-ordered list, so an early source
  * could fill the budget and a strong card from a later source was dropped
  * before anything compared them. `rankEvidenceCards` is a pure function over
- * the cards. The two signals it cannot derive from a card — the ADR-0067
- * user-model weight (#431) and the manifest source priority (#466) — arrive
- * as caller-supplied maps and are absent today, which drops those features
- * rather than defaulting them.
+ * the cards, and the one signal it cannot derive from a card or a manifest —
+ * the ADR-0067 user-model weight (#431) — arrives as a caller-supplied map and
+ * is absent today, which drops that feature rather than defaulting it.
  */
 export async function searchContext(request: unknown): Promise<ContextSearchResult> {
   const parsed = contextSearchRequestSchema.parse(request);
@@ -94,10 +111,24 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
     return { request: parsed, evidence: [], sources: [], ranking: [] };
   }
 
+  const { candidates, excluded } = selectContextSources(sources, parsed);
+
+  // Keyed rather than concatenated so the reports stay in REGISTRATION order: a
+  // reader comparing two traces should not see the source list reshuffle just
+  // because a manifest started excluding one of them.
+  const exclusionReasons = new Map(excluded.map((one) => [one.sourceId, one.reason]));
+
   const reports: ContextSourceReport[] = [];
   const collected: EvidenceCard[] = [];
 
   for (const source of sources) {
+    const exclusion = exclusionReasons.get(source.id);
+
+    if (exclusion !== undefined) {
+      reports.push({ sourceId: source.id, status: "skipped", evidenceCount: 0, reason: exclusion });
+      continue;
+    }
+
     let result: ContextSourceResult;
 
     try {
@@ -177,9 +208,7 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
     // (#431), which also populates `EvidenceCard.entities`. Until then no map
     // is passed, so the `userModel` feature is absent from every card — the
     // same path an unknown entity takes afterwards.
-    // Per-source priority arrives with the source capability manifest (#466).
-    // Until then no source declares one, which is the same path an unlisted
-    // source takes afterwards.
+    sourcePriority: contextSourcePriorities(candidates),
   });
 
   return {
