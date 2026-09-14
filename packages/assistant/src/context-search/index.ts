@@ -71,6 +71,28 @@
  * The adapters are process-registered, not per-request: `searchContext` reads
  * the registry, so no consumer names a source.
  *
+ * ## Ranking (#427)
+ *
+ * `searchContext` ranks the collected cards before it truncates them to the
+ * request `limit`. `rankEvidenceCards` is a pure function: it scores each card
+ * as a weighted average over the features the card can supply — normalized
+ * semantic score, exact-object match, recency, freshness, authority, manifest
+ * source priority, object state, the caller's declared focus, and a user-model
+ * weight — and breaks ties on the card id. No model is called, and `now` is an
+ * input rather than a clock the ranker reads, so the same cards always come
+ * back in the same order.
+ *
+ * A feature a card cannot supply is dropped from that card's average, never
+ * defaulted to zero: a card with no timestamp is not ranked as infinitely old,
+ * and an undeclared authority is neither promoted toward `high` nor pushed
+ * below a source that declared itself `low`. `score` is normalized WITHIN its
+ * source, because the card contract says it is comparable only there.
+ *
+ * The per-card working rides on `ContextSearchResult.ranking`, parallel to
+ * `evidence`. It is never a field on a card and is never handed to
+ * `packEvidenceCards`, so a trace, a test, or a retrieval eval (#430) can read
+ * it and the model structurally cannot.
+ *
  * ## Extensibility
  *
  * A new native integration or an MCP-backed source is `registerContextSource`
@@ -99,6 +121,15 @@ export { registerDefaultContextSources } from "./default-sources";
 export { searchContext } from "./search";
 
 export type { ContextSearchResult, ContextSourceReport } from "./search";
+
+export { EVIDENCE_RANK_FEATURES, entitySignificanceKey, rankEvidenceCards } from "./rank";
+
+export type {
+  EvidenceRankContext,
+  EvidenceRankFeature,
+  EvidenceRanking,
+  RankedEvidence,
+} from "./rank";
 
 export type { ContextSource } from "./registry";
 

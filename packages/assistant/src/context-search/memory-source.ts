@@ -21,7 +21,9 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  *
  * A memory hit carries no timestamp, so the card declares `ingested`
  * freshness and no instant. That is honest, not a gap to fill from metadata
- * the primitive did not return; #427 ranks on what the card actually holds.
+ * the primitive did not return. The ranker (#427) reads what the card actually
+ * holds and simply drops its `recency` feature here, so a memory card is never
+ * ranked as infinitely old for saying nothing.
  * The ordering and content fallback are shared with the document adapter in
  * `vector-source.ts`.
  */

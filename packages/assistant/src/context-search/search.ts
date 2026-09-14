@@ -6,7 +6,9 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
 } from "@alfred/contracts";
+import { rankEvidenceCards, type EvidenceRanking } from "./rank";
 import { listContextSources, type ContextSourceResult } from "./registry";
+import { buildEntitySignificance } from "./user-model-signal";
 
 /**
  * The read-side answer shapes (#422; ADR-0101).
@@ -49,10 +51,20 @@ export interface ContextSourceReport {
 export interface ContextSearchResult {
   /** The parsed request this result answers. */
   readonly request: ContextSearchRequest;
-  /** Evidence, bounded by `request.limit`. */
+  /** Evidence in ranked order (#427), bounded by `request.limit`. */
   readonly evidence: readonly EvidenceCard[];
   /** One report per registered source consulted. */
   readonly sources: readonly ContextSourceReport[];
+  /**
+   * The ranker's per-card working, parallel to `evidence` and in the same
+   * order (#427).
+   *
+   * It is a sibling of the evidence, never a field on a card, because the card
+   * is what `packEvidenceCards` renders for the model and this is Alfred's
+   * internal reasoning about its own retrieval. The packer is not given it and
+   * cannot leak it; a trace, an eval (#430), or a test reads it here.
+   */
+  readonly ranking: readonly EvidenceRanking[];
 }
 
 /**
@@ -64,18 +76,20 @@ export interface ContextSearchResult {
  * becomes one `error` report; it never fails the whole search, and absence
  * never closes a loop.
  *
- * Ranking is deliberately absent here. Cards come back in source-registration
- * order and the combined list is truncated to the request `limit`, so an earlier
- * source can fill the budget and a later source's cards can be dropped even
- * though their report still counts them. The deterministic ranker (#427) and a
- * per-source budget replace that truncation without changing the shape.
+ * Cards are RANKED before the `limit` truncation (#427), not after collection
+ * in registration order. The order of those two steps is the whole point: the
+ * pre-#427 boundary truncated a registration-ordered list, so an early source
+ * could fill the budget and a strong card from a later source was dropped
+ * before anything compared them. `rankEvidenceCards` is a pure function over
+ * the cards; the one optional signal it cannot derive from a card — the
+ * ADR-0067 user-model weight — is fetched here and degrades to nothing.
  */
 export async function searchContext(request: unknown): Promise<ContextSearchResult> {
   const parsed = contextSearchRequestSchema.parse(request);
   const sources = listContextSources();
 
   if (sources.length === 0) {
-    return { request: parsed, evidence: [], sources: [] };
+    return { request: parsed, evidence: [], sources: [], ranking: [] };
   }
 
   const reports: ContextSourceReport[] = [];
@@ -148,9 +162,26 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
     collected.push(...accepted);
   }
 
+  // One clock reading for the whole rank, so every card's recency decays from
+  // the same instant. Taking `new Date()` per card would let two cards with
+  // identical timestamps score differently because the loop crossed a
+  // millisecond, and the order would stop being reproducible.
+  const now = new Date();
+  const entitySignificance = await buildEntitySignificance(parsed.userId, collected, now);
+
+  const ranked = rankEvidenceCards(collected, {
+    now,
+    ...(parsed.objects !== undefined ? { objects: parsed.objects } : {}),
+    ...(entitySignificance !== undefined ? { entitySignificance } : {}),
+    // Per-source priority arrives with the source capability manifest (#466).
+    // Until then no source declares one, which is the same path an unlisted
+    // source takes afterwards.
+  });
+
   return {
     request: parsed,
-    evidence: collected.slice(0, parsed.limit),
+    evidence: ranked.evidence.slice(0, parsed.limit),
     sources: reports,
+    ranking: ranked.ranking.slice(0, parsed.limit),
   };
 }

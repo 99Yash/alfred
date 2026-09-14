@@ -30,7 +30,7 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
  * Cards are re-sorted by score here so the adapter's order is deterministic
  * even if the primitive changes its own ordering; that ordering and the
  * content fallback are shared with the memory adapter in `vector-source.ts`.
- * Cross-source ranking is #427, not this file.
+ * Cross-source ranking is `rank.ts` (#427), not this file.
  */
 
 /** Stable manifest id for the ingested-document corpus adapter (#466). */

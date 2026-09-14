@@ -170,8 +170,9 @@ interface RenderedNotes {
  *
  * "Dropped entirely" is judged on the cards the read handed the packer, before
  * the packer's own character budget: a card the packer omits for space still
- * proves the source answered, and the per-source budget that would attribute
- * that loss is #427.
+ * proves the source answered. Those cards now arrive in ranked order (#427),
+ * so the packer's budget drops the lowest-ranked cards rather than whichever
+ * source registered last.
  */
 function renderSourceNotes(
   sources: readonly ContextSourceReport[],
