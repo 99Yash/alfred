@@ -7,22 +7,35 @@ import type { EvidenceSourceRef } from "@alfred/contracts";
  * a stable chunk id and a cosine similarity, then map each hit to a card. The
  * helpers here are that common shape — the ordering, the honest-content
  * fallback, and the internal source ref — so the two adapters cannot drift and
- * a third vector source does not retype them. Cross-source ranking is #427;
- * these helpers only keep one source's own output deterministic.
+ * a third vector source does not retype them. Cross-source ranking is
+ * `rank.ts` (#427); these helpers only keep one source's own output
+ * deterministic, which is what the ranker's per-source score normalization
+ * needs from an adapter.
  */
 
 /**
  * Deterministic source-local order: highest similarity first, chunk id as the
- * tie-break so an equal-score pair never flips between reads. The constraint is
- * the minimal intersection both retrieval primitives already satisfy — a
- * structural bound, not a shape either of them parses into. #427 replaces this
- * with the cross-source ranker.
+ * tie-break so an equal-score pair never flips between reads. The id comparison
+ * is by code unit, not locale: `localeCompare` answers differently under
+ * different ICU data, while a tie-break only has to be total and stable. The
+ * constraint is the minimal intersection both retrieval primitives already
+ * satisfy — a structural bound, not a shape either of them parses into. The
+ * cross-source ranker (#427) reorders these cards afterwards; this only fixes
+ * the order a single source hands over, so a source cannot be nondeterministic.
  */
 export function compareByScoreThenId<THit extends { chunkId: string; similarity: number }>(
   a: THit,
   b: THit,
 ): number {
-  return b.similarity - a.similarity || a.chunkId.localeCompare(b.chunkId);
+  const diff = b.similarity - a.similarity;
+
+  // A NaN similarity carries no order, so it falls through to the stable id
+  // tie-break rather than poisoning the sort with a NaN return.
+  if (!Number.isNaN(diff) && diff !== 0) return diff;
+
+  if (a.chunkId === b.chunkId) return 0;
+
+  return a.chunkId < b.chunkId ? -1 : 1;
 }
 
 /**

@@ -71,6 +71,18 @@
  * The adapters are process-registered, not per-request: `searchContext` reads
  * the registry, so no consumer names a source.
  *
+ * ## Ranking (#427)
+ *
+ * `searchContext` ranks the collected cards before it truncates them to the
+ * request `limit`. The ranker contract lives in ADR-0101 sub-decision 12;
+ * `rank.ts` implements it as a pure function over declared card fields. The
+ * per-card working rides on `ContextSearchResult.ranking`, parallel to
+ * `evidence`, and is never handed to `packEvidenceCards` — the model
+ * structurally cannot see it, while a trace, the retrieval eval (#430), or a
+ * test can. The pure ranker itself is a test-support door
+ * (`@alfred/assistant/context-search/test-support`), not part of the
+ * production interface below.
+ *
  * ## Extensibility
  *
  * A new native integration or an MCP-backed source is `registerContextSource`
@@ -99,6 +111,8 @@ export { registerDefaultContextSources } from "./default-sources";
 export { searchContext } from "./search";
 
 export type { ContextSearchResult, ContextSourceReport } from "./search";
+
+export type { EvidenceRanking } from "./rank";
 
 export type { ContextSource } from "./registry";
 

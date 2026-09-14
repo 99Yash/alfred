@@ -41,6 +41,7 @@
     "./knowledge/team-graph": "./src/knowledge/team-graph.ts",
     "./knowledge/workflow-operations": "./src/knowledge/workflow-operations.ts",
     "./context-search": "./src/context-search/index.ts",
+    "./context-search/test-support": "./src/context-search/test-support.ts",
     "./tasks": "./src/tasks/index.ts",
     "./tasks/resolve": "./src/tasks/resolve.ts",
     "./tasks/suggest": "./src/tasks/suggest.ts",
