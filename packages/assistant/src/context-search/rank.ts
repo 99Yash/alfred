@@ -14,27 +14,13 @@ import { clamp01 } from "@alfred/contracts";
  * combined list, so a productive later source could be dropped whole by an
  * earlier one. This file replaces that order with one cross-source ranking.
  *
- * Three properties define it:
- *
- * - **Deterministic.** Pure function, no I/O, no clock of its own — `now` is an
- *   input. Every signal it reads is already on the card. The same cards and the
- *   same context produce the same order on every call, so a ranking change is a
- *   code change, never provider weather.
- * - **No LLM reranker.** The features below are arithmetic over declared card
- *   fields. A model-based reranker is a separate, later decision; nothing here
- *   calls one.
- * - **Degrading.** A feature a card cannot supply is DROPPED from that card's
- *   weighted average, not defaulted to zero. A card with no timestamp is not
- *   punished for silence, and a read with no active ADR-0067 projection scores
- *   exactly as it did before the projection existed. Absence never invents a
- *   number — the same rule the card contract already holds itself to. The two
- *   deliberate exceptions are `freshness` and `authority`, which read their
- *   silent case as `unknown` (a declared conservative default, not a zero), so
- *   every card carries at least those two features.
- *
- * The ranker never reads `snippet` or `note` text. It ranks on structure:
- * declared score, declared freshness, declared authority, declared object
- * state. Text is the model's job.
+ * Contract (ADR-0101 sub-decision 12 is the source of truth — this header
+ * states only the shape so the two cannot drift): pure function over declared
+ * card fields, no model call, `now` is an input; an absent signal drops its
+ * feature from the card's weighted average rather than defaulting to zero
+ * (`freshness`/`authority` read silence as `unknown`); `score` normalizes
+ * WITHIN its source; the per-card working rides parallel to the evidence and
+ * never reaches the packer. The ranker never reads `snippet` or `note` text.
  */
 
 /**
@@ -174,9 +160,10 @@ const OBJECT_STATE_SCORES = {
 } as const satisfies Record<StateCategory, number>;
 
 /**
- * Optional signals the boundary supplies per read. Every field is optional
- * because every one of them has a real absent case, and the ranker's contract
- * is that an absent signal drops its feature rather than defaulting it.
+ * Optional signals the boundary supplies per read. Every field except `now`
+ * is optional because each one has a real absent case, and the ranker's
+ * contract is that an absent signal drops its feature rather than defaulting
+ * it.
  */
 export interface EvidenceRankContext {
   /** The instant `recency` decays from. An input, never `Date.now()` inside. */
@@ -185,7 +172,7 @@ export interface EvidenceRankContext {
    * The exact object references the caller declared on the request. They are
    * the caller's stated focus, so evidence about them is ranked up.
    */
-  readonly objects?: readonly ContextObjectRef[] | undefined;
+  readonly objects?: readonly ContextObjectRef[];
   /**
    * Per-source priority in `[0, 1]`, keyed by `ContextSource.id`.
    *
@@ -195,16 +182,16 @@ export interface EvidenceRankContext {
    * `sourcePriority` feature is simply absent from every card, which is the
    * same degradation path an unlisted source will take afterwards.
    */
-  readonly sourcePriority?: ReadonlyMap<string, number> | undefined;
+  readonly sourcePriority?: ReadonlyMap<string, number>;
   /**
    * Per-entity user-model weight in `[0, 1]`, keyed by
    * `${identity.kind}:${identity.value}` (see {@link entitySignificanceKey}).
    *
-   * Built from the ADR-0067 active projection by `user-model-signal.ts`. An
-   * absent projection, an unknown entity, or a card with no entities all end in
-   * the same place: no `userModel` feature on that card.
+   * Seam for #431. No builder lives in this slice: `searchContext` passes no
+   * map today, so the `userModel` feature is absent from every card — the same
+   * path an unknown entity takes afterwards.
    */
-  readonly entitySignificance?: ReadonlyMap<string, number> | undefined;
+  readonly entitySignificance?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -457,14 +444,15 @@ function normalizeSemanticScores(cards: readonly EvidenceCard[]): ReadonlyMap<nu
   const normalized = new Map<number, number>();
 
   for (const indices of bySource.values()) {
-    const scores = indices.map((index) => cards[index]?.score ?? 0);
+    // Scores here are non-optional by construction: only cards with a defined
+    // `score` contribute an index above, so absence never invents a number.
+    const scored = indices.map((index) => ({ index, score: cards[index]!.score! }));
+    const scores = scored.map((entry) => entry.score);
     const min = Math.min(...scores);
     const max = Math.max(...scores);
     const alreadyNormalized = min >= 0 && max <= 1;
 
-    for (const [position, index] of indices.entries()) {
-      const score = scores[position] ?? 0;
-
+    for (const { index, score } of scored) {
       if (alreadyNormalized) normalized.set(index, score);
       else if (max === min) normalized.set(index, 0.5);
       else normalized.set(index, (score - min) / (max - min));
@@ -493,21 +481,24 @@ function recencyScore(card: EvidenceCard, now: Date): number | undefined {
 
   if (!Number.isFinite(at)) return undefined;
 
+  // A far-future instant is a dishonest or corrupt timestamp, not evidence
+  // from the future. Small clock skew (<= 1 day) still reads as current inside
+  // `halfLifeDecay`; anything beyond that drops the feature rather than
+  // earning `recency = 1` forever (e.g. a card claiming year 3000).
+  if (at > now.getTime() + MS_PER_DAY) return undefined;
+
   return halfLifeDecay(new Date(at), now, RECENCY_HALF_LIFE_DAYS);
 }
 
 /**
  * Exponential half-life decay of an instant, in `[0, 1]`.
  *
- * Shared by the card `recency` feature and the user-model `lastSeenAt` term so
- * the two cannot drift into two curves. The half-life is a parameter because
- * the two answer different questions: how old a RECORD is, and how long ago
- * Alfred last saw an ENTITY.
- *
- * A future instant is a clock skew or a scheduled event, not evidence from the
- * future. It reads as current rather than letting the curve exceed 1.
+ * Private to the ranker. A future instant within skew tolerance is a clock
+ * skew or a scheduled event, not evidence from the future: it reads as
+ * current rather than letting the curve exceed 1. Far-future instants never
+ * reach here — `recencyScore` drops them before the call.
  */
-export function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): number {
+function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): number {
   const ageDays = (now.getTime() - instant.getTime()) / MS_PER_DAY;
 
   if (ageDays <= 0) return 1;
@@ -519,14 +510,16 @@ export function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): n
  * The caller's declared focus (the request's exact `objects`), as far as this
  * slice can read it.
  *
- * The #427 criterion names "thread continuity". A card carries no thread and
- * the read envelope carries no conversation id, so the only stated focus
- * available today is the exact object set the caller passed. This reads that
- * set: an exact identity hit scores 1, the same provider scores 0.5, anything
- * else with an object scores 0. A card with no `object` gets NO focus feature
- * at all — most sources cannot carry one — and a request that declared no
- * objects gives no card the feature either, rather than every card scoring 0
- * on a signal the caller never expressed.
+ * Thread continuity is NOT met by this slice: no card carries a thread and the
+ * envelope carries no conversation id. This feature reads only the caller's
+ * declared exact objects — a narrower, honest signal, not a thread reading.
+ *
+ * It is distinct from `exactMatch`, though both read object identity. They
+ * take different inputs: `exactMatch` reads the CARD (any resolved object
+ * scores 1, rewarding an exact reference over similarity), while `focus`
+ * reads the REQUEST (only the caller's declared objects score 1, same
+ * provider 0.5, other provider 0). A request that declares no objects gives no
+ * card the feature; a card with no `object` gets NO focus feature at all.
  *
  * A thread-scoped entity set is the fuller reading and lands with the ADR-0067
  * identity work (#431), which is also what will populate a card's `entities`.

@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { EvidenceCard } from "@alfred/contracts";
+import { registerContextSource, searchContext } from "@alfred/assistant/context-search";
 import {
   entitySignificanceKey,
   rankEvidenceCards,
-  registerContextSource,
-  searchContext,
-} from "@alfred/assistant/context-search";
+} from "@alfred/assistant/context-search/test-support";
 
 /**
  * Behavioral tests for the deterministic evidence ranker (#427).
@@ -480,6 +479,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
         result.ranking.map((entry) => entry.cardId),
         result.evidence.map((entry) => entry.id),
       );
+      // tautology-ok: cross-check that the parallel array tracks evidence order, anchored at rank.test.ts:483-486
       assert.deepEqual(
         result.evidence.map((entry) => entry.id),
         ["rank-test:pair:2", "rank-test:pair:1"],

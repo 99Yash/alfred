@@ -8,7 +8,6 @@ import {
 } from "@alfred/contracts";
 import { rankEvidenceCards, type EvidenceRanking } from "./rank";
 import { listContextSources, type ContextSourceResult } from "./registry";
-import { buildEntitySignificance } from "./user-model-signal";
 
 /**
  * The read-side answer shapes (#422; ADR-0101).
@@ -62,7 +61,8 @@ export interface ContextSearchResult {
    * It is a sibling of the evidence, never a field on a card, because the card
    * is what `packEvidenceCards` renders for the model and this is Alfred's
    * internal reasoning about its own retrieval. The packer is not given it and
-   * cannot leak it; a trace, an eval (#430), or a test reads it here.
+   * cannot leak it; the `system.search_context` runtime adapter emits it as a
+   * debug log per read, and an eval (#430) or a test reads it here.
    */
   readonly ranking: readonly EvidenceRanking[];
 }
@@ -81,8 +81,10 @@ export interface ContextSearchResult {
  * pre-#427 boundary truncated a registration-ordered list, so an early source
  * could fill the budget and a strong card from a later source was dropped
  * before anything compared them. `rankEvidenceCards` is a pure function over
- * the cards; the one optional signal it cannot derive from a card — the
- * ADR-0067 user-model weight — is fetched here and degrades to nothing.
+ * the cards. The two signals it cannot derive from a card — the ADR-0067
+ * user-model weight (#431) and the manifest source priority (#466) — arrive
+ * as caller-supplied maps and are absent today, which drops those features
+ * rather than defaulting them.
  */
 export async function searchContext(request: unknown): Promise<ContextSearchResult> {
   const parsed = contextSearchRequestSchema.parse(request);
@@ -167,12 +169,14 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
   // identical timestamps score differently because the loop crossed a
   // millisecond, and the order would stop being reproducible.
   const now = new Date();
-  const entitySignificance = await buildEntitySignificance(parsed.userId, collected, now);
 
   const ranked = rankEvidenceCards(collected, {
     now,
     ...(parsed.objects !== undefined ? { objects: parsed.objects } : {}),
-    ...(entitySignificance !== undefined ? { entitySignificance } : {}),
+    // Per-entity user-model weights arrive with the ADR-0067 identity work
+    // (#431), which also populates `EvidenceCard.entities`. Until then no map
+    // is passed, so the `userModel` feature is absent from every card — the
+    // same path an unknown entity takes afterwards.
     // Per-source priority arrives with the source capability manifest (#466).
     // Until then no source declares one, which is the same path an unlisted
     // source takes afterwards.
