@@ -26,18 +26,6 @@ import { entitySignificanceKey, halfLifeDecay } from "./rank";
  */
 
 /**
- * Ceiling on identity lookups for one search.
- *
- * A card may name up to 50 entities and a read may return up to
- * `CONTEXT_SEARCH_MAX_LIMIT` cards, so the unbounded set is 2,500 identities
- * and 2,500 queries for a single ranking tie-break. The cap makes the cost of
- * ranking a constant instead of a function of how chatty the adapters are. The
- * identities are taken in card order, so the cards the sources ranked highest
- * are the ones that get a weight when the cap binds.
- */
-const MAX_IDENTITY_LOOKUPS = 40;
-
-/**
  * Weight given to an entity purely for existing in the active projection.
  *
  * The remainder is the recency term below. The split says what the signal
@@ -77,16 +65,18 @@ export async function buildEntitySignificance(
 
     if (active === null) return undefined;
 
+    // One batched read for the whole identity set, not one query per
+    // identity: the set is bounded by the request envelope (at most
+    // `CONTEXT_SEARCH_MAX_LIMIT` cards × 50 entities each), and every
+    // distinct identity is looked up, so which entities get a weight never
+    // depends on card order.
+    const profiles = await reader.listProfilesByIdentities(identities);
     const weights = new Map<string, number>();
 
-    // Sequential, not `Promise.all`: this is a ranking refinement on a read
-    // path the model waits for, and `MAX_IDENTITY_LOOKUPS` parallel queries
-    // would let a tie-break signal take a connection-pool slice out from under
-    // the adapters that produce the actual evidence.
     for (const identity of identities) {
-      const profile = await reader.getProfileByIdentity(identity);
+      const profile = profiles.get(entitySignificanceKey(identity.kind, identity.value));
 
-      if (profile === null) continue;
+      if (profile === undefined) continue;
 
       weights.set(
         entitySignificanceKey(identity.kind, identity.value),
@@ -105,7 +95,11 @@ export async function buildEntitySignificance(
 }
 
 /**
- * The distinct identities named across the cards, in card order, capped.
+ * The distinct identities named across the cards.
+ *
+ * Every distinct identity is returned — there is no lookup cap, so the set
+ * never depends on card (registration) order. The caller resolves the whole
+ * set in one batched read.
  *
  * A card's entity ref derives from `identityRefSchema`, so `value` is already
  * canonical for its `kind` and two spellings of the same identity cannot reach
@@ -119,8 +113,6 @@ function collectIdentities(
 
   for (const card of cards) {
     for (const entity of card.entities ?? []) {
-      if (identities.length >= MAX_IDENTITY_LOOKUPS) return identities;
-
       const key = entitySignificanceKey(entity.kind, entity.value);
 
       if (seen.has(key)) continue;
