@@ -299,6 +299,12 @@ const chatTurnStep: Step<ChatRunState> = {
   staleAfterMs: DEFAULT_TURN_STREAM_TIMEOUT.totalMs + 60_000,
   async run(ctx) {
     const state: ChatRunState = { ...ctx.state, turnCount: ctx.state.turnCount + 1 };
+
+    // A finalize-guard park (`guardSpawnedChildren`) interrupts THIS step, so
+    // its wake lands here and not in `dispatch-tools`. Close the park out here
+    // too: otherwise its wall-clock is attributed to whichever dispatch round
+    // runs next (#902), and its grounding anchor never expires (#410).
+    foldResumedPark(state, Date.now());
     // Phase thermometer (#902). The step body outside the model stream is
     // "other" — hydration, guards, persistence; it is never bracketed, only
     // derived at emit time as the residual of `stepWallMs`. The stream bracket
@@ -496,8 +502,8 @@ const chatTurnStep: Step<ChatRunState> = {
       // No date in the system prompt: a stable cached prefix cannot carry a
       // "now" that stays fresh across a park. Both date and time ride the one
       // ephemeral runtime line below. The anchor stays stable throughout a
-      // contiguous execution slice and every interrupt clears it, so resume
-      // re-stamps to wake-time without using elapsed time as a park proxy (#410).
+      // contiguous execution slice, and across a short park too — it re-stamps
+      // when the local day moved or the park outlived the cache (#410).
       // #896: the artifact edit rules are a constant inside this cached prefix;
       // the per-thread facts ride the ephemeral block below.
       const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, state.selfIdentity);
@@ -505,6 +511,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       const runtimeGroundingAnchor = resolveRuntimeGroundingAnchor(
         state.runtimeGroundingAnchor ? new Date(state.runtimeGroundingAnchor) : undefined,
+        timezone,
       );
 
       state.runtimeGroundingAnchor = runtimeGroundingAnchor.toISOString();
