@@ -6,6 +6,7 @@ import {
   registerSystemToolContextSearchAdapter,
   type SystemToolContextSearchAdapter,
 } from "@alfred/assistant/tool-runtime";
+import { logger } from "@alfred/logging";
 
 /**
  * The runtime-composition implementation of the `SystemToolContextSearchAdapter`
@@ -36,6 +37,24 @@ const contextSearchAdapter: SystemToolContextSearchAdapter = {
     });
 
     const packed = packEvidenceCards(result);
+
+    // Production reader for `ContextSearchResult.ranking` (#427): the packer
+    // never receives the ranker's working, so without this the combined score
+    // and present-feature set would exist only in tests. A debug log keeps it
+    // out of the prompt while leaving a per-read trace of which order won and
+    // why. Bounded by the request limit (<= 50 cards).
+    logger.debug(
+      {
+        event: "context_search_ranked",
+        ranking: result.ranking.map((entry) => ({
+          cardId: entry.cardId,
+          sourceId: entry.sourceId,
+          score: entry.score,
+          features: entry.features,
+        })),
+      },
+      "Context search ranked evidence",
+    );
 
     // `ok` is true whenever the read ran: `searchContext` reports per-source
     // empty/failed outcomes as reports and never throws, so a total source
