@@ -292,7 +292,7 @@ export function IntegrationIcon({
          * elevated shadow is a theme-aware hairline + soft drop: a faint dark
          * rim frames the light Google tiles on a light canvas, a faint light
          * rim lifts the dark GitHub/Linear tiles on dark. */}
-        <span className="block size-full overflow-hidden rounded-[inherit] shadow-[var(--app-shadow-elevated)]">
+        <span className="block size-full overflow-hidden rounded-[inherit] shadow-(--app-shadow-elevated)">
           <Tile aria-hidden className="block size-full" />
         </span>
         {badge}
@@ -306,7 +306,7 @@ export function IntegrationIcon({
   return (
     <span
       className={cn(
-        "relative grid shrink-0 place-items-center bg-app-bg-2 shadow-[var(--app-shadow-elevated)]",
+        "relative grid shrink-0 place-items-center bg-app-bg-2 shadow-(--app-shadow-elevated)",
         TILE_SIZE_CLASS[size],
         className,
       )}

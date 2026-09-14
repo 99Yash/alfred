@@ -4,6 +4,13 @@ import { applyServerEnvFixtures } from "./support/server-env";
 
 /** Coverage for native-expiry cache bounds and cross-token revocation (#454). */
 
+/**
+ * The provisioning origin `createUser` takes since Better Auth 1.7. Alfred
+ * signs a user in through Google and nothing else, so every fixture user is
+ * provisioned the way the product provisions one.
+ */
+const GOOGLE_PROVISIONING = { method: "oauth", oauth: { providerId: "google" } } as const;
+
 applyServerEnvFixtures({
   databaseUrl: "postgresql://localhost:5432/alfred_test",
   redisUrl: "redis://localhost:6379",
@@ -137,12 +144,15 @@ describe("session cache (#454)", () => {
 
     const context = await owner.$context;
 
-    const user = await context.internalAdapter.createUser({
-      id: "legacy-cache-user",
-      email: "legacy-cache@example.com",
-      emailVerified: true,
-      name: "Legacy Cache",
-    });
+    const user = await context.internalAdapter.createUser(
+      {
+        id: "legacy-cache-user",
+        email: "legacy-cache@example.com",
+        emailVerified: true,
+        name: "Legacy Cache",
+      },
+      GOOGLE_PROVISIONING,
+    );
 
     const session = await context.internalAdapter.createSession(user.id);
     await context.adapter.update({
