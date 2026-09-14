@@ -171,7 +171,7 @@ describe("buildGenerationEndPayload", () => {
     assert.equal(end.model, undefined);
     assert.deepEqual(end.metadata, { finishReason: "stop" });
     assert.deepEqual(end.usage, { input: 10, output: 5, total: 15, unit: "TOKENS" });
-    assert.deepEqual(end.usageDetails, { input: 10, output: 5, cached: 2 });
+    assert.deepEqual(end.usageDetails, { input: 10, output: 5, cached: 2, cacheWrite: 0 });
     assert.deepEqual(end.costDetails, { total: 0.01 });
   });
 

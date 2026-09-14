@@ -717,10 +717,14 @@ export function buildGenerationEndPayload(args: {
             total: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
             unit: "TOKENS" as const,
           },
+          // `cacheWrite` is the miss half of `cached`. Without it a trace shows
+          // a cold call as plain input, hiding both the premium rate the
+          // provider charged and the fact that the cache missed at all.
           usageDetails: {
             input: usage.inputTokens ?? 0,
             output: usage.outputTokens ?? 0,
             cached: usage.cachedInputTokens ?? 0,
+            cacheWrite: usage.cacheWriteInputTokens ?? 0,
           },
         }
       : {}),
