@@ -163,18 +163,20 @@ const COST_SCORES = {
 /**
  * Relative pull of the three manifest readings inside one source's priority.
  *
- * Authority leads by a wide margin because it is the only one of the three that
- * says anything about whether the source's evidence is RIGHT. Freshness is a
- * property of the copy, and cost is an operational preference with no bearing
- * on truth at all — hence the small tail. The fold divides by the FIXED total
- * weight and reads an undeclared axis as `unknown`, so silence and a declared
- * `unknown` agree and omission buys nothing.
+ * The keys name `SourceManifest` fields, and the `Record` checks the copy:
+ * renaming a manifest field is a compile error here rather than a silently
+ * stale weight. Authority leads by a wide margin because it is the only one
+ * of the three that says anything about whether the source's evidence is
+ * RIGHT. Freshness is a property of the copy, and cost is an operational
+ * preference with no bearing on truth at all — hence the small tail. The fold
+ * divides by the FIXED total weight and reads an undeclared axis as `unknown`,
+ * so silence and a declared `unknown` agree and omission buys nothing.
  */
 const MANIFEST_PRIORITY_WEIGHTS = {
   authority: 0.6,
   freshness: 0.25,
   cost: 0.15,
-} as const;
+} as const satisfies Record<keyof Pick<SourceManifest, "authority" | "freshness" | "cost">, number>;
 
 /** Fixed divisor for the manifest fold: the sum of every manifest weight. */
 const MANIFEST_PRIORITY_TOTAL_WEIGHT =
@@ -212,11 +214,13 @@ export function sourcePriorityFromManifest(manifest: SourceManifest): number {
 
   const cost = manifest.cost !== undefined ? COST_SCORES[manifest.cost.class] : COST_SCORES.unknown;
 
-  return clamp01(
+  // No clamp: every axis scores a `[0, 1]` row and the divisor is the fixed
+  // total weight, so the weighted average cannot leave `[0, 1]`.
+  return (
     (authority * MANIFEST_PRIORITY_WEIGHTS.authority +
       freshness * MANIFEST_PRIORITY_WEIGHTS.freshness +
       cost * MANIFEST_PRIORITY_WEIGHTS.cost) /
-      MANIFEST_PRIORITY_TOTAL_WEIGHT,
+    MANIFEST_PRIORITY_TOTAL_WEIGHT
   );
 }
 

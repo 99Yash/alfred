@@ -10,9 +10,11 @@ import {
  * The source-side shapes (#422; ADR-0101).
  *
  * These live here — not in a `types.ts` grab-bag — because the registry is
- * their narrowest stable owner: it stores `Map<string, ContextSource>` and is
- * the only reader of `source.id`. `search.ts` owns the read-side answer
- * (`ContextSearchResult` and its reports); both files import the shared element
+ * their narrowest stable owner: it stores `Map<string, ContextSource>`.
+ * `search.ts` owns the read-side answer (`ContextSearchResult` and its
+ * reports) and enumerates the registry through `listContextSources`;
+ * `manifest.ts` reads each `source.id` twice (selection exclusions and
+ * per-source priorities). Both files import the shared element
  * from `@alfred/contracts`, so the evidence element has one home both sides
  * agree on.
  *
@@ -69,11 +71,15 @@ export interface ContextSource {
   /**
    * What this source can know and how it can be read (#466).
    *
-   * Required, and `manifest.id` must equal `id`. It takes the strict retrieval
-   * subtype: at least one read capability and an authority above `unknown`.
-   * `SourceManifest` stays loose for the catalog case, but a registered source
-   * is always a trusted retrieval source — a forgotten declaration fails at
-   * boot rather than going dark behind a `skipped` line.
+   * Required. It takes the strict retrieval subtype: at least one read
+   * capability and an authority above `unknown`. `SourceManifest` stays loose
+   * for the catalog case, but a registered source is always a trusted
+   * retrieval source — a forgotten declaration fails at boot rather than
+   * going dark behind a `skipped` line.
+   *
+   * The registry mints `manifest.id` from `id` (see
+   * {@link defineContextSource}), so the stable id is stated once per source,
+   * not once beside the manifest and once on it.
    *
    * Parsed and frozen once at registration: `availability` is a boot-time
    * statement, not a live health reading, and a mid-read failure reports
@@ -100,30 +106,27 @@ const registeredSources = new Map<string, RegisteredSlot>();
 /**
  * Build a source whose manifest cannot drift from its implementation (#466).
  *
- * `reads` is the single source of truth for `manifest.read`: the returned
- * source carries `read: Object.keys(reads)` alongside the rest of `manifest`,
- * parsed as a `RetrievalSourceManifest`. Teaching the source a new capability
+ * The stable id is stated once, here: the returned source carries
+ * `id` alongside a `manifest` whose `id` the registry minted from it, parsed
+ * as a `RetrievalSourceManifest`. `reads` is the single source of truth for
+ * `manifest.read`: the returned source carries `read: Object.keys(reads)`
+ * alongside the rest of `manifest`. Teaching the source a new capability
  * means adding a `reads` entry (which declares it); deleting a reader removes
- * the declaration. Adapters must build through here rather than writing `read`
- * literally beside a `search` body.
+ * the declaration. Adapters must build through here rather than writing `id`
+ * or `read` literally beside a `search` body.
  */
 export function defineContextSource(args: {
-  readonly manifest: Omit<RetrievalSourceManifest, "read">;
+  readonly id: string;
+  readonly manifest: Omit<RetrievalSourceManifest, "id" | "read">;
   readonly reads: ContextSourceReads;
 }): ContextSource {
   // SAFETY: keys of a Partial<Record<SourceReadCapability, …>> are capabilities by construction.
   const read = Object.keys(args.reads) as SourceReadCapability[];
-  const manifest = retrievalSourceManifestSchema.parse({ ...args.manifest, read });
-
-  if (manifest.id !== args.manifest.id) {
-    throw new Error(
-      `Context search source "${args.manifest.id}" declares a manifest for id "${manifest.id}"`,
-    );
-  }
+  const manifest = retrievalSourceManifestSchema.parse({ ...args.manifest, id: args.id, read });
 
   assertReadsMatchManifest(args.reads, manifest);
 
-  return { id: manifest.id, manifest: deepFreezeManifest(manifest), reads: args.reads };
+  return { id: args.id, manifest: deepFreezeManifest(manifest), reads: args.reads };
 }
 
 /**

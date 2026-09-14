@@ -210,14 +210,16 @@ function renderSourceNotes(
         const dropped = source.evidenceCount - survived;
 
         if (dropped > 0) {
-          routine.push(`${source.sourceId}: ${dropped} item(s) not shown (evidence budget)`);
+          routine.push(
+            sourceNote(source.sourceId, `${dropped} item(s) not shown (evidence budget)`),
+          );
         }
 
         break;
       }
 
       case "empty":
-        routine.push(`${source.sourceId}: no evidence found`);
+        routine.push(sourceNote(source.sourceId, "no evidence found"));
         break;
       case "skipped": {
         // "Not asked" is a different fact from "asked and found nothing", and
@@ -225,7 +227,7 @@ function renderSourceNotes(
         // anything from absence (#466). The reason is our own closed enum, so
         // it renders from a lookup table — never through the provider-text
         // sanitizer the `error` arm needs.
-        routine.push(`${source.sourceId}: not consulted (${SKIPPED_NOTE[source.reason]})`);
+        routine.push(sourceNote(source.sourceId, `not consulted (${SKIPPED_NOTE[source.reason]})`));
         break;
       }
 
@@ -234,7 +236,7 @@ function renderSourceNotes(
           ? ` (${sanitizeErrorMessage(source.reason, EVIDENCE_PACK_REASON_MAX_CHARS)})`
           : "";
 
-        urgent.push(`${source.sourceId}: unavailable${reason}`);
+        urgent.push(sourceNote(source.sourceId, `unavailable${reason}`));
         break;
       }
 
@@ -253,6 +255,11 @@ function renderSourceNotes(
   if (hidden > 0) shown.push(`+ ${hidden} more source(s) with no shown evidence`);
 
   return { text: shown.length > 0 ? `Source notes:\n${shown.join("\n")}` : "", hidden };
+}
+
+/** One source note: the id joins the suffix here, never at four call sites. */
+function sourceNote(sourceId: string, suffix: string): string {
+  return `${sourceId}: ${suffix}`;
 }
 
 interface RenderedCard {
