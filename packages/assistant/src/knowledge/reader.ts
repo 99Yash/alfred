@@ -17,7 +17,7 @@ import {
   type EntityNodeKind,
   type IdentityKind,
 } from "@alfred/contracts";
-import { and, asc, desc, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, or, sql, type SQL } from "drizzle-orm";
 
 /**
  * This is a prompt-assembly / read-model surface (triage, briefing, todos). Every
@@ -165,6 +165,83 @@ export function userModelReader(
     return rows[0]?.entity_profiles ?? null;
   }
 
+  /**
+   * Batched form of {@link getProfileByIdentity} for fan-out read paths that
+   * name many identities at once (context-search ranking). One query for the
+   * whole set — never a per-identity loop — pinned to the active run like the
+   * one-shot read. Returns a map keyed by `${kind}:${value}`; unknown
+   * identities are simply absent, exactly like a one-shot `null`.
+   */
+  async function listProfilesByIdentities(
+    identities: ReadonlyArray<{ kind: IdentityKind; value: string }>,
+  ): Promise<Map<string, ActiveEntityProfile>> {
+    const out = new Map<string, ActiveEntityProfile>();
+    const seen = new Set<string>();
+    const valid: Array<{ kind: IdentityKind; value: string }> = [];
+
+    for (const candidate of identities) {
+      let parsed: { kind: IdentityKind; value: string };
+
+      try {
+        parsed = identityRefSchema.parse(candidate);
+      } catch {
+        continue;
+      }
+
+      const key = `${parsed.kind}:${parsed.value}`;
+
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+      valid.push(parsed);
+    }
+
+    if (valid.length === 0) return out;
+
+    const matches = valid.map((identity) =>
+      and(eq(entityIdentities.kind, identity.kind), eq(entityIdentities.value, identity.value)),
+    );
+
+    const rows = await db()
+      .select({
+        kind: entityIdentities.kind,
+        value: entityIdentities.value,
+        profile: entityProfiles,
+      })
+      .from(entityIdentities)
+      .innerJoin(
+        entityProfiles,
+        and(
+          eq(entityProfiles.userId, entityIdentities.userId),
+          eq(entityProfiles.entityId, entityIdentities.entityId),
+        ),
+      )
+      .innerJoin(
+        activeProjectionVersions,
+        and(
+          eq(activeProjectionVersions.userId, userId),
+          eq(activeProjectionVersions.projectionName, projectionName),
+        ),
+      )
+      .where(
+        and(
+          eq(entityIdentities.userId, userId),
+          isNull(entityIdentities.validUntil),
+          eq(entityProfiles.userId, userId),
+          eq(entityProfiles.projectionName, projectionName),
+          eq(entityProfiles.projectionVersion, activeProjectionVersions.activeVersion),
+          eq(entityProfiles.projectionRunId, activeProjectionVersions.activeRunId),
+          or(...matches),
+        ),
+      );
+
+    for (const row of rows) {
+      out.set(`${row.kind}:${row.value}`, row.profile);
+    }
+
+    return out;
+  }
+
   async function getProfileByIdentity(args: {
     kind: IdentityKind;
     value: string;
@@ -272,6 +349,7 @@ export function userModelReader(
     listProfiles,
     getProfile,
     getProfileByIdentity,
+    listProfilesByIdentities,
     listEdges,
     listCoOccurrence,
   };

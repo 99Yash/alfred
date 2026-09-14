@@ -84,9 +84,12 @@
  *
  * A feature a card cannot supply is dropped from that card's average, never
  * defaulted to zero: a card with no timestamp is not ranked as infinitely old,
- * and an undeclared authority is neither promoted toward `high` nor pushed
- * below a source that declared itself `low`. `score` is normalized WITHIN its
- * source, because the card contract says it is comparable only there.
+ * a card with no `object` carries no `exactMatch` or `focus` feature, and an
+ * undeclared authority is neither promoted toward `high` nor pushed
+ * below a source that declared itself `low`. The two deliberate exceptions
+ * are `freshness` and `authority`, which read silence as `unknown`. `score`
+ * is normalized WITHIN its source, because the card contract says it is
+ * comparable only there.
  *
  * The per-card working rides on `ContextSearchResult.ranking`, parallel to
  * `evidence`. It is never a field on a card and is never handed to

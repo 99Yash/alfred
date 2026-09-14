@@ -5,6 +5,7 @@ import type {
   EvidenceFreshness,
   StateCategory,
 } from "@alfred/contracts";
+import { clamp01 } from "@alfred/contracts";
 
 /**
  * The deterministic evidence ranker (#427; epic #422; ADR-0101 sub-decision 7).
@@ -26,7 +27,10 @@ import type {
  *   weighted average, not defaulted to zero. A card with no timestamp is not
  *   punished for silence, and a read with no active ADR-0067 projection scores
  *   exactly as it did before the projection existed. Absence never invents a
- *   number — the same rule the card contract already holds itself to.
+ *   number — the same rule the card contract already holds itself to. The two
+ *   deliberate exceptions are `freshness` and `authority`, which read their
+ *   silent case as `unknown` (a declared conservative default, not a zero), so
+ *   every card carries at least those two features.
  *
  * The ranker never reads `snippet` or `note` text. It ranks on structure:
  * declared score, declared freshness, declared authority, declared object
@@ -63,9 +67,12 @@ export type EvidenceRankFeature = (typeof EVIDENCE_RANK_FEATURES)[number];
  *
  * - `semantic` leads, because a retrieval score is still the strongest single
  *   reading of "does this answer the query".
- * - `exactMatch` sits just under it so a deterministically resolved work object
- *   outranks a weak fuzzy hit, which is the tie the object-state adapter (#425)
- *   exists to win.
+ * - `exactMatch` is a tie-breaker, not a second lead: a deterministically
+ *   resolved work object outranks a weak fuzzy hit, but a stale resolved object
+ *   must not outrank a perfect fresh document on this feature alone. It sits
+ *   with `sourcePriority` for that reason, and it is present only on cards that
+ *   carry an `object` — a vector card is not penalized for a field it cannot
+ *   carry.
  * - `recency` and `freshness` are separate readings and both matter: `recency`
  *   is how old the EVENT is, `freshness` is how stale ALFRED'S COPY of it is. A
  *   live read of an old record and an ingested copy of a new one are different
@@ -83,7 +90,7 @@ export type EvidenceRankFeature = (typeof EVIDENCE_RANK_FEATURES)[number];
  */
 const FEATURE_WEIGHTS = {
   semantic: 0.3,
-  exactMatch: 0.2,
+  exactMatch: 0.08,
   recency: 0.14,
   freshness: 0.1,
   authority: 0.1,
@@ -101,6 +108,9 @@ const FEATURE_WEIGHTS = {
  */
 const RECENCY_HALF_LIFE_DAYS = 14;
 
+// Unit conversion, not calendar math: a fixed 86_400_000 ms per day for the
+// exponential-decay denominator. Calendar-day readings belong on
+// `@alfred/assistant/time` keys, never on millisecond arithmetic.
 const MS_PER_DAY = 86_400_000;
 
 /**
@@ -312,10 +322,14 @@ interface FeatureInputs {
  * Every feature one card can supply. A feature is omitted — not zeroed — when
  * the card carries nothing to read it from.
  *
- * `exactMatch`, `freshness`, and `authority` are always present, because each
- * has a defined reading for the silent case (no object, `unknown` freshness,
- * `unknown` authority). That floor matters: a card whose only present feature
- * scored 1 would otherwise take the top slot on one lucky signal.
+ * `freshness` and `authority` are always present, because each has a defined
+ * reading for the silent case (`unknown` freshness, `unknown` authority). That
+ * floor matters: a card whose only present feature scored 1 would otherwise
+ * take the top slot on one lucky signal. `exactMatch` and `focus` are present
+ * only on cards that carry an `object`: a documents or memory card cannot
+ * carry one, so scoring it 0 would park a fifth of its average at zero
+ * permanently. An object-state MISS card (no `object`) is demoted through its
+ * `score: 0`, not through these features.
  */
 function cardFeatures(
   card: EvidenceCard,
@@ -327,10 +341,10 @@ function cardFeatures(
   const features: Partial<Record<EvidenceRankFeature, number>> = {};
 
   // A card carrying a resolved object identity was reached by an exact
-  // reference, not by similarity. An object-state MISS card carries no
-  // `object` and correctly scores 0 here: the lookup happened and found
-  // nothing, which is honest evidence but not a match.
-  features.exactMatch = card.object === undefined ? 0 : 1;
+  // reference, not by similarity. Cards that carry no `object` get no
+  // `exactMatch` feature at all: most sources cannot carry one, and an
+  // object-state MISS card is already demoted through its `score: 0`.
+  if (card.object !== undefined) features.exactMatch = 1;
   features.freshness = FRESHNESS_SCORES[card.time?.freshness ?? "unknown"];
   features.authority = AUTHORITY_SCORES[card.authority?.level ?? "unknown"];
 
@@ -345,7 +359,7 @@ function cardFeatures(
   const priority = context.sourcePriority?.get(card.source.id);
 
   if (priority !== undefined && Number.isFinite(priority)) {
-    features.sourcePriority = clampUnit(priority);
+    features.sourcePriority = clamp01(priority);
   }
 
   // `stateCategory` is `StateCategory | undefined` because the card is parsed
@@ -382,21 +396,22 @@ function weightedAverage(features: Partial<Record<EvidenceRankFeature, number>>)
     totalWeight += weight;
   }
 
-  // Unreachable while the three always-present features above stay present;
-  // it is the honest answer rather than a division by zero if that changes.
+  // Unreachable while `freshness` and `authority` stay always-present; it is
+  // the honest answer rather than a division by zero if that changes.
   if (totalWeight === 0) return 0;
 
-  return round(weighted / totalWeight);
+  return roundScore(weighted / totalWeight);
 }
 
-function round(value: number): number {
+/**
+ * Round a combined score to {@link SCORE_PRECISION} places. Kept local rather
+ * than reusing `round3`: that helper pins 3 places for significance display,
+ * while ranking needs 6 so near-ties fall through to the stable id order.
+ */
+function roundScore(value: number): number {
   const factor = 10 ** SCORE_PRECISION;
 
   return Math.round(value * factor) / factor;
-}
-
-function clampUnit(value: number): number {
-  return Math.min(Math.max(value, 0), 1);
 }
 
 /**
@@ -418,7 +433,10 @@ function clampUnit(value: number): number {
  * - Any other scale is min-max normalized within the source, because the
  *   numbers mean nothing to this file and only their ORDER is trustworthy. A
  *   source whose scores are all equal has no order to read, so every card gets
- *   a neutral `0.5` rather than an invented spread.
+ *   a neutral `0.5` rather than an invented spread. By construction the best
+ *   card on an uncalibrated scale reads exactly `1`: scale trust is the source
+ *   capability manifest's job (#466), not this function's — see the residual
+ *   risk on self-reported `score`.
  *
  * A card with no `score` gets no entry, so its `semantic` feature is absent and
  * its other features decide its place. That is the "ranker degrades rather than
@@ -494,7 +512,7 @@ export function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): n
 
   if (ageDays <= 0) return 1;
 
-  return clampUnit(0.5 ** (ageDays / halfLifeDays));
+  return clamp01(0.5 ** (ageDays / halfLifeDays));
 }
 
 /**
@@ -505,8 +523,10 @@ export function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): n
  * the read envelope carries no conversation id, so the only stated focus
  * available today is the exact object set the caller passed. This reads that
  * set: an exact identity hit scores 1, the same provider scores 0.5, anything
- * else 0. A request that declared no objects gets NO focus feature at all,
- * rather than every card scoring 0 on a signal the caller never expressed.
+ * else with an object scores 0. A card with no `object` gets NO focus feature
+ * at all — most sources cannot carry one — and a request that declared no
+ * objects gives no card the feature either, rather than every card scoring 0
+ * on a signal the caller never expressed.
  *
  * A thread-scoped entity set is the fuller reading and lands with the ADR-0067
  * identity work (#431), which is also what will populate a card's `entities`.
@@ -533,7 +553,10 @@ function focusMatcher(
   return (card) => {
     const object = card.object;
 
-    if (object === undefined) return 0;
+    // A card that carries no `object` cannot be about the caller's declared
+    // focus, but most sources cannot carry one — so the feature is absent,
+    // not zero. Only a card with an object expresses focus either way.
+    if (object === undefined) return undefined;
 
     if (identities.has(`${object.provider}:${object.kind}:${object.externalId}`)) return 1;
 
@@ -570,7 +593,7 @@ function userModelScore(
 
     if (weight === undefined || !Number.isFinite(weight)) continue;
 
-    const clamped = clampUnit(weight);
+    const clamped = clamp01(weight);
 
     if (best === undefined || clamped > best) best = clamped;
   }
