@@ -51,10 +51,10 @@
  *   the provider drill-down and action surface. The boundary's live adapters
  *   (#428) are bounded read-only expansions of thin or stale local hits; they
  *   never invoke a provider-specific action tool.
- * - **The source capability manifest** (#466) is the source-discovery contract.
- *   The boundary enumerates candidate sources from it rather than a hard-coded
- *   switch over today's integrations. Until it lands, adapters register by id
- *   through `registerContextSource`.
+ * - **The source capability manifest** (#466) is the source-discovery contract,
+ *   now live. `SourceManifest` in `@alfred/contracts` is what a source declares
+ *   about itself; `manifest.ts` here is the only code that acts on the
+ *   declaration. See "Discovery" below.
  *
  * ## The built-in sources (#424, #425)
  *
@@ -83,28 +83,54 @@
  * (`@alfred/assistant/context-search/test-support`), not part of the
  * production interface below.
  *
+ * ## Discovery (#466)
+ *
+ * Every source registers with a `SourceManifest` (`@alfred/contracts`): what it
+ * holds (object kinds, media kinds, identity keys), how it can be read (read
+ * capabilities, indexability, freshness, availability), and how far to trust and
+ * how much to spend (authority, cost, discovery hints). A native source names
+ * its ADR-0093 `integration` slug and the shared facts — display name, domain —
+ * are read back out of that record, so the manifest never restates tool-registry
+ * metadata.
+ *
+ * `searchContext` then SELECTS before it reads. `selectContextSources` excludes
+ * a source that declares itself unavailable, one that declared no read semantics
+ * or no authority, and one whose declared reads cannot answer this request. Each
+ * exclusion is a `skipped` report with its reason, so "not asked" is visibly
+ * different from "asked and found nothing". That is how an unknown or minimally
+ * described MCP source degrades: it stays a perfectly callable tool on the
+ * `mcp.call` surface and is simply never laundered into ranked evidence. The
+ * selection reads declared capability only — no source id and no integration
+ * name appears in it.
+ *
+ * The same manifests feed `contextSourcePriorities`, which fills the ranker's
+ * `sourcePriority` seam (ADR-0101 sub-decision 13) by folding each source's
+ * authority, freshness, and cost into one number.
+ *
  * ## Extensibility
  *
  * A new native integration or an MCP-backed source is `registerContextSource`
  * with a `ContextSource`, and consumers never branch on a source name. That is
  * the seam's design property, now exercised by three adapters and one real
  * consumer: `system.search_context` (#426) reads the registry through
- * `searchContext` and names no source. Unknown or minimally described MCP
- * sources are expected to be callable tools without being trusted retrieval
- * sources until the manifest declares their read semantics and authority
- * (#466).
+ * `searchContext` and names no source.
  *
  * ## Degradation
  *
  * With no source registered, `searchContext` returns an empty result. A source
  * that throws, or that returns a card violating the `EvidenceCard` contract,
- * becomes one `error` report and never fails the whole search. Absence is
- * reported, never inferred as a closed loop.
+ * becomes one `error` report and never fails the whole search. A source the
+ * manifest reader excluded becomes one `skipped` report. Absence is reported,
+ * never inferred as a closed loop.
  */
 
 export type { ContextSearchRequest } from "@alfred/contracts";
 
 export { listContextSources, registerContextSource } from "./registry";
+
+export { contextSourcePriorities, listSourceManifests, selectContextSources } from "./manifest";
+
+export type { ContextSourceExclusion, ContextSourceSelection } from "./manifest";
 
 export { registerDefaultContextSources } from "./default-sources";
 

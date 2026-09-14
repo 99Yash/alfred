@@ -161,10 +161,10 @@ interface RenderedNotes {
 }
 
 /**
- * One line per source whose evidence did not reach the packed text. `empty` and
- * `error` are distinct facts and render differently; a productive source that
- * lost cards to the read's `limit` is the third, and the one this
- * exists to prevent forgetting. The status switch is exhaustive on purpose: a
+ * One line per source whose evidence did not reach the packed text. `empty`,
+ * `error`, and `skipped` are distinct facts and render differently; a
+ * productive source that lost cards to the read's `limit` is the fourth, and
+ * the one this exists to prevent forgetting. The status switch is exhaustive on purpose: a
  * new status member becomes a compile error here rather than quietly rendering
  * as an error.
  *
@@ -204,6 +204,18 @@ function renderSourceNotes(
       case "empty":
         lines.push(`${source.sourceId}: no evidence found`);
         break;
+      case "skipped": {
+        // "Not asked" is a different fact from "asked and found nothing", and
+        // the model must be able to tell them apart before it concludes
+        // anything from absence (#466).
+        const reason = source.reason
+          ? ` (${sanitizeErrorMessage(source.reason, EVIDENCE_PACK_REASON_MAX_CHARS)})`
+          : "";
+
+        lines.push(`${source.sourceId}: not consulted${reason}`);
+        break;
+      }
+
       case "error": {
         const reason = source.reason
           ? ` (${sanitizeErrorMessage(source.reason, EVIDENCE_PACK_REASON_MAX_CHARS)})`

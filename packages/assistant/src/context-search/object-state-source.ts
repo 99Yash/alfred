@@ -2,14 +2,17 @@ import {
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
+  getObjectDef,
   integrationDisplayName,
   isObjectStateProvider,
+  OBJECT_STATE_PROVIDERS,
   sanitizeErrorMessage,
   type ContextObjectRef,
   type ContextSearchRequest,
   type EvidenceCard,
   type EvidenceCitation,
   type EvidenceObjectRef,
+  type SourceManifest,
 } from "@alfred/contracts";
 import {
   objectStateStore,
@@ -48,6 +51,36 @@ const OBJECT_STATE_CONTEXT_SOURCE_ID = "object-state";
 const OBJECT_STATE_DISPLAY_NAME = "Object state";
 
 /**
+ * What this source can answer (#466).
+ *
+ * `read: ["exact_lookup"]` is the load-bearing declaration. This adapter never
+ * reads the free-text query, so the boundary must not spend a lookup on it for
+ * a question that carries no object references — and with the manifest it no
+ * longer does. Its authority is `high`: the state is a deterministic reduction
+ * of provider webhook deliveries, not an inference. The object kinds and the
+ * identity key are DERIVED from the ADR-0093 object registry rather than
+ * restated, so adding a provider kind there describes this source too.
+ */
+const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST: SourceManifest = {
+  id: OBJECT_STATE_CONTEXT_SOURCE_ID,
+  kind: "internal",
+  displayName: OBJECT_STATE_DISPLAY_NAME,
+  objectKinds: OBJECT_STATE_PROVIDERS.flatMap((provider) => [...getObjectDef(provider).kinds]),
+  mediaKinds: ["text"],
+  read: ["exact_lookup"],
+  identityKeys: ["integration_object_key"],
+  indexability: "indexed",
+  freshness: { typical: "ingested" },
+  authority: { level: "high", label: "deterministic projection of provider webhook deliveries" },
+  cost: { class: "local", typicalLatencyMs: 50 },
+  availability: "available",
+  discovery: {
+    summary: "Deterministic work-object state — whether a pull request is open, merged, or closed.",
+    topics: ["pull requests", "deployments", "work object state"],
+  },
+};
+
+/**
  * The read surface this adapter needs. Narrower than `ObjectStateStore` so the
  * adapter cannot write and a test does not have to fake the whole store.
  */
@@ -62,6 +95,7 @@ export function createObjectStateContextSource(
 ): ContextSource {
   return {
     id: OBJECT_STATE_CONTEXT_SOURCE_ID,
+    manifest: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
       const refs = request.objects;
 

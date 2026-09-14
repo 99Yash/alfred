@@ -3,6 +3,8 @@ import type {
   EvidenceAuthorityLevel,
   EvidenceCard,
   EvidenceFreshness,
+  SourceCostClass,
+  SourceManifest,
   StateCategory,
 } from "@alfred/contracts";
 import { clamp01 } from "@alfred/contracts";
@@ -142,6 +144,81 @@ const AUTHORITY_SCORES = {
   unknown: 0.35,
   low: 0.3,
 } as const satisfies Record<EvidenceAuthorityLevel, number>;
+
+/**
+ * What one read of a source costs, as a ranking reading (#466).
+ *
+ * Cost is the weakest of the three manifest readings and it only ever breaks a
+ * tie: a local store is preferred over a metered provider call when nothing
+ * else separates them, and never over relevance. `unknown` again sits above the
+ * honest bad case, so a source is not punished for silence.
+ */
+const COST_SCORES = {
+  local: 1,
+  remote: 0.6,
+  unknown: 0.5,
+  metered: 0.35,
+} as const satisfies Record<SourceCostClass, number>;
+
+/**
+ * Relative pull of the three manifest readings inside one source's priority.
+ *
+ * Authority leads by a wide margin because it is the only one of the three that
+ * says anything about whether the source's evidence is RIGHT. Freshness is a
+ * property of the copy, and cost is an operational preference with no bearing
+ * on truth at all — hence the small tail. The fold is a weighted average over
+ * the readings a manifest actually declares, so a manifest that declares only
+ * authority yields its authority score rather than a value diluted toward zero
+ * by two silences.
+ */
+const MANIFEST_PRIORITY_WEIGHTS = {
+  authority: 0.6,
+  freshness: 0.25,
+  cost: 0.15,
+} as const;
+
+/**
+ * Fold one manifest into the single `[0, 1]` priority the `sourcePriority`
+ * feature reads (#466; ADR-0101 sub-decision 13).
+ *
+ * Returns `undefined` when the manifest declares none of authority, freshness,
+ * or cost. That is not a zero: an undeclared source drops the `sourcePriority`
+ * feature entirely, exactly as it did while the manifest was an empty seam, so
+ * the conservative path is the one that was already exercised.
+ *
+ * The numbers live here rather than in the manifest contract because they are
+ * ranking judgements, not facts about a source. `@alfred/contracts` states what
+ * a manifest MEANS; this file decides what a ranker does about it, and a
+ * reweighting is then one file's change.
+ */
+export function sourcePriorityFromManifest(manifest: SourceManifest): number | undefined {
+  const readings: readonly (readonly [number, number])[] = [
+    manifest.authority
+      ? ([AUTHORITY_SCORES[manifest.authority.level], MANIFEST_PRIORITY_WEIGHTS.authority] as const)
+      : undefined,
+    manifest.freshness
+      ? ([
+          FRESHNESS_SCORES[manifest.freshness.typical],
+          MANIFEST_PRIORITY_WEIGHTS.freshness,
+        ] as const)
+      : undefined,
+    manifest.cost
+      ? ([COST_SCORES[manifest.cost.class], MANIFEST_PRIORITY_WEIGHTS.cost] as const)
+      : undefined,
+  ].filter((reading) => reading !== undefined);
+
+  if (readings.length === 0) return undefined;
+
+  let weighted = 0;
+  let totalWeight = 0;
+
+  for (const [value, weight] of readings) {
+    weighted += value * weight;
+    totalWeight += weight;
+  }
+
+  return clamp01(weighted / totalWeight);
+}
 
 /**
  * Lifecycle reading for object-state evidence (#425).

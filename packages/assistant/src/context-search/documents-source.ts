@@ -5,6 +5,7 @@ import {
   sanitizeErrorMessage,
   type ContextSearchRequest,
   type EvidenceCard,
+  type SourceManifest,
 } from "@alfred/contracts";
 import { search, type SearchHit } from "@alfred/corpus";
 import type { ContextSource, ContextSourceResult } from "./registry";
@@ -36,6 +37,35 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
 /** Stable manifest id for the ingested-document corpus adapter (#466). */
 const DOCUMENT_CONTEXT_SOURCE_ID = "documents";
 
+const DOCUMENT_DISPLAY_NAME = "Documents";
+
+/**
+ * What this source can answer (#466).
+ *
+ * It declares `high` authority because a chunk is a VERBATIM slice of the
+ * provider's own record — an email body, an attachment's text — not a summary
+ * of one. It names no `integration` and no `domains` because it spans every
+ * ingested provider at once; the per-record provider rides each card's citation
+ * instead. The cost is `metered`: the corpus search embeds the query, so one
+ * read is one embedding call.
+ */
+const DOCUMENT_CONTEXT_SOURCE_MANIFEST: SourceManifest = {
+  id: DOCUMENT_CONTEXT_SOURCE_ID,
+  kind: "internal",
+  displayName: DOCUMENT_DISPLAY_NAME,
+  mediaKinds: ["document"],
+  read: ["semantic_search"],
+  indexability: "indexed",
+  freshness: { typical: "ingested" },
+  authority: { level: "high", label: "verbatim slice of an ingested provider record" },
+  cost: { class: "metered", typicalLatencyMs: 1_500 },
+  availability: "available",
+  discovery: {
+    summary: "Ingested provider content — email bodies, attachments, and documents.",
+    topics: ["email", "attachments", "documents", "threads"],
+  },
+};
+
 /**
  * Tolerance for a sender-controlled authored instant that lies slightly in the
  * future. The ranker (#427) reads an instant up to one day past `now` as
@@ -49,6 +79,7 @@ const DOCUMENT_FUTURE_SKEW_MS = 86_400_000;
 export function createDocumentContextSource(): ContextSource {
   return {
     id: DOCUMENT_CONTEXT_SOURCE_ID,
+    manifest: DOCUMENT_CONTEXT_SOURCE_MANIFEST,
     async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
       const hits = await search({
         query: request.query,
@@ -78,7 +109,7 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
 
   return {
     id: `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
-    source: internalSourceRef(DOCUMENT_CONTEXT_SOURCE_ID, "Documents"),
+    source: internalSourceRef(DOCUMENT_CONTEXT_SOURCE_ID, DOCUMENT_DISPLAY_NAME),
     mediaKind: "document",
     ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,

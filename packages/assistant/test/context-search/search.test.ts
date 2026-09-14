@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { registerContextSource, searchContext } from "@alfred/assistant/context-search";
+import { searchableTestSourceManifest } from "@alfred/assistant/context-search/test-support";
 
 /**
  * Behavioral tests for the #423 boundary on `searchContext`: a source's cards
@@ -17,6 +18,7 @@ describe("searchContext — card validation at the boundary", () => {
   test("passes a valid card through and reports the source as ok", async () => {
     const dispose = registerContextSource({
       id: "test:valid",
+      manifest: searchableTestSourceManifest("test:valid"),
       async search() {
         return {
           evidence: [
@@ -45,6 +47,7 @@ describe("searchContext — card validation at the boundary", () => {
   test("fails a source whose card violates the contract", async () => {
     const dispose = registerContextSource({
       id: "test:invalid",
+      manifest: searchableTestSourceManifest("test:invalid"),
       async search() {
         // No snippet and no note: structurally typed, contract-invalid.
         return {
