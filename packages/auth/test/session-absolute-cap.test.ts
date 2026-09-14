@@ -9,6 +9,13 @@ import { authSessionPolicy, SESSION_LIFETIME_SECONDS } from "../src/session-poli
 // eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- test boundary: one adapter stores Better Auth's generic model rows and validates every field it reads below
 type Row = Record<string, unknown>;
 
+/**
+ * The provisioning origin `createUser` takes since Better Auth 1.7. Alfred
+ * signs a user in through Google and nothing else, so every fixture user is
+ * provisioned the way the product provisions one.
+ */
+const GOOGLE_PROVISIONING = { method: "oauth", oauth: { providerId: "google" } } as const;
+
 function matches(row: Row, where: Array<{ field: string; value: unknown }> = []): boolean {
   return where.every(({ field, value }) => row[field] === value);
 }
@@ -214,12 +221,15 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
 
     const context = await owner.$context;
 
-    const user = await context.internalAdapter.createUser({
-      id: "legacy-user",
-      email: "legacy@example.com",
-      emailVerified: true,
-      name: "Legacy Session",
-    });
+    const user = await context.internalAdapter.createUser(
+      {
+        id: "legacy-user",
+        email: "legacy@example.com",
+        emailVerified: true,
+        name: "Legacy Session",
+      },
+      GOOGLE_PROVISIONING,
+    );
 
     const targetSession = await context.internalAdapter.createSession(user.id);
     const siblingSession = await context.internalAdapter.createSession(user.id);
@@ -285,12 +295,15 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
 
     const context = await owner.$context;
 
-    const user = await context.internalAdapter.createUser({
-      id: "cleanup-failure-user",
-      email: "cleanup-failure@example.com",
-      emailVerified: true,
-      name: "Cleanup Failure",
-    });
+    const user = await context.internalAdapter.createUser(
+      {
+        id: "cleanup-failure-user",
+        email: "cleanup-failure@example.com",
+        emailVerified: true,
+        name: "Cleanup Failure",
+      },
+      GOOGLE_PROVISIONING,
+    );
 
     const session = await context.internalAdapter.createSession(user.id);
     await context.internalAdapter.createAccount({
@@ -348,12 +361,15 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
 
     const context = await writer.$context;
 
-    const user = await context.internalAdapter.createUser({
-      id: "user-1",
-      email: "session@example.com",
-      emailVerified: true,
-      name: "Session Test",
-    });
+    const user = await context.internalAdapter.createUser(
+      {
+        id: "user-1",
+        email: "session@example.com",
+        emailVerified: true,
+        name: "Session Test",
+      },
+      GOOGLE_PROVISIONING,
+    );
 
     const session = await context.internalAdapter.createSession(user.id);
     const signedToken = `${session.token}.${await makeSignature(session.token, context.secret)}`;
