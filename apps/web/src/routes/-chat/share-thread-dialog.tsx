@@ -228,25 +228,32 @@ export function ShareThreadDialog({
             results, attachments, and usage costs are never published.
           </p>
 
-          {shares.isLoading ? (
-            <div className="flex items-center gap-2 py-3 text-sm text-app-fg-2">
-              <Loader2 size={14} aria-hidden className="animate-spin" />
-              Checking for existing links&hellip;
-            </div>
-          ) : null}
+          {/* Fixed minimum height so the first-open fetch resolving mid-entrance
+           * doesn't resize the panel mid-animation (the first-open jank: later
+           * opens read from cache and never show the spinner). Prefetch on the
+           * Share button covers the common path; this covers a cold direct
+           * click by holding the panel size steady instead. */}
+          <div className="flex min-h-[44px] flex-col gap-3">
+            {shares.isLoading ? (
+              <div className="flex items-center gap-2 py-3 text-sm text-app-fg-2">
+                <Loader2 size={14} aria-hidden className="animate-spin" />
+                Checking for existing links&hellip;
+              </div>
+            ) : null}
 
-          {rows.map((row) => (
-            <ShareRow
-              key={row.id}
-              share={row}
-              onRevoke={() => onRevoke(row.id)}
-              revoking={revokingId === row.id}
-            />
-          ))}
+            {rows.map((row) => (
+              <ShareRow
+                key={row.id}
+                share={row}
+                onRevoke={() => onRevoke(row.id)}
+                revoking={revokingId === row.id}
+              />
+            ))}
 
-          {shares.isError ? (
-            <p className="text-xs text-app-red-4">{toMessage(shares.error)}</p>
-          ) : null}
+            {shares.isError ? (
+              <p className="text-xs text-app-red-4">{toMessage(shares.error)}</p>
+            ) : null}
+          </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
             <AppButton variant="ghost" size="md" onClick={() => onOpenChange(false)}>

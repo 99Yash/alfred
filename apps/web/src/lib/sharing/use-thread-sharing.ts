@@ -3,7 +3,7 @@ import {
   sharedThreadSummarySchema,
   type SharedThreadSummary,
 } from "@alfred/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, parseEdenBody } from "~/lib/eden";
@@ -47,7 +47,18 @@ function sharingError(
 
 const sharesResponseSchema = z.object({ shares: z.array(sharedThreadSummarySchema) });
 
-const sharesKey = (threadId: string) => ["threads", threadId, "shares"] as const;
+export const sharesKey = (threadId: string) => ["threads", threadId, "shares"] as const;
+
+const SHARES_STALE_MS = 30_000;
+
+/** Read one thread's live shares. Extracted so the prefetch below hits the same URL + parse. */
+export async function fetchThreadShares(threadId: string): Promise<SharedThreadSummary[]> {
+  const res = await client.api.threads({ threadId }).shares.get();
+
+  if (res.error) throw sharingError(res.error, "Loading your links");
+
+  return parseEdenBody(sharesResponseSchema, res.data).shares;
+}
 
 /**
  * Live shares of one thread. `enabled` is left to the caller so the dialog can
@@ -60,13 +71,27 @@ export function useThreadShares(threadId: string | undefined, enabled: boolean) 
     enabled: Boolean(threadId) && enabled,
     queryFn: async () => {
       if (!threadId) throw new Error("thread shares need a thread id");
-      const res = await client.api.threads({ threadId }).shares.get();
 
-      if (res.error) throw sharingError(res.error, "Loading your links");
-
-      return parseEdenBody(sharesResponseSchema, res.data).shares;
+      return fetchThreadShares(threadId);
     },
-    staleTime: 30_000,
+    staleTime: SHARES_STALE_MS,
+  });
+}
+
+/**
+ * Warm the shares list before the dialog opens (hover/focus on the Share
+ * button). The dialog gates its query on `open`, so a cold first click mounts
+ * the entrance animation and the loading spinner in the same frame: the list
+ * popping in mid-animation is the first-open jank. A hover prefetch lets the
+ * first open read from cache like every later one, with no per-navigation
+ * fetch. Fire-and-forget — a miss just falls back to the loading row.
+ */
+export function prefetchThreadShares(queryClient: QueryClient, threadId: string | undefined): void {
+  if (!threadId) return;
+  void queryClient.prefetchQuery({
+    queryKey: sharesKey(threadId),
+    queryFn: () => fetchThreadShares(threadId),
+    staleTime: SHARES_STALE_MS,
   });
 }
 
