@@ -412,7 +412,9 @@ export function MessageBubble({
       {message.content.length > 0 ? (
         <CopyMessageButton content={message.content} htmlRef={bodyRef} />
       ) : null}
-      {import.meta.env.DEV && message.usage ? <UsageLine usage={message.usage} /> : null}
+      {import.meta.env.DEV && message.usage ? (
+        <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} />
+      ) : null}
     </div>
   );
 }
