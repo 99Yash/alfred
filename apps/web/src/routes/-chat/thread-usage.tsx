@@ -16,6 +16,9 @@ export function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
     let inputTokens = 0;
     let outputTokens = 0;
     let cachedInputTokens = 0;
+    // Null until a turn carries the field, so a thread of pre-field rollups
+    // reports "unknown" rather than a zero cold-token total it can't support.
+    let cacheWriteInputTokens: number | null = null;
     let costUsd = 0;
     let calls = 0;
     let turns = 0;
@@ -33,11 +36,26 @@ export function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
       inputTokens += usage.inputTokens;
       outputTokens += usage.outputTokens;
       cachedInputTokens += usage.cachedInputTokens;
+
+      if (usage.cacheWriteInputTokens !== null) {
+        cacheWriteInputTokens = (cacheWriteInputTokens ?? 0) + usage.cacheWriteInputTokens;
+      }
+
       costUsd += usage.costUsd;
       calls += usage.calls;
     }
 
-    return { inputTokens, outputTokens, cachedInputTokens, costUsd, calls, turns, user, assistant };
+    return {
+      inputTokens,
+      outputTokens,
+      cachedInputTokens,
+      cacheWriteInputTokens,
+      costUsd,
+      calls,
+      turns,
+      user,
+      assistant,
+    };
   }, [messages]);
 }
 
@@ -73,7 +91,7 @@ export function ThreadUsage({ messages }: { messages: readonly SyncedChatMessage
       }
       description={
         summary.turns > 0
-          ? `${formatTokens(summary.inputTokens)} in (${summary.inputTokens.toLocaleString()}) · ${formatTokens(summary.outputTokens)} out (${summary.outputTokens.toLocaleString()}) · ${formatTokens(summary.cachedInputTokens)} cached · ${summary.calls} calls. ${summary.user} user + ${summary.assistant} assistant across ${total} ${messageNoun}. Excludes the in-flight turn.`
+          ? `${formatTokens(summary.inputTokens)} in (${summary.inputTokens.toLocaleString()}) · ${formatTokens(summary.outputTokens)} out (${summary.outputTokens.toLocaleString()}) · ${formatTokens(summary.cachedInputTokens)} cached${summary.cacheWriteInputTokens === null ? "" : ` · ${formatTokens(summary.cacheWriteInputTokens)} cold`} · ${summary.calls} calls. ${summary.user} user + ${summary.assistant} assistant across ${total} ${messageNoun}. Excludes the in-flight turn.`
           : `${summary.user} user + ${summary.assistant} assistant. No metered turns yet — totals appear once a reply lands with usage.`
       }
     >

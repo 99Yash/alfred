@@ -79,6 +79,7 @@ async function loadGroups(): Promise<
     inputTokens: string;
     outputTokens: string;
     cachedInputTokens: string;
+    cacheWriteInputTokens: string;
     modelLatencyMs: string;
     costUsd: string;
     calls: string;
@@ -96,6 +97,7 @@ async function loadGroups(): Promise<
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
+      cacheWriteInputTokens: sql<string>`coalesce(sum(${apiCallLog.cacheWriteInputTokens}), 0)`,
       modelLatencyMs: sql<string>`coalesce(sum(case
         when ${apiCallLog.kind} = 'llm'
           and ${apiCallLog.error} is null
@@ -114,11 +116,15 @@ async function loadGroups(): Promise<
         eq(chatMessages.role, "assistant"),
         isNotNull(chatMessages.runId),
         // Null usage, or a rollup missing the model breakdown, per-agent split,
-        // or model latency needed for output throughput.
+        // model latency needed for output throughput, or the cache-write half
+        // of the cache numbers. Every one of these is recomputable from
+        // `api_call_log`, which has held all of them since the column existed.
         sql`(${chatMessages.usage} is null
           or coalesce(jsonb_array_length(${chatMessages.usage} -> 'models'), 0) = 0
           or coalesce(jsonb_array_length(${chatMessages.usage} -> 'agents'), 0) = 0
-          or not (${chatMessages.usage} ? 'modelLatencyMs'))`,
+          or not (${chatMessages.usage} ? 'modelLatencyMs')
+          or ${chatMessages.usage} -> 'cacheWriteInputTokens' is null
+          or ${chatMessages.usage} -> 'cacheWriteInputTokens' = 'null'::jsonb)`,
       ),
     )
     .groupBy(chatMessages.id, apiCallLog.kind, CALL_ROLE, SUB_ID, MODEL, DEGRADED, REQUESTED_MODEL);
@@ -169,7 +175,8 @@ async function main(): Promise<void> {
     const workers = usage.agents.filter((a) => a.subId !== null).length;
     console.log(
       `${COMMIT ? "write" : "would write"} ${messageId} — ${usage.calls} calls, ` +
-        `$${usage.costUsd.toFixed(4)}, in=${usage.inputTokens} out=${usage.outputTokens} — [${models}]` +
+        `$${usage.costUsd.toFixed(4)}, in=${usage.inputTokens} out=${usage.outputTokens} ` +
+        `cached=${usage.cachedInputTokens} cold=${usage.cacheWriteInputTokens ?? "?"} — [${models}]` +
         (workers > 0 ? ` — +${workers} worker(s)` : ""),
     );
 

@@ -1,6 +1,6 @@
 import type { ChatMessageAgentUsage, ChatMessageUsage } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
-import { ArrowDown, ArrowUp, Gauge, Repeat, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Gauge, Repeat, Snowflake, Zap } from "lucide-react";
 import { modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
 import { formatCost, formatTokens, outputTokensPerSecond } from "~/lib/usage-format";
 import { cn } from "~/lib/utils";
@@ -56,6 +56,25 @@ function fallbackNote(fallback: ModelFallback, calls: number): string {
   const primary = fallback.primary ? `the primary (${fallback.primary})` : "the primary";
 
   return `${share} ran here as a fallback: ${primary} errored, so withFallback degraded the turn.`;
+}
+
+/**
+ * The three-way input split in one sentence: served from the cache, written
+ * into it on a miss, and neither. Without the middle number a reader takes
+ * `input - cached` for ordinary fresh prompt, when most of it is usually a
+ * premium-rate cache write — the exact thing that makes a cold turn expensive.
+ *
+ * Omitted for a rollup persisted before the write half existed, because "fresh"
+ * would then be a guess rather than a subtraction.
+ */
+function cacheSplitNote(usage: ChatMessageUsage): string {
+  const written = usage.cacheWriteInputTokens;
+
+  if (written === null) return "Cache hits are the biggest lever on turn cost.";
+
+  const fresh = Math.max(0, usage.inputTokens - usage.cachedInputTokens - written);
+
+  return `Split: ${usage.cachedInputTokens.toLocaleString()} read from the cache, ${written.toLocaleString()} written into it, ${fresh.toLocaleString()} neither.`;
 }
 
 /** Circumference of the ring below, hoisted so it isn't recomputed per render. */
@@ -239,6 +258,11 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
   const cachePct =
     usage.inputTokens > 0 ? Math.round((usage.cachedInputTokens / usage.inputTokens) * 100) : 0;
 
+  // A rollup written before the write half was recorded carries `null`. Folding
+  // it to 0 here suppresses the cold cell, which is the honest render for it:
+  // we don't know, and an old turn that WAS cold must not claim it was warm.
+  const cacheWritten = usage.cacheWriteInputTokens ?? 0;
+
   return (
     <div
       className={cn(
@@ -271,13 +295,27 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
       {usage.cachedInputTokens > 0 ? (
         <Tip
           label="Cached input"
-          description={`${usage.cachedInputTokens.toLocaleString()} of ${usage.inputTokens.toLocaleString()} input tokens (${cachePct}%) were served from the prompt cache. Cache hits are the biggest lever on turn cost.`}
+          description={`${usage.cachedInputTokens.toLocaleString()} of ${usage.inputTokens.toLocaleString()} input tokens (${cachePct}%) were served from the prompt cache. ${cacheSplitNote(usage)}`}
         >
           <span className="inline-flex items-center gap-1">
             <Zap className="size-3 shrink-0 text-app-amber-4" />
             <span className="text-app-fg-3">{formatTokens(usage.cachedInputTokens)}</span>
             <CacheRing pct={cachePct} />
             <span className="text-app-fg-1">{cachePct}%</span>
+          </span>
+        </Tip>
+      ) : null}
+      {/* The miss half, and the only cell a fully cold turn draws. Sits beside
+       * the hit cell with no divider: the two are one fact seen twice. */}
+      {cacheWritten > 0 ? (
+        <Tip
+          label="Cold input"
+          description={`${cacheWritten.toLocaleString()} of ${usage.inputTokens.toLocaleString()} input tokens missed the prompt cache and were written into it. A write bills ABOVE the plain input rate, so a cold turn costs more than an uncached one. ${cacheSplitNote(usage)}`}
+        >
+          <span className="inline-flex items-center gap-1">
+            <Snowflake className="size-3 shrink-0 text-app-sky-4" />
+            <span className="text-app-fg-3">{formatTokens(cacheWritten)}</span>
+            <span className="text-app-fg-1">cold</span>
           </span>
         </Tip>
       ) : null}
