@@ -4,10 +4,9 @@ import { describe, test } from "node:test";
 import type { EvidenceCard } from "@alfred/contracts";
 import { registerContextSource, searchContext } from "@alfred/assistant/context-search";
 import {
+  defineTestContextSource,
   entitySignificanceKey,
   rankEvidenceCards,
-  searchableTestSourceManifest,
-  testSourceReads,
 } from "@alfred/assistant/context-search/test-support";
 
 /**
@@ -393,10 +392,8 @@ describe("searchContext — ranking runs before the limit truncation", () => {
     // The regression #427 fixes. Before the ranker, `searchContext`
     // concatenated cards in registration order and sliced, so `weak` filled the
     // budget and `strong` was dropped without ever being compared to it.
-    const disposeWeak = registerContextSource({
-      id: "rank-test:weak",
-      manifest: searchableTestSourceManifest("rank-test:weak"),
-      reads: testSourceReads(async () => {
+    const disposeWeak = registerContextSource(
+      defineTestContextSource("rank-test:weak", async () => {
         return {
           evidence: [
             {
@@ -410,12 +407,10 @@ describe("searchContext — ranking runs before the limit truncation", () => {
           ],
         };
       }),
-    });
+    );
 
-    const disposeStrong = registerContextSource({
-      id: "rank-test:strong",
-      manifest: searchableTestSourceManifest("rank-test:strong"),
-      reads: testSourceReads(async () => {
+    const disposeStrong = registerContextSource(
+      defineTestContextSource("rank-test:strong", async () => {
         return {
           evidence: [
             {
@@ -430,7 +425,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
           ],
         };
       }),
-    });
+    );
 
     try {
       const result = await searchContext({ userId: "user-1", query: "anything", limit: 1 });
@@ -452,10 +447,8 @@ describe("searchContext — ranking runs before the limit truncation", () => {
   });
 
   test("ranking metadata is parallel to the returned evidence", async () => {
-    const dispose = registerContextSource({
-      id: "rank-test:pair",
-      manifest: searchableTestSourceManifest("rank-test:pair"),
-      reads: testSourceReads(async () => {
+    const dispose = registerContextSource(
+      defineTestContextSource("rank-test:pair", async () => {
         return {
           evidence: [
             {
@@ -475,7 +468,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
           ],
         };
       }),
-    });
+    );
 
     try {
       const result = await searchContext({ userId: "user-1", query: "anything" });
