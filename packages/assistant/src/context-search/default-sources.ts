@@ -15,7 +15,7 @@ import { registerContextSource, type ContextSource } from "./registry";
  * instance claims a live id, so a second boot call in one process must reinstall
  * the same objects, not freshly built ones. That makes the call safe to repeat
  * and the returned disposer safe to ignore. Source-capability discovery (#466)
- * will enumerate these through the registry, not through this function.
+ * enumerates these through the registry, not through this function.
  */
 const builtinSources: readonly ContextSource[] = [
   createDocumentContextSource(),

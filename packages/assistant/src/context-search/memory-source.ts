@@ -5,6 +5,7 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
   type RetrievalSourceManifest,
+  type SourceManifest,
 } from "@alfred/contracts";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 import { defineContextSource, type ContextSource } from "./registry";
@@ -44,12 +45,14 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * rather than any provider's record. Only the fields the boundary acts on are
  * declared; catalog-reserved fields stay unset.
  *
- * The manifest is the single owner of the id, kind, display name, source ref,
+ * The manifest is the single owner of the kind, display name, source ref,
  * and authority: cards derive all of them from it, so the declaration and the
- * evidence cannot drift.
+ * evidence cannot drift. The stable id lives once in
+ * `MEMORY_CONTEXT_SOURCE_ID` and the registry mints it into the manifest.
  */
-const MEMORY_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
-  id: "memory",
+const MEMORY_CONTEXT_SOURCE_ID = "memory";
+
+const MEMORY_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   kind: "internal",
   displayName: "Memory",
   freshness: { typical: "ingested" },
@@ -58,9 +61,19 @@ const MEMORY_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read">
   availability: "available",
 };
 
+/**
+ * The manifest as cards read it: the base plus the once-stated id. Cards
+ * derive their source ref and authority from this rather than restating
+ * either beside the manifest fragment.
+ */
+function memoryManifest(): SourceManifest {
+  return { ...MEMORY_CONTEXT_SOURCE_MANIFEST_BASE, id: MEMORY_CONTEXT_SOURCE_ID };
+}
+
 /** Build the memory context source over the real `@alfred/assistant/knowledge` verb. */
 export function createMemoryContextSource(): ContextSource {
   return defineContextSource({
+    id: MEMORY_CONTEXT_SOURCE_ID,
     manifest: MEMORY_CONTEXT_SOURCE_MANIFEST_BASE,
     reads: { semantic_search: readMemory },
   });
@@ -87,11 +100,11 @@ async function readMemory(request: ContextSearchRequest) {
  */
 function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
   const label = humanizeSlug(hit.kind);
-  const authority = sourceAuthorityFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST_BASE);
+  const authority = sourceAuthorityFromManifest(memoryManifest());
 
   return {
-    id: `${MEMORY_CONTEXT_SOURCE_MANIFEST_BASE.id}:${hit.chunkId}`,
-    source: sourceRefFromManifest(MEMORY_CONTEXT_SOURCE_MANIFEST_BASE),
+    id: `${MEMORY_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
+    source: sourceRefFromManifest(memoryManifest()),
     mediaKind: "text",
     // `writeMemoryChunk` requires non-empty content today, so the note guards a
     // persisted row that predates that rule, not an expected path.
@@ -101,7 +114,7 @@ function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
     time: { freshness: "ingested" },
     citations: [{ label, locator: `memory chunk ${hit.chunkId}` }],
     expansion: {
-      sourceId: MEMORY_CONTEXT_SOURCE_MANIFEST_BASE.id,
+      sourceId: MEMORY_CONTEXT_SOURCE_ID,
       kind: "memory_chunk",
       ref: hit.chunkId,
       hint: label,

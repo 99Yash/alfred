@@ -8,6 +8,7 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
   type RetrievalSourceManifest,
+  type SourceManifest,
 } from "@alfred/contracts";
 import { search, type SearchHit } from "@alfred/corpus";
 import { defineContextSource, type ContextSource } from "./registry";
@@ -45,12 +46,14 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * embeds the query, so one read is one embedding call. Only the fields the
  * boundary acts on are declared; catalog-reserved fields stay unset.
  *
- * The manifest is the single owner of the id, kind, display name, source ref,
+ * The manifest is the single owner of the kind, display name, source ref,
  * and authority: cards derive all of them from it, so the declaration and the
- * evidence cannot drift.
+ * evidence cannot drift. The stable id lives once in
+ * `DOCUMENT_CONTEXT_SOURCE_ID` and the registry mints it into the manifest.
  */
-const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
-  id: "documents",
+const DOCUMENT_CONTEXT_SOURCE_ID = "documents";
+
+const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   kind: "internal",
   displayName: "Documents",
   freshness: { typical: "ingested" },
@@ -58,6 +61,15 @@ const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read
   cost: { class: "metered" },
   availability: "available",
 };
+
+/**
+ * The manifest as cards read it: the base plus the once-stated id. Cards
+ * derive their source ref and authority from this rather than restating
+ * either beside the manifest fragment.
+ */
+function documentManifest(): SourceManifest {
+  return { ...DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE, id: DOCUMENT_CONTEXT_SOURCE_ID };
+}
 
 /**
  * Tolerance for a sender-controlled authored instant that lies slightly in the
@@ -71,6 +83,7 @@ const DOCUMENT_FUTURE_SKEW_MS = 86_400_000;
 /** Build the document context source over the real `@alfred/corpus` verb. */
 export function createDocumentContextSource(): ContextSource {
   return defineContextSource({
+    id: DOCUMENT_CONTEXT_SOURCE_ID,
     manifest: DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE,
     reads: { semantic_search: readDocuments },
   });
@@ -101,11 +114,11 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
     ? sanitizeErrorMessage(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS) || undefined
     : undefined;
 
-  const authority = sourceAuthorityFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE);
+  const authority = sourceAuthorityFromManifest(documentManifest());
 
   return {
-    id: `${DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE.id}:${hit.chunkId}`,
-    source: sourceRefFromManifest(DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE),
+    id: `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
+    source: sourceRefFromManifest(documentManifest()),
     mediaKind: "document",
     ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,
@@ -132,7 +145,7 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
       },
     ],
     expansion: {
-      sourceId: DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE.id,
+      sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
       kind: "document",
       ref: hit.documentId,
       ...(title ? { hint: title } : {}),
