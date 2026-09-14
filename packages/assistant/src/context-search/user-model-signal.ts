@@ -1,6 +1,6 @@
-import type { EvidenceCard, EvidenceEntityRef } from "@alfred/contracts";
+import { toMessage, type EvidenceCard, type EvidenceEntityRef } from "@alfred/contracts";
 import { userModelReader } from "@alfred/assistant/knowledge";
-import { entitySignificanceKey } from "./rank";
+import { entitySignificanceKey, halfLifeDecay } from "./rank";
 
 /**
  * The optional user-model ranking signal (#427; ADR-0067).
@@ -53,8 +53,6 @@ const KNOWN_ENTITY_WEIGHT = 0.5;
 /** Half-life of the `lastSeenAt` term, in days. */
 const LAST_SEEN_HALF_LIFE_DAYS = 30;
 
-const MS_PER_DAY = 86_400_000;
-
 /**
  * Per-entity weights for {@link EvidenceRankContext.entitySignificance}, or
  * `undefined` when this read has no user-model opinion at all.
@@ -99,7 +97,7 @@ export async function buildEntitySignificance(
     return weights;
   } catch (error) {
     console.warn(
-      `[context-search] user-model ranking signal unavailable for user=${userId}: ${String(error)}`,
+      `[context-search] user-model ranking signal unavailable for user=${userId}: ${toMessage(error)}`,
     );
 
     return undefined;
@@ -144,11 +142,7 @@ function collectIdentities(
 function entityWeight(lastSeenAt: Date | null, now: Date): number {
   if (lastSeenAt === null) return KNOWN_ENTITY_WEIGHT;
 
-  const ageDays = (now.getTime() - lastSeenAt.getTime()) / MS_PER_DAY;
-
-  if (ageDays <= 0) return 1;
-
-  const recency = 0.5 ** (ageDays / LAST_SEEN_HALF_LIFE_DAYS);
+  const recency = halfLifeDecay(lastSeenAt, now, LAST_SEEN_HALF_LIFE_DAYS);
 
   return KNOWN_ENTITY_WEIGHT + (1 - KNOWN_ENTITY_WEIGHT) * recency;
 }
