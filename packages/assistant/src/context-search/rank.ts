@@ -1,10 +1,9 @@
-import {
-  OBJECT_STATE_CATEGORIES,
-  type ContextObjectRef,
-  type EvidenceAuthorityLevel,
-  type EvidenceCard,
-  type EvidenceFreshness,
-  type StateCategory,
+import type {
+  ContextObjectRef,
+  EvidenceAuthorityLevel,
+  EvidenceCard,
+  EvidenceFreshness,
+  StateCategory,
 } from "@alfred/contracts";
 
 /**
@@ -271,7 +270,7 @@ export function rankEvidenceCards(
       ranking: {
         cardId: card.id,
         sourceId: card.source.id,
-        score: combine(features),
+        score: weightedAverage(features),
         features,
       } satisfies EvidenceRanking,
     };
@@ -349,11 +348,12 @@ function cardFeatures(
     features.sourcePriority = clampUnit(priority);
   }
 
+  // `stateCategory` is `StateCategory | undefined` because the card is parsed
+  // against `evidenceCardSchema` at the boundary, and `OBJECT_STATE_SCORES`
+  // declares a row per member, so this lookup is total without a guard.
   const stateCategory = card.object?.stateCategory;
 
-  if (stateCategory !== undefined && isObjectStateCategory(stateCategory)) {
-    features.objectState = OBJECT_STATE_SCORES[stateCategory];
-  }
+  if (stateCategory !== undefined) features.objectState = OBJECT_STATE_SCORES[stateCategory];
 
   const focusScore = focus(card);
 
@@ -367,7 +367,7 @@ function cardFeatures(
 }
 
 /** Weighted average over the features a card actually supplied. */
-function combine(features: Partial<Record<EvidenceRankFeature, number>>): number {
+function weightedAverage(features: Partial<Record<EvidenceRankFeature, number>>): number {
   let weighted = 0;
   let totalWeight = 0;
 
@@ -475,13 +475,26 @@ function recencyScore(card: EvidenceCard, now: Date): number | undefined {
 
   if (!Number.isFinite(at)) return undefined;
 
-  const ageDays = (now.getTime() - at) / MS_PER_DAY;
+  return halfLifeDecay(new Date(at), now, RECENCY_HALF_LIFE_DAYS);
+}
 
-  // A future instant is a clock skew or a scheduled event, not evidence from
-  // the future. Treat it as current rather than letting the curve exceed 1.
+/**
+ * Exponential half-life decay of an instant, in `[0, 1]`.
+ *
+ * Shared by the card `recency` feature and the user-model `lastSeenAt` term so
+ * the two cannot drift into two curves. The half-life is a parameter because
+ * the two answer different questions: how old a RECORD is, and how long ago
+ * Alfred last saw an ENTITY.
+ *
+ * A future instant is a clock skew or a scheduled event, not evidence from the
+ * future. It reads as current rather than letting the curve exceed 1.
+ */
+export function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): number {
+  const ageDays = (now.getTime() - instant.getTime()) / MS_PER_DAY;
+
   if (ageDays <= 0) return 1;
 
-  return clampUnit(0.5 ** (ageDays / RECENCY_HALF_LIFE_DAYS));
+  return clampUnit(0.5 ** (ageDays / halfLifeDays));
 }
 
 /**
@@ -563,20 +576,4 @@ function userModelScore(
   }
 
   return best;
-}
-
-/**
- * The card's `stateCategory` is contract-bounded to `OBJECT_STATE_CATEGORIES`,
- * so this guard is a belt on a validated value. It exists so the lookup above
- * is a total function rather than an index that can return `undefined` at
- * runtime under a widened type.
- */
-function isObjectStateCategory(value: string): value is StateCategory {
-  // SAFETY: the assertion widens the KEY type of a frozen literal tuple so that
-  // `includes` accepts an arbitrary string. It never narrows and never reaches a
-  // value: `OBJECT_STATE_CATEGORIES` is `readonly StateCategory[]`, and every
-  // `StateCategory` is a string, so the widened view is sound by construction.
-  // The narrowing the caller gets comes from `includes` returning true, not from
-  // this cast.
-  return (OBJECT_STATE_CATEGORIES as readonly string[]).includes(value);
 }
