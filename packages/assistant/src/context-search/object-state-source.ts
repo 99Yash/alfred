@@ -20,7 +20,7 @@ import {
   type ObjectStateStore,
 } from "@alfred/assistant/connections";
 import { sha256Canonical } from "@alfred/db/hash";
-import type { ContextSource, ContextSourceResult } from "./registry";
+import { defineContextSource, type ContextSource } from "./registry";
 
 /**
  * The deterministic object-state adapter (#425; epic #422; ADR-0101).
@@ -47,23 +47,25 @@ import type { ContextSource, ContextSourceResult } from "./registry";
 /**
  * What this source declares (#466).
  *
- * `read: ["exact_lookup"]` is the load-bearing declaration. This adapter never
- * reads the free-text query, so the boundary must not spend a lookup on it for
- * a question that carries no object references — and with the manifest it no
- * longer does. Its authority is `high`: the state is a deterministic reduction
- * of provider webhook deliveries, not an inference. The manifest declares only
- * what the boundary acts on; the wider catalog surface (`objectKinds`,
- * `identityKeys`, `indexability`, `discovery`, latency hints) stays unset.
+ * `exact_lookup` is the load-bearing declaration, and it is bound to the body:
+ * the source is built through `defineContextSource` with a single
+ * `exact_lookup` reader, so the manifest's `read` derives from the reader that
+ * exists rather than sitting beside it. This adapter never reads the free-text
+ * query, so the boundary does not consult it for a question that carries no
+ * object references — and with the manifest it no longer does. Its authority
+ * is `high`: the state is a deterministic reduction of provider webhook
+ * deliveries, not an inference. The manifest declares only what the boundary
+ * acts on; the wider catalog surface (`objectKinds`, `identityKeys`,
+ * `indexability`, `discovery`, latency hints) stays unset.
  *
  * The manifest is the single owner of the id, kind, display name, source ref,
  * and authority: cards derive all of them from it, so the declaration and the
  * evidence cannot drift.
  */
-const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
+const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "read"> = {
   id: "object-state",
   kind: "internal",
   displayName: "Object state",
-  read: ["exact_lookup"],
   freshness: { typical: "ingested" },
   authority: { level: "high", label: "deterministic projection of provider webhook deliveries" },
   cost: { class: "local" },
@@ -83,28 +85,29 @@ export type ObjectStateReader = Pick<
 export function createObjectStateContextSource(
   store: ObjectStateReader = objectStateStore,
 ): ContextSource {
-  return {
-    id: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id,
-    manifest: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST,
-    async search(request: ContextSearchRequest): Promise<ContextSourceResult> {
-      const refs = request.objects;
+  return defineContextSource({
+    manifest: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE,
+    reads: {
+      exact_lookup: async (request: ContextSearchRequest) => {
+        const refs = request.objects;
 
-      if (refs === undefined || refs.length === 0) return { evidence: [] };
+        if (refs === undefined || refs.length === 0) return { evidence: [] };
 
-      // Resolve every requested reference, not `refs.slice(0, request.limit)`:
-      // `limit` is the *combined evidence* budget that `searchContext` owns and
-      // counts, not this source's reference cap. Slicing here would silently
-      // drop references past the budget, so the caller would see a clean `ok`
-      // with no miss card and no omission count even though the lookups never
-      // happened. Emitting one card per reference keeps the miss honest; the
-      // boundary truncates and reports the overflow.
-      const evidence = await Promise.all(
-        refs.map((ref) => resolveObjectRef(store, request.userId, ref)),
-      );
+        // Resolve every requested reference, not `refs.slice(0, request.limit)`:
+        // `limit` is the *combined evidence* budget that `searchContext` owns and
+        // counts, not this source's reference cap. Slicing here would silently
+        // drop references past the budget, so the caller would see a clean `ok`
+        // with no miss card and no omission count even though the lookups never
+        // happened. Emitting one card per reference keeps the miss honest; the
+        // boundary truncates and reports the overflow.
+        const evidence = await Promise.all(
+          refs.map((ref) => resolveObjectRef(store, request.userId, ref)),
+        );
 
-      return { evidence };
+        return { evidence };
+      },
     },
-  };
+  });
 }
 
 /**
@@ -209,11 +212,11 @@ function objectStateCard(state: ObjectState): EvidenceCard {
     locator: bound(repo ?? `${kind} ${externalId}`, 500) ?? state.objectId,
   };
 
-  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST);
+  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE);
 
   return {
-    id: `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:${state.objectId}`,
-    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST),
+    id: `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:${state.objectId}`,
+    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE),
     mediaKind: "text",
     snippet: objectStateSnippet(state, title, nativeState, repo),
     score: 1,
@@ -226,7 +229,7 @@ function objectStateCard(state: ObjectState): EvidenceCard {
       : { freshness: "unknown" },
     citations: [citation],
     expansion: {
-      sourceId: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id,
+      sourceId: OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id,
       kind: "integration_object",
       ref: state.objectId,
       ...(title ? { hint: bound(title, 300) } : {}),
@@ -250,24 +253,24 @@ function missingRefCard(ref: ContextObjectRef, note: string): EvidenceCard {
       : { by: ref.by, provider: ref.provider, kind: ref.kind, externalId: ref.externalId };
 
   return missingCard(
-    `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:missing:${sha256Canonical(identity)}`,
+    `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:missing:${sha256Canonical(identity)}`,
     note,
   );
 }
 
 function missingObjectCard(objectId: string, note: string): EvidenceCard {
-  return missingCard(`${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:${objectId}`, note);
+  return missingCard(`${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:${objectId}`, note);
 }
 
 function missingCard(id: string, note: string): EvidenceCard {
-  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST);
+  const authority = sourceAuthorityFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE);
 
   return {
     // Callers either pass an object id or a fixed-length hash; `bound` is the
     // defensive strip/truncate for an unexpectedly long value, not the identity
     // guarantee (the hash is what keeps distinct refs distinct).
-    id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST.id}:unresolved`,
-    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST),
+    id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE.id}:unresolved`,
+    source: sourceRefFromManifest(OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE),
     mediaKind: "text",
     score: 0,
     ...(authority !== undefined ? { authority } : {}),

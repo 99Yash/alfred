@@ -255,9 +255,12 @@ export interface EvidenceRankContext {
    *
    * This is the #466 seam. The manifest declares a source's authority,
    * freshness, and cost; the boundary folds them into one priority per source
-   * and passes it here. Until the manifest lands the map is empty and the
-   * `sourcePriority` feature is simply absent from every card, which is the
-   * same degradation path an unlisted source will take afterwards.
+   * and passes it here. Every consulted source folds to a number (an undeclared
+   * axis scores its `unknown` row), so through `searchContext` the feature is
+   * present on every card and moves every combined score slightly toward the
+   * declared trust reading; the weight stays small so it reorders ties rather
+   * than overturning relevance. A source missing from the map degrades the
+   * same way as before: the feature drops from that card's average.
    */
   readonly sourcePriority?: ReadonlyMap<string, number>;
   /**

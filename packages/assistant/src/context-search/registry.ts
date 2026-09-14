@@ -3,6 +3,7 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
   type RetrievalSourceManifest,
+  type SourceReadCapability,
 } from "@alfred/contracts";
 
 /**
@@ -33,13 +34,30 @@ export interface ContextSourceResult {
   readonly evidence: readonly EvidenceCard[];
 }
 
+/** One capability's reader: how this source answers one declared read. */
+export type ContextSourceReader = (request: ContextSearchRequest) => Promise<ContextSourceResult>;
+
+/**
+ * What a source can actually do, keyed by capability.
+ *
+ * This is the implementation side of `manifest.read`. A source that teaches
+ * itself to read `request.query` adds a `keyword_search` (or
+ * `semantic_search`) entry here, and a source that drops a reader deletes its
+ * entry — either way the manifest follows, because the manifest's `read` is
+ * derived from these keys (see {@link defineContextSource}) and registration
+ * rejects any other drift. A declared capability with no reader, and a reader
+ * with no declaration, both fail at boot rather than shipping a dead
+ * capability or an undeclared read.
+ */
+export type ContextSourceReads = Partial<Record<SourceReadCapability, ContextSourceReader>>;
+
 /**
  * A read-only evidence source. Implementations are registered by id, so the
  * source set is data, never a switch.
  *
- * `search` must be read-only: no provider writes, no action staging, and no
- * cost-bearing side effect beyond the read itself. Provider-specific action
- * tools stay separate and are never invoked by the boundary.
+ * Each `reads` entry must be read-only: no provider writes, no action staging,
+ * and no cost-bearing side effect beyond the read itself. Provider-specific
+ * action tools stay separate and are never invoked by the boundary.
  */
 export interface ContextSource {
   /**
@@ -60,9 +78,14 @@ export interface ContextSource {
    * Parsed and frozen once at registration: `availability` is a boot-time
    * statement, not a live health reading, and a mid-read failure reports
    * `error` rather than moving this value.
+   *
+   * `manifest.read` always equals the keys of {@link ContextSource.reads}:
+   * adapters build both through {@link defineContextSource} so the two cannot
+   * drift, and registration rejects a hand-built source where they differ.
    */
   readonly manifest: RetrievalSourceManifest;
-  search(request: ContextSearchRequest): Promise<ContextSourceResult>;
+  /** The readers this source implements, keyed by the capability each answers. */
+  readonly reads: ContextSourceReads;
 }
 
 interface RegisteredSlot {
@@ -73,6 +96,35 @@ interface RegisteredSlot {
 }
 
 const registeredSources = new Map<string, RegisteredSlot>();
+
+/**
+ * Build a source whose manifest cannot drift from its implementation (#466).
+ *
+ * `reads` is the single source of truth for `manifest.read`: the returned
+ * source carries `read: Object.keys(reads)` alongside the rest of `manifest`,
+ * parsed as a `RetrievalSourceManifest`. Teaching the source a new capability
+ * means adding a `reads` entry (which declares it); deleting a reader removes
+ * the declaration. Adapters must build through here rather than writing `read`
+ * literally beside a `search` body.
+ */
+export function defineContextSource(args: {
+  readonly manifest: Omit<RetrievalSourceManifest, "read">;
+  readonly reads: ContextSourceReads;
+}): ContextSource {
+  // SAFETY: keys of a Partial<Record<SourceReadCapability, …>> are capabilities by construction.
+  const read = Object.keys(args.reads) as SourceReadCapability[];
+  const manifest = retrievalSourceManifestSchema.parse({ ...args.manifest, read });
+
+  if (manifest.id !== args.manifest.id) {
+    throw new Error(
+      `Context search source "${args.manifest.id}" declares a manifest for id "${manifest.id}"`,
+    );
+  }
+
+  assertReadsMatchManifest(args.reads, manifest);
+
+  return { id: manifest.id, manifest: deepFreezeManifest(manifest), reads: args.reads };
+}
 
 /**
  * Register a read-only evidence source. A composition root calls this at boot
@@ -89,6 +141,11 @@ const registeredSources = new Map<string, RegisteredSlot>();
  * is a composition-root bug that stops the boot, and every later reader works
  * on a frozen value the contract has already accepted. Mutating the caller's
  * manifest after registration cannot move the registry.
+ *
+ * Registration also binds the manifest to the implementation: the set of
+ * `manifest.read` must equal the set of `reads` keys, in both directions, so a
+ * declared capability with no reader and a reader with no declaration both
+ * throw here.
  */
 export function registerContextSource(source: ContextSource): () => void {
   const existing = registeredSources.get(source.id);
@@ -107,6 +164,8 @@ export function registerContextSource(source: ContextSource): () => void {
     );
   }
 
+  assertReadsMatchManifest(source.reads, manifest);
+
   registeredSources.set(source.id, { instance: source, manifest: deepFreezeManifest(manifest) });
 
   return () => {
@@ -114,12 +173,42 @@ export function registerContextSource(source: ContextSource): () => void {
   };
 }
 
-/** Registered sources, in registration order. The manifest reader (#466) enumerates them here. */
+/** Registered sources, in registration order. Only `searchContext` enumerates them. */
 export function listContextSources(): readonly ContextSource[] {
   return [...registeredSources.values()].map((slot) => ({
     ...slot.instance,
     manifest: slot.manifest,
   }));
+}
+
+function assertReadsMatchManifest(
+  reads: ContextSourceReads,
+  manifest: RetrievalSourceManifest,
+): void {
+  const declared = new Set<string>(manifest.read);
+
+  // SAFETY: keys of a Partial<Record<SourceReadCapability, …>> are capabilities by construction.
+  const implemented = new Set<string>(
+    (Object.keys(reads) as SourceReadCapability[]).filter(
+      (capability) => reads[capability] !== undefined,
+    ),
+  );
+
+  for (const capability of declared) {
+    if (!implemented.has(capability)) {
+      throw new Error(
+        `Context search source "${manifest.id}" declares read capability "${capability}" with no reader`,
+      );
+    }
+  }
+
+  for (const capability of implemented) {
+    if (!declared.has(capability)) {
+      throw new Error(
+        `Context search source "${manifest.id}" implements read capability "${capability}" with no declaration`,
+      );
+    }
+  }
 }
 
 /**

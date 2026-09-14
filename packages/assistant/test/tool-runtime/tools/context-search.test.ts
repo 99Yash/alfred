@@ -8,7 +8,10 @@ import {
   type EvidenceCard,
 } from "@alfred/contracts";
 import { registerContextSource } from "@alfred/assistant/context-search";
-import { searchableTestSourceManifest } from "@alfred/assistant/context-search/test-support";
+import {
+  searchableTestSourceManifest,
+  testSourceReads,
+} from "@alfred/assistant/context-search/test-support";
 import {
   executeToolCallRound,
   registerToolCallRoundAdapter,
@@ -139,9 +142,9 @@ describe("system.search_context", () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
       manifest: searchableTestSourceManifest(SOURCE_ID),
-      async search() {
+      reads: testSourceReads(async () => {
         return { evidence: [evidenceCard("The contract clause is section 12.")] };
-      },
+      }),
     });
 
     const result = await runContextSearch(seamRequest("contract clause"));
@@ -158,9 +161,9 @@ describe("system.search_context", () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
       manifest: searchableTestSourceManifest(SOURCE_ID),
-      async search() {
+      reads: testSourceReads(async () => {
         return { evidence: [] };
-      },
+      }),
     });
 
     const result = await runContextSearch(seamRequest("nothing matches"));
@@ -176,9 +179,9 @@ describe("system.search_context", () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
       manifest: searchableTestSourceManifest(SOURCE_ID),
-      async search() {
+      reads: testSourceReads(async () => {
         throw new Error("provider exploded");
-      },
+      }),
     });
 
     const result = await runContextSearch(seamRequest("anything"));
@@ -191,9 +194,9 @@ describe("system.search_context", () => {
     disposeSource = registerContextSource({
       id: SOURCE_ID,
       manifest: searchableTestSourceManifest(SOURCE_ID),
-      async search() {
+      reads: testSourceReads(async () => {
         return { evidence: [evidenceCard("The contract clause is section 12.")] };
-      },
+      }),
     });
 
     const tool = getTool("system.search_context");

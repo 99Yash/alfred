@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  EVIDENCE_MEDIA_KINDS,
   evidenceAuthoritySchema,
   evidenceFreshnessSchema,
   evidenceMediaKindSchema,
@@ -8,7 +9,7 @@ import {
   type EvidenceSourceRef,
 } from "./evidence-card";
 import { INTEGRATION_DISPLAY_NAMES, INTEGRATION_SLUGS, integrationEntry } from "./integrations";
-import { identityKindSchema } from "./user-model";
+import { IDENTITY_KINDS, identityKindSchema } from "./user-model";
 
 /**
  * The source capability manifest (#466; epic #422; ADR-0101).
@@ -30,7 +31,7 @@ import { identityKindSchema } from "./user-model";
  * Almost every field is optional, and that is the contract's point rather than
  * laxity. An MCP server Alfred has never seen can describe itself in one field
  * (`kind: "mcp"`) and no more. The reader's job is to treat that silence
- * conservatively — {@link isTrustedRetrievalSource} answers `false` for it — not
+ * conservatively — an undescribed source is never treated as trusted — not
  * to invent a value for it. Declaration grants trust; silence never does.
  *
  * Pure module, no Node imports: the server boundary reads this shape today, and
@@ -169,8 +170,19 @@ export const sourceDiscoverySchema = z.object({
 
 export type SourceDiscovery = z.infer<typeof sourceDiscoverySchema>;
 
-/** Ceiling on each declared list, so one manifest cannot grow unbounded. */
+/** Ceiling on an open string list, so one manifest cannot grow unbounded. */
 export const SOURCE_MANIFEST_MAX_LIST = 50;
+
+/**
+ * Declared lists name distinct capabilities, hosts, or kinds: repeats carry no
+ * meaning, so every list below rejects duplicates. The bound on an enum list is
+ * the enum's own length (repeats are the only thing a larger cap could bind,
+ * and zod does not deduplicate); only the open string lists (`domains`,
+ * `objectKinds`) use {@link SOURCE_MANIFEST_MAX_LIST}.
+ */
+function uniqueValues(values: readonly string[]): boolean {
+  return new Set(values).size === values.length;
+}
 
 /**
  * One source's capability manifest.
@@ -210,15 +222,35 @@ export const sourceManifestSchema = z.object({
   /** Display name, when the source is not an integration or overrides it. */
   displayName: z.string().min(1).max(200).optional(),
   /** Hosts this source's records live on, for grouping and citation. */
-  domains: z.array(z.string().min(1).max(253)).max(SOURCE_MANIFEST_MAX_LIST).optional(),
+  domains: z
+    .array(z.string().min(1).max(253))
+    .max(SOURCE_MANIFEST_MAX_LIST)
+    .refine(uniqueValues, "must not contain duplicates")
+    .optional(),
   /** Provider-declared object kinds — `pull_request`, `issue`. Open strings. */
-  objectKinds: z.array(z.string().min(1).max(100)).max(SOURCE_MANIFEST_MAX_LIST).optional(),
+  objectKinds: z
+    .array(z.string().min(1).max(100))
+    .max(SOURCE_MANIFEST_MAX_LIST)
+    .refine(uniqueValues, "must not contain duplicates")
+    .optional(),
   /** Payload modalities this source can return. */
-  mediaKinds: z.array(evidenceMediaKindSchema).max(SOURCE_MANIFEST_MAX_LIST).optional(),
+  mediaKinds: z
+    .array(evidenceMediaKindSchema)
+    .max(EVIDENCE_MEDIA_KINDS.length)
+    .refine(uniqueValues, "must not contain duplicates")
+    .optional(),
   /** How a query reaches the records. Silence means callable, not searchable. */
-  read: z.array(sourceReadCapabilitySchema).max(SOURCE_MANIFEST_MAX_LIST).optional(),
+  read: z
+    .array(sourceReadCapabilitySchema)
+    .max(SOURCE_READ_CAPABILITIES.length)
+    .refine(uniqueValues, "must not contain duplicates")
+    .optional(),
   /** Identity kinds this source can resolve or attach to its evidence. */
-  identityKeys: z.array(identityKindSchema).max(SOURCE_MANIFEST_MAX_LIST).optional(),
+  identityKeys: z
+    .array(identityKindSchema)
+    .max(IDENTITY_KINDS.length)
+    .refine(uniqueValues, "must not contain duplicates")
+    .optional(),
   freshness: sourceFreshnessSchema.optional(),
   indexability: sourceIndexabilitySchema.optional(),
   /** Provenance trust. An undeclared source is never promoted toward `high`. */
@@ -243,7 +275,11 @@ export type SourceManifest = z.infer<typeof sourceManifestSchema>;
  * of the process with only a `skipped` line as evidence.
  */
 export const retrievalSourceManifestSchema = sourceManifestSchema.extend({
-  read: z.array(sourceReadCapabilitySchema).min(1).max(SOURCE_MANIFEST_MAX_LIST),
+  read: z
+    .array(sourceReadCapabilitySchema)
+    .min(1)
+    .max(SOURCE_READ_CAPABILITIES.length)
+    .refine(uniqueValues, "must not contain duplicates"),
   authority: evidenceAuthoritySchema.extend({ level: z.enum(["high", "medium", "low"]) }),
 });
 
@@ -345,28 +381,4 @@ export function sourceAuthorityFromManifest(
   return authority.label !== undefined
     ? { level: authority.level, label: authority.label }
     : { level: authority.level };
-}
-
-/**
- * Whether the source may be treated as a trusted retrieval source.
- *
- * Two declarations are required, and neither can be inferred:
- *
- * 1. **Read semantics.** Without them the boundary cannot say what asking this
- *    source a question even means.
- * 2. **Authority above `unknown`.** A source's own relevance `score` is the
- *    ranker's heaviest feature, and an undescribed source sets that number
- *    itself. Requiring a declared provenance is what stops an unknown MCP
- *    server from ranking itself first by returning `score: 1` on every card.
- *
- * The rule is uniform across `kind`: a first-party source that describes itself
- * as little as a stranger is trusted as little. Trust follows the declaration,
- * never the author.
- */
-export function isTrustedRetrievalSource(manifest: SourceManifest): boolean {
-  if (!declaresReadSemantics(manifest)) return false;
-
-  const level = manifest.authority?.level;
-
-  return level !== undefined && level !== "unknown";
 }

@@ -6,6 +6,7 @@ import {
   type EvidenceCitation,
   type EvidenceObjectRef,
 } from "@alfred/contracts";
+import type { SourceExclusionReason } from "./manifest";
 import type { ContextSearchResult, ContextSourceReport } from "./search";
 
 /**
@@ -58,6 +59,16 @@ const EVIDENCE_PACK_MAX_SOURCE_NOTES = 12;
 
 /** Cap on one failed source's reason; the reason is provider text, not prose. */
 const EVIDENCE_PACK_REASON_MAX_CHARS = 160;
+
+/**
+ * Model-facing words for each exclusion reason, in plain language rather than
+ * manifest jargon. The `skipped` report carries the enum member; this table is
+ * the only place that turns it into prose, so the two cannot drift.
+ */
+const SKIPPED_NOTE = {
+  unavailable: "temporarily unavailable",
+  "no-answering-read": "not applicable to this question",
+} as const satisfies Record<SourceExclusionReason, string>;
 
 /** Cap on a card's `note` in the packed output. */
 const EVIDENCE_PACK_NOTE_MAX_CHARS = 500;
@@ -175,6 +186,9 @@ interface RenderedNotes {
  * omits for space still proves the source answered. Those cards now arrive in
  * ranked order (#427), so the packer's budget drops the lowest-ranked cards
  * rather than whichever source registered last.
+ *
+ * `error` notes render first: the note list is capped, and a routine skip must
+ * never push a failure out of the text.
  */
 function renderSourceNotes(
   sources: readonly ContextSourceReport[],
@@ -186,7 +200,8 @@ function renderSourceNotes(
     survivedBySource.set(card.source.id, (survivedBySource.get(card.source.id) ?? 0) + 1);
   }
 
-  const lines: string[] = [];
+  const urgent: string[] = [];
+  const routine: string[] = [];
 
   for (const source of sources) {
     switch (source.status) {
@@ -195,24 +210,22 @@ function renderSourceNotes(
         const dropped = source.evidenceCount - survived;
 
         if (dropped > 0) {
-          lines.push(`${source.sourceId}: ${dropped} item(s) not shown (evidence budget)`);
+          routine.push(`${source.sourceId}: ${dropped} item(s) not shown (evidence budget)`);
         }
 
         break;
       }
 
       case "empty":
-        lines.push(`${source.sourceId}: no evidence found`);
+        routine.push(`${source.sourceId}: no evidence found`);
         break;
       case "skipped": {
         // "Not asked" is a different fact from "asked and found nothing", and
         // the model must be able to tell them apart before it concludes
-        // anything from absence (#466).
-        const reason = source.reason
-          ? ` (${sanitizeErrorMessage(source.reason, EVIDENCE_PACK_REASON_MAX_CHARS)})`
-          : "";
-
-        lines.push(`${source.sourceId}: not consulted${reason}`);
+        // anything from absence (#466). The reason is our own closed enum, so
+        // it renders from a lookup table — never through the provider-text
+        // sanitizer the `error` arm needs.
+        routine.push(`${source.sourceId}: not consulted (${SKIPPED_NOTE[source.reason]})`);
         break;
       }
 
@@ -221,18 +234,19 @@ function renderSourceNotes(
           ? ` (${sanitizeErrorMessage(source.reason, EVIDENCE_PACK_REASON_MAX_CHARS)})`
           : "";
 
-        lines.push(`${source.sourceId}: unavailable${reason}`);
+        urgent.push(`${source.sourceId}: unavailable${reason}`);
         break;
       }
 
       default: {
-        const _exhaustive: never = source.status;
+        const _exhaustive: never = source;
 
         throw new Error(`[pack] unknown source status: ${String(_exhaustive)}`);
       }
     }
   }
 
+  const lines = [...urgent, ...routine];
   const shown = lines.slice(0, EVIDENCE_PACK_MAX_SOURCE_NOTES);
   const hidden = lines.length - shown.length;
 

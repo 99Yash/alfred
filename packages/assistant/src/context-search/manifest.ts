@@ -1,7 +1,9 @@
 import {
+  declaresReadSemantics,
   sourceManifestSupportsRead,
   type ContextSearchRequest,
   type RetrievalSourceManifest,
+  type SourceManifest,
 } from "@alfred/contracts";
 import { sourcePriorityFromManifest } from "./rank";
 import type { ContextSource } from "./registry";
@@ -37,53 +39,68 @@ import type { ContextSource } from "./registry";
  * lets the ranker sort the answers.
  */
 
-/** One source the boundary did not consult, and why. */
-export interface ContextSourceExclusion {
-  readonly sourceId: string;
-  /** Short, source-agnostic phrase naming the missing declaration. */
-  readonly reason: string;
-}
+/**
+ * Why the boundary did not consult a source for one request.
+ *
+ * A closed set, not prose: registration guarantees every source declares read
+ * semantics and an authority above `unknown`, so only two exclusions remain.
+ * A third member is a deliberate schema-plus-code change, never a new string
+ * at one call site.
+ */
+export const SOURCE_EXCLUSION_REASONS = ["unavailable", "no-answering-read"] as const;
 
-/** The split of registered sources into consulted and excluded. */
-export interface ContextSourceSelection {
-  readonly candidates: readonly ContextSource[];
-  readonly excluded: readonly ContextSourceExclusion[];
+export type SourceExclusionReason = (typeof SOURCE_EXCLUSION_REASONS)[number];
+
+/**
+ * Whether the source may be treated as a trusted retrieval source.
+ *
+ * Two declarations are required, and neither can be inferred:
+ *
+ * 1. **Read semantics.** Without them the boundary cannot say what asking this
+ *    source a question even means.
+ * 2. **Authority above `unknown`.** A source's own relevance `score` is the
+ *    ranker's heaviest feature, and an undescribed source sets that number
+ *    itself. Requiring a declared provenance is what stops an unknown MCP
+ *    server from ranking itself first by returning `score: 1` on every card.
+ *
+ * The rule is uniform across `kind`: a first-party source that describes itself
+ * as little as a stranger is trusted as little. Trust follows the declaration,
+ * never the author.
+ *
+ * This is a decision about a manifest, not a fact about one, so it lives here
+ * beside the selection policy — not in `@alfred/contracts`, where every
+ * consumer would inherit one reader's opinion. It stays until a second reader
+ * across a boundary (a web catalog) must agree on it.
+ */
+export function isTrustedRetrievalSource(manifest: SourceManifest): boolean {
+  if (!declaresReadSemantics(manifest)) return false;
+
+  const level = manifest.authority?.level;
+
+  return level !== undefined && level !== "unknown";
 }
 
 /**
- * Split the registered sources into the ones this request can usefully ask and
- * the ones it cannot.
+ * The sources this request cannot usefully ask, keyed by source id.
  *
- * Registration guarantees every source declares read semantics and an
- * authority above `unknown`, so the two exclusions here are the only ones left:
- *
- * - **Declared unavailable at registration.** The source's boot-time manifest
- *   says it cannot be read (a planned outage, a missing credential at boot).
- *   This is static, not a live health check: the registry freezes the manifest
- *   at registration, so a source that fails mid-process reports `error` rather
- *   than flipping this field. Silence is not this answer: an undeclared
- *   `availability` is still consulted.
- * - **No capability this request can use.** A source that only does exact
- *   lookups is not asked a free-text question with no object references
- *   attached; asking it would cost a read and return nothing. `enumerate` and
- *   `expand` are declared vocabulary for #428 and do not qualify here, so a
- *   source declaring only those is excluded the same way.
+ * A map, not a split: the only caller (`searchContext`) must keep reports in
+ * REGISTRATION order, and a split forced it to rebuild a lookup from the
+ * excluded half and re-loop the original array to restore the order the split
+ * destroyed. An absent key means the source is a candidate.
  */
 export function selectContextSources(
   sources: readonly ContextSource[],
   request: ContextSearchRequest,
-): ContextSourceSelection {
-  const candidates: ContextSource[] = [];
-  const excluded: ContextSourceExclusion[] = [];
+): ReadonlyMap<string, SourceExclusionReason> {
+  const excluded = new Map<string, SourceExclusionReason>();
 
   for (const source of sources) {
     const reason = exclusionReason(source.manifest, request);
 
-    if (reason === undefined) candidates.push(source);
-    else excluded.push({ sourceId: source.id, reason });
+    if (reason !== undefined) excluded.set(source.id, reason);
   }
 
-  return { candidates, excluded };
+  return excluded;
 }
 
 /**
@@ -111,8 +128,8 @@ export function contextSourcePriorities(
 function exclusionReason(
   manifest: RetrievalSourceManifest,
   request: ContextSearchRequest,
-): string | undefined {
-  if (manifest.availability === "unavailable") return "source declares it is unavailable";
+): SourceExclusionReason | undefined {
+  if (manifest.availability === "unavailable") return "unavailable";
 
   if (answersFreeText(manifest)) return undefined;
 
@@ -120,7 +137,7 @@ function exclusionReason(
 
   if (wantsObjects && sourceManifestSupportsRead(manifest, "exact_lookup")) return undefined;
 
-  return "source declares no read capability that answers this request";
+  return "no-answering-read";
 }
 
 /**
