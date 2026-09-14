@@ -1,15 +1,19 @@
 /**
- * One-off backfill for the dev usage readout (models + tokens + cost) on chat
- * turns that finished BEFORE the `chat_messages.usage` column existed
- * (introduced today in e239c705 / migration 0084).
+ * One-off backfill for the dev usage readout (models + tokens + cost +
+ * reasoning effort) on chat turns that finished BEFORE the `chat_messages.usage` column
+ * existed (introduced today in e239c705 / migration 0084), or whose rollup
+ * predates a field the readout now renders.
  *
  * The live path (`aggregateRunUsage` in src/execution/usage-fold.ts) rolls the
  * numbers up from the turn's `api_call_log` rows at finalize, keyed on the boss
- * `runId`. Those metering rows are the ADR-0015 source of truth and are NOT
- * pruned, so every older assistant message is still backfillable from our own
- * DB — no Langfuse round-trip needed (Langfuse only mirrors `api_call_log.model`
+ * `runId`, and stamps the route's reasoning effort. Those metering rows are the
+ * ADR-0015 source of truth and are NOT pruned, and the tier rides on the boss
+ * run's `agent_runs.metadata` (written by turn admission for every admitted
+ * turn, resolved to effort through the same route table), so every older
+ * assistant message is still backfillable from our own DB — no Langfuse
+ * round-trip needed (Langfuse only mirrors `api_call_log.model`
  * and has retention limits the DB doesn't). This script reruns that exact
- * aggregation for messages whose `usage` is still null.
+ * aggregation for messages whose `usage` is still null or incomplete.
  *
  * Dry-run by default (reports what it WOULD write); pass --commit to persist.
  *
@@ -34,7 +38,9 @@
 import { db, closeConnections } from "@alfred/db";
 import { agentRuns, apiCallLog, chatMessages } from "@alfred/db/schemas";
 import { chatMessageUsageSchema, type ChatMessageUsage } from "@alfred/contracts";
+import { routeEffort } from "@alfred/ai";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { DEGRADED, REQUESTED_MODEL, foldModelUsage } from "@alfred/assistant/execution/usage-fold";
 
 const COMMIT = process.argv.includes("--commit");
@@ -54,6 +60,16 @@ const SUB_ID = sql<
 const MODEL = sql<string>`coalesce(${apiCallLog.model}, 'unknown')`;
 
 const CALL_ROLE = sql<string | null>`${apiCallLog.requestMeta}->>'role'`;
+
+/** The boss run that owns the turn — the tier lives on its metadata. */
+const bossRuns = alias(agentRuns, "boss_runs");
+
+/**
+ * The effort tier for the turn, from the boss run's metadata (written by turn
+ * admission for every admitted turn). Null when the boss run row is gone;
+ * the fold then defaults to `standard`, matching the live path.
+ */
+const TIER = sql<string | null>`${bossRuns.metadata}->>'tier'`;
 
 /**
  * One `api_call_log` group per (message, agent, model), summed across every run
@@ -83,51 +99,70 @@ async function loadGroups(): Promise<
     modelLatencyMs: string;
     costUsd: string;
     calls: string;
+    /** Raw `tier` off the boss run's metadata; null when the run row is gone. */
+    tier: string | null;
   }>
 > {
-  return db()
-    .select({
-      messageId: chatMessages.id,
-      kind: apiCallLog.kind,
-      role: CALL_ROLE,
-      subId: SUB_ID,
-      model: MODEL,
-      degraded: DEGRADED,
-      requestedModel: REQUESTED_MODEL,
-      inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
-      outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
-      cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
-      cacheWriteInputTokens: sql<string>`coalesce(sum(${apiCallLog.cacheWriteInputTokens}), 0)`,
-      modelLatencyMs: sql<string>`coalesce(sum(case
+  return (
+    db()
+      .select({
+        messageId: chatMessages.id,
+        kind: apiCallLog.kind,
+        role: CALL_ROLE,
+        subId: SUB_ID,
+        model: MODEL,
+        degraded: DEGRADED,
+        requestedModel: REQUESTED_MODEL,
+        tier: TIER,
+        inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
+        cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
+        cacheWriteInputTokens: sql<string>`coalesce(sum(${apiCallLog.cacheWriteInputTokens}), 0)`,
+        modelLatencyMs: sql<string>`coalesce(sum(case
         when ${apiCallLog.kind} = 'llm'
           and ${apiCallLog.error} is null
           and ${apiCallLog.outputTokens} is not null
         then ${apiCallLog.latencyMs}
         else 0
       end), 0)`,
-      costUsd: sql<string>`coalesce(sum(${apiCallLog.costUsd}), 0)`,
-      calls: sql<string>`count(*)`,
-    })
-    .from(apiCallLog)
-    .leftJoin(agentRuns, eq(agentRuns.id, apiCallLog.runId))
-    .innerJoin(chatMessages, sql`${chatMessages.runId} = ${OWNER_RUN_ID}`)
-    .where(
-      and(
-        eq(chatMessages.role, "assistant"),
-        isNotNull(chatMessages.runId),
-        // Null usage, or a rollup missing the model breakdown, per-agent split,
-        // model latency needed for output throughput, or the cache-write half
-        // of the cache numbers. Every one of these is recomputable from
-        // `api_call_log`, which has held all of them since the column existed.
-        sql`(${chatMessages.usage} is null
+        costUsd: sql<string>`coalesce(sum(${apiCallLog.costUsd}), 0)`,
+        calls: sql<string>`count(*)`,
+      })
+      .from(apiCallLog)
+      .leftJoin(agentRuns, eq(agentRuns.id, apiCallLog.runId))
+      .innerJoin(chatMessages, sql`${chatMessages.runId} = ${OWNER_RUN_ID}`)
+      // LEFT so a message whose boss run row is gone still backfills (its tier
+      // then defaults to `standard` in the fold below).
+      .leftJoin(bossRuns, eq(bossRuns.id, chatMessages.runId))
+      .where(
+        and(
+          eq(chatMessages.role, "assistant"),
+          isNotNull(chatMessages.runId),
+          // Null usage, or a rollup missing the model breakdown, per-agent split,
+          // model latency needed for output throughput, the cache-write half
+          // of the cache numbers, or the effort tier. Every one of these is
+          // recomputable from `api_call_log` + `agent_runs`, which have held all
+          // of them since the columns existed.
+          sql`(${chatMessages.usage} is null
           or coalesce(jsonb_array_length(${chatMessages.usage} -> 'models'), 0) = 0
           or coalesce(jsonb_array_length(${chatMessages.usage} -> 'agents'), 0) = 0
           or not (${chatMessages.usage} ? 'modelLatencyMs')
           or ${chatMessages.usage} -> 'cacheWriteInputTokens' is null
-          or ${chatMessages.usage} -> 'cacheWriteInputTokens' = 'null'::jsonb)`,
-      ),
-    )
-    .groupBy(chatMessages.id, apiCallLog.kind, CALL_ROLE, SUB_ID, MODEL, DEGRADED, REQUESTED_MODEL);
+          or ${chatMessages.usage} -> 'cacheWriteInputTokens' = 'null'::jsonb
+          or not (${chatMessages.usage} ? 'effort'))`,
+        ),
+      )
+      .groupBy(
+        chatMessages.id,
+        apiCallLog.kind,
+        CALL_ROLE,
+        SUB_ID,
+        MODEL,
+        DEGRADED,
+        REQUESTED_MODEL,
+        TIER,
+      )
+  );
 }
 
 /**
@@ -148,7 +183,15 @@ function foldUsage(groups: Awaited<ReturnType<typeof loadGroups>>): Map<string, 
   const byMessage = new Map<string, ChatMessageUsage>();
 
   for (const [messageId, rows] of rowsByMessage) {
-    byMessage.set(messageId, foldModelUsage(rows));
+    // Every group of one message shares the boss run, so the tier is one value
+    // per message. Anything but an explicit `deep` reads as `standard` — the
+    // same rule the live path uses (`metadata.tier === "deep" ? ...`), so a
+    // missing run row or a pre-tier admission defaults honestly. Resolved
+    // through the route table like the live finalize path, so the stamped
+    // effort is the ceiling the turn actually ran at.
+    const tier = rows[0]?.tier === "deep" ? "deep" : "standard";
+
+    byMessage.set(messageId, foldModelUsage(rows, routeEffort(tier)));
   }
 
   return byMessage;
@@ -176,7 +219,7 @@ async function main(): Promise<void> {
     console.log(
       `${COMMIT ? "write" : "would write"} ${messageId} — ${usage.calls} calls, ` +
         `$${usage.costUsd.toFixed(4)}, in=${usage.inputTokens} out=${usage.outputTokens} ` +
-        `cached=${usage.cachedInputTokens} cold=${usage.cacheWriteInputTokens ?? "?"} — [${models}]` +
+        `cached=${usage.cachedInputTokens} cold=${usage.cacheWriteInputTokens ?? "?"} effort=${usage.effort} — [${models}]` +
         (workers > 0 ? ` — +${workers} worker(s)` : ""),
     );
 

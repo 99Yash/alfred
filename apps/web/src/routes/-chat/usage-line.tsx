@@ -260,7 +260,11 @@ const TONE = {
  * mark; a chip glows amber only when the rollup says some of its calls ran as a
  * `withFallback` degrade (spend cap, 429). That fact travels on
  * `usage.models[].fallback` from the metering rows, so the strip never has to
- * know which model the route table currently calls primary.
+ * know which model the route table currently calls primary. The turn's
+ * reasoning effort rides on the model name (`Luna · Xhigh`): both tiers run
+ * the same model and differ only in thinking, so the effort is which model
+ * served, not a separate stat. It travels on `usage.effort`, resolved
+ * server-side from the route table, for the same reason.
  *
  * Every cell carries a `Tip` hover card rather than a native `title`, so the
  * abbreviated figure keeps its exact count and its explanation one hover away.
@@ -289,6 +293,9 @@ export function UsageLine({
   // it to 0 here suppresses the cold cell, which is the honest render for it:
   // we don't know, and an old turn that WAS cold must not claim it was warm.
   const cacheWritten = usage.cacheWriteInputTokens ?? 0;
+
+  const effort = usage.effort ?? "no effort";
+  const effortLabel = effort.slice(0, 1).toUpperCase() + effort.slice(1);
 
   return (
     <div
@@ -395,14 +402,20 @@ export function UsageLine({
         const served =
           m.calls === 1 ? "Served 1 call this turn." : `Served ${m.calls} calls this turn.`;
 
+        // The turn's reasoning-effort ceiling, worn on the model name: both
+        // tiers run the same model and differ only in thinking, so the effort
+        // reads as which model served, not as a separate stat. One value for
+        // the whole turn — every chip repeats it.
+        const effortNote = `Ran at ${effort} reasoning effort (the turn's ceiling; each provider maps it to its own scale).`;
+
         return (
           <Tip
             key={m.model}
-            label={m.model}
+            label={`${m.model} · ${effort}`}
             description={
               fallback
-                ? `${served} ${fallbackNote(fallback, m.calls)}`
-                : `${served}${provider ? ` Provider: ${provider.label}.` : ""}`
+                ? `${served} ${fallbackNote(fallback, m.calls)} ${effortNote}`
+                : `${served}${provider ? ` Provider: ${provider.label}.` : ""} ${effortNote}`
             }
           >
             <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-app-fg-4 transition-colors">
@@ -413,6 +426,7 @@ export function UsageLine({
                 <Icon className="size-3.5 shrink-0" style={{ color: provider?.tint }} />
               ) : null}
               <span className="font-medium">{modelLabel(m.model)}</span>
+              <span className="text-app-fg-2">· {effortLabel}</span>
               {m.calls > 1 ? <span className="text-app-fg-2">×{m.calls}</span> : null}
             </span>
           </Tip>
