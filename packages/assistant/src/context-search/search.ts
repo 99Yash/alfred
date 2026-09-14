@@ -88,8 +88,8 @@ export interface ContextSearchResult {
  *
  * Sources are SELECTED before they are read (#466). `selectContextSources`
  * reads each source's capability manifest and drops the ones this request
- * cannot usefully ask — a source that declares itself unavailable, and one
- * whose declared reads do not answer this request. Registration already
+ * cannot usefully ask — a source whose boot-time manifest declares it
+ * unavailable, and one whose declared reads do not answer this request. Registration already
  * guarantees read semantics and an authority above `unknown`, so those are
  * boot errors rather than per-read exclusions. Each becomes a `skipped` report, so exclusion is stated
  * rather than silent. The selection reads only declared capability: no source

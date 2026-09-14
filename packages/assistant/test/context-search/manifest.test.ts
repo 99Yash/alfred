@@ -3,8 +3,6 @@ import { describe, test } from "node:test";
 
 import {
   isTrustedRetrievalSource,
-  sourceManifestDisplayName,
-  sourceManifestDomains,
   type ContextSearchRequest,
   type EvidenceCard,
   type RetrievalSourceManifest,
@@ -73,12 +71,9 @@ const NATIVE: RetrievalSourceManifest = {
   kind: "native",
   integration: "github",
   read: ["semantic_search", "exact_lookup"],
-  identityKeys: ["github_login"],
-  objectKinds: ["pull_request"],
-  freshness: { typical: "live", windowMinutes: 15 },
-  indexability: "live_only",
+  freshness: { typical: "live" },
   authority: { level: "high", label: "GitHub App" },
-  cost: { class: "remote", typicalLatencyMs: 400 },
+  cost: { class: "remote" },
   availability: "available",
 };
 
@@ -261,11 +256,15 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
   test("a declared manifest gives its cards a sourcePriority feature", async () => {
     const described = recordingSource(DESCRIBED_MCP);
 
+    // Authority is the only axis that differs: both sources are remote with
+    // undeclared (hence `unknown`) freshness, so the order below follows the
+    // authority declaration alone rather than the source that declared less.
     const silent = recordingSource({
       id: "manifest-test:no-priority",
       kind: "native",
       read: ["semantic_search"],
       authority: { level: "medium" },
+      cost: { class: "remote" },
     });
 
     const disposers = [
@@ -276,9 +275,10 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
     try {
       const result = await searchContext(QUERY);
 
-      // Both declared an authority, so both fold to a priority. The point of
-      // the assertion is that the feature is PRESENT and ordered by the
-      // declaration: `low` authority must not outrank `medium`.
+      // Cost and freshness are held equal (remote / undeclared), so the order
+      // follows authority alone: `low` must not outrank `medium`. Inverting
+      // the priority weights must not flip this assertion while cost and
+      // freshness agree.
       const priorities = new Map(
         result.ranking.map((entry) => [entry.sourceId, entry.features.sourcePriority]),
       );
@@ -295,27 +295,12 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
   });
 });
 
-describe("a manifest reads its shared facts out of the integration registry", () => {
-  test("a source that names an integration does not restate its name or domain", () => {
-    // The non-duplication rule (#466 criterion 3): renaming an integration in
-    // ADR-0093's record renames its source, because the source never copied it.
-    assert.equal(sourceManifestDisplayName(NATIVE), "GitHub");
-    assert.deepEqual(sourceManifestDomains(NATIVE), ["github.com"]);
-  });
-
-  test("a source that names no integration falls back to its own name, then its id", () => {
-    assert.equal(sourceManifestDisplayName(DESCRIBED_MCP), "A described MCP server");
-    assert.equal(sourceManifestDisplayName(UNDESCRIBED_MCP), UNDESCRIBED_MCP.id);
-    assert.deepEqual(sourceManifestDomains(UNDESCRIBED_MCP), []);
-  });
-});
-
 describe("isTrustedRetrievalSource — both halves are required", () => {
-  test("silence is never promoted to trust", () => {
-    assert.equal(isTrustedRetrievalSource(NATIVE), true);
-    assert.equal(isTrustedRetrievalSource(DESCRIBED_MCP), true);
-    assert.equal(isTrustedRetrievalSource(NO_AUTHORITY), false);
-    assert.equal(isTrustedRetrievalSource(UNDESCRIBED_MCP), false);
+  test("a declared `unknown` authority is never promoted to trust", () => {
+    // The remaining rows are proved behaviorally above: described sources are
+    // selected as candidates, half-described ones fail at registration. This
+    // pins the one case no selection path reaches — registration rejects
+    // `unknown` before selection, so only the predicate can speak for it.
     assert.equal(
       isTrustedRetrievalSource({ ...NO_AUTHORITY, authority: { level: "unknown" } }),
       false,

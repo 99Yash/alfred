@@ -2,7 +2,6 @@ import {
   sourceManifestSupportsRead,
   type ContextSearchRequest,
   type RetrievalSourceManifest,
-  type SourceManifest,
 } from "@alfred/contracts";
 import { sourcePriorityFromManifest } from "./rank";
 import type { ContextSource } from "./registry";
@@ -58,12 +57,17 @@ export interface ContextSourceSelection {
  * Registration guarantees every source declares read semantics and an
  * authority above `unknown`, so the two exclusions here are the only ones left:
  *
- * - **Declared unavailable.** The source says it cannot be read right now (a
- *   disconnected integration, an MCP connection awaiting reauthorization).
- *   Silence is not this answer: an undeclared `availability` is still consulted.
+ * - **Declared unavailable at registration.** The source's boot-time manifest
+ *   says it cannot be read (a planned outage, a missing credential at boot).
+ *   This is static, not a live health check: the registry freezes the manifest
+ *   at registration, so a source that fails mid-process reports `error` rather
+ *   than flipping this field. Silence is not this answer: an undeclared
+ *   `availability` is still consulted.
  * - **No capability this request can use.** A source that only does exact
  *   lookups is not asked a free-text question with no object references
- *   attached; asking it would cost a read and return nothing.
+ *   attached; asking it would cost a read and return nothing. `enumerate` and
+ *   `expand` are declared vocabulary for #428 and do not qualify here, so a
+ *   source declaring only those is excluded the same way.
  */
 export function selectContextSources(
   sources: readonly ContextSource[],
@@ -103,11 +107,6 @@ export function contextSourcePriorities(
   return priorities;
 }
 
-/** The manifest of every registered source, for a catalog view or a trace. */
-export function listSourceManifests(sources: readonly ContextSource[]): readonly SourceManifest[] {
-  return sources.map((source) => source.manifest);
-}
-
 /** Why this request cannot usefully ask this source, or `undefined` if it can. */
 function exclusionReason(
   manifest: RetrievalSourceManifest,
@@ -130,7 +129,9 @@ function exclusionReason(
  * `query` is required on every request, so a source that searches text is
  * always a candidate. `enumerate` and `expand` do not qualify: listing recent
  * records ignores the question, and expansion needs a handle from a card that
- * does not exist yet (#428).
+ * does not exist yet (#428). They remain valid declarations for that future
+ * slice; in this slice a source declaring only them is excluded as
+ * unanswerable, not consulted.
  */
 function answersFreeText(manifest: RetrievalSourceManifest): boolean {
   return (

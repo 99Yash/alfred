@@ -55,8 +55,8 @@ lives there:
   `packages/contracts/src/source-manifest.ts` (#466) with their enums
   (`SOURCE_READ_CAPABILITIES`, `SOURCE_COST_CLASSES`, ...) and their
   contract-level predicates (`isTrustedRetrievalSource`,
-  `sourceManifestDisplayName`), because the web catalog and the server boundary
-  read one shape. The ranking WEIGHTS that fold a manifest into a number stay in
+  `sourceManifestDisplayName`), because the server boundary reads the shape
+  today and a future web catalog reads the same shape without a move. The ranking WEIGHTS that fold a manifest into a number stay in
   `context-search/rank.ts`, and the selection policy stays in
   `context-search/manifest.ts`: those are decisions about a manifest, not facts
   about one, and putting them in contracts would make every consumer inherit one

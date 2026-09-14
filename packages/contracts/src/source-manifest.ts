@@ -33,8 +33,9 @@ import { identityKindSchema } from "./user-model";
  * conservatively — {@link isTrustedRetrievalSource} answers `false` for it — not
  * to invent a value for it. Declaration grants trust; silence never does.
  *
- * Pure module, no Node imports: the web catalog and the server boundary read
- * the same shape.
+ * Pure module, no Node imports: the server boundary reads this shape today, and
+ * it lives in contracts so a future web catalog can read the same shape without
+ * a move. No web surface reads it yet.
  */
 
 /**
@@ -52,6 +53,11 @@ import { identityKindSchema } from "./user-model";
  * A source that declares none of these is callable and not searchable. That is
  * the undescribed-MCP case, and it is why the list is a declaration rather than
  * something inferred from the fact that a tool exists.
+ *
+ * `enumerate` and `expand` are declared vocabulary for #428, not selectable in
+ * this slice: the selection below consults only `semantic_search`,
+ * `keyword_search`, and `exact_lookup`, so a source declaring only `enumerate`
+ * or only `expand` is still excluded as unanswerable for this request.
  */
 export const SOURCE_READ_CAPABILITIES = [
   "semantic_search",
@@ -98,11 +104,15 @@ export const sourceCostClassSchema = z.enum(SOURCE_COST_CLASSES);
 /**
  * Whether the source can be read AT ALL right now.
  *
- * `unavailable` is a source's own admission — a disconnected integration, an
- * MCP connection that needs reauthorization — and the boundary does not consult
- * it. `unknown` is NOT read as unavailable: silence is not a confession, so an
- * undeclared source is still consulted and reports its own outcome. A source
- * that becomes unusable mid-read is an `error` report, not this field.
+ * `unavailable` is a STATIC, registration-time admission — a source the
+ * composition root knows is out of service at boot — and the boundary does not
+ * consult it. It is not a live health reading: the manifest is parsed and
+ * frozen once at registration, so a source that disconnects mid-process still
+ * carries its boot value and the failure surfaces as an `error` report, not via
+ * this field. `unknown` is NOT read as unavailable: silence is not a
+ * confession, so an undeclared source is still consulted and reports its own
+ * outcome. A source that becomes unusable mid-read is an `error` report, not
+ * this field.
  */
 export const SOURCE_AVAILABILITY_STATES = ["available", "unavailable", "unknown"] as const;
 
@@ -170,6 +180,17 @@ export const SOURCE_MANIFEST_MAX_LIST = 50;
  * `identityKeys`), HOW it can be read (`read`, `indexability`, `freshness`,
  * `availability`), and HOW MUCH to trust and spend (`authority`, `cost`,
  * `discovery`).
+ *
+ * The boundary acts on a subset in this slice: `read` and `availability` drive
+ * selection, `authority` / `freshness.typical` / `cost.class` fold into the
+ * ranker's `sourcePriority`, and `id` / `kind` / `displayName` (+ `domains` via
+ * the integration join) stamp each card's source ref. The rest —
+ * `objectKinds`, `mediaKinds`, `identityKeys`, `indexability`,
+ * `freshness.windowMinutes`, `cost.typicalLatencyMs`, `discovery`, and the
+ * `enumerate` / `expand` read capabilities — are catalog-reserved declarations
+ * for a future catalog or drill-down slice (#428). Nothing in the boundary
+ * branches on them yet, and production manifests leave them unset rather than
+ * paying for a derivation no reader consumes.
  */
 export const sourceManifestSchema = z.object({
   /** The join key: the producing `ContextSource.id` and `EvidenceCard.source.id`. */
@@ -294,15 +315,11 @@ export function sourceRefFromManifest(manifest: SourceManifest): EvidenceSourceR
   const domains = sourceManifestDomains(manifest);
   const domain = domains[0] !== undefined ? { domain: domains[0] } : {};
 
-  if (manifest.displayName !== undefined) {
-    return { id: manifest.id, kind: manifest.kind, displayName: manifest.displayName, ...domain };
-  }
-
-  if (manifest.integration !== undefined) {
+  if (manifest.displayName !== undefined || manifest.integration !== undefined) {
     return {
       id: manifest.id,
       kind: manifest.kind,
-      displayName: INTEGRATION_DISPLAY_NAMES[manifest.integration],
+      displayName: sourceManifestDisplayName(manifest),
       ...domain,
     };
   }

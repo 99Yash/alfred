@@ -41,7 +41,8 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * sources: a memory chunk is Alfred's own DISTILLATION of a thread or a
  * research run, so it can be wrong in a way a verbatim provider record cannot.
  * It names no `integration`, because a memory chunk is Alfred's own writing
- * rather than any provider's record.
+ * rather than any provider's record. Only the fields the boundary acts on are
+ * declared; catalog-reserved fields stay unset.
  *
  * The manifest is the single owner of the id, kind, display name, source ref,
  * and authority: cards derive all of them from it, so the declaration and the
@@ -51,17 +52,11 @@ const MEMORY_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
   id: "memory",
   kind: "internal",
   displayName: "Memory",
-  mediaKinds: ["text"],
   read: ["semantic_search"],
-  indexability: "indexed",
   freshness: { typical: "ingested" },
   authority: { level: "medium", label: "Alfred's distilled note, not a primary record" },
-  cost: { class: "metered", typicalLatencyMs: 1_500 },
+  cost: { class: "metered" },
   availability: "available",
-  discovery: {
-    summary: "Alfred's own memory — distilled thread summaries, research, and notes.",
-    topics: ["memory", "notes", "summaries", "research"],
-  },
 };
 
 /** Build the memory context source over the real `@alfred/assistant/knowledge` verb. */

@@ -42,7 +42,8 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * text — not a summary of one. It names no `integration` and no `domains`
  * because it spans every ingested provider at once; the per-record provider
  * rides each card's citation instead. The cost is `metered`: the corpus search
- * embeds the query, so one read is one embedding call.
+ * embeds the query, so one read is one embedding call. Only the fields the
+ * boundary acts on are declared; catalog-reserved fields stay unset.
  *
  * The manifest is the single owner of the id, kind, display name, source ref,
  * and authority: cards derive all of them from it, so the declaration and the
@@ -52,17 +53,11 @@ const DOCUMENT_CONTEXT_SOURCE_MANIFEST: RetrievalSourceManifest = {
   id: "documents",
   kind: "internal",
   displayName: "Documents",
-  mediaKinds: ["document"],
   read: ["semantic_search"],
-  indexability: "indexed",
   freshness: { typical: "ingested" },
   authority: { level: "high", label: "verbatim slice of an ingested provider record" },
-  cost: { class: "metered", typicalLatencyMs: 1_500 },
+  cost: { class: "metered" },
   availability: "available",
-  discovery: {
-    summary: "Ingested provider content — email bodies, attachments, and documents.",
-    topics: ["email", "attachments", "documents", "threads"],
-  },
 };
 
 /**
