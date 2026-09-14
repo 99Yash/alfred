@@ -90,29 +90,57 @@ export function ChatApprovalTray({
   // Chime once per freshly-arrived batch of approvals. A per-card effect would
   // fire N toasts and stack N overlapping sounds when several actions gate at
   // once; centralizing it here keeps a single "review this" signal.
-  // Lazily allocated: `useRef(new Set())` builds and discards a Set on every
-  // render. Pruned to the rows still on screen on each fire, so a long thread
-  // does not accumulate an id per approval it ever showed — a row that leaves
-  // `pending` never comes back, so dropping it cannot re-chime.
-  const notifiedRef = useRef<Set<string> | null>(null);
+  //
+  // The map is both the dedupe ledger and the handle on the chime it raised:
+  // the key answers "did this row chime already?", and the value is the toast
+  // to dismiss once the row no longer waits for the user. A retired chime
+  // keeps a `null` value, because deleting the key re-chimes the row on the
+  // next poke. Lazily allocated: `useRef(new Map())` builds and discards a Map
+  // on every render. Pruned to the rows still on screen on each fire, so a
+  // long thread does not accumulate an id per approval it ever showed — a row
+  // that leaves `pending` never comes back, so dropping it cannot re-chime.
+  const chimesRef = useRef<Map<string, string | number | null> | null>(null);
+
+  // A chime means "come and look". The user who decides has looked, so the
+  // toast goes on the click itself — not when the server answers, and not five
+  // seconds later. One chime can cover a batch, so a decision on any row it
+  // announced retires it for every row in that batch.
+  const dismissChime = (stagingId: string) => {
+    const chimes = chimesRef.current;
+    const toastId = chimes?.get(stagingId) ?? null;
+
+    if (!chimes || toastId === null) return;
+
+    toast.dismiss(toastId);
+
+    for (const [id, raised] of chimes) if (raised === toastId) chimes.set(id, null);
+  };
+
   useEffect(() => {
     if (preview) return;
-    const notified = (notifiedRef.current ??= new Set());
-    const fresh = approvals.filter((row) => !notified.has(row.id));
+    const chimes = (chimesRef.current ??= new Map());
+    const fresh = approvals.filter((row) => !chimes.has(row.id));
     const live = new Set(approvals.map((row) => row.id));
 
-    for (const id of notified) if (!live.has(id)) notified.delete(id);
+    // A row leaves `pending` when someone decides it — on this card, on the
+    // approvals page, or through an expiry — so its chime is stale either way.
+    for (const [id, toastId] of chimes) {
+      if (live.has(id)) continue;
+
+      if (toastId !== null) toast.dismiss(toastId);
+      chimes.delete(id);
+    }
 
     if (fresh.length === 0) return;
 
-    for (const row of fresh) notified.add(row.id);
     const first = fresh[0];
     // A question is not a permission request, so it gets its own chime copy —
     // "Approval needed" over a card asking which recipient to use reads as a
     // warning about an action the user never proposed.
     const lone = fresh.length === 1 ? first : undefined;
     const loneQuestion = lone ? asQuestionStaging(lone) : null;
-    callToast({
+
+    const toastId = callToast({
       message: loneQuestion ? "Alfred has a question" : "Approval needed",
       description: loneQuestion
         ? (loneQuestion.input.questions[0]?.question ?? "Answer to continue the turn.")
@@ -125,6 +153,9 @@ export function ChatApprovalTray({
         <ShieldCheck size={14} className="text-app-purple-3" />
       ),
     });
+
+    for (const row of fresh) chimes.set(row.id, toastId);
+
     const audio = new Audio("/sounds/run-finished.mp3");
     audio.volume = 0.42;
     void audio.play().catch(() => {
@@ -167,6 +198,7 @@ export function ChatApprovalTray({
             key={staging.id}
             question={question}
             preview={preview}
+            onDecisionStart={() => dismissChime(staging.id)}
             onDecision={() => setRecentDecision(true)}
           />
         ) : (
@@ -174,6 +206,7 @@ export function ChatApprovalTray({
             key={staging.id}
             staging={staging}
             preview={preview}
+            onDecisionStart={() => dismissChime(staging.id)}
             onDecision={() => setRecentDecision(true)}
           />
         );
@@ -201,6 +234,7 @@ interface DecisionToast {
 function useRecordDecision<Decision extends RecordedDecision>({
   staging,
   preview,
+  onDecisionStart,
   onDecision,
   run,
   setDecided,
@@ -208,6 +242,8 @@ function useRecordDecision<Decision extends RecordedDecision>({
 }: {
   staging: SyncedActionStaging;
   preview: boolean | undefined;
+  /** The user recorded a decision. Fires on the click, before the API call. */
+  onDecisionStart: () => void;
   onDecision: () => void;
   run: ApprovalDecisionState["run"];
   setDecided: (value: boolean) => void;
@@ -221,6 +257,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
 
   const decide = (decision: Decision) => {
     setDecisionKind(decision.decision);
+    onDecisionStart();
 
     if (preview) {
       // Styleguide: land the decision locally so the collapse + badge states
@@ -270,10 +307,12 @@ function useRecordDecision<Decision extends RecordedDecision>({
 function InlineApprovalCard({
   staging,
   preview = false,
+  onDecisionStart,
   onDecision,
 }: {
   staging: SyncedActionStaging;
   preview?: boolean | undefined;
+  onDecisionStart: () => void;
   onDecision: () => void;
 }) {
   const {
@@ -303,6 +342,7 @@ function InlineApprovalCard({
   const { decisionKind, decide } = useRecordDecision({
     staging,
     preview,
+    onDecisionStart,
     onDecision,
     run,
     setDecided,
@@ -611,10 +651,12 @@ function questionDecisionToast(decision: QuestionDecision): DecisionToast | null
 function InlineQuestionCard({
   question,
   preview = false,
+  onDecisionStart,
   onDecision,
 }: {
   question: QuestionStaging;
   preview?: boolean | undefined;
+  onDecisionStart: () => void;
   onDecision: () => void;
 }) {
   const staging = question.staging;
@@ -625,6 +667,7 @@ function InlineQuestionCard({
   const { decisionKind, decide } = useRecordDecision<QuestionDecision>({
     staging,
     preview,
+    onDecisionStart,
     onDecision,
     run,
     setDecided,
