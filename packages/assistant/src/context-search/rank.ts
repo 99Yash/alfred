@@ -259,8 +259,8 @@ export function rankEvidenceCards(
   const semantic = normalizeSemanticScores(cards);
   const focus = focusMatcher(context.objects);
 
-  const scored = cards.map((card, index) => {
-    const features = cardFeatures(card, index, { context, semantic, focus });
+  const scored = cards.map((card) => {
+    const features = cardFeatures(card, { context, semantic, focus });
 
     return {
       card,
@@ -301,7 +301,7 @@ function compareIds(a: string, b: string): number {
 
 interface FeatureInputs {
   readonly context: EvidenceRankContext;
-  readonly semantic: ReadonlyMap<number, number>;
+  readonly semantic: ReadonlyMap<EvidenceCard, number>;
   readonly focus: (card: EvidenceCard) => number | undefined;
 }
 
@@ -320,7 +320,6 @@ interface FeatureInputs {
  */
 function cardFeatures(
   card: EvidenceCard,
-  index: number,
   { context, semantic, focus }: FeatureInputs,
 ) {
   // The bag starts empty and every feature writes itself in. A feature here is
@@ -335,7 +334,7 @@ function cardFeatures(
   features.freshness = FRESHNESS_SCORES[card.time?.freshness ?? "unknown"];
   features.authority = AUTHORITY_SCORES[card.authority?.level ?? "unknown"];
 
-  const semanticScore = semantic.get(index);
+  const semanticScore = semantic.get(card);
 
   if (semanticScore !== undefined) features.semantic = semanticScore;
 
@@ -403,7 +402,7 @@ function roundScore(value: number): number {
 
 /**
  * Normalize each source's own `score` into a comparable `[0, 1]` reading,
- * keyed by the card's index in the input list.
+ * keyed by the card object itself.
  *
  * The card contract states that `score` is comparable ONLY within one source —
  * cosine similarity from the vector adapters, an exact-match confidence of `1`
@@ -429,33 +428,34 @@ function roundScore(value: number): number {
  * its other features decide its place. That is the "ranker degrades rather than
  * inventing a number" rule the card contract writes down.
  */
-function normalizeSemanticScores(cards: readonly EvidenceCard[]): ReadonlyMap<number, number> {
-  const bySource = new Map<string, number[]>();
+function normalizeSemanticScores(cards: readonly EvidenceCard[]): ReadonlyMap<EvidenceCard, number> {
+  const bySource = new Map<string, EvidenceCard[]>();
 
-  for (const [index, card] of cards.entries()) {
-    if (card.score === undefined) continue;
+  for (const card of cards) {
+    if (card.score === undefined || !Number.isFinite(card.score)) continue;
 
     const group = bySource.get(card.source.id);
 
-    if (group === undefined) bySource.set(card.source.id, [index]);
-    else group.push(index);
+    if (group === undefined) bySource.set(card.source.id, [card]);
+    else group.push(card);
   }
 
-  const normalized = new Map<number, number>();
+  const normalized = new Map<EvidenceCard, number>();
 
-  for (const indices of bySource.values()) {
+  for (const group of bySource.values()) {
     // Scores here are non-optional by construction: only cards with a defined
-    // `score` contribute an index above, so absence never invents a number.
-    const scored = indices.map((index) => ({ index, score: cards[index]!.score! }));
-    const scores = scored.map((entry) => entry.score);
+    // `score` contribute above, so absence never invents a number.
+    const scores = group.map((card) => card.score as number);
     const min = Math.min(...scores);
     const max = Math.max(...scores);
     const alreadyNormalized = min >= 0 && max <= 1;
 
-    for (const { index, score } of scored) {
-      if (alreadyNormalized) normalized.set(index, score);
-      else if (max === min) normalized.set(index, 0.5);
-      else normalized.set(index, (score - min) / (max - min));
+    for (const card of group) {
+      const score = card.score as number;
+
+      if (alreadyNormalized) normalized.set(card, score);
+      else if (max === min) normalized.set(card, 0.5);
+      else normalized.set(card, (score - min) / (max - min));
     }
   }
 

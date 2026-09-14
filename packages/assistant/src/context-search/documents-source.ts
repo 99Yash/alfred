@@ -36,6 +36,15 @@ import { compareByScoreThenId, internalSourceRef, renderContent } from "./vector
 /** Stable manifest id for the ingested-document corpus adapter (#466). */
 const DOCUMENT_CONTEXT_SOURCE_ID = "documents";
 
+/**
+ * Tolerance for a sender-controlled authored instant that lies slightly in the
+ * future. The ranker (#427) reads an instant up to one day past `now` as
+ * current clock skew and drops anything beyond it; the adapter applies the same
+ * bound so a `Date: Sat, 1 Jan 3000` header never reaches the model as
+ * `occurred <future>` nor earns maximum recency.
+ */
+const DOCUMENT_FUTURE_SKEW_MS = 86_400_000;
+
 /** Build the document context source over the real `@alfred/corpus` verb. */
 export function createDocumentContextSource(): ContextSource {
   return {
@@ -77,7 +86,10 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
       // `authoredAt` is the authored instant (an email Date header, an event
       // start), so it is when the underlying event happened — `occurredAt`,
       // never `observedAt`, which is when the source observed the record.
-      ...(hit.authoredAt ? { occurredAt: hit.authoredAt.toISOString() } : {}),
+      // Sender-controlled and therefore untrusted for range: a future instant
+      // beyond clock-skew tolerance is omitted rather than rendered or ranked
+      // as maximally recent.
+      ...(isUsableAuthoredAt(hit.authoredAt) ? { occurredAt: hit.authoredAt.toISOString() } : {}),
       freshness: "ingested",
     },
     citations: [
@@ -98,4 +110,14 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
       ...(title ? { hint: title } : {}),
     },
   };
+}
+
+function isUsableAuthoredAt(value: Date | null): value is Date {
+  if (value === null) return false;
+
+  const at = value.getTime();
+
+  if (!Number.isFinite(at)) return false;
+
+  return at <= Date.now() + DOCUMENT_FUTURE_SKEW_MS;
 }
