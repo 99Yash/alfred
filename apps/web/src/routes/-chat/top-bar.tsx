@@ -2,8 +2,10 @@ import type { ChatModelTier } from "@alfred/contracts";
 import type { SyncedArtifact, SyncedChatMessage } from "@alfred/sync";
 import { PanelLeft, PanelRight, Share2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppInput } from "~/components/ui/v2";
 import { useSidebarState } from "~/lib/shell/app-shell";
+import { prefetchThreadShares } from "~/lib/sharing/use-thread-sharing";
 import { cn } from "~/lib/utils";
 import { ArtifactMenu } from "./artifact-menu";
 import { IconButton } from "./rail/icon-button";
@@ -58,6 +60,7 @@ export function TopBar({
   const [shareOpen, setShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const messages = threadMessages ?? [];
+  const queryClient = useQueryClient();
 
   /* Both pieces of state above NAME A THREAD, and `ChatShell` carries no key, so
    * a thread switch re-renders this bar rather than remounting it. Left alone,
@@ -111,7 +114,13 @@ export function TopBar({
       <div className="flex items-center gap-1.5">
         {threadId ? (
           <Tip label="Share thread">
-            <IconButton label="Share thread" active={shareOpen} onClick={() => setShareOpen(true)}>
+            <IconButton
+              label="Share thread"
+              active={shareOpen}
+              onClick={() => setShareOpen(true)}
+              onMouseEnter={() => prefetchThreadShares(queryClient, threadId)}
+              onFocus={() => prefetchThreadShares(queryClient, threadId)}
+            >
               <Share2 size={14} />
             </IconButton>
           </Tip>

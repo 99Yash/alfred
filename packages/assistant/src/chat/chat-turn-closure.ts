@@ -8,6 +8,7 @@ import { logger } from "@alfred/logging";
 import { finalizeRunArtifacts } from "@alfred/assistant/artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
 import { aggregateRunUsage } from "@alfred/assistant/execution";
+import { routeEffort } from "@alfred/ai";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { scheduleConversationCompactionIfNeeded } from "./compaction";
 import { classifyChatTurnFailure } from "./chat-failure-kind";
@@ -277,7 +278,7 @@ async function upsertCompletedRow(
   reasoningMs: number | null,
   now: Date,
 ): Promise<{ id: string }[]> {
-  const usage = await aggregateRunUsage(runId);
+  const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
 
   // Drizzle types `and()` as `SQL | undefined` because it collapses when every
   // condition is undefined; all three here are unconditional, so it never does.
@@ -361,7 +362,7 @@ async function insertFailedRow(
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
   const errorKind = await classifyChatTurnFailure(userId, state, error);
-  const usage = await aggregateRunUsage(runId);
+  const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
   logger.warn(
     { err: error, event: "chat_turn_failed", runId, threadId: state.threadId, errorKind },
     "Chat turn failed",
