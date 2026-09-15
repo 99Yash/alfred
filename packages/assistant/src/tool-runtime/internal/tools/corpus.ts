@@ -17,6 +17,9 @@ import { liveTool } from "@alfred/assistant/tool-runtime";
  * per-carrier `occurrences` the description promises stay: they are the
  * deliberately disclosed provenance, one message, thread, and account per
  * carrier, while `record` names the row's own (possibly folded) identity.
+ * The description names the selection-relevant fields, not the full row —
+ * chunk/document ids, position, preview, and similarity ride along as the
+ * ranked-passage payload.
  * A new dereference fact belongs inside `record`, where the strip below
  * excludes it by construction; the strip names exactly one key, so there is
  * no per-field list to drift. The destructure is inline (not the corpus

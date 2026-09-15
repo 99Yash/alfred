@@ -30,7 +30,7 @@ describe("system.corpus_search", () => {
       chunkId: "chk_1",
       documentId: "doc_1",
       source: "gmail_attachment",
-      record: { sourceId: "msg_1:att_1", sourceThreadId: null, accountId: null },
+      record: { sourceId: "msg_1:att_1", sourceThreadId: "thread_1", accountId: "acc_1" },
       title: "resume.pdf",
       position: 0,
       page: 2,
@@ -61,6 +61,8 @@ describe("system.corpus_search", () => {
       },
     };
 
+    // SAFETY: execute returns unknown; this tool's execute builds
+    // `{ ok, query, hits }` above, so narrow to that shape for asserts.
     const result = (await tool.execute({ query: "resume platform team" }, ctx)) as {
       ok: boolean;
       query: string;
@@ -73,6 +75,7 @@ describe("system.corpus_search", () => {
     // The record identity (#1076) is dereference plumbing for the evidence
     // card, never a tool answer: the hit reaches the model as a
     // `ModelFacingHit`, so `record` is absent here by design.
+    assert.ok(result.hits[0] && !("record" in result.hits[0]));
     const { record: _record, ...modelHit } = hit;
     assert.deepEqual(result.hits, [modelHit]);
   });
@@ -90,10 +93,12 @@ describe("system.corpus_search", () => {
         runContext: { caller: "boss" as const, interaction: "background" as const },
       }),
       corpus: {
-        search: async () => [] as SearchHit[],
+        search: async (): Promise<SearchHit[]> => [],
       },
     };
 
+    // SAFETY: execute returns unknown; this tool's execute builds
+    // `{ ok, hits }` above, so narrow to that shape for asserts.
     const result = (await tool.execute({ query: "nothing matches" }, ctx)) as {
       ok: boolean;
       hits: unknown[];
