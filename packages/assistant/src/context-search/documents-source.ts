@@ -1,17 +1,12 @@
 import {
-  documentRecordKind,
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
-  EVIDENCE_EXPANSION_REF_MAX_CHARS,
-  EVIDENCE_EXPANSION_SCOPE_MAX_CHARS,
-  expansionIdentifier,
   integrationDisplayName,
   sanitizeErrorMessage,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
   type ContextSearchRequest,
   type EvidenceCard,
-  type EvidenceExpansionHandle,
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
@@ -109,7 +104,20 @@ async function readDocuments(request: ContextSearchRequest) {
 /**
  * Map one corpus hit to a canonical card. The id is the chunk id — the same
  * chunk retrieved twice is the same card — and the expansion handle points at
- * the record a later live drill-down (#428) fetches.
+ * the parent document, the unit a later live drill-down (#428) fetches.
+ *
+ * The hit already carries the provider-native record identity (`sourceId`,
+ * `sourceThreadId`, `accountId` in `@alfred/corpus`, #1076) for the future
+ * expander. The card does not mint a provider handle from it yet: a provider
+ * address must ride the canonical `(provider, kind, externalId)`
+ * `objectIdentitySchema` in `@alfred/contracts` — the shape the request
+ * envelope, the evidence card `object`, and the object-state store read
+ * already derive from — never a fused `gmail_message` kind beside it, and a
+ * handle's `sourceId` must name the `ContextSource` that can actually expand
+ * its `ref` (S1/S2 on #1076). `documents` declares only `semantic_search`
+ * today, and its `ref` stays inside its own store (an Alfred document id,
+ * like `memory_chunk` → chunk id and `integration_object` → object id) until
+ * #428 declares `expand` plus the `objectKinds` it can dereference.
  */
 function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
   // `sanitizeErrorMessage` bounds and strips poison; an all-poison title
@@ -149,70 +157,12 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
         ...(hit.page !== null ? { locator: `page ${hit.page}` } : {}),
       },
     ],
-    expansion: documentHitExpansion(hit, title),
-  };
-}
-
-/**
- * The handle a later live drill-down (#428) dereferences (#1076).
- *
- * A hit whose source addresses exactly one provider record through
- * `documents.source_id` gets a PROVIDER-scoped handle: the `kind` is the record
- * shape the source declares, the `ref` is the provider's id, and the account and
- * thread ride along so an expander can pick credentials and widen to the
- * conversation without a second read of Alfred's store.
- *
- * Every other hit keeps the DOCUMENT-scoped handle it has today — an Alfred
- * document id under `kind: "document"`. Two different facts put a source on that
- * branch: an inbound-webhook row is keyed by Alfred's own receipt id, which no
- * provider can resolve, and a `gmail_attachment` row folds every byte-identical
- * carrier into one row whose id names the first carrier only, so a provider
- * handle minted from it can address the wrong message on the wrong account. Both
- * answers come from `documentRecordKind`, which states the reason per source, so
- * this file never grows a case for either and a newly ingested lane declares its
- * answer once in `@alfred/contracts`. No card loses its handle either way; an
- * expander that wants an attachment's carrier reads `SearchHit.occurrences`.
- *
- * The three provider values are gated by `expansionIdentifier` before they mint
- * anything. `documents.source_id`, `account_id`, and `source_thread_id` are
- * unbounded `text`, so the provider decides their length and their bytes, while
- * the handle schema bounds all three; a Gmail attachment id already measures 443
- * characters in production against a `ref` ceiling of 1024. An id that misses
- * the bound, or that carries poison the packer would render into the `Expand:`
- * line, is refused rather than clamped: a truncated provider id still addresses
- * SOMETHING, so clamping would trade a caught error for a wrong live read. A
- * refused `ref` drops the card to the document-scoped handle, whose `ref` is
- * Alfred's own bounded document id; a refused account or thread leaves the field
- * absent and the expander does a second read for it.
- *
- * The gate belongs here, at the mint site, because the Context Search boundary
- * reports the WHOLE `documents` source as `error` when one card fails the
- * schema. One oversized attachment id must not cost the other cards their
- * status.
- */
-function documentHitExpansion(hit: SearchHit, title: string | undefined): EvidenceExpansionHandle {
-  const recordKind = documentRecordKind(hit.source);
-
-  const ref =
-    recordKind === null
-      ? undefined
-      : expansionIdentifier(hit.sourceId, EVIDENCE_EXPANSION_REF_MAX_CHARS);
-
-  const accountId = expansionIdentifier(hit.accountId, EVIDENCE_EXPANSION_SCOPE_MAX_CHARS);
-
-  const threadId = expansionIdentifier(hit.sourceThreadId, EVIDENCE_EXPANSION_SCOPE_MAX_CHARS);
-
-  return {
-    sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
-    ...(recordKind !== null && ref !== undefined
-      ? {
-          kind: recordKind,
-          ref,
-          ...(accountId ? { accountId } : {}),
-          ...(threadId ? { threadId } : {}),
-        }
-      : { kind: "document", ref: hit.documentId }),
-    ...(title ? { hint: title } : {}),
+    expansion: {
+      sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
+      kind: "document",
+      ref: hit.documentId,
+      ...(title ? { hint: title } : {}),
+    },
   };
 }
 
