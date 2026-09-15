@@ -166,6 +166,30 @@ const DRIVE_STOP_WORDS = new Set([
 /** Google-editable types Drive can export as text. */
 const GOOGLE_NATIVE_PREFIX = "application/vnd.google-apps.";
 
+/**
+ * The text export each Google-native type supports, keyed by full MIME type.
+ *
+ * Drive exports a different text MIME per type: Docs and Slides offer
+ * `text/plain`, Sheets offers `text/csv`. Every other native type — Drawings
+ * (images/PDF only), Forms, Scripts, Sites, video (`fileNotExportable`) —
+ * has no text export, so it maps to `undefined` by absence. Sending those to
+ * `export?mimeType=text/plain` fails by construction and would burn an inline
+ * read on a call Drive cannot answer.
+ */
+const GOOGLE_NATIVE_TEXT_EXPORTS: Readonly<Record<string, string>> = {
+  [`${GOOGLE_NATIVE_PREFIX}document`]: "text/plain",
+  [`${GOOGLE_NATIVE_PREFIX}presentation`]: "text/plain",
+  [`${GOOGLE_NATIVE_PREFIX}spreadsheet`]: "text/csv",
+};
+
+/**
+ * The export MIME type for one Google-native MIME type, or `undefined` when
+ * Drive cannot export it as text.
+ */
+function nativeExportMimeType(mimeType: string): string | undefined {
+  return GOOGLE_NATIVE_TEXT_EXPORTS[mimeType];
+}
+
 /** Google-native types that are not documents and hold no text of their own. */
 const GOOGLE_NATIVE_NON_DOCUMENTS = new Set([
   `${GOOGLE_NATIVE_PREFIX}folder`,
@@ -220,7 +244,10 @@ export function createDriveContextSource(): ContextSource {
  * the typed statement of it, so the catch is narrow — every other failure is
  * still a real `error` report and is never disguised as a routine skip.
  */
-async function readDrive(request: ContextSearchRequest): Promise<ContextSourceResult> {
+async function readDrive(
+  request: ContextSearchRequest,
+  signal: AbortSignal,
+): Promise<ContextSourceResult> {
   const drive = driveClient(request.userId);
 
   let credentialId: string;
@@ -235,6 +262,8 @@ async function readDrive(request: ContextSearchRequest): Promise<ContextSourceRe
     throw error;
   }
 
+  if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+
   const q = driveQuery(request.query);
 
   // Every term was a stop word or too short to narrow anything. Asking Drive
@@ -242,7 +271,12 @@ async function readDrive(request: ContextSearchRequest): Promise<ContextSourceRe
   // regardless of the question, which is evidence about nothing.
   if (q === undefined) return { evidence: [] };
 
-  const { files } = await drive.listFiles({ credentialId, q, pageSize: DRIVE_SEARCH_PAGE_SIZE });
+  const { files } = await drive.listFiles({
+    credentialId,
+    q,
+    pageSize: DRIVE_SEARCH_PAGE_SIZE,
+    signal,
+  });
 
   // A folder matches a full-text query and holds no text; it is a container,
   // not evidence. Dropping it here keeps it out of the inline-read budget too.
@@ -253,11 +287,12 @@ async function readDrive(request: ContextSearchRequest): Promise<ContextSourceRe
   // Parallel on purpose, and bounded by the count above: the reads are the
   // read's latency, and running them in series would make one search cost the
   // SUM of three exports. Each settles on its own, so one unreadable file
-  // cannot cost the others their text.
+  // cannot cost the others their text. The collect signal travels with every
+  // read, so a deadline cancels the Drive fetches rather than abandoning them.
   const texts = await Promise.all(
     candidates
       .slice(0, DRIVE_INLINE_TEXT_READS)
-      .map((file) => readFileText(drive, credentialId, file)),
+      .map((file) => readFileText(drive, credentialId, file, signal)),
   );
 
   const evidence = candidates.map((file, index) =>
@@ -298,11 +333,11 @@ async function expandDriveFile(args: {
 
   if (args.signal.aborted) return undefined;
 
-  const file = await drive.getFile({ credentialId, fileId: args.handle.ref });
+  const file = await drive.getFile({ credentialId, fileId: args.handle.ref, signal: args.signal });
 
   if (args.signal.aborted || textPath(file.mimeType) === "none") return undefined;
 
-  const read = await readFileText(drive, credentialId, file);
+  const read = await readFileText(drive, credentialId, file, args.signal);
 
   if (read.text === undefined) return undefined;
 
@@ -327,21 +362,38 @@ async function readFileText(
   drive: DriveClient,
   credentialId: string,
   file: DriveFile,
+  signal: AbortSignal,
 ): Promise<FileText> {
   const path = textPath(file.mimeType);
 
   if (path === "none") return { text: undefined, failure: undefined };
 
+  // The export MIME is per type: Sheets cannot export `text/plain` and every
+  // non-document native type cannot export text at all (those never reach
+  // here — `textPath` already returned `none` for them).
+  const exportMimeType =
+    file.mimeType !== undefined ? nativeExportMimeType(file.mimeType) : undefined;
+
   try {
     const result =
       path === "export"
-        ? await drive.exportFile({ credentialId, fileId: file.id, mimeType: "text/plain" })
-        : await drive.downloadFile({ credentialId, fileId: file.id });
+        ? await drive.exportFile({
+            credentialId,
+            fileId: file.id,
+            mimeType: exportMimeType ?? "text/plain",
+            signal,
+          })
+        : await drive.downloadFile({ credentialId, fileId: file.id, signal });
 
     const text = result.text.trim();
 
     return { text: text.length > 0 ? text : undefined, failure: undefined };
   } catch (error) {
+    // A deadline abort is the caller's, not the provider's: rethrow so the
+    // collect race reports the timeout instead of minting a per-file failure
+    // note about a call that was cancelled, not refused.
+    if (signal.aborted) throw error;
+
     return { text: undefined, failure: sanitizeErrorMessage(toMessage(error)) };
   }
 }
@@ -492,7 +544,9 @@ function textPath(mimeType: string | undefined): TextPath {
 
   if (GOOGLE_NATIVE_NON_DOCUMENTS.has(mimeType)) return "none";
 
-  if (mimeType.startsWith(GOOGLE_NATIVE_PREFIX)) return "export";
+  if (mimeType.startsWith(GOOGLE_NATIVE_PREFIX)) {
+    return nativeExportMimeType(mimeType) !== undefined ? "export" : "none";
+  }
 
   if (mimeType.startsWith("text/") || TEXTUAL_UPLOAD_TYPES.has(mimeType)) return "download";
 

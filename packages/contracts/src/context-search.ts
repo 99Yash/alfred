@@ -59,6 +59,19 @@ export const CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS = 5;
 export const CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS = 10_000;
 
 /**
+ * Wall-clock bound for the whole collect phase.
+ *
+ * The collect phase is the read's other network cost: one `files.list` plus up
+ * to three inline exports per live source, read serially across sources. The
+ * per-fetch transport timeout alone cannot bound it — a slow list plus a slow
+ * export round is two timeouts back to back. The phase aborts its collect
+ * signal at this deadline and reports a timeout failure per unanswered source,
+ * so the worst case stays near the declared `typicalLatencyMs` instead of a
+ * multiple of the transport timeout.
+ */
+export const CONTEXT_SEARCH_COLLECT_TIMEOUT_MS = 10_000;
+
+/**
  * An exact reference to a work object by one of its sidecar keys (#425). The key
  * index (`head_sha → pull_request`) is the deterministic bridge that a fuzzy
  * query cannot supply, so the caller states it directly.
