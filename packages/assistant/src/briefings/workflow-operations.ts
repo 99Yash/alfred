@@ -25,6 +25,7 @@ import {
   auditComposedBriefing,
   describeOpenAskViolation,
   downgradeOpenAsks,
+  filterDroppedCitations,
   type ComposedBriefingBody,
   type OpenAskViolation,
 } from "./open-ask-guard";
@@ -306,6 +307,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
   let body: ComposedBriefingBody;
+  let surfacedDocumentIds: string[] = [];
 
   try {
     const compose = async (openAskViolations?: readonly OpenAskViolation[]) => {
@@ -348,6 +350,8 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       violations = await audit(body);
     }
 
+    surfacedDocumentIds = uniqueStrings(result.briefing.citedDocumentIds);
+
     if (violations.length > 0) {
       const downgraded = downgradeOpenAsks(body, violations);
 
@@ -361,6 +365,11 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         `compose: open-ask guard downgraded draft 2 — ${describeViolations(violations)}`,
       );
       body = { ...body, ...downgraded };
+      // The downgrade deleted sentences, so citations tied to those sentences
+      // were never delivered. Persist only what went out — a stale id here
+      // becomes a `previouslySurfaced` suppressor that hides an untold item
+      // from the next slot.
+      surfacedDocumentIds = filterDroppedCitations(result.briefing.citedDocumentIds, violations);
     }
 
     await markBriefingComposed({
@@ -371,7 +380,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       fullBriefing: {
         headline: body.subject,
         sections: [],
-        surfacedDocumentIds: uniqueStrings(result.briefing.citedDocumentIds),
+        surfacedDocumentIds,
       },
       model: result.modelId,
       composeFallback: false,
@@ -399,7 +408,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         subject: body.subject,
         bodyText: body.bodyText,
         bodyMarkdown: body.bodyMarkdown,
-        citedDocumentIds: result.briefing.citedDocumentIds,
+        citedDocumentIds: surfacedDocumentIds,
         modelId: result.modelId,
       },
     },
@@ -442,6 +451,12 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     closedLoops: ctx.state.closedLoops,
   });
 
+  // A send-time downgrade means the persisted compose-time row (prose +
+  // citations) no longer matches what the user receives. Carry the corrected
+  // ids alongside the body so the send can patch the row: delivered prose and
+  // continuity state must agree, or the next slot suppresses an untold item.
+  let sendSurfacedDocumentIds: string[] | null = null;
+
   if (sendViolations.length > 0) {
     const downgraded = downgradeOpenAsks(body, sendViolations);
 
@@ -456,6 +471,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       `send: open-ask guard downgraded payload — ${describeViolations(sendViolations)}`,
     );
     body = { ...body, ...downgraded };
+    sendSurfacedDocumentIds = filterDroppedCitations(composed.citedDocumentIds, sendViolations);
   }
 
   // Dry run short-circuit: skip Resend. The `composed` briefings row
@@ -536,6 +552,15 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     emailSendId: result.emailSendId,
     watermarkAt: new Date(untilIngestedAt),
     gateReason,
+    ...(sendSurfacedDocumentIds
+      ? {
+          downgraded: {
+            breakingSummary: body.bodyMarkdown,
+            headline: body.subject,
+            surfacedDocumentIds: sendSurfacedDocumentIds,
+          },
+        }
+      : {}),
   });
 
   return {
