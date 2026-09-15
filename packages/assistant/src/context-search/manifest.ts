@@ -4,6 +4,8 @@ import {
   sourceManifestSupportsRead,
   type ContextSearchRequest,
   type RetrievalSourceManifest,
+  type SourceCostBudget,
+  type SourceCostClass,
   type SourceManifest,
 } from "@alfred/contracts";
 import { sourcePriorityFromManifest } from "./rank";
@@ -68,9 +70,45 @@ export const SOURCE_EXCLUSION_REASONS = [
   "unavailable",
   "no-answering-read",
   "expansion-only",
+  "over-budget",
+  "not-connected",
 ] as const;
 
 export type SourceExclusionReason = (typeof SOURCE_EXCLUSION_REASONS)[number];
+
+/**
+ * How expensive each declared cost class is, as one rank (#1078).
+ *
+ * The ladder is a spending decision, not a fact about a source, so it lives
+ * here beside the selection policy rather than in `@alfred/contracts` — the
+ * same split ADR-0101 sub-decision 16 draws for the ranker's weights. A read
+ * that reads a local table is the cheapest thing Alfred can do; an embedding
+ * costs money but no provider; a provider call costs money AND the read's
+ * latency, which is why it sits at the top.
+ *
+ * An undeclared cost scores the top rung, not the bottom. This is the same rule
+ * the ranker's fold applies in the other direction: silence must never BUY
+ * anything. A source that declines to price itself, priced as free, would be the
+ * one source a budget could never exclude.
+ */
+const COST_RANK = {
+  local: 0,
+  metered: 1,
+  remote: 2,
+  unknown: 2,
+} as const satisfies Record<SourceCostClass, number>;
+
+/**
+ * Whether this source costs more than the caller agreed to pay (#1078).
+ *
+ * Exported for the expansion phase, which must price a route by the same
+ * ladder: a caller that declined a provider call on the collect path has not
+ * agreed to one on the expansion path either, and two spellings of one budget
+ * would drift.
+ */
+export function exceedsCostBudget(manifest: SourceManifest, budget: SourceCostBudget): boolean {
+  return COST_RANK[manifest.cost?.class ?? "unknown"] > COST_RANK[budget];
+}
 
 /**
  * Whether the source may be treated as a trusted retrieval source.
@@ -163,14 +201,23 @@ export function contextSourcePriorities(
  * `manifest.availability` directly rather than the first-phase exclusion map,
  * so a future exclusion reason cannot silently become routable by forgetting
  * a second edit here.
+ *
+ * A source the caller cannot afford routes nothing either (#1078). The budget
+ * prices a SOURCE, and a source does not get cheaper because the second phase
+ * is the one calling it — a caller that declined a provider call on the collect
+ * path has not agreed to five of them here. `expand: false` still turns the
+ * whole phase off; this is the narrower statement that prices each route.
  */
 export function expansionRoutes(
   sources: readonly ContextSource[],
+  request: ContextSearchRequest,
 ): ReadonlyMap<string, ContextSource> {
   const routes = new Map<string, ContextSource>();
 
   for (const source of sources) {
     if (source.manifest.availability === "unavailable") continue;
+
+    if (exceedsCostBudget(source.manifest, request.maxSourceCost)) continue;
 
     if (!sourceManifestSupportsRead(source.manifest, "expand")) continue;
 
@@ -188,6 +235,11 @@ function exclusionReason(
   request: ContextSearchRequest,
 ): SourceExclusionReason | undefined {
   if (manifest.availability === "unavailable") return "unavailable";
+
+  // Price before capability. A source the caller cannot afford is not asked
+  // whatever it can answer, and the model must read "you declined to pay for
+  // this" rather than "this source had nothing to say about your question".
+  if (exceedsCostBudget(manifest, request.maxSourceCost)) return "over-budget";
 
   if (answersFreeText(manifest)) return undefined;
 

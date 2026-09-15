@@ -267,7 +267,12 @@ export const EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS = 100;
  * MCP sources, whose kinds no compile-time list can name — only MCP remains
  * at the ADR-0101 residual risk.
  */
-export const BUILT_IN_EXPANSION_KINDS = ["document", "memory_chunk", "integration_object"] as const;
+export const BUILT_IN_EXPANSION_KINDS = [
+  "document",
+  "memory_chunk",
+  "integration_object",
+  "drive_file",
+] as const;
 
 export type BuiltInExpansionKind = (typeof BUILT_IN_EXPANSION_KINDS)[number];
 

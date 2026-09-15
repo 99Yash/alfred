@@ -1745,17 +1745,18 @@ export const corpusSearchInput = z
  * from the envelope the boundary parses — there is one set of bounds and one
  * cap.
  *
- * Two fields are dropped. `userId` is the caller's identity, which the model
- * never states. `expand` (#1077) is a latency and money budget: whether the
- * read may pay for live provider round trips is the server's call, not a knob
- * the model can price, and exposing it would cost schema bytes on a kernel tool
- * for a choice the model cannot reason about. The boundary's default (expansion
- * on) therefore applies to every model-issued read.
+ * Three fields are dropped. `userId` is the caller's identity, which the model
+ * never states. `expand` (#1077) and `maxSourceCost` (#1078) are latency and
+ * money budgets: whether the read may pay for live provider round trips is the
+ * server's call, not a knob the model can price, and exposing either would cost
+ * schema bytes on a kernel tool for a choice the model cannot reason about. The
+ * boundary's defaults (expansion on, every declared cost affordable) therefore
+ * apply to every model-issued read.
  */
 export const searchContextInput = coerceJsonArrayFields(
   ["objects"],
   contextSearchRequestSchema
-    .omit({ userId: true, expand: true })
+    .omit({ userId: true, expand: true, maxSourceCost: true })
     .strict()
     .describe(
       "One read across Alfred's registered evidence sources for a query. Use it to assemble first-pass evidence, then drill into provider-specific tools for actions or exact records.",

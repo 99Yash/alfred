@@ -198,6 +198,7 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
 
     const accepted: EvidenceCard[] = [];
     let failure: string | undefined;
+    let declined: SourceExclusionReason | undefined;
 
     for (const read of readers) {
       let result: ContextSourceResult;
@@ -238,6 +239,21 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
       if (rejected > 0) {
         failure = `${rejected} evidence card(s) violated the contract`;
       }
+
+      // The source itself said it could not be asked, for a per-read reason no
+      // boot-time manifest could carry (#1078). The first such statement wins;
+      // the checks below decide whether it survives what the other readers did.
+      declined ??= result.skipped;
+    }
+
+    if (failure === undefined && accepted.length === 0 && declined !== undefined) {
+      // A source that declined and produced nothing was never really asked, so
+      // it reports `skipped` rather than the `empty` that would tell the model
+      // it looked and found nothing. A source that also answered, or that also
+      // failed, reports what it did instead: the stronger fact is the one a
+      // reader of the pack has to act on.
+      reports.push({ sourceId: source.id, status: "skipped", evidenceCount: 0, reason: declined });
+      continue;
     }
 
     if (failure !== undefined) {
