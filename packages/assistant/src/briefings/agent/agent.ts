@@ -10,6 +10,7 @@ import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
 import { buildBriefingTools, type DumpedBriefing } from "./tools";
+import { describeOpenAskViolation, type OpenAskViolation } from "../open-ask-guard";
 
 /**
  * Daily-briefing agent driver.
@@ -43,6 +44,12 @@ export interface RunBriefingAgentArgs {
   stepId: string;
   /** Positive object-state closure facts from this run's deterministic gather. */
   closedLoops: BriefingClosedLoop[];
+  /**
+   * Open-ask violations the pre-send guard found in an earlier draft of this
+   * same run. Present only on a re-prompt; each one is named back to the model
+   * verbatim so the rewrite is aimed, not a blind retry (#1082).
+   */
+  openAskViolations?: readonly OpenAskViolation[];
 }
 
 export interface RunBriefingAgentResult {
@@ -84,7 +91,8 @@ export async function runBriefingAgent(
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
         `Start by reading list_prior_briefings, then list_emails_since and list_closed_loops. ` +
-        `End with dump_briefing.`,
+        `End with dump_briefing.` +
+        openAskCorrection(args.openAskViolations ?? []),
     },
   ];
 
@@ -135,4 +143,25 @@ export async function runBriefingAgent(
     modelId: identifyLanguageModel(model).modelId,
     steps: result.steps.length,
   };
+}
+
+/**
+ * The re-prompt body. Deterministic text built from the guard's findings — the
+ * guard itself makes no model call, so this is the workflow spending one extra
+ * compose to let the composer fix its own draft before the guard falls back to
+ * dropping sentences.
+ */
+function openAskCorrection(violations: readonly OpenAskViolation[]): string {
+  if (violations.length === 0) return "";
+
+  const lines = violations
+    .map((violation) => `- ${describeOpenAskViolation(violation)}`)
+    .join("\n");
+
+  return (
+    `\n\nYour previous draft was rejected. The object-state projection proves each object below is closed, ` +
+    `and your draft still framed it as work the user owes:\n${lines}\n` +
+    `Rewrite the briefing. Drop each closed object, or mention it only as completed work. ` +
+    `Never ask the user to review, approve, merge, or follow up on it.`
+  );
 }

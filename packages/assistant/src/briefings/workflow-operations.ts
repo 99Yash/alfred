@@ -21,6 +21,14 @@ import { serverEnv } from "@alfred/env/server";
 import { renderBriefingEmail } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { runBriefingAgent } from "./agent/agent";
+import {
+  auditComposedBriefing,
+  describeOpenAskViolation,
+  downgradeOpenAsks,
+  filterDroppedCitations,
+  type ComposedBriefingBody,
+  type OpenAskViolation,
+} from "./open-ask-guard";
 
 /**
  * Daily briefing workflow — LLM-composed prose, two slots ('morning' |
@@ -298,29 +306,81 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await markBriefingComposing(briefingId);
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
+  let body: ComposedBriefingBody;
+  let surfacedDocumentIds: string[] = [];
 
   try {
-    result = await runBriefingAgent({
-      userId: ctx.userId,
-      slot: ctx.state.slot,
-      recipientFirstName: ctx.state.recipientName ?? null,
-      sinceIngestedAt: since,
-      untilIngestedAt: until,
-      briefingDate,
-      timezone,
-      runId: ctx.runId,
-      stepId: "compose",
-      closedLoops: ctx.state.closedLoops,
-    });
+    const compose = async (openAskViolations?: readonly OpenAskViolation[]) => {
+      return runBriefingAgent({
+        userId: ctx.userId,
+        slot: ctx.state.slot,
+        recipientFirstName: ctx.state.recipientName ?? null,
+        sinceIngestedAt: since,
+        untilIngestedAt: until,
+        briefingDate,
+        timezone,
+        runId: ctx.runId,
+        stepId: "compose",
+        closedLoops: ctx.state.closedLoops,
+        ...(openAskViolations ? { openAskViolations } : {}),
+      });
+    };
+
+    const audit = async (draft: ComposedBriefingBody) => {
+      return auditComposedBriefing({
+        userId: ctx.userId,
+        composed: draft,
+        closedLoops: ctx.state.closedLoops,
+      });
+    };
+
+    result = await compose();
+    body = result.briefing;
+
+    // Pre-send open-ask guard (#1082). The prompt rule from #1080 asks the
+    // composer not to present a closed object as an open ask; this proves it.
+    // One aimed re-prompt, then a deterministic downgrade, then failure — the
+    // guard may block or drop, never author.
+    let violations = await audit(body);
+
+    if (violations.length > 0) {
+      await ctx.log(`compose: open-ask guard rejected draft 1 — ${describeViolations(violations)}`);
+      result = await compose(violations);
+      body = result.briefing;
+      violations = await audit(body);
+    }
+
+    surfacedDocumentIds = uniqueStrings(result.briefing.citedDocumentIds);
+
+    if (violations.length > 0) {
+      const downgraded = downgradeOpenAsks(body, violations);
+
+      if (!downgraded) {
+        throw new Error(
+          `[daily-briefing] open-ask guard blocked compose: ${describeViolations(violations)}`,
+        );
+      }
+
+      await ctx.log(
+        `compose: open-ask guard downgraded draft 2 — ${describeViolations(violations)}`,
+      );
+      body = { ...body, ...downgraded };
+      // The downgrade deleted sentences, so citations tied to those sentences
+      // were never delivered. Persist only what went out — a stale id here
+      // becomes a `previouslySurfaced` suppressor that hides an untold item
+      // from the next slot.
+      surfacedDocumentIds = filterDroppedCitations(result.briefing.citedDocumentIds, violations);
+    }
+
     await markBriefingComposed({
       briefingId,
       // Prose body → breaking_summary; headline ← subject; no structured
       // sections (the model emits one markdown body, not buckets).
-      breakingSummary: result.briefing.bodyMarkdown,
+      breakingSummary: body.bodyMarkdown,
       fullBriefing: {
-        headline: result.briefing.subject,
+        headline: body.subject,
         sections: [],
-        surfacedDocumentIds: uniqueStrings(result.briefing.citedDocumentIds),
+        surfacedDocumentIds,
       },
       model: result.modelId,
       composeFallback: false,
@@ -337,7 +397,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await ctx.log(
     `compose: steps=${result.steps} model=${result.modelId} ` +
       `in=${result.usage.inputTokens ?? 0} out=${result.usage.outputTokens ?? 0} ` +
-      `subject="${result.briefing.subject}"`,
+      `subject="${body.subject}"`,
   );
 
   return {
@@ -345,15 +405,19 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
     state: {
       ...ctx.state,
       composed: {
-        subject: result.briefing.subject,
-        bodyText: result.briefing.bodyText,
-        bodyMarkdown: result.briefing.bodyMarkdown,
-        citedDocumentIds: result.briefing.citedDocumentIds,
+        subject: body.subject,
+        bodyText: body.bodyText,
+        bodyMarkdown: body.bodyMarkdown,
+        citedDocumentIds: surfacedDocumentIds,
         modelId: result.modelId,
       },
     },
     nextStep: "send",
   };
+}
+
+function describeViolations(violations: readonly OpenAskViolation[]): string {
+  return violations.map(describeOpenAskViolation).join(" | ");
 }
 
 export async function runDailyBriefingSend<State extends DailyBriefingOperationState>(
@@ -363,6 +427,51 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
 
   if (!composed || !briefingId || !briefingDate || !untilIngestedAt) {
     throw new Error("[daily-briefing] send entered without composed output");
+  }
+
+  // Pre-send open-ask guard (#1082; ADR-0103): the compose-time audit can go
+  // stale before send. A resume reuses persisted prose without recomposing, and
+  // an object open at compose can close before send — so check live state again
+  // here, where the payload is final. No re-prompt this late (send owns no model
+  // call): downgrade the payload, or block the send when nothing shippable
+  // remains. The compose-time guard stays — it is the only path that can aim a
+  // re-prompt at the composer. Objects absent from `closedLoops` (always the
+  // case on the resume path) fall through to the live `integration_objects`
+  // read inside the audit, which is what catches a merge that landed after
+  // compose.
+  let body: ComposedBriefingBody = {
+    subject: composed.subject,
+    bodyText: composed.bodyText,
+    bodyMarkdown: composed.bodyMarkdown,
+  };
+
+  const sendViolations = await auditComposedBriefing({
+    userId: ctx.userId,
+    composed: body,
+    closedLoops: ctx.state.closedLoops,
+  });
+
+  // A send-time downgrade means the persisted compose-time row (prose +
+  // citations) no longer matches what the user receives. Carry the corrected
+  // ids alongside the body so the send can patch the row: delivered prose and
+  // continuity state must agree, or the next slot suppresses an untold item.
+  let sendSurfacedDocumentIds: string[] | null = null;
+
+  if (sendViolations.length > 0) {
+    const downgraded = downgradeOpenAsks(body, sendViolations);
+
+    if (!downgraded) {
+      await markBriefingFailed(briefingId);
+      throw new Error(
+        `[daily-briefing] open-ask guard blocked send: ${describeViolations(sendViolations)}`,
+      );
+    }
+
+    await ctx.log(
+      `send: open-ask guard downgraded payload — ${describeViolations(sendViolations)}`,
+    );
+    body = { ...body, ...downgraded };
+    sendSurfacedDocumentIds = filterDroppedCitations(composed.citedDocumentIds, sendViolations);
   }
 
   // Dry run short-circuit: skip Resend. The `composed` briefings row
@@ -392,11 +501,11 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
 
   const html = await renderBriefingEmail({
-    content: composed.bodyMarkdown,
+    content: body.bodyMarkdown,
     createdAt: new Date().toISOString(),
     timezone: ctx.state.timezone,
     logoUrl: emailLogoUrl(webOrigin),
-    previewText: composed.subject,
+    previewText: body.subject,
     // Both slots get the CTA, pointed at the full briefing for that day
     // (`/briefings/{YYYY-MM-DD}`, ADR-0049) rather than the chat surface.
     ctaUrl: `${webOrigin}/briefings/${briefingDate}`,
@@ -407,9 +516,9 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     userId: ctx.userId,
     kind: ctx.state.slot === "morning" ? "briefing" : "evening_recap",
     idempotencyKey,
-    subject: composed.subject,
+    subject: body.subject,
     html,
-    text: composed.bodyText,
+    text: body.bodyText,
     payload: {
       briefingId,
       briefingDate,
@@ -443,6 +552,15 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     emailSendId: result.emailSendId,
     watermarkAt: new Date(untilIngestedAt),
     gateReason,
+    ...(sendSurfacedDocumentIds
+      ? {
+          downgraded: {
+            breakingSummary: body.bodyMarkdown,
+            headline: body.subject,
+            surfacedDocumentIds: sendSurfacedDocumentIds,
+          },
+        }
+      : {}),
   });
 
   return {

@@ -110,6 +110,18 @@ export { scheduleRepeatableBriefingJobs } from "./repeatable";
 export { buildSystemPrompt } from "./agent/prompt";
 
 export {
+  auditComposedBriefing,
+  describeOpenAskViolation,
+  downgradeOpenAsks,
+  filterDroppedCitations,
+  findOpenAskViolations,
+  type BriefingBodyField,
+  type ClosedObjectFact,
+  type ComposedBriefingBody,
+  type OpenAskViolation,
+} from "./open-ask-guard";
+
+export {
   runDailyBriefingCompose,
   runDailyBriefingGather,
   runDailyBriefingSend,
