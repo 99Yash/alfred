@@ -102,12 +102,21 @@
  * dead. A refreshed card is validated exactly like a collected one and must
  * additionally declare `time.freshness: "live"` — the expanding source makes
  * that claim, the boundary never stamps it. A failed expansion leaves the
- * original card in place and reports `error` against the live source.
+ * original card in place: an expansion-only source reports `error`, while a
+ * source that already answered keeps its status and only its count moves.
+ * The expanders run in parallel under a phase deadline
+ * (`CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS`) with the abort signal in hand, so
+ * one hung provider cannot hang the read: the count cap bounds how many round
+ * trips the read pays for, the deadline bounds how long it waits.
  *
  * A source that only expands is not unanswerable: it answers a different
  * question. It takes its own `expansion-only` skip reason in the first phase,
- * which the packer renders in plain words, and the second phase replaces that
- * skip with the source's real outcome in its registration position. No provider
+ * which the packer renders in plain words, and a second phase that consults it
+ * replaces that skip with the source's real outcome in its registration
+ * position — `ok` when a refresh landed, `error` on failure, and the skip
+ * itself when it returned nothing, because it was never asked the query.
+ * An `empty` source whose refresh landed becomes `ok` for the same reason:
+ * it now has a card in the pack. No provider
  * expander is registered today; the first lands with #428.
  *
  * ## Discovery (#466)

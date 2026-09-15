@@ -31,14 +31,31 @@ export const CONTEXT_SEARCH_MAX_OBJECT_REFS = 25;
 /**
  * Hard ceiling on live expansions one read may pay for (#1077).
  *
- * The expansion phase calls a provider per unique handle, so this is a WALL
- * CLOCK and money bound, not an evidence bound: it is much tighter than
- * {@link CONTEXT_SEARCH_MAX_LIMIT} because a read returns up to fifty cards but
- * must never turn into fifty provider round trips. Cards are considered in rank
- * order, so the cap keeps the strongest evidence and drops the refresh of the
- * weakest.
+ * The expansion phase calls a provider per unique handle, so this is a COUNT
+ * and money bound, not a wall-clock bound: it caps how many provider round
+ * trips one read pays for, never how long the phase waits. The expanders run
+ * in parallel, so five slow providers cost one slow wait — and one hung
+ * provider would hang the read if the count were the only bound. The wall-clock
+ * bound is {@link CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS}: the phase aborts its
+ * signal there and stops waiting, so the cap spends its budget on the
+ * strongest evidence and the deadline spends its budget on time.
+ *
+ * Cards are considered in rank order, so the cap keeps the strongest evidence
+ * and drops the refresh of the weakest.
  */
 export const CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS = 5;
+
+/**
+ * Wall-clock bound for the whole expansion phase (#1077).
+ *
+ * The phase is the read's only network cost, and the count cap above cannot
+ * bound its latency on its own: parallel calls share one wait, so a single
+ * hung provider hangs `searchContext` past every caller. The phase aborts its
+ * expansion signal at this deadline and stops waiting for stragglers — a
+ * timed-out expansion keeps its original card and carries a timeout failure,
+ * never the read.
+ */
+export const CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS = 10_000;
 
 /**
  * An exact reference to a work object by one of its sidecar keys (#425). The key

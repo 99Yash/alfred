@@ -1,4 +1,5 @@
 import {
+  CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS,
   CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS,
   evidenceCardSchema,
   sanitizeErrorMessage,
@@ -37,9 +38,12 @@ import type { ContextSource, ContextSourceExpander, ContextSourceResult } from "
  *   accepted without that declaration would be Alfred inferring freshness,
  *   which is the one thing the card contract forbids.
  *
- * A failure is local: the original card stays, and the expanding source carries
- * the `error`. An expansion that could not run is never allowed to cost the
- * read the local evidence it already had.
+ * A failure is local: the original card stays, and only an expansion-only
+ * source carries the `error`. A source that already answered the query keeps
+ * the status it earned there — an expansion answers a different question, so
+ * its failure must not rewrite a healthy `ok` into an `error` beside the
+ * source's own cards. An expansion that could not run is never allowed to cost
+ * the read the local evidence it already had.
  */
 
 /** What one expanding source did across every handle routed to it. */
@@ -101,8 +105,15 @@ export async function expandEvidence(args: {
   // Parallel on purpose: the phase is the read's only network cost, and running
   // N providers in series would make the read's latency the SUM of theirs. Each
   // attempt already swallows its own failure, so one slow or broken provider
-  // cannot reject the batch.
-  const attempts = await Promise.all(plans.map(async (plan) => runExpansion(plan, args.request)));
+  // cannot reject the batch — and the phase deadline below is what stops one
+  // hung provider from DELAYING the batch past it. The count cap bounds how
+  // many round trips the read pays for; only the deadline bounds how long it
+  // waits for them.
+  const deadline = AbortSignal.timeout(CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS);
+
+  const attempts = await Promise.all(
+    plans.map((plan) => runExpansionWithDeadline(plan, args.request, deadline)),
+  );
 
   const evidence = [...args.evidence];
   const expanders = new Map<string, ExpanderOutcome>();
@@ -190,6 +201,55 @@ function planExpansions(
   return plans;
 }
 
+/** What a timed-out expansion reports: our own words, never provider text. */
+const EXPANSION_TIMEOUT_FAILURE = "the expansion timed out";
+
+/**
+ * Race one expansion against the phase deadline.
+ *
+ * The signal notifies cooperative expanders, but notification alone cannot
+ * bound the batch: an expander that ignores the signal would still hold its
+ * `Promise.all` slot forever. The race is what bounds it — on abort the phase
+ * takes the timeout failure and stops waiting, while the stray promise settles
+ * unobserved (`runExpansion` never rejects, so nothing escapes).
+ */
+function runExpansionWithDeadline(
+  plan: ExpansionPlan,
+  request: ContextSearchRequest,
+  signal: AbortSignal,
+): Promise<ExpansionAttempt> {
+  if (signal.aborted) {
+    return Promise.resolve({ plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE });
+  }
+
+  return new Promise<ExpansionAttempt>((resolve) => {
+    let settled = false;
+
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve({ plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE });
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    runExpansion(plan, request, signal).then(
+      (attempt) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(attempt);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve({ plan, card: undefined, failure: sanitizeErrorMessage(toMessage(error)) });
+      },
+    );
+  });
+}
+
 /**
  * Run one expansion and validate what came back.
  *
@@ -198,18 +258,29 @@ function planExpansions(
  * (the manifest join key, exactly as in the first phase), and it must declare
  * itself `live`. A source that cannot promise live data has no business
  * replacing a card the local store already answered.
+ *
+ * The phase's abort signal travels with the call: a cooperative expander
+ * cancels on it, and an abort during the call reports the timeout rather than
+ * whatever the provider said on its way down.
  */
 async function runExpansion(
   plan: ExpansionPlan,
   request: ContextSearchRequest,
+  signal: AbortSignal,
 ): Promise<ExpansionAttempt> {
+  if (signal.aborted) return { plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE };
+
   let result: ContextSourceResult;
 
   try {
-    result = await plan.expander({ request, handle: plan.handle });
+    result = await plan.expander({ request, handle: plan.handle, signal });
   } catch (error) {
+    if (signal.aborted) return { plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE };
+
     return { plan, card: undefined, failure: sanitizeErrorMessage(toMessage(error)) };
   }
+
+  if (signal.aborted) return { plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE };
 
   let first: unknown;
 

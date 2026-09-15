@@ -354,7 +354,7 @@ describe("the expansion phase — a failure costs the read nothing", () => {
     }
   });
 
-  test("an expander with nothing to add reports empty, not error", async () => {
+  test("an expander with nothing to add leaves the skip standing, not error", async () => {
     const disposers = [
       registerContextSource(staleSource([staleCard("stale:1")])),
       registerContextSource(
@@ -371,8 +371,11 @@ describe("the expansion phase — a failure costs the read nothing", () => {
 
       const live = reportFor(result, "expand-test:live");
 
-      assert.equal(live?.status, "empty");
-      assert.equal(live?.evidenceCount, 0);
+      // The source was never asked the query — only consulted for a handle it
+      // had nothing to add — so `empty` would claim it was asked and found
+      // nothing. The `expansion-only` skip stands.
+      assert.equal(live?.status, "skipped");
+      assert.equal(live?.status === "skipped" ? live.reason : undefined, "expansion-only");
     } finally {
       for (const dispose of disposers.reverse()) dispose();
     }

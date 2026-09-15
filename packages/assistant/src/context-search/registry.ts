@@ -51,6 +51,12 @@ export type ContextSourceReader = (request: ContextSearchRequest) => Promise<Con
  * the record from the query, which is the fuzzy guess the handle exists to
  * replace.
  *
+ * It takes the phase's abort signal as well, because the phase is the read's
+ * only network cost and one hung provider must not hang the read. The phase
+ * aborts the signal at `CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS` and stops
+ * waiting for stragglers, so an expander should cancel cheaply on abort
+ * rather than finish a doomed round trip.
+ *
  * It must return the refreshed card and nothing else: the expansion phase
  * REPLACES a ranked card rather than appending evidence, so a second card has
  * no position to take and is dropped.
@@ -58,6 +64,7 @@ export type ContextSourceReader = (request: ContextSearchRequest) => Promise<Con
 export type ContextSourceExpander = (args: {
   readonly request: ContextSearchRequest;
   readonly handle: EvidenceExpansionHandle;
+  readonly signal: AbortSignal;
 }) => Promise<ContextSourceResult>;
 
 /**
