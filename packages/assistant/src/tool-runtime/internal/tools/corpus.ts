@@ -1,13 +1,16 @@
 import { corpusSearchInput } from "@alfred/contracts";
+import type { SearchHit } from "@alfred/corpus";
 import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { liveTool } from "@alfred/assistant/tool-runtime";
 
 /**
  * `system.corpus_search` — read-only semantic search over the user's ingested
  * document corpus (ADR-0091 D8). The corpus dependency rides the execute
- * context (`ctx.corpus.search`, built in `../../context`), so this module
- * never imports `@alfred/db` or `@alfred/corpus` and the tool graph stays free
- * of the static database edge.
+ * context (`ctx.corpus.search`, built in `../../context`), so this module takes
+ * no runtime dependency on `@alfred/db` or `@alfred/corpus` and the tool graph
+ * stays free of the static database edge. The one `@alfred/corpus` import here
+ * is `import type`, which TypeScript erases, so it adds no such edge — the same
+ * form the runtime registry already uses to type the bind.
  */
 export const corpusTools: readonly RegisteredTool[] = [
   liveTool({
@@ -26,7 +29,27 @@ export const corpusTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const hits = await ctx.corpus.search({ query: input.query, userId: ctx.userId });
 
-      return { ok: true, query: input.query, hits };
+      return { ok: true, query: input.query, hits: hits.map(modelFacingHit) };
     },
   }),
 ];
+
+/**
+ * One hit as the model reads it: exactly the fields the description above
+ * promises.
+ *
+ * #1076 put the record identity on `SearchHit` — the provider's own id, the
+ * connected account, the thread — for the evidence-card expansion handle a
+ * live drill-down (#428) dereferences. That is dereference plumbing, and
+ * `accountId` names a credential row, so none of it belongs in a tool result.
+ * Dropping it here keeps this tool's answer byte-identical to the one it gave
+ * before that change: handing the model a provider message id is a deliberate
+ * decision, not a side effect of widening a shared hit.
+ */
+function modelFacingHit(
+  hit: SearchHit,
+): Omit<SearchHit, "sourceId" | "sourceThreadId" | "accountId"> {
+  const { sourceId: _sourceId, sourceThreadId: _threadId, accountId: _accountId, ...rest } = hit;
+
+  return rest;
+}

@@ -254,6 +254,13 @@ export type EvidenceAnchor = z.infer<typeof evidenceAnchorSchema>;
  * named `sourceId`, and `kind` is a source-declared read shape (a document, a
  * Gmail message, an MCP tool). Raw bytes and full bodies never ride on the
  * card — this is the fingerprint that fetches them on demand.
+ *
+ * `accountId` and `threadId` are the two facts an expander cannot recover from
+ * an opaque `ref` (#1076): which connected account owns the record, and which
+ * conversation it belongs to. They stay separate fields rather than being
+ * packed into `ref`, because a packed `ref` is a string a consumer must parse,
+ * and the contract promises exactly the opposite. `packEvidenceCards` renders
+ * neither: they address a provider read, and the model never performs one.
  */
 export const evidenceExpansionHandleSchema = z.object({
   /** The `ContextSource.id` that can expand this handle. */
@@ -262,6 +269,21 @@ export const evidenceExpansionHandleSchema = z.object({
   kind: z.string().min(1).max(100),
   /** Opaque reference, interpreted only by `sourceId`. */
   ref: z.string().min(1).max(1_024),
+  /**
+   * The connected account the record arrived on, when the source knows it.
+   * A provider read needs to pick credentials before it can dereference `ref`,
+   * and that choice is not recoverable from `ref` alone, so the producer states
+   * it here instead of leaving the expander a second lookup. Absent for a
+   * source with no per-account grain.
+   */
+  accountId: z.string().min(1).max(200).optional(),
+  /**
+   * The provider's own thread/conversation grouping for `ref`, when the record
+   * has one — a Gmail `threadId`, a Slack `thread_ts`. It lets an expansion
+   * widen from one record to its conversation without a second read to find the
+   * thread. Absent for a stand-alone record.
+   */
+  threadId: z.string().min(1).max(200).optional(),
   /** Human hint for debugging, never a dereference instruction. */
   hint: z.string().min(1).max(300).optional(),
 });

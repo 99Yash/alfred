@@ -1,4 +1,5 @@
 import {
+  documentRecordKind,
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
   integrationDisplayName,
@@ -7,6 +8,7 @@ import {
   sourceRefFromManifest,
   type ContextSearchRequest,
   type EvidenceCard,
+  type EvidenceExpansionHandle,
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
@@ -104,7 +106,7 @@ async function readDocuments(request: ContextSearchRequest) {
 /**
  * Map one corpus hit to a canonical card. The id is the chunk id — the same
  * chunk retrieved twice is the same card — and the expansion handle points at
- * the parent document, the unit a later live drill-down (#428) fetches.
+ * the record a later live drill-down (#428) fetches.
  */
 function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
   // `sanitizeErrorMessage` bounds and strips poison; an all-poison title
@@ -144,12 +146,40 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
         ...(hit.page !== null ? { locator: `page ${hit.page}` } : {}),
       },
     ],
-    expansion: {
-      sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
-      kind: "document",
-      ref: hit.documentId,
-      ...(title ? { hint: title } : {}),
-    },
+    expansion: documentHitExpansion(hit, title),
+  };
+}
+
+/**
+ * The handle a later live drill-down (#428) dereferences (#1076).
+ *
+ * A hit whose source writes the provider's own id into `documents.source_id`
+ * gets a PROVIDER-scoped handle: the `kind` is the record shape the source
+ * declares, the `ref` is the provider's id, and the account and thread ride
+ * along so an expander can pick credentials and widen to the conversation
+ * without a second read of Alfred's store. Both the shape and the branch come
+ * from `documentRecordKind`, so a newly ingested source states its record shape
+ * once in `@alfred/contracts` and this file never grows a case for it.
+ *
+ * Every other hit keeps the DOCUMENT-scoped handle it has today — an Alfred
+ * document id under `kind: "document"` — because an inbound-webhook row is
+ * keyed by Alfred's own receipt id, which no provider can resolve. No card
+ * loses its handle either way.
+ */
+function documentHitExpansion(hit: SearchHit, title: string | undefined): EvidenceExpansionHandle {
+  const recordKind = documentRecordKind(hit.source);
+
+  return {
+    sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
+    ...(recordKind !== null
+      ? {
+          kind: recordKind,
+          ref: hit.sourceId,
+          ...(hit.accountId ? { accountId: hit.accountId } : {}),
+          ...(hit.sourceThreadId ? { threadId: hit.sourceThreadId } : {}),
+        }
+      : { kind: "document", ref: hit.documentId }),
+    ...(title ? { hint: title } : {}),
   };
 }
 

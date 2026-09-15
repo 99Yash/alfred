@@ -38,6 +38,25 @@ export interface SearchHit {
   chunkId: string;
   documentId: string;
   source: Document["source"];
+  /**
+   * The parent document's `source_id` — the record identity the ingest lane
+   * keyed the row by. For a direct-ingest source it is the provider's own id (a
+   * Gmail message id, a `messageId:attachmentId` pair); for an inbound-webhook
+   * source it is Alfred's receipt id. Ask `documentRecordKind(source)` which one
+   * this is: it answers `null` for the ids no provider can dereference, so a
+   * consumer never reads an Alfred id as a provider address (#1076).
+   */
+  sourceId: string;
+  /**
+   * The provider's thread/conversation grouping for the record — a Gmail
+   * `threadId`. Absent for a stand-alone record.
+   */
+  sourceThreadId?: string;
+  /**
+   * The connected account the record arrived on, matching
+   * `integration_credentials.account_id`. Absent when the lane records none.
+   */
+  accountId?: string;
   title: string | null;
   /** Provider receipt kind, when this hit came from an inbound delivery. */
   kind?: string;
@@ -109,6 +128,9 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         chunkId: sql<string>`${chunks.id}`.as("chunk_id"),
         documentId: sql<string>`${documents.id}`.as("document_id"),
         source: documents.source,
+        sourceId: documents.sourceId,
+        sourceThreadId: documents.sourceThreadId,
+        accountId: documents.accountId,
         title: documents.title,
         url: documents.url,
         position: chunks.position,
@@ -132,6 +154,9 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         chunkId: candidates.chunkId,
         documentId: candidates.documentId,
         source: candidates.source,
+        sourceId: candidates.sourceId,
+        sourceThreadId: candidates.sourceThreadId,
+        accountId: candidates.accountId,
         title: candidates.title,
         url: candidates.url,
         position: candidates.position,
@@ -151,6 +176,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       chunkId: r.chunkId,
       documentId: r.documentId,
       source: r.source,
+      sourceId: r.sourceId,
       title: r.title,
       position: r.position,
       page: extractPageFromMetadata(r.metadata),
@@ -164,6 +190,10 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
     if (kind) hit.kind = kind;
 
     if (r.url) hit.url = r.url;
+
+    if (r.sourceThreadId) hit.sourceThreadId = r.sourceThreadId;
+
+    if (r.accountId) hit.accountId = r.accountId;
 
     if (r.source === "gmail_attachment") {
       const occurrences = parseAttachmentContentReferences(r.documentMetadata);
