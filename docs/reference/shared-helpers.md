@@ -233,6 +233,10 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   a new discriminated index has to state whether its loser is a dropped duplicate
   or a busy resource. Don't hand-roll a null check plus an `.includes` against a
   local list of index names.
+- LIKE/ILIKE literals: `escapeLike(value)` (`@alfred/db/helpers`) — escape `\`, `%`
+  and `_` in any value that is a literal rather than a pattern. A raw `%` from
+  user text or from a key value silently widens the match, which for a key
+  lookup means resolving the wrong object.
 - Content hash: `sha256Canonical(value)` (`@alfred/db/hash`) — SHA-256 over
   `canonicalJson` (keys sorted, present-`undefined` skipped), prefixed `sha256:`.
   The one digest behind `observations.evidence_hash` (the dedup rail), the

@@ -295,8 +295,9 @@ export async function gatherBriefingDigest(
     });
 
     // Extract every deterministic GitHub identity the notification carries.
-    // Actions failures usually carry a head sha; review/comment/merge mail
-    // carries the PR URL or repository + number instead.
+    // An Actions failure names its commit — the full sha in the body, or the
+    // 7-hex abbreviation in the subject; review/comment/merge mail carries the
+    // PR URL or repository + number instead.
     if (isGithubNotificationSender(from)) {
       const keys = extractGithubKeys({ subject: r.title, content: r.content });
 
@@ -337,9 +338,10 @@ export async function gatherBriefingDigest(
  * dropped set for the evening "closed today" recap.
  *
  * Keys are resolved in parallel — at single-user scale a briefing window holds
- * only a handful of GitHub-notification emails, and `resolveByKey` is a single
- * indexed lookup. A key that resolves to nothing, or to a non-terminal state,
- * leaves its loop live (the determinism contract: absence never closes).
+ * only a handful of GitHub-notification emails, and each lookup reads one
+ * index. A key that resolves to nothing, to more than one object, or to a
+ * non-terminal state leaves its loop live (the determinism contract: absence
+ * never closes).
  */
 async function reconcileGithubLoops(
   userId: string,
@@ -349,16 +351,20 @@ async function reconcileGithubLoops(
   if (keysByDoc.size === 0) return [];
 
   const distinctKeys = [
-    ...new Map(
-      [...keysByDoc.values()].flat().map((key) => [`${key.keyKind}\u0000${key.keyValue}`, key]),
-    ).values(),
+    ...new Map([...keysByDoc.values()].flat().map((key) => [keyIdentity(key), key])).values(),
   ];
 
   const stateByKey = new Map<string, ObjectState>();
   await Promise.all(
     distinctKeys.map(async (key) => {
-      const identity = `${key.keyKind}\u0000${key.keyValue}`;
-      const ref = await objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue);
+      const identity = keyIdentity(key);
+
+      // An abbreviated sha is a leading fragment of the stored key, so it
+      // resolves by prefix; an ambiguous prefix resolves to nothing.
+      const ref =
+        key.match === "prefix"
+          ? await objectStateStore.resolveByKeyPrefix(userId, "github", key.keyKind, key.keyValue)
+          : await objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue);
 
       if (!ref) return; // unknown PR → loop stays live
       const state = await objectStateStore.getState(userId, ref);
@@ -374,7 +380,7 @@ async function reconcileGithubLoops(
 
     for (const item of buckets[category]) {
       const terminal = (keysByDoc.get(item.documentId) ?? [])
-        .map((key) => stateByKey.get(`${key.keyKind}\u0000${key.keyValue}`))
+        .map((key) => stateByKey.get(keyIdentity(key)))
         .find(
           (state): state is ObjectState & { stateCategory: LoopClosingStateCategory } =>
             !!state && isLoopClosingCategory(state.stateCategory),
@@ -402,6 +408,14 @@ async function reconcileGithubLoops(
 }
 
 type ExtractedGithubKey = ReturnType<typeof extractGithubKeys>[number];
+
+/**
+ * Map key for one candidate. The match mode belongs in it: the same value read
+ * exactly and read as a prefix are two different lookups.
+ */
+function keyIdentity(key: ExtractedGithubKey): string {
+  return [key.keyKind, key.keyValue, key.match].join("\u0000");
+}
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
   return (await gatherBriefingWithSuppressionAudit(args)).gather;

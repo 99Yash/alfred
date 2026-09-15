@@ -11,7 +11,9 @@ import {
   integrationObjectKeys,
   integrationObjects,
 } from "@alfred/db/schemas";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { escapeLike } from "@alfred/db/helpers";
+import { and, desc, eq, gte, like, lte } from "drizzle-orm";
+import { MIN_ABBREVIATED_SHA_LENGTH } from "./extract-keys";
 import { reduceGithubEvent } from "./github-reducer";
 
 /**
@@ -96,6 +98,21 @@ export interface ObjectStateStore {
     provider: ObjectStateProvider,
     keyKind: string,
     keyValue: string,
+  ): Promise<ObjectStateRef | null>;
+  /**
+   * Same lookup for an ABBREVIATED value: the stored key must START WITH
+   * `keyPrefix`. GitHub Actions failure mail names the run's commit in the
+   * 7-hex short form, so the exact lookup can never find it (#1092).
+   *
+   * Returns `null` when the prefix matches no object AND when it matches more
+   * than one — an ambiguous prefix is not an identity, so it may close nothing.
+   * A prefix shorter than the abbreviation floor is rejected outright.
+   */
+  resolveByKeyPrefix(
+    userId: string,
+    provider: ObjectStateProvider,
+    keyKind: string,
+    keyPrefix: string,
   ): Promise<ObjectStateRef | null>;
   /**
    * Current state for a ref. `at` is reserved for point-in-time reads once
@@ -287,6 +304,36 @@ export const objectStateStore: ObjectStateStore = {
       .limit(1);
 
     if (!row) return null;
+
+    return { objectId: row.objectId, provider, kind: row.kind, externalId: row.externalId };
+  },
+
+  async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {
+    if (keyPrefix.length < MIN_ABBREVIATED_SHA_LENGTH) return null;
+
+    const rows = await db()
+      .selectDistinct({
+        objectId: integrationObjectKeys.objectId,
+        kind: integrationObjects.kind,
+        externalId: integrationObjects.externalId,
+      })
+      .from(integrationObjectKeys)
+      .innerJoin(integrationObjects, eq(integrationObjectKeys.objectId, integrationObjects.id))
+      .where(
+        and(
+          eq(integrationObjectKeys.userId, userId),
+          eq(integrationObjectKeys.provider, provider),
+          eq(integrationObjectKeys.keyKind, keyKind),
+          like(integrationObjectKeys.keyValue, `${escapeLike(keyPrefix)}%`),
+        ),
+      )
+      // Two rows is already proof of ambiguity; the third would tell us nothing
+      // more. Several keys of one object collapse in the DISTINCT.
+      .limit(2);
+
+    const [row, second] = rows;
+
+    if (!row || second) return null;
 
     return { objectId: row.objectId, provider, kind: row.kind, externalId: row.externalId };
   },
