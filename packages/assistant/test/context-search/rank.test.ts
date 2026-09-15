@@ -15,9 +15,10 @@ import {
  * They assert ORDER and the presence or absence of a feature, never a score
  * literal. A score is arithmetic over weights that are allowed to be tuned; the
  * order those weights are supposed to produce, and the rule that an unavailable
- * signal is dropped rather than zeroed, are the properties the slice promises.
- * A test pinned to `0.5417` would go red on a tuning change that kept every
- * promise.
+ * OPTIONAL signal is dropped rather than zeroed, are the properties the slice
+ * promises. (`semantic`, `freshness`, and `authority` are the deliberate
+ * exceptions: each reads silence as a defined row.) A test pinned to `0.5417`
+ * would go red on a tuning change that kept every promise.
  *
  * `now` is an input to the ranker, so every case here is a fixed clock and the
  * results do not drift as the repository ages.
@@ -175,7 +176,7 @@ describe("rankEvidenceCards — tie-breaking", () => {
 });
 
 describe("rankEvidenceCards — degradation when a signal is absent", () => {
-  test("a card with no score is not treated as scoring zero", () => {
+  test("a card with no score reads as low relevance, not zero", () => {
     const unscored = card({
       id: "mcp:unscored",
       source: { id: "mcp:notes", kind: "mcp" },
@@ -194,9 +195,11 @@ describe("rankEvidenceCards — degradation when a signal is absent", () => {
       ranked.evidence.map((entry) => entry.id),
       ["mcp:unscored", "documents:zero"],
     );
-    // The difference is structural, not a smaller number: the unscored card has
-    // no `semantic` feature at all, while the zero-scored one has it at 0.
-    assert.equal(ranked.ranking[0]?.features.semantic, undefined);
+    // The difference is a defined low reading, not a zero and not an absence:
+    // the unscored card carries `semantic` at the unknown floor, while the
+    // zero-scored one carries it at 0. An explicit non-match still ranks below
+    // an unmeasured match.
+    assert.equal(ranked.ranking[0]?.features.semantic, 0.3);
     assert.equal(ranked.ranking[1]?.features.semantic, 0);
   });
 
