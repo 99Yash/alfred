@@ -1,6 +1,7 @@
 import {
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
+  EVIDENCE_NOTE_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
   integrationDisplayName,
   isObjectStateProvider,
@@ -289,7 +290,7 @@ function missingCard(id: string, note: string): EvidenceCard {
     mediaKind: "text",
     score: 0,
     ...(authority !== undefined ? { authority } : {}),
-    note: bound(note, 1_000) ?? "Object state is unavailable.",
+    note: bound(note, EVIDENCE_NOTE_MAX_CHARS) ?? "Object state is unavailable.",
     time: { freshness: "unknown" },
   };
 }

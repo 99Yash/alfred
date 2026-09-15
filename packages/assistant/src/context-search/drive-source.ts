@@ -1,6 +1,7 @@
 import {
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
+  EVIDENCE_NOTE_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
   sanitizeErrorMessage,
   toMessage,
@@ -55,7 +56,10 @@ const DRIVE_CONTEXT_SOURCE_ID = "drive";
  * live` follows from having no local copy at all. `cost: remote` is the
  * declaration that the caller's `maxSourceCost` budget prices (#1078): this is
  * the source that made the budget necessary, and it is priced by what it
- * declares here rather than by its name.
+ * declares here rather than by its name. `typicalLatencyMs` budgets the
+ * search phase alone — one `files.list` round trip followed by the parallel
+ * text reads — not the expansion phase, which the `expand` cap and deadline
+ * price separately.
  *
  * It names the ADR-0093 `drive` slug and therefore restates neither the display
  * name nor the host: `sourceRefFromManifest` reads both back out of
@@ -89,8 +93,19 @@ const DRIVE_SEARCH_PAGE_SIZE = 5;
 /**
  * Files one search reads the TEXT of, inline.
  *
- * The read cost of this source is stated exactly: one `files.list` call, plus
- * at most this many `export` or `download` calls, per Context Search read.
+ * The search phase costs one `files.list` call plus at most this many
+ * `export` or `download` calls — up to four Drive HTTP calls — and every one
+ * of those calls re-resolves the credential first: the integrations root
+ * memoizes client construction only and no credential is memoized below it,
+ * so each Drive method re-runs `listCredentials` plus `getFreshAccessToken`
+ * (about nine credential SELECTs across the search phase on the fast path).
+ * The expansion phase costs more per surviving handle — one `getFile` plus
+ * one text read, each with the same per-call credential resolution, on a
+ * freshly built integrations root per handle — so a full read that expands
+ * five cards pays up to ten more Drive calls and about twenty-five more
+ * SELECTs (about fourteen HTTP calls and thirty-four SELECTs worst case).
+ * `typicalLatencyMs` below budgets the search phase alone: one list round
+ * trip followed by the parallel text reads.
  *
  * The inline read exists because the expansion phase cannot do this job. That
  * phase runs AFTER the rank, and a card with no text has no `score`, no
@@ -268,8 +283,11 @@ async function readDrive(
 
   // Every term was a stop word or too short to narrow anything. Asking Drive
   // for `trashed = false` alone would return the user's most recent files
-  // regardless of the question, which is evidence about nothing.
-  if (q === undefined) return { evidence: [] };
+  // regardless of the question, which is evidence about nothing. Decline as
+  // `no-answering-read` rather than `empty`: `empty` claims the source was
+  // asked and had nothing, which would let a consumer close a loop on
+  // evidence that was never sought.
+  if (q === undefined) return { evidence: [], skipped: "no-answering-read" };
 
   const { files } = await drive.listFiles({
     credentialId,
@@ -512,21 +530,28 @@ function driveExpandedCard(
  * Why this card carries no text. Three different facts, and the model has to
  * tell them apart before it concludes anything from the absence: the file has
  * no text to read, the read failed, or this read did not pay for it.
+ *
+ * The final string is bounded to `EVIDENCE_NOTE_MAX_CHARS`: the failure half
+ * is unbounded provider text (an `HttpError` message carries a 500-char body
+ * summary plus the URL), and an over-cap note fails the card schema — which
+ * deletes the card AND the real provider reason it was built to carry.
  */
 function unreadNote(file: DriveFile, read: FileText, path: TextPath): string {
   const name = fileLabel(file);
 
+  let raw: string;
+
   if (path === "none") {
     const kind = file.mimeType !== undefined ? ` (${file.mimeType})` : "";
 
-    return `"${name}"${kind} matched the search. Drive cannot return its contents as text.`;
+    raw = `"${name}"${kind} matched the search. Drive cannot return its contents as text.`;
+  } else if (read.failure !== undefined) {
+    raw = `"${name}" matched the search. Reading its contents failed: ${read.failure}`;
+  } else {
+    raw = `"${name}" matched the search. Its contents were not read on this request.`;
   }
 
-  if (read.failure !== undefined) {
-    return `"${name}" matched the search. Reading its contents failed: ${read.failure}`;
-  }
-
-  return `"${name}" matched the search. Its contents were not read on this request.`;
+  return sanitizeErrorMessage(raw, EVIDENCE_NOTE_MAX_CHARS);
 }
 
 /** The file's display name, bounded to what a citation label may carry. */
