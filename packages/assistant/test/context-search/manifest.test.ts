@@ -83,6 +83,7 @@ const NATIVE: RetrievalSourceManifest = {
   read: ["semantic_search", "exact_lookup"],
   freshness: { typical: "live" },
   authority: { level: "high", label: "GitHub App" },
+  mediaKinds: ["text"],
   cost: { class: "remote" },
   availability: "available",
 };
@@ -94,6 +95,7 @@ const DESCRIBED_MCP: RetrievalSourceManifest = {
   displayName: "A described MCP server",
   read: ["semantic_search"],
   authority: { level: "low", label: "third-party MCP server" },
+  mediaKinds: ["text"],
   cost: { class: "remote" },
   availability: "available",
 };
@@ -110,6 +112,7 @@ const UNAVAILABLE: RetrievalSourceManifest = {
   kind: "native",
   read: ["semantic_search"],
   authority: { level: "medium" },
+  mediaKinds: ["text"],
   availability: "unavailable",
 };
 
@@ -126,6 +129,7 @@ const EXACT_ONLY: RetrievalSourceManifest = {
   kind: "internal",
   read: ["exact_lookup"],
   authority: { level: "high" },
+  mediaKinds: ["text"],
 };
 
 /**
@@ -140,6 +144,7 @@ const EXACT_AND_EXPAND: RetrievalSourceManifest = {
   read: ["exact_lookup", "expand"],
   expansionKinds: ["test_record"],
   authority: { level: "high" },
+  mediaKinds: ["text"],
 };
 
 const QUERY: ContextSearchRequest = {
@@ -299,6 +304,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
       kind: "native",
       read: ["semantic_search"],
       authority: { level: "medium" },
+      mediaKinds: ["text"],
       cost: { class: "remote" },
     });
 

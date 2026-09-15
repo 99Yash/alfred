@@ -2,12 +2,15 @@ import {
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
   integrationDisplayName,
+  isFileDocumentSource,
   sanitizeErrorMessage,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
   type BuiltInExpansionKind,
   type ContextSearchRequest,
+  type EvidenceAnchor,
   type EvidenceCard,
+  type EvidenceMediaKind,
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
@@ -61,6 +64,13 @@ const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" 
   authority: { level: "high", label: "verbatim slice of an ingested provider record" },
   cost: { class: "metered" },
   availability: "available",
+  // Exactly the three modalities `documentMediaKind` can mint, and the boundary
+  // holds every card to this list (#429). The corpus ingests a message body
+  // (`text`), a file (`document`), and a page of a file whose page structure the
+  // extractor proved (`page`, ADR-0091). It ingests no picture and no recording:
+  // a `needs_ocr` PDF never becomes a row at all, so declaring `image` here
+  // would name a card this source cannot produce.
+  mediaKinds: ["text", "document", "page"],
 };
 
 /**
@@ -136,11 +146,12 @@ function documentHitToEvidenceCard(hit: ModelFacingHit): EvidenceCard {
     : undefined;
 
   const authority = sourceAuthorityFromManifest(documentManifest());
+  const anchors = pageAnchors(hit.page);
 
   return {
     id: `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
     source: sourceRefFromManifest(documentManifest()),
-    mediaKind: "document",
+    mediaKind: documentMediaKind(hit),
     ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,
     ...(authority !== undefined ? { authority } : {}),
@@ -162,9 +173,14 @@ function documentHitToEvidenceCard(hit: ModelFacingHit): EvidenceCard {
         // and falls back to `humanizeSlug` for a non-integration source.
         label: title ?? integrationDisplayName(hit.source),
         ...(hit.url && hit.url.length <= EVIDENCE_CITATION_URL_MAX_CHARS ? { url: hit.url } : {}),
-        ...(hit.page !== null ? { locator: `page ${hit.page}` } : {}),
       },
     ],
+    // The page rides the ANCHOR, not a citation locator string (#429). It used
+    // to be prose (`page 3`), which a consumer could only read by parsing the
+    // label it was joined to; the anchor is the structured carrier the contract
+    // minted for it, and the packer renders it on its own line. Stating it in
+    // both places would put one fact under two spellings.
+    ...(anchors.length > 0 ? { anchors } : {}),
     expansion: {
       sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
       kind: "document" satisfies BuiltInExpansionKind,
@@ -182,4 +198,47 @@ function isUsableAuthoredAt(value: Date | null): value is Date {
   if (!Number.isFinite(at)) return false;
 
   return at <= Date.now() + DOCUMENT_FUTURE_SKEW_MS;
+}
+
+/**
+ * The modality of one corpus hit (#429).
+ *
+ * Three readings, in the order of what each one PROVES:
+ *
+ * 1. A proven page beats everything else. `chunks.metadata.page` is written
+ *    only from page structure the extractor emitted (ADR-0091), and the chunker
+ *    bounds a chunk to one page, so a hit that carries one IS a page of a
+ *    document — the strongest thing this source can say about a record.
+ * 2. A file row without a proven page is a `document`. The file is a document
+ *    whose pages were never proven (a text attachment, a PDF that extracted as
+ *    text without offsets), and claiming `page` would state a page nobody
+ *    proved.
+ * 3. Everything else is a message body or a webhook receipt: `text`.
+ *
+ * It never reads a MIME type, because the corpus row does not carry one — the
+ * ingest lane already turned the bytes into text, and the modality of the
+ * evidence is the modality of that text, not of the file it came from.
+ */
+function documentMediaKind(hit: ModelFacingHit): EvidenceMediaKind {
+  if (hit.page !== null) return "page";
+
+  return isFileDocumentSource(hit.source) ? "document" : "text";
+}
+
+/**
+ * The page anchor for one hit, or none.
+ *
+ * A list of at most one: the chunker never lets a chunk span two pages, so one
+ * hit anchors to one page. It carries no `confidence`, because the page is
+ * proven rather than estimated — a confidence would invite a reader to discount
+ * a fact the extractor established. The card schema bounds `page` to a positive
+ * integer and `extractPageFromMetadata` already rejected anything else, so the
+ * two gates agree.
+ *
+ * The list is mutable because `EvidenceCard` derives from the Zod schema and
+ * `z.array` infers a mutable array; a `readonly` return would not assign into
+ * the field it exists to fill.
+ */
+function pageAnchors(page: number | null): EvidenceAnchor[] {
+  return page === null ? [] : [{ kind: "page", page }];
 }

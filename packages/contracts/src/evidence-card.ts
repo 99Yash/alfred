@@ -56,6 +56,98 @@ export type EvidenceMediaKind = (typeof EVIDENCE_MEDIA_KINDS)[number];
 export const evidenceMediaKindSchema = z.enum(EVIDENCE_MEDIA_KINDS);
 
 /**
+ * MIME type prefixes that name a modality on their own.
+ *
+ * The IANA top-level type IS the modality for these four, so a prefix test is
+ * the whole rule and no member list can go stale: `image/avif` and an image
+ * format nobody has registered yet both read as `image`. The prefixes are
+ * disjoint, so the scan order carries no meaning.
+ */
+const MEDIA_KIND_BY_TYPE_PREFIX = [
+  ["image/", "image"],
+  ["audio/", "audio"],
+  ["video/", "video"],
+  ["text/", "text"],
+] as const satisfies readonly (readonly [string, EvidenceMediaKind])[];
+
+/** The Google Workspace MIME namespace. A native file has no bytes to read. */
+const GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps.";
+
+/**
+ * Full MIME types that carry text but do not say so in their top-level type.
+ * `application/*` is the grab-bag of the MIME registry, so this half of the
+ * table is a list rather than a prefix.
+ */
+const MEDIA_KIND_BY_FULL_TYPE = new Map<string, EvidenceMediaKind>([
+  ["application/json", "text"],
+  ["application/xml", "text"],
+  ["application/yaml", "text"],
+  ["application/x-yaml", "text"],
+  ["application/pdf", "document"],
+  ["application/rtf", "document"],
+  ["application/msword", "document"],
+  ["application/vnd.ms-excel", "document"],
+  ["application/vnd.ms-powerpoint", "document"],
+  ["application/vnd.oasis.opendocument.text", "document"],
+  ["application/vnd.oasis.opendocument.spreadsheet", "document"],
+  ["application/vnd.oasis.opendocument.presentation", "document"],
+  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "document"],
+  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "document"],
+  ["application/vnd.openxmlformats-officedocument.presentationml.presentation", "document"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}document`, "document"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}presentation`, "document"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}spreadsheet`, "document"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}drawing`, "image"],
+]);
+
+/**
+ * Structured-syntax suffixes (RFC 6838 §4.2.8). `application/ld+json` and
+ * `image/svg+xml` are text at the byte level, but only the ones whose
+ * top-level type did not already answer reach here.
+ */
+const TEXTUAL_MIME_SUFFIXES = ["+json", "+xml", "+yaml"] as const;
+
+/**
+ * The modality one MIME type names (#429).
+ *
+ * The single owner of "what kind of thing is this file", so an adapter derives
+ * a card's `mediaKind` instead of hard-coding one per source. It is a reading
+ * of the TYPE, never a claim about what Alfred can extract from it: an `image`
+ * answer says the record is a picture, not that an OCR lane exists. The
+ * degraded-media note on the card carries that second fact.
+ *
+ * It never returns `page`. A page is proven by page structure the extractor
+ * emitted (ADR-0091 `chunks.metadata.page`), and no MIME type proves one — a
+ * PDF whose pages were never extracted is a `document`, not a `page`.
+ *
+ * `unknown` is the honest tail, and it covers two different silences on
+ * purpose: a type this table does not name, and a record whose type the
+ * provider never sent. Both mean "Alfred cannot say what this is", which is
+ * exactly what `unknown` declares.
+ */
+export function mediaKindForMimeType(mimeType: string | undefined): EvidenceMediaKind {
+  if (mimeType === undefined) return "unknown";
+
+  // A MIME type may carry parameters (`text/plain; charset=utf-8`) and is
+  // case-insensitive in its type and subtype, so normalize before matching.
+  const normalized = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+
+  if (normalized.length === 0) return "unknown";
+
+  const byFullType = MEDIA_KIND_BY_FULL_TYPE.get(normalized);
+
+  if (byFullType !== undefined) return byFullType;
+
+  for (const [prefix, kind] of MEDIA_KIND_BY_TYPE_PREFIX) {
+    if (normalized.startsWith(prefix)) return kind;
+  }
+
+  if (TEXTUAL_MIME_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) return "text";
+
+  return "unknown";
+}
+
+/**
  * How a source is backed, so a reader can reason about trust without a
  * name list. `native` is a first-party integration, `internal` is one of
  * Alfred's own stores, `mcp` is a remote MCP server, and `unknown` is the

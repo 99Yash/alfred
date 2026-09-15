@@ -16,6 +16,7 @@ import {
 } from "./manifest";
 import { rankEvidenceCards, type EvidenceRanking } from "./rank";
 import {
+  cardObeysManifest,
   listContextSources,
   type ContextSource,
   type ContextSourceResult,
@@ -225,17 +226,18 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
 
       // A card is a contract, not a type-only promise: validate each card at
       // the boundary so a source cannot smuggle in an unbounded snippet, a
-      // non-canonical entity value, an empty card, or a `source.id` that does
-      // not match the id it registered as (the manifest join key, #466). A
-      // rejected card is dropped without discarding its siblings: one bad card
-      // must not erase the good evidence a source returned.
+      // non-canonical entity value, an empty card, a `source.id` that does not
+      // match the id it registered as (the manifest join key, #466), or a
+      // modality its own manifest never declared (#429). A rejected card is
+      // dropped without discarding its siblings: one bad card must not erase
+      // the good evidence a source returned.
       let rejected = 0;
 
       try {
         for (const candidate of result.evidence) {
           const parsedCard = evidenceCardSchema.safeParse(candidate);
 
-          if (!parsedCard.success || parsedCard.data.source.id !== source.id) {
+          if (!parsedCard.success || !cardObeysManifest(parsedCard.data, source)) {
             rejected += 1;
             continue;
           }
