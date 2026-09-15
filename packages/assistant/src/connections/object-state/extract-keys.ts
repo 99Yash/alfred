@@ -28,6 +28,16 @@ export interface ExtractedKey {
   match: ObjectKeyMatch;
 }
 
+/**
+ * Map key for one candidate. The match mode belongs in it: the same value read
+ * exactly and read as a prefix are two different lookups. Owned here beside
+ * `ExtractedKey` so a fourth field cannot silently collapse two candidates in
+ * a consumer's dedup map.
+ */
+export function keyIdentity(key: ExtractedKey): string {
+  return [key.keyKind, key.keyValue, key.match].join("\u0000");
+}
+
 /** Senders whose mail we treat as GitHub CI/notification traffic. */
 const GITHUB_NOTIFICATION_DOMAINS = ["github.com"];
 
@@ -36,10 +46,10 @@ const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
 /**
  * Shortest abbreviation that may name a commit. Git's default and GitHub's mail
  * both use 7 hex; below that a fragment is a guess, not an identity. The store
- * repeats this floor, because a shorter prefix that happens to match one row
- * would close a loop on almost no evidence.
+ * enforces its own floor on the prefix lookup, because a shorter prefix that
+ * happens to match one row would close a loop on almost no evidence.
  */
-export const MIN_ABBREVIATED_SHA_LENGTH = 7;
+const MIN_ABBREVIATED_SHA_LENGTH = 7;
 
 /**
  * The abbreviated sha an Actions failure mail carries, for example
@@ -83,11 +93,12 @@ export function extractGithubKeys(input: {
   const keys: ExtractedKey[] = [];
 
   const addKey = (keyKind: string, keyValue: string, match: ObjectKeyMatch) => {
-    const identity = [keyKind, keyValue, match].join("\u0000");
+    const candidate: ExtractedKey = { keyKind, keyValue, match };
+    const identity = keyIdentity(candidate);
 
     if (seen.has(identity)) return;
     seen.add(identity);
-    keys.push({ keyKind, keyValue, match });
+    keys.push(candidate);
   };
 
   const subjectRef = deriveLoopEntityRef(input.subject);
@@ -154,6 +165,7 @@ function collectSubjectAbbreviatedShas(subject: string): string[] {
   if (!sha) return [];
   // Ordinary words and build numbers/dates are single-class runs; a real
   // abbreviation mixes digits and letters.
+
   if (!/[0-9]/.test(sha) || !/[a-f]/.test(sha)) return [];
 
   return [sha];
