@@ -24,12 +24,18 @@ export type DocumentSource = z.infer<typeof documentSourceSchema>;
  * message body is `text`, a file is a `document` — so it is stated once here
  * instead of being re-derived from a slug at each reader.
  *
- * It is a list because there is no structural test: a future Drive or Slack
- * file lane joins by adding its member, and a message lane never does.
+ * Exhaustive over `DocumentSource` rather than a partial set, so a new source
+ * fails the typecheck here instead of degrading in silence to `text`: a future
+ * Drive or Slack file lane answers `true`, and a message lane answers `false`.
  */
-const FILE_DOCUMENT_SOURCES = new Set<DocumentSource>(["gmail_attachment"]);
+const FILE_DOCUMENT_SOURCES = {
+  gmail: false,
+  gmail_attachment: true,
+  github: false,
+  sentry: false,
+} satisfies Record<DocumentSource, boolean>;
 
 /** Whether this corpus source writes a file row rather than a message row. */
 export function isFileDocumentSource(source: DocumentSource): boolean {
-  return FILE_DOCUMENT_SOURCES.has(source);
+  return FILE_DOCUMENT_SOURCES[source];
 }
