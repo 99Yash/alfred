@@ -4,10 +4,12 @@ import {
   sourceManifestSupportsRead,
   type ContextSearchRequest,
   type RetrievalSourceManifest,
+  type SourceCostBudget,
+  type SourceCostClass,
   type SourceManifest,
 } from "@alfred/contracts";
 import { sourcePriorityFromManifest } from "./rank";
-import type { ContextSource } from "./registry";
+import { READER_DECLINED_REASONS, type ContextSource, type ReaderDeclinedReason } from "./registry";
 
 /**
  * The manifest reader (#466; epic #422; ADR-0101).
@@ -50,12 +52,19 @@ import type { ContextSource } from "./registry";
  */
 
 /**
- * Why the boundary did not consult a source in the FIRST phase of one request.
+ * Why SELECTION did not consult a source in the FIRST phase of one request.
  *
  * A closed set, not prose: registration guarantees every source declares read
- * semantics and an authority above `unknown`, so only three exclusions remain.
- * A fourth member is a deliberate schema-plus-code change, never a new string
+ * semantics and an authority above `unknown`, so only four exclusions remain.
+ * A fifth member is a deliberate schema-plus-code change, never a new string
  * at one call site.
+ *
+ * This is selection's half of the union. Readers decline with
+ * {@link ReaderDeclinedReason} (per-user, per-read facts no boot-time manifest
+ * can carry); `selectContextSources` never mints those, and no reader mints
+ * these — a reader cannot know the budget, the availability declaration, or
+ * which reads answer this request. Reports and the packer speak the joined
+ * {@link SourceExclusionReason}.
  *
  * `expansion-only` is not a weaker `no-answering-read` — it is a different
  * fact, and telling them apart is the point (#1077). A source that cannot
@@ -64,13 +73,72 @@ import type { ContextSource } from "./registry";
  * second phase once a surviving card hands it a handle; when it does, the real
  * outcome replaces this skip in place.
  */
-export const SOURCE_EXCLUSION_REASONS = [
+export const SELECTION_EXCLUSION_REASONS = [
   "unavailable",
   "no-answering-read",
   "expansion-only",
+  "over-budget",
 ] as const;
 
-export type SourceExclusionReason = (typeof SOURCE_EXCLUSION_REASONS)[number];
+export type SelectionExclusionReason = (typeof SELECTION_EXCLUSION_REASONS)[number];
+
+/**
+ * Every reason a `skipped` report can carry: what selection excluded plus what
+ * a reader declined. The ledger reads negative on purpose — neither side can
+ * mint the other's reasons, so a wrong reason stops compiling instead of
+ * shipping as a visible-but-wrong pack line.
+ */
+export type SourceExclusionReason = SelectionExclusionReason | ReaderDeclinedReason;
+
+export const SOURCE_EXCLUSION_REASONS: readonly SourceExclusionReason[] = [
+  ...SELECTION_EXCLUSION_REASONS,
+  ...READER_DECLINED_REASONS,
+];
+
+/**
+ * How expensive each declared cost class is, as one rank (#1078).
+ *
+ * The ladder is a spending decision, not a fact about a source, so it lives
+ * here beside the selection policy rather than in `@alfred/contracts` — the
+ * same split ADR-0101 sub-decision 16 draws for the ranker's weights. A read
+ * that reads a local table is the cheapest thing Alfred can do; an embedding
+ * costs money but no provider; a provider call costs money AND the read's
+ * latency, which is why it sits at the top. This is the same ordering the
+ * ranker's `COST_SCORES` reads in the other direction: one vocabulary, one
+ * ladder.
+ *
+ * An undeclared cost scores the top rung, not the bottom. This is the same rule
+ * the ranker's fold applies in the other direction: silence must never BUY
+ * anything. A source that declines to price itself, priced as free, would be the
+ * one source a budget could never exclude. The unpriced rank derives from the
+ * table with `Math.max`, so a new class above `remote` moves it without a
+ * second literal to remember.
+ */
+const COST_RANK = {
+  local: 0,
+  metered: 1,
+  remote: 2,
+} as const satisfies Record<SourceCostBudget, number>;
+
+/** The rank an undeclared cost reads as: the top rung, whatever it is today. */
+const UNPRICED_COST_RANK: number = Math.max(...Object.values(COST_RANK));
+
+/** The spending rank of one declared class, or of silence about the class. */
+function costRank(costClass: SourceCostClass): number {
+  return costClass === "unknown" ? UNPRICED_COST_RANK : COST_RANK[costClass];
+}
+
+/**
+ * Whether this source costs more than the caller agreed to pay (#1078).
+ *
+ * Exported for the expansion phase, which must price a route by the same
+ * ladder: a caller that declined a provider call on the collect path has not
+ * agreed to one on the expansion path either, and two spellings of one budget
+ * would drift.
+ */
+export function exceedsCostBudget(manifest: SourceManifest, budget: SourceCostBudget): boolean {
+  return costRank(manifest.cost?.class ?? "unknown") > costRank(budget);
+}
 
 /**
  * Whether the source may be treated as a trusted retrieval source.
@@ -112,8 +180,8 @@ export function isTrustedRetrievalSource(manifest: SourceManifest): boolean {
 export function selectContextSources(
   sources: readonly ContextSource[],
   request: ContextSearchRequest,
-): ReadonlyMap<string, SourceExclusionReason> {
-  const excluded = new Map<string, SourceExclusionReason>();
+): ReadonlyMap<string, SelectionExclusionReason> {
+  const excluded = new Map<string, SelectionExclusionReason>();
 
   for (const source of sources) {
     const reason = exclusionReason(source.manifest, request);
@@ -163,14 +231,23 @@ export function contextSourcePriorities(
  * `manifest.availability` directly rather than the first-phase exclusion map,
  * so a future exclusion reason cannot silently become routable by forgetting
  * a second edit here.
+ *
+ * A source the caller cannot afford routes nothing either (#1078). The budget
+ * prices a SOURCE, and a source does not get cheaper because the second phase
+ * is the one calling it — a caller that declined a provider call on the collect
+ * path has not agreed to five of them here. `expand: false` still turns the
+ * whole phase off; this is the narrower statement that prices each route.
  */
 export function expansionRoutes(
   sources: readonly ContextSource[],
+  request: ContextSearchRequest,
 ): ReadonlyMap<string, ContextSource> {
   const routes = new Map<string, ContextSource>();
 
   for (const source of sources) {
     if (source.manifest.availability === "unavailable") continue;
+
+    if (exceedsCostBudget(source.manifest, request.maxSourceCost)) continue;
 
     if (!sourceManifestSupportsRead(source.manifest, "expand")) continue;
 
@@ -186,8 +263,13 @@ export function expansionRoutes(
 function exclusionReason(
   manifest: RetrievalSourceManifest,
   request: ContextSearchRequest,
-): SourceExclusionReason | undefined {
+): SelectionExclusionReason | undefined {
   if (manifest.availability === "unavailable") return "unavailable";
+
+  // Price before capability. A source the caller cannot afford is not asked
+  // whatever it can answer, and the model must read "you declined to pay for
+  // this" rather than "this source had nothing to say about your question".
+  if (exceedsCostBudget(manifest, request.maxSourceCost)) return "over-budget";
 
   if (answersFreeText(manifest)) return undefined;
 

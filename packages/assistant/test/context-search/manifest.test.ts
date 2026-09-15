@@ -149,6 +149,10 @@ const QUERY: ContextSearchRequest = {
   // expander, so it routes nothing; stating it keeps the selection assertions
   // about the FIRST phase alone.
   expand: true,
+  // Every registered source is affordable at the top of the ladder (#1078), so
+  // these assertions stay about read capability alone. The budget's own
+  // exclusions are asserted separately.
+  maxSourceCost: "remote",
   limit: 10,
 };
 

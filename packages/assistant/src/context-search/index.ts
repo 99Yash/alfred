@@ -180,10 +180,13 @@ export {
   contextSourcePriorities,
   isTrustedRetrievalSource,
   selectContextSources,
+  SELECTION_EXCLUSION_REASONS,
   SOURCE_EXCLUSION_REASONS,
 } from "./manifest";
 
-export type { SourceExclusionReason } from "./manifest";
+export type { SelectionExclusionReason, SourceExclusionReason } from "./manifest";
+
+export { READER_DECLINED_REASONS } from "./registry";
 
 export { registerDefaultContextSources } from "./default-sources";
 
@@ -205,6 +208,7 @@ export type {
   ContextSourceExpander,
   ContextSourceReads,
   ContextSourceReader,
+  ReaderDeclinedReason,
 } from "./registry";
 
 export {

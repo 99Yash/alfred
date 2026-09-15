@@ -1,4 +1,5 @@
 import {
+  CONTEXT_SEARCH_COLLECT_TIMEOUT_MS,
   contextSearchRequestSchema,
   evidenceCardSchema,
   sanitizeErrorMessage,
@@ -14,7 +15,12 @@ import {
   type SourceExclusionReason,
 } from "./manifest";
 import { rankEvidenceCards, type EvidenceRanking } from "./rank";
-import { listContextSources, type ContextSource, type ContextSourceResult } from "./registry";
+import {
+  listContextSources,
+  type ContextSource,
+  type ContextSourceResult,
+  type ReaderDeclinedReason,
+} from "./registry";
 
 /**
  * The read-side answer shapes (#422; ADR-0101).
@@ -178,7 +184,14 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
   // without running, a candidate runs its answering readers. A reader
   // comparing two traces never sees the source list reshuffle just because a
   // manifest started excluding one of them.
+  //
+  // One deadline bounds the whole collect: a single `AbortSignal.timeout` fires
+  // for every reader, so a slow `files.list` plus a slow export round cannot
+  // stack transport timeouts back to back. The signal travels with each call
+  // so a cooperative reader cancels its fetch; the race below bounds even one
+  // that ignores it.
   const excluded = selectContextSources(sources, parsed);
+  const collectSignal = AbortSignal.timeout(CONTEXT_SEARCH_COLLECT_TIMEOUT_MS);
 
   const reports: ContextSourceReport[] = [];
   const collected: EvidenceCard[] = [];
@@ -198,12 +211,13 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
 
     const accepted: EvidenceCard[] = [];
     let failure: string | undefined;
+    let declined: ReaderDeclinedReason | undefined;
 
     for (const read of readers) {
       let result: ContextSourceResult;
 
       try {
-        result = await read(parsed);
+        result = await readWithCollectTimeout(read, parsed, collectSignal);
       } catch (error) {
         failure = sanitizeErrorMessage(toMessage(error));
         continue;
@@ -238,6 +252,21 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
       if (rejected > 0) {
         failure = `${rejected} evidence card(s) violated the contract`;
       }
+
+      // The source itself said it could not be asked, for a per-read reason no
+      // boot-time manifest could carry (#1078). The first such statement wins;
+      // the checks below decide whether it survives what the other readers did.
+      declined ??= result.skipped;
+    }
+
+    if (failure === undefined && accepted.length === 0 && declined !== undefined) {
+      // A source that declined and produced nothing was never really asked, so
+      // it reports `skipped` rather than the `empty` that would tell the model
+      // it looked and found nothing. A source that also answered, or that also
+      // failed, reports what it did instead: the stronger fact is the one a
+      // reader of the pack has to act on.
+      reports.push({ sourceId: source.id, status: "skipped", evidenceCount: 0, reason: declined });
+      continue;
     }
 
     if (failure !== undefined) {
@@ -306,13 +335,16 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
  * - it REPLACED a card the source contributed, so that card now belongs to the
  *   expander and the origin's count drops by one.
  *
- * A source that already answered the query keeps the status it earned there.
- * An expansion answers a different question ("read the record behind this
- * card"), so its failure must not rewrite a healthy `ok` into an `error`
- * beside the source's own cards — the failure is local, the original card
- * stays, and only the count moves. The one mirror: an `empty` source whose
- * refresh landed now contributes, so it becomes `ok` rather than sitting
- * `empty` beside its own card.
+ * A source that already answered the query keeps the status it earned there,
+ * except that an expansion failure is never dropped. An expansion answers a
+ * different question ("read the record behind this card"), so its failure
+ * stays local — the original card stays and only the count moves — but the
+ * failure itself is reported: an `ok` or `empty` source the phase consulted
+ * and that failed reports `error` with the expansion failure as its reason,
+ * so the next expander that mints a bad refresh is visible rather than
+ * silent. The one mirror: an `empty` source whose refresh landed now
+ * contributes, so it becomes `ok` rather than sitting `empty` beside its own
+ * card.
  *
  * A source the phase did neither to is returned untouched, so the common read —
  * no expander registered — rebuilds nothing.
@@ -360,15 +392,68 @@ function reportAfterExpansion(
     return { sourceId: report.sourceId, status: "ok", evidenceCount };
   }
 
-  // A source that answered the query keeps its status: an expansion failure is
-  // local (the original card stays) and must not rewrite `ok` into `error`
-  // beside the source's own cards. The mirror moves the other way: an `empty`
-  // source whose refresh landed now contributes, so it becomes `ok`.
-  if (report.status === "empty" && evidenceCount > 0) {
-    return { sourceId: report.sourceId, status: "ok", evidenceCount };
+  // A source that answered the query keeps its status, except that an
+  // expansion failure is never silently dropped: without this, an expander
+  // that returns a card the phase rejects would leave the original card in
+  // place, keep the `ok`, and report nothing anywhere. The failure stays
+  // local (the original card stays) but the report becomes `error` so the
+  // failure is visible beside the source's own cards. The mirror moves the
+  // other way: an `empty` source whose refresh landed now contributes, so it
+  // becomes `ok`.
+  if (report.status === "ok" || report.status === "empty") {
+    if (outcome?.failure !== undefined) {
+      return { sourceId: report.sourceId, status: "error", evidenceCount, reason: outcome.failure };
+    }
+
+    if (report.status === "empty" && evidenceCount > 0) {
+      return { sourceId: report.sourceId, status: "ok", evidenceCount };
+    }
+
+    return { ...report, evidenceCount };
   }
 
   return { ...report, evidenceCount };
+}
+
+/**
+ * What a timed-out collect reports: our own words, never provider text.
+ */
+const COLLECT_TIMEOUT_FAILURE = "the source timed out";
+
+/**
+ * Race one collect reader against the phase deadline.
+ *
+ * The signal notifies cooperative readers (Drive cancels its fetch on it),
+ * but notification alone cannot bound the batch: a reader that ignores the
+ * signal would still hold the loop past the deadline. The race is what bounds
+ * it — on abort the phase takes the timeout failure and moves on, while the
+ * stray promise settles unobserved.
+ */
+function readWithCollectTimeout(
+  read: (request: ContextSearchRequest, signal: AbortSignal) => Promise<ContextSourceResult>,
+  request: ContextSearchRequest,
+  signal: AbortSignal,
+): Promise<ContextSourceResult> {
+  if (signal.aborted) return Promise.reject(new Error(COLLECT_TIMEOUT_FAILURE));
+
+  return new Promise<ContextSourceResult>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(new Error(COLLECT_TIMEOUT_FAILURE));
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    read(request, signal).then(
+      (result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -382,8 +467,11 @@ function reportAfterExpansion(
 function answeringReaders(
   source: ContextSource,
   request: ContextSearchRequest,
-): ((request: ContextSearchRequest) => Promise<ContextSourceResult>)[] {
-  const readers: ((request: ContextSearchRequest) => Promise<ContextSourceResult>)[] = [];
+): ((request: ContextSearchRequest, signal: AbortSignal) => Promise<ContextSourceResult>)[] {
+  const readers: ((
+    request: ContextSearchRequest,
+    signal: AbortSignal,
+  ) => Promise<ContextSourceResult>)[] = [];
 
   if (sourceManifestSupportsRead(source.manifest, "semantic_search")) {
     const read = source.reads["semantic_search"];
