@@ -1,4 +1,5 @@
 import { corpusSearchInput } from "@alfred/contracts";
+import type { ModelFacingHit } from "@alfred/corpus";
 import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { liveTool } from "@alfred/assistant/tool-runtime";
 
@@ -9,14 +10,17 @@ import { liveTool } from "@alfred/assistant/tool-runtime";
  * never imports `@alfred/db` or `@alfred/corpus` and the tool graph stays free
  * of the static database edge.
  *
- * The hit reaches the model whole, record identity included (#1076): the
- * provider's own id, the carrying account, the thread. That is not a new
- * disclosure — `occurrences`, which the description above already promises,
- * carries a `messageId`, `attachmentId`, `threadId`, and `accountId` for every
- * folded carrier, and `packEvidenceCards` renders an expansion `ref` into the
- * evidence pack. Pruning the sibling scalars would hide a strict subset of what
- * this same return value publishes, at the price of a hand-maintained key list
- * that drifts the first time `SearchHit` grows a field.
+ * The hit reaches the model as a `ModelFacingHit` (#1076): the retrieval
+ * shape minus its `record`. The record identity — the provider's own id, the
+ * carrying account, the thread — is dereference plumbing for the evidence-card
+ * expansion handle a live drill-down (#428) reads, not evidence. The
+ * per-carrier `occurrences` the description promises stay: they are the
+ * deliberately disclosed provenance, one message, thread, and account per
+ * carrier, while `record` names the row's own (possibly folded) identity.
+ * A new dereference fact belongs inside `record`, where the strip below
+ * excludes it by construction; the strip names exactly one key, so there is
+ * no per-field list to drift. The destructure is inline (not the corpus
+ * converter) so this module keeps its type-only corpus edge.
  */
 export const corpusTools: readonly RegisteredTool[] = [
   liveTool({
@@ -35,7 +39,13 @@ export const corpusTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const hits = await ctx.corpus.search({ query: input.query, userId: ctx.userId });
 
-      return { ok: true, query: input.query, hits };
+      const modelHits: ModelFacingHit[] = hits.map((hit) => {
+        const { record: _record, ...rest } = hit;
+
+        return rest;
+      });
+
+      return { ok: true, query: input.query, hits: modelHits };
     },
   }),
 ];

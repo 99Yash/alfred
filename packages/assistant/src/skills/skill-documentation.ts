@@ -79,7 +79,9 @@ const skillDocumentationContextSchema = z.object({
   // The hit shapes are large; persist them opaquely rather than
   // re-validating jsonb between steps. State is checkpointed to DB
   // and re-loaded on resume — full round-trips through zod for the
-  // raw search hits buy nothing here.
+  // raw search hits buy nothing here. The hits are already model-facing
+  // (`ModelFacingHit`: the collect step stripped the corpus `record`), so
+  // no credential-scoping identity enters the run store through this field.
   documentHits: z.array(z.custom<SkillDocumentationContext["documentHits"][number]>()),
   memoryHits: z.array(z.custom<SkillDocumentationContext["memoryHits"][number]>()),
   sourceCounts: z.record(z.string(), z.number()),

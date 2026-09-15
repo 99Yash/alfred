@@ -1,7 +1,7 @@
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { skillRevisions, skills, user, userFacts } from "@alfred/db/schemas";
-import { search, type SearchHit } from "@alfred/corpus";
+import { search, toModelFacingHit, type ModelFacingHit } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 
@@ -38,7 +38,14 @@ export interface SkillDocumentationContext {
     currentBody: string;
   };
   facts: Array<{ key: string; value: unknown; confidence: number }>;
-  documentHits: SearchHit[];
+  /**
+   * Model-facing hits only: the collect step strips the corpus `record`
+   * (provider id, account, thread) via `toModelFacingHit`, so the persisted
+   * run state below never carries credential-scoping identity. What reaches
+   * the compose prompt is then a compiler fact, not a field-picking
+   * convention.
+   */
+  documentHits: ModelFacingHit[];
   memoryHits: RecallMemoryHit[];
   /** Distinct `documents.source` values surfaced — drives the email's provenance line. */
   sourceCounts: Record<string, number>;
@@ -114,7 +121,7 @@ export async function collectSkillDocumentationContext(args: {
     idempotencyKey: `skill-doc-context:${userId}:${skillRow.id}:${skillRow.currentRevisionId}`,
   });
 
-  const [documentHits, memoryHits] = await Promise.all([
+  const [searchHits, memoryHits] = await Promise.all([
     search({
       query: revRow.body,
       userId,
@@ -128,6 +135,11 @@ export async function collectSkillDocumentationContext(args: {
       queryEmbedding,
     }),
   ]);
+
+  // Strip the dereference plumbing before anything is held or persisted:
+  // the run store below keeps these hits as-is, so identity that must not
+  // persist must not be present here.
+  const documentHits = searchHits.map(toModelFacingHit);
 
   const sourceCounts: Record<string, number> = {};
 

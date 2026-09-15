@@ -34,38 +34,42 @@ export interface SearchArgs {
   limit?: number;
 }
 
+/**
+ * The provider-native record identity the ingest lane keyed the parent
+ * document by (#1076, prefactor for #428): the tuple
+ * `documents_source_id_idx` is uniquely keyed by (`source`, `sourceId`,
+ * plus `userId`), with the thread grouping and the carrying account as its
+ * two sidecars. Derived from the row type so the shape cannot drift from
+ * the columns.
+ *
+ * `sourceId` for a direct-ingest source is the provider's own id (a Gmail
+ * message id); for an inbound-webhook source it is Alfred's receipt id. A
+ * `gmail_attachment` row folds every byte-identical carrier into one row
+ * whose `sourceId` packs the FIRST carrier's `messageId:attachmentId` pair
+ * (the delimiter lives in `sourceIdOf` in the Gmail media ingest) — that
+ * packed id is not a faithful per-carrier address and no consumer may split
+ * it apart. Per-carrier provenance rides `occurrences` instead, which
+ * already groups one message, thread, and account per carrier.
+ */
+export type RecordIdentity = Pick<Document, "sourceId" | "sourceThreadId" | "accountId">;
+
 export interface SearchHit {
   chunkId: string;
   documentId: string;
   source: Document["source"];
   /**
-   * The parent document's `source_id` — the record identity the ingest lane
-   * keyed the row by (#1076, prefactor for #428). For a direct-ingest source
-   * it is the provider's own id (a Gmail message id, a
-   * `messageId:attachmentId` pair); for an inbound-webhook source it is
-   * Alfred's receipt id. A `gmail_attachment` row folds every byte-identical
-   * carrier into one row whose id names the first carrier only, so the folded
-   * id is not a faithful per-carrier address — per-carrier provenance rides
-   * `occurrences` instead. A future #428 expander mints the canonical
-   * `(provider, kind, externalId)` `objectIdentitySchema` from this, never a
-   * fused kind string beside it.
+   * Dereference plumbing for the future #428 expander. Nested so the
+   * model-facing shape is one key removal, and so a new dereference fact
+   * lands inside `record` — where {@link ModelFacingHit} provably excludes
+   * it — instead of beside it, where every carrier would inherit it.
    */
-  sourceId: string;
-  /**
-   * The provider's thread/conversation grouping for the record — a Gmail
-   * `threadId`. Absent for a stand-alone record. Carries the same first-carrier
-   * caveat as {@link SearchHit.sourceId} on a folded row.
-   */
-  sourceThreadId?: string;
-  /**
-   * The connected account the record arrived on, matching
-   * `integration_credentials.account_id`. Absent when the lane records none.
-   * Carries the same first-carrier caveat as {@link SearchHit.sourceId} on a
-   * folded row.
-   */
-  accountId?: string;
+  record: RecordIdentity;
   title: string | null;
-  /** Provider receipt kind, when this hit came from an inbound delivery. */
+  /**
+   * Provider receipt kind (an inbound event type such as `pull_request`),
+   * when this hit came from an inbound delivery. This is the RECEIPT's kind,
+   * never the record's shape — the two id-spaces stay in separate fields.
+   */
   kind?: string;
   /** Provider URL retained on the document, when supplied. */
   url?: string;
@@ -95,6 +99,26 @@ export interface SearchHit {
    * at least one valid reference.
    */
   occurrences?: AttachmentContentReference[];
+}
+
+/**
+ * One hit as the model reads it: `SearchHit` minus the dereference
+ * plumbing. Corpus-owned so every model-facing carrier strips the same key:
+ * `Omit` names `record` once, and a new dereference fact placed inside
+ * `record` is excluded here by construction instead of by a second
+ * hand-maintained key list.
+ */
+export type ModelFacingHit = Omit<SearchHit, "record">;
+
+/**
+ * Strip the dereference plumbing for a model-facing answer. New plumbing
+ * belongs inside `record`; anything added beside it is model-visible by
+ * default, which is exactly the decision this function forces.
+ */
+export function toModelFacingHit(hit: SearchHit): ModelFacingHit {
+  const { record: _record, ...rest } = hit;
+
+  return rest;
 }
 
 export async function search(args: SearchArgs): Promise<SearchHit[]> {
@@ -183,7 +207,11 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       chunkId: r.chunkId,
       documentId: r.documentId,
       source: r.source,
-      sourceId: r.sourceId,
+      record: {
+        sourceId: r.sourceId,
+        sourceThreadId: r.sourceThreadId,
+        accountId: r.accountId,
+      },
       title: r.title,
       position: r.position,
       page: extractPageFromMetadata(r.metadata),
@@ -197,10 +225,6 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
     if (kind) hit.kind = kind;
 
     if (r.url) hit.url = r.url;
-
-    if (r.sourceThreadId) hit.sourceThreadId = r.sourceThreadId;
-
-    if (r.accountId) hit.accountId = r.accountId;
 
     if (r.source === "gmail_attachment") {
       const occurrences = parseAttachmentContentReferences(r.documentMetadata);
