@@ -40,6 +40,8 @@ import { z } from "zod";
 import {
   extractGithubKeys,
   isGithubNotificationSender,
+  keyIdentity,
+  type ObjectKeyMatch,
   type ObjectState,
   objectStateStore,
 } from "@alfred/assistant/connections";
@@ -358,19 +360,30 @@ async function reconcileGithubLoops(
   // exact candidate first and consult a prefix only for documents where no
   // exact candidate produced a state — otherwise a coincidental abbreviation
   // can report the wrong object's title and url.
-  const exactKeys = distinctKeys.filter((key) => key.match !== "prefix");
+  const exactKeys = distinctKeys.filter((key) => key.match === "exact");
   const prefixKeys = distinctKeys.filter((key) => key.match === "prefix");
 
   const stateByKey = new Map<string, ObjectState>();
+
+  // Resolver per match mode. `satisfies Record<ObjectKeyMatch, …>` keeps a
+  // third mode a compile error here instead of a silent exact lookup.
+  const keyResolvers = {
+    exact: (key: ExtractedGithubKey) =>
+      objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue),
+    prefix: (key: ExtractedGithubKey) =>
+      objectStateStore.resolveByKeyPrefix(userId, "github", key.keyKind, key.keyValue),
+  } satisfies Record<
+    ObjectKeyMatch,
+    (key: ExtractedGithubKey) => Promise<Awaited<ReturnType<typeof objectStateStore.resolveByKey>>>
+  >;
+
   const resolveKey = async (key: ExtractedGithubKey) => {
     const identity = keyIdentity(key);
 
     // An abbreviated sha is a leading fragment of the stored key, so it
     // resolves by prefix; an ambiguous prefix resolves to nothing.
-    const ref =
-      key.match === "prefix"
-        ? await objectStateStore.resolveByKeyPrefix(userId, "github", key.keyKind, key.keyValue)
-        : await objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue);
+    const resolve = keyResolvers[key.match];
+    const ref = await resolve(key);
 
     if (!ref) return; // unknown PR → loop stays live
     const state = await objectStateStore.getState(userId, ref);
@@ -382,10 +395,11 @@ async function reconcileGithubLoops(
 
   const docHasExactState = (documentId: string): boolean =>
     (keysByDoc.get(documentId) ?? []).some(
-      (key) => key.match !== "prefix" && stateByKey.has(keyIdentity(key)),
+      (key) => key.match === "exact" && stateByKey.has(keyIdentity(key)),
     );
 
   const docsByKey = new Map<string, string[]>();
+
   for (const [documentId, keys] of keysByDoc) {
     for (const key of keys) {
       const list = docsByKey.get(keyIdentity(key)) ?? [];
@@ -402,6 +416,10 @@ async function reconcileGithubLoops(
       .map((key) => resolveKey(key)),
   );
 
+  // Exact identities outrank prefix guesses. Exhaustive so a third match
+  // mode is a compile error, not a silent tie with exact.
+  const matchRank = { exact: 0, prefix: 1 } satisfies Record<ObjectKeyMatch, number>;
+
   const closedLoops: BriefingClosedLoop[] = [];
 
   for (const category of PRIORITY_CATEGORIES) {
@@ -411,7 +429,7 @@ async function reconcileGithubLoops(
       // Exact identities outrank prefix guesses: a resolved prefix shared
       // with another document must not shadow this document's own proof.
       const terminal = [...(keysByDoc.get(item.documentId) ?? [])]
-        .sort((a, b) => Number(a.match === "prefix") - Number(b.match === "prefix"))
+        .sort((a, b) => matchRank[a.match] - matchRank[b.match])
         .map((key) => stateByKey.get(keyIdentity(key)))
         .find(
           (state): state is ObjectState & { stateCategory: LoopClosingStateCategory } =>
@@ -440,14 +458,6 @@ async function reconcileGithubLoops(
 }
 
 type ExtractedGithubKey = ReturnType<typeof extractGithubKeys>[number];
-
-/**
- * Map key for one candidate. The match mode belongs in it: the same value read
- * exactly and read as a prefix are two different lookups.
- */
-function keyIdentity(key: ExtractedGithubKey): string {
-  return [key.keyKind, key.keyValue, key.match].join("\u0000");
-}
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
   return (await gatherBriefingWithSuppressionAudit(args)).gather;

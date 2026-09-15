@@ -13,7 +13,6 @@ import {
 } from "@alfred/db/schemas";
 import { escapeLike } from "@alfred/db/helpers";
 import { and, desc, eq, gte, like, lt, lte } from "drizzle-orm";
-import { MIN_ABBREVIATED_SHA_LENGTH } from "./extract-keys";
 import { reduceGithubEvent } from "./github-reducer";
 
 /**
@@ -100,13 +99,15 @@ export interface ObjectStateStore {
     keyValue: string,
   ): Promise<ObjectStateRef | null>;
   /**
-   * Same lookup for an ABBREVIATED value: the stored key must START WITH
+   * Same lookup for an ABBREVIATED `head_sha`: the stored key must START WITH
    * `keyPrefix`. GitHub Actions failure mail names the run's commit in the
    * 7-hex short form, so the exact lookup can never find it (#1092).
    *
-   * Returns `null` when the prefix matches no object AND when it matches more
-   * than one — an ambiguous prefix is not an identity, so it may close nothing.
-   * A prefix shorter than the abbreviation floor is rejected outright.
+   * Only `head_sha` supports prefix matching; any other `keyKind` returns
+   * `null`. Returns `null` when the prefix matches no object AND when it
+   * matches more than one — an ambiguous prefix is not an identity, so it may
+   * close nothing. A prefix shorter than the abbreviation floor is rejected
+   * outright.
    */
   resolveByKeyPrefix(
     userId: string,
@@ -148,6 +149,16 @@ const REDUCERS = {
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
 
 const MAX_OBJECT_LIST_LIMIT = 250;
+
+/**
+ * Shortest prefix that may identify a commit. The store owns this floor: it
+ * guards the `LIKE 'prefix%'` lookup, so it must not follow the mail
+ * extractor (scheduled for replacement by ADR-0063). Only `head_sha` lookups
+ * may use it — any other key kind resolves exactly or not at all.
+ */
+const MIN_HEAD_SHA_PREFIX_LENGTH = 7;
+
+const HEAD_SHA_PREFIXABLE_KEY_KIND = "head_sha";
 
 function rowToObjectState(row: IntegrationObject): ObjectState {
   return {
@@ -309,7 +320,12 @@ export const objectStateStore: ObjectStateStore = {
   },
 
   async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {
-    if (keyPrefix.length < MIN_ABBREVIATED_SHA_LENGTH) return null;
+    // Prefix semantics belong to `head_sha` only. A short non-sha prefix such
+    // as `"https:/"` would otherwise clear the length floor and match every
+    // stored PR URL of its kind.
+    if (keyKind !== HEAD_SHA_PREFIXABLE_KEY_KIND) return null;
+
+    if (keyPrefix.length < MIN_HEAD_SHA_PREFIX_LENGTH) return null;
 
     // `LIKE 'prefix%'` alone cannot use the btree under a non-C collation —
     // the equality columns select every head_sha row, so the filter scans the
