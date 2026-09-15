@@ -2,6 +2,9 @@ import {
   documentRecordKind,
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
   EVIDENCE_CITATION_URL_MAX_CHARS,
+  EVIDENCE_EXPANSION_REF_MAX_CHARS,
+  EVIDENCE_EXPANSION_SCOPE_MAX_CHARS,
+  expansionIdentifier,
   integrationDisplayName,
   sanitizeErrorMessage,
   sourceAuthorityFromManifest,
@@ -169,18 +172,44 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
  * this file never grows a case for either and a newly ingested lane declares its
  * answer once in `@alfred/contracts`. No card loses its handle either way; an
  * expander that wants an attachment's carrier reads `SearchHit.occurrences`.
+ *
+ * The three provider values are gated by `expansionIdentifier` before they mint
+ * anything. `documents.source_id`, `account_id`, and `source_thread_id` are
+ * unbounded `text`, so the provider decides their length and their bytes, while
+ * the handle schema bounds all three; a Gmail attachment id already measures 443
+ * characters in production against a `ref` ceiling of 1024. An id that misses
+ * the bound, or that carries poison the packer would render into the `Expand:`
+ * line, is refused rather than clamped: a truncated provider id still addresses
+ * SOMETHING, so clamping would trade a caught error for a wrong live read. A
+ * refused `ref` drops the card to the document-scoped handle, whose `ref` is
+ * Alfred's own bounded document id; a refused account or thread leaves the field
+ * absent and the expander does a second read for it.
+ *
+ * The gate belongs here, at the mint site, because the Context Search boundary
+ * reports the WHOLE `documents` source as `error` when one card fails the
+ * schema. One oversized attachment id must not cost the other cards their
+ * status.
  */
 function documentHitExpansion(hit: SearchHit, title: string | undefined): EvidenceExpansionHandle {
   const recordKind = documentRecordKind(hit.source);
 
+  const ref =
+    recordKind === null
+      ? undefined
+      : expansionIdentifier(hit.sourceId, EVIDENCE_EXPANSION_REF_MAX_CHARS);
+
+  const accountId = expansionIdentifier(hit.accountId, EVIDENCE_EXPANSION_SCOPE_MAX_CHARS);
+
+  const threadId = expansionIdentifier(hit.sourceThreadId, EVIDENCE_EXPANSION_SCOPE_MAX_CHARS);
+
   return {
     sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
-    ...(recordKind !== null
+    ...(recordKind !== null && ref !== undefined
       ? {
           kind: recordKind,
-          ref: hit.sourceId,
-          ...(hit.accountId ? { accountId: hit.accountId } : {}),
-          ...(hit.sourceThreadId ? { threadId: hit.sourceThreadId } : {}),
+          ref,
+          ...(accountId ? { accountId } : {}),
+          ...(threadId ? { threadId } : {}),
         }
       : { kind: "document", ref: hit.documentId }),
     ...(title ? { hint: title } : {}),
