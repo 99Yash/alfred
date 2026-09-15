@@ -84,8 +84,17 @@ const DRIVE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   expansionKinds: ["drive_file" satisfies BuiltInExpansionKind],
 };
 
+/**
+ * The manifest as cards read it: the base plus the once-stated id, built once
+ * at module load rather than per card. The registry parses and freezes its own
+ * copy at registration; this is the same value, and cards derive fresh
+ * `source`/`authority` objects from it per card (sharing one object across
+ * cards would alias them).
+ */
+const DRIVE_MANIFEST: SourceManifest = { ...DRIVE_MANIFEST_BASE, id: DRIVE_CONTEXT_SOURCE_ID };
+
 function driveManifest(): SourceManifest {
-  return { ...DRIVE_MANIFEST_BASE, id: DRIVE_CONTEXT_SOURCE_ID };
+  return DRIVE_MANIFEST;
 }
 
 /**
@@ -129,8 +138,11 @@ const DRIVE_INLINE_TEXT_READS = 3;
 /** Terms one Drive query carries. Each one narrows the match, so few is more. */
 const DRIVE_MAX_QUERY_TERMS = 4;
 
-/** Shortest term worth sending. Below this a token matches almost every file. */
-const DRIVE_MIN_TERM_CHARS = 3;
+/** Shortest term worth sending. Two characters keeps the identifiers that name
+ * a file — `q3`, `v2`, `ai`, `h1` — while a single character still matches
+ * almost every file. The two-letter function words this admits (`is`, `of`,
+ * `to`, …) are stopped below instead. */
+const DRIVE_MIN_TERM_CHARS = 2;
 
 /**
  * Words dropped from a query before it becomes a Drive term.
@@ -143,12 +155,18 @@ const DRIVE_MIN_TERM_CHARS = 3;
 const DRIVE_STOP_WORDS = new Set([
   "about",
   "after",
+  "an",
   "and",
   "any",
   "are",
+  "as",
+  "at",
+  "be",
   "but",
+  "by",
   "can",
   "did",
+  "do",
   "does",
   "file",
   "find",
@@ -156,12 +174,24 @@ const DRIVE_STOP_WORDS = new Set([
   "from",
   "has",
   "have",
+  "he",
   "how",
+  "if",
+  "in",
   "into",
+  "is",
+  "it",
   "its",
+  "me",
+  "my",
+  "no",
   "not",
+  "of",
+  "on",
+  "or",
   "our",
   "out",
+  "so",
   "some",
   "than",
   "that",
@@ -172,7 +202,11 @@ const DRIVE_STOP_WORDS = new Set([
   "these",
   "they",
   "this",
+  "to",
+  "up",
+  "us",
   "was",
+  "we",
   "were",
   "what",
   "when",
@@ -313,17 +347,22 @@ async function readDrive(
       signal,
     });
 
-    // A folder matches a full-text query and holds no text; it is a container,
-    // not evidence. Dropping it here keeps it out of the inline-read budget too.
+    // A folder or shortcut matches a full-text query and holds no text; each is
+    // a container, not evidence. The query already excludes both `mimeType`s
+    // so they never consume page slots; this filter is the backstop for a
+    // grammar the provider stops honoring.
     const candidates = files.filter(
       (file) => file.id.length > 0 && !GOOGLE_NATIVE_NON_DOCUMENTS.has(file.mimeType ?? ""),
     );
 
     // Parallel on purpose, and bounded by the count above: the reads are the
     // read's latency, and running them in series would make one search cost the
-    // SUM of three exports. Each settles on its own, so one unreadable file
-    // cannot cost the others their text. The collect signal travels with every
-    // read, so a deadline cancels the Drive fetches rather than abandoning them.
+    // SUM of three exports. A per-file failure never rejects the batch — the
+    // try/catch inside `readFileText` converts it to a note on that card — so
+    // one unreadable file cannot cost the others their text. Only an abort or
+    // a mid-read credential death rethrows, which fails the read by design.
+    // The collect signal travels with every read, so a deadline cancels the
+    // Drive fetches rather than abandoning them.
     const texts = await Promise.all(
       candidates
         .slice(0, DRIVE_INLINE_TEXT_READS)
@@ -331,7 +370,10 @@ async function readDrive(
     );
 
     const evidence = candidates.map((file, index) =>
-      driveFileToEvidenceCard(file, texts[index] ?? { text: undefined, failure: undefined }),
+      driveFileToEvidenceCard(
+        file,
+        texts[index] ?? { text: undefined, truncated: false, failure: undefined },
+      ),
     );
 
     return { evidence };
@@ -394,7 +436,11 @@ async function expandDriveFile(args: {
   if (args.signal.aborted) return undefined;
 
   try {
-    const file = await drive.getFile({ credentialId, fileId: args.handle.ref, signal: args.signal });
+    const file = await drive.getFile({
+      credentialId,
+      fileId: args.handle.ref,
+      signal: args.signal,
+    });
 
     if (args.signal.aborted || textPath(file.mimeType) === "none") return undefined;
 
@@ -410,9 +456,11 @@ async function expandDriveFile(args: {
   }
 }
 
-/** What one text read produced: the text, or the reason there is none. */
+/** What one text read produced: the text, whether it was cut short, or why not. */
 interface FileText {
   readonly text: string | undefined;
+  /** True when the provider cut the text at its byte cap. */
+  readonly truncated: boolean;
   /** Sanitized provider text, when the read was attempted and failed. */
   readonly failure: string | undefined;
 }
@@ -422,7 +470,7 @@ interface FileText {
  *
  * A failure is local and becomes a note on the card. This source's job is to
  * report what it found; one file Drive could not export must not cost the read
- * the four files it could.
+ * the three files it could.
  */
 async function readFileText(
   drive: DriveClient,
@@ -432,7 +480,7 @@ async function readFileText(
 ): Promise<FileText> {
   const path = textPath(file.mimeType);
 
-  if (path === "none") return { text: undefined, failure: undefined };
+  if (path === "none") return { text: undefined, truncated: false, failure: undefined };
 
   // The export MIME is per type: Sheets cannot export `text/plain` and every
   // non-document native type cannot export text at all (those never reach
@@ -453,7 +501,9 @@ async function readFileText(
 
     const text = result.text.trim();
 
-    return { text: text.length > 0 ? text : undefined, failure: undefined };
+    if (text.length === 0) return { text: undefined, truncated: false, failure: undefined };
+
+    return { text, truncated: result.truncated, failure: undefined };
   } catch (error) {
     // A deadline abort is the caller's, not the provider's: rethrow so the
     // collect race reports the timeout instead of minting a per-file failure
@@ -465,7 +515,7 @@ async function readFileText(
     // per-file note about an account fact.
     if (readerDeclinedReason(error) !== undefined) throw error;
 
-    return { text: undefined, failure: sanitizeErrorMessage(toMessage(error)) };
+    return { text: undefined, truncated: false, failure: sanitizeErrorMessage(toMessage(error)) };
   }
 }
 
@@ -476,6 +526,12 @@ async function readFileText(
  * the search and the expansion cannot drift on name, time, citation, or the
  * snippet/note distinction. The callers own the handle because the two phases
  * mean different things by it.
+ *
+ * The snippet is provider text, so it is stripped of poison before it is
+ * minted — the packer cleans again at render time, but the card itself must
+ * already be clean. A provider-truncated read carries a note ALONGSIDE the
+ * snippet (the contract admits both): without it a 150,000-character document
+ * and a 1,900-character one mint cards the model cannot tell apart.
  */
 function driveFileBaseCard(file: DriveFile, read: FileText): EvidenceCard {
   const manifest = driveManifest();
@@ -483,14 +539,26 @@ function driveFileBaseCard(file: DriveFile, read: FileText): EvidenceCard {
   const name = fileLabel(file);
   const path = textPath(file.mimeType);
 
-  const snippet = read.text !== undefined ? read.text.slice(0, EVIDENCE_SNIPPET_MAX_CHARS) : "";
+  // Slice before sanitizing so the poison strip scans the snippet, not the
+  // whole export; the bound re-applies after the strip, which can only shorten.
+  const snippet =
+    read.text !== undefined
+      ? sanitizeErrorMessage(
+          read.text.slice(0, EVIDENCE_SNIPPET_MAX_CHARS),
+          EVIDENCE_SNIPPET_MAX_CHARS,
+        )
+      : "";
 
   return {
     id: `${DRIVE_CONTEXT_SOURCE_ID}:${file.id}`,
     source: sourceRefFromManifest(manifest),
     mediaKind: "document",
     ...(snippet.length > 0 ? { snippet } : {}),
-    ...(snippet.length > 0 ? {} : { note: unreadNote(file, read, path) }),
+    ...(snippet.length > 0
+      ? read.truncated
+        ? { note: truncatedNote(file) }
+        : {}
+      : { note: unreadNote(file, read, path) }),
     ...(authority !== undefined ? { authority } : {}),
     time: {
       // Drive's own `modifiedTime` is when the file last changed, which is when
@@ -588,8 +656,7 @@ function driveExpandedCard(
  * is unbounded provider text (an `HttpError` message carries a 500-char body
  * summary plus the URL), and an over-cap note fails the card schema — which
  * deletes the card AND the real provider reason it was built to carry.
- */
-function unreadNote(file: DriveFile, read: FileText, path: TextPath): string {
+ */ function unreadNote(file: DriveFile, read: FileText, path: TextPath): string {
   const name = fileLabel(file);
 
   let raw: string;
@@ -605,6 +672,21 @@ function unreadNote(file: DriveFile, read: FileText, path: TextPath): string {
   }
 
   return sanitizeErrorMessage(raw, EVIDENCE_NOTE_MAX_CHARS);
+}
+
+/**
+ * The provider cut the text at its byte cap, so the snippet is the file's
+ * opening, not its whole. It rides ALONGSIDE the snippet — the one card shape
+ * the contract admits both on — so the model can tell a partial read from a
+ * short file. Bounded for the same schema reason as {@link unreadNote}.
+ */
+function truncatedNote(file: DriveFile): string {
+  const name = fileLabel(file);
+
+  return sanitizeErrorMessage(
+    `"${name}" matched the search. Only the first part of its contents was read; the provider truncated the export.`,
+    EVIDENCE_NOTE_MAX_CHARS,
+  );
 }
 
 /** The file's display name, bounded to what a citation label may carry. */
@@ -642,7 +724,10 @@ function textPath(mimeType: string | undefined): TextPath {
  * honest rather than a defect to paper over with a model call.
  *
  * `trashed = false` is always joined on. A deleted file is not evidence, and
- * Drive includes the trash unless it is told not to.
+ * Drive includes the trash unless it is told not to. Folders and shortcuts are
+ * excluded the same way: neither holds text, and filtering them in the query
+ * keeps them from consuming page slots that text-bearing files would take. The
+ * client-side filter in the read stays as the backstop.
  */
 function driveQuery(query: string): string | undefined {
   const terms = queryTerms(query);
@@ -651,7 +736,11 @@ function driveQuery(query: string): string | undefined {
 
   const clauses = terms.map((term) => `fullText contains ${driveLiteral(term)}`);
 
-  return `${clauses.join(" and ")} and trashed = false`;
+  const exclusions = [...GOOGLE_NATIVE_NON_DOCUMENTS].map(
+    (mimeType) => `mimeType != ${driveLiteral(mimeType)}`,
+  );
+
+  return [...clauses, ...exclusions, "trashed = false"].join(" and ");
 }
 
 /**
