@@ -23,8 +23,8 @@ import { reduceGithubEvent } from "./github-reducer";
  *
  * State is asserted ONLY here, from the deterministic per-provider reducer over
  * webhook payloads (propose/dispose). `resolveByKey`/`getState` are the read
- * path the briefing loop-closure uses: a CI email's `head_sha` → PR ref →
- * terminal state.
+ * path the briefing loop-closure uses: an email's `head_sha` or canonical PR
+ * URL → PR ref → terminal state.
  */
 
 /** The projection delta a per-provider reducer emits for one webhook delivery. */

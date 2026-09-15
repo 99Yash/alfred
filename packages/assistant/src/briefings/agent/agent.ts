@@ -5,7 +5,7 @@ import {
   isStepCount,
   type ModelMessage,
 } from "@alfred/ai";
-import type { IanaTimezone } from "@alfred/contracts";
+import type { BriefingClosedLoop, IanaTimezone } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
@@ -41,6 +41,8 @@ export interface RunBriefingAgentArgs {
   /** Forwarded to the metering wrapper for per-call attribution. */
   runId: string;
   stepId: string;
+  /** Positive object-state closure facts from this run's deterministic gather. */
+  closedLoops: BriefingClosedLoop[];
 }
 
 export interface RunBriefingAgentResult {
@@ -73,6 +75,7 @@ export async function runBriefingAgent(
     untilIngestedAt: args.untilIngestedAt,
     briefingDate: args.briefingDate,
     timezone: args.timezone,
+    closedLoops: args.closedLoops,
   });
 
   const seed: ModelMessage[] = [
@@ -80,7 +83,8 @@ export async function runBriefingAgent(
       role: "user",
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
-        `Start by reading list_prior_briefings, then list_emails_since. End with dump_briefing.`,
+        `Start by reading list_prior_briefings, then list_emails_since and list_closed_loops. ` +
+        `End with dump_briefing.`,
     },
   ];
 
