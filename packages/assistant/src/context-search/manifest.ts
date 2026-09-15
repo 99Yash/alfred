@@ -9,7 +9,7 @@ import {
   type SourceManifest,
 } from "@alfred/contracts";
 import { sourcePriorityFromManifest } from "./rank";
-import type { ContextSource } from "./registry";
+import { READER_DECLINED_REASONS, type ContextSource, type ReaderDeclinedReason } from "./registry";
 
 /**
  * The manifest reader (#466; epic #422; ADR-0101).
@@ -52,12 +52,19 @@ import type { ContextSource } from "./registry";
  */
 
 /**
- * Why the boundary did not consult a source in the FIRST phase of one request.
+ * Why SELECTION did not consult a source in the FIRST phase of one request.
  *
  * A closed set, not prose: registration guarantees every source declares read
- * semantics and an authority above `unknown`, so only three exclusions remain.
- * A fourth member is a deliberate schema-plus-code change, never a new string
+ * semantics and an authority above `unknown`, so only four exclusions remain.
+ * A fifth member is a deliberate schema-plus-code change, never a new string
  * at one call site.
+ *
+ * This is selection's half of the union. Readers decline with
+ * {@link ReaderDeclinedReason} (per-user, per-read facts no boot-time manifest
+ * can carry); `selectContextSources` never mints those, and no reader mints
+ * these — a reader cannot know the budget, the availability declaration, or
+ * which reads answer this request. Reports and the packer speak the joined
+ * {@link SourceExclusionReason}.
  *
  * `expansion-only` is not a weaker `no-answering-read` — it is a different
  * fact, and telling them apart is the point (#1077). A source that cannot
@@ -66,15 +73,27 @@ import type { ContextSource } from "./registry";
  * second phase once a surviving card hands it a handle; when it does, the real
  * outcome replaces this skip in place.
  */
-export const SOURCE_EXCLUSION_REASONS = [
+export const SELECTION_EXCLUSION_REASONS = [
   "unavailable",
   "no-answering-read",
   "expansion-only",
   "over-budget",
-  "not-connected",
 ] as const;
 
-export type SourceExclusionReason = (typeof SOURCE_EXCLUSION_REASONS)[number];
+export type SelectionExclusionReason = (typeof SELECTION_EXCLUSION_REASONS)[number];
+
+/**
+ * Every reason a `skipped` report can carry: what selection excluded plus what
+ * a reader declined. The ledger reads negative on purpose — neither side can
+ * mint the other's reasons, so a wrong reason stops compiling instead of
+ * shipping as a visible-but-wrong pack line.
+ */
+export type SourceExclusionReason = SelectionExclusionReason | ReaderDeclinedReason;
+
+export const SOURCE_EXCLUSION_REASONS: readonly SourceExclusionReason[] = [
+  ...SELECTION_EXCLUSION_REASONS,
+  ...READER_DECLINED_REASONS,
+];
 
 /**
  * How expensive each declared cost class is, as one rank (#1078).
@@ -150,8 +169,8 @@ export function isTrustedRetrievalSource(manifest: SourceManifest): boolean {
 export function selectContextSources(
   sources: readonly ContextSource[],
   request: ContextSearchRequest,
-): ReadonlyMap<string, SourceExclusionReason> {
-  const excluded = new Map<string, SourceExclusionReason>();
+): ReadonlyMap<string, SelectionExclusionReason> {
+  const excluded = new Map<string, SelectionExclusionReason>();
 
   for (const source of sources) {
     const reason = exclusionReason(source.manifest, request);
@@ -233,7 +252,7 @@ export function expansionRoutes(
 function exclusionReason(
   manifest: RetrievalSourceManifest,
   request: ContextSearchRequest,
-): SourceExclusionReason | undefined {
+): SelectionExclusionReason | undefined {
   if (manifest.availability === "unavailable") return "unavailable";
 
   // Price before capability. A source the caller cannot afford is not asked

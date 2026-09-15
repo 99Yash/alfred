@@ -7,7 +7,25 @@ import {
   type RetrievalSourceManifest,
   type SourceReadCapability,
 } from "@alfred/contracts";
-import type { SourceExclusionReason } from "./manifest";
+
+/**
+ * Why a READER declined to be asked on one read (#1078).
+ *
+ * The registry owns this half of the exclusion union because readers are the
+ * registry's side of the boundary: only the source itself can know these
+ * per-user, per-read facts, and no boot-time manifest can carry them.
+ * `manifest.ts` owns the other half (what selection excludes from declared
+ * capability) and joins the two as `SourceExclusionReason` for reports.
+ *
+ * - `not-connected`: no active credential exists — the user never connected.
+ * - `missing-scope`: a credential exists but grants none of the scopes this
+ *   source needs — the user connected but did not grant access.
+ * - `needs-reauth`: the credential's refresh grant is dead (revoked, withdrawn
+ *   consent) — the user must reconnect.
+ */
+export const READER_DECLINED_REASONS = ["not-connected", "missing-scope", "needs-reauth"] as const;
+
+export type ReaderDeclinedReason = (typeof READER_DECLINED_REASONS)[number];
 
 /**
  * The source-side shapes (#422; ADR-0101).
@@ -59,7 +77,7 @@ export interface ContextSourceResult {
    * failed, so a source that declined one read and answered another reports
    * what it actually produced.
    */
-  readonly skipped?: SourceExclusionReason | undefined;
+  readonly skipped?: ReaderDeclinedReason | undefined;
 }
 
 /** One capability's reader: how this source answers one declared read. */
