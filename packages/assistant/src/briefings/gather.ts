@@ -40,6 +40,8 @@ import { z } from "zod";
 import {
   extractGithubKeys,
   isGithubNotificationSender,
+  keyIdentity,
+  type ObjectKeyMatch,
   type ObjectState,
   objectStateStore,
 } from "@alfred/assistant/connections";
@@ -295,8 +297,9 @@ export async function gatherBriefingDigest(
     });
 
     // Extract every deterministic GitHub identity the notification carries.
-    // Actions failures usually carry a head sha; review/comment/merge mail
-    // carries the PR URL or repository + number instead.
+    // An Actions failure names its commit — the full sha in the body, or the
+    // 7-hex abbreviation in the subject; review/comment/merge mail carries the
+    // PR URL or repository + number instead.
     if (isGithubNotificationSender(from)) {
       const keys = extractGithubKeys({ subject: r.title, content: r.content });
 
@@ -337,9 +340,10 @@ export async function gatherBriefingDigest(
  * dropped set for the evening "closed today" recap.
  *
  * Keys are resolved in parallel — at single-user scale a briefing window holds
- * only a handful of GitHub-notification emails, and `resolveByKey` is a single
- * indexed lookup. A key that resolves to nothing, or to a non-terminal state,
- * leaves its loop live (the determinism contract: absence never closes).
+ * only a handful of GitHub-notification emails, and each lookup reads one
+ * index. A key that resolves to nothing, to more than one object, or to a
+ * non-terminal state leaves its loop live (the determinism contract: absence
+ * never closes).
  */
 async function reconcileGithubLoops(
   userId: string,
@@ -349,23 +353,72 @@ async function reconcileGithubLoops(
   if (keysByDoc.size === 0) return [];
 
   const distinctKeys = [
-    ...new Map(
-      [...keysByDoc.values()].flat().map((key) => [`${key.keyKind}\u0000${key.keyValue}`, key]),
-    ).values(),
+    ...new Map([...keysByDoc.values()].flat().map((key) => [keyIdentity(key), key])).values(),
   ];
 
+  // An exact key is proof of identity; a prefix key is a guess. Resolve every
+  // exact candidate first and consult a prefix only for documents where no
+  // exact candidate produced a state — otherwise a coincidental abbreviation
+  // can report the wrong object's title and url.
+  const exactKeys = distinctKeys.filter((key) => key.match === "exact");
+  const prefixKeys = distinctKeys.filter((key) => key.match === "prefix");
+
   const stateByKey = new Map<string, ObjectState>();
+
+  // Resolver per match mode. `satisfies Record<ObjectKeyMatch, …>` keeps a
+  // third mode a compile error here instead of a silent exact lookup.
+  const keyResolvers = {
+    exact: (key: ExtractedGithubKey) =>
+      objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue),
+    prefix: (key: ExtractedGithubKey) =>
+      objectStateStore.resolveByKeyPrefix(userId, "github", key.keyKind, key.keyValue),
+  } satisfies Record<
+    ObjectKeyMatch,
+    (key: ExtractedGithubKey) => Promise<Awaited<ReturnType<typeof objectStateStore.resolveByKey>>>
+  >;
+
+  const resolveKey = async (key: ExtractedGithubKey) => {
+    const identity = keyIdentity(key);
+
+    // An abbreviated sha is a leading fragment of the stored key, so it
+    // resolves by prefix; an ambiguous prefix resolves to nothing.
+    const resolve = keyResolvers[key.match];
+    const ref = await resolve(key);
+
+    if (!ref) return; // unknown PR → loop stays live
+    const state = await objectStateStore.getState(userId, ref);
+
+    if (state) stateByKey.set(identity, state);
+  };
+
+  await Promise.all(exactKeys.map((key) => resolveKey(key)));
+
+  const docHasExactState = (documentId: string): boolean =>
+    (keysByDoc.get(documentId) ?? []).some(
+      (key) => key.match === "exact" && stateByKey.has(keyIdentity(key)),
+    );
+
+  const docsByKey = new Map<string, string[]>();
+
+  for (const [documentId, keys] of keysByDoc) {
+    for (const key of keys) {
+      const list = docsByKey.get(keyIdentity(key)) ?? [];
+      list.push(documentId);
+      docsByKey.set(keyIdentity(key), list);
+    }
+  }
+
   await Promise.all(
-    distinctKeys.map(async (key) => {
-      const identity = `${key.keyKind}\u0000${key.keyValue}`;
-      const ref = await objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue);
-
-      if (!ref) return; // unknown PR → loop stays live
-      const state = await objectStateStore.getState(userId, ref);
-
-      if (state) stateByKey.set(identity, state);
-    }),
+    prefixKeys
+      .filter((key) =>
+        (docsByKey.get(keyIdentity(key)) ?? []).some((documentId) => !docHasExactState(documentId)),
+      )
+      .map((key) => resolveKey(key)),
   );
+
+  // Exact identities outrank prefix guesses. Exhaustive so a third match
+  // mode is a compile error, not a silent tie with exact.
+  const matchRank = { exact: 0, prefix: 1 } satisfies Record<ObjectKeyMatch, number>;
 
   const closedLoops: BriefingClosedLoop[] = [];
 
@@ -373,8 +426,11 @@ async function reconcileGithubLoops(
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
-      const terminal = (keysByDoc.get(item.documentId) ?? [])
-        .map((key) => stateByKey.get(`${key.keyKind}\u0000${key.keyValue}`))
+      // Exact identities outrank prefix guesses: a resolved prefix shared
+      // with another document must not shadow this document's own proof.
+      const terminal = [...(keysByDoc.get(item.documentId) ?? [])]
+        .sort((a, b) => matchRank[a.match] - matchRank[b.match])
+        .map((key) => stateByKey.get(keyIdentity(key)))
         .find(
           (state): state is ObjectState & { stateCategory: LoopClosingStateCategory } =>
             !!state && isLoopClosingCategory(state.stateCategory),
