@@ -32,11 +32,16 @@ import type { ContextSource, ContextSourceExpander, ContextSourceResult } from "
  *   would be the hard-coded source switch this boundary exists to remove.
  * - **Replace, never append.** A refreshed card takes the position of the card
  *   it refreshed, so the phase cannot grow the evidence past `request.limit`
- *   and cannot reorder a rank it did not compute.
- * - **A refresh must declare itself live.** The expanding source stamps
- *   `time.freshness: "live"`; the boundary never stamps it. A card the phase
- *   accepted without that declaration would be Alfred inferring freshness,
- *   which is the one thing the card contract forbids.
+ *   and cannot reorder a rank it did not compute. A refresh whose id is not
+ *   its origin's own and not fresh against every other id is rejected, so two
+ *   chunks sharing one parent handle can never leave one id twice behind.
+ * - **A refresh must declare itself live, about the record it was asked for.**
+ *   The expanding source stamps `time.freshness: "live"` and echoes the
+ *   requested `(kind, ref)` on the returned `expansion`; the boundary never
+ *   stamps either. A card the phase accepted without that declaration would be
+ *   Alfred inferring freshness, which is the one thing the card contract
+ *   forbids — and a card about a different record would take a rank position
+ *   it did not earn.
  *
  * A failure is local: the original card stays, and only an expansion-only
  * source carries the `error`. A source that already answered the query keeps
@@ -118,28 +123,54 @@ export async function expandEvidence(args: {
   const evidence = [...args.evidence];
   const expanders = new Map<string, ExpanderOutcome>();
   const replaced = new Map<string, number>();
+  const originIds = new Set(args.evidence.map((card) => card.id));
+  const acceptedIds = new Set<string>();
 
   for (const attempt of attempts) {
     const sourceId = attempt.plan.source.id;
     const prior = expanders.get(sourceId);
 
-    if (attempt.card !== undefined) {
+    let card = attempt.card;
+    let failure = attempt.failure;
+
+    if (card !== undefined) {
+      // A refresh must not introduce a duplicate card id. Two chunks of one
+      // document share one `(kind, ref)`, so the dedupe above expands only
+      // the better-ranked one — but the returned card could still mint the
+      // sibling's id, leaving one id twice in the final evidence. A returned
+      // id is therefore accepted only when it is the origin's own id or
+      // fresh against every origin id and every already-accepted refresh.
+      const origin = args.evidence[attempt.plan.index];
+      const collides =
+        origin === undefined ||
+        (card.id !== origin.id &&
+          (originIds.has(card.id) || acceptedIds.has(card.id)));
+
+      if (collides) {
+        card = undefined;
+        failure ??= "the expanded evidence card duplicated another card's id";
+      } else {
+        acceptedIds.add(card.id);
+      }
+    }
+
+    if (card !== undefined) {
       const origin = args.evidence[attempt.plan.index];
 
       if (origin !== undefined) {
         replaced.set(origin.source.id, (replaced.get(origin.source.id) ?? 0) + 1);
       }
 
-      evidence[attempt.plan.index] = attempt.card;
+      evidence[attempt.plan.index] = card;
     }
 
     expanders.set(sourceId, {
       sourceId,
-      refreshed: (prior?.refreshed ?? 0) + (attempt.card !== undefined ? 1 : 0),
+      refreshed: (prior?.refreshed ?? 0) + (card !== undefined ? 1 : 0),
       // The first failure is the reported one. A source that failed twice in
       // one read failed once as far as the model needs to know, and two
       // concatenated provider strings buy nothing over one.
-      failure: prior?.failure ?? attempt.failure,
+      failure: prior?.failure ?? failure,
     });
   }
 
@@ -253,11 +284,16 @@ function runExpansionWithDeadline(
 /**
  * Run one expansion and validate what came back.
  *
- * A refreshed card is held to everything a collected card is held to, plus two
+ * A refreshed card is held to everything a collected card is held to, plus three
  * rules that only a replacement needs: it must name the source that produced it
- * (the manifest join key, exactly as in the first phase), and it must declare
- * itself `live`. A source that cannot promise live data has no business
- * replacing a card the local store already answered.
+ * (the manifest join key, exactly as in the first phase), it must declare
+ * itself `live`, and it must answer the record it was asked about — the
+ * returned `expansion` echoes the requested `(kind, ref)`. A source that cannot
+ * promise live data has no business replacing a card the local store already
+ * answered, and a card about a different record has no business taking the
+ * rank position of the card it did not read. The `sourceId` inside the echoed
+ * handle and the `hint` are not compared: routing is by kind alone and the
+ * handle's `sourceId` stays a debugging fact.
  *
  * The phase's abort signal travels with the call: a cooperative expander
  * cancels on it, and an abort during the call reports the timeout rather than
@@ -308,6 +344,19 @@ async function runExpansion(
       plan,
       card: undefined,
       failure: "the expanded evidence card did not declare itself live",
+    };
+  }
+
+  // The refresh answers the handle it was given. Without this an expander can
+  // return a card about a different record and the phase would still write it
+  // at the rank position of the card it did not read.
+  const returned = parsed.data.expansion;
+
+  if (returned === undefined || returned.kind !== plan.handle.kind || returned.ref !== plan.handle.ref) {
+    return {
+      plan,
+      card: undefined,
+      failure: "the expanded evidence card did not match the requested record",
     };
   }
 
