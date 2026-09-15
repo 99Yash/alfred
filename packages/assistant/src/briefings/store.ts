@@ -164,7 +164,9 @@ export async function markBriefingSent(args: {
     .from(briefings)
     .where(eq(briefings.id, args.briefingId))
     .limit(1);
+
   const existing = current[0]?.fullBriefing;
+
   const fullBriefing: FullBriefing = {
     headline: args.downgraded.headline,
     sections: existing?.sections ?? [],
