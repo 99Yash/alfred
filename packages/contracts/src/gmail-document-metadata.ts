@@ -48,5 +48,5 @@ function repairPersistedField(
 ): void {
   if (!(key in candidate)) return;
 
-  if (!schema.safeParse(candidate[key]).success) delete candidate[key];
+  if (!schema.validate(candidate[key])) delete candidate[key];
 }
