@@ -105,13 +105,15 @@ export interface ContextSearchResult {
    */
   readonly sources: readonly ContextSourceReport[];
   /**
-   * The ranker's per-card working, parallel to `evidence` and in the same
-   * order (#427).
+   * The ranker's per-card working, parallel to `evidence` BY RANK POSITION and
+   * in the same order (#427).
    *
    * It records the cards AS RANKED. The expansion phase runs after the rank and
    * replaces a card in place without re-ranking, so a refreshed position's row
    * still names the card the refresh replaced (#1077) — which is what makes the
-   * refresh visible in a trace rather than invisible.
+   * refresh visible in a trace rather than invisible. After expansion,
+   * `ranking[i].cardId` may therefore differ from `evidence[i].id`: join by
+   * index, never by card id.
    *
    * It is a sibling of the evidence, never a field on a card, because the card
    * is what `packEvidenceCards` renders for the model and this is Alfred's
@@ -279,7 +281,7 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
 
   if (!parsed.expand) return { request: parsed, evidence, sources: reports, ranking };
 
-  const expansion = await expandEvidence({ sources, excluded, evidence, request: parsed });
+  const expansion = await expandEvidence({ sources, evidence, request: parsed });
 
   return {
     request: parsed,
@@ -329,8 +331,20 @@ function reportAfterExpansion(
 
   // A first-phase failure still stands: the expansion answered a different
   // question, and hiding the earlier error behind it would lose the fact that
-  // the source could not answer the query.
-  if (report.status === "error") return { ...report, evidenceCount };
+  // the source could not answer the query. When the expansion failed too, its
+  // failure is chained onto the reason rather than silently dropped, so both
+  // facts survive in the one `reason` the report shape carries.
+  if (report.status === "error") {
+    if (outcome?.failure !== undefined) {
+      return {
+        ...report,
+        evidenceCount,
+        reason: `${report.reason} | expansion: ${outcome.failure}`,
+      };
+    }
+
+    return { ...report, evidenceCount };
+  }
 
   // The phase's only consultation of this source was the expansion. A failure
   // there is a real `error`; a refresh is a real contribution (`ok`); but a

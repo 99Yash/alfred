@@ -7,6 +7,7 @@ import {
   sanitizeErrorMessage,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
+  type BuiltInExpansionKind,
   type ContextObjectRef,
   type ContextSearchRequest,
   type EvidenceCard,
@@ -244,7 +245,7 @@ function objectStateCard(state: ObjectState): EvidenceCard {
     citations: [citation],
     expansion: {
       sourceId: OBJECT_STATE_CONTEXT_SOURCE_ID,
-      kind: "integration_object",
+      kind: "integration_object" satisfies BuiltInExpansionKind,
       ref: state.objectId,
       ...(title ? { hint: bound(title, 300) } : {}),
     },
