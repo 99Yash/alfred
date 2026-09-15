@@ -12,7 +12,7 @@ import {
   integrationObjects,
 } from "@alfred/db/schemas";
 import { escapeLike } from "@alfred/db/helpers";
-import { and, desc, eq, gte, like, lte } from "drizzle-orm";
+import { and, desc, eq, gte, like, lt, lte } from "drizzle-orm";
 import { MIN_ABBREVIATED_SHA_LENGTH } from "./extract-keys";
 import { reduceGithubEvent } from "./github-reducer";
 
@@ -311,6 +311,14 @@ export const objectStateStore: ObjectStateStore = {
   async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {
     if (keyPrefix.length < MIN_ABBREVIATED_SHA_LENGTH) return null;
 
+    // `LIKE 'prefix%'` alone cannot use the btree under a non-C collation —
+    // the equality columns select every head_sha row, so the filter scans the
+    // table. The range beside it is what the index answers (LIKE stays as the
+    // residual filter): prefix values are [0-9a-f], which en_US.utf8 orders
+    // like C, so [prefix, nextPrefix) holds exactly the rows LIKE matches.
+    const nextPrefix =
+      keyPrefix.slice(0, -1) + String.fromCharCode(keyPrefix.charCodeAt(keyPrefix.length - 1) + 1);
+
     const rows = await db()
       .selectDistinct({
         objectId: integrationObjectKeys.objectId,
@@ -324,6 +332,8 @@ export const objectStateStore: ObjectStateStore = {
           eq(integrationObjectKeys.userId, userId),
           eq(integrationObjectKeys.provider, provider),
           eq(integrationObjectKeys.keyKind, keyKind),
+          gte(integrationObjectKeys.keyValue, keyPrefix),
+          lt(integrationObjectKeys.keyValue, nextPrefix),
           like(integrationObjectKeys.keyValue, `${escapeLike(keyPrefix)}%`),
         ),
       )

@@ -43,13 +43,19 @@ export const MIN_ABBREVIATED_SHA_LENGTH = 7;
 
 /**
  * The abbreviated sha an Actions failure mail carries, for example
- * `[owner/repo] Run failed: ... (efd2e98)`. Only the parenthesized form counts:
- * a bare 7-hex run also spells ordinary words (`defaced`, `effaced`), and the
- * trailing parentheses are where GitHub writes the commit.
+ * `[owner/repo] Run failed: ... (efd2e98)`. GitHub writes the commit in
+ * trailing parentheses, so only a parenthesized run at the end of the subject
+ * counts: `Invoice (1234567) paid` is a build number mid-subject, not a
+ * commit. The run must also mix digits and a–f letters — an all-letter run
+ * spells ordinary words (`defaced`, `effaced`), an all-digit run spells a
+ * build number or date (`20260915`) — while a real abbreviation is
+ * overwhelmingly mixed. A sha-shaped word such as `(facade0)` is
+ * indistinguishable from a commit and still counts; the store's uniqueness
+ * floor absorbs it.
  */
 const SUBJECT_ABBREVIATED_SHA_RE = new RegExp(
-  String.raw`\(([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40})\)`,
-  "gi",
+  String.raw`\(([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40})\)\s*$`,
+  "i",
 );
 
 export function isGithubNotificationSender(from: string | null | undefined): boolean {
@@ -63,10 +69,10 @@ export function isGithubNotificationSender(from: string | null | undefined): boo
 
 /**
  * Pull the email's GitHub object key. The subject owns a PR identity when it
- * names one; otherwise Actions mail uses a head-sha path — the full 40-hex form
- * anywhere in the mail, or the abbreviation in its own subject. A body PR
- * reference is used only when it is the sole PR identity in that body. Pure and
- * deterministic: no network and no model.
+ * names one; otherwise the full 40-hex form anywhere in the mail wins, then a
+ * body PR reference when it is the sole PR identity in that body, then the
+ * abbreviation in its own subject. Pure and deterministic: no network and no
+ * model.
  */
 export function extractGithubKeys(input: {
   subject?: string | null;
@@ -111,13 +117,10 @@ export function extractGithubKeys(input: {
     return keys;
   }
 
-  // One abbreviation in the subject names the failed run's own commit. Two is
-  // an ambiguous identity, so neither may close the loop.
-  const abbreviated = collectSubjectAbbreviatedShas(input.subject ?? "");
-  const onlyAbbreviated = abbreviated.length === 1 ? abbreviated[0] : undefined;
-
-  if (onlyAbbreviated) addKey("head_sha", onlyAbbreviated, "prefix");
-
+  // The full 40-hex form anywhere in the mail names the commit exactly. A
+  // body PR reference is used only when it is the sole PR identity in that
+  // body. The subject abbreviation is a guess, so it runs last: an exact
+  // identity must never lose to a prefix.
   for (const match of haystack.matchAll(HEAD_SHA_RE)) {
     const sha = match[0].toLowerCase();
 
@@ -130,20 +133,28 @@ export function extractGithubKeys(input: {
 
   if (bodyUrls.length === 1) {
     for (const url of bodyUrls) addKey("pull_request_url", url, "exact");
+
+    return keys;
   }
+
+  // One abbreviation in the subject names the failed run's own commit. Two is
+  // an ambiguous identity, so neither may close the loop.
+  const abbreviated = collectSubjectAbbreviatedShas(input.subject ?? "");
+  const onlyAbbreviated = abbreviated.length === 1 ? abbreviated[0] : undefined;
+
+  if (onlyAbbreviated) addKey("head_sha", onlyAbbreviated, "prefix");
 
   return keys;
 }
 
-/** Every distinct parenthesized sha abbreviation the subject carries. */
+/** The trailing parenthesized sha abbreviation the subject carries, if any. */
 function collectSubjectAbbreviatedShas(subject: string): string[] {
-  const found = new Set<string>();
+  const sha = SUBJECT_ABBREVIATED_SHA_RE.exec(subject)?.[1]?.toLowerCase();
 
-  for (const match of subject.matchAll(SUBJECT_ABBREVIATED_SHA_RE)) {
-    const sha = match[1]?.toLowerCase();
+  if (!sha) return [];
+  // Ordinary words and build numbers/dates are single-class runs; a real
+  // abbreviation mixes digits and letters.
+  if (!/[0-9]/.test(sha) || !/[a-f]/.test(sha)) return [];
 
-    if (sha) found.add(sha);
-  }
-
-  return [...found];
+  return [sha];
 }

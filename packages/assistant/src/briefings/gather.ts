@@ -354,23 +354,52 @@ async function reconcileGithubLoops(
     ...new Map([...keysByDoc.values()].flat().map((key) => [keyIdentity(key), key])).values(),
   ];
 
+  // An exact key is proof of identity; a prefix key is a guess. Resolve every
+  // exact candidate first and consult a prefix only for documents where no
+  // exact candidate produced a state — otherwise a coincidental abbreviation
+  // can report the wrong object's title and url.
+  const exactKeys = distinctKeys.filter((key) => key.match !== "prefix");
+  const prefixKeys = distinctKeys.filter((key) => key.match === "prefix");
+
   const stateByKey = new Map<string, ObjectState>();
+  const resolveKey = async (key: ExtractedGithubKey) => {
+    const identity = keyIdentity(key);
+
+    // An abbreviated sha is a leading fragment of the stored key, so it
+    // resolves by prefix; an ambiguous prefix resolves to nothing.
+    const ref =
+      key.match === "prefix"
+        ? await objectStateStore.resolveByKeyPrefix(userId, "github", key.keyKind, key.keyValue)
+        : await objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue);
+
+    if (!ref) return; // unknown PR → loop stays live
+    const state = await objectStateStore.getState(userId, ref);
+
+    if (state) stateByKey.set(identity, state);
+  };
+
+  await Promise.all(exactKeys.map((key) => resolveKey(key)));
+
+  const docHasExactState = (documentId: string): boolean =>
+    (keysByDoc.get(documentId) ?? []).some(
+      (key) => key.match !== "prefix" && stateByKey.has(keyIdentity(key)),
+    );
+
+  const docsByKey = new Map<string, string[]>();
+  for (const [documentId, keys] of keysByDoc) {
+    for (const key of keys) {
+      const list = docsByKey.get(keyIdentity(key)) ?? [];
+      list.push(documentId);
+      docsByKey.set(keyIdentity(key), list);
+    }
+  }
+
   await Promise.all(
-    distinctKeys.map(async (key) => {
-      const identity = keyIdentity(key);
-
-      // An abbreviated sha is a leading fragment of the stored key, so it
-      // resolves by prefix; an ambiguous prefix resolves to nothing.
-      const ref =
-        key.match === "prefix"
-          ? await objectStateStore.resolveByKeyPrefix(userId, "github", key.keyKind, key.keyValue)
-          : await objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue);
-
-      if (!ref) return; // unknown PR → loop stays live
-      const state = await objectStateStore.getState(userId, ref);
-
-      if (state) stateByKey.set(identity, state);
-    }),
+    prefixKeys
+      .filter((key) =>
+        (docsByKey.get(keyIdentity(key)) ?? []).some((documentId) => !docHasExactState(documentId)),
+      )
+      .map((key) => resolveKey(key)),
   );
 
   const closedLoops: BriefingClosedLoop[] = [];
@@ -379,7 +408,10 @@ async function reconcileGithubLoops(
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
-      const terminal = (keysByDoc.get(item.documentId) ?? [])
+      // Exact identities outrank prefix guesses: a resolved prefix shared
+      // with another document must not shadow this document's own proof.
+      const terminal = [...(keysByDoc.get(item.documentId) ?? [])]
+        .sort((a, b) => Number(a.match === "prefix") - Number(b.match === "prefix"))
         .map((key) => stateByKey.get(keyIdentity(key)))
         .find(
           (state): state is ObjectState & { stateCategory: LoopClosingStateCategory } =>
