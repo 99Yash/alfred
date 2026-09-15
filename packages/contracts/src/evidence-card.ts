@@ -70,8 +70,15 @@ const MEDIA_KIND_BY_TYPE_PREFIX = [
   ["text/", "text"],
 ] as const satisfies readonly (readonly [string, EvidenceMediaKind])[];
 
-/** The Google Workspace MIME namespace. A native file has no bytes to read. */
-const GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps.";
+/**
+ * The Google Workspace MIME namespace, e.g. `application/vnd.google-apps.document`.
+ *
+ * A native Workspace file has no bytes of its own: Drive holds it as editable
+ * state and renders it to a format on export. Exported here because the Drive
+ * context source reads the same namespace to decide whether Drive can export a
+ * file as text, and one namespace under two spellings drifts.
+ */
+export const GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps.";
 
 /**
  * Full MIME types that carry text but do not say so in their top-level type.

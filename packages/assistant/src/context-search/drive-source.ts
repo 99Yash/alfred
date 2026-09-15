@@ -3,6 +3,7 @@ import {
   EVIDENCE_CITATION_URL_MAX_CHARS,
   EVIDENCE_NOTE_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
+  GOOGLE_WORKSPACE_MIME_PREFIX,
   mediaKindForMimeType,
   sanitizeErrorMessage,
   toMessage,
@@ -237,9 +238,6 @@ const DRIVE_STOP_WORDS = new Set([
   "your",
 ]);
 
-/** Google-editable types Drive can export as text. */
-const GOOGLE_NATIVE_PREFIX = "application/vnd.google-apps.";
-
 /**
  * The text export each Google-native type supports, keyed by full MIME type.
  *
@@ -251,9 +249,9 @@ const GOOGLE_NATIVE_PREFIX = "application/vnd.google-apps.";
  * read on a call Drive cannot answer.
  */
 const GOOGLE_NATIVE_TEXT_EXPORTS = new Map([
-  [`${GOOGLE_NATIVE_PREFIX}document`, "text/plain"],
-  [`${GOOGLE_NATIVE_PREFIX}presentation`, "text/plain"],
-  [`${GOOGLE_NATIVE_PREFIX}spreadsheet`, "text/csv"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}document`, "text/plain"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}presentation`, "text/plain"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}spreadsheet`, "text/csv"],
 ]);
 
 /**
@@ -266,8 +264,8 @@ function nativeExportMimeType(mimeType: string): string | undefined {
 
 /** Google-native types that are not documents and hold no text of their own. */
 const GOOGLE_NATIVE_NON_DOCUMENTS = new Set([
-  `${GOOGLE_NATIVE_PREFIX}folder`,
-  `${GOOGLE_NATIVE_PREFIX}shortcut`,
+  `${GOOGLE_WORKSPACE_MIME_PREFIX}folder`,
+  `${GOOGLE_WORKSPACE_MIME_PREFIX}shortcut`,
 ]);
 
 /** Non-native types whose bytes are meaningful as text. */
@@ -553,7 +551,6 @@ function driveFileBaseCard(file: DriveFile, read: FileText): EvidenceCard {
   const manifest = driveManifest();
   const authority = sourceAuthorityFromManifest(manifest);
   const name = fileLabel(file);
-  const path = textPath(file.mimeType);
 
   // Read the modality off the file's own MIME type rather than declaring every
   // Drive card a `document` (#429). A picture, a recording and a film each
@@ -582,7 +579,7 @@ function driveFileBaseCard(file: DriveFile, read: FileText): EvidenceCard {
       ? read.truncated
         ? { note: truncatedNote(file) }
         : {}
-      : { note: unreadNote(file, read, path, mediaKind) }),
+      : { note: unreadNote(file, read, mediaKind) }),
     ...(authority !== undefined ? { authority } : {}),
     time: {
       // Drive's own `modifiedTime` is when the file last changed, which is when
@@ -677,7 +674,7 @@ function driveExpandedCard(
  * Several different facts, and the model has to tell them apart before it
  * concludes anything from the absence: the read failed, this read did not pay
  * for it, or the file has no text path at all — which {@link noTextPathReason}
- * then splits again, because "no text path" covered four unrelated causes
+ * then splits again, because "no text path" covered three unrelated causes
  * under one sentence (#429).
  *
  * Every branch opens on the same clause. A Drive card with no snippet is still
@@ -690,12 +687,7 @@ function driveExpandedCard(
  * summary plus the URL), and an over-cap note fails the card schema — which
  * deletes the card AND the real provider reason it was built to carry.
  */
-function unreadNote(
-  file: DriveFile,
-  read: FileText,
-  path: TextPath,
-  mediaKind: EvidenceMediaKind,
-): string {
+function unreadNote(file: DriveFile, read: FileText, mediaKind: EvidenceMediaKind): string {
   const name = fileLabel(file);
   const matched = `"${name}" matched the search.`;
 
@@ -703,10 +695,10 @@ function unreadNote(
 
   if (read.failure !== undefined) {
     raw = `${matched} Reading its contents failed: ${read.failure}`;
-  } else if (path !== "none") {
+  } else if (textPath(file.mimeType) !== "none") {
     raw = `${matched} Its contents were not read on this request.`;
   } else {
-    raw = `${matched} ${noTextPathReason(file, mediaKind)}`;
+    raw = `${matched} ${noTextPathReason(file.mimeType, mediaKind)}`;
   }
 
   return sanitizeErrorMessage(raw, EVIDENCE_NOTE_MAX_CHARS);
@@ -715,27 +707,34 @@ function unreadNote(
 /**
  * The noun for a modality whose bytes Alfred can name but cannot yet read.
  *
- * A `Map` rather than an exhaustive record: only the modalities that reach the
- * no-text-path branch belong here, and `text` never does — a text file has a
- * `download` path, so a text file with no snippet failed or went unread and
- * takes an earlier branch.
+ * Exhaustive over `EvidenceMediaKind` rather than a partial map, so a new
+ * modality in the enum fails the typecheck here instead of degrading in
+ * silence to the generic tail sentence. `undefined` is the deliberate answer
+ * for the three that cannot reach this branch:
+ *
+ * - `text` and `page`: a file of either kind has a `download` or `export`
+ *   path, so a card with no snippet failed or went unread and took an earlier
+ *   branch.
+ * - `unknown`: there is no noun for a thing Alfred cannot name, which is what
+ *   the generic tail sentence says instead.
  */
-const UNREADABLE_MEDIA_NOUNS = new Map<EvidenceMediaKind, string>([
-  ["image", "an image"],
-  ["audio", "an audio recording"],
-  ["video", "a video"],
-  ["document", "a document Drive stores as bytes rather than as editable text"],
-]);
+const UNREADABLE_MEDIA_NOUNS = {
+  text: undefined,
+  document: "a document Drive stores as bytes rather than as editable text",
+  page: undefined,
+  image: "an image",
+  audio: "an audio recording",
+  video: "a video",
+  unknown: undefined,
+} satisfies Record<EvidenceMediaKind, string | undefined>;
 
 /**
  * Why a file has no text path, as the fact a reader can act on (#429).
  *
  * The old note said one thing — "Drive cannot return its contents as text" —
- * for four causes that differ in who would have to change for the answer to
+ * for three causes that differ in who would have to change for the answer to
  * change, which is exactly what a reader needs:
  *
- * - **A container.** A folder or a shortcut holds no text because it holds no
- *   content. Nothing will ever read it, and the query already excludes both.
  * - **Drive itself cannot export it.** A Form, a Site, a Script or a Drawing
  *   is Google-native with no text export; the limit is the provider's and no
  *   work on Alfred's side removes it.
@@ -746,29 +745,29 @@ const UNREADABLE_MEDIA_NOUNS = new Map<EvidenceMediaKind, string>([
  * - **Drive did not say what the file is.** No MIME type came back, so neither
  *   of the two facts above is established.
  *
+ * A folder and a shortcut get no branch, because neither reaches a card: the
+ * query excludes both `mimeType`s, `readDrive` filters them again, and the
+ * expansion returns early on a `none` text path. Were one to arrive anyway it
+ * would take the Google-native branch, which states a true thing about a
+ * folder.
+ *
  * It states the modality rather than an OCR or a transcription promise: the
  * card says what the record IS, and says plainly that Alfred did not read it.
  */
-function noTextPathReason(file: DriveFile, mediaKind: EvidenceMediaKind): string {
-  const mimeType = file.mimeType;
-
+function noTextPathReason(mimeType: string | undefined, mediaKind: EvidenceMediaKind): string {
   if (mimeType === undefined) {
     return "Drive did not report its type, so Alfred could not choose a way to read it.";
-  }
-
-  if (GOOGLE_NATIVE_NON_DOCUMENTS.has(mimeType)) {
-    return `It is a container (${mimeType}), not a record: it holds other files rather than contents of its own.`;
   }
 
   // Order matters here, and only for one type: a Drawing is an `image` AND a
   // Google-native type with no text export. The provider limit is the stronger
   // fact — it holds whatever Alfred builds later — so the native branch runs
   // first.
-  if (mimeType.startsWith(GOOGLE_NATIVE_PREFIX)) {
+  if (mimeType.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
     return `Drive cannot export a file of this type (${mimeType}) as text.`;
   }
 
-  const noun = UNREADABLE_MEDIA_NOUNS.get(mediaKind);
+  const noun = UNREADABLE_MEDIA_NOUNS[mediaKind];
 
   if (noun !== undefined) {
     return `It is ${noun} (${mimeType}). Alfred cannot extract text from it yet, so this card carries the file itself and not its contents.`;
@@ -807,7 +806,7 @@ function textPath(mimeType: string | undefined): TextPath {
 
   if (GOOGLE_NATIVE_NON_DOCUMENTS.has(mimeType)) return "none";
 
-  if (mimeType.startsWith(GOOGLE_NATIVE_PREFIX)) {
+  if (mimeType.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
     return nativeExportMimeType(mimeType) !== undefined ? "export" : "none";
   }
 
