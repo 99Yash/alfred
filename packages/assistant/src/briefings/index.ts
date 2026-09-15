@@ -113,6 +113,7 @@ export {
   auditComposedBriefing,
   describeOpenAskViolation,
   downgradeOpenAsks,
+  filterDroppedCitations,
   findOpenAskViolations,
   type BriefingBodyField,
   type ClosedObjectFact,

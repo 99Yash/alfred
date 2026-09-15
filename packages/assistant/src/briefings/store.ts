@@ -135,13 +135,52 @@ export async function markBriefingSent(args: {
   emailSendId: string | null;
   watermarkAt: Date;
   gateReason?: string | null;
+  /**
+   * Pre-send guard correction: the delivered email carries less than the
+   * composed row (a send-time downgrade dropped sentences), so patch the
+   * persisted prose and citations to match what actually went out. Sections
+   * and source panels the row already holds are preserved — only the
+   * headline, the markdown body, and the continuity ids move. Without this
+   * the next slot would treat a dropped item as delivered and suppress it.
+   */
+  downgraded?: {
+    breakingSummary: string;
+    headline: string;
+    surfacedDocumentIds: string[];
+  };
 }): Promise<BriefingRow> {
+  if (!args.downgraded) {
+    return updateBriefing(args.briefingId, {
+      status: "sent",
+      watermarkAt: args.watermarkAt,
+      sendDecision: "sent",
+      gateReason: args.gateReason ?? null,
+      emailSendId: args.emailSendId,
+    });
+  }
+
+  const current = await db()
+    .select({ breakingSummary: briefings.breakingSummary, fullBriefing: briefings.fullBriefing })
+    .from(briefings)
+    .where(eq(briefings.id, args.briefingId))
+    .limit(1);
+  const existing = current[0]?.fullBriefing;
+  const fullBriefing: FullBriefing = {
+    headline: args.downgraded.headline,
+    sections: existing?.sections ?? [],
+    ...(existing?.sourcePanels ? { sourcePanels: existing.sourcePanels } : {}),
+    ...(existing?.auditSummary ? { auditSummary: existing.auditSummary } : {}),
+    surfacedDocumentIds: args.downgraded.surfacedDocumentIds,
+  };
+
   return updateBriefing(args.briefingId, {
     status: "sent",
     watermarkAt: args.watermarkAt,
     sendDecision: "sent",
     gateReason: args.gateReason ?? null,
     emailSendId: args.emailSendId,
+    breakingSummary: args.downgraded.breakingSummary,
+    fullBriefing,
   });
 }
 

@@ -20,6 +20,8 @@ import { objectStateStore } from "@alfred/assistant/connections";
  *
  * Powers and limits (ADR-0048 decision D, and the #257 boundary this shares):
  *   - It may only BLOCK a draft or DROP a sentence. It never writes prose, and
+ *     it never reflows the prose that survives (no whitespace normalization —
+ *     fences, tables, and list indentation stay byte-identical), and
  *     it never asserts on its own that an object closed.
  *   - It reads `integration_objects` and writes nothing. No durable state moves.
  *   - It makes no model call. The re-prompt it triggers is the workflow's call,
@@ -45,6 +47,8 @@ export interface ClosedObjectFact {
   url: string;
   stateCategory: LoopClosingStateCategory;
   title: string | null;
+  /** The email document that opened the loop, when the fact came from gather. */
+  documentId: string | null;
 }
 
 export interface OpenAskViolation {
@@ -56,6 +60,15 @@ export interface OpenAskViolation {
   stateCategory: LoopClosingStateCategory;
   /** The open-ask phrase that fired, so a log line says exactly why. */
   marker: string;
+  /**
+   * The email document that opened the loop, when the closure fact came from
+   * this run's gather. `null` for a live `integration_objects` read — that
+   * path proves the object closed but never saw the email document, so there
+   * is no document to blame. The workflow uses this to keep a dropped
+   * sentence's document out of `surfacedDocumentIds`; without it the next
+   * slot would treat an undelivered item as "already told you".
+   */
+  documentId: string | null;
 }
 
 /**
@@ -87,6 +100,7 @@ export async function auditComposedBriefing(args: {
       url,
       stateCategory: loop.stateCategory,
       title: loop.objectTitle,
+      documentId: loop.documentId,
     });
   }
 
@@ -109,6 +123,7 @@ export async function auditComposedBriefing(args: {
           url,
           stateCategory: state.stateCategory,
           title: state.title,
+          documentId: null,
         });
       }),
   );
@@ -154,6 +169,7 @@ export function findOpenAskViolations(args: {
           objectTitle: closed.title,
           stateCategory: closed.stateCategory,
           marker,
+          documentId: closed.documentId,
         });
       }
     }
@@ -365,9 +381,19 @@ function violatingSentences(
 }
 
 /**
- * Remove whole sentences by span, then repair the whitespace the removal left
- * behind. Blank lines survive, so a greeting line and a sign-off keep their own
- * paragraphs.
+ * Remove whole sentences by span, then close the gap the removal left behind.
+ * Each kept span carries the separator that FOLLOWED it, and a dropped
+ * sentence takes its own separator with it — so the blank line between a
+ * greeting and the paragraph survives without any rewriting of the text that
+ * stays. The only normalization is a trim of the field edges.
+ *
+ * Deliberately no global whitespace pass: collapsing `[ \t]+` or stripping
+ * space around `\n` rewrites prose the guard never judged — it flattens
+ * indented code inside fences, collapses GFM table column padding, and
+ * re-indents list continuations. The voice sanitizer already proved the naive
+ * form wrong the expensive way (fences, block quotes, link destinations, and
+ * table delimiter rows each need their own protection); a sentence-drop has
+ * no business re-running any of that. Surviving bytes stay byte-identical.
  */
 function dropSentences(text: string, sentences: ReadonlySet<string>): string {
   if (sentences.size === 0) return text;
@@ -385,11 +411,44 @@ function dropSentences(text: string, sentences: ReadonlySet<string>): string {
     out += span.text + (next ? text.slice(span.end, next.start) : text.slice(span.end));
   }
 
-  return out
-    .replace(/[ \t]+/g, " ")
-    .replace(/ ?\n ?/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return out.trim();
+}
+
+/**
+ * Keep a downgrade from poisoning the next slot's continuity signal. A dropped
+ * sentence's document was never delivered, so it must not land in
+ * `surfacedDocumentIds` — `collectSurfacedKeys` resolves those ids back into
+ * the `previouslySurfaced` flag, and a stale id would suppress an item the
+ * user never heard about.
+ *
+ * Only documents the violations actually blame (via `violation.documentId`)
+ * are removed; every other citation passes through trimmed and deduped.
+ * A violation with `documentId: null` (a live-read closure the gather never
+ * saw) names no document, so it filters nothing — that is a known residual
+ * gap, not a license to drop citations the guard cannot attribute.
+ */
+export function filterDroppedCitations(
+  citedDocumentIds: readonly string[],
+  violations: readonly OpenAskViolation[],
+): string[] {
+  const dropped = new Set<string>();
+
+  for (const violation of violations) {
+    if (violation.documentId) dropped.add(violation.documentId.trim());
+  }
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of citedDocumentIds) {
+    const trimmed = value.trim();
+
+    if (!trimmed || seen.has(trimmed) || dropped.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+
+  return out;
 }
 
 function fullText(composed: ComposedBriefingBody): string {
