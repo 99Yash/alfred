@@ -6,6 +6,7 @@ import {
   GOOGLE_WORKSPACE_MIME_PREFIX,
   MIME_MEDIA_KINDS,
   mediaKindForMimeType,
+  normalizeMimeType,
   sanitizeErrorMessage,
   toMessage,
   sourceAuthorityFromManifest,
@@ -256,10 +257,11 @@ const GOOGLE_NATIVE_TEXT_EXPORTS = new Map([
 
 /**
  * The export MIME type for one Google-native MIME type, or `undefined` when
- * Drive cannot export it as text.
+ * Drive cannot export it as text. Matched on the normalized form: providers
+ * disagree on case and parameters, and the table is lowercase with no params.
  */
 function nativeExportMimeType(mimeType: string): string | undefined {
-  return GOOGLE_NATIVE_TEXT_EXPORTS.get(mimeType);
+  return GOOGLE_NATIVE_TEXT_EXPORTS.get(normalizeMimeType(mimeType));
 }
 
 /** Google-native types that are not documents and hold no text of their own. */
@@ -268,13 +270,12 @@ const GOOGLE_NATIVE_NON_DOCUMENTS = new Set([
   `${GOOGLE_WORKSPACE_MIME_PREFIX}shortcut`,
 ]);
 
-/** Non-native types whose bytes are meaningful as text. */
-const TEXTUAL_UPLOAD_TYPES = new Set([
-  "application/json",
-  "application/xml",
-  "application/x-yaml",
-  "application/yaml",
-]);
+/** True when the MIME type names a Google-native container, after normalization. */
+function isGoogleNativeNonDocument(mimeType: string | undefined): boolean {
+  if (mimeType === undefined) return false;
+
+  return GOOGLE_NATIVE_NON_DOCUMENTS.has(normalizeMimeType(mimeType));
+}
 
 /** How a file's text can be reached, or that it cannot be. */
 type TextPath = "export" | "download" | "none";
@@ -366,7 +367,7 @@ async function readDrive(
     // so they never consume page slots; this filter is the backstop for a
     // grammar the provider stops honoring.
     const candidates = files.filter(
-      (file) => file.id.length > 0 && !GOOGLE_NATIVE_NON_DOCUMENTS.has(file.mimeType ?? ""),
+      (file) => file.id.length > 0 && !isGoogleNativeNonDocument(file.mimeType),
     );
 
     // Parallel on purpose, and bounded by the count above: the reads are the
@@ -710,11 +711,13 @@ function unreadNote(file: DriveFile, read: FileText, mediaKind: EvidenceMediaKin
  * Exhaustive over `EvidenceMediaKind` rather than a partial map, so a new
  * modality in the enum fails the typecheck here instead of degrading in
  * silence to the generic tail sentence. `undefined` is the deliberate answer
- * for the three that cannot reach this branch:
+ * for the two that cannot reach this branch:
  *
- * - `text`: a file of this kind has a `download` or `export`
- *   path, so a card with no snippet failed or went unread and took an earlier
- *   branch.
+ * - `text`: `textPath` answers `download` or `export` for every MIME type
+ *   whose `mediaKindForMimeType` is `text` (the `text/` prefix, the four
+ *   `application/*` text rows, and the `+json`/`+xml`/`+yaml` suffixes, all
+ *   matched after `normalizeMimeType`), so a card with no snippet failed or
+ *   went unread and took an earlier branch in `unreadNote`.
  * - `unknown`: there is no noun for a thing Alfred cannot name, which is what
  *   the generic tail sentence says instead.
  */
@@ -758,11 +761,13 @@ function noTextPathReason(mimeType: string | undefined, mediaKind: EvidenceMedia
     return "Drive did not report its type, so Alfred could not choose a way to read it.";
   }
 
+  const normalized = normalizeMimeType(mimeType);
+
   // Order matters here, and only for one type: a Drawing is an `image` AND a
   // Google-native type with no text export. The provider limit is the stronger
   // fact — it holds whatever Alfred builds later — so the native branch runs
   // first.
-  if (mimeType.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
+  if (normalized.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
     return `Drive cannot export a file of this type (${mimeType}) as text.`;
   }
 
@@ -801,15 +806,22 @@ function fileLabel(file: DriveFile): string {
 
 /** How this MIME type's text can be reached, if at all. */
 function textPath(mimeType: string | undefined): TextPath {
-  if (mimeType === undefined) return "none";
+  const normalized = normalizeMimeType(mimeType);
 
-  if (GOOGLE_NATIVE_NON_DOCUMENTS.has(mimeType)) return "none";
+  if (normalized.length === 0) return "none";
 
-  if (mimeType.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
-    return nativeExportMimeType(mimeType) !== undefined ? "export" : "none";
+  if (GOOGLE_NATIVE_NON_DOCUMENTS.has(normalized)) return "none";
+
+  if (normalized.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
+    return nativeExportMimeType(normalized) !== undefined ? "export" : "none";
   }
 
-  if (mimeType.startsWith("text/") || TEXTUAL_UPLOAD_TYPES.has(mimeType)) return "download";
+  // One MIME namespace: the download decision reads the same normalized type
+  // through `mediaKindForMimeType` rather than restating the text rows. That
+  // keeps the `text/` prefix, the `application/*` text list, and the
+  // `+json`/`+xml`/`+yaml` suffixes in one owner, and keeps `TEXT/PLAIN` and
+  // `application/ld+json; charset=utf-8` on the download path.
+  if (mediaKindForMimeType(normalized) === "text") return "download";
 
   return "none";
 }

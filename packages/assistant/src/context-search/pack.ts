@@ -380,19 +380,40 @@ function renderCitation(citation: EvidenceCitation): string {
 }
 
 function renderAnchor(anchor: EvidenceAnchor): string {
-  const parts: string[] = [anchor.kind];
+  switch (anchor.kind) {
+    case "page": {
+      const extra = [
+        ...(anchor.confidence !== undefined ? [`confidence ${anchor.confidence}`] : []),
+        ...(anchor.note !== undefined ? [anchor.note] : []),
+      ];
 
-  if (anchor.page !== undefined) parts.push(`page ${anchor.page}`);
+      return extra.length > 0 ? `page ${anchor.page} ${extra.join(" ")}` : `page ${anchor.page}`;
+    }
 
-  if (anchor.region !== undefined) {
-    parts.push(
-      `region ${anchor.region.x},${anchor.region.y} ${anchor.region.width}x${anchor.region.height}`,
-    );
+    case "visual": {
+      const parts = [
+        `visual region ${anchor.region.x},${anchor.region.y} ${anchor.region.width}x${anchor.region.height}`,
+        ...(anchor.confidence !== undefined ? [`confidence ${anchor.confidence}`] : []),
+        ...(anchor.note !== undefined ? [anchor.note] : []),
+      ];
+
+      return parts.join(" ");
+    }
+
+    case "unknown": {
+      const parts = [
+        "unknown",
+        ...(anchor.confidence !== undefined ? [`confidence ${anchor.confidence}`] : []),
+        ...(anchor.note !== undefined ? [anchor.note] : []),
+      ];
+
+      return parts.join(" ");
+    }
+
+    default: {
+      const _exhaustive: never = anchor;
+
+      throw new Error(`[pack] unknown anchor kind: ${String(_exhaustive)}`);
+    }
   }
-
-  if (anchor.confidence !== undefined) parts.push(`confidence ${anchor.confidence}`);
-
-  if (anchor.note !== undefined) parts.push(anchor.note);
-
-  return parts.join(" ");
 }

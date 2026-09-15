@@ -342,18 +342,10 @@ export type SourceManifest = z.infer<typeof sourceManifestSchema>;
  * admits everything. A source states what it can return, and the cards it
  * returns are then held to that statement.
  */
-export const retrievalSourceManifestSchema = sourceManifestSchema.extend({
-  read: z
-    .array(sourceReadCapabilitySchema)
-    .min(1)
-    .max(SOURCE_READ_CAPABILITIES.length)
-    .refine(uniqueValues, "must not contain duplicates"),
-  authority: evidenceAuthoritySchema.extend({ level: z.enum(["high", "medium", "low"]) }),
-  mediaKinds: z
-    .array(evidenceMediaKindSchema)
-    .min(1)
-    .max(EVIDENCE_MEDIA_KINDS.length)
-    .refine(uniqueValues, "must not contain duplicates"),
+export const retrievalSourceManifestSchema = sourceManifestSchema.safeExtend({
+  read: sourceManifestSchema.shape.read.unwrap().min(1),
+  authority: evidenceAuthoritySchema.safeExtend({ level: z.enum(["high", "medium", "low"]) }),
+  mediaKinds: sourceManifestSchema.shape.mediaKinds.unwrap().min(1),
 });
 
 export type RetrievalSourceManifest = z.infer<typeof retrievalSourceManifestSchema>;

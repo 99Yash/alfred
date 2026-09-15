@@ -57,127 +57,6 @@ export type EvidenceMediaKind = (typeof EVIDENCE_MEDIA_KINDS)[number];
 export const evidenceMediaKindSchema = z.enum(EVIDENCE_MEDIA_KINDS);
 
 /**
- * Every modality `mediaKindForMimeType` can read out of a MIME type.
- *
- * The function's return set, stated once so the Drive manifest cannot drift
- * from it: the full {@link EVIDENCE_MEDIA_KINDS} vocabulary. A page is
- * granularity rather than modality, so it rides the `page` anchor and no MIME
- * type needs to prove one. Spread this into a manifest whose cards derive
- * `mediaKind` from a MIME type rather than restating the six members.
- */
-export const MIME_MEDIA_KINDS = [
-  "text",
-  "document",
-  "image",
-  "audio",
-  "video",
-  "unknown",
-] as const;
-
-export type MimeMediaKind = (typeof MIME_MEDIA_KINDS)[number];
-
-/**
- * MIME type prefixes that name a modality on their own.
- *
- * The IANA top-level type IS the modality for these four, so a prefix test is
- * the whole rule and no member list can go stale: `image/avif` and an image
- * format nobody has registered yet both read as `image`. The prefixes are
- * disjoint, so the scan order carries no meaning.
- */
-const MEDIA_KIND_BY_TYPE_PREFIX = [
-  ["image/", "image"],
-  ["audio/", "audio"],
-  ["video/", "video"],
-  ["text/", "text"],
-] as const satisfies readonly (readonly [string, MimeMediaKind])[];
-
-/**
- * The Google Workspace MIME namespace, e.g. `application/vnd.google-apps.document`.
- *
- * A native Workspace file has no bytes of its own: Drive holds it as editable
- * state and renders it to a format on export. Exported here because the MIME
- * table above, the Drive context source, the Drive action tools, and the web
- * evidence panel all read the same namespace — one spelling, not five.
- */
-export const GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps.";
-
-/**
- * Full MIME types that carry text but do not say so in their top-level type.
- * `application/*` is the grab-bag of the MIME registry, so this half of the
- * table is a list rather than a prefix.
- */
-const MEDIA_KIND_BY_FULL_TYPE = new Map<string, MimeMediaKind>([
-  ["application/json", "text"],
-  ["application/xml", "text"],
-  ["application/yaml", "text"],
-  ["application/x-yaml", "text"],
-  ["application/pdf", "document"],
-  ["application/x-pdf", "document"],
-  ["application/rtf", "document"],
-  ["application/msword", "document"],
-  ["application/vnd.ms-excel", "document"],
-  ["application/vnd.ms-powerpoint", "document"],
-  ["application/vnd.oasis.opendocument.text", "document"],
-  ["application/vnd.oasis.opendocument.spreadsheet", "document"],
-  ["application/vnd.oasis.opendocument.presentation", "document"],
-  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "document"],
-  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "document"],
-  ["application/vnd.openxmlformats-officedocument.presentationml.presentation", "document"],
-  [`${GOOGLE_WORKSPACE_MIME_PREFIX}document`, "document"],
-  [`${GOOGLE_WORKSPACE_MIME_PREFIX}presentation`, "document"],
-  [`${GOOGLE_WORKSPACE_MIME_PREFIX}spreadsheet`, "document"],
-  [`${GOOGLE_WORKSPACE_MIME_PREFIX}drawing`, "image"],
-  [`${GOOGLE_WORKSPACE_MIME_PREFIX}photo`, "image"],
-  [`${GOOGLE_WORKSPACE_MIME_PREFIX}audio`, "audio"],
-  [`${GOOGLE_WORKSPACE_MIME_PREFIX}video`, "video"],
-]);
-
-/**
- * Structured-syntax suffixes (RFC 6838 §4.2.8). `application/ld+json` and
- * `image/svg+xml` are text at the byte level, but only the ones whose
- * top-level type did not already answer reach here.
- */
-const TEXTUAL_MIME_SUFFIXES = ["+json", "+xml", "+yaml"] as const;
-
-/**
- * The modality one MIME type names (#429).
- *
- * The single owner of "what kind of thing is this file", so an adapter derives
- * a card's `mediaKind` instead of hard-coding one per source. It is a reading
- * of the TYPE, never a claim about what Alfred can extract from it: an `image`
- * answer says the record is a picture, not that an OCR lane exists. The
- * degraded-media note on the card carries that second fact.
- *
- * Its return set is {@link MIME_MEDIA_KINDS}: the full evidence vocabulary.
- *
- * `unknown` is the honest tail, and it covers two different silences on
- * purpose: a type this table does not name, and a record whose type the
- * provider never sent. Both mean "Alfred cannot say what this is", which is
- * exactly what `unknown` declares.
- */
-export function mediaKindForMimeType(mimeType: string | undefined): MimeMediaKind {
-  if (mimeType === undefined) return "unknown";
-
-  // A MIME type may carry parameters (`text/plain; charset=utf-8`) and is
-  // case-insensitive in its type and subtype, so normalize before matching.
-  const normalized = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
-
-  if (normalized.length === 0) return "unknown";
-
-  const byFullType = MEDIA_KIND_BY_FULL_TYPE.get(normalized);
-
-  if (byFullType !== undefined) return byFullType;
-
-  for (const [prefix, kind] of MEDIA_KIND_BY_TYPE_PREFIX) {
-    if (normalized.startsWith(prefix)) return kind;
-  }
-
-  if (TEXTUAL_MIME_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) return "text";
-
-  return "unknown";
-}
-
-/**
  * How a source is backed, so a reader can reason about trust without a
  * name list. `native` is a first-party integration, `internal` is one of
  * Alfred's own stores, `mcp` is a remote MCP server, and `unknown` is the
@@ -315,9 +194,10 @@ export const EVIDENCE_CITATION_URL_MAX_CHARS = 2_048;
 /**
  * A citation the model may render as a source link. `url` is optional because
  * an internal record (a memory chunk, an object row) has no public address;
- * `locator` carries a human-facing pointer instead (a page, a message id, a
- * repo path). A card with neither still cites its `source.id` through the
- * header.
+ * `locator` carries a human-facing pointer instead (a message id, a repo
+ * path, a section heading). A page number never rides here: a proven page
+ * rides the `page` anchor, so one fact keeps one spelling. A card with
+ * neither still cites its `source.id` through the header.
  */
 export const evidenceCitationSchema = z.object({
   label: z.string().min(1).max(EVIDENCE_CITATION_LABEL_MAX_CHARS),
@@ -356,17 +236,51 @@ export type EvidenceVisualRegion = z.infer<typeof evidenceVisualRegionSchema>;
  * A likely extraction confidence, never a promise. `0` is "probably wrong",
  * `1` is "verified"; an absent value is not a claim either way.
  */
-export const evidenceAnchorSchema = z.object({
-  kind: evidenceAnchorKindSchema,
-  /** 1-based page number for `page` anchors. */
-  page: z.number().int().positive().optional(),
-  /** Region for `visual` anchors. */
-  region: evidenceVisualRegionSchema.optional(),
-  /** Extraction confidence in `[0, 1]`, when the extractor reports one. */
-  confidence: z.number().min(0).max(1).optional(),
-  /** An honest degraded-media note, e.g. "OCR unavailable". */
-  note: z.string().min(1).max(500).optional(),
+const evidenceAnchorConfidenceSchema = z.number().min(0).max(1).optional();
+
+/** An honest degraded-media note, e.g. "OCR unavailable". */
+const evidenceAnchorNoteSchema = z.string().min(1).max(500).optional();
+
+/** A proven page in a document. Carries no confidence: the page is proven. */
+export const evidencePageAnchorSchema = z.object({
+  kind: z.literal("page"),
+  /** 1-based page number. */
+  page: z.number().int().positive(),
+  confidence: evidenceAnchorConfidenceSchema,
+  note: evidenceAnchorNoteSchema,
 });
+
+/** A visual region in an image/scan. */
+export const evidenceVisualAnchorSchema = z.object({
+  kind: z.literal("visual"),
+  region: evidenceVisualRegionSchema,
+  confidence: evidenceAnchorConfidenceSchema,
+  note: evidenceAnchorNoteSchema,
+});
+
+/** The honest tail: an anchor kind no reader proves yet. */
+export const evidenceUnknownAnchorSchema = z.object({
+  kind: z.literal("unknown"),
+  confidence: evidenceAnchorConfidenceSchema,
+  note: evidenceAnchorNoteSchema,
+});
+
+/**
+ * One place a piece of evidence points at.
+ *
+ * A discriminated union on `kind`, so each member carries exactly the fields
+ * its kind proves: a `page` anchor always carries its page, a `visual` anchor
+ * always carries its region, and `unknown` carries neither. A future anchor
+ * kind (an audio timestamp) is an additive union member, not a new card
+ * shape — that is the "media later without churn" property #429 relies on.
+ * Renderers switch on `kind` exhaustively, so a new member fails the
+ * typecheck at every reader instead of degrading in silence.
+ */
+export const evidenceAnchorSchema = z.discriminatedUnion("kind", [
+  evidencePageAnchorSchema,
+  evidenceVisualAnchorSchema,
+  evidenceUnknownAnchorSchema,
+]);
 
 export type EvidenceAnchor = z.infer<typeof evidenceAnchorSchema>;
 

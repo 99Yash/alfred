@@ -9,7 +9,7 @@ import {
   type EvidenceExpansionHandle,
 } from "@alfred/contracts";
 import { expansionRoutes } from "./manifest";
-import { cardObeysManifest, type ContextSource, type ContextSourceExpander } from "./registry";
+import { cardManifestViolation, type ContextSource, type ContextSourceExpander } from "./registry";
 
 /**
  * The expansion phase (#428/#1077; epic #422; ADR-0101 sub-decisions 17-18).
@@ -352,8 +352,18 @@ async function runExpansion(
   // Checking the refresh with the same predicate is what stops the expansion
   // phase from being the back door into the pack for a card the collect phase
   // would have rejected.
-  if (!parsed.success || !cardObeysManifest(parsed.data, plan.source)) {
+  if (!parsed.success) {
     return { plan, card: undefined, failure: "the expanded evidence card violated the contract" };
+  }
+
+  const violation = cardManifestViolation(parsed.data, plan.source);
+
+  if (violation !== undefined) {
+    return {
+      plan,
+      card: undefined,
+      failure: `the expanded evidence card violated the contract: ${violation}`,
+    };
   }
 
   if (parsed.data.time?.freshness !== "live") {

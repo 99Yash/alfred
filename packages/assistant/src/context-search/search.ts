@@ -16,8 +16,9 @@ import {
 } from "./manifest";
 import { rankEvidenceCards, type EvidenceRanking } from "./rank";
 import {
-  cardObeysManifest,
+  cardManifestViolation,
   listContextSources,
+  type CardManifestViolation,
   type ContextSource,
   type ContextSourceResult,
   type ReaderDeclinedReason,
@@ -232,13 +233,22 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
       // dropped without discarding its siblings: one bad card must not erase
       // the good evidence a source returned.
       let rejected = 0;
+      const rejectedReasons = new Set<CardManifestViolation>();
 
       try {
         for (const candidate of result.evidence) {
           const parsedCard = evidenceCardSchema.safeParse(candidate);
 
-          if (!parsedCard.success || !cardObeysManifest(parsedCard.data, source)) {
+          if (!parsedCard.success) {
             rejected += 1;
+            continue;
+          }
+
+          const violation = cardManifestViolation(parsedCard.data, source);
+
+          if (violation !== undefined) {
+            rejected += 1;
+            rejectedReasons.add(violation);
             continue;
           }
 
@@ -252,7 +262,9 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
       }
 
       if (rejected > 0) {
-        failure = `${rejected} evidence card(s) violated the contract`;
+        const detail = rejectedReasons.size > 0 ? `: ${[...rejectedReasons].join(", ")}` : "";
+
+        failure = `${rejected} evidence card(s) violated the contract${detail}`;
       }
 
       // The source itself said it could not be asked, for a per-read reason no

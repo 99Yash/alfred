@@ -1,4 +1,5 @@
 import {
+  normalizeMimeType,
   summarizeBody,
   type RestPassthroughRequest,
   type SupportedRestSlug,
@@ -192,7 +193,7 @@ export async function restPassthroughFetch(
  */
 function isBinary(contentType: string | null): boolean {
   if (!contentType) return false; // no type (e.g. an empty body) is treated as text
-  const type = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  const type = normalizeMimeType(contentType);
 
   if (type.startsWith("text/")) return false;
 
@@ -208,7 +209,7 @@ function isBinary(contentType: string | null): boolean {
 /** Parse a textual body: JSON when the type says so, else the raw (bounded downstream) text. */
 function parseBody(text: string, contentType: string | null): unknown {
   if (text.length === 0) return null;
-  const type = (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  const type = normalizeMimeType(contentType);
   const looksJson = type.includes("json") || type === "";
 
   if (looksJson) {

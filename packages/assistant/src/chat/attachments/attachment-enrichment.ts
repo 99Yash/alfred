@@ -18,6 +18,7 @@ import {
 } from "@alfred/extraction";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { normalizeMimeType } from "@alfred/contracts";
 import { readObject } from "./storage";
 
 export const CHAT_ATTACHMENT_REPRESENTATION_VERSION = 1;
@@ -336,7 +337,7 @@ function pdfExtractionFailureError(result: ExtractedPdf): Error {
 }
 
 export function mediaModalityForMime(mime: string): "image" | "audio" | "video" | "pdf" {
-  const normalized = mime.split(";")[0]!.trim().toLowerCase();
+  const normalized = normalizeMimeType(mime);
 
   if (normalized.startsWith("image/")) return "image";
 

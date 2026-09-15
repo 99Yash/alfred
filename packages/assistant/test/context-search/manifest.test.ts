@@ -121,6 +121,7 @@ const NO_AUTHORITY: SourceManifest = {
   id: "manifest-test:no-authority",
   kind: "native",
   read: ["semantic_search"],
+  mediaKinds: ["text"],
 };
 
 /** Deterministic lookups only — it cannot answer a free-text question. */
@@ -207,15 +208,20 @@ describe("selectContextSources — who gets asked", () => {
     // The half-described case used to go dark behind a `skipped` line for the
     // life of the process. Registration now rejects it, so a forgotten
     // authority stops the boot instead of reading as ordinary output.
+    // `mediaKinds` is stated so the missing authority is the only reason to
+    // throw: without it the test would stay green on the mediaKinds rule even
+    // if the authority rule were deleted.
     // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
     const manifest = NO_AUTHORITY as RetrievalSourceManifest;
 
-    assert.throws(() =>
-      registerContextSource({
-        id: manifest.id,
-        manifest,
-        reads: { semantic_search: async () => ({ evidence: [] }) },
-      }),
+    assert.throws(
+      () =>
+        registerContextSource({
+          id: manifest.id,
+          manifest,
+          reads: { semantic_search: async () => ({ evidence: [] }) },
+        }),
+      /authority/,
     );
   });
 
