@@ -110,6 +110,22 @@ export type SourceCostClass = (typeof SOURCE_COST_CLASSES)[number];
 export const sourceCostClassSchema = z.enum(SOURCE_COST_CLASSES);
 
 /**
+ * What a caller is willing to spend on one read (#1078).
+ *
+ * The same vocabulary as {@link SOURCE_COST_CLASSES}, minus `unknown`: a budget
+ * is a statement, and "I do not know what I will pay" is not one. It is derived
+ * rather than respelled so a new cost class joins both ends at once.
+ *
+ * The budget names the MOST expensive class the read will pay for. What the
+ * ladder between the classes is, and what an undeclared cost is read as, are
+ * decisions for the reader that spends the money, not facts about a source, so
+ * they live beside the selection policy and not here.
+ */
+export const sourceCostBudgetSchema = sourceCostClassSchema.exclude(["unknown"]);
+
+export type SourceCostBudget = z.infer<typeof sourceCostBudgetSchema>;
+
+/**
  * Whether the source can be read AT ALL right now.
  *
  * `unavailable` is a STATIC, registration-time admission — a source the

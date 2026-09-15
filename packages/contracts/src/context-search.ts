@@ -11,6 +11,7 @@
 
 import { z } from "zod";
 import { objectIdentitySchema, objectProviderSchema } from "./object-identity";
+import { sourceCostBudgetSchema } from "./source-manifest";
 
 /** Default evidence budget when a request omits `limit`. */
 export const CONTEXT_SEARCH_DEFAULT_LIMIT = 10;
@@ -165,6 +166,32 @@ export const contextSearchRequestSchema = z.object({
     .default(true)
     .describe(
       `Whether the read may refresh up to ${CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS} of the surviving cards from their live source. Set it to false to skip every provider round trip and take the local copies alone.`,
+    ),
+  /**
+   * The most a source may cost before this read declines to ask it (#1078).
+   *
+   * A caller-owned budget, the sibling of `expand`: `expand` prices the SECOND
+   * phase, this prices the first. It exists because a live source calls a
+   * provider on the collect path, where no cap had priced anything — the
+   * expansion cap bounds round trips the read chooses AFTER the rank, and a
+   * source that calls a provider to answer the query is asked before any of
+   * that runs.
+   *
+   * `remote` is the default, so every registered source is asked and the read
+   * is as complete as the source set allows. A latency-bound or cost-bound
+   * caller lowers it: `metered` keeps the local stores and the embedding they
+   * pay for and drops every source that calls a provider, and `local` keeps
+   * only the sources that read a local table.
+   *
+   * It is a budget over DECLARED cost, never a source list, so it names no
+   * provider and a future remote source is priced by the manifest it registers
+   * with rather than by an edit here. An excluded source is reported, never
+   * dropped in silence.
+   */
+  maxSourceCost: sourceCostBudgetSchema
+    .default("remote")
+    .describe(
+      "The most one evidence source may cost before this read declines to ask it: `local` reads only local tables, `metered` also pays for an embedding, and `remote` (the default) also calls a provider.",
     ),
   /** Maximum evidence items returned across all sources. */
   limit: z

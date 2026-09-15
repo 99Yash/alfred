@@ -7,6 +7,7 @@ import {
   type RetrievalSourceManifest,
   type SourceReadCapability,
 } from "@alfred/contracts";
+import type { SourceExclusionReason } from "./manifest";
 
 /**
  * The source-side shapes (#422; ADR-0101).
@@ -36,6 +37,29 @@ import {
 export interface ContextSourceResult {
   /** Canonical evidence cards, bounded by the source. */
   readonly evidence: readonly EvidenceCard[];
+  /**
+   * The source declining to be asked at all, for a reason only it could know
+   * (#1078).
+   *
+   * `selectContextSources` prices and screens a source from its manifest, which
+   * is parsed once at boot and is the same for every read. Some reasons are not
+   * like that: whether the user has connected the account behind a native
+   * source is a per-user, per-read fact, and no boot-time declaration can carry
+   * it. A reader that learns such a reason BEFORE it calls its provider returns
+   * it here, and the boundary reports `skipped` with it.
+   *
+   * It exists so that fact does not have to wear one of the two wrong words it
+   * would otherwise take. `empty` claims the source was asked and had nothing,
+   * which would let a consumer close a loop on evidence that was never sought;
+   * `error` claims a failure, which would put a routine disconnected account in
+   * the packer's urgent notes beside a real outage. Both are the honesty rule
+   * of ADR-0101 sub-decision 4 read backwards.
+   *
+   * It is honored only when the source returned no evidence and no reader
+   * failed, so a source that declined one read and answered another reports
+   * what it actually produced.
+   */
+  readonly skipped?: SourceExclusionReason | undefined;
 }
 
 /** One capability's reader: how this source answers one declared read. */
