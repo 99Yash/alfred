@@ -1,6 +1,7 @@
 import { readChatHistoryInput } from "@alfred/contracts";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
+import { escapeLike } from "@alfred/db/helpers";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import type { z } from "zod";
@@ -293,8 +294,4 @@ async function fetchAttachment(args: { userId: string; threadId: string; id: str
     .limit(1);
 
   return row ?? null;
-}
-
-function escapeLike(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
