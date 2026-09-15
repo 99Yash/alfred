@@ -13,6 +13,7 @@ import type { ContextSearchRequest } from "@alfred/contracts";
 import {
   defineContextSource,
   type ContextSource,
+  type ContextSourceExpander,
   type ContextSourceReads,
   type ContextSourceResult,
 } from "./registry";
@@ -54,6 +55,27 @@ export function defineTestContextSource(
 }
 
 /**
+ * A test source that only expands (#1077): it declares `expand` plus the handle
+ * kinds it dereferences, and nothing else.
+ *
+ * Registration binds the capability and the kind list in both directions, so
+ * this is the shortest source that can legally route a handle. A test ABOUT
+ * that binding writes its own literal instead, so the rejected shapes stay
+ * visible where they are asserted.
+ */
+export function defineTestExpansionSource(
+  id: string,
+  expansionKinds: readonly string[],
+  expand: ContextSourceExpander,
+): ContextSource {
+  return defineContextSource({
+    id,
+    manifest: { ...searchableTestSourceManifest(), expansionKinds: [...expansionKinds] },
+    reads: { expand },
+  });
+}
+
+/**
  * Readers for a test source that answers every declared capability the same
  * way. Registration requires `manifest.read` to equal the keys of `reads`, so
  * a test cannot hand-write one `search` body beside a two-capability manifest
@@ -68,6 +90,8 @@ export function testSourceReads(
 export { EVIDENCE_RANK_FEATURES, entitySignificanceKey, rankEvidenceCards } from "./rank";
 
 export { defineContextSource } from "./registry";
+
+export type { ContextSourceExpander } from "./registry";
 
 export type {
   EvidenceRankContext,

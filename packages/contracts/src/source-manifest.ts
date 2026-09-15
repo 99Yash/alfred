@@ -55,10 +55,16 @@ import { IDENTITY_KINDS, identityKindSchema } from "./user-model";
  * the undescribed-MCP case, and it is why the list is a declaration rather than
  * something inferred from the fact that a tool exists.
  *
- * `enumerate` and `expand` are declared vocabulary for #428, not selectable in
- * this slice: the selection below consults only `semantic_search`,
- * `keyword_search`, and `exact_lookup`, so a source declaring only `enumerate`
- * or only `expand` is still excluded as unanswerable for this request.
+ * The first four answer the REQUEST. `expand` answers a different question: it
+ * takes a handle a card already carries and reads the record behind it, so it
+ * is never selected by the query and always by a handle. A source that declares
+ * `expand` must also name the handle kinds it dereferences in
+ * {@link SourceManifest.expansionKinds}; registration rejects either half
+ * without the other (#1077).
+ *
+ * `enumerate` is declared vocabulary and is still not selectable: listing
+ * recent records ignores the question, so a source declaring only `enumerate`
+ * is excluded as unanswerable for this request.
  */
 export const SOURCE_READ_CAPABILITIES = [
   "semantic_search",
@@ -189,20 +195,21 @@ function uniqueValues(values: readonly string[]): boolean {
  *
  * Read it as four groups: WHO the source is (`id`, `kind`, `integration`,
  * `displayName`, `domains`), WHAT it holds (`objectKinds`, `mediaKinds`,
- * `identityKeys`), HOW it can be read (`read`, `indexability`, `freshness`,
- * `availability`), and HOW MUCH to trust and spend (`authority`, `cost`,
- * `discovery`).
+ * `identityKeys`), HOW it can be read (`read`, `expansionKinds`,
+ * `indexability`, `freshness`, `availability`), and HOW MUCH to trust and spend
+ * (`authority`, `cost`, `discovery`).
  *
  * The boundary acts on a subset in this slice: `read` and `availability` drive
- * selection, `authority` / `freshness.typical` / `cost.class` fold into the
- * ranker's `sourcePriority`, and `id` / `kind` / `displayName` (+ `domains` via
- * the integration join) stamp each card's source ref. The rest —
+ * selection, `read` + `expansionKinds` route a card's expansion handle (#1077),
+ * `authority` / `freshness.typical` / `cost.class` fold into the ranker's
+ * `sourcePriority`, and `id` / `kind` / `displayName` (+ `domains` via the
+ * integration join) stamp each card's source ref. The rest —
  * `objectKinds`, `mediaKinds`, `identityKeys`, `indexability`,
  * `freshness.windowMinutes`, `cost.typicalLatencyMs`, `discovery`, and the
- * `enumerate` / `expand` read capabilities — are catalog-reserved declarations
- * for a future catalog or drill-down slice (#428). Nothing in the boundary
- * branches on them yet, and production manifests leave them unset rather than
- * paying for a derivation no reader consumes.
+ * `enumerate` read capability — are catalog-reserved declarations for a future
+ * catalog slice. Nothing in the boundary branches on them yet, and production
+ * manifests leave them unset rather than paying for a derivation no reader
+ * consumes.
  */
 export const sourceManifestSchema = z.object({
   /** The join key: the producing `ContextSource.id` and `EvidenceCard.source.id`. */
@@ -243,6 +250,27 @@ export const sourceManifestSchema = z.object({
   read: z
     .array(sourceReadCapabilitySchema)
     .max(SOURCE_READ_CAPABILITIES.length)
+    .refine(uniqueValues, "must not contain duplicates")
+    .optional(),
+  /**
+   * The `EvidenceCard.expansion` handle kinds this source can dereference
+   * (#1077).
+   *
+   * Open strings bounded exactly like `EvidenceExpansionHandle.kind`, because
+   * they name the same vocabulary from the two ends: a card mints `kind`, and a
+   * source declares the kinds it reads. The expansion phase routes a handle by
+   * this list ALONE — it never reads the handle's `sourceId` and never names a
+   * source — so a provider can gain a live reader by registering one manifest.
+   *
+   * Paired with the `expand` read capability in both directions: a registered
+   * source that declares one without the other fails at boot. The pairing is
+   * what stops a silently dead declaration, in either shape — a source that
+   * claims it expands and routes nothing, and a source that lists kinds no
+   * reader can dereference.
+   */
+  expansionKinds: z
+    .array(z.string().min(1).max(100))
+    .max(SOURCE_MANIFEST_MAX_LIST)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),
   /** Identity kinds this source can resolve or attach to its evidence. */
@@ -316,6 +344,17 @@ export function sourceManifestDomains(manifest: SourceManifest): readonly string
   }
 
   return [];
+}
+
+/**
+ * The `EvidenceCard.expansion` handle kinds this source dereferences (#1077).
+ *
+ * The empty list is the answer for a source that declares no expansion, so a
+ * route builder folds every manifest the same way and never branches on
+ * absence.
+ */
+export function sourceManifestExpansionKinds(manifest: SourceManifest): readonly string[] {
+  return manifest.expansionKinds ?? [];
 }
 
 /** Whether the source declared it can be read this way. */

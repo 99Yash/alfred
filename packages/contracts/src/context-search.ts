@@ -29,6 +29,18 @@ export const CONTEXT_SEARCH_MAX_LIMIT = 50;
 export const CONTEXT_SEARCH_MAX_OBJECT_REFS = 25;
 
 /**
+ * Hard ceiling on live expansions one read may pay for (#1077).
+ *
+ * The expansion phase calls a provider per unique handle, so this is a WALL
+ * CLOCK and money bound, not an evidence bound: it is much tighter than
+ * {@link CONTEXT_SEARCH_MAX_LIMIT} because a read returns up to fifty cards but
+ * must never turn into fifty provider round trips. Cards are considered in rank
+ * order, so the cap keeps the strongest evidence and drops the refresh of the
+ * weakest.
+ */
+export const CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS = 5;
+
+/**
  * An exact reference to a work object by one of its sidecar keys (#425). The key
  * index (`head_sha → pull_request`) is the deterministic bridge that a fuzzy
  * query cannot supply, so the caller states it directly.
@@ -121,6 +133,21 @@ export const contextSearchRequestSchema = z.object({
     .optional()
     .describe(
       "Exact work-object references you already hold (a GitHub pull request, an integration object by provider identity or key). Additive to `query`, for deterministic state lookups; omit when you only have a free-text question.",
+    ),
+  /**
+   * Whether the read may refresh a surviving card from its live source (#1077).
+   *
+   * On by default, because a stale card the boundary could have refreshed is a
+   * worse answer than a slow one. A caller that cannot pay a provider round
+   * trip — a background job on a budget, a latency-bound path — sets it to
+   * `false` and gets the local cards alone. It is a switch on the PHASE, never
+   * on a source: turning it off skips every expander at once.
+   */
+  expand: z
+    .boolean()
+    .default(true)
+    .describe(
+      `Whether the read may refresh up to ${CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS} of the surviving cards from their live source. Set it to false to skip every provider round trip and take the local copies alone.`,
     ),
   /** Maximum evidence items returned across all sources. */
   limit: z

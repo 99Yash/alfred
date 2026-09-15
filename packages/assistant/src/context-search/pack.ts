@@ -68,6 +68,10 @@ const EVIDENCE_PACK_REASON_MAX_CHARS = 160;
 const SKIPPED_NOTE = {
   unavailable: "temporarily unavailable",
   "no-answering-read": "not applicable to this question",
+  // Distinct words for a distinct fact (#1077): this source never answers a
+  // question, it only re-reads a record another card already pointed at. The
+  // model must not read its absence as "this source had nothing on the topic".
+  "expansion-only": "only re-reads records other sources found",
 } as const satisfies Record<SourceExclusionReason, string>;
 
 /** Cap on a card's `note` in the packed output. */
