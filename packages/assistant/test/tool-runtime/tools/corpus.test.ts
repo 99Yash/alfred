@@ -7,6 +7,7 @@ import { getTool } from "../../../src/tool-runtime/internal/registry";
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { toolExecuteContext } from "../../../src/tool-runtime/context";
 import type { SearchArgs, SearchHit } from "@alfred/corpus";
+import type { ModelFacingHit } from "@alfred/corpus";
 
 describe("system.corpus_search", () => {
   const tool = (() => {
@@ -29,7 +30,7 @@ describe("system.corpus_search", () => {
       chunkId: "chk_1",
       documentId: "doc_1",
       source: "gmail_attachment",
-      sourceId: "msg_1:att_1",
+      record: { sourceId: "msg_1:att_1", sourceThreadId: null, accountId: null },
       title: "resume.pdf",
       position: 0,
       page: 2,
@@ -63,15 +64,17 @@ describe("system.corpus_search", () => {
     const result = (await tool.execute({ query: "resume platform team" }, ctx)) as {
       ok: boolean;
       query: string;
-      hits: SearchHit[];
+      hits: ModelFacingHit[];
     };
 
     assert.deepEqual(seen, [{ query: "resume platform team", userId: "user_1" }]);
     assert.equal(result.ok, true);
     assert.equal(result.query, "resume platform team");
-    // The hit reaches the model whole, record identity included (#1076): this
-    // tool prunes nothing, so `sourceId` is present here by design.
-    assert.deepEqual(result.hits, [hit]);
+    // The record identity (#1076) is dereference plumbing for the evidence
+    // card, never a tool answer: the hit reaches the model as a
+    // `ModelFacingHit`, so `record` is absent here by design.
+    const { record: _record, ...modelHit } = hit;
+    assert.deepEqual(result.hits, [modelHit]);
   });
 
   test("passes an empty result through as a valid answer", async () => {
