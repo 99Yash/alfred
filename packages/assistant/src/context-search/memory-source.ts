@@ -60,6 +60,11 @@ const MEMORY_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | 
   authority: { level: "medium", label: "Alfred's distilled note, not a primary record" },
   cost: { class: "metered" },
   availability: "available",
+  // One modality, and the narrowest declaration in the boundary (#429). A
+  // memory chunk is prose Alfred itself wrote; there is no file behind it and
+  // no page to anchor to, so `text` is not a simplification of a richer record
+  // but the whole of what this source holds.
+  mediaKinds: ["text"],
 };
 
 /**

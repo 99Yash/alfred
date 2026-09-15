@@ -3,6 +3,10 @@ import {
   EVIDENCE_CITATION_URL_MAX_CHARS,
   EVIDENCE_NOTE_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
+  GOOGLE_WORKSPACE_MIME_PREFIX,
+  MIME_MEDIA_KINDS,
+  mediaKindForMimeType,
+  normalizeMimeType,
   sanitizeErrorMessage,
   toMessage,
   sourceAuthorityFromManifest,
@@ -11,6 +15,7 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
   type EvidenceExpansionHandle,
+  type EvidenceMediaKind,
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
@@ -73,6 +78,15 @@ const DRIVE_CONTEXT_SOURCE_ID = "drive";
  * It names the ADR-0093 `drive` slug and therefore restates neither the display
  * name nor the host: `sourceRefFromManifest` reads both back out of
  * `INTEGRATIONS`, so renaming the integration renames the source.
+ *
+ * `mediaKinds` spreads `MIME_MEDIA_KINDS`, the return set of
+ * `mediaKindForMimeType`, and the list is wide because a Drive is wide: the
+ * user keeps a picture, a recording and a film beside the memo, and Drive's
+ * own index matches all of them. A card for one of those is real evidence — it says the
+ * file exists, under this name, changed at this instant — and the note says
+ * Alfred could not read its contents. Narrowing the list to what Alfred can
+ * extract would make the boundary drop those cards instead, which would report
+ * "no such file" for a file the user owns (#429).
  */
 const DRIVE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   kind: "native",
@@ -82,6 +96,10 @@ const DRIVE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   cost: { class: "remote", typicalLatencyMs: 1_500 },
   availability: "available",
   expansionKinds: ["drive_file" satisfies BuiltInExpansionKind],
+  // The manifest cannot name a modality the adapter cannot mint, and the
+  // adapter cannot mint one the manifest omits: both read MIME_MEDIA_KINDS,
+  // so the two drift only by a compile error, never by a sentence.
+  mediaKinds: [...MIME_MEDIA_KINDS],
 };
 
 /**
@@ -221,9 +239,6 @@ const DRIVE_STOP_WORDS = new Set([
   "your",
 ]);
 
-/** Google-editable types Drive can export as text. */
-const GOOGLE_NATIVE_PREFIX = "application/vnd.google-apps.";
-
 /**
  * The text export each Google-native type supports, keyed by full MIME type.
  *
@@ -235,32 +250,32 @@ const GOOGLE_NATIVE_PREFIX = "application/vnd.google-apps.";
  * read on a call Drive cannot answer.
  */
 const GOOGLE_NATIVE_TEXT_EXPORTS = new Map([
-  [`${GOOGLE_NATIVE_PREFIX}document`, "text/plain"],
-  [`${GOOGLE_NATIVE_PREFIX}presentation`, "text/plain"],
-  [`${GOOGLE_NATIVE_PREFIX}spreadsheet`, "text/csv"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}document`, "text/plain"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}presentation`, "text/plain"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}spreadsheet`, "text/csv"],
 ]);
 
 /**
  * The export MIME type for one Google-native MIME type, or `undefined` when
- * Drive cannot export it as text.
+ * Drive cannot export it as text. Matched on the normalized form: providers
+ * disagree on case and parameters, and the table is lowercase with no params.
  */
 function nativeExportMimeType(mimeType: string): string | undefined {
-  return GOOGLE_NATIVE_TEXT_EXPORTS.get(mimeType);
+  return GOOGLE_NATIVE_TEXT_EXPORTS.get(normalizeMimeType(mimeType));
 }
 
 /** Google-native types that are not documents and hold no text of their own. */
 const GOOGLE_NATIVE_NON_DOCUMENTS = new Set([
-  `${GOOGLE_NATIVE_PREFIX}folder`,
-  `${GOOGLE_NATIVE_PREFIX}shortcut`,
+  `${GOOGLE_WORKSPACE_MIME_PREFIX}folder`,
+  `${GOOGLE_WORKSPACE_MIME_PREFIX}shortcut`,
 ]);
 
-/** Non-native types whose bytes are meaningful as text. */
-const TEXTUAL_UPLOAD_TYPES = new Set([
-  "application/json",
-  "application/xml",
-  "application/x-yaml",
-  "application/yaml",
-]);
+/** True when the MIME type names a Google-native container, after normalization. */
+function isGoogleNativeNonDocument(mimeType: string | undefined): boolean {
+  if (mimeType === undefined) return false;
+
+  return GOOGLE_NATIVE_NON_DOCUMENTS.has(normalizeMimeType(mimeType));
+}
 
 /** How a file's text can be reached, or that it cannot be. */
 type TextPath = "export" | "download" | "none";
@@ -352,7 +367,7 @@ async function readDrive(
     // so they never consume page slots; this filter is the backstop for a
     // grammar the provider stops honoring.
     const candidates = files.filter(
-      (file) => file.id.length > 0 && !GOOGLE_NATIVE_NON_DOCUMENTS.has(file.mimeType ?? ""),
+      (file) => file.id.length > 0 && !isGoogleNativeNonDocument(file.mimeType),
     );
 
     // Parallel on purpose, and bounded by the count above: the reads are the
@@ -537,7 +552,14 @@ function driveFileBaseCard(file: DriveFile, read: FileText): EvidenceCard {
   const manifest = driveManifest();
   const authority = sourceAuthorityFromManifest(manifest);
   const name = fileLabel(file);
-  const path = textPath(file.mimeType);
+
+  // Read the modality off the file's own MIME type rather than declaring every
+  // Drive card a `document` (#429). A picture, a recording and a film each
+  // reach this function today, and calling all three a document told the model
+  // a text it could not read was missing rather than a modality Alfred cannot
+  // read at all. `mediaKindForMimeType` owns the derivation, so the vocabulary
+  // is the same one every other source answers in.
+  const mediaKind = mediaKindForMimeType(file.mimeType);
 
   // Slice before sanitizing so the poison strip scans the snippet, not the
   // whole export; the bound re-applies after the strip, which can only shorten.
@@ -552,13 +574,13 @@ function driveFileBaseCard(file: DriveFile, read: FileText): EvidenceCard {
   return {
     id: `${DRIVE_CONTEXT_SOURCE_ID}:${file.id}`,
     source: sourceRefFromManifest(manifest),
-    mediaKind: "document",
+    mediaKind,
     ...(snippet.length > 0 ? { snippet } : {}),
     ...(snippet.length > 0
       ? read.truncated
         ? { note: truncatedNote(file) }
         : {}
-      : { note: unreadNote(file, read, path) }),
+      : { note: unreadNote(file, read, mediaKind) }),
     ...(authority !== undefined ? { authority } : {}),
     time: {
       // Drive's own `modifiedTime` is when the file last changed, which is when
@@ -648,30 +670,114 @@ function driveExpandedCard(
 }
 
 /**
- * Why this card carries no text. Three different facts, and the model has to
- * tell them apart before it concludes anything from the absence: the file has
- * no text to read, the read failed, or this read did not pay for it.
+ * Why this card carries no text.
+ *
+ * Several different facts, and the model has to tell them apart before it
+ * concludes anything from the absence: the read failed, this read did not pay
+ * for it, or the file has no text path at all — which {@link noTextPathReason}
+ * then splits again, because "no text path" covered three unrelated causes
+ * under one sentence (#429).
+ *
+ * Every branch opens on the same clause. A Drive card with no snippet is still
+ * evidence — Drive's own full-text index matched this file on this query — and
+ * a note that only said what was missing invited the model to read the card as
+ * a near miss rather than as a named file it can ask about or open.
  *
  * The final string is bounded to `EVIDENCE_NOTE_MAX_CHARS`: the failure half
  * is unbounded provider text (an `HttpError` message carries a 500-char body
  * summary plus the URL), and an over-cap note fails the card schema — which
  * deletes the card AND the real provider reason it was built to carry.
- */ function unreadNote(file: DriveFile, read: FileText, path: TextPath): string {
+ */
+function unreadNote(file: DriveFile, read: FileText, mediaKind: EvidenceMediaKind): string {
   const name = fileLabel(file);
+  const matched = `"${name}" matched the search.`;
 
   let raw: string;
 
-  if (path === "none") {
-    const kind = file.mimeType !== undefined ? ` (${file.mimeType})` : "";
-
-    raw = `"${name}"${kind} matched the search. Drive cannot return its contents as text.`;
-  } else if (read.failure !== undefined) {
-    raw = `"${name}" matched the search. Reading its contents failed: ${read.failure}`;
+  if (read.failure !== undefined) {
+    raw = `${matched} Reading its contents failed: ${read.failure}`;
+  } else if (textPath(file.mimeType) !== "none") {
+    raw = `${matched} Its contents were not read on this request.`;
   } else {
-    raw = `"${name}" matched the search. Its contents were not read on this request.`;
+    raw = `${matched} ${noTextPathReason(file.mimeType, mediaKind)}`;
   }
 
   return sanitizeErrorMessage(raw, EVIDENCE_NOTE_MAX_CHARS);
+}
+
+/**
+ * The noun for a modality whose bytes Alfred can name but cannot yet read.
+ *
+ * Exhaustive over `EvidenceMediaKind` rather than a partial map, so a new
+ * modality in the enum fails the typecheck here instead of degrading in
+ * silence to the generic tail sentence. `undefined` is the deliberate answer
+ * for the two that cannot reach this branch:
+ *
+ * - `text`: `textPath` answers `download` or `export` for every MIME type
+ *   whose `mediaKindForMimeType` is `text` (the `text/` prefix, the four
+ *   `application/*` text rows, and the `+json`/`+xml`/`+yaml` suffixes, all
+ *   matched after `normalizeMimeType`), so a card with no snippet failed or
+ *   went unread and took an earlier branch in `unreadNote`.
+ * - `unknown`: there is no noun for a thing Alfred cannot name, which is what
+ *   the generic tail sentence says instead.
+ */
+const UNREADABLE_MEDIA_NOUNS = {
+  text: undefined,
+  document: "a document Drive stores as bytes rather than as editable text",
+  image: "an image",
+  audio: "an audio recording",
+  video: "a video",
+  unknown: undefined,
+} satisfies Record<EvidenceMediaKind, string | undefined>;
+
+/**
+ * Why a file has no text path, as the fact a reader can act on (#429).
+ *
+ * The old note said one thing — "Drive cannot return its contents as text" —
+ * for three causes that differ in who would have to change for the answer to
+ * change, which is exactly what a reader needs:
+ *
+ * - **Drive itself cannot export it.** A Form, a Site, a Script or a Drawing
+ *   is Google-native with no text export; the limit is the provider's and no
+ *   work on Alfred's side removes it.
+ * - **Alfred has no extraction lane.** A PDF, a picture, a recording, a film.
+ *   Drive would hand over the bytes; Alfred has nothing that turns those bytes
+ *   into text yet. This is the one that a later slice makes false, and #429
+ *   deliberately ships the honest placeholder rather than the extraction.
+ * - **Drive did not say what the file is.** No MIME type came back, so neither
+ *   of the two facts above is established.
+ *
+ * A folder and a shortcut get no branch, because neither reaches a card: the
+ * query excludes both `mimeType`s, `readDrive` filters them again, and the
+ * expansion returns early on a `none` text path. Were one to arrive anyway it
+ * would take the Google-native branch, which states a true thing about a
+ * folder.
+ *
+ * It states the modality rather than an OCR or a transcription promise: the
+ * card says what the record IS, and says plainly that Alfred did not read it.
+ */
+function noTextPathReason(mimeType: string | undefined, mediaKind: EvidenceMediaKind): string {
+  if (mimeType === undefined) {
+    return "Drive did not report its type, so Alfred could not choose a way to read it.";
+  }
+
+  const normalized = normalizeMimeType(mimeType);
+
+  // Order matters here, and only for one type: a Drawing is an `image` AND a
+  // Google-native type with no text export. The provider limit is the stronger
+  // fact — it holds whatever Alfred builds later — so the native branch runs
+  // first.
+  if (normalized.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
+    return `Drive cannot export a file of this type (${mimeType}) as text.`;
+  }
+
+  const noun = UNREADABLE_MEDIA_NOUNS[mediaKind];
+
+  if (noun !== undefined) {
+    return `It is ${noun} (${mimeType}). Alfred cannot extract text from it yet, so this card carries the file itself and not its contents.`;
+  }
+
+  return `Alfred has no way to read a file of this type (${mimeType}) as text.`;
 }
 
 /**
@@ -700,15 +806,22 @@ function fileLabel(file: DriveFile): string {
 
 /** How this MIME type's text can be reached, if at all. */
 function textPath(mimeType: string | undefined): TextPath {
-  if (mimeType === undefined) return "none";
+  const normalized = normalizeMimeType(mimeType);
 
-  if (GOOGLE_NATIVE_NON_DOCUMENTS.has(mimeType)) return "none";
+  if (normalized.length === 0) return "none";
 
-  if (mimeType.startsWith(GOOGLE_NATIVE_PREFIX)) {
-    return nativeExportMimeType(mimeType) !== undefined ? "export" : "none";
+  if (GOOGLE_NATIVE_NON_DOCUMENTS.has(normalized)) return "none";
+
+  if (normalized.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX)) {
+    return nativeExportMimeType(normalized) !== undefined ? "export" : "none";
   }
 
-  if (mimeType.startsWith("text/") || TEXTUAL_UPLOAD_TYPES.has(mimeType)) return "download";
+  // One MIME namespace: the download decision reads the same normalized type
+  // through `mediaKindForMimeType` rather than restating the text rows. That
+  // keeps the `text/` prefix, the `application/*` text list, and the
+  // `+json`/`+xml`/`+yaml` suffixes in one owner, and keeps `TEXT/PLAIN` and
+  // `application/ld+json; charset=utf-8` on the download path.
+  if (mediaKindForMimeType(normalized) === "text") return "download";
 
   return "none";
 }

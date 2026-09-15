@@ -84,6 +84,8 @@ export * from "./context-search";
 
 export * from "./evidence-card";
 
+export * from "./mime";
+
 export * from "./source-manifest";
 
 export * from "./attachments";
