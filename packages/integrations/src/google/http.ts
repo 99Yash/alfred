@@ -42,6 +42,7 @@ export async function googleJson(
   accessToken: string,
   payload?: unknown,
   retry: RetryPolicy | "none" = "none",
+  signal?: AbortSignal | undefined,
 ): Promise<unknown> {
   return authedJson(
     {
@@ -52,7 +53,12 @@ export async function googleJson(
     },
     // Non-GET always carries a JSON body (defaulting to `{}`); GET carries none,
     // so the transport adds `Content-Type` only for the former.
-    { url, method, body: method === "GET" ? undefined : (payload ?? {}) },
+    {
+      url,
+      method,
+      body: method === "GET" ? undefined : (payload ?? {}),
+      ...(signal !== undefined ? { signal } : {}),
+    },
     { provider: service, urlLabel: url, retry },
   );
 }

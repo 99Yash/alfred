@@ -1,4 +1,5 @@
 import {
+  CONTEXT_SEARCH_COLLECT_TIMEOUT_MS,
   contextSearchRequestSchema,
   evidenceCardSchema,
   sanitizeErrorMessage,
@@ -178,7 +179,14 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
   // without running, a candidate runs its answering readers. A reader
   // comparing two traces never sees the source list reshuffle just because a
   // manifest started excluding one of them.
+  //
+  // One deadline bounds the whole collect: a single `AbortSignal.timeout` fires
+  // for every reader, so a slow `files.list` plus a slow export round cannot
+  // stack transport timeouts back to back. The signal travels with each call
+  // so a cooperative reader cancels its fetch; the race below bounds even one
+  // that ignores it.
   const excluded = selectContextSources(sources, parsed);
+  const collectSignal = AbortSignal.timeout(CONTEXT_SEARCH_COLLECT_TIMEOUT_MS);
 
   const reports: ContextSourceReport[] = [];
   const collected: EvidenceCard[] = [];
@@ -204,7 +212,7 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
       let result: ContextSourceResult;
 
       try {
-        result = await read(parsed);
+        result = await readWithCollectTimeout(read, parsed, collectSignal);
       } catch (error) {
         failure = sanitizeErrorMessage(toMessage(error));
         continue;
@@ -403,6 +411,47 @@ function reportAfterExpansion(
 }
 
 /**
+ * What a timed-out collect reports: our own words, never provider text.
+ */
+const COLLECT_TIMEOUT_FAILURE = "the source timed out";
+
+/**
+ * Race one collect reader against the phase deadline.
+ *
+ * The signal notifies cooperative readers (Drive cancels its fetch on it),
+ * but notification alone cannot bound the batch: a reader that ignores the
+ * signal would still hold the loop past the deadline. The race is what bounds
+ * it — on abort the phase takes the timeout failure and moves on, while the
+ * stray promise settles unobserved.
+ */
+function readWithCollectTimeout(
+  read: (request: ContextSearchRequest, signal: AbortSignal) => Promise<ContextSourceResult>,
+  request: ContextSearchRequest,
+  signal: AbortSignal,
+): Promise<ContextSourceResult> {
+  if (signal.aborted) return Promise.reject(new Error(COLLECT_TIMEOUT_FAILURE));
+
+  return new Promise<ContextSourceResult>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(new Error(COLLECT_TIMEOUT_FAILURE));
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    read(request, signal).then(
+      (result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
  * The readers that answer this request, in call order.
  *
  * Free text first (`semantic_search`, falling back to `keyword_search`), then
@@ -413,8 +462,11 @@ function reportAfterExpansion(
 function answeringReaders(
   source: ContextSource,
   request: ContextSearchRequest,
-): ((request: ContextSearchRequest) => Promise<ContextSourceResult>)[] {
-  const readers: ((request: ContextSearchRequest) => Promise<ContextSourceResult>)[] = [];
+): ((request: ContextSearchRequest, signal: AbortSignal) => Promise<ContextSourceResult>)[] {
+  const readers: ((
+    request: ContextSearchRequest,
+    signal: AbortSignal,
+  ) => Promise<ContextSourceResult>)[] = [];
 
   if (sourceManifestSupportsRead(source.manifest, "semantic_search")) {
     const read = source.reads["semantic_search"];

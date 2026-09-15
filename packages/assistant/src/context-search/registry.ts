@@ -63,7 +63,10 @@ export interface ContextSourceResult {
 }
 
 /** One capability's reader: how this source answers one declared read. */
-export type ContextSourceReader = (request: ContextSearchRequest) => Promise<ContextSourceResult>;
+export type ContextSourceReader = (
+  request: ContextSearchRequest,
+  signal: AbortSignal,
+) => Promise<ContextSourceResult>;
 
 /**
  * The `expand` reader: how this source dereferences one handle (#1077).
