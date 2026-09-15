@@ -158,3 +158,43 @@ export const INTEGRATION_OBJECT_DEFS = {
 export function getObjectDef(provider: ObjectStateProvider): IntegrationObjectDef {
   return INTEGRATION_OBJECT_DEFS[provider];
 }
+
+/**
+ * Every GitHub pull-request identity a free-text blob names, as canonical URLs
+ * in first-seen order. Two written forms resolve to one identity: the full
+ * `https://github.com/<owner>/<repo>/pull/<number>` URL, and the
+ * `<owner>/<repo>#<number>` shorthand.
+ *
+ * Pure and total — it reports what the text names and nothing more. A caller
+ * that needs a SINGLE identity (a notification's own object) checks the length
+ * itself; a caller that needs every mention (the briefing pre-send guard) reads
+ * the whole list.
+ */
+export function collectGithubPullRequestUrls(text: string): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (repoFullName: string | undefined, rawNumber: string | undefined) => {
+    if (!repoFullName) return;
+    const url = canonicalizeGithubPullRequestUrl({ repoFullName, number: Number(rawNumber) });
+
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+
+  for (const match of text.matchAll(GITHUB_PULL_REQUEST_MENTION_RE)) {
+    add(match[1], match[2]);
+  }
+
+  for (const match of text.matchAll(GITHUB_PULL_REQUEST_SHORTHAND_RE)) {
+    add(match[1], match[2]);
+  }
+
+  return urls;
+}
+
+const GITHUB_PULL_REQUEST_MENTION_RE =
+  /\bhttps?:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/pull\/(\d+)\b/gi;
+
+const GITHUB_PULL_REQUEST_SHORTHAND_RE = /\b([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)#(\d+)\b/g;
