@@ -191,12 +191,27 @@ function exclusionReason(
 
   // The source may still be reached by a handle in the second phase, so the
   // skip states WHY it was not asked the question rather than claiming it could
-  // not have helped. An `exact_lookup` source that also expands lands here on a
-  // request with no `objects`: the expansion route is the one way this read can
-  // still reach it, and that is what the reason has to say.
-  if (sourceManifestSupportsRead(manifest, "expand")) return "expansion-only";
+  // not have helped. Only a source that ONLY expands takes `expansion-only`:
+  // an `exact_lookup` source that also expands is `no-answering-read` on a
+  // request with no `objects`, because the packer must not tell the model it
+  // "only re-reads records other sources found" about a source that also does
+  // exact lookups.
+  if (isExpansionOnlySource(manifest)) return "expansion-only";
 
   return "no-answering-read";
+}
+
+/**
+ * Whether the source only expands, and so answers a different question rather
+ * than this request's question (#1077).
+ *
+ * `manifest.read` is the required retrieval subtype, so the sole-capability
+ * check is total: a source whose only declared read is `expand` is the one the
+ * `expansion-only` skip reason — and the packer's "only re-reads records other
+ * sources found" — describes truthfully.
+ */
+function isExpansionOnlySource(manifest: RetrievalSourceManifest): boolean {
+  return manifest.read.length === 1 && sourceManifestSupportsRead(manifest, "expand");
 }
 
 /**

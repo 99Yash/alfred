@@ -143,8 +143,7 @@ export async function expandEvidence(args: {
       const origin = args.evidence[attempt.plan.index];
       const collides =
         origin === undefined ||
-        (card.id !== origin.id &&
-          (originIds.has(card.id) || acceptedIds.has(card.id)));
+        (card.id !== origin.id && (originIds.has(card.id) || acceptedIds.has(card.id)));
 
       if (collides) {
         card = undefined;
@@ -218,10 +217,13 @@ function planExpansions(
 
     if (expander === undefined) continue;
 
-    // A NUL joins the two parts so one `(kind, ref)` pair cannot be spelled two
-    // ways that collide; neither field may carry a NUL after contract
-    // validation, so the key is unambiguous.
-    const key = `${handle.kind}\u0000${handle.ref}`;
+    // Two `(kind, ref)` pairs need one unambiguous key. The contract bounds
+    // both fields with plain `z.string().min(1).max(...)`, which admits NUL,
+    // so a NUL join would let `{kind:"doc", ref:"a\0b"}` and
+    // `{kind:"doc\0a", ref:"b"}` share one key and the second card would keep
+    // its stale content. The JSON array encoding keeps the boundary between
+    // the two fields, so no pair of legal field values can collide.
+    const key = JSON.stringify([handle.kind, handle.ref]);
 
     if (claimed.has(key)) continue;
 
@@ -352,7 +354,11 @@ async function runExpansion(
   // at the rank position of the card it did not read.
   const returned = parsed.data.expansion;
 
-  if (returned === undefined || returned.kind !== plan.handle.kind || returned.ref !== plan.handle.ref) {
+  if (
+    returned === undefined ||
+    returned.kind !== plan.handle.kind ||
+    returned.ref !== plan.handle.ref
+  ) {
     return {
       plan,
       card: undefined,
