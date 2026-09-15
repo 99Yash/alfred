@@ -91,6 +91,7 @@ const MEDIA_KIND_BY_FULL_TYPE = new Map<string, EvidenceMediaKind>([
   ["application/yaml", "text"],
   ["application/x-yaml", "text"],
   ["application/pdf", "document"],
+  ["application/x-pdf", "document"],
   ["application/rtf", "document"],
   ["application/msword", "document"],
   ["application/vnd.ms-excel", "document"],
@@ -105,6 +106,9 @@ const MEDIA_KIND_BY_FULL_TYPE = new Map<string, EvidenceMediaKind>([
   [`${GOOGLE_WORKSPACE_MIME_PREFIX}presentation`, "document"],
   [`${GOOGLE_WORKSPACE_MIME_PREFIX}spreadsheet`, "document"],
   [`${GOOGLE_WORKSPACE_MIME_PREFIX}drawing`, "image"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}photo`, "image"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}audio`, "audio"],
+  [`${GOOGLE_WORKSPACE_MIME_PREFIX}video`, "video"],
 ]);
 
 /**
