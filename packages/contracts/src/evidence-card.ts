@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { isNonEmptyString } from "./guards";
 import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
 import { objectIdentitySchema } from "./object-identity";
+import { sanitizeErrorMessage } from "./sanitize";
 import { identityRefSchema } from "./user-model";
 
 /**
@@ -249,6 +251,45 @@ export const evidenceAnchorSchema = z.object({
 export type EvidenceAnchor = z.infer<typeof evidenceAnchorSchema>;
 
 /**
+ * Character ceiling on an expansion `ref`. Wide enough for a packed provider
+ * address, and narrow enough that the packer can render the `Expand:` line
+ * without a second bound.
+ */
+export const EVIDENCE_EXPANSION_REF_MAX_CHARS = 1_024;
+
+/**
+ * Character ceiling on the account and thread ids that scope a `ref`. Both are
+ * provider grouping keys, never free text, so they share one bound.
+ */
+export const EVIDENCE_EXPANSION_SCOPE_MAX_CHARS = 200;
+
+/**
+ * Admit a provider-controlled identifier into an expansion handle, or answer
+ * `undefined` so the producer can drop the field.
+ *
+ * The identifier must already BE the string the schema accepts: within `max`,
+ * and free of the poison {@link sanitizeErrorMessage} strips. A value that
+ * fails either test is refused, never repaired. Truncating an identifier or
+ * deleting a byte from it yields a well-formed string that addresses a
+ * different record, or no record — a silent mis-address is worse than an
+ * absent field, which the expander can still resolve by a second read.
+ *
+ * The refusal is what keeps a source's report honest. `documents.source_id`,
+ * `account_id`, and `source_thread_id` are unbounded `text`, so the provider
+ * decides their length; without this gate one oversized id fails
+ * `evidenceCardSchema` at the Context Search boundary, and the boundary reports
+ * the WHOLE source as `error` for it.
+ */
+export function expansionIdentifier(
+  value: string | null | undefined,
+  max: number,
+): string | undefined {
+  if (!isNonEmptyString(value) || value.length > max) return undefined;
+
+  return sanitizeErrorMessage(value) === value ? value : undefined;
+}
+
+/**
  * An opaque handle the fabric can later expand into live provider data (#428).
  * The boundary itself never dereferences it; `ref` is meaningful only to the
  * named `sourceId`, and `kind` is a source-declared read shape (a document, a
@@ -274,7 +315,7 @@ export const evidenceExpansionHandleSchema = z.object({
   /** Source-declared read shape — `document`, `gmail_message`, `mcp_tool`. */
   kind: z.string().min(1).max(100),
   /** Opaque reference, interpreted only by `sourceId`. */
-  ref: z.string().min(1).max(1_024),
+  ref: z.string().min(1).max(EVIDENCE_EXPANSION_REF_MAX_CHARS),
   /**
    * The connected account the record arrived on, when the source knows it.
    * A provider read needs to pick credentials before it can dereference `ref`,
@@ -282,14 +323,14 @@ export const evidenceExpansionHandleSchema = z.object({
    * it here instead of leaving the expander a second lookup. Absent for a
    * source with no per-account grain.
    */
-  accountId: z.string().min(1).max(200).optional(),
+  accountId: z.string().min(1).max(EVIDENCE_EXPANSION_SCOPE_MAX_CHARS).optional(),
   /**
    * The provider's own thread/conversation grouping for `ref`, when the record
    * has one — a Gmail `threadId`, a Slack `thread_ts`. It lets an expansion
    * widen from one record to its conversation without a second read to find the
    * thread. Absent for a stand-alone record.
    */
-  threadId: z.string().min(1).max(200).optional(),
+  threadId: z.string().min(1).max(EVIDENCE_EXPANSION_SCOPE_MAX_CHARS).optional(),
   /** Human hint for debugging, never a dereference instruction. */
   hint: z.string().min(1).max(300).optional(),
 });
